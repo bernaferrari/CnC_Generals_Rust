@@ -237,3 +237,49 @@ pub fn rust_fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
     }
     None
 }
+
+/// Scope EVA audio checks to its match arm, not Money/DisableTimer/Radar audio.
+/// The marker ends before the body brace, after any pattern braces.
+pub fn rust_block_after_marker<'a>(src: &'a str, marker: &str) -> Option<&'a str> {
+    let start = src.find(marker)? + marker.len();
+    let brace = src[start..].find('{')? + start;
+    let mut depth = 0usize;
+    for (offset, byte) in src.as_bytes()[brace..].iter().enumerate() {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(&src[brace..=brace + offset]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// EVA intent has one native speech route; unrelated presentation audio remains valid.
+pub fn eva_alert_uses_owned_native_speaker(presentation: &str, engine: &str) -> bool {
+    let Some(arm) =
+        rust_block_after_marker(presentation, "PresentationEvent::EvaAlert { name } =>")
+    else {
+        return false;
+    };
+    let Some(admit) = last_rust_fn_body(engine, "admit") else {
+        return false;
+    };
+    let Some(update) = last_rust_fn_body(engine, "update_owned_eva") else {
+        return false;
+    };
+    arm.contains("None")
+        && !arm.contains("AudioEventRequest")
+        && !arm.contains("with_priority")
+        && !arm.contains("TheAudio")
+        && admit.contains("EvaOperation::Request")
+        && admit.contains("EvaOperation::SetEnabled")
+        && admit.contains("speaker.set_should_play(message)")
+        && update.contains(".update_with_context(&pres.eva_context)")
+        && !update.contains("set_eva_host")
+        && !update.contains("LogicEva")
+}

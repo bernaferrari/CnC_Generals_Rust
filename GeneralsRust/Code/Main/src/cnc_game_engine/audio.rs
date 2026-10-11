@@ -194,7 +194,7 @@ impl CnCGameEngine {
         }
         // C++ GameEngine.cpp:738 TheGameClient->UPDATE() includes Eva::update
         // after TheAudio. Publish host frame first so Eva.cpp:271 is not 0.
-        self.publish_eva_host_frame_and_tick();
+        self.update_owned_eva();
     }
 
     /// C++ GameAudio.cpp:281-330: mic/listener from TheTacticalView camera.
@@ -232,56 +232,13 @@ impl CnCGameEngine {
         }
     }
 
-    /// Push live host/presentation frame into Eva and run Eva.cpp:264.
-    pub(super) fn publish_eva_host_frame_and_tick(&self) {
+    /// Native update borrows only immutable facts from the completed match frame.
+    pub(super) fn update_owned_eva(&mut self) {
         #[cfg(feature = "game_client")]
-        {
-            let frame = self
-                .last_presentation_frame
-                .as_ref()
-                .map(|pres| pres.frame.0)
-                .filter(|frame| *frame != 0)
-                // Wave 560 fail-closed: boot residual frame, no live dual-read.
-                .unwrap_or_else(|| self.presentation_or_boot_logic_frame());
-            game_client::eva::set_eva_host_frame(frame);
-            // C++ Eva.cpp:422 polls local Energy::hasSufficientPower.
-            // Wave 560 fail-closed: boot residual frame, no live dual-read.
-            let host_frame = self.presentation_or_boot_logic_frame();
-            if let Some(player) = self
-                .game_logic
-                .local_player_id()
-                .and_then(|id| self.game_logic.get_player(id))
-                .filter(|p| p.is_alive)
-            {
-                let sabotaged = host_frame < player.power_sabotaged_till_frame;
-                game_client::eva::set_eva_host_sufficient_power(
-                    player.power_available >= 0 && !sabotaged,
-                );
-                // C++ Eva.cpp:270/499 — the Eva.ini SideSounds side token is
-                // `Player::getSide()` (Player.cpp:413 copies the PlayerTemplate
-                // Side verbatim), so a host carrying a Zero Hour General
-                // identity publishes that subfaction token: FactionBossGeneral
-                // -> "Boss" keeps BuildingStolen/Sabotaged on the Ranger
-                // voices instead of the BaseSide=China RedGuard voices
-                // (Eva.ini Side = Boss). Skirmish base teams without a bound
-                // template keep the base sides.
-                let side = self
-                    .game_logic
-                    .player_template_identity(player.id)
-                    .and_then(crate::game_logic::PlayerTemplateIdentity::side_token)
-                    .filter(|side| !side.is_empty())
-                    .unwrap_or_else(|| match player.team {
-                        crate::game_logic::Team::USA => "America".to_string(),
-                        crate::game_logic::Team::China => "China".to_string(),
-                        crate::game_logic::Team::GLA => "GLA".to_string(),
-                        crate::game_logic::Team::Neutral => String::new(),
-                    });
-                game_client::eva::set_eva_host_local_player(side, player.id);
-            } else {
-                game_client::eva::clear_eva_host_sufficient_power();
-                game_client::eva::clear_eva_host_local_player();
-            }
-            game_client::eva::update_eva_system();
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
+            self.eva_recipient
+                .speaker
+                .update_with_context(&pres.eva_context);
         }
     }
 

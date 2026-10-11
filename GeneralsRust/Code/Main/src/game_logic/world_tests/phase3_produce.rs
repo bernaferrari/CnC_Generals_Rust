@@ -872,6 +872,7 @@ fn dozer_dock_plays_under_construction_loop_and_stops_on_complete() {
                 "BuildingConstructionLoop",
             );
             let mut logic = GameLogic::new();
+            admit_retail_production_energy_rules(&mut logic);
             ensure_test_structure_template(&mut logic);
             ensure_test_dozer_template(&mut logic);
             ensure_test_player_for_team(&mut logic, Team::USA);
@@ -965,6 +966,8 @@ fn construction_audio_same_id_completion_and_reset_are_owner_local() {
             );
             let mut a = GameLogic::new();
             let mut b = GameLogic::new();
+            admit_retail_production_energy_rules(&mut a);
+            admit_retail_production_energy_rules(&mut b);
             let a_site = construction_audio_fixture(&mut a, glam::Vec3::ZERO);
             let b_site = construction_audio_fixture(&mut b, glam::Vec3::ZERO);
             assert_eq!(a_site, b_site);

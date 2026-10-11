@@ -111,11 +111,12 @@ fn live_run_loop_updates_common_the_audio_each_frame() {
         "host_update_the_audio must sync 3D listener/mic from Main camera"
     );
     assert!(
-        audio.contains("set_eva_host_frame")
-            && audio.contains("set_eva_host_sufficient_power")
-            && audio.contains("update_eva_system")
-            && audio.contains("Eva.cpp:264"),
-        "live audio tick must publish host frame/energy and run Eva::update"
+        audio.contains("update_owned_eva()")
+            && audio.contains("update_with_context(&pres.eva_context)")
+            && !audio.contains("set_eva_host_frame")
+            && !audio.contains("set_eva_host_sufficient_power")
+            && !audio.contains("update_eva_system"),
+        "live audio tick must advance its owned speaker from frozen match context"
     );
     let subsystem = include_str!("../subsystem_manager.rs");
     assert!(

@@ -1277,6 +1277,48 @@ fn load_replay_camera_from_pref(pref: &UserPreferences) -> (bool, bool) {
     )
 }
 
+/// C++ GlobalData's three production-rate fields. Zero is an authored value,
+/// including the constructor defaults; gameplay borrows a session-owned copy.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ProductionEnergyRules {
+    pub penalty: f32,
+    pub min_speed: f32,
+    pub max_speed: f32,
+}
+impl ProductionEnergyRules {
+    /// Parse actual GameData fields through the existing field table into
+    /// private scratch. No global publication or OptionPreferences side effect.
+    /// Other GameData fields are validated but outside this narrow projection.
+    pub fn overlay_ini_text(self, contents: &str) -> Result<Self, String> {
+        let mut draft = GlobalData::new();
+        draft.low_energy_penalty_modifier = self.penalty;
+        draft.min_low_energy_production_speed = self.min_speed;
+        draft.max_low_energy_production_speed = self.max_speed;
+        let mut ini = INI::new();
+        ini.with_inline_source(contents, |ini| {
+            loop {
+                ini.read_line()?;
+                if ini.is_eof() {
+                    break;
+                }
+                if ini
+                    .get_next_token_or_null()
+                    .is_some_and(|key| key.eq_ignore_ascii_case("GameData"))
+                {
+                    parse_game_data_block(ini, &mut draft)?;
+                }
+            }
+            Ok(())
+        })
+        .map_err(|err| err.to_string())?;
+        Ok(Self {
+            penalty: draft.low_energy_penalty_modifier,
+            min_speed: draft.min_low_energy_production_speed,
+            max_speed: draft.max_low_energy_production_speed,
+        })
+    }
+}
+
 fn parse_game_data_block(ini: &mut INI, data: &mut GlobalData) -> INIResult<()> {
     loop {
         ini.read_line()?;
@@ -1285,18 +1327,22 @@ fn parse_game_data_block(ini: &mut INI, data: &mut GlobalData) -> INIResult<()> 
             return Err(INIError::EndOfFile);
         }
 
-        let tokens = ini.get_line_tokens();
+        // C++ INI::initFromINI uses getSeps(), which includes '='.
+        // Own tokens before borrowing arguments; the next line may reuse INI's buffer.
+        let mut tokens = Vec::new();
+        while let Some(token) = ini.get_next_token_or_null() {
+            tokens.push(token);
+        }
         if tokens.is_empty() {
             continue;
         }
 
-        let key = tokens[0];
+        let key = tokens[0].as_str();
         if key.eq_ignore_ascii_case("End") {
             break;
         }
 
-        let mut args: Vec<&str> = tokens[1..].iter().copied().collect();
-        args.retain(|token| *token != "=");
+        let args: Vec<&str> = tokens[1..].iter().map(String::as_str).collect();
 
         if let Some((target, time_index, light_index, field)) = parse_lighting_token(key) {
             let color = parse_rgb_color(&args)?;

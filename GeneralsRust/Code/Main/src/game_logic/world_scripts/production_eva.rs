@@ -605,8 +605,7 @@ impl GameLogic {
             ("sneak", _) => EvaEvent::SuperweaponLaunchedEnemySneakAttack,
             _ => return,
         };
-        let _ = gamelogic::helpers::TheEva::set_should_play(event);
-        crate::game_logic::host_eva_log::record_event(event);
+        self.eva_announcements.request(event);
         self.eva_special_launched_misc = self.eva_special_launched_misc.saturating_add(1);
     }
 
@@ -625,10 +624,8 @@ impl GameLogic {
         {
             return;
         }
-        let _ = gamelogic::helpers::TheEva::set_should_play(
-            gamelogic::helpers::EvaEvent::BeaconDetected,
-        );
-        crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::BeaconDetected);
+        self.eva_announcements
+            .request(gamelogic::helpers::EvaEvent::BeaconDetected);
         self.eva_beacon_detected = self.eva_beacon_detected.saturating_add(1);
     }
 
@@ -709,8 +706,7 @@ impl GameLogic {
             ("burton", false) => EvaEvent::EnemyColonelBurtonDetected,
             _ => return,
         };
-        let _ = gamelogic::helpers::TheEva::set_should_play(event);
-        crate::game_logic::host_eva_log::record_event(event);
+        self.eva_announcements.request(event);
         self.eva_hero_detected = self.eva_hero_detected.saturating_add(1);
     }
 
@@ -751,8 +747,7 @@ impl GameLogic {
             ("scud", _) => EvaEvent::SuperweaponLaunchedEnemyScudStorm,
             _ => return,
         };
-        let _ = gamelogic::helpers::TheEva::set_should_play(event);
-        crate::game_logic::host_eva_log::record_event(event);
+        self.eva_announcements.request(event);
         self.eva_superweapon_launched = self.eva_superweapon_launched.saturating_add(1);
     }
 
@@ -800,8 +795,7 @@ impl GameLogic {
             ("scud", _) => EvaEvent::SuperweaponDetectedEnemyScudStorm,
             _ => return,
         };
-        let _ = gamelogic::helpers::TheEva::set_should_play(event);
-        crate::game_logic::host_eva_log::record_event(event);
+        self.eva_announcements.request(event);
         self.eva_superweapon_detected = self.eva_superweapon_detected.saturating_add(1);
     }
 
@@ -986,8 +980,7 @@ impl GameLogic {
             ("scud", _) => EvaEvent::SuperweaponReadyEnemyScudStorm,
             _ => return,
         };
-        let _ = gamelogic::helpers::TheEva::set_should_play(event);
-        crate::game_logic::host_eva_log::record_event(event);
+        self.eva_announcements.request(event);
         self.eva_superweapon_ready = self.eva_superweapon_ready.saturating_add(1);
     }
 
@@ -1621,11 +1614,10 @@ mod tests {
         GameLogic, KindOf, ObjectId, Player, SpecialPowerModuleKind, SpecialPowerModuleMetadata,
         Team, ThingTemplate,
     };
-    use gamelogic::helpers::{EvaEvent, TheEva};
+    use gamelogic::helpers::EvaEvent;
 
     #[test]
     fn campaign_ally_superweapon_is_ally_not_enemy() {
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         let mut local = Player::new(0, Team::USA, "Local", true);
         let china = Player::new(1, Team::China, "China", false);
@@ -1635,7 +1627,7 @@ mod tests {
 
         logic.try_eva_superweapon_detected_kind(Some(1), Team::China, "nuke");
 
-        let events = TheEva::drain_events().expect("eva");
+        let events = logic.take_eva_requests();
         assert!(
             events
                 .iter()
@@ -1643,13 +1635,13 @@ mod tests {
             "{events:?}"
         );
 
-        let _ = TheEva::drain_events();
+        let _ = logic.take_eva_requests();
         logic.try_eva_superweapon_launched_owned(
             Some(1),
             Team::China,
             HostSuperweaponKind::NuclearMissile,
         );
-        let events = TheEva::drain_events().expect("eva2");
+        let events = logic.take_eva_requests();
         assert!(
             events
                 .iter()
@@ -1657,9 +1649,9 @@ mod tests {
             "{events:?}"
         );
 
-        let _ = TheEva::drain_events();
+        let _ = logic.take_eva_requests();
         logic.try_eva_superweapon_ready_for_player(1, "ChinaNuclearMissileLauncher");
-        let events = TheEva::drain_events().expect("eva3");
+        let events = logic.take_eva_requests();
         assert!(
             events
                 .iter()
@@ -1670,7 +1662,6 @@ mod tests {
 
     #[test]
     fn same_faction_other_player_superweapon_is_ally_not_own() {
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         let mut local = Player::new(0, Team::USA, "Local", true);
         let mut ally = Player::new(1, Team::USA, "Ally", false);
@@ -1681,7 +1672,7 @@ mod tests {
 
         logic.try_eva_superweapon_detected_kind(Some(1), Team::USA, "particle");
 
-        let events = TheEva::drain_events().expect("eva");
+        let events = logic.take_eva_requests();
         assert!(
             events
                 .iter()
@@ -1698,7 +1689,6 @@ mod tests {
 
     #[test]
     fn same_faction_ally_beacon_detected() {
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         let mut local = Player::new(0, Team::USA, "Local", true);
         let mut ally = Player::new(1, Team::USA, "Ally", false);
@@ -1708,7 +1698,7 @@ mod tests {
         logic.players.insert(1, ally);
         logic.try_eva_beacon_detected(1);
         assert!(logic.honesty_eva_beacon_detected_ok());
-        let events = TheEva::drain_events().expect("eva");
+        let events = logic.take_eva_requests();
         assert!(
             events.iter().any(|e| *e == EvaEvent::BeaconDetected),
             "{events:?}"
@@ -1717,7 +1707,6 @@ mod tests {
 
     #[test]
     fn campaign_ally_hero_detection_skipped() {
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         let mut local = Player::new(0, Team::USA, "Local", true);
         let china = Player::new(1, Team::China, "China", false);
@@ -1741,7 +1730,6 @@ mod tests {
 
     #[test]
     fn fire_stealth_discover_skips_hero_eva_when_detector_not_local() {
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         logic
             .players
@@ -1778,7 +1766,6 @@ mod tests {
 
     #[test]
     fn fire_stealth_discover_enemy_hero_eva_throttled_by_try_event() {
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         logic
             .players
@@ -1812,7 +1799,7 @@ mod tests {
             .expect("local detector");
         logic.fire_stealth_discover_feedback(hero_a, &[det]);
         assert!(logic.honesty_eva_hero_detected_ok());
-        let events = TheEva::drain_events().expect("eva");
+        let events = logic.take_eva_requests();
         assert!(
             events
                 .iter()
@@ -1881,7 +1868,6 @@ mod tests {
 
     #[test]
     fn superweapon_ready_skips_hidden_by_script_timer() {
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         logic
             .players
@@ -1896,7 +1882,6 @@ mod tests {
 
     #[test]
     fn superweapon_ready_ignores_global_display_hide() {
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         logic
             .players
@@ -1907,7 +1892,7 @@ mod tests {
             logic.honesty_eva_superweapon_ready_ok(),
             "global m_superweaponHiddenByScript is draw-only"
         );
-        let events = TheEva::drain_events().expect("eva");
+        let events = logic.take_eva_requests();
         assert!(
             events
                 .iter()
@@ -1918,7 +1903,6 @@ mod tests {
 
     #[test]
     fn superweapon_ready_skips_hidden_by_science_and_never_clears() {
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         let id = spawn_local_particle_cannon(&mut logic, Some("SCIENCE_ParticleCannonTest"));
         logic.on_structure_superweapon_creation(id);
@@ -1933,7 +1917,7 @@ mod tests {
                 .unwrap()
                 .unlock_science("SCIENCE_ParticleCannonTest")
         );
-        let _ = TheEva::drain_events();
+        let _ = logic.take_eva_requests();
         logic.try_eva_superweapon_ready_for_source(id);
         assert!(
             !logic.honesty_eva_superweapon_ready_ok(),
@@ -1943,7 +1927,6 @@ mod tests {
 
     #[test]
     fn superweapon_ready_announces_when_science_owned_at_creation() {
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         logic
             .players
@@ -1957,10 +1940,10 @@ mod tests {
         );
         let id = spawn_local_particle_cannon(&mut logic, Some("SCIENCE_ParticleCannonTest"));
         logic.on_structure_superweapon_creation(id);
-        let _ = TheEva::drain_events();
+        let _ = logic.take_eva_requests();
         logic.try_eva_superweapon_ready_for_source(id);
         assert!(logic.honesty_eva_superweapon_ready_ok());
-        let events = TheEva::drain_events().expect("eva");
+        let events = logic.take_eva_requests();
         assert!(
             events
                 .iter()
@@ -1971,7 +1954,6 @@ mod tests {
 
     #[test]
     fn superweapon_ready_resumes_after_script_show() {
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         logic
             .players
@@ -1986,7 +1968,6 @@ mod tests {
 
     #[test]
     fn superweapon_ready_for_player_skips_when_all_sources_hidden() {
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         let id = spawn_local_particle_cannon(&mut logic, None);
         logic.hide_script_superweapon_object_for_test(id);

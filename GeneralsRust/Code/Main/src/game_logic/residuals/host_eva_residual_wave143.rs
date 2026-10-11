@@ -118,20 +118,38 @@ mod tests {
     #[cfg(feature = "game_client")]
     #[test]
     fn simulate_eva_prepare_low_power_residual_live() {
-        use game_client::eva::{
-            ResidualEvaAction, residual_eva_is_enabled, residual_eva_last_action,
-            residual_eva_last_message_index, simulate_eva_disable,
-            simulate_eva_prepare_low_power_alert,
-        };
-        assert!(
-            simulate_eva_prepare_low_power_alert(),
-            "enable+LOWPOWER residual must latch"
+        use crate::game_logic::host_eva_log::{EvaOperation, HostEvaAnnouncements};
+        use game_client::eva::{Eva, EvaMessage};
+        let mut owner = HostEvaAnnouncements::default();
+        let mut speaker = Eva::new();
+        owner.set_enabled(true);
+        owner.request(gamelogic::helpers::EvaEvent::LowPower);
+        let prepared = owner.take_delivery();
+        for operation in &prepared.operations {
+            match operation {
+                EvaOperation::SetEnabled(enabled) => speaker.set_enabled(*enabled),
+                EvaOperation::Request(_) => speaker.set_should_play(EvaMessage::LowPower),
+            }
+        }
+        assert!(speaker.is_enabled(), "enable+LOWPOWER residual must latch");
+        assert_eq!(
+            speaker
+                .pending_messages()
+                .first()
+                .map(|message| message.as_index()),
+            Some(0)
         );
-        assert!(residual_eva_is_enabled());
-        assert_eq!(residual_eva_last_message_index(), Some(0));
-        assert_eq!(residual_eva_last_action(), ResidualEvaAction::ShouldPlay);
-        assert!(simulate_eva_disable());
-        assert!(!residual_eva_is_enabled());
-        assert_eq!(residual_eva_last_action(), ResidualEvaAction::Disable);
+        assert!(matches!(
+            prepared.operations.last(),
+            Some(EvaOperation::Request(_))
+        ));
+        owner.set_enabled(false);
+        let disabled = owner.take_delivery();
+        speaker.set_enabled(disabled.enabled);
+        assert!(!speaker.is_enabled());
+        assert_eq!(
+            disabled.operations.last(),
+            Some(&EvaOperation::SetEnabled(false))
+        );
     }
 }

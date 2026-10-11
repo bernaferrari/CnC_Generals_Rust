@@ -1004,6 +1004,9 @@ impl Object {
     }
 
     pub fn set_ai_state(&mut self, state: AIState) {
+        if !matches!(state, AIState::Moving) && self.temporary_move_frames == 0 {
+            self.movement_goal_object = None;
+        }
         if matches!(
             self.ai_state,
             AIState::GuardingArea | AIState::GuardingObject

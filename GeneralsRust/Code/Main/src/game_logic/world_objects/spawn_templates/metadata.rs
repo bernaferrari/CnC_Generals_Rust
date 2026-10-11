@@ -1045,6 +1045,37 @@ impl GameLogic {
         }
     }
 
+    /// C++ WaveGuideUpdateModuleData defaults frequency to 0 and parses it
+    /// as an unrestricted integer. Preserve authored 0 and 100 verbatim.
+    pub(super) fn apply_authored_wave_guide_audio_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        template.wave_guide_audio = definition
+            .behavior_modules
+            .iter()
+            .find(|module| module.class_name.eq_ignore_ascii_case("WaveGuideUpdate"))
+            .and_then(|module| {
+                let frequency = match module.attribute("RandomSplashSoundFrequency") {
+                    Some(value) => value.trim().parse::<i32>().ok()?,
+                    None => 0,
+                };
+                Some(crate::game_logic::host_wave_guide::WaveGuideAudioMetadata {
+                    looping_sound: module
+                        .attribute("LoopingSound")
+                        .unwrap_or("")
+                        .trim()
+                        .to_string(),
+                    random_splash_sound: module
+                        .attribute("RandomSplashSound")
+                        .unwrap_or("")
+                        .trim()
+                        .to_string(),
+                    random_splash_sound_frequency: frequency,
+                })
+            });
+    }
+
     /// C++ creates these update/Die interfaces only for authored module rows.
     /// Presence is independent of optional FX fields and template spelling.
     pub(super) fn apply_authored_structure_death_metadata(

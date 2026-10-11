@@ -9,41 +9,15 @@ struct LowEnergyRates {
     max_speed: f32,
 }
 
-struct LowEnergyConfigGuard {
-    global:
-        std::sync::Arc<parking_lot::RwLock<game_engine::common::ini::ini_game_data::GlobalData>>,
-    previous: LowEnergyRates,
-}
-
-impl LowEnergyConfigGuard {
-    fn install(rates: LowEnergyRates) -> Self {
-        let global = game_engine::common::ini::ini_game_data::ensure_global_data();
-        let previous = {
-            let data = global.read();
-            LowEnergyRates {
-                penalty: data.low_energy_penalty_modifier,
-                min_speed: data.min_low_energy_production_speed,
-                max_speed: data.max_low_energy_production_speed,
-            }
-        };
-        {
-            let mut data = global.write();
-            data.low_energy_penalty_modifier = rates.penalty;
-            data.min_low_energy_production_speed = rates.min_speed;
-            data.max_low_energy_production_speed = rates.max_speed;
-        }
-
-        Self { global, previous }
-    }
-}
-
-impl Drop for LowEnergyConfigGuard {
-    fn drop(&mut self) {
-        let mut data = self.global.write();
-        data.low_energy_penalty_modifier = self.previous.penalty;
-        data.min_low_energy_production_speed = self.previous.min_speed;
-        data.max_low_energy_production_speed = self.previous.max_speed;
-    }
+fn admit_energy_rates(logic: &mut GameLogic, rates: LowEnergyRates) {
+    let text = format!(
+        "GameData\nLowEnergyPenaltyModifier={}\nMinLowEnergyProductionSpeed={}\nMaxLowEnergyProductionSpeed={}\nEnd\n",
+        rates.penalty, rates.min_speed, rates.max_speed
+    );
+    let rules = game_engine::common::ini::ini_game_data::ProductionEnergyRules::default()
+        .overlay_ini_text(&text)
+        .unwrap();
+    logic.admit_production_energy_base(rules);
 }
 
 #[test]
@@ -52,13 +26,14 @@ fn unmapped_dozer_hp_gain_uses_energy_adjusted_build_time_frames() {
         module_path!(),
         "unmapped_dozer_hp_gain_uses_energy_adjusted_build_time_frames",
         || {
-            let _config = LowEnergyConfigGuard::install(LowEnergyRates {
+            let rates = LowEnergyRates {
                 penalty: 1.0,
                 min_speed: 0.5,
                 max_speed: 0.8,
-            });
+            };
 
             let mut logic = GameLogic::new();
+            admit_energy_rates(&mut logic, rates);
             ensure_test_structure_template(&mut logic);
             ensure_test_dozer_template(&mut logic);
             ensure_test_player_for_team(&mut logic, Team::USA);
@@ -251,8 +226,8 @@ fn main_power_factors_follow_configured_bounds_and_cpp_order() {
             ];
 
             for (rates, power_produced, power_consumed, expected_factor, expected_frames) in cases {
-                let _config = LowEnergyConfigGuard::install(rates);
                 let mut logic = GameLogic::new();
+                admit_energy_rates(&mut logic, rates);
                 ensure_test_player_for_team(&mut logic, Team::USA);
                 if let Some(player) = logic.players.get_mut(&0) {
                     player.power_produced = power_produced;
@@ -1207,5 +1182,150 @@ fn queued_upgrade_restore_cancellation_ignores_same_name_object_power() {
             assert_eq!(source.players[&0].effective_supplies(), initial_wallet - 37);
             assert_eq!(source.players[&0].power_available, 41);
         },
+    );
+}
+
+#[test]
+fn production_energy_rules_are_zero_until_authored_and_two_worlds_are_independent() {
+    use game_engine::common::ini::ini_game_data::ProductionEnergyRules;
+    let mut a = GameLogic::new();
+    let mut b = GameLogic::new();
+    ensure_test_player_for_team(&mut a, Team::USA);
+    ensure_test_player_for_team(&mut b, Team::USA);
+    assert_eq!(a.compute_player_power_factors().get(&0), Some(&0.01));
+    let authored = "GameData\nLowEnergyPenaltyModifier=1\nMinLowEnergyProductionSpeed=.5\nMaxLowEnergyProductionSpeed=.8\nEnd";
+    let rules = ProductionEnergyRules::default()
+        .overlay_ini_text(authored)
+        .unwrap();
+    a.admit_production_energy_base(rules);
+    let retained = *a.production_energy_rules();
+    assert!(
+        retained
+            .overlay_ini_text("GameData\nMinLowEnergyProductionSpeed=invalid\nEnd")
+            .is_err()
+    );
+    assert_eq!(*a.production_energy_rules(), retained);
+    b.admit_production_energy_base(ProductionEnergyRules::default());
+    for world in [&mut a, &mut b] {
+        ensure_test_barracks_template(world);
+        ensure_test_infantry_template(world);
+        world.templates.get_mut("TestInfantry").unwrap().build_time = 1.0;
+        world.players.get_mut(&0).unwrap().resources.supplies = 10_000;
+    }
+    let aid = a
+        .create_object_for_player("TestBarracks", 0, glam::Vec3::ZERO)
+        .unwrap();
+    let bid = b
+        .create_object_for_player("TestBarracks", 0, glam::Vec3::ZERO)
+        .unwrap();
+    assert_eq!(aid, bid, "same IDs cannot select another owner's rules");
+    assert!(a.enqueue_production(aid, "TestInfantry".into()));
+    assert!(b.enqueue_production(bid, "TestInfantry".into()));
+    let mut previous = 0;
+    for _ in 0..10 {
+        b.update_production(1.0 / 30.0);
+        a.update_production(1.0 / 30.0);
+        assert_eq!(a.compute_player_power_factors().get(&0), Some(&0.5));
+        assert_eq!(b.compute_player_power_factors().get(&0), Some(&0.01));
+        let frames = a
+            .host_object(aid)
+            .unwrap()
+            .building_data
+            .as_ref()
+            .unwrap()
+            .production_queue[0]
+            .construction_frames;
+        assert!(
+            frames > previous,
+            "actual queue uses owner's selected frame rate"
+        );
+        previous = frames;
+    }
+    // CPP truncates the frame carrier to 30. Progress stores seconds, so
+    // normalize by the preserved carrier instead of assuming exactly 1 second.
+    let head_a = &a
+        .host_object(aid)
+        .unwrap()
+        .building_data
+        .as_ref()
+        .unwrap()
+        .production_queue[0];
+    let head_b = &b
+        .host_object(bid)
+        .unwrap()
+        .building_data
+        .as_ref()
+        .unwrap()
+        .production_queue[0];
+    for head in [head_a, head_b] {
+        assert_eq!(
+            gamelogic::world::entities::production_total_logic_frames(head.total_time, false, 1.0),
+            30
+        );
+        assert_eq!(head.construction_frames, 10);
+    }
+    assert!(
+        (head_a.progress / head_a.total_time - 10.0 / 60.0).abs() < 1e-5,
+        "CPP 30/.5=60 frames"
+    );
+    assert!(
+        (head_b.progress / head_b.total_time - 10.0 / 3000.0).abs() < 1e-5,
+        "CPP zero rules guard gives30/.01=3000 frames"
+    );
+    b.reset();
+    drop(b);
+    a.update_production(1.0 / 30.0);
+    let head = &a
+        .host_object(aid)
+        .unwrap()
+        .building_data
+        .as_ref()
+        .unwrap()
+        .production_queue[0];
+    assert_eq!(head.construction_frames, 11);
+    assert!((head.progress / head.total_time - 11.0 / 60.0).abs() < 1e-5);
+    assert_eq!(*a.production_energy_rules(), retained);
+    a.production_energy.effective = retained.overlay_ini_text("GameData\nMinLowEnergyProductionSpeed=.7\nEnd\nGameData\nMaxLowEnergyProductionSpeed=.75\nEnd").unwrap();
+    assert_eq!(a.production_energy_rules().min_speed, 0.7);
+    assert_eq!(a.production_energy_rules().max_speed, 0.75);
+    a.reset();
+    assert_eq!(
+        *a.production_energy_rules(),
+        retained,
+        "reset drops map overrides to admitted engine baseline"
+    );
+}
+
+#[test]
+fn production_energy_game_data_uses_cpp_compact_delimiters_and_atomic_inheritance() {
+    use game_engine::common::ini::ini_game_data::ProductionEnergyRules;
+    let zero = ProductionEnergyRules::default();
+    assert_eq!(zero.penalty, 0.0);
+    let compact = zero.overlay_ini_text("GameData\nLowEnergyPenaltyModifier=1\nMinLowEnergyProductionSpeed=.5\nMaxLowEnergyProductionSpeed=.8\nEnd").unwrap();
+    let mixed = zero.overlay_ini_text("GameData\n LowEnergyPenaltyModifier = 1 ; comment\n MinLowEnergyProductionSpeed .5\n MaxLowEnergyProductionSpeed= .8\nEnd").unwrap();
+    assert_eq!(
+        compact, mixed,
+        "CPP INI::m_seps treats '=' as a delimiter independent of spacing"
+    );
+    let inherited = compact.overlay_ini_text("GameData\nMinLowEnergyProductionSpeed=.7\nEnd\nGameData\nMaxLowEnergyProductionSpeed =.75\nEnd").unwrap();
+    assert_eq!(inherited.penalty, 1.0);
+    assert_eq!(inherited.min_speed, 0.7);
+    assert_eq!(inherited.max_speed, 0.75);
+    let mut owner = GameLogic::new();
+    owner.admit_production_energy_base(compact);
+    let malformed = owner.production_energy_rules().overlay_ini_text(
+        "GameData\nMinLowEnergyProductionSpeed=.6\nMaxLowEnergyProductionSpeed=invalid\nEnd",
+    );
+    assert!(malformed.is_err());
+    assert_eq!(
+        *owner.production_energy_rules(),
+        compact,
+        "partially parsed malformed draft never changes the owner"
+    );
+    assert!(
+        compact
+            .overlay_ini_text("GameData\nMinLowEnergyProductionSpeed=.6")
+            .is_err(),
+        "missing End remains an error"
     );
 }

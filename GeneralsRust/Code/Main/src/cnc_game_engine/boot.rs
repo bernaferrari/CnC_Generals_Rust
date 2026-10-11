@@ -1,6 +1,40 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 impl CnCGameEngine {
+    /// Same loose-file/archive resolver for both live session admissions.
+    pub(super) async fn load_production_energy_baseline()
+    -> Result<game_engine::common::ini::ini_game_data::ProductionEnergyRules, String> {
+        let mut rules = game_engine::common::ini::ini_game_data::ProductionEnergyRules::default();
+        let mut paths = vec!["Data/INI/Default/GameData.ini", "Data/INI/GameData.ini"];
+        #[cfg(any(debug_assertions, feature = "internal"))]
+        paths.push("Data/INI/GameDataDebug.ini");
+        for path in paths {
+            let text = if let Some(text) = Self::read_startup_ini_from_disk(path) {
+                Some(text)
+            } else {
+                if let Some(manager) = crate::assets::manager::get_asset_manager() {
+                    let mut manager = manager
+                        .lock()
+                        .map_err(|_| "asset manager poisoned".to_string())?;
+                    match manager.extract_file(path).await {
+                        Ok(bytes) => {
+                            Some(String::from_utf8(bytes).map_err(|err| format!("{path}: {err}"))?)
+                        }
+                        Err(_) => None,
+                    }
+                } else {
+                    None
+                }
+            };
+            if let Some(text) = text {
+                rules = rules
+                    .overlay_ini_text(&text)
+                    .map_err(|err| format!("{path}: {err}"))?;
+            }
+        }
+        Ok(rules)
+    }
+
     pub async fn new(window: Arc<Window>, command_line: Arc<CommandLineArgs>) -> Result<Self> {
         let total_timer = InitTimer::new("🎮 Engine initialization");
         info!("🎮 Initializing Command & Conquer Generals Zero Hour Game Engine");
@@ -220,7 +254,12 @@ impl CnCGameEngine {
 
         // Initialize game systems.
         // CombatSystem + PathfindingSystem live on GameLogic (sole host authority).
-        let game_logic = GameLogic::initialize();
+        let mut game_logic = GameLogic::initialize();
+        game_logic.admit_production_energy_base(
+            Self::load_production_energy_baseline()
+                .await
+                .map_err(|err| anyhow::anyhow!(err))?,
+        );
         crate::command_system::bind_host_replay_authority(&game_logic.replay_pending);
         let resource_manager = ResourceManager::new();
         let mut save_file_manager = SaveFileManager::new();
@@ -513,7 +552,7 @@ impl CnCGameEngine {
             last_eva_insufficient_funds_count: 0,
             last_eva_base_under_attack_count: 0,
             last_eva_ally_under_attack_count: 0,
-            last_applied_eva_alert_frame: None,
+            eva_recipient: super::eva_delivery::EvaRecipient::from_startup_definitions(),
             sticky_waypoint_mode: false,
             sticky_auto_attack: false,
             use_alternate_mouse,

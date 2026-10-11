@@ -5,6 +5,17 @@
 use super::super::*;
 
 impl GameLogic {
+    pub fn eva_enabled(&self) -> bool {
+        self.eva_announcements.is_enabled()
+    }
+    pub fn set_eva_enabled(&mut self, enabled: bool) {
+        self.eva_announcements.set_enabled(enabled);
+    }
+    #[cfg(test)]
+    pub fn take_eva_requests(&mut self) -> Vec<gamelogic::helpers::EvaEvent> {
+        self.eva_announcements.take_requests()
+    }
+
     pub fn try_radar_upgrade_complete(
         &mut self,
         player_id: u32,
@@ -49,12 +60,8 @@ impl GameLogic {
         if !self.is_local_player(player_id) {
             return;
         }
-        let _ = gamelogic::helpers::TheEva::set_should_play(
-            gamelogic::helpers::EvaEvent::UpgradeComplete,
-        );
-        crate::game_logic::host_eva_log::record_event(
-            gamelogic::helpers::EvaEvent::UpgradeComplete,
-        );
+        self.eva_announcements
+            .request(gamelogic::helpers::EvaEvent::UpgradeComplete);
         self.eva_upgrade_complete = self.eva_upgrade_complete.saturating_add(1);
     }
 
@@ -63,10 +70,8 @@ impl GameLogic {
         if !self.is_local_player(player_id) {
             return;
         }
-        let _ = gamelogic::helpers::TheEva::set_should_play(
-            gamelogic::helpers::EvaEvent::GeneralLevelUp,
-        );
-        crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::GeneralLevelUp);
+        self.eva_announcements
+            .request(gamelogic::helpers::EvaEvent::GeneralLevelUp);
         self.eva_general_level_up = self.eva_general_level_up.saturating_add(1);
     }
 
@@ -105,8 +110,8 @@ impl GameLogic {
         if !edge && self.frame < self.eva_low_power_next_frame {
             return;
         }
-        let _ = gamelogic::helpers::TheEva::set_should_play(gamelogic::helpers::EvaEvent::LowPower);
-        crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::LowPower);
+        self.eva_announcements
+            .request(gamelogic::helpers::EvaEvent::LowPower);
         self.eva_low_power = self.eva_low_power.saturating_add(1);
         // Eva.ini:63-66 LowPower TimeBetweenChecksMS=120000 → 3600 frames;
         // the C++ poll replays every 2 minutes while power stays low.
@@ -124,12 +129,8 @@ impl GameLogic {
         if !p.is_local || !p.is_alive {
             return;
         }
-        let _ = gamelogic::helpers::TheEva::set_should_play(
-            gamelogic::helpers::EvaEvent::InsufficientFunds,
-        );
-        crate::game_logic::host_eva_log::record_event(
-            gamelogic::helpers::EvaEvent::InsufficientFunds,
-        );
+        self.eva_announcements
+            .request(gamelogic::helpers::EvaEvent::InsufficientFunds);
         self.eva_insufficient_funds = self.eva_insufficient_funds.saturating_add(1);
     }
 
@@ -277,20 +278,12 @@ impl GameLogic {
                 });
 
             if local_owns {
-                let _ = gamelogic::helpers::TheEva::set_should_play(
-                    gamelogic::helpers::EvaEvent::BaseUnderAttack,
-                );
-                crate::game_logic::host_eva_log::record_event(
-                    gamelogic::helpers::EvaEvent::BaseUnderAttack,
-                );
+                self.eva_announcements
+                    .request(gamelogic::helpers::EvaEvent::BaseUnderAttack);
                 self.eva_base_under_attack = self.eva_base_under_attack.saturating_add(1);
             } else if local_ally {
-                let _ = gamelogic::helpers::TheEva::set_should_play(
-                    gamelogic::helpers::EvaEvent::AllyUnderAttack,
-                );
-                crate::game_logic::host_eva_log::record_event(
-                    gamelogic::helpers::EvaEvent::AllyUnderAttack,
-                );
+                self.eva_announcements
+                    .request(gamelogic::helpers::EvaEvent::AllyUnderAttack);
                 self.eva_ally_under_attack = self.eva_ally_under_attack.saturating_add(1);
             }
         }
@@ -387,17 +380,12 @@ impl GameLogic {
             .map(|o| o.is_kind_of(KindOf::MpCountForVictory))
             .unwrap_or(is_mp_count_for_victory);
         if is_structure && is_mp_count_for_victory {
-            let _ = gamelogic::helpers::TheEva::set_should_play(
-                gamelogic::helpers::EvaEvent::BuildingLost,
-            );
-            crate::game_logic::host_eva_log::record_event(
-                gamelogic::helpers::EvaEvent::BuildingLost,
-            );
+            self.eva_announcements
+                .request(gamelogic::helpers::EvaEvent::BuildingLost);
             self.saboteur.record_eva_building_lost();
         } else if is_infantry || is_vehicle {
-            let _ =
-                gamelogic::helpers::TheEva::set_should_play(gamelogic::helpers::EvaEvent::UnitLost);
-            crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::UnitLost);
+            self.eva_announcements
+                .request(gamelogic::helpers::EvaEvent::UnitLost);
             self.saboteur.record_eva_unit_lost();
             // C++ TheRadar->tryEvent(RADAR_EVENT_FAKE, pos) — spacebar jump, no text.
             if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
@@ -418,10 +406,8 @@ impl GameLogic {
         if !self.is_object_locally_controlled(victim_id) {
             return;
         }
-        let _ = gamelogic::helpers::TheEva::set_should_play(
-            gamelogic::helpers::EvaEvent::VehicleStolen,
-        );
-        crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::VehicleStolen);
+        self.eva_announcements
+            .request(gamelogic::helpers::EvaEvent::VehicleStolen);
         self.car_bomb.record_eva_vehicle_stolen();
     }
 
@@ -429,12 +415,8 @@ impl GameLogic {
         if !self.is_object_locally_controlled(victim_id) {
             return;
         }
-        let _ = gamelogic::helpers::TheEva::set_should_play(
-            gamelogic::helpers::EvaEvent::BuildingBeingStolen,
-        );
-        crate::game_logic::host_eva_log::record_event(
-            gamelogic::helpers::EvaEvent::BuildingBeingStolen,
-        );
+        self.eva_announcements
+            .request(gamelogic::helpers::EvaEvent::BuildingBeingStolen);
         self.hero_abilities.record_eva_building_being_stolen();
     }
 
@@ -443,10 +425,8 @@ impl GameLogic {
         if !self.is_object_locally_controlled(victim_id) {
             return;
         }
-        let _ = gamelogic::helpers::TheEva::set_should_play(
-            gamelogic::helpers::EvaEvent::BuildingStolen,
-        );
-        crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::BuildingStolen);
+        self.eva_announcements
+            .request(gamelogic::helpers::EvaEvent::BuildingStolen);
         self.hero_abilities.record_eva_building_stolen();
     }
 
@@ -454,12 +434,8 @@ impl GameLogic {
         if !self.is_object_locally_controlled(victim_id) {
             return;
         }
-        let _ = gamelogic::helpers::TheEva::set_should_play(
-            gamelogic::helpers::EvaEvent::BuildingSabotaged,
-        );
-        crate::game_logic::host_eva_log::record_event(
-            gamelogic::helpers::EvaEvent::BuildingSabotaged,
-        );
+        self.eva_announcements
+            .request(gamelogic::helpers::EvaEvent::BuildingSabotaged);
         self.saboteur.record_eva_building_sabotaged();
     }
 
@@ -468,9 +444,8 @@ impl GameLogic {
         if !self.is_object_locally_controlled(victim_id) {
             return;
         }
-        let _ =
-            gamelogic::helpers::TheEva::set_should_play(gamelogic::helpers::EvaEvent::CashStolen);
-        crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::CashStolen);
+        self.eva_announcements
+            .request(gamelogic::helpers::EvaEvent::CashStolen);
         self.saboteur.record_eva_cash_stolen();
     }
 
@@ -1296,12 +1271,11 @@ impl GameLogic {
 mod tests {
     use super::*;
     use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
-    use gamelogic::helpers::{EvaEvent, TheEva};
+    use gamelogic::helpers::EvaEvent;
 
     #[test]
     fn black_market_with_mp_count_fires_base_under_attack() {
         // C++ Radar.cpp:1194 — STRUCTURE + MP_COUNT_FOR_VICTORY, not FS union.
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         logic
             .players
@@ -1321,7 +1295,7 @@ mod tests {
             .expect("market");
         assert!(logic.try_under_attack_event(id));
         assert!(logic.honesty_eva_base_under_attack_ok());
-        let events = TheEva::drain_events().expect("eva");
+        let events = logic.take_eva_requests();
         assert!(
             events.iter().any(|e| *e == EvaEvent::BaseUnderAttack),
             "{events:?}"
@@ -1330,7 +1304,6 @@ mod tests {
 
     #[test]
     fn structure_without_mp_count_does_not_fire_base_under_attack() {
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         logic
             .players
@@ -1354,7 +1327,6 @@ mod tests {
     #[test]
     fn same_faction_ally_cc_fires_ally_under_attack_not_base() {
         // Two USA slots: victim owner is the ally, not the local player.
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         let mut local = Player::new(0, Team::USA, "Local", true);
         local.alliance_team = 1;
@@ -1374,7 +1346,7 @@ mod tests {
         assert!(logic.try_under_attack_event(id));
         assert!(!logic.honesty_eva_base_under_attack_ok());
         assert!(logic.honesty_eva_ally_under_attack_ok());
-        let events = TheEva::drain_events().expect("eva");
+        let events = logic.take_eva_requests();
         assert!(
             events.iter().any(|e| *e == EvaEvent::AllyUnderAttack),
             "{events:?}"
@@ -1387,7 +1359,6 @@ mod tests {
 
     #[test]
     fn try_under_attack_from_damage_skips_non_local() {
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         logic
             .players
@@ -1424,7 +1395,6 @@ mod tests {
     #[test]
     fn campaign_player_allies_cc_fires_ally_under_attack() {
         // alliance_team stays -1; map playerAllies must still be ALLIES.
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         let mut local = Player::new(0, Team::USA, "Local", true);
         let mut china = Player::new(1, Team::China, "China", false);
@@ -1443,7 +1413,7 @@ mod tests {
         assert!(logic.try_under_attack_event(id));
         assert!(!logic.honesty_eva_base_under_attack_ok());
         assert!(logic.honesty_eva_ally_under_attack_ok());
-        let events = TheEva::drain_events().expect("eva");
+        let events = logic.take_eva_requests();
         assert!(
             events.iter().any(|e| *e == EvaEvent::AllyUnderAttack),
             "{events:?}"
@@ -1453,7 +1423,6 @@ mod tests {
     #[test]
     fn same_faction_ally_death_does_not_fire_unit_lost() {
         // C++ isLocallyControlled, not faction Team. USA 2v2 ally deaths stay silent.
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         logic
             .players
@@ -1479,7 +1448,7 @@ mod tests {
             Some(Team::GLA),
         );
         assert_eq!(logic.saboteur.eva_unit_lost, 0);
-        let events = TheEva::drain_events().unwrap_or_default();
+        let events = logic.take_eva_requests();
         assert!(
             !events.iter().any(|e| *e == EvaEvent::UnitLost),
             "{events:?}"
@@ -1489,7 +1458,6 @@ mod tests {
     #[test]
     fn same_faction_teamkill_of_local_unit_fires_unit_lost() {
         // C++ selfInflicted is sourceID == victim ID, not same-faction killer Team.
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         logic
             .players
@@ -1528,7 +1496,6 @@ mod tests {
     fn try_eva_insufficient_funds_has_no_host_frame_throttle() {
         // C++ ControlBarCommandProcessing setShouldPlay every failed click.
         // Eva.ini TimeBetweenChecksMS is leftover Eva, not a 900-frame host gate.
-        let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
         logic
             .players
@@ -1537,7 +1504,7 @@ mod tests {
         logic.frame = 1;
         logic.try_eva_insufficient_funds(0);
         assert_eq!(logic.eva_insufficient_funds_count(), 2);
-        let events = TheEva::drain_events().expect("eva");
+        let events = logic.take_eva_requests();
         let funds = events
             .iter()
             .filter(|e| **e == EvaEvent::InsufficientFunds)

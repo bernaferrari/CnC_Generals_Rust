@@ -30,7 +30,15 @@ pub const WAVE_BEND_MAGNITUDE: f32 = 0.0;
 /// Retail `Object WaveGuide` `LoopingSound` / `RandomSplashSound`.
 pub const WAVE_LOOPING_SOUND: &str = "DamBreakWaveLoop";
 pub const WAVE_RANDOM_SPLASH_SOUND: &str = "WaveRandomSplash";
-pub const WAVE_RANDOM_SPLASH_FREQUENCY: i32 = 50;
+
+/// Immutable data of the driving object's authored WaveGuideUpdate module.
+/// C++ constructor defaults are empty event names and frequency zero.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct WaveGuideAudioMetadata {
+    pub looping_sound: String,
+    pub random_splash_sound: String,
+    pub random_splash_sound_frequency: i32,
+}
 
 const MAX_WAVEGUIDE_SHAPE_POINTS: usize = 64;
 
@@ -174,31 +182,32 @@ pub fn wave_damage_at_distance(dist: f32) -> f32 {
     }
 }
 
-/// C++ `startMoving` looping TheAudio + splash roll.
-/// Leftover-plays TheAudio and returns leftover event names so the live host can queue.
-pub fn leftover_wave_guide_audio_tick(
+/// Return semantic audio requests for the driving world's presentation queue.
+/// No definition discovery or playback publication occurs in this operation.
+pub fn wave_guide_audio_tick(
     data: &mut HostWaveGuideData,
-    template_name: &str,
-    object_id: u32,
+    audio: &WaveGuideAudioMetadata,
+    random: &game_engine::common::random_value::SessionRandom,
     now: u32,
 ) -> (Option<String>, Option<String>) {
-    use gamelogic::object::behavior::wave_guide_update::{
-        leftover_play_wave_guide_named_audio, leftover_wave_guide_audio_from_template,
-        leftover_wave_guide_splash_due, leftover_wave_guide_splash_roll,
-    };
-    let audio = leftover_wave_guide_audio_from_template(template_name);
+    let playable = |name: &str| !name.is_empty() && !name.eq_ignore_ascii_case("NoSound");
     let looping = if !data.looping_started {
         data.looping_started = true;
-        let _ = leftover_play_wave_guide_named_audio(&audio.looping_sound, object_id);
-        Some(audio.looping_sound.clone())
+        playable(&audio.looping_sound).then(|| audio.looping_sound.clone())
     } else {
         None
     };
-    let splash = if leftover_wave_guide_splash_due(now, &mut data.splash_sound_frame)
-        && leftover_wave_guide_splash_roll(audio.random_splash_sound_frequency)
-    {
-        let _ = leftover_play_wave_guide_named_audio(&audio.random_splash_sound, object_id);
-        Some(audio.random_splash_sound)
+    // CPP unsigned elapsed arithmetic and one draw at each due opportunity,
+    // even when the authored threshold is 0 or 100.
+    let due = now.wrapping_sub(data.splash_sound_frame) > 15;
+    let splash = if due {
+        data.splash_sound_frame = now;
+        let roll = (random.next_u32() % 100) as i32 + 1;
+        if roll > audio.random_splash_sound_frequency {
+            playable(&audio.random_splash_sound).then(|| audio.random_splash_sound.clone())
+        } else {
+            None
+        }
     } else {
         None
     };
@@ -239,27 +248,36 @@ mod tests {
     }
 
     #[test]
-    fn leftover_audio_tick_queues_loop_then_splash() {
-        game_engine::common::random_value::init_random_with_seed(1);
-        let mut w = HostWaveGuideData::default();
-        let (looping, splash) = leftover_wave_guide_audio_tick(&mut w, "WaveGuide", 7, 16);
-        assert_eq!(looping.as_deref(), Some(WAVE_LOOPING_SOUND));
-        assert!(w.looping_started);
-        assert_eq!(w.splash_sound_frame, 16);
-        let _ = splash;
-        let (again, _) = leftover_wave_guide_audio_tick(&mut w, "WaveGuide", 7, 16);
-        assert!(again.is_none(), "startMoving looping sound is once");
-        let mut saw_splash = splash.is_some();
-        for now in [32, 48, 64, 80, 96] {
-            let (looping, splash) = leftover_wave_guide_audio_tick(&mut w, "WaveGuide", 7, now);
-            assert!(looping.is_none());
-            if splash.as_deref() == Some(WAVE_RANDOM_SPLASH_SOUND) {
-                saw_splash = true;
+    fn authored_audio_tick_preserves_strict_due_frames_and_extreme_frequencies() {
+        for frequency in [0, 100] {
+            let audio = WaveGuideAudioMetadata {
+                looping_sound: WAVE_LOOPING_SOUND.into(),
+                random_splash_sound: WAVE_RANDOM_SPLASH_SOUND.into(),
+                random_splash_sound_frequency: frequency,
+            };
+            let mut w = HostWaveGuideData::default();
+            let random = game_engine::common::random_value::SessionRandom::default();
+            for now in [15, 16, 31, 32] {
+                let (looping, splash) = wave_guide_audio_tick(&mut w, &audio, &random, now);
+                assert_eq!(
+                    looping.as_deref(),
+                    (now == 15).then_some(WAVE_LOOPING_SOUND)
+                );
+                assert_eq!(
+                    splash.as_deref(),
+                    (frequency == 0 && (now == 16 || now == 32))
+                        .then_some(WAVE_RANDOM_SPLASH_SOUND)
+                );
+                assert_eq!(
+                    w.splash_sound_frame,
+                    match now {
+                        15 => 0,
+                        16 | 31 => 16,
+                        _ => 32,
+                    }
+                );
             }
+            assert!(w.looping_started);
         }
-        assert!(
-            saw_splash,
-            "leftover splash roll must emit WaveRandomSplash at leftover frequency"
-        );
     }
 }

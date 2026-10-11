@@ -435,6 +435,7 @@ fn stealth_fighter_science_production_gate_residual() {
     };
 
     let mut game_logic = GameLogic::new();
+    admit_retail_production_energy_rules(&mut game_logic);
     ensure_test_player_for_team(&mut game_logic, Team::USA);
     ensure_test_airfield_template(&mut game_logic);
 

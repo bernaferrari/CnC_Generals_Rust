@@ -948,7 +948,17 @@ fn eject_pilot_parachute_open_fudge_and_free_fall_damage_residual() {
             !p.is_parachute_open(),
             "chute destroyed residual must close chute"
         );
-        assert!(p.is_parachuting(), "rider continues freefall residual");
+        // ParachuteContain.cpp:626-649 removes containment, then enables
+        // physical freefall; PARACHUTING describes the intact chute instead.
+        assert!(!p.is_parachuting());
+        assert!(
+            p.allow_to_fall && p.is_in_freefall,
+            "rider continues physical freefall"
+        );
+        assert_eq!(
+            p.last_damage_info_type,
+            Some(crate::game_logic::combat::DamageType::Falling)
+        );
         let expected = free_fall_damage_amount(max_hp);
         assert!(
             (hp_before - p.health.current - expected).abs() < 0.1,
@@ -974,14 +984,50 @@ fn eject_pilot_parachute_open_fudge_and_free_fall_damage_residual() {
 }
 
 #[test]
+fn parachute_loss_falling_damage_observes_defensive_body_scalar() {
+    use crate::game_logic::combat::DamageType;
+    use crate::game_logic::host_strategy_center::HOLD_THE_LINE_ARMOR_DAMAGE_SCALAR;
+    use crate::game_logic::host_usa_pilot::{
+        free_fall_damage_amount, significantly_above_terrain_threshold,
+    };
+
+    // ParachuteContain.cpp:634-638 sends DAMAGE_FALLING. ActiveBody.cpp:
+    // 490-497 applies the body scalar to every type except UNRESISTABLE.
+    let mut logic = GameLogic::new();
+    let mut template = ThingTemplate::new("DefendedParachuteRider");
+    template.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic.templates.insert(template.name.clone(), template);
+    let rider = logic
+        .create_object(
+            "DefendedParachuteRider",
+            Team::USA,
+            Vec3::new(0.0, significantly_above_terrain_threshold() + 50.0, 0.0),
+        )
+        .unwrap();
+    let expected = {
+        let object = logic.host_object_mut(rider).unwrap();
+        object.apply_eject_parachuting();
+        object.weapon_bonus_battle_plan_hold_the_line = true;
+        assert!(HOLD_THE_LINE_ARMOR_DAMAGE_SCALAR < 1.0);
+        free_fall_damage_amount(object.health.maximum) * HOLD_THE_LINE_ARMOR_DAMAGE_SCALAR
+    };
+    assert!(logic.destroy_eject_parachute_midair(rider));
+    let object = logic.host_object(rider).unwrap();
+    assert_eq!(object.last_damage_info_type, Some(DamageType::Falling));
+    assert!((100.0 - object.health.current - expected).abs() < 0.01);
+    assert!(object.is_alive());
+    assert!(!object.is_parachuting() && !object.is_parachute_open());
+    assert!(object.allow_to_fall && object.is_in_freefall);
+}
+
+#[test]
 fn strategy_center_turret_idle_scan_residual() {
     use crate::game_logic::host_strategy_center::{
-        HostBattlePlan, STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES,
-        STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
-        STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME, idle_scan_desired_angle_deg,
+        HostBattlePlan, STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG,
+        STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG,
+        STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG, STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME,
         turret_angles_are_natural,
     };
-    use game_engine::common::random_value::init_random_with_seed;
 
     let mut game_logic = GameLogic::new();
     let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
@@ -1038,14 +1084,7 @@ fn strategy_center_turret_idle_scan_residual() {
         sc.turret_idle_scanning = false;
     }
 
-    // One tick should start idle scan toward leftover GameLogicRandomValueReal offset.
-    init_random_with_seed(0xBEEF);
-    let expected_desired = idle_scan_desired_angle_deg(0);
-    assert!(
-        (expected_desired - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs() > 2.0,
-        "seeded leftover offset must leave natural, got {expected_desired}"
-    );
-    init_random_with_seed(0xBEEF);
+    // Observe the actual admitted scan; CPP permits even zero/short offsets.
     game_logic.tick_battle_plan_door_residuals();
     assert!(
         game_logic.honesty_strategy_center_turret_idle_scan_ok(),
@@ -1054,28 +1093,59 @@ fn strategy_center_turret_idle_scan_residual() {
     assert_eq!(game_logic.battle_plans().turret_idle_scan_start_count(), 1);
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
-        assert!((sc.turret_idle_scan_desired_angle_deg - expected_desired).abs() < 0.01);
+        let desired = sc.turret_idle_scan_desired_angle_deg;
         let natural = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
+        assert!(desired.is_finite());
+        assert!((desired - natural).abs() <= STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG);
         let rate = STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME;
-        let stepped = if expected_desired >= natural {
-            natural + rate
-        } else {
-            natural - rate
-        };
+        let stepped = natural + (desired - natural).clamp(-rate, rate);
         assert!(
             (sc.turret_angle_deg - stepped).abs() < 0.01,
-            "idle-scan residual must step toward desired angle, got {}",
-            sc.turret_angle_deg
+            "scan admission must step toward its actual selected goal"
+        );
+        assert_eq!(
+            sc.turret_pitch_deg,
+            STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG
+        );
+        assert!(
+            sc.turret_idle_scanning || sc.turret_holding,
+            "short aligned scans may enter HOLD immediately"
+        );
+    }
+
+    // Exercise the update body with a legal nontrivial scan state, independent
+    // of which allowed offset admission selected. This is a turret fixture,
+    // not a seeded random sequence contract.
+    let desired = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG + 30.0;
+    {
+        let sc = game_logic.host_object_mut(sc_id).expect("sc");
+        sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
+        sc.turret_idle_scan_desired_angle_deg = desired;
+        sc.turret_idle_scanning = true;
+        sc.turret_holding = false;
+        sc.turret_hold_until_frame = 0;
+        sc.turret_idle_scan_next_frame = 0;
+    }
+    game_logic.frame = game_logic.frame.wrapping_add(1);
+    game_logic.tick_battle_plan_door_residuals();
+    {
+        let sc = game_logic.host_object(sc_id).expect("sc");
+        assert!(
+            (sc.turret_angle_deg
+                - (STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG
+                    + STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME))
+                .abs()
+                < 0.01,
+            "idle-scan body must step toward desired angle"
         );
         assert!(
             !turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
             "idle-scan leaves natural"
         );
-        assert!(sc.turret_idle_scanning, "must be mid idle-scan residual");
+        assert!(sc.turret_idle_scanning, "must be mid idle-scan body");
     }
 
     // Advance enough frames for remaining offset at 2 deg/frame.
-    let desired = expected_desired;
     for _ in 0..30 {
         game_logic.frame = game_logic.frame.saturating_add(1);
         game_logic.tick_battle_plan_door_residuals();
@@ -1106,7 +1176,7 @@ fn strategy_center_turret_idle_scan_residual() {
             "Hold residual defers next idle-scan schedule"
         );
         assert!(
-            (sc.turret_angle_deg - desired).abs() < 0.5 || sc.turret_idle_scan_index >= 1,
+            (sc.turret_angle_deg - desired).abs() < 0.5,
             "angles at desired after complete residual, angle={} desired={}",
             sc.turret_angle_deg,
             desired
@@ -1122,7 +1192,7 @@ fn strategy_center_turret_idle_scan_residual() {
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.turret_idle_scanning = true;
         sc.turret_holding = false;
-        sc.turret_idle_scan_desired_angle_deg = idle_scan_desired_angle_deg(1);
+        sc.turret_idle_scan_desired_angle_deg = desired;
         sc.set_status_attacking(true);
         sc.set_ai_state(AIState::Attacking);
     }

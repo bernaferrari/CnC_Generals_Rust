@@ -549,6 +549,7 @@ impl Object {
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
     ) {
         if self.is_mobile() && self.is_alive() {
+            self.movement_goal_object = None;
             self.movement.target_position = Some(position);
             self.set_ai_state(AIState::Moving);
             self.set_status_moving(true);
@@ -578,7 +579,16 @@ impl Object {
         }
     }
 
+    pub(crate) fn movement_goal_object(&self) -> Option<ObjectId> {
+        self.movement_goal_object
+    }
+
+    pub(crate) fn set_movement_goal_object(&mut self, goal: Option<ObjectId>) {
+        self.movement_goal_object = goal;
+    }
+
     pub fn stop_moving(&mut self) {
+        self.movement_goal_object = None;
         let overlay = self.temporary_move_frames > 0;
         self.end_temporary_move_overlay();
         if let Some(name) = self.move_loop_audio.take() {

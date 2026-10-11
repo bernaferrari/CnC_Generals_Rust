@@ -1846,19 +1846,43 @@ fn wave_guide_starts_disabled_until_dam_die() {
 fn wave_guide_plays_dambreak_loop_and_random_splash() {
     // C++ WaveGuideUpdate.cpp:138-140 startMoving TheAudio LoopingSound;
     // :790-795 splash roll GameLogicRandomValue(1,100) > frequency.
-    use crate::game_logic::host_wave_guide::{
-        WAVE_LOOPING_SOUND, WAVE_RANDOM_SPLASH_FREQUENCY, WAVE_RANDOM_SPLASH_SOUND,
-    };
+    use crate::game_logic::host_wave_guide::{WAVE_LOOPING_SOUND, WAVE_RANDOM_SPLASH_SOUND};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    game_engine::common::random_value::init_random_with_seed(1);
     let mut logic = GameLogic::new();
     let mut dam = ThingTemplate::new("Dam");
     dam.set_health(1000.0);
     dam.add_kind_of(KindOf::Structure);
     logic.templates.insert("Dam".into(), dam);
-    let mut wg = ThingTemplate::new("WaveGuide");
+    let mut parser = crate::assets::IniParser::new();
+    parser
+        .parse_ini_content(
+            r#"
+Object WaveGuide
+  KindOf = WAVEGUIDE
+  Behavior = WaveGuideUpdate ModuleTag_Wave
+    LoopingSound = DamBreakWaveLoop
+    RandomSplashSound = WaveRandomSplash
+    RandomSplashSoundFrequency = 0
+  End
+End
+"#,
+            "wave-audio.ini",
+        )
+        .unwrap();
+    let mut wg = GameLogic::build_template_from_object_definition(
+        "WaveGuide",
+        parser.get_definition("WaveGuide").unwrap(),
+        None,
+    );
     wg.set_health(1.0);
     wg.add_kind_of(KindOf::WaveGuide);
+    assert_eq!(
+        wg.wave_guide_audio
+            .as_ref()
+            .unwrap()
+            .random_splash_sound_frequency,
+        0
+    );
     logic.templates.insert("WaveGuide".into(), wg);
     let dam_id = logic
         .create_object("Dam", Team::Neutral, glam::Vec3::new(0.0, 0.0, 0.0))
@@ -1895,7 +1919,6 @@ fn wave_guide_plays_dambreak_loop_and_random_splash() {
         wg.final_destination = Some((5000.0, 0.0));
         wg.initialized = true;
     }
-    let _ = WAVE_RANDOM_SPLASH_FREQUENCY;
     logic.queued_audio_events.clear();
     let mut saw_loop = false;
     let mut saw_splash = false;
@@ -1915,14 +1938,137 @@ fn wave_guide_plays_dambreak_loop_and_random_splash() {
     }
     assert!(
         saw_loop,
-        "startMoving must leftover-play DamBreakWaveLoop: {:?}",
+        "startMoving must queue authored DamBreakWaveLoop: {:?}",
         logic.queued_audio_events
     );
     assert!(
         saw_splash,
-        "moving tick must leftover-play WaveRandomSplash at leftover frequency: {:?}",
+        "moving tick must queue WaveRandomSplash at authored zero frequency: {:?}",
         logic.queued_audio_events
     );
+}
+
+#[test]
+fn authored_wave_audio_is_owner_local_at_strict_due_boundaries() {
+    use crate::game_logic::host_wave_guide::HostWaveGuideData;
+    fn admitted(frequency: i32, suffix: &str) -> (GameLogic, ObjectId) {
+        let mut parser = crate::assets::IniParser::new();
+        parser.parse_ini_content(&format!("Object WaveGuide\n KindOf = WAVEGUIDE\n Behavior = WaveGuideUpdate ModuleTag_Wave\n LoopingSound = Loop{suffix}\n RandomSplashSound = Splash{suffix}\n RandomSplashSoundFrequency = {frequency}\n End\nEnd\n"), "owned-wave-audio.ini").unwrap();
+        let template = GameLogic::build_template_from_object_definition(
+            "WaveGuide",
+            parser.get_definition("WaveGuide").unwrap(),
+            None,
+        );
+        let encoded = serde_json::to_vec(&template).unwrap();
+        let restored: ThingTemplate = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(restored.wave_guide_audio, template.wave_guide_audio);
+        assert_eq!(
+            restored
+                .wave_guide_audio
+                .as_ref()
+                .unwrap()
+                .random_splash_sound_frequency,
+            frequency
+        );
+        let mut logic = GameLogic::new();
+        logic.templates.insert("WaveGuide".into(), restored);
+        let id = logic
+            .create_object("WaveGuide", Team::Neutral, glam::Vec3::new(500.0, 0.0, 0.0))
+            .unwrap();
+        let object = logic.objects.get_mut(&id).unwrap();
+        object.status.disabled_default = false;
+        object.wave_guide_data = Some(HostWaveGuideData {
+            active_frame: 1,
+            initialized: true,
+            final_destination: Some((5000.0, 0.0)),
+            splash_sound_frame: 100,
+            ..Default::default()
+        });
+        (logic, id)
+    }
+    let (mut a, aid) = admitted(0, "A");
+    let (mut b, bid) = admitted(100, "B");
+    assert_eq!(
+        aid, bid,
+        "same original ID must not discover another world's definition"
+    );
+    for frame in [115, 116, 131, 132] {
+        for (logic, id, suffix, frequency) in [(&mut a, aid, "A", 0), (&mut b, bid, "B", 100)] {
+            logic.queued_audio_events.clear();
+            logic.frame = frame;
+            logic.update_wave_guides();
+            let expected_loop = format!("Loop{suffix}");
+            let expected_splash = format!("Splash{suffix}");
+            assert_eq!(
+                logic
+                    .queued_audio_events
+                    .iter()
+                    .filter(|event| event.event_type == expected_loop
+                        && event.object_id == Some(id)
+                        && event.is_looping)
+                    .count(),
+                usize::from(frame == 115)
+            );
+            assert_eq!(
+                logic
+                    .queued_audio_events
+                    .iter()
+                    .filter(|event| event.event_type == expected_splash
+                        && event.object_id == Some(id)
+                        && !event.is_looping)
+                    .count(),
+                usize::from(frequency == 0 && (frame == 116 || frame == 132))
+            );
+            assert!(
+                logic
+                    .queued_audio_events
+                    .iter()
+                    .all(|event| event.event_type == expected_loop
+                        || event.event_type == expected_splash)
+            );
+            assert_eq!(
+                logic.objects[&id]
+                    .wave_guide_data
+                    .as_ref()
+                    .unwrap()
+                    .splash_sound_frame,
+                match frame {
+                    115 => 100,
+                    116 | 131 => 116,
+                    _ => 132,
+                }
+            );
+        }
+    }
+    b.reset();
+    drop(b);
+    a.queued_audio_events.clear();
+    a.frame = 148;
+    a.update_wave_guides();
+    assert_eq!(a.queued_audio_events.len(), 1);
+    assert_eq!(a.queued_audio_events[0].event_type, "SplashA");
+    assert_eq!(a.queued_audio_events[0].object_id, Some(aid));
+}
+
+#[test]
+fn wave_audio_constructor_and_absent_module_do_not_invent_retail_events() {
+    let mut parser = crate::assets::IniParser::new();
+    parser.parse_ini_content("Object WaveGuide\n KindOf = WAVEGUIDE\n Behavior = WaveGuideUpdate ModuleTag_Wave\n End\nEnd\nObject NamedWaveGuideOnly\n KindOf = WAVEGUIDE\nEnd\n", "empty-wave-audio.ini").unwrap();
+    let module = GameLogic::build_template_from_object_definition(
+        "WaveGuide",
+        parser.get_definition("WaveGuide").unwrap(),
+        None,
+    );
+    let audio = module.wave_guide_audio.unwrap();
+    assert_eq!(audio.random_splash_sound_frequency, 0);
+    assert!(audio.looping_sound.is_empty());
+    assert!(audio.random_splash_sound.is_empty());
+    let named = GameLogic::build_template_from_object_definition(
+        "NamedWaveGuideOnly",
+        parser.get_definition("NamedWaveGuideOnly").unwrap(),
+        None,
+    );
+    assert!(named.wave_guide_audio.is_none());
 }
 
 #[test]

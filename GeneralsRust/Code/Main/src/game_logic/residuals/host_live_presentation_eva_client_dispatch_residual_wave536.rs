@@ -27,7 +27,7 @@ pub const LIVE_PRESENTATION_EVA_CLIENT_DISPATCH_METHOD_NAMES_WAVE536: &[&str] = 
     "apply_presentation_eva_alerts",
     "eva_alert_client_token",
     "eva_event_table_token",
-    "simulate_eva_set_should_play_by_name",
+    "speaker.set_should_play",
     "PresentationEvent::EvaAlert",
     "playable_claim = false",
 ];
@@ -101,7 +101,7 @@ pub fn honesty_presentation_eva_client_dispatch_method_names_residual_wave536() 
     let ok = residual_name_index(names, "apply_presentation_eva_alerts").is_some()
         && residual_name_index(names, "eva_alert_client_token").is_some()
         && residual_name_index(names, "eva_event_table_token").is_some()
-        && residual_name_index(names, "simulate_eva_set_should_play_by_name").is_some()
+        && residual_name_index(names, "speaker.set_should_play").is_some()
         && residual_name_index(names, "PresentationEvent::EvaAlert").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
     residual_action_store(ResidualPresentationEvaClientDispatchAction::MethodNames);
@@ -112,10 +112,10 @@ pub fn honesty_presentation_eva_client_dispatch_source_markers_residual_wave536(
     let eng = eng_source();
     let log = log_source();
     let pf = pf_source();
-    let ok = eng.contains("Wave 536")
+    let ok = eng.contains("EvaRecipient")
         && eng.contains("fn apply_presentation_eva_alerts")
         && eng.contains("fn eva_alert_client_token")
-        && eng.contains("simulate_eva_set_should_play_by_name")
+        && eng.contains("speaker.set_should_play")
         && eng.contains("chat_panel.add_eva_message")
         && log.contains("eva_event_table_token")
         && log.contains("\"LOWPOWER\"")
@@ -152,7 +152,7 @@ pub fn simulate_presentation_eva_client_dispatch_collect_source() -> bool {
 
 pub fn simulate_presentation_eva_client_dispatch_dispatch_source() -> bool {
     let eng = eng_source();
-    let ok = eng.contains("simulate_eva_set_should_play_by_name(&token)")
+    let ok = eng.contains("speaker.set_should_play(message)")
         && eng.contains("eva_alert_human_message")
         && eng.contains("add_eva_message");
     residual_action_store(ResidualPresentationEvaClientDispatchAction::DispatchSource);

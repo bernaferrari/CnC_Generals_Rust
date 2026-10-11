@@ -37,10 +37,8 @@ impl Object {
         self.selected = false;
         self.status.selected = false;
         self.set_ai_state(crate::game_logic::AIState::Idle);
-        if self.health.current <= 0.0 {
-            self.health.current = 0.01;
-        }
-        self.status.destroyed = false;
+        // ActiveBody has already committed lethal HP/dead state before onDie.
+        // The independently scheduled structure update must not revive that body.
         // C++ beginStructureCollapse: doPhaseStuff(SCPHASE_INITIAL) → FXList::doFXPos.
         self.dispatch_pending_collapse_fx();
         true
@@ -178,15 +176,12 @@ impl Object {
         if let Some(bfx) = self.bone_fx_damage.as_mut() {
             bfx.stop_all_bone_fx();
         }
-        // C++ marks AI dead and deselects while building is still "alive" for fall.
+        // C++ marks AI dead and deselects while retaining the body for presentation.
         self.selected = false;
         self.status.selected = false;
         self.set_ai_state(crate::game_logic::AIState::Idle);
-        // Keep a sliver of HP so generic destroy passes leave it alone until done.
-        if self.health.current <= 0.0 {
-            self.health.current = 0.01;
-        }
-        self.status.destroyed = false;
+        // ActiveBody has already committed lethal HP/dead state before onDie.
+        // The independently scheduled structure update must not revive that body.
         true
     }
 

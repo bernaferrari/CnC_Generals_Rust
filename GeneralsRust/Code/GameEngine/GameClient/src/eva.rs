@@ -466,6 +466,19 @@ struct EvaCheck {
     already_played: bool,
 }
 
+/// Immutable facts from the presentation frame of the intended match.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EvaFrameContext {
+    pub frame: u32,
+    pub local_player: Option<EvaLocalPlayerContext>,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EvaLocalPlayerContext {
+    pub side: String,
+    pub index: u32,
+    pub sufficient_power: bool,
+}
+
 #[derive(Debug)]
 pub struct Eva {
     checks: Vec<EvaCheck>,
@@ -474,6 +487,7 @@ pub struct Eva {
     message_being_tested: EvaMessage,
     enabled: bool,
     eva_speech: AudioEventRts,
+    played_count: u32,
 }
 
 impl Default for Eva {
@@ -491,6 +505,7 @@ impl Eva {
             message_being_tested: EvaMessage::LowPower,
             enabled: true,
             eva_speech: AudioEventRts::default(),
+            played_count: 0,
         }
     }
 
@@ -509,35 +524,114 @@ impl Eva {
         self.enabled = true;
     }
 
+    /// Temporary startup adapter: only immutable Eva.ini definitions are copied.
+    pub fn from_startup_definitions() -> Self {
+        let all_check_infos = with_eva(|eva| eva.all_check_infos.clone());
+        Self {
+            all_check_infos,
+            ..Self::new()
+        }
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+    pub fn pending_messages(&self) -> Vec<EvaMessage> {
+        (0..EVA_COUNT)
+            .filter(|index| self.should_play[*index])
+            .filter_map(EvaMessage::from_index)
+            .collect()
+    }
+    pub fn played_count(&self) -> u32 {
+        self.played_count
+    }
+    pub fn check_snapshot(
+        &self,
+        context: &EvaFrameContext,
+    ) -> (usize, usize, Option<usize>, bool, bool, u32) {
+        let last = self
+            .checks
+            .iter()
+            .filter(|check| check.already_played)
+            .map(|check| check.eva_info.as_index())
+            .next_back();
+        (
+            self.all_check_infos.len(),
+            self.checks.len(),
+            last,
+            self.enabled,
+            context.local_player.is_some(),
+            context.frame,
+        )
+    }
+
+    /// Standalone Core compatibility entry. Main supplies a context directly.
     pub fn update(&mut self) {
         self.sync_enabled_from_logic();
+        let context = Self::legacy_frame_context();
+        if self.enabled && context.frame >= 2 {
+            self.ingest_logic_events();
+        }
+        let before = self.played_count;
+        self.update_with_context(&context);
+        EVA_PLAYED_COUNT.fetch_add(
+            (self.played_count - before) as usize,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
 
-        if !self.enabled {
+    pub fn update_with_context(&mut self, context: &EvaFrameContext) {
+        if !self.enabled || context.frame < 2 {
             return;
         }
-
-        // C++ Eva.cpp:271 `TheGameLogic->getFrame()`. Live AuthorityOnly does
-        // not tick the crate GameLogic clock, so prefer the host-published frame.
-        let current_frame = eva_logic_frame();
-        if current_frame < 2 {
-            return;
-        }
-
-        self.ingest_logic_events();
-
+        let current_frame = context.frame;
         for index in 0..EVA_COUNT {
             let Some(message) = EvaMessage::from_index(index) else {
                 continue;
             };
-            if self.is_time_for_check(message) && self.message_should_play(message) {
+            if !self.is_time_for_check(message) || context.local_player.is_none() {
+                continue;
+            }
+            self.message_being_tested = message;
+            let should_play = if message == EvaMessage::LowPower {
+                context
+                    .local_player
+                    .as_ref()
+                    .is_some_and(|local| !local.sufficient_power)
+            } else {
+                self.should_play_generic()
+            };
+            if should_play {
                 self.play_message(message, current_frame);
             }
         }
+        self.process_playing_messages_with_context(current_frame, context);
+        self.should_play.fill(false);
+    }
 
-        self.process_playing_messages(current_frame);
-
-        for flag in &mut self.should_play {
-            *flag = false;
+    fn legacy_frame_context() -> EvaFrameContext {
+        let local_player = if let Some((side, index)) = eva_host_local_player() {
+            Some(EvaLocalPlayerContext {
+                side,
+                index,
+                sufficient_power: !Self::should_play_low_power(),
+            })
+        } else {
+            ThePlayerList()
+                .read()
+                .ok()
+                .and_then(|list| list.get_local_player().cloned())
+                .and_then(|player| {
+                    player.read().ok().map(|player| EvaLocalPlayerContext {
+                        side: player.get_side().to_string(),
+                        index: player.get_player_index() as u32,
+                        sufficient_power: player.get_energy().has_sufficient_power(),
+                    })
+                })
+        };
+        EvaFrameContext {
+            frame: eva_logic_frame(),
+            local_player,
         }
     }
 
@@ -605,7 +699,7 @@ impl Eva {
 
         self.message_being_tested = message;
         match message {
-            EvaMessage::LowPower => self.should_play_low_power(),
+            EvaMessage::LowPower => Self::should_play_low_power(),
             _ => self.should_play_generic(),
         }
     }
@@ -623,7 +717,7 @@ impl Eva {
             .is_some()
     }
 
-    fn should_play_low_power(&self) -> bool {
+    fn should_play_low_power() -> bool {
         // C++ Eva.cpp:422 polls localPlayer->getEnergy()->hasSufficientPower().
         // Live leftover ThePlayerList Energy is not host power_available.
         if let Some(sufficient) = eva_host_sufficient_power() {
@@ -664,6 +758,19 @@ impl Eva {
     }
 
     fn process_playing_messages(&mut self, current_frame: u32) {
+        let before = self.played_count;
+        self.process_playing_messages_with_context(current_frame, &Self::legacy_frame_context());
+        EVA_PLAYED_COUNT.fetch_add(
+            (self.played_count - before) as usize,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+
+    fn process_playing_messages_with_context(
+        &mut self,
+        current_frame: u32,
+        context: &EvaFrameContext,
+    ) {
         let mut idx = 0;
         while idx < self.checks.len() {
             let check = &self.checks[idx];
@@ -718,26 +825,11 @@ impl Eva {
                 None => return,
             };
 
-        // C++ Eva.cpp:270/507-528: side + player index come from the live
-        // local player. Prefer the host-published snapshot; fall back to the
-        // leftover crate PlayerList (tests / boot residual).
-        let (side, player_index) = if let Some((host_side, host_index)) = eva_host_local_player() {
-            (host_side, host_index)
-        } else {
-            let Ok(list) = ThePlayerList().read() else {
-                return;
-            };
-            let Some(local_player) = list.get_local_player().cloned() else {
-                return;
-            };
-            let Ok(local_player) = local_player.read() else {
-                return;
-            };
-            (
-                local_player.get_side().to_string(),
-                local_player.get_player_index() as u32,
-            )
+        let Some(local) = context.local_player.as_ref() else {
+            return;
         };
+        let side = &local.side;
+        let player_index = local.index;
 
         self.eva_speech.set_event_name(String::new());
         for side_sounds in &eva_side_sounds {
@@ -756,7 +848,8 @@ impl Eva {
         }
 
         self.checks[best_index].already_played = true;
-        EVA_PLAYED_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.played_count = self.played_count.saturating_add(1);
+
         self.checks[best_index].time_for_next_check = current_frame + frames_between_checks;
         self.eva_speech.set_player_index(player_index);
 
@@ -1354,3 +1447,7 @@ pub fn simulate_eva_prepare_low_power_alert() -> bool {
     }
     simulate_eva_set_should_play_low_power()
 }
+
+#[cfg(test)]
+#[path = "eva/explicit_context_tests.rs"]
+mod explicit_context_tests;

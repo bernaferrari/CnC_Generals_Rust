@@ -204,12 +204,6 @@ impl GameLogic {
         set_live_audio_locality(snap);
     }
 
-    /// C++ `Eva` is the sole consumer of `setShouldPlay` flags (`Eva.cpp:264-525`).
-    /// Leftover `TheEva` stays queued so live `Eva::update` / `ingest_logic_events`
-    /// can play Eva.ini `SideSounds` (`EvaUSA_BuildingLost`, …). Host HUD still
-    /// uses `host_eva_log` copies and must not drain this queue.
-    pub(in crate::game_logic::game_logic) fn process_eva_events(&mut self) {}
-
     /// Evaluate and execute scripts each frame
     /// This is called from the main game loop (update_simulation)
     /// Phase 8 of game loop update sequence (C++ Generals compatibility)
@@ -327,8 +321,11 @@ impl GameLogic {
         }
     }
 
-    /// Fill crate condition host-query snapshot from `host_named_unit_id*`.
-    pub fn inject_host_script_query_snapshot(&self) {
+    /// Project this instance's roster without selecting or publishing an active world.
+    /// Compatibility publication remains a separate operation below.
+    pub(crate) fn build_host_script_query_snapshot(
+        &self,
+    ) -> gamelogic::scripting::HostScriptQuerySnapshot {
         use gamelogic::scripting::{HostScriptQueryObject, HostScriptQuerySnapshot};
         let mut snap = HostScriptQuerySnapshot::default();
         snap.named = self.host_named_unit_id_map();
@@ -462,7 +459,6 @@ impl GameLogic {
                     .push(id.0);
             }
         }
-        self.project_host_trigger_flags();
         if let Ok(factory) = self.team_factory.lock() {
             for name in factory.prototype_names() {
                 if snap.team_instance_ids.contains_key(&name) {
@@ -484,6 +480,13 @@ impl GameLogic {
                 snap.team_instance_ids.insert(name, ids);
             }
         }
+        snap
+    }
+
+    /// Temporary condition adapter; explicit queries use the same owned projection.
+    pub fn inject_host_script_query_snapshot(&self) {
+        self.project_host_trigger_flags();
+        let mut snap = self.build_host_script_query_snapshot();
         for (name, aabb) in gamelogic::scripting::engine::get_area_tracker().all_area_aabbs() {
             snap.areas.insert(name, aabb);
         }

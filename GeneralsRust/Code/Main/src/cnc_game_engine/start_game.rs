@@ -648,11 +648,11 @@ impl CnCGameEngine {
         self.host_clear_match_residuals();
         info!("host_start_game_from_ui: match residuals cleared");
         if let Some((seed, _)) = replay_inputs {
-            self.game_logic.set_logic_random_seed(seed);
+            self.host_game_logic_mut().set_logic_random_seed(seed);
         } else if mode == GameMode::SinglePlayer {
             // Campaign/Challenge starts select seed 0 in C++ menus. Admission
             // targets this session instead of relying on a process broadcast.
-            self.game_logic.set_logic_random_seed(0);
+            self.host_game_logic_mut().set_logic_random_seed(0);
         }
 
         // Wave 169/840: empty UI map → DEFAULT_SKIRMISH_MAP (Defcon6) before
@@ -755,11 +755,12 @@ impl CnCGameEngine {
             }
         }
         if mode != GameMode::Skirmish {
-            self.game_logic.admit_new_game_starting_cash(
+            let default_starting_cash = self.default_starting_cash;
+            self.host_game_logic_mut().admit_new_game_starting_cash(
                 replay_inputs
                     .map(|(_, cash)| cash)
                     .or(game_info_starting_cash),
-                self.default_starting_cash,
+                default_starting_cash,
             );
         }
         info!("host_start_game_from_ui: new game started, loading requested map={map_name}");
@@ -2282,7 +2283,7 @@ impl CnCGameEngine {
         // bridge belonging to this engine's world, even if a save/load
         // candidate is temporarily the ambient active world.
         gamelogic::helpers::ClientVisualHandle::new(std::sync::Arc::clone(
-            &self.game_logic.world_services,
+            &self.host_game_logic().world_services,
         ))
         .clear_visual_state_for_reset();
 

@@ -161,6 +161,11 @@ impl HostScriptExecutionDriver<'_> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn eva_enabled(&mut self, enabled: bool) -> ScriptOwnerQuery<()> {
+        self.world.set_eva_enabled(enabled);
+        ScriptOwnerQuery::Present(())
+    }
+
     fn sighted(
         &self,
         unit: &str,
@@ -350,6 +355,19 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             script,
             engine,
         ))
+    }
+
+    fn nearest_object_move(
+        &mut self,
+        request: gamelogic::scripting::engine::ScriptNearestObjectRequest<'_>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        let Some(trigger) = self.qualified_area(request.trigger, request.current_player) else {
+            return Some(Ok(()));
+        };
+        Some(
+            self.world
+                .apply_owned_nearest_object_move(request, &trigger),
+        )
     }
 
     fn named_command(
@@ -552,6 +570,48 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
         self.world.apply_script_action_requests();
         Ok(())
+    }
+
+    fn unit_health_percent(&self, name: &str, this_object: Option<u32>) -> ScriptOwnerQuery<i32> {
+        let Some(object) = self
+            .world
+            .owned_named_script_object(name, this_object.map(ObjectId))
+            .and_then(|id| self.world.host_object(id))
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        // Existing admitted body baseline; never rediscover a global template
+        // or substitute current maximum for original InitialHealth.
+        if object.initial_health <= 0.0 || !object.initial_health.is_finite() {
+            return ScriptOwnerQuery::Missing;
+        }
+        ScriptOwnerQuery::Present(
+            ((object.health.current * 100.0 + object.initial_health / 2.0) / object.initial_health)
+                as i32,
+        )
+    }
+
+    fn player_has_any_objects(
+        &self,
+        player: &str,
+        current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<bool> {
+        let Some(player) = self
+            .script_player_id(player, current_player)
+            .filter(|id| self.world.players.contains_key(id))
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        // CPP Team::hasAnyObjects1751: exact status/kind filters. Other
+        // legacy census exclusions do not alter this owner's condition.
+        ScriptOwnerQuery::Present(self.world.host_objects().values().any(|object| {
+            self.world.object_owned_by_player(object, player)
+                && !object.status.effectively_dead
+                && !object.status.destroyed
+                && !object.is_kind_of(KindOf::Projectile)
+                && !object.is_kind_of(KindOf::Inert)
+                && !object.is_kind_of(KindOf::Mine)
+        }))
     }
 
     fn object_status(&self, id: u32) -> ScriptOwnerQuery<ScriptObjectStatus> {

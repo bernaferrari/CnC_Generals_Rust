@@ -1660,14 +1660,20 @@ fn battle_bus_undead_body_first_life_converts_to_second_life() {
         bus.template_mut().armor = 0.0;
     }
     // Lethal explosion should intercept → second life 650 HP full.
+    // BattleBusSlowDeathBehavior.cpp:119 arms the driving match frame + 10.
+    let damage_frame = game_logic.frame;
     let killed = {
         let (bus, health_events) = game_logic
             .host_object_and_health_events_mut(bus_id)
             .unwrap();
-        bus.take_damage_from_typed(
+        bus.take_damage_from_typed_death_at_frame(
             500.0,
             None,
             crate::game_logic::combat::DamageType::Explosive,
+            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                crate::game_logic::combat::DamageType::Explosive,
+            ),
+            damage_frame,
             health_events,
         )
     };
@@ -1730,14 +1736,20 @@ fn battle_bus_undead_damages_passengers_and_empty_hulk_destroys() {
     if let Some(r) = game_logic.host_object_mut(rider_id) {
         r.contained_by = Some(bus_id);
     }
+    // BattleBusSlowDeathBehavior.cpp:119 arms the driving match frame + 10.
+    let damage_frame = game_logic.frame;
     let _ = {
         let (bus, health_events) = game_logic
             .host_object_and_health_events_mut(bus_id)
             .unwrap();
-        bus.take_damage_from_typed(
+        bus.take_damage_from_typed_death_at_frame(
             999.0,
             None,
             crate::game_logic::combat::DamageType::Explosive,
+            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                crate::game_logic::combat::DamageType::Explosive,
+            ),
+            damage_frame,
             health_events,
         )
     };

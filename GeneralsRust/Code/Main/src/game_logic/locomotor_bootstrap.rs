@@ -986,6 +986,7 @@ pub fn apply_host_locomotor_binding(
     object: &mut crate::game_logic::object::Object,
     binding: &HostLocomotorBinding,
 ) {
+    apply_host_locomotor_template_facts(object, binding);
     object.movement.max_speed = binding.movement.max_speed;
     object.movement.max_speed_damaged = binding.max_speed_damaged;
     object.movement.acceleration = binding.movement.acceleration;
@@ -993,33 +994,13 @@ pub fn apply_host_locomotor_binding(
     object.movement.turn_rate = binding.movement.turn_rate;
     object.movement.turn_rate_damaged = binding.turn_rate_damaged;
     object.braking = binding.braking;
-    object.min_speed = binding.min_speed;
-    object.min_turn_speed = binding.min_turn_speed;
-    object.loco_behavior_z = binding.behavior_z;
-    object.loco_appearance = binding.appearance;
-    object.loco_extra_2d_friction = binding.extra_2d_friction;
-    object.loco_apply_2d_friction_airborne = binding.apply_2d_friction_when_airborne;
-    object.allow_motive_force_while_airborne = binding.allow_motive_force_while_airborne;
-    object.locomotor_works_when_dead = binding.locomotor_works_when_dead;
-    object.airborne_targeting_height = binding.airborne_targeting_height;
-    object.can_move_backward = binding.can_move_backward;
-    object.downhill_only = binding.downhill_only;
     object.max_lift = binding.max_lift;
-    object.max_lift_damaged = binding.max_lift_damaged;
-    object.speed_limit_z = binding.speed_limit_z;
     object.loco_preferred_height = binding.preferred_height;
     object.loco_preferred_height_damping = binding.preferred_height_damping;
-    object.circling_radius = binding.circling_radius;
-    object.max_thrust_angle = binding.max_thrust_angle;
-    object.turn_pivot_offset = binding.turn_pivot_offset;
-    object.stick_to_ground = binding.stick_to_ground;
-    object.locomotor_surfaces = binding.locomotor_surfaces;
     if object.close_enough_dist.is_none() {
         object.close_enough_dist = Some(binding.close_enough_dist);
     }
     object.close_enough_dist_3d = binding.close_enough_dist_3d;
-    object.wander_width_factor = binding.wander_width_factor;
-    object.ultra_accurate_slide_factor = binding.ultra_accurate_slide_factor;
     seed_wander_phase(object, binding.wander_length_factor);
     object.set_locomotor_physics_options();
     object.record_host_locomotor();
@@ -2187,3 +2168,6 @@ mod tests {
         );
     }
 }
+
+mod template_facts;
+pub(crate) use template_facts::apply_host_locomotor_template_facts;

@@ -66,9 +66,8 @@ fn script_rank_caps_stay_with_the_driving_match() {
 fn script_set_rank_level_plays_eva_general_level_up() {
     // C++ Player.cpp:2708-2714 setRankLevel always EVA for local.
     use crate::game_logic::Team;
-    use gamelogic::helpers::{EvaEvent, TheEva};
+    use gamelogic::helpers::EvaEvent;
     use gamelogic::scripting::HostScriptRankRequest;
-    let _ = TheEva::drain_events();
     let _ = gamelogic::scripting::take_host_rank_requests();
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
@@ -83,7 +82,7 @@ fn script_set_rank_level_plays_eva_general_level_up() {
     logic.evaluate_and_execute_scripts(0.0);
     assert_eq!(logic.players.get(&0).expect("p").rank_level, 3);
     assert!(logic.honesty_eva_general_level_up_ok());
-    let events = TheEva::drain_events().expect("eva");
+    let events = logic.take_eva_requests();
     assert!(
         events.iter().any(|e| *e == EvaEvent::GeneralLevelUp),
         "script rank-up must play EVA_GeneralLevelUp, got {events:?}"
@@ -185,8 +184,7 @@ fn calculate_score_skips_self_kills() {
 #[test]
 fn eva_low_power_fires_when_local_energy_negative() {
     use crate::game_logic::Team;
-    use gamelogic::helpers::{EvaEvent, TheEva};
-    let _ = TheEva::drain_events();
+    use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
         0,
@@ -199,7 +197,7 @@ fn eva_low_power_fires_when_local_energy_negative() {
     }
     logic.update_eva_low_power();
     assert!(logic.honesty_eva_low_power_ok());
-    let events = TheEva::drain_events().expect("eva");
+    let events = logic.take_eva_requests();
     assert!(
         events.iter().any(|e| *e == EvaEvent::LowPower),
         "{events:?}"
@@ -225,8 +223,7 @@ fn eva_low_power_fires_when_local_energy_negative() {
 #[test]
 fn eva_insufficient_funds_on_production_spend_fail() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    use gamelogic::helpers::{EvaEvent, TheEva};
-    let _ = TheEva::drain_events();
+    use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
         0,
@@ -253,7 +250,7 @@ fn eva_insufficient_funds_on_production_spend_fail() {
     let _ = bid;
     logic.try_eva_insufficient_funds(0);
     assert!(logic.honesty_eva_insufficient_funds_ok());
-    let events = TheEva::drain_events().expect("eva");
+    let events = logic.take_eva_requests();
     assert!(
         events.iter().any(|e| *e == EvaEvent::InsufficientFunds),
         "{events:?}"
@@ -263,8 +260,7 @@ fn eva_insufficient_funds_on_production_spend_fail() {
 #[test]
 fn try_under_attack_event_base_eva_and_throttle() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    use gamelogic::helpers::{EvaEvent, TheEva};
-    let _ = TheEva::drain_events();
+    use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
         0,
@@ -286,7 +282,7 @@ fn try_under_attack_event_base_eva_and_throttle() {
     assert!(logic.try_under_attack_event(id));
     assert!(logic.honesty_under_attack_event_ok());
     assert!(logic.honesty_eva_base_under_attack_ok());
-    let events = TheEva::drain_events().expect("eva");
+    let events = logic.take_eva_requests();
     assert!(
         events.iter().any(|e| *e == EvaEvent::BaseUnderAttack),
         "{events:?}"
@@ -303,8 +299,7 @@ fn try_under_attack_event_base_eva_and_throttle() {
 #[test]
 fn local_unit_death_queues_eva_unit_lost() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    use gamelogic::helpers::{EvaEvent, TheEva};
-    let _ = TheEva::drain_events();
+    use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
         0,
@@ -335,7 +330,7 @@ fn local_unit_death_queues_eva_unit_lost() {
         Some(Team::GLA),
     );
     assert!(logic.saboteur.honesty_eva_unit_lost_ok());
-    let events = TheEva::drain_events().expect("eva");
+    let events = logic.take_eva_requests();
     assert!(
         events.iter().any(|e| *e == EvaEvent::UnitLost),
         "{events:?}"
@@ -391,8 +386,7 @@ fn capture_records_academy_building_capture() {
 #[test]
 fn hijack_queues_eva_vehicle_stolen_for_local_victim() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    use gamelogic::helpers::{EvaEvent, TheEva};
-    let _ = TheEva::drain_events();
+    use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
         0,
@@ -410,7 +404,7 @@ fn hijack_queues_eva_vehicle_stolen_for_local_victim() {
         .expect("tank");
     logic.try_eva_vehicle_stolen(id);
     assert!(logic.car_bomb.honesty_eva_vehicle_stolen_ok());
-    let events = TheEva::drain_events().expect("eva");
+    let events = logic.take_eva_requests();
     assert!(
         events.iter().any(|e| *e == EvaEvent::VehicleStolen),
         "{events:?}"
@@ -420,8 +414,7 @@ fn hijack_queues_eva_vehicle_stolen_for_local_victim() {
 #[test]
 fn capture_building_queues_eva_being_stolen_and_stolen() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    use gamelogic::helpers::{EvaEvent, TheEva};
-    let _ = TheEva::drain_events();
+    use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
         0,
@@ -448,7 +441,7 @@ fn capture_building_queues_eva_being_stolen_and_stolen() {
     logic.try_eva_building_stolen(id);
     assert!(logic.hero_abilities.honesty_eva_building_being_stolen_ok());
     assert!(logic.hero_abilities.honesty_eva_building_stolen_ok());
-    let events = TheEva::drain_events().expect("eva");
+    let events = logic.take_eva_requests();
     assert!(
         events.iter().any(|e| *e == EvaEvent::BuildingBeingStolen),
         "{events:?}"
@@ -462,8 +455,7 @@ fn capture_building_queues_eva_being_stolen_and_stolen() {
 #[test]
 fn black_lotus_cash_steal_records_score_and_floating_text() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    use gamelogic::helpers::{EvaEvent, TheEva};
-    let _ = TheEva::drain_events();
+    use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
         0,
@@ -514,7 +506,7 @@ fn black_lotus_cash_steal_records_score_and_floating_text() {
         .expect("china");
     assert!(china.statistics.money_earned >= 1000);
     assert!(logic.saboteur.honesty_cash_floating_texts_ok());
-    let events = TheEva::drain_events().expect("eva");
+    let events = logic.take_eva_requests();
     assert!(events.iter().any(|e| *e == EvaEvent::CashStolen));
 }
 
@@ -739,8 +731,7 @@ pub fn process_destr",
 #[test]
 fn sabotage_queues_eva_building_sabotaged_for_local_victim() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    use gamelogic::helpers::{EvaEvent, TheEva};
-    let _ = TheEva::drain_events(); // clear global queue
+    use gamelogic::helpers::EvaEvent; // clear global queue
     let mut logic = GameLogic::new();
     logic.players.insert(
         0,
@@ -773,7 +764,7 @@ fn sabotage_queues_eva_building_sabotaged_for_local_victim() {
         logic.saboteur.honesty_eva_building_sabotaged_ok(),
         "EVA BuildingSabotaged honesty"
     );
-    let events = TheEva::drain_events().expect("drain");
+    let events = logic.take_eva_requests();
     assert!(
         events.iter().any(|e| *e == EvaEvent::BuildingSabotaged),
         "TheEva queue must contain BuildingSabotaged, got {events:?}"
@@ -787,7 +778,7 @@ fn sabotage_queues_eva_building_sabotaged_for_local_victim() {
         )
         .expect("enemy factory");
     logic.try_eva_building_sabotaged(enemy);
-    let events2 = TheEva::drain_events().expect("drain2");
+    let events2 = logic.take_eva_requests();
     assert!(
         events2.is_empty(),
         "non-local victim must not queue EVA: {events2:?}"
@@ -797,8 +788,7 @@ fn sabotage_queues_eva_building_sabotaged_for_local_victim() {
 #[test]
 fn supply_center_cash_steal_queues_eva_cash_stolen() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    use gamelogic::helpers::{EvaEvent, TheEva};
-    let _ = TheEva::drain_events();
+    use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
         0,
@@ -821,7 +811,7 @@ fn supply_center_cash_steal_queues_eva_cash_stolen() {
         .expect("sc");
     logic.try_eva_cash_stolen(id);
     assert!(logic.saboteur.honesty_eva_cash_stolen_ok());
-    let events = TheEva::drain_events().expect("drain");
+    let events = logic.take_eva_requests();
     assert!(
         events.iter().any(|e| *e == EvaEvent::CashStolen),
         "expected CashStolen: {events:?}"

@@ -199,6 +199,11 @@ pub struct PresentationFrame {
     /// Shell-map FOW bypass (`GameLogic::isInShellGame`) frozen at snapshot time.
     /// When true, unit FOW is forced fully visible and never-explored skip is off.
     /// EVA residual counters frozen at snapshot (C++ Eva message queue deltas).
+    #[serde(skip)]
+    pub(crate) eva_delivery: crate::game_logic::host_eva_log::EvaDelivery,
+    #[cfg(feature = "game_client")]
+    #[serde(skip)]
+    pub(crate) eva_context: game_client::eva::EvaFrameContext,
     pub eva_low_power_count: u32,
     pub eva_insufficient_funds_count: u32,
     pub eva_base_under_attack_count: u32,

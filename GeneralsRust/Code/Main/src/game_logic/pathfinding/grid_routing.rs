@@ -2062,6 +2062,7 @@ impl PathfindingGrid {
         crusher_level: u8,
         unpinched_cliff_passable: bool,
         ignore_obstacle: Option<u32>,
+        receiver: Option<u32>,
     ) -> bool {
         if !self.is_valid_pos(cell) {
             return false;
@@ -2083,7 +2084,15 @@ impl PathfindingGrid {
         if !allow_pinched && self.is_pinched(cell) && !occupied_by_ignored {
             return false;
         }
-        if !occupied_by_ignored && self.occupancy_blocks_line(cell, seeker_player, crusher_level) {
+        // C++ checkForMovement skips posUnit == obj->getID() before counting
+        // fixed occupants (AIPathfind.cpp:5007). The driving follower supplies
+        // its receiver; the last search's query_seeker_id is not this identity.
+        let occupied_by_receiver =
+            receiver.is_some_and(|id| id != 0 && self.dynamic_pos_unit(cell) == id);
+        if !occupied_by_ignored
+            && !occupied_by_receiver
+            && self.occupancy_blocks_line(cell, seeker_player, crusher_level)
+        {
             return false;
         }
         if unpinched_cliff_passable
@@ -2098,7 +2107,7 @@ impl PathfindingGrid {
         false
     }
 
-    pub(super) fn line_passable_ex(
+    pub(super) fn line_passable_for_receiver(
         &self,
         from: GridPos,
         to: GridPos,
@@ -2109,6 +2118,7 @@ impl PathfindingGrid {
         crusher_level: u8,
         unpinched_cliff_passable: bool,
         ignore_obstacle: Option<u32>,
+        receiver: Option<u32>,
     ) -> bool {
         if from == to {
             return true;
@@ -2133,6 +2143,7 @@ impl PathfindingGrid {
                 crusher_level,
                 unpinched_cliff_passable,
                 ignore_obstacle,
+                receiver,
             ) {
                 return false;
             }

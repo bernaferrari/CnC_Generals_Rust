@@ -105,6 +105,9 @@ pub struct ThingTemplate {
     /// building name never synthesizes this death animation module.
     #[serde(default)]
     pub authored_structure_topple: bool,
+    /// Exact authored WaveGuideUpdate audio; absent modules have no audio authority.
+    #[serde(default)]
+    pub wave_guide_audio: Option<crate::game_logic::host_wave_guide::WaveGuideAudioMetadata>,
     /// Exact authored StructureCollapseUpdate interface, independent of name.
     #[serde(default)]
     pub authored_structure_collapse: bool,
@@ -554,6 +557,7 @@ impl ThingTemplate {
             deploy_style_metadata: None,
             production_exit_metadata: None,
             authored_structure_topple: false,
+            wave_guide_audio: None,
             authored_structure_collapse: false,
             veterancy_crate_collide: None,
             eject_pilot_die: None,

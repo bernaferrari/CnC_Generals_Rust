@@ -1005,6 +1005,7 @@ impl Object {
             safe_path_repulsor2: None,
 
             requested_destination: None,
+            movement_goal_object: None,
             path_goal_position: None,
             adjust_destinations: true,
             temporary_move_saved_dest: None,
@@ -1935,6 +1936,7 @@ impl Object {
             safe_path_repulsor2: None,
 
             requested_destination: None,
+            movement_goal_object: None,
             path_goal_position: None,
             adjust_destinations: true,
             temporary_move_saved_dest: None,

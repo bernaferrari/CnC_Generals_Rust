@@ -9,6 +9,7 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
+    logic.admit_production_energy_base(game_engine::common::ini::ini_game_data::ProductionEnergyRules::default().overlay_ini_text("GameData\nLowEnergyPenaltyModifier=1\nMinLowEnergyProductionSpeed=.5\nMaxLowEnergyProductionSpeed=.8\nEnd").unwrap());
     logic.add_player(Player::new(0, Team::USA, "USA one", true));
     logic.add_player(Player::new(1, Team::USA, "USA two", false));
 
@@ -696,6 +697,7 @@ fn new_cold_fusion_after_control_rods_gets_energy_bonus() {
 #[test]
 fn zero_consumption_grid_applies_low_energy_penalty() {
     let mut logic = GameLogic::new();
+    logic.admit_production_energy_base(game_engine::common::ini::ini_game_data::ProductionEnergyRules::default().overlay_ini_text("GameData\nLowEnergyPenaltyModifier=1\nMinLowEnergyProductionSpeed=.5\nMaxLowEnergyProductionSpeed=.8\nEnd").unwrap());
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.power_produced = 0;
     player.power_consumed = 0;
@@ -2544,8 +2546,7 @@ fn radar_upgrade_complete_queues_local_event() {
 #[test]
 fn eva_gps_and_sneak_launched_own_enemy() {
     use crate::game_logic::Team;
-    use gamelogic::helpers::{EvaEvent, TheEva};
-    let _ = TheEva::drain_events();
+    use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
         0,
@@ -2553,16 +2554,16 @@ fn eva_gps_and_sneak_launched_own_enemy() {
     );
     logic.try_eva_special_launched_misc(Team::USA, "gps");
     assert!(logic.honesty_eva_special_launched_misc_ok());
-    let events = TheEva::drain_events().expect("eva");
+    let events = logic.take_eva_requests();
     assert!(
         events
             .iter()
             .any(|e| *e == EvaEvent::SuperweaponLaunchedOwnGpsScrambler),
         "{events:?}"
     );
-    let _ = TheEva::drain_events();
+    let _ = logic.take_eva_requests();
     logic.try_eva_special_launched_misc(Team::GLA, "sneak");
-    let events2 = TheEva::drain_events().expect("eva2");
+    let events2 = logic.take_eva_requests();
     assert!(
         events2
             .iter()
@@ -2574,8 +2575,7 @@ fn eva_gps_and_sneak_launched_own_enemy() {
 #[test]
 fn eva_beacon_detected_for_ally_placer_only() {
     use crate::game_logic::Team;
-    use gamelogic::helpers::{EvaEvent, TheEva};
-    let _ = TheEva::drain_events();
+    use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     // Local USA alliance 1
     let mut local = crate::game_logic::Player::new(0, Team::USA, "Local", true);
@@ -2593,7 +2593,7 @@ fn eva_beacon_detected_for_ally_placer_only() {
     // Ally place → EVA
     logic.try_eva_beacon_detected(1);
     assert!(logic.honesty_eva_beacon_detected_ok());
-    let events = TheEva::drain_events().expect("eva");
+    let events = logic.take_eva_requests();
     assert!(
         events.iter().any(|e| *e == EvaEvent::BeaconDetected),
         "{events:?}"
@@ -2611,8 +2611,7 @@ fn eva_beacon_detected_for_ally_placer_only() {
 #[test]
 fn eva_hero_detected_own_and_enemy_lotus() {
     use crate::game_logic::Team;
-    use gamelogic::helpers::{EvaEvent, TheEva};
-    let _ = TheEva::drain_events();
+    use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
         0,
@@ -2639,7 +2638,7 @@ fn eva_hero_detected_own_and_enemy_lotus() {
         .expect("enemy lotus");
     logic.try_eva_hero_detected(enemy);
     assert!(logic.honesty_eva_hero_detected_ok());
-    let events = TheEva::drain_events().expect("eva");
+    let events = logic.take_eva_requests();
     assert!(
         events
             .iter()
@@ -2662,9 +2661,9 @@ fn eva_hero_detected_own_and_enemy_lotus() {
             glam::Vec3::new(5.0, 0.0, 5.0),
         )
         .expect("own burton");
-    let _ = TheEva::drain_events();
+    let _ = logic.take_eva_requests();
     logic.try_eva_hero_detected(own);
-    let events2 = TheEva::drain_events().expect("eva2");
+    let events2 = logic.take_eva_requests();
     assert!(
         events2
             .iter()
@@ -2677,8 +2676,7 @@ fn eva_hero_detected_own_and_enemy_lotus() {
 fn eva_superweapon_launched_own_particle_and_enemy_scud() {
     use crate::game_logic::Team;
     use crate::game_logic::special_power_strikes::HostSuperweaponKind;
-    use gamelogic::helpers::{EvaEvent, TheEva};
-    let _ = TheEva::drain_events();
+    use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
         0,
@@ -2686,16 +2684,16 @@ fn eva_superweapon_launched_own_particle_and_enemy_scud() {
     );
     logic.try_eva_superweapon_launched(Team::USA, HostSuperweaponKind::ParticleCannon);
     assert!(logic.honesty_eva_superweapon_launched_ok());
-    let events = TheEva::drain_events().expect("eva");
+    let events = logic.take_eva_requests();
     assert!(
         events
             .iter()
             .any(|e| *e == EvaEvent::SuperweaponLaunchedOwnParticleCannon),
         "{events:?}"
     );
-    let _ = TheEva::drain_events();
+    let _ = logic.take_eva_requests();
     logic.try_eva_superweapon_launched(Team::GLA, HostSuperweaponKind::ScudStorm);
-    let events2 = TheEva::drain_events().expect("eva2");
+    let events2 = logic.take_eva_requests();
     assert!(
         events2
             .iter()
@@ -2715,8 +2713,7 @@ fn eva_superweapon_launched_own_particle_and_enemy_scud() {
 #[test]
 fn eva_superweapon_detected_enemy_nuke() {
     use crate::game_logic::Team;
-    use gamelogic::helpers::{EvaEvent, TheEva};
-    let _ = TheEva::drain_events();
+    use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
         0,
@@ -2724,7 +2721,7 @@ fn eva_superweapon_detected_enemy_nuke() {
     );
     logic.try_eva_superweapon_detected(Team::China, "ChinaNuclearMissileLauncher");
     assert!(logic.honesty_eva_superweapon_detected_ok());
-    let events = TheEva::drain_events().expect("eva");
+    let events = logic.take_eva_requests();
     assert!(
         events
             .iter()
@@ -2732,9 +2729,9 @@ fn eva_superweapon_detected_enemy_nuke() {
         "{events:?}"
     );
     // Own particle
-    let _ = TheEva::drain_events();
+    let _ = logic.take_eva_requests();
     logic.try_eva_superweapon_detected(Team::USA, "AmericaParticleUplinkCannon");
-    let events2 = TheEva::drain_events().expect("eva2");
+    let events2 = logic.take_eva_requests();
     assert!(
         events2
             .iter()
@@ -2746,8 +2743,7 @@ fn eva_superweapon_detected_enemy_nuke() {
 #[test]
 fn eva_superweapon_ready_own_particle_cannon() {
     use crate::game_logic::Team;
-    use gamelogic::helpers::{EvaEvent, TheEva};
-    let _ = TheEva::drain_events();
+    use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
         0,
@@ -2755,7 +2751,7 @@ fn eva_superweapon_ready_own_particle_cannon() {
     );
     logic.try_eva_superweapon_ready(ObjectId(1), Team::USA, "AmericaParticleUplinkCannon");
     assert!(logic.honesty_eva_superweapon_ready_ok());
-    let events = TheEva::drain_events().expect("eva");
+    let events = logic.take_eva_requests();
     assert!(
         events
             .iter()
@@ -2763,9 +2759,9 @@ fn eva_superweapon_ready_own_particle_cannon() {
         "{events:?}"
     );
     // Enemy scud residual.
-    let _ = TheEva::drain_events();
+    let _ = logic.take_eva_requests();
     logic.try_eva_superweapon_ready(ObjectId(2), Team::GLA, "GLAScudStorm");
-    let events2 = TheEva::drain_events().expect("eva2");
+    let events2 = logic.take_eva_requests();
     assert!(
         events2
             .iter()
@@ -2786,8 +2782,7 @@ fn eva_superweapon_ready_own_particle_cannon() {
 fn eva_upgrade_complete_and_general_level_up() {
     use crate::game_logic::Team;
     use crate::game_logic::host_science_rank::RANK2_SKILL_POINTS_NEEDED;
-    use gamelogic::helpers::{EvaEvent, TheEva};
-    let _ = TheEva::drain_events();
+    use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.players.insert(
         0,
@@ -2802,7 +2797,7 @@ fn eva_upgrade_complete_and_general_level_up() {
     assert_eq!(p.rank_level, 2);
     assert!(p.skill_points >= RANK2_SKILL_POINTS_NEEDED);
     assert!(p.unlocked_sciences.contains("SCIENCE_Rank2"));
-    let events = TheEva::drain_events().expect("eva");
+    let events = logic.take_eva_requests();
     assert!(
         events.iter().any(|e| *e == EvaEvent::UpgradeComplete),
         "{events:?}"

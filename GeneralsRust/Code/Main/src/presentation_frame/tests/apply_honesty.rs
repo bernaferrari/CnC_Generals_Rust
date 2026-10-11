@@ -2161,62 +2161,89 @@ fn command_set_strip_keeps_authored_holes() {
 
 #[test]
 fn leftover_control_bar_override_hides_and_replaces_strip_slots() {
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
-    let snapshot = gamelogic::system::game_logic::lock_game_logic()
-        .ok()
-        .map(|logic| logic.snapshot_control_bar_overrides_raw())
-        .unwrap_or_default();
-    let restore = || {
-        if let Ok(mut leftover) = gamelogic::system::game_logic::lock_game_logic() {
-            leftover.restore_control_bar_overrides_raw(snapshot.clone());
-        }
+    use game_engine::common::ini::ini_command_set::{
+        get_command_set_manager_mut, initialize_command_set_manager,
     };
+
+    const FIXTURE_SET: &str = "FixtureOverrideRangerCommandSet";
+    const FIXTURE_TEMPLATE: &str = "FixtureOverrideRanger";
+    // Admit the actual authored Ranger slots under a private definition name.
+    // The explicit Object override below selects this set; no template-name
+    // residual fallback participates in the test.
+    initialize_command_set_manager();
+    {
+        let mut manager = get_command_set_manager_mut().expect("command set manager");
+        let set = manager.new_command_set(FIXTURE_SET.into());
+        for (slot, command) in [
+            (0, "Command_AmericaRangerCaptureBuilding"),
+            (1, "Command_AmericaRangerSwitchToMachineGun"),
+            (3, "Command_AmericaRangerSwitchToFlagBangGrenades"),
+            (10, "Command_AttackMove"),
+            (12, "Command_Guard"),
+            (13, "Command_Stop"),
+        ] {
+            set.set_button_at_position(slot, command.into())
+                .expect("authored Ranger slot");
+        }
+        assert!(manager.find_command_set_resolved(FIXTURE_SET).is_some());
+    }
 
     let mut logic = GameLogic::new();
     // Controlling-player provenance: C++ evaluateContextUI populates only the
     // local player's selection (ControlBar.cpp:1359-1580).
     logic.add_player(Player::new(0, Team::USA, "USA", true));
-    let mut t = ThingTemplate::new("AmericaInfantryRanger");
+    let mut t = ThingTemplate::new(FIXTURE_TEMPLATE);
     t.add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
-    logic.templates.insert("AmericaInfantryRanger".into(), t);
+    logic.templates.insert(FIXTURE_TEMPLATE.into(), t);
     let id = logic
-        .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+        .create_object(FIXTURE_TEMPLATE, Team::USA, glam::Vec3::ZERO)
         .expect("ranger");
     if let Some(o) = logic.host_object_mut(id) {
         o.selected = true;
+        o.set_command_set_override(Some(FIXTURE_SET.into()));
     }
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
     }
 
-    let baseline = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
+    let baseline_frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    assert_eq!(baseline_frame.objects.len(), 1);
+    assert_eq!(baseline_frame.objects[0].command_set_name, FIXTURE_SET);
+    let baseline = baseline_frame.unit_command_buttons();
     assert!(
         baseline.iter().any(|c| c
             .command_name
             .eq_ignore_ascii_case("Command_AmericaRangerCaptureBuilding")),
-        "ranger residual must expose capture before leftover remove: {:?}",
+        "authored private Ranger set must expose capture before leftover remove: {:?}",
         baseline
             .iter()
             .map(|c| c.command_name.as_str())
             .collect::<Vec<_>>()
     );
 
-    if let Ok(mut leftover) = gamelogic::system::game_logic::lock_game_logic() {
-        leftover.set_control_bar_override("AmericaInfantryRangerCommandSet", 0, None);
-        leftover.set_control_bar_override(
-            "AmericaInfantryRangerCommandSet",
-            2,
-            Some("Command_Guard"),
-        );
-    } else {
-        restore();
-        panic!("leftover GameLogic lock required for commandbar override");
+    {
+        let mut leftover = gamelogic::system::game_logic::lock_game_logic()
+            .expect("leftover GameLogic required for commandbar override");
+        leftover.set_control_bar_override(FIXTURE_SET, 0, None);
+        leftover.set_control_bar_override(FIXTURE_SET, 2, Some("Command_Guard"));
     }
 
     let cmds = PresentationFrame::build_from_logic(&mut logic, 0).unit_command_buttons();
-    restore();
+    // Neutralize only this fixture's two keys. Never restore a stale snapshot
+    // of another test's or session's overrides. The production override owner
+    // remains shared and is tracked separately by hq-gn8sl.
+    {
+        let mut leftover = gamelogic::system::game_logic::lock_game_logic()
+            .expect("leftover GameLogic required for private-key cleanup");
+        leftover.set_control_bar_override(
+            FIXTURE_SET,
+            0,
+            Some("Command_AmericaRangerCaptureBuilding"),
+        );
+        leftover.set_control_bar_override(FIXTURE_SET, 2, None);
+    }
     assert!(
         cmds.len() >= 14,
         "override strip must keep 14 WND slots: {:?}",

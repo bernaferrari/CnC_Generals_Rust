@@ -48,6 +48,8 @@ pub struct SideBuildEntry {
 /// Top-level metadata parsed from a map file.
 #[derive(Debug, Clone, Default)]
 pub struct MapMetadata {
+    pub(crate) production_energy:
+        Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
     /// Last GameData DefaultStartingCash from Map.ini then Solo.ini.
     pub default_starting_cash: Option<u32>,
     pub objects: Vec<PlacedObject>,

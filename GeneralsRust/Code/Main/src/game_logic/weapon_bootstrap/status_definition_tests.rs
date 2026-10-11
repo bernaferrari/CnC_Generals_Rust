@@ -104,6 +104,8 @@ fn avenger_fallback_seed_contains_retail_faerie_fire_metadata() {
             let rule = store.find_weapon_template(AVENGER_TARGET_DESIGNATOR).expect("actual seed rule");
             let status: gamelogic::common::ObjectStatusTypes = rule.damage_status_type.into();
             assert_eq!(rule.damage_type, gamelogic::damage::DamageType::Status);
+            assert_eq!(rule.primary_damage, 200.0,
+                "ActiveBody DAMAGE_STATUS scalar is authored duration milliseconds, not zero HP damage");
             assert_eq!(status, gamelogic::common::ObjectStatusTypes::FaerieFire,
                 "retail Avenger seed must encode its known status instead of relying on helper inference");
         }).unwrap();
@@ -332,14 +334,185 @@ fn actual_avenger_primary_retail_name_faerie_retains_paint_audio_and_timing() {
         || {
             let _restore = RestoreStore::install();
             // Actual retail name and duration metadata. Raw fallback seed enum
-            // metadata is verified separately above; its zero-duration estimate
-            // does not admit an unlocked ordinary shot.
+            // metadata and its positive duration estimate are verified above;
+            // this parsed-definition path must retain the same status semantics.
             parsed_rule(
                 AVENGER_TARGET_DESIGNATOR,
                 "  DamageStatusType = FAERIE_FIRE\n",
                 gamelogic::common::ObjectStatusTypes::FaerieFire,
             );
             accepted_actual_avenger_status_hit(AVENGER_TARGET_DESIGNATOR, 0.0, true);
+        },
+    );
+}
+
+#[test]
+fn avenger_air_laser_fallback_metadata_admits_aircraft_not_infantry() {
+    isolated(
+        "status_definition_tests::avenger_air_laser_fallback_metadata_admits_aircraft_not_infantry",
+        || {
+            use crate::game_logic::{Object, ObjectId};
+            let _restore = RestoreStore::install();
+            assert!(crate::game_logic::weapon_bootstrap::store::seed_known_host_weapons() > 0);
+            gamelogic::weapon::with_weapon_store_mut(|store| store.mark_host_bootstrap_complete())
+                .unwrap();
+            for name in [
+                AVENGER_AIR_LASER,
+                crate::game_logic::host_avenger::AVENGER_AIR_LASER_TWO,
+            ] {
+                gamelogic::weapon::with_weapon_store(|store| {
+                    let rule = store
+                        .find_weapon_template(name)
+                        .expect("actual Avenger fallback rule");
+                    // Weapon.ini exact One/Two rules; the laser name is visual,
+                    // not permission to use LASER damage or LASERED death.
+                    assert_eq!(rule.primary_damage, 10.0);
+                    assert_eq!(rule.damage_type, gamelogic::damage::DamageType::SmallArms);
+                    assert_eq!(rule.death_type, gamelogic::damage::DeathType::Normal);
+                    assert_eq!(rule.get_anti_mask(), WeaponAntiMask::AIRBORNE_VEHICLE);
+                })
+                .unwrap();
+                let mut shooter_template = ThingTemplate::new("FallbackAirLaserShooter");
+                shooter_template
+                    .add_kind_of(KindOf::Vehicle)
+                    .set_primary_weapon_name(name);
+                // Object::new owns runtime state; the factory separately binds
+                // the actual definition-selected weapon onto that state.
+                let weapon = shooter_template
+                    .resolve_primary_weapon()
+                    .expect("actual seeded weapon binding");
+                let mut shooter = Object::new(shooter_template, ObjectId(801), Team::USA);
+                shooter.weapon = Some(weapon);
+                let mut aircraft_template = ThingTemplate::new("FallbackAirLaserAircraft");
+                aircraft_template
+                    .add_kind_of(KindOf::Aircraft)
+                    .add_kind_of(KindOf::Vehicle);
+                let mut aircraft = Object::new(aircraft_template, ObjectId(802), Team::China);
+                aircraft.status.airborne_target = true;
+                aircraft.set_position(Vec3::new(80.0, 0.0, 0.0));
+                assert_eq!(
+                    shooter.select_combat_weapon_slot(&aircraft, 10.0),
+                    Some(0),
+                    "WeaponSet chooses positive SMALL_ARMS damage after AirplaneArmor, unlike immune LASER"
+                );
+                let mut infantry_template = ThingTemplate::new("FallbackAirLaserInfantry");
+                infantry_template.add_kind_of(KindOf::Infantry);
+                let mut infantry = Object::new(infantry_template, ObjectId(803), Team::China);
+                infantry.status.airborne_target = true;
+                infantry.set_position(Vec3::new(80.0, 0.0, 0.0));
+                assert_eq!(
+                    shooter.select_combat_weapon_slot(&infantry, 10.0),
+                    None,
+                    "authored AntiAirborneInfantry=No must remain an admission gate"
+                );
+                aircraft.status.airborne_target = false;
+                assert_eq!(
+                    shooter.select_combat_weapon_slot(&aircraft, 10.0),
+                    None,
+                    "authored AntiGround=No must remain an admission gate"
+                );
+            }
+            assert_eq!(
+                crate::game_logic::weapon_bootstrap::store::seed_damage_type_for(
+                    "AvengerPointDefenseLaserOne",
+                    999999.0
+                ),
+                gamelogic::damage::DamageType::Laser,
+                "the independent point-defense weapon retains LASER damage"
+            );
+        },
+    );
+}
+
+#[test]
+fn missile_defender_fallback_types_admit_temporary_locked_guided_vehicle_attack() {
+    isolated(
+        "status_definition_tests::missile_defender_fallback_types_admit_temporary_locked_guided_vehicle_attack",
+        || {
+            use crate::game_logic::{
+                AbleToAttackType, CanAttackResult, Object, ObjectId, WeaponLockType,
+            };
+            let _restore = RestoreStore::install();
+            assert!(crate::game_logic::weapon_bootstrap::store::seed_known_host_weapons() > 0);
+            gamelogic::weapon::with_weapon_store_mut(|store| store.mark_host_bootstrap_complete())
+                .unwrap();
+            gamelogic::weapon::with_weapon_store(|store| {
+                let primary = store
+                    .find_weapon_template(MISSILE_DEFENDER_MISSILE_WEAPON)
+                    .unwrap();
+                let guided = store
+                    .find_weapon_template(MISSILE_DEFENDER_LASER_GUIDED_WEAPON)
+                    .unwrap();
+                assert_eq!(
+                    primary.damage_type,
+                    gamelogic::damage::DamageType::InfantryMissile
+                );
+                assert_eq!(primary.death_type, gamelogic::damage::DeathType::Normal);
+                assert_eq!(
+                    guided.damage_type,
+                    gamelogic::damage::DamageType::ArmorPiercing
+                );
+                assert_eq!(guided.death_type, gamelogic::damage::DeathType::Normal);
+                assert_eq!(guided.primary_damage, 40.0);
+            })
+            .unwrap();
+            let mut source_template = ThingTemplate::new("FallbackGuidedShooter");
+            source_template
+                .add_kind_of(KindOf::Infantry)
+                .set_secondary_weapon_name(MISSILE_DEFENDER_LASER_GUIDED_WEAPON);
+            let secondary = source_template
+                .resolve_secondary_weapon()
+                .expect("actual fallback binding");
+            let mut source = Object::new(source_template, ObjectId(811), Team::USA);
+            source.secondary_weapon = Some(secondary);
+            source.set_weapon_lock(1, WeaponLockType::LockedTemporarily);
+            let mut target_template = ThingTemplate::new("FallbackGuidedVehicle");
+            target_template
+                .add_kind_of(KindOf::Vehicle)
+                .add_kind_of(KindOf::Attackable);
+            let mut target = Object::new(target_template, ObjectId(812), Team::GLA);
+            target.set_position(Vec3::new(180.0, 0.0, 0.0));
+            let mut world = GameLogic::new();
+            world.objects.insert(source.id, source);
+            world.objects.insert(target.id, target);
+            assert_eq!(
+                world.get_able_to_attack_specific_object(
+                    ObjectId(811),
+                    ObjectId(812),
+                    AbleToAttackType::NewTarget,
+                    false
+                ),
+                CanAttackResult::Possible,
+                "CPP special ability's locked guided missile must pass armor-adjusted NewTarget admission"
+            );
+        },
+    );
+}
+
+#[test]
+fn missile_defender_seed_does_not_replace_parsed_guided_damage_type() {
+    isolated(
+        "status_definition_tests::missile_defender_seed_does_not_replace_parsed_guided_damage_type",
+        || {
+            let _restore = RestoreStore::install();
+            // An effective parsed override is authoritative even for an exact
+            // retail name; fallback metadata must not overwrite that rule.
+            parsed_rule(
+                MISSILE_DEFENDER_LASER_GUIDED_WEAPON,
+                "",
+                gamelogic::common::ObjectStatusTypes::None,
+            );
+            let _ = crate::game_logic::weapon_bootstrap::store::seed_known_host_weapons();
+            gamelogic::weapon::with_weapon_store(|store| {
+                let rule = store
+                    .find_weapon_template(MISSILE_DEFENDER_LASER_GUIDED_WEAPON)
+                    .unwrap();
+                assert_eq!(rule.damage_type, gamelogic::damage::DamageType::Status);
+                assert_eq!(rule.primary_damage, 200.0);
+                let status: gamelogic::common::ObjectStatusTypes = rule.damage_status_type.into();
+                assert_eq!(status, gamelogic::common::ObjectStatusTypes::None);
+            })
+            .unwrap();
         },
     );
 }

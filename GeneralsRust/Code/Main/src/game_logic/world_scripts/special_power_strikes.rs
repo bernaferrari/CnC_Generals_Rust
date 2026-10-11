@@ -1004,20 +1004,13 @@ impl GameLogic {
             return;
         }
 
-        // C++ startMoving TheAudio + splash roll (leftover-play, then queue).
+        // C++ startMoving + splash roll, delivered by this world's audio queue.
         let mut audio_jobs: Vec<(ObjectId, String, bool, glam::Vec3)> = Vec::new();
         for (gid, gpos, _) in &guides {
             let Some(obj) = self.objects.get_mut(gid) else {
                 continue;
             };
-            let template = obj.template_name.clone();
-            let Some(wg) = obj.wave_guide_data.as_mut() else {
-                continue;
-            };
-            let (looping, splash) =
-                crate::game_logic::host_wave_guide::leftover_wave_guide_audio_tick(
-                    wg, &template, gid.0, frame,
-                );
+            let (looping, splash) = obj.tick_wave_guide_audio(&self.logic_random, frame);
             if let Some(name) = looping {
                 audio_jobs.push((*gid, name, true, *gpos));
             }

@@ -483,7 +483,7 @@ impl GameLogic {
             let killed = r.take_damage_from_typed_death_with_repulsor_policy(
                 dmg,
                 None,
-                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::combat::DamageType::Falling,
                 HostDeathType::Splatted,
                 &mut self.health_events,
                 &self.enable_repulsors,

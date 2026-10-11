@@ -11,6 +11,11 @@ impl GameLogic {
     /// C++ AI.cpp:332-343, after object modules and before BuildAssistant.
     /// Compatibility registries are never consulted to choose another driver.
     pub(in super::super) fn update_match_ai(&mut self) {
+        // AIStates.cpp:2052-2085 updates the selected object goal during
+        // object AI; AI.cpp:332 then consumes its path queue. Re-read the
+        // driving object here so queued work sees this frame's goal pose.
+        let object_ids: Vec<_> = self.objects.keys().copied().collect();
+        self.refresh_movement_goal_objects(&object_ids);
         self.reissue_pending_moves();
         self.process_pathfind_queue();
         let current_time = self.sim_time_seconds;

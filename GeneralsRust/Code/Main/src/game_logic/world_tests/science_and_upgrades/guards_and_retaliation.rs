@@ -564,12 +564,12 @@ fn guard_area_polygon_rejects_outside_and_covers_far_corner() {
             ICoord3D::new(-200, 40, 0),
         ],
     );
-    gamelogic::terrain::get_terrain_logic()
-        .write()
-        .expect("terrain")
-        .add_trigger_area(trigger);
-
     let mut logic = guard_test_world();
+    logic
+        .host_trigger_world
+        .lock()
+        .expect("owned guard geometry")
+        .set_trigger_areas(&[trigger]);
     let mut gt = ThingTemplate::new("PolyGuard");
     gt.add_kind_of(KindOf::Infantry);
     gt.add_kind_of(KindOf::Attackable);
@@ -1226,12 +1226,12 @@ fn area_guard_outer_chase_uses_polygon_radius() {
         ],
     );
     let poly_r = trigger.get_radius();
-    gamelogic::terrain::get_terrain_logic()
-        .write()
-        .expect("terrain")
-        .add_trigger_area(trigger);
-
     let mut logic = guard_test_world();
+    logic
+        .host_trigger_world
+        .lock()
+        .expect("owned guard geometry")
+        .set_trigger_areas(&[trigger]);
     let mut gt = ThingTemplate::new("PolyOuterGuard");
     gt.add_kind_of(KindOf::Infantry);
     gt.add_kind_of(KindOf::Attackable);
@@ -1731,4 +1731,178 @@ fn tn_guard_nemesis_rejects_unattackable_damager() {
         Some(tnl),
         "pool must stay inside when the damager is not attackable"
     );
+}
+
+#[test]
+fn named_guard_outer_geometry_is_owner_local_with_same_ids_and_reset() {
+    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::polygon_trigger::PolygonTrigger;
+    const NAME: &str = "OwnerGuardPolygon";
+    const GUARD: ObjectId = ObjectId(6301);
+    const PREY: ObjectId = ObjectId(6302);
+    fn area(min: i32, max: i32) -> PolygonTrigger {
+        PolygonTrigger::new(
+            6300,
+            AsciiString::from(NAME),
+            vec![
+                ICoord3D::new(min, min, 0),
+                ICoord3D::new(max, min, 0),
+                ICoord3D::new(max, max, 0),
+                ICoord3D::new(min, max, 0),
+            ],
+        )
+    }
+    fn participants(world: &mut GameLogic) {
+        let mut template = ThingTemplate::new("OwnedNamedGuard");
+        template
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable);
+        let mut guard = guard_test_object(template, GUARD, Team::China);
+        guard.set_position(Vec3::new(300.0, 0.0, 300.0));
+        guard.guard_position = Some(Vec3::new(300.0, 0.0, 300.0));
+        guard.guard_area_trigger = Some(NAME.into());
+        guard.vision_range = 100.0;
+        guard.weapon = Some(wave21_guard_weapon());
+        guard.set_ai_state(AIState::Attacking);
+        guard.guard_chase_phase = 2;
+        guard.guard_chase_give_up_frame = world.frame.saturating_add(10_000);
+        guard.status.attacking = true;
+        world.add_object(guard);
+        let (_, outer) = world.host_std_guard_ranges(GUARD);
+        let radius = area(0, 600).get_radius();
+        assert!(radius > outer && outer > 0.0);
+        let mid = (outer + radius) * 0.5;
+        let mut template = ThingTemplate::new("OwnedNamedPrey");
+        template
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable);
+        let mut prey = Object::new(template, PREY, Team::USA);
+        prey.set_position(Vec3::new(300.0 + mid, 0.0, 300.0));
+        world.add_object(prey);
+        world.objects.get_mut(&GUARD).unwrap().target = Some(PREY);
+    }
+    let mut a = guard_test_world();
+    let mut b = guard_test_world();
+    let mut absent = guard_test_world();
+    a.host_trigger_world
+        .lock()
+        .unwrap()
+        .set_trigger_areas(&[area(0, 600)]);
+    b.host_trigger_world
+        .lock()
+        .unwrap()
+        .set_trigger_areas(&[area(260, 340)]);
+    for world in [&mut a, &mut b, &mut absent] {
+        participants(world);
+    }
+    assert_eq!(
+        a.host_named_guard_area_polygon(NAME).unwrap().1,
+        area(0, 600).get_radius()
+    );
+    assert_eq!(
+        b.host_named_guard_area_polygon(NAME).unwrap().1,
+        area(260, 340).get_radius()
+    );
+    assert!(absent.host_named_guard_area_polygon(NAME).is_none());
+    for world in [&mut b, &mut absent, &mut a] {
+        world.update_support_states(&[GUARD, PREY], 1.0 / 30.0);
+    }
+    assert_eq!(
+        a.objects[&GUARD].target,
+        Some(PREY),
+        "owned large polygon extends outer chase"
+    );
+    assert_eq!(
+        b.objects[&GUARD].target, None,
+        "same named small polygon does not extend outer chase"
+    );
+    assert_eq!(
+        absent.objects[&GUARD].target, None,
+        "missing geometry retains ordinary vision outer range"
+    );
+    b.reset();
+    // Existing reset clears trigger occupancy, retaining admitted map geometry.
+    assert_eq!(
+        b.host_named_guard_area_polygon(NAME).unwrap().1,
+        area(260, 340).get_radius()
+    );
+    b.host_trigger_world
+        .lock()
+        .unwrap()
+        .set_trigger_areas(&[area(0, 600)]);
+    drop(b);
+    drop(absent);
+    a.update_support_states(&[GUARD, PREY], 1.0 / 30.0);
+    assert_eq!(
+        a.objects[&GUARD].target,
+        Some(PREY),
+        "other owner's reset/re-admission/drop cannot change A's polygon chase"
+    );
+    a.reset();
+    assert_eq!(
+        a.host_named_guard_area_polygon(NAME).unwrap().1,
+        area(0, 600).get_radius()
+    );
+}
+
+#[test]
+fn named_guard_center_height_uses_driving_world_after_other_owner_reset_and_drop() {
+    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::polygon_trigger::PolygonTrigger;
+    const NAME: &str = "OwnedGuardHeight";
+    fn admit(world: &mut GameLogic, height: f32) {
+        let width = world.pathfinding_system.grid.width() as u32;
+        let rows = world.pathfinding_system.grid.height() as u32;
+        assert!(width > 0 && rows > 0);
+        assert!(world.restore_terrain_heights_from_grid(
+            width,
+            rows,
+            &vec![height; (width * rows) as usize],
+        ));
+        let polygon = PolygonTrigger::new(
+            6350,
+            AsciiString::from(NAME),
+            vec![
+                ICoord3D::new(10, 20, 0),
+                ICoord3D::new(31, 20, 0),
+                ICoord3D::new(31, 43, 0),
+                ICoord3D::new(10, 43, 0),
+            ],
+        );
+        world
+            .host_trigger_world
+            .lock()
+            .unwrap()
+            .set_trigger_areas(&[polygon]);
+    }
+    fn center(world: &GameLogic, height: f32) {
+        let (center, radius, polygon) = world.host_named_guard_area_polygon(NAME).unwrap();
+        // Preserve the original integer-bounds midpoint, including half cells.
+        assert_eq!(center, Vec3::new(20.5, height, 31.5));
+        assert_eq!(radius, polygon.get_radius());
+        assert!(polygon.point_in_trigger(&gamelogic::common::Coord2D::new(20.5, 31.5)));
+        assert!(!polygon.point_in_trigger(&gamelogic::common::Coord2D::new(32.0, 31.5)));
+    }
+    let mut a = guard_test_world();
+    let mut b = guard_test_world();
+    let absent = guard_test_world();
+    admit(&mut a, 12.0);
+    admit(&mut b, 36.0);
+    center(&a, 12.0);
+    center(&b, 36.0);
+    assert!(absent.host_named_guard_area_polygon(NAME).is_none());
+    b.reset();
+    // Reset retains map geometry but clears its admitted height cache.
+    center(&b, 0.0);
+    center(&a, 12.0);
+    admit(&mut b, 48.0);
+    center(&b, 48.0);
+    center(&a, 12.0);
+    drop(b);
+    drop(absent);
+    center(&a, 12.0);
+    a.reset();
+    center(&a, 0.0);
+    admit(&mut a, 24.0);
+    center(&a, 24.0);
 }

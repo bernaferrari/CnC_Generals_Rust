@@ -1058,7 +1058,7 @@ impl CnCGameEngine {
             crate::save_load::campaign_header_from_campaign_manager();
 
         SaveGameInfo {
-            pristine_map_name: self.game_logic.map_definition_source.clone(),
+            pristine_map_name: self.host_game_logic().map_definition_source.clone(),
             filename: slot.to_string(),
             display_name: display_name.to_string(),
             description: description.to_string(),
@@ -1400,6 +1400,7 @@ impl CnCGameEngine {
         active_mode: crate::game_logic::GameMode,
         template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
         ai_definition_base: &game_engine::common::ini::AIData,
+        production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
     ) -> Result<StagedRestoreWorld, String> {
         // A previous aborted decode cannot lend its client chunk to this save.
@@ -1417,6 +1418,7 @@ impl CnCGameEngine {
             active_mode,
             template_catalog,
             ai_definition_base,
+            production_energy_base,
             live_services,
             |snapshot, staged| {
                 save_file_manager
@@ -1440,6 +1442,7 @@ impl CnCGameEngine {
         active_mode: crate::game_logic::GameMode,
         template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
         ai_definition_base: &game_engine::common::ini::AIData,
+        production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
         restore_snapshot: F,
     ) -> Result<StagedRestoreWorld, String>
@@ -1487,6 +1490,7 @@ impl CnCGameEngine {
             gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(live_services);
         let mut staged = crate::game_logic::GameLogic::new();
         staged.set_ai_definition_base(ai_definition_base.clone());
+        staged.admit_production_energy_base(production_energy_base);
         staged.start_new_game_for_restore(mode);
         // Map object restoration needs the live INI/template catalog.  Keep
         // custom/mod templates from the source match while retaining the fresh
@@ -1572,6 +1576,7 @@ impl CnCGameEngine {
             active_mode,
             &template_catalog,
             self.game_logic.ai_definitions.baseline(),
+            self.game_logic.production_energy_baseline(),
             &self.game_logic.world_services,
         ) {
             Ok(staged) => staged,
@@ -1632,7 +1637,7 @@ impl CnCGameEngine {
                 .apply_logic_chunk_state(state);
         }
         game_engine::common::random_value::init_client_audio_random_with_seed(0);
-        self.game_logic.set_logic_random_seed(0);
+        self.host_game_logic_mut().set_logic_random_seed(0);
         {
             let mut global = game_engine::common::global_data::write();
             global.pending_file = save_info.map_name.clone();
@@ -2232,6 +2237,7 @@ mod staged_restore_tests {
             GameMode::Shell,
             &catalog,
             source.ai_definitions.baseline(),
+            source.production_energy_baseline(),
             &source.world_services,
         ) {
             Ok(_) => panic!("missing saved map must reject before a false InGame restore"),
@@ -2267,6 +2273,7 @@ mod staged_restore_tests {
                     GameMode::Skirmish,
                     &catalog,
                     logic.ai_definitions.baseline(),
+                    logic.production_energy_baseline(),
                     &logic.world_services,
                     |_snapshot, _staged| {
                         panic!("invalid client chunk must fail before stage restore")
@@ -2301,6 +2308,7 @@ mod staged_restore_tests {
                 let mut ai_base = source.ai_definitions.baseline().clone();
                 ai_base.resources_poor = 3217;
                 source.set_ai_definition_base(ai_base);
+                source.admit_production_energy_base(game_engine::common::ini::ini_game_data::ProductionEnergyRules::default().overlay_ini_text("GameData\nLowEnergyPenaltyModifier=1\nMinLowEnergyProductionSpeed=.5\nMaxLowEnergyProductionSpeed=.8\nEnd").unwrap());
                 source.start_new_game(GameMode::Skirmish);
                 assert!(source.load_map(&map_name), "load source retail map");
                 // Seed a save-time FOW state that differs from map-start reveals. The
@@ -2367,6 +2375,7 @@ mod staged_restore_tests {
                     GameMode::Shell,
                     &catalog,
                     source.ai_definitions.baseline(),
+                    source.production_energy_baseline(),
                     &source.world_services,
                 )
                 .expect("saved map should load before restore");
@@ -2450,6 +2459,7 @@ mod staged_restore_tests {
                 let mut ai_base = source.ai_definitions.baseline().clone();
                 ai_base.resources_poor = 7654;
                 source.set_ai_definition_base(ai_base);
+                source.admit_production_energy_base(game_engine::common::ini::ini_game_data::ProductionEnergyRules::default().overlay_ini_text("GameData\nLowEnergyPenaltyModifier=1\nMinLowEnergyProductionSpeed=.5\nMaxLowEnergyProductionSpeed=.8\nEnd").unwrap());
                 source.start_new_game(GameMode::Skirmish);
                 assert!(source.load_map(&map_name), "load source retail map");
                 // Seed compatibility state independently of match setup. A failed
@@ -2616,10 +2626,12 @@ mod staged_restore_tests {
                     GameMode::Skirmish,
                     &catalog,
                     source.ai_definitions.baseline(),
+                    source.production_energy_baseline(),
                     &source.world_services,
                     |_snapshot, staged| {
                         assert!(staged.isInGame(), "failure is injected after map load");
                         assert_eq!(staged.ai_definitions.baseline().resources_poor, 7654);
+                        assert_eq!(staged.production_energy_rules().min_speed, 0.5);
                         assert!(
                             gamelogic::runtime_world_transaction::world_runtime_staging_active()
                         );
@@ -2778,12 +2790,12 @@ mod staged_restore_tests {
                     std::fs::write(&original_map, &saved_geometry).unwrap();
                     std::fs::write(
                         original_dir.join("Map.ini"),
-                        "AIData\n WallHeight = 31\n GuardEnemyScanRate = 1500\n End\n",
+                        "AIData\n WallHeight = 31\n GuardEnemyScanRate = 1500\n End\nGameData\n MinLowEnergyProductionSpeed=.7\n End\n",
                     )
                     .unwrap();
                     std::fs::write(
                         original_dir.join("Solo.ini"),
-                        "AIData\n GuardEnemyScanRate = 2500\n AttackUsesLineOfSight = No\n End\n",
+                        "AIData\n GuardEnemyScanRate = 2500\n AttackUsesLineOfSight = No\n End\nGameData\n MaxLowEnergyProductionSpeed=.75\n End\n",
                     )
                     .unwrap();
                     let resolved_source = original_map.to_str().unwrap().to_string();
@@ -2809,6 +2821,7 @@ mod staged_restore_tests {
                     base.guard_enemy_scan_rate = 15;
                     base.wall_height = 21.0;
                     source.set_ai_definition_base(base);
+                    source.admit_production_energy_base(game_engine::common::ini::ini_game_data::ProductionEnergyRules::default().overlay_ini_text("GameData\nLowEnergyPenaltyModifier=1\nMinLowEnergyProductionSpeed=.5\nMaxLowEnergyProductionSpeed=.8\nEnd").unwrap());
                     source.start_new_game(GameMode::Skirmish);
                     assert!(source.load_map(&map_name));
                     assert_eq!(
@@ -2891,6 +2904,7 @@ mod staged_restore_tests {
                             GameMode::Skirmish,
                             &catalog,
                             source.ai_definitions.baseline(),
+                            source.production_energy_baseline(),
                             &source.world_services,
                             |snapshot, candidate| {
                                 saves
@@ -2914,6 +2928,9 @@ mod staged_restore_tests {
                             "rebuild original engine + Map.ini + Solo.ini definitions"
                         );
                         assert_eq!(staged.logic.ai_definitions.baseline().resources_poor, 4321);
+                        assert_eq!(staged.logic.production_energy_baseline().min_speed, 0.5);
+                        assert_eq!(staged.logic.production_energy_rules().min_speed, 0.7);
+                        assert_eq!(staged.logic.production_energy_rules().max_speed, 0.75);
                         assert_eq!(
                             staged
                                 .logic
@@ -3105,6 +3122,7 @@ mod staged_restore_tests {
                     GameMode::Shell,
                     &catalog,
                     source.ai_definitions.baseline(),
+                    source.production_energy_baseline(),
                     &source.world_services,
                 )
                 .expect("stage RNG continuation save");
@@ -3361,6 +3379,7 @@ mod staged_restore_tests {
                         GameMode::Skirmish,
                         &catalog,
                         source.ai_definitions.baseline(),
+                        source.production_energy_baseline(),
                         &source.world_services,
                         |_, candidate| {
                             assert!(candidate.isInGame());
@@ -3395,6 +3414,7 @@ mod staged_restore_tests {
                         GameMode::Skirmish,
                         &catalog,
                         source.ai_definitions.baseline(),
+                        source.production_energy_baseline(),
                         &source.world_services,
                     )
                     .expect("successful native owned-service staging");

@@ -311,9 +311,7 @@ impl<'a> CommandExecutor<'a> {
         polygon_name: Option<&str>,
     ) -> CommandResult {
         let (center, radius) = if let Some(name) = polygon_name.filter(|n| !n.is_empty()) {
-            if let Some((c, r, _)) =
-                crate::game_logic::GameLogic::host_named_guard_area_polygon(name)
-            {
+            if let Some((c, r, _)) = self.game_logic.host_named_guard_area_polygon(name) {
                 (c, if r > 0.0 { r } else { radius })
             } else {
                 (center, radius)

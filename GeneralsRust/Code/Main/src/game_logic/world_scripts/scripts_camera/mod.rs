@@ -218,6 +218,9 @@ fn panel_flag_is_indestructible(flag: &str) -> bool {
 }
 
 mod named_commands;
+mod nearest_object_move;
+#[cfg(test)]
+mod nearest_object_move_tests;
 #[cfg(test)]
 mod prerequisite_owner_tests;
 mod script_action_effects;
@@ -305,3 +308,9 @@ mod condition_cursor_owner_tests;
 
 #[cfg(test)]
 mod sighting_owner_tests;
+
+#[cfg(test)]
+mod condition_body_census_tests;
+
+#[cfg(test)]
+mod eva_script_owner_tests;

@@ -1320,12 +1320,32 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
     }
     assert!(game_logic.honesty_hellfire_drone_attach_ok());
 
-    // Hellfire auto-fire residual damages nearby enemy.
-    {
-        let e = game_logic.host_object_mut(stealth_id).unwrap();
-        e.set_status_stealthed(false);
-        e.set_position(Vec3::new(40.0, 0.0, 0.0));
-    }
+    // Complete the Scout detection phase without leaving its Infantry
+    // victim in Hellfire's acquisition range. C++ Weapon.cpp:954-989 and
+    // HellfireMissileWeapon ScatterRadiusVsInfantry=10 permit a miss;
+    // accepted fire at Infantry is not a guaranteed single-shot HP change.
+    game_logic
+        .host_object_mut(stealth_id)
+        .unwrap()
+        .set_position(Vec3::new(1000.0, 0.0, 0.0));
+    let damage_target_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("non-infantry Hellfire damage target");
+    assert!(
+        game_logic
+            .host_object(damage_target_id)
+            .unwrap()
+            .is_kind_of(KindOf::Vehicle)
+    );
+    assert!(
+        !game_logic
+            .host_object(damage_target_id)
+            .unwrap()
+            .is_kind_of(KindOf::Infantry)
+    );
+
+    // Hellfire auto-fire residual damages the nearby Vehicle. The separate
+    // hellfire_scatter_misses_infantry_residual case retains scatter coverage.
     {
         let h = game_logic.host_object_mut(hf_id).unwrap();
         h.set_ai_state(AIState::Idle);
@@ -1338,17 +1358,17 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
         }
     }
     let enemy_hp_before = game_logic
-        .host_object(stealth_id)
+        .host_object(damage_target_id)
         .map(|e| e.health.current)
         .unwrap_or(0.0);
     game_logic.set_current_frame(40);
-    game_logic.update_combat(&[hf_id, stealth_id], LOGIC_FRAME_TIMESTEP);
+    game_logic.update_combat(&[hf_id, damage_target_id], LOGIC_FRAME_TIMESTEP);
     assert!(
         game_logic.honesty_hellfire_drone_auto_fire_ok(),
         "hellfire auto-fire residual honesty must fire"
     );
     let enemy_hp_after = game_logic
-        .host_object(stealth_id)
+        .host_object(damage_target_id)
         .map(|e| e.health.current)
         .unwrap_or(0.0);
     assert!(

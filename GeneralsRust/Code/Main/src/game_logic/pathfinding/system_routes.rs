@@ -1146,6 +1146,7 @@ impl PathfindingSystem {
             None,
             if is_crusher { 1 } else { 0 },
             None,
+            None,
         )
     }
 
@@ -1163,6 +1164,7 @@ impl PathfindingSystem {
         seeker_player: Option<u32>,
         crusher_level: u8,
         ignore_obstacle: Option<u32>,
+        receiver: Option<u32>,
     ) -> Vec3 {
         if waypoints.is_empty() {
             return pos;
@@ -1212,7 +1214,7 @@ impl PathfindingSystem {
             Some(g) => {
                 let from = g.world_to_grid(pos);
                 let dest = g.world_to_grid(to);
-                g.line_passable_ex(
+                g.line_passable_for_receiver(
                     from,
                     dest,
                     surfaces,
@@ -1222,6 +1224,7 @@ impl PathfindingSystem {
                     crusher_level,
                     false,
                     ignore_obstacle,
+                    receiver,
                 )
             }
             None => true,

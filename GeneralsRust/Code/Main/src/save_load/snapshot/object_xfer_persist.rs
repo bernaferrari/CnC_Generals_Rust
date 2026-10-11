@@ -1854,6 +1854,28 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
             object.ignored_obstacle_id = entry.ignored_obstacle_id.map(ObjectId);
             object.can_path_through_units = entry.can_path_through_units;
             object.last_command_source = entry.last_command_source;
+            if entry.has_locomotor_template {
+                object.cur_locomotor_name = entry.cur_locomotor_name;
+                // Reuse the existing application catalog seam once. Facts are
+                // inert; transferred motion/arrival/pose below remain owners.
+                // This ambient catalog is tracked in hq-0hukx, not isolated.
+                if let Some(binding) = object.cur_locomotor_name.as_deref().and_then(
+                    crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding,
+                ) {
+                    // Older guard/panic module capsules already restored their
+                    // explicit width projection. Keep it through this definition
+                    // reconstruction; v11 later restores the canonical row.
+                    let saved_width = (object.panic_runtime.is_some()
+                        || object.unit_ai_runtime.guard_phase().is_some())
+                    .then_some(object.wander_width_factor);
+                    crate::game_logic::locomotor_bootstrap::apply_host_locomotor_template_facts(
+                        object, &binding,
+                    );
+                    if let Some(width) = saved_width {
+                        object.wander_width_factor = width;
+                    }
+                }
+            }
             object.restore_saved_locomotor(entry.locomotor_upgrade, entry.cur_locomotor_set);
             if entry.has_locomotor_motion {
                 object.braking = entry.braking;
@@ -1874,20 +1896,8 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
                 object.wander_offset_increment = entry.wander_offset_increment;
             }
             if entry.has_locomotor_template {
-                object.cur_locomotor_name = entry.cur_locomotor_name;
                 object.locomotor_surfaces = entry.valid_locomotor_surfaces;
                 object.downhill_only = entry.downhill_only;
-                // C++ Locomotor::getAppearance reads its immutable template
-                // (Locomotor.h:227). Resolve the saved current pointer's fact;
-                // applying the full binding would reset transferred runtime.
-                if let Some(binding) = object.cur_locomotor_name.as_deref().and_then(
-                    crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding,
-                ) {
-                    object.loco_appearance = binding.appearance;
-                    // CPP Locomotor.cpp:2201 selects Z behavior from the same
-                    // immutable current template, not serialized motion state.
-                    object.loco_behavior_z = binding.behavior_z;
-                }
             }
             let locomotor_body_saved = entry.has_locomotor_template
                 || entry.has_locomotor_motion
@@ -2823,3 +2833,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "locomotor_restore_tests.rs"]
+mod locomotor_restore_tests;

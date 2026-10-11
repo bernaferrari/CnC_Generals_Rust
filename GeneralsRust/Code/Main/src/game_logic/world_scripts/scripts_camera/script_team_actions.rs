@@ -33,9 +33,7 @@ impl GameLogic {
                     let Some(dest) = self.host_script_area_center(&area) else {
                         continue;
                     };
-                    let poly_radius =
-                        crate::game_logic::GameLogic::host_named_guard_area_polygon(&area)
-                            .map(|(_, r, _)| r);
+                    let poly_radius = self.host_named_guard_area_polygon(&area).map(|(_, r, _)| r);
                     for id in self.host_script_team_member_ids(&team) {
                         if self.host_script_unit_can_guard(id) {
                             let _ = self.unit_command_guard_position(id, dest);

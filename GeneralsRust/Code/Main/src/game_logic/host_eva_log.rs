@@ -1,20 +1,105 @@
-//! Frame-local host EVA pulse log for presentation audio residual.
-//!
-//! C++ `TheEva->setShouldPlay` edges are recorded here so PresentationFrame can
-//! emit snapshot EVA audio without dual-reading live GameLogic mid-render.
-
-use gamelogic::helpers::{EvaEvent, TheEva};
-use std::cell::RefCell;
+//! Per-match EVA intent. Native Eva owns speech checks and boolean latches.
+use gamelogic::helpers::EvaEvent;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostEvaEvent {
-    /// Presentation/audio event name (`EVA_` + C++ `TheEvaMessageNames` token).
-    pub name: String,
+pub enum EvaOperation {
+    Request(EvaEvent),
+    SetEnabled(bool),
 }
 
-thread_local! {
-    static LOG: RefCell<Vec<HostEvaEvent>> = RefCell::new(Vec::new());
-    static LAST_DRAIN: RefCell<Vec<HostEvaEvent>> = RefCell::new(Vec::new());
+#[derive(Debug, Clone)]
+pub struct EvaReceipt {
+    session: Arc<()>,
+    pub cursor: u64,
+}
+impl EvaReceipt {
+    pub fn same_session(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.session, &other.session)
+    }
+}
+impl PartialEq for EvaReceipt {
+    fn eq(&self, other: &Self) -> bool {
+        self.same_session(other) && self.cursor == other.cursor
+    }
+}
+impl Eq for EvaReceipt {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EvaDelivery {
+    pub receipt: EvaReceipt,
+    pub operations: Vec<EvaOperation>,
+    pub enabled: bool,
+}
+impl Default for EvaDelivery {
+    fn default() -> Self {
+        Self {
+            receipt: EvaReceipt {
+                session: Arc::new(()),
+                cursor: 0,
+            },
+            operations: Vec::new(),
+            enabled: true,
+        }
+    }
+}
+#[derive(Debug)]
+pub struct HostEvaAnnouncements {
+    delivery: EvaDelivery,
+}
+impl Default for HostEvaAnnouncements {
+    fn default() -> Self {
+        Self {
+            delivery: EvaDelivery::default(),
+        }
+    }
+}
+impl HostEvaAnnouncements {
+    pub fn request(&mut self, event: EvaEvent) {
+        self.delivery.operations.push(EvaOperation::Request(event));
+    }
+    /// Eva.cpp setEnabled clears latches even when enabled is unchanged.
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.delivery.enabled = enabled;
+        self.delivery
+            .operations
+            .push(EvaOperation::SetEnabled(enabled));
+    }
+    pub fn is_enabled(&self) -> bool {
+        self.delivery.enabled
+    }
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+    pub fn take_delivery(&mut self) -> EvaDelivery {
+        let operations = std::mem::take(&mut self.delivery.operations);
+        if !operations.is_empty() {
+            self.delivery.receipt.cursor = self
+                .delivery
+                .receipt
+                .cursor
+                .checked_add(1)
+                .expect("EVA receipt exhausted");
+        }
+        EvaDelivery {
+            receipt: self.delivery.receipt.clone(),
+            operations,
+            enabled: self.delivery.enabled,
+        }
+    }
+    #[cfg(test)]
+    pub fn take_requests(&mut self) -> Vec<EvaEvent> {
+        let mut requests = Vec::new();
+        self.delivery.operations.retain(|operation| {
+            if let EvaOperation::Request(event) = operation {
+                requests.push(*event);
+                false
+            } else {
+                true
+            }
+        });
+        requests
+    }
 }
 
 /// Map C++ `EvaEvent` residual → C++ `TheEvaMessageNames` token (no `EVA_` prefix).
@@ -83,132 +168,67 @@ pub fn eva_event_audio_name(event: EvaEvent) -> String {
     format!("EVA_{}", eva_event_table_token(event))
 }
 
-/// C++ `Eva::m_enabled` / leftover `TheEva::is_enabled`.
-pub fn is_enabled() -> bool {
-    TheEva::is_enabled().unwrap_or(true)
-}
-
-pub fn record(name: impl Into<String>) {
-    if !is_enabled() {
-        return;
+/// C++ table token lookup for debug input; no event registry or mutable state.
+pub fn eva_event_from_table_token(token: &str) -> Option<EvaEvent> {
+    use EvaEvent::*;
+    match token.trim().to_ascii_uppercase().as_str() {
+        "LOWPOWER" => Some(LowPower),
+        "INSUFFICIENTFUNDS" => Some(InsufficientFunds),
+        "SUPERWEAPONDETECTED_OWN_PARTICLECANNON" => Some(SuperweaponDetectedOwnParticleCannon),
+        "SUPERWEAPONDETECTED_OWN_NUKE" => Some(SuperweaponDetectedOwnNuke),
+        "SUPERWEAPONDETECTED_OWN_SCUDSTORM" => Some(SuperweaponDetectedOwnScudStorm),
+        "SUPERWEAPONDETECTED_ALLY_PARTICLECANNON" => Some(SuperweaponDetectedAllyParticleCannon),
+        "SUPERWEAPONDETECTED_ALLY_NUKE" => Some(SuperweaponDetectedAllyNuke),
+        "SUPERWEAPONDETECTED_ALLY_SCUDSTORM" => Some(SuperweaponDetectedAllyScudStorm),
+        "SUPERWEAPONDETECTED_ENEMY_PARTICLECANNON" => Some(SuperweaponDetectedEnemyParticleCannon),
+        "SUPERWEAPONDETECTED_ENEMY_NUKE" => Some(SuperweaponDetectedEnemyNuke),
+        "SUPERWEAPONDETECTED_ENEMY_SCUDSTORM" => Some(SuperweaponDetectedEnemyScudStorm),
+        "SUPERWEAPONLAUNCHED_OWN_PARTICLECANNON" => Some(SuperweaponLaunchedOwnParticleCannon),
+        "SUPERWEAPONLAUNCHED_OWN_NUKE" => Some(SuperweaponLaunchedOwnNuke),
+        "SUPERWEAPONLAUNCHED_OWN_SCUDSTORM" => Some(SuperweaponLaunchedOwnScudStorm),
+        "SUPERWEAPONLAUNCHED_ALLY_PARTICLECANNON" => Some(SuperweaponLaunchedAllyParticleCannon),
+        "SUPERWEAPONLAUNCHED_ALLY_NUKE" => Some(SuperweaponLaunchedAllyNuke),
+        "SUPERWEAPONLAUNCHED_ALLY_SCUDSTORM" => Some(SuperweaponLaunchedAllyScudStorm),
+        "SUPERWEAPONLAUNCHED_ENEMY_PARTICLECANNON" => Some(SuperweaponLaunchedEnemyParticleCannon),
+        "SUPERWEAPONLAUNCHED_ENEMY_NUKE" => Some(SuperweaponLaunchedEnemyNuke),
+        "SUPERWEAPONLAUNCHED_ENEMY_SCUDSTORM" => Some(SuperweaponLaunchedEnemyScudStorm),
+        "SUPERWEAPONREADY_OWN_PARTICLECANNON" => Some(SuperweaponReadyOwnParticleCannon),
+        "SUPERWEAPONREADY_OWN_NUKE" => Some(SuperweaponReadyOwnNuke),
+        "SUPERWEAPONREADY_OWN_SCUDSTORM" => Some(SuperweaponReadyOwnScudStorm),
+        "SUPERWEAPONREADY_ALLY_PARTICLECANNON" => Some(SuperweaponReadyAllyParticleCannon),
+        "SUPERWEAPONREADY_ALLY_NUKE" => Some(SuperweaponReadyAllyNuke),
+        "SUPERWEAPONREADY_ALLY_SCUDSTORM" => Some(SuperweaponReadyAllyScudStorm),
+        "SUPERWEAPONREADY_ENEMY_PARTICLECANNON" => Some(SuperweaponReadyEnemyParticleCannon),
+        "SUPERWEAPONREADY_ENEMY_NUKE" => Some(SuperweaponReadyEnemyNuke),
+        "SUPERWEAPONREADY_ENEMY_SCUDSTORM" => Some(SuperweaponReadyEnemyScudStorm),
+        "BUILDINGLOST" => Some(BuildingLost),
+        "BASEUNDERATTACK" => Some(BaseUnderAttack),
+        "ALLYUNDERATTACK" => Some(AllyUnderAttack),
+        "BEACONDETECTED" => Some(BeaconDetected),
+        "ENEMYBLACKLOTUSDETECTED" => Some(EnemyBlackLotusDetected),
+        "ENEMYJARMENKELLDETECTED" => Some(EnemyJarmenKellDetected),
+        "ENEMYCOLONELBURTONDETECTED" => Some(EnemyColonelBurtonDetected),
+        "OWNBLACKLOTUSDETECTED" => Some(OwnBlackLotusDetected),
+        "OWNJARMENKELLDETECTED" => Some(OwnJarmenKellDetected),
+        "OWNCOLONELBURTONDETECTED" => Some(OwnColonelBurtonDetected),
+        "UNITLOST" => Some(UnitLost),
+        "GENERALLEVELUP" => Some(GeneralLevelUp),
+        "VEHICLESTOLEN" => Some(VehicleStolen),
+        "BUILDINGSTOLEN" => Some(BuildingStolen),
+        "CASHSTOLEN" => Some(CashStolen),
+        "UPGRADECOMPLETE" => Some(UpgradeComplete),
+        "BUILDINGBEINGSTOLEN" => Some(BuildingBeingStolen),
+        "BUILDINGSABOTAGED" => Some(BuildingSabotaged),
+        "SUPERWEAPONLAUNCHED_OWN_GPS_SCRAMBLER" => Some(SuperweaponLaunchedOwnGpsScrambler),
+        "SUPERWEAPONLAUNCHED_ALLY_GPS_SCRAMBLER" => Some(SuperweaponLaunchedAllyGpsScrambler),
+        "SUPERWEAPONLAUNCHED_ENEMY_GPS_SCRAMBLER" => Some(SuperweaponLaunchedEnemyGpsScrambler),
+        "SUPERWEAPONLAUNCHED_OWN_SNEAK_ATTACK" => Some(SuperweaponLaunchedOwnSneakAttack),
+        "SUPERWEAPONLAUNCHED_ALLY_SNEAK_ATTACK" => Some(SuperweaponLaunchedAllySneakAttack),
+        "SUPERWEAPONLAUNCHED_ENEMY_SNEAK_ATTACK" => Some(SuperweaponLaunchedEnemySneakAttack),
+        _ => None,
     }
-    LOG.with(|log| {
-        log.borrow_mut().push(HostEvaEvent { name: name.into() });
-    });
-}
-
-/// Wave 534/536: record from typed EvaEvent (full setShouldPlay matrix).
-pub fn record_event(event: EvaEvent) {
-    record(eva_event_audio_name(event));
-}
-
-pub fn drain() -> Vec<HostEvaEvent> {
-    let v = LOG.with(|log| std::mem::take(&mut *log.borrow_mut()));
-    if !v.is_empty() {
-        LAST_DRAIN.with(|last| *last.borrow_mut() = v.clone());
-    }
-    v
-}
-
-/// Consume this tick's EVA pulses once. C++ `Eva::update` (Eva.cpp:264-295)
-/// clears `m_shouldPlay` after the edge; do not replay `LAST_DRAIN` into the
-/// next empty freeze.
-pub fn take_last_drain() -> Vec<HostEvaEvent> {
-    let pending = drain();
-    LAST_DRAIN.with(|last| last.borrow_mut().clear());
-    if !is_enabled() {
-        return Vec::new();
-    }
-    pending
-}
-
-pub fn clear() {
-    LOG.with(|log| log.borrow_mut().clear());
-    LAST_DRAIN.with(|last| last.borrow_mut().clear());
 }
 
 #[cfg(test)]
-mod host_eva_drain_tests {
-    use super::*;
-
-    fn restore_eva() {
-        let _ = TheEva::set_enabled(true);
-        clear();
-    }
-
-    #[test]
-    fn process_eva_events_must_not_steal_the_eva_queue() {
-        // C++ Eva::update (Eva.cpp:264-525) is the sole consumer of setShouldPlay.
-        let src = include_str!("world_scripts/scripts_camera/script_state.rs");
-        let process = src
-            .split("pub(in crate::game_logic::game_logic) fn process_eva_events")
-            .nth(1)
-            .and_then(|s| {
-                s.split("pub(in crate::game_logic::game_logic) fn mission_script_count")
-                    .next()
-            })
-            .unwrap_or("");
-        assert!(
-            !process.contains("TheEva::drain_events"),
-            "host process_eva_events must not steal TheEva so Eva.ini SideSounds can play"
-        );
-        assert!(
-            !process.contains("dispatch_eva_announcement"),
-            "generic EVA_* names must not replace Eva.ini SideSounds"
-        );
-    }
-
-    #[test]
-    fn take_last_drain_does_not_replay_into_the_next_freeze() {
-        restore_eva();
-        record("EVA_LOWPOWER");
-        let first = take_last_drain();
-        assert_eq!(first.len(), 1);
-        assert_eq!(first[0].name, "EVA_LOWPOWER");
-        let second = take_last_drain();
-        assert!(
-            second.is_empty(),
-            "empty tick must not replay LAST_DRAIN: {second:?}"
-        );
-        restore_eva();
-    }
-
-    #[test]
-    fn record_and_take_last_drain_silent_when_eva_disabled() {
-        restore_eva();
-        let _ = TheEva::set_enabled(false);
-        record_event(EvaEvent::LowPower);
-        record("EVA_UNITLOST");
-        assert!(
-            take_last_drain().is_empty(),
-            "disabled EVA must not freeze chat/HUD pulses"
-        );
-        restore_eva();
-    }
-
-    #[test]
-    fn pending_log_dropped_when_eva_disabled_before_drain() {
-        restore_eva();
-        record("EVA_LOWPOWER");
-        let _ = TheEva::set_enabled(false);
-        assert!(
-            take_last_drain().is_empty(),
-            "C++ setEvaEnabled clears waiting messages"
-        );
-        restore_eva();
-    }
-
-    #[test]
-    fn reenable_records_new_edges_only() {
-        restore_eva();
-        record("EVA_LOWPOWER");
-        let _ = TheEva::set_enabled(false);
-        let _ = take_last_drain();
-        let _ = TheEva::set_enabled(true);
-        record("EVA_UNITLOST");
-        let got = take_last_drain();
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].name, "EVA_UNITLOST");
-        restore_eva();
-    }
-}
+#[path = "eva_announcement_owner_tests.rs"]
+mod eva_announcement_owner_tests;

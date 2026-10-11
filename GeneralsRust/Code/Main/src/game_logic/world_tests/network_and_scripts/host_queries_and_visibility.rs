@@ -1,98 +1,165 @@
 //! Behavior suite extracted from `network_and_scripts`.
 use super::*;
 
+// Historical name: correctness must not require a process registry to be empty.
+// Both worlds use real Main objects and the production roster projection.
 #[test]
 fn host_named_unit_found_with_empty_object_registry() {
-    use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{
-        clear_host_script_query_snapshot, host_script_named_unit_id, host_script_team_unit_ids,
-    };
-
-    assert!(
-        OBJECT_REGISTRY.is_empty(),
-        "host path must not populate OBJECT_REGISTRY"
-    );
-
+    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::polygon_trigger::PolygonTrigger;
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("NamedScout");
-    t.set_health(100.0);
-    logic.templates.insert("NamedScout".into(), t);
+    let mut template = ThingTemplate::new("NamedScout");
+    template.set_health(100.0);
+    logic
+        .templates
+        .insert("NamedScout".into(), template.clone());
     let id = logic
         .create_object("NamedScout", Team::USA, Vec3::new(10.0, 0.0, 20.0))
         .expect("unit");
-    if let Some(o) = logic.host_object_mut(id) {
-        o.name = "MapNamedScout".into();
-    }
-
-    assert!(OBJECT_REGISTRY.is_empty());
+    logic.host_object_mut(id).unwrap().name = "MapNamedScout".into();
     assert_eq!(logic.host_named_unit_id("MapNamedScout"), Some(id));
     assert!(logic.host_team_unit_ids(Team::USA).contains(&id));
     assert!(
         !logic
-            .host_area_unit_ids(Vec3::new(0.0, 0.0, 0.0), Vec3::new(15.0, 0.0, 25.0))
+            .host_area_unit_ids(Vec3::ZERO, Vec3::new(15.0, 0.0, 25.0))
             .is_empty()
     );
-
-    if let Some(o) = logic.host_object_mut(id) {
-        o.set_position(Vec3::new(10.0, 42.0, 20.0));
-    }
-    logic.inject_host_script_query_snapshot();
-    assert_eq!(host_script_named_unit_id("MapNamedScout"), Some(id.0));
-    let host = gamelogic::scripting::host_script_query_object_by_id(id.0).expect("injected");
-    assert_eq!(host.x, 10.0);
-    assert_eq!(host.y, 42.0);
-    assert_eq!(host.z, 20.0);
-    assert_eq!(
-        gamelogic::scripting::host_script_named_unit_alive("MapNamedScout"),
-        Some(true)
-    );
-
-    assert!(gamelogic::scripting::host_script_query_has_any());
-    assert!(!host_script_team_unit_ids(Team::USA as u32).is_empty());
-    assert!(OBJECT_REGISTRY.is_empty());
-    // Existence is not inside-area when bounds are unknown.
-    assert_eq!(
-        gamelogic::scripting::host_script_named_unit_in_named_area(
-            "MapNamedScout",
-            "NoSuchTriggerArea"
-        ),
-        None
-    );
+    logic
+        .host_object_mut(id)
+        .unwrap()
+        .set_position(Vec3::new(10.0, 42.0, 20.0));
+    let snapshot = logic.build_host_script_query_snapshot();
+    assert_eq!(snapshot.named_unit_id("MapNamedScout"), Some(id.0));
+    let object = snapshot.object_by_id(id.0).expect("projected actual owner");
+    assert_eq!(object.x, 10.0);
+    assert_eq!(object.y, 42.0);
+    assert_eq!(object.z, 20.0);
+    assert_eq!(snapshot.named_unit_alive("MapNamedScout"), Some(true));
+    assert!(snapshot.has_any());
+    assert!(!snapshot.team_unit_ids(Team::USA as u32).is_empty());
+    let pad = |id, name: &str, min, max| {
+        PolygonTrigger::new(
+            id,
+            AsciiString::from(name),
+            vec![
+                ICoord3D::new(min, min, 0),
+                ICoord3D::new(max, min, 0),
+                ICoord3D::new(max, max, 0),
+                ICoord3D::new(min, max, 0),
+            ],
+        )
+    };
     {
-        use gamelogic::scripting::{HostScriptQuerySnapshot, set_host_script_query_snapshot};
-        let mut snap = HostScriptQuerySnapshot::default();
-        snap.named.insert("MapNamedScout".into(), id.0);
-        snap.objects
-            .push(gamelogic::scripting::HostScriptQueryObject {
-                id: id.0,
-                name: "MapNamedScout".into(),
-                team: Team::USA as u32,
-                x: 10.0,
-                z: 20.0,
-                alive: true,
-                ..Default::default()
-            });
-        snap.areas.insert("ScoutPad".into(), (0.0, 0.0, 15.0, 25.0));
-        snap.areas
-            .insert("FarPad".into(), (100.0, 100.0, 110.0, 110.0));
-        set_host_script_query_snapshot(snap);
+        let mut triggers = logic.host_trigger_world.lock().unwrap();
         assert_eq!(
-            gamelogic::scripting::host_script_named_unit_in_named_area("MapNamedScout", "ScoutPad"),
+            snapshot.named_unit_in_named_area("MapNamedScout", "NoSuchTriggerArea", &triggers),
+            None
+        );
+        triggers.set_trigger_areas(&[
+            PolygonTrigger::new(
+                7100,
+                AsciiString::from("ScoutPad"),
+                vec![
+                    ICoord3D::new(0, 0, 0),
+                    ICoord3D::new(15, 0, 0),
+                    ICoord3D::new(15, 25, 0),
+                    ICoord3D::new(0, 25, 0),
+                ],
+            ),
+            pad(7101, "FarPad", 100, 110),
+        ]);
+        assert_eq!(
+            snapshot.named_unit_in_named_area("MapNamedScout", "ScoutPad", &triggers),
             Some(true)
         );
         assert_eq!(
-            gamelogic::scripting::host_script_named_unit_in_named_area("MapNamedScout", "FarPad"),
+            snapshot.named_unit_in_named_area("MapNamedScout", "FarPad", &triggers),
             Some(false)
         );
         assert_eq!(
-            gamelogic::scripting::host_script_named_unit_in_named_area(
-                "MapNamedScout",
-                "NoSuchTriggerArea"
-            ),
+            snapshot.named_unit_in_named_area("MapNamedScout", "NoSuchTriggerArea", &triggers),
             None
         );
     }
-    clear_host_script_query_snapshot();
+    // The existing AABB compatibility query keeps its alive filter; polygon
+    // membership observes an existing body's position even when it is dead.
+    let mut pads = snapshot.clone();
+    pads.areas
+        .insert("SnapshotPad".into(), (0.0, 0.0, 15.0, 25.0));
+    let mut dead = pads.clone();
+    dead.objects
+        .iter_mut()
+        .find(|object| object.id == id.0)
+        .unwrap()
+        .alive = false;
+    {
+        let triggers = logic.host_trigger_world.lock().unwrap();
+        assert_eq!(
+            pads.named_unit_in_named_area("MapNamedScout", "SnapshotPad", &triggers),
+            Some(true)
+        );
+        assert_eq!(
+            dead.named_unit_in_named_area("MapNamedScout", "SnapshotPad", &triggers),
+            Some(false)
+        );
+        assert_eq!(
+            dead.named_unit_in_named_area("MapNamedScout", "ScoutPad", &triggers),
+            Some(true)
+        );
+        assert_eq!(
+            pads.named_unit_in_named_area("MissingUnit", "ScoutPad", &triggers),
+            Some(false)
+        );
+        assert_eq!(
+            pads.named_unit_in_named_area("MapNamedScout", "", &triggers),
+            None
+        );
+    }
+    let mut foreign = GameLogic::new();
+    foreign.templates.insert("NamedScout".into(), template);
+    let foreign_id = foreign
+        .create_object("NamedScout", Team::GLA, Vec3::new(105.0, 7.0, 105.0))
+        .expect("foreign unit");
+    assert_eq!(foreign_id, id, "identity is local to each world");
+    let decoy = foreign.host_object_mut(foreign_id).unwrap();
+    decoy.name = "MapNamedScout".into();
+    decoy.health.current = 0.0;
+    foreign
+        .host_trigger_world
+        .lock()
+        .unwrap()
+        .set_trigger_areas(&[pad(7100, "ScoutPad", 100, 110)]);
+    let decoy_snapshot = foreign.build_host_script_query_snapshot();
+    assert_eq!(decoy_snapshot.named_unit_id("MapNamedScout"), Some(id.0));
+    assert_eq!(
+        decoy_snapshot.named_unit_alive("MapNamedScout"),
+        Some(false)
+    );
+    assert_eq!(decoy_snapshot.object_by_id(id.0).unwrap().y, 7.0);
+    assert!(decoy_snapshot.team_unit_ids(Team::GLA as u32).is_empty());
+    {
+        let triggers = foreign.host_trigger_world.lock().unwrap();
+        assert_eq!(
+            decoy_snapshot.named_unit_in_named_area("MapNamedScout", "ScoutPad", &triggers),
+            Some(true)
+        );
+    }
+    foreign.host_trigger_world.lock().unwrap().clear();
+    drop(foreign);
+    let after = logic.build_host_script_query_snapshot();
+    assert_eq!(after.named_unit_id("MapNamedScout"), Some(id.0));
+    assert_eq!(after.named_unit_alive("MapNamedScout"), Some(true));
+    assert_eq!(after.object_by_id(id.0).unwrap().y, 42.0);
+    assert_eq!(after.team_unit_ids(Team::USA as u32), &[id.0]);
+    let triggers = logic.host_trigger_world.lock().unwrap();
+    assert_eq!(
+        after.named_unit_in_named_area("MapNamedScout", "ScoutPad", &triggers),
+        Some(true)
+    );
+    assert_eq!(
+        after.named_unit_in_named_area("MapNamedScout", "FarPad", &triggers),
+        Some(false)
+    );
 }
 
 #[test]
@@ -188,24 +255,10 @@ fn live_executor_named_team_conditions_use_host_snapshot() {
 
 #[test]
 fn unit_health_injects_leftover_initial_health_not_current_max() {
-    let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new().expect("script engine");
-
     // hq-um3v2: C++ evaluateUnitHealth divides by BodyModule::getInitialHealth,
     // not current max. Live inject used to send max, so INI InitialHealth 80 /
     // MaxHealth 100 at authored start fired at ~80% instead of 100%.
-    use gamelogic::object::registry::OBJECT_REGISTRY;
     use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
-    use gamelogic::scripting::engine::get_named_object_tracker;
-    use gamelogic::scripting::executor::{
-        ScriptConditionEvaluator, ScriptConditionResult, ScriptContext,
-    };
-    use gamelogic::scripting::{clear_host_script_query_snapshot, host_script_query_object};
-    use std::sync::{Arc, RwLock};
-
-    assert!(OBJECT_REGISTRY.is_empty());
-    clear_host_script_query_snapshot();
-    get_named_object_tracker().clear().unwrap();
-
     let mut logic = GameLogic::new();
     let mut t = ThingTemplate::new("HurtHero");
     t.set_health(100.0);
@@ -220,18 +273,9 @@ fn unit_health_injects_leftover_initial_health_not_current_max() {
         o.health.maximum = 100.0;
         o.max_health = 100.0;
     }
-    logic.inject_host_named_unit_map_into_crate_tracker();
-
-    let host = host_script_query_object("MapHurtHero").expect("injected");
-    assert!(
-        (host.initial_health - 80.0).abs() < 1e-4,
-        "inject must send leftover InitialHealth, got {}",
-        host.initial_health
-    );
-    assert!((host.health - 80.0).abs() < 1e-4);
-
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
-    let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
+    let host = logic.host_object(id).expect("owned body");
+    assert!((host.initial_health - 80.0).abs() < 1e-4);
+    assert!((host.health.current - 80.0).abs() < 1e-4);
     let mut ge = Condition::new(ConditionType::UnitHealth);
     ge.add_parameter(Parameter::with_string(
         ParameterType::Unit,
@@ -242,9 +286,8 @@ fn unit_health_injects_leftover_initial_health_not_current_max() {
         .unwrap();
     ge.add_parameter(Parameter::with_int(ParameterType::Int, 100))
         .unwrap();
-    assert_eq!(
-        evaluator.evaluate_condition(&mut ge).unwrap(),
-        ScriptConditionResult::True,
+    assert!(
+        logic.owned_script_condition_for_test(ge),
         "authored start at InitialHealth is 100% vs leftover InitialHealth"
     );
 
@@ -252,9 +295,6 @@ fn unit_health_injects_leftover_initial_health_not_current_max() {
     if let Some(o) = logic.host_object_mut(id) {
         assert_eq!(o.unit_health_script_percent(), 100);
     }
-
-    clear_host_script_query_snapshot();
-    get_named_object_tracker().clear().unwrap();
 }
 
 #[test]
@@ -381,12 +421,17 @@ fn host_player_census_keeps_same_faction_players_distinct() {
 
 #[test]
 fn host_player_census_excludes_kindof_inert_from_has_any_objects() {
-    use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{clear_host_script_query_snapshot, host_query_player_census};
-
-    assert!(OBJECT_REGISTRY.is_empty());
-    clear_host_script_query_snapshot();
-
+    use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
+    let destroyed = || {
+        let mut condition = Condition::new(ConditionType::PlayerAllDestroyed);
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                "PlyrAmerica".into(),
+            ))
+            .unwrap();
+        condition
+    };
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
 
@@ -400,10 +445,8 @@ fn host_player_census_excludes_kindof_inert_from_has_any_objects() {
     logic
         .create_object_for_player("TestInertRadiationField", 1, Vec3::new(10.0, 0.0, 20.0))
         .expect("radiation field");
-    logic.inject_host_script_query_snapshot();
-    let census = host_query_player_census("PlyrAmerica").expect("host census");
     assert!(
-        !census.has_any_objects,
+        logic.owned_script_condition_for_test(destroyed()),
         "KINDOF_INERT keepalives must not stall PLAYER_ALL_DESTROYED"
     );
 
@@ -417,14 +460,10 @@ fn host_player_census_excludes_kindof_inert_from_has_any_objects() {
         .create_object_for_player("AmericaInfantryRanger", 1, Vec3::new(12.0, 0.0, 22.0))
         .expect("ranger");
 
-    logic.inject_host_script_query_snapshot();
-    let census = host_query_player_census("PlyrAmerica").expect("host census");
     assert!(
-        census.has_any_objects,
+        !logic.owned_script_condition_for_test(destroyed()),
         "a living non-inert unit still counts"
     );
-
-    clear_host_script_query_snapshot();
 }
 
 #[test]

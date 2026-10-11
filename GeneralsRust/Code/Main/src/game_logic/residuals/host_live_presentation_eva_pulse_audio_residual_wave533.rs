@@ -24,9 +24,9 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 
 pub const LIVE_PRESENTATION_EVA_PULSE_AUDIO_METHOD_NAMES_WAVE533: &[&str] = &[
-    "host_eva_log::record",
-    "host_eva_log::record_event",
-    "host_eva_log::take_last_drain",
+    "HostEvaAnnouncements::request",
+    "eva_announcements.request",
+    "eva_announcements.take_delivery",
     "PresentationEvent::EvaAlert",
     "EVA_LowPower",
     "EVA_InsufficientFunds",
@@ -99,9 +99,9 @@ fn log_source() -> &'static str {
 
 pub fn honesty_presentation_eva_pulse_audio_method_names_residual_wave533() -> bool {
     let names = LIVE_PRESENTATION_EVA_PULSE_AUDIO_METHOD_NAMES_WAVE533;
-    let ok = residual_name_index(names, "host_eva_log::record").is_some()
-        && residual_name_index(names, "host_eva_log::record_event").is_some()
-        && residual_name_index(names, "host_eva_log::take_last_drain").is_some()
+    let ok = residual_name_index(names, "HostEvaAnnouncements::request").is_some()
+        && residual_name_index(names, "eva_announcements.request").is_some()
+        && residual_name_index(names, "eva_announcements.take_delivery").is_some()
         && residual_name_index(names, "PresentationEvent::EvaAlert").is_some()
         && residual_name_index(names, "EVA_LowPower").is_some()
         && residual_name_index(names, "EVA_InsufficientFunds").is_some()
@@ -117,11 +117,11 @@ pub fn honesty_presentation_eva_pulse_audio_source_markers_residual_wave533() ->
     let log = log_source();
     // Accept single-line or rustfmt multiline `record_event( ... EvaEvent::X ... )`.
     let has_event = |name: &str| -> bool {
-        gl.contains("host_eva_log::record_event") && gl.contains(&format!("EvaEvent::{name}"))
+        gl.contains("eva_announcements.request") && gl.contains(&format!("EvaEvent::{name}"))
     };
-    let ok = pf.contains("Wave 533")
+    let ok = pf.contains("eva_delivery")
         && pf.contains("PresentationEvent::EvaAlert")
-        && pf.contains("host_eva_log::take_last_drain")
+        && pf.contains("eva_announcements.take_delivery")
         && pf.contains("EvaAlert { name }")
         && has_event("LowPower")
         && has_event("InsufficientFunds")
@@ -129,9 +129,9 @@ pub fn honesty_presentation_eva_pulse_audio_source_markers_residual_wave533() ->
         && has_event("AllyUnderAttack")
         && has_event("BuildingLost")
         && has_event("UnitLost")
-        && log.contains("pub fn record")
-        && log.contains("pub fn record_event")
-        && log.contains("pub fn take_last_drain")
+        && log.contains("pub fn request")
+        && log.contains("pub fn request")
+        && log.contains("pub fn take_delivery")
         && !pf.contains("playable_claim = true");
     residual_action_store(ResidualPresentationEvaPulseAudioAction::SourceMarkers);
     ok
@@ -155,17 +155,15 @@ pub fn honesty_presentation_eva_pulse_audio_nav_commands_residual_wave533() -> b
 pub fn simulate_presentation_eva_pulse_audio_collect_source() -> bool {
     let pf = pf_source();
     let ok = pf.contains("EvaAlert {")
-        && pf.contains("host_eva_log::take_last_drain")
-        && pf.contains("Wave 533");
+        && pf.contains("eva_announcements.take_delivery")
+        && pf.contains("eva_delivery");
     residual_action_store(ResidualPresentationEvaPulseAudioAction::CollectSource);
     ok
 }
 
 pub fn simulate_presentation_eva_pulse_audio_dispatch_source() -> bool {
     let pf = pf_source();
-    let ok = pf.contains("PresentationEvent::EvaAlert { name }")
-        && pf.contains("AudioEventRequest::new(name.as_str())")
-        && pf.contains("with_priority(180)");
+    let ok = super::harness::eva_alert_uses_owned_native_speaker(pf, super::engine_scan_src());
     residual_action_store(ResidualPresentationEvaPulseAudioAction::DispatchSource);
     ok
 }

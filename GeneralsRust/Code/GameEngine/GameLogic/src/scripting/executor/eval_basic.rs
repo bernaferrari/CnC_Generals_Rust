@@ -192,6 +192,10 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(result);
         }
 
+        if let Some(result) = self.eval_owned_body_census(condition, driver)? {
+            return Ok(result);
+        }
+
         // Dispatch to the appropriate handler based on condition type
         match condition_type {
             // ============================================================================

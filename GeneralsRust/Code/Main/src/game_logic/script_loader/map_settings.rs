@@ -322,7 +322,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_ai_data(
     draft: std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
 ) -> LoaderResult<MapMetadata> {
     let map_name = chunky.source.to_string_lossy();
-    parse_map_settings_from_chunky_with_ai_data_from_source(chunky, draft, map_name.as_ref())
+    parse_map_settings_from_chunky_with_ai_data_from_source(chunky, draft, map_name.as_ref(), None)
 }
 
 /// Decode the supplied CKMP body, while resolving companion files explicitly.
@@ -330,11 +330,15 @@ pub(crate) fn parse_map_settings_from_chunky_with_ai_data_from_source(
     chunky: &ChunkyMap,
     draft: std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
     definition_source: &str,
+    production_energy: Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
 ) -> LoaderResult<MapMetadata> {
     parse_map_settings_from_loaded_chunky(
         definition_source,
         chunky,
-        MapMetadata::default(),
+        MapMetadata {
+            production_energy,
+            ..MapMetadata::default()
+        },
         Some(draft),
     )
 }
@@ -410,6 +414,13 @@ fn parse_map_settings_from_loaded_chunky(
             if let Some((_, contents)) =
                 first_readable_map_ini_companion(dir, &["Map.ini", "map.ini"])
             {
+                if let Some(rules) = meta.production_energy {
+                    meta.production_energy = Some(
+                        rules
+                            .overlay_ini_text(&contents)
+                            .map_err(GameLogicError::Configuration)?,
+                    );
+                }
                 meta.default_starting_cash =
                     parse_map_default_starting_cash(&contents)?.or(meta.default_starting_cash);
                 // C++ GameLogic.cpp:2404-2408 loadMapINI — full block table
@@ -466,6 +477,13 @@ fn parse_map_settings_from_loaded_chunky(
             if let Some((_, contents)) =
                 first_readable_map_ini_companion(dir, &["Solo.ini", "solo.ini"])
             {
+                if let Some(rules) = meta.production_energy {
+                    meta.production_energy = Some(
+                        rules
+                            .overlay_ini_text(&contents)
+                            .map_err(GameLogicError::Configuration)?,
+                    );
+                }
                 meta.default_starting_cash =
                     parse_map_default_starting_cash(&contents)?.or(meta.default_starting_cash);
                 if let Some(target) = ai_data_target.as_ref() {

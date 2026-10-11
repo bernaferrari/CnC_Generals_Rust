@@ -786,7 +786,27 @@ fn carbomb_attack_structure_detonates_with_observable_damage() {
         .current;
     assert!(structure_hp_before > 0.0);
 
-    // SuicideCarBomb AttackRange = 5; structure at 3 is in range.
+    // C++ Weapon.cpp:2190-2217 requires actual shape contact for a
+    // contact weapon against a Structure, even inside numeric AttackRange5.
+    // These default radius1 shapes at center distance3 do not touch.
+    game_logic.frame = 29;
+    game_logic.update_combat(&[car_id, structure_id], 1.0 / 30.0);
+    assert_eq!(
+        game_logic.host_object(structure_id).unwrap().health.current,
+        structure_hp_before,
+        "numeric contact-weapon range must not bypass structure collision"
+    );
+    assert!(
+        game_logic.host_object(car_id).unwrap().is_alive(),
+        "car bomb must survive before physical contact"
+    );
+    assert!(!game_logic.honesty_carbomb_detonate_ok());
+    // Advance only the fixture pose to physical contact. This case exercises
+    // combat admission/detonation; it does not claim a movement tick oracle.
+    game_logic
+        .host_object_mut(car_id)
+        .unwrap()
+        .set_position(Vec3::new(2.0, 0.0, 0.0));
     game_logic.frame = 30;
     game_logic.update_combat(&[car_id, structure_id], 1.0 / 30.0);
 
@@ -817,6 +837,19 @@ fn carbomb_attack_structure_detonates_with_observable_damage() {
 fn attack_order_chases_target_when_out_of_range() {
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    // A C++ attack approach needs both a bound current weapon and a
+    // current ground locomotor. The shared bare tank fixture intentionally
+    // supplies neither; author this combat case's own dependencies.
+    let template = game_logic.templates.get_mut("TestTank").unwrap();
+    template.set_primary_weapon(Weapon {
+        range: 50.0,
+        reload_time: 0.0,
+        ..Weapon::default()
+    });
+    template.locomotor_name =
+        Some(crate::game_logic::locomotor_bootstrap::CRUSADER_LOCOMOTOR.to_string());
+    game_logic.pathfinding_system = PathfindingSystem::new(400.0, 400.0);
+    game_logic.force_map_loaded_for_path_test(true);
 
     let attacker_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -830,11 +863,17 @@ fn attack_order_chases_target_when_out_of_range() {
             .host_object_mut(attacker_id)
             .expect("attacker should exist");
         attacker.attack_target(target_id);
-        if let Some(weapon) = attacker.weapon.as_mut() {
-            weapon.range = 50.0;
-            weapon.reload_time = 0.0;
-            weapon.last_fire_time = 0.0;
-        }
+        let weapon = attacker.weapon.as_mut().expect("authored current weapon");
+        weapon.range = 50.0;
+        weapon.reload_time = 0.0;
+        weapon.last_fire_time = 0.0;
+        assert!(
+            attacker
+                .cur_locomotor_name
+                .as_ref()
+                .is_some_and(|name| !name.is_empty()),
+            "authored current locomotor"
+        );
     }
 
     game_logic.frame = 60;
@@ -1004,6 +1043,36 @@ fn ai_production_queues_units_instead_of_spawning_immediately() {
     assert_eq!(queue[0].template_name, "USA_Humvee");
 }
 
+// These Queue tests isolate exit timing at full supplied power. C++ Energy
+// returns production when consumption is zero; legacy power_available alone
+// does not establish that premise. Keep the supply in this session's objects
+// so the ordinary resource fold retains it on subsequent full updates.
+fn admit_china_queue_timing_power_supply(logic: &mut GameLogic) {
+    use crate::game_logic::{KindOf, ThingTemplate};
+
+    admit_retail_production_energy_rules(logic);
+    ensure_test_player_for_team(logic, Team::China);
+    let mut generator = ThingTemplate::new("QueueTimingPowerSupply");
+    generator
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::PowerPlant)
+        .set_health(100.0);
+    generator.energy_production = Some(1);
+    logic
+        .templates
+        .insert("QueueTimingPowerSupply".into(), generator);
+    logic
+        .create_object_for_player("QueueTimingPowerSupply", 1, Vec3::new(300.0, 0.0, 300.0))
+        .expect("owned Queue timing power supply");
+    // Production precedes the full tick's resource fold. Initialize the same
+    // derived grid before admission, without advancing frames or the queue.
+    logic.update_player_resources(0.0);
+    let player = logic.get_player(1).expect("China Queue owner");
+    assert_eq!(player.power_produced, 1);
+    assert_eq!(player.power_consumed, 0);
+    assert_eq!(logic.compute_player_power_factors().get(&1), Some(&1.0));
+}
+
 #[test]
 fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
     use crate::game_logic::buildings::BuildingType;
@@ -1024,7 +1093,7 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
     );
 
     let mut logic = GameLogic::new();
-    ensure_test_player_for_team(&mut logic, Team::China);
+    admit_china_queue_timing_power_supply(&mut logic);
     let mut bar = ThingTemplate::new("ChinaBarracks");
     bar.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSBarracks)
@@ -1044,7 +1113,14 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
     rg.add_kind_of(KindOf::Infantry)
         .set_health(100.0)
         .set_cost(100, 0);
-    rg.build_time = 0.05;
+    // C++ calcTimeToBuild assigns seconds * 30 to Int. Author two
+    // whole frames explicitly; 0.05 seconds truncates to one at full power.
+    rg.build_time = 2.0 / 30.0;
+    assert_eq!(
+        GameLogic::cpp_build_time_frames_from_modifiers(rg.build_time, 1.0, 1.0),
+        2,
+        "authored full-power build duration is two C++ logic frames"
+    );
     logic.templates.insert("ChinaInfantryRedguard".into(), rg);
 
     let bid = logic
@@ -1061,6 +1137,17 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
     }
     // One queue entry pays once, QuantityModifier yields two exits.
     assert!(logic.enqueue_production(bid, "ChinaInfantryRedguard".into()));
+    let queued = logic
+        .host_object(bid)
+        .and_then(|object| object.building_data.as_ref())
+        .and_then(|building| building.production_queue.first())
+        .expect("admitted Red Guard batch");
+    assert_eq!(
+        gamelogic::world::entities::production_total_logic_frames(queued.total_time, false, 1.0),
+        2,
+        "queue preserves the authored two-frame integer threshold"
+    );
+    assert_eq!(queued.construction_frames, 0);
     let qlen = logic
         .host_object(bid)
         .and_then(|o| o.building_data.as_ref())
@@ -1075,17 +1162,18 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
         .unwrap_or(0);
     assert_eq!(qty, 2, "Redguard quantity_total residual");
 
-    // The terminal build frame reaches a closed China barracks door first;
-    // nothing may exit until it reaches C++ WAITING_OPEN.
+    // FactionBuilding.ini ChinaBarracks omits NumDoorAnimations (C++
+    // default0). The first frame must retain this unfinished two-frame head;
+    // there is no phantom door to open before Queue exit admission.
     logic.update();
-    let before_open = logic
+    let before_complete = logic
         .host_objects()
         .values()
         .filter(|o| o.template_name == "ChinaInfantryRedguard" && o.is_alive())
         .count();
     assert_eq!(
-        before_open, 0,
-        "closed door must not release a batch member"
+        before_complete, 0,
+        "unfinished build must not release a batch member"
     );
     assert_eq!(
         logic
@@ -1093,18 +1181,11 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
             .and_then(|o| o.building_data.as_ref())
             .map(|b| b.production_queue.len()),
         Some(1),
-        "closed door retains the completed batch"
+        "unfinished build retains its queued batch"
     );
 
-    // Simulate the authored door reaching WAITING_OPEN.  A fresh Queue exit
-    // has currentDelay=0/currentBurst=InitialBurst(0), so it admits exactly
-    // one member before that successful exit arms its retail 300ms/9-frame
-    // delay.
-    let hold_open_until = logic.get_frame().saturating_add(100);
-    if let Some(o) = logic.host_object_mut(bid) {
-        o.production_door_phase = 2;
-        o.production_door_phase_end_frame = hold_open_until;
-    }
+    // Completing the head admits exactly one member with fresh Queue
+    // currentDelay0/currentBurst0, then arms the retail 300ms/9-frame delay.
     logic.update();
     let living = logic
         .host_objects()
@@ -1729,7 +1810,7 @@ fn parsed_queue_exit_runtime_uses_authored_initial_burst_and_delay() {
     };
 
     let mut logic = GameLogic::new();
-    ensure_test_player_for_team(&mut logic, Team::China);
+    admit_china_queue_timing_power_supply(&mut logic);
     let mut bar = ThingTemplate::new("ChinaBarracks");
     bar.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSBarracks)
@@ -1769,11 +1850,8 @@ fn parsed_queue_exit_runtime_uses_authored_initial_burst_and_delay() {
         building.production_queue[0].quantity_total = 3;
         building.production_queue[0].construction_frames = 2;
     }
-    let hold_open_until = logic.get_frame().saturating_add(100);
-    if let Some(object) = logic.host_object_mut(bid) {
-        object.production_door_phase = 2;
-        object.production_door_phase_end_frame = hold_open_until;
-    }
+    // Retail ChinaBarracks has no ProductionUpdate door animations; this
+    // Queue burst must not depend on a fabricated legacy door scalar.
     logic.update();
     let living = logic
         .host_objects()
@@ -1800,10 +1878,8 @@ fn parsed_queue_exit_runtime_uses_authored_initial_burst_and_delay() {
         .count();
     assert_eq!(held, 2, "delay blocks the third member for 8 frames");
     logic.update();
-    // Retail ChinaBarracks authors DoorWaitOpenTime = 0, so the terminal
-    // batch member waits one extra door-reopen frame (C++ ProductionUpdate
-    // reserveDoorForExit re-opens the closed door before the member exits).
-    logic.update();
+    // No retail ChinaBarracks door exists to add a reopen frame after the
+    // ninth Queue decrement. Keep the actual ninth-frame spawn assertion.
     let living_end = logic
         .host_objects()
         .values()
@@ -2603,7 +2679,6 @@ fn script_idle_and_guard_for_framecount_write_live() {
 fn script_move_towards_nearest_writes_live() {
     use gamelogic::common::{AsciiString, ICoord3D};
     use gamelogic::polygon_trigger::PolygonTrigger;
-    use gamelogic::scripting::{HostScriptMoveAttackRequest, request_host_script_move_attack};
 
     let trigger = PolygonTrigger::new(
         8801,
@@ -2615,15 +2690,21 @@ fn script_move_towards_nearest_writes_live() {
             ICoord3D::new(0, 80, 0),
         ],
     );
-    gamelogic::terrain::get_terrain_logic()
-        .write()
-        .expect("terrain")
-        .add_trigger_area(trigger);
-
     let mut logic = GameLogic::new();
+    logic
+        .world_services
+        .terrain()
+        .write()
+        .expect("owned terrain")
+        .add_trigger_area(trigger);
     logic.scripts_loaded = true;
     ensure_test_player_for_team(&mut logic, Team::USA);
     ensure_test_infantry_template(&mut logic);
+    logic
+        .templates
+        .get_mut("TestInfantry")
+        .unwrap()
+        .set_authored_ai_update_interface(Some(true));
     let mut cc = ThingTemplate::new("AmericaCommandCenter");
     cc.set_health(1000.0);
     logic.templates.insert("AmericaCommandCenter".into(), cc);
@@ -2643,17 +2724,28 @@ fn script_move_towards_nearest_writes_live() {
         obj.team_instance_name = "USA_Scout".into();
     }
 
-    let _ = gamelogic::scripting::take_host_script_move_attack_requests();
-    request_host_script_move_attack(HostScriptMoveAttackRequest::NamedMoveTowardsNearest {
-        unit: "NamedScout".into(),
-        object_type: "AmericaCommandCenter".into(),
-        trigger: "NearestPad".into(),
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    {
+        let mut factory = logic.team_factory.lock().unwrap();
+        factory
+            .init_team("USA_Scout".into(), "".into(), false, None)
+            .unwrap();
+        factory
+            .create_team("USA_Scout")
+            .unwrap()
+            .write()
+            .unwrap()
+            .add_member(scout.0);
+    }
+    logic.execute_nearest_object_script_for_test(
+        false,
+        "NamedScout",
+        "AmericaCommandCenter",
+        "NearestPad",
+    );
     let dest_pos = logic.host_object(dest).expect("cc").get_position();
     let moving = logic
         .host_object(scout)
-        .and_then(|o| o.movement.target_position);
+        .and_then(|o| o.requested_destination);
     assert!(
         moving
             .map(|p| (p - dest_pos).length() < 2.0)
@@ -2662,16 +2754,16 @@ fn script_move_towards_nearest_writes_live() {
     );
 
     let _ = logic.unit_command_stop(scout);
-    request_host_script_move_attack(HostScriptMoveAttackRequest::TeamMoveTowardsNearest {
-        team: "USA_Scout".into(),
-        object_type: "AmericaCommandCenter".into(),
-        trigger: "NearestPad".into(),
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    logic.execute_nearest_object_script_for_test(
+        true,
+        "USA_Scout",
+        "AmericaCommandCenter",
+        "NearestPad",
+    );
     let dest_pos = logic.host_object(dest).expect("cc").get_position();
     let moving = logic
         .host_object(scout)
-        .and_then(|o| o.movement.target_position);
+        .and_then(|o| o.requested_destination);
     assert!(
         moving
             .map(|p| (p - dest_pos).length() < 2.0)

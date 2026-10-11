@@ -514,7 +514,9 @@ const RETAIL_PRODUCTION_DOOR_INI: &[(&str, &str, &str, &str, &str)] = &[
     ("GLAArmsDealer", "1", "2000", "3000", "2000"),
     ("AmericaAirfield", "4", "2000", "3000", "2000"),
     ("AmericaBarracks", "1", "0", "0", "0"),
-    ("ChinaBarracks", "1", "0", "0", "0"),
+    // FactionBuilding.ini ChinaBarracks only authors QuantityModifier.
+    // ProductionUpdate.cpp:79-91 leaves omitted NumDoorAnimations at zero.
+    ("ChinaBarracks", "0", "0", "0", "0"),
     ("GLABarracks", "1", "0", "0", "0"),
 ];
 
@@ -1999,5 +2001,48 @@ mod tests {
             2
         ));
         assert_eq!(producer_num_door_animations("AmericaSupplyCenter"), 0);
+    }
+}
+
+#[cfg(test)]
+mod omitted_barracks_door_tests {
+    use super::*;
+
+    #[test]
+    fn china_barracks_omitted_door_matches_cpp_default_and_explicit_factory_keeps_gate() {
+        // The parsed omitted fields and fallback have the same C++ defaults;
+        // compare the actual fallback without depending on ambient assets.
+        let parsed = parse_production_door_ini_fields(|_| None);
+        let fallback = retail_production_door_ini("ChinaBarracks");
+        assert_eq!(fallback, parsed);
+        assert_eq!(fallback.num_door_animations, 0);
+        assert!(production_door_allows_spawn(
+            fallback.num_door_animations,
+            0
+        ));
+        let explicit = parse_production_door_ini_fields(|field| match field {
+            "NumDoorAnimations" => Some("1"),
+            "DoorOpeningTime" => Some("3250"),
+            "DoorWaitOpenTime" => Some("3000"),
+            "DoorCloseTime" => Some("4000"),
+            _ => None,
+        });
+        assert_eq!(retail_production_door_ini("AmericaWarFactory"), explicit);
+        assert!(!production_door_allows_spawn(
+            explicit.num_door_animations,
+            0
+        ));
+        assert!(!production_door_allows_spawn(
+            explicit.num_door_animations,
+            1
+        ));
+        assert!(production_door_allows_spawn(
+            explicit.num_door_animations,
+            2
+        ));
+        assert!(!production_door_allows_spawn(
+            explicit.num_door_animations,
+            4
+        ));
     }
 }

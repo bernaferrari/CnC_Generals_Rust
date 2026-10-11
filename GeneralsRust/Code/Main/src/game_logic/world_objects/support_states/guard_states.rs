@@ -61,15 +61,24 @@ impl GameLogic {
     }
 
     pub(crate) fn host_named_guard_area_polygon(
+        &self,
         name: &str,
     ) -> Option<(glam::Vec3, f32, gamelogic::polygon_trigger::PolygonTrigger)> {
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-        let trigger = terrain_owner_handle
-            .read()
-            .ok()
-            .and_then(|terrain| terrain.get_trigger_area_by_name(name).cloned())?;
-        let c = trigger.get_center_point();
-        let center = glam::Vec3::new(c.x, c.z, c.y);
+        let trigger = self
+            .host_trigger_world
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .trigger_area_by_canonical_name(name)?;
+        // C++ PolygonTrigger::getCenterPoint uses the integer bounds midpoint.
+        // Its terrain singleton belongs to this map; resolve the height through
+        // this driving world instead of the compatibility polygon helper.
+        let bounds = trigger.get_bounds();
+        let x = (bounds.lo.x + bounds.hi.x) as f32 / 2.0;
+        let z = (bounds.lo.y + bounds.hi.y) as f32 / 2.0;
+        let y = self
+            .terrain_height_at(glam::Vec3::new(x, 0.0, z))
+            .unwrap_or(0.0);
+        let center = glam::Vec3::new(x, y, z);
         let radius = trigger.get_radius();
         Some((center, radius, trigger))
     }
@@ -257,7 +266,7 @@ impl GameLogic {
             .and_then(|o| o.guard_area_trigger.as_deref())
             .filter(|n| !n.is_empty())
         {
-            if let Some((_, poly_r, _)) = Self::host_named_guard_area_polygon(name) {
+            if let Some((_, poly_r, _)) = self.host_named_guard_area_polygon(name) {
                 if poly_r > outer {
                     outer = poly_r;
                 }
@@ -302,7 +311,7 @@ impl GameLogic {
             .and_then(|o| o.guard_area_trigger.as_deref())
             .filter(|n| !n.is_empty())
         {
-            if let Some((c, _, _)) = Self::host_named_guard_area_polygon(name) {
+            if let Some((c, _, _)) = self.host_named_guard_area_polygon(name) {
                 anchor = c;
             }
         }
@@ -371,7 +380,8 @@ impl GameLogic {
                 .unwrap_or_else(|| o.get_position());
             (pos, AIState::GuardingObject)
         } else if let Some(name) = o.guard_area_trigger.as_deref().filter(|n| !n.is_empty()) {
-            let center = Self::host_named_guard_area_polygon(name)
+            let center = self
+                .host_named_guard_area_polygon(name)
                 .map(|(c, _, _)| c)
                 .or(o.guard_position)
                 .unwrap_or_else(|| o.get_position());
@@ -464,7 +474,7 @@ impl GameLogic {
             .and_then(|o| o.guard_area_trigger.as_deref())
             .filter(|n| !n.is_empty())
         {
-            if let Some((c, _, _)) = Self::host_named_guard_area_polygon(name) {
+            if let Some((c, _, _)) = self.host_named_guard_area_polygon(name) {
                 anchor = c;
             }
         }

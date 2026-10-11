@@ -1189,6 +1189,7 @@ impl GameLogic {
                             obj.owner_player_id,
                             obj.crusher_level,
                             obj.ignored_obstacle_id.map(|id| id.0),
+                            Some(obj.id.0),
                         );
                         let mut target = lead;
                         raw_goal_y = Some(lead.y);

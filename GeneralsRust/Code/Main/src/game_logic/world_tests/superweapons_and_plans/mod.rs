@@ -7,3 +7,5 @@ use super::helpers::*;
 mod production_and_queue_exit;
 mod strategy_center_and_air_strikes;
 mod superweapons_and_scripts;
+
+mod structure_corpse_tests;

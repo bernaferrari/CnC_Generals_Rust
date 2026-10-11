@@ -61,7 +61,6 @@ const ALLOWED_NAKED_GAMELOGIC_FNS_WAVE936: &[&str] = &[
     // 2026-09-07 re-pin: split-borrow presentation / camera / radar / UI
     // probe adapters that read the field directly (start_game.rs skirmish
     // config routing + control_bar_bridge mode-gate removal exposed them).
-    "publish_eva_host_frame_and_tick",
     "apply_presentation_camera_residual",
     "host_run_fast_forward_loop",
     "host_tick_game_client_presentation_shell",
@@ -80,6 +79,10 @@ const ALLOWED_NAKED_GAMELOGIC_FNS_WAVE936: &[&str] = &[
     "issue_named_command_from_ui",
     "host_mark_single_use_command_if_needed",
     "host_apply_control_bar_target",
+    // render borrows only the world's presentation physics owner while rendering
+    // mutably borrows distinct renderer/graphics/client fields. A whole-self
+    // accessor would overlap these borrows; this is not simulation mutation.
+    "render",
 ];
 
 const REQUIRED_APPLY_APIS_WAVE936: &[&str] = &[
@@ -136,7 +139,7 @@ fn enclosing_fn_name(src: &str, at: usize) -> String {
     }
 }
 
-fn naked_game_logic_field_sites(src: &str) -> Vec<String> {
+fn naked_game_logic_field_sites(src: &str) -> Vec<(String, usize)> {
     let mut out = Vec::new();
     let mut i = 0usize;
     while let Some(rel) = src[i..].find("self.game_logic") {
@@ -159,7 +162,7 @@ fn naked_game_logic_field_sites(src: &str) -> Vec<String> {
             i = after;
             continue;
         }
-        out.push(enclosing_fn_name(src, j));
+        out.push((enclosing_fn_name(src, j), j));
         i = after;
     }
     out
@@ -187,7 +190,11 @@ pub fn honesty_host_sole_authority_surface_residual_pack_wave936() -> bool {
     let cnc = cnc_source();
     let gl = gl_source();
     let sites = naked_game_logic_field_sites(cnc);
-    let allowed_ok = sites.iter().all(|fname| {
+    let allowed_ok = sites.iter().all(|(fname, at)| {
+        if fname == "render" {
+            // This exception is only the audited presentation field borrow.
+            return cnc[*at..].starts_with("self.game_logic.host_physics_visuals.borrow_mut()");
+        }
         ALLOWED_NAKED_GAMELOGIC_FNS_WAVE936
             .iter()
             .any(|a| *a == fname.as_str())

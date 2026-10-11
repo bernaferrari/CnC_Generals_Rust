@@ -284,6 +284,7 @@ impl SnapshotBuilder {
         // Replacement starts a new runtime output identity. Detached production
         // candidates own this state, so rejection cannot consume live receipts.
         game_logic.movement_events.reset();
+        game_logic.eva_announcements.reset();
         log::info!(
             "Restoring world from snapshot: {} objects, {} players",
             snapshot.objects.len(),

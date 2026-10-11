@@ -44,6 +44,8 @@ impl GameLogic {
     fn stamp_player_command_source(&mut self, id: ObjectId) {
         if let Some(unit) = self.objects.get_mut(&id) {
             stamp_last_command_from_player(unit);
+            // A new parent player command replaces AIStateMachine's goal.
+            unit.set_movement_goal_object(None);
         }
     }
 
@@ -182,7 +184,7 @@ impl GameLogic {
         false
     }
 
-    fn stop_attack_clearing_jet_targeter(&mut self, id: ObjectId) {
+    pub(super) fn stop_attack_clearing_jet_targeter(&mut self, id: ObjectId) {
         self.drop_jet_targeters_on_attack_exit(id);
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.stop_attack();

@@ -4,3 +4,5 @@ mod foundational_grid;
 mod group_destination_owner;
 mod path_order;
 mod routing_and_occupancy;
+
+mod path_follow_receiver;

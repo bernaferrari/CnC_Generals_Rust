@@ -4,6 +4,7 @@ use super::super::*;
 impl GameLogic {
     /// Update movement for all objects
     pub(in super::super) fn update_movement(&mut self, object_ids: &[ObjectId], dt: f32) {
+        self.refresh_movement_goal_objects(object_ids);
         self.repath_airborne_projectiles(object_ids);
         self.repath_if_move_goal_moved(object_ids);
         // GameWorld movement authority: path integrate + pose last-write runs in

@@ -153,8 +153,17 @@ impl GameLogic {
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.ignored_obstacle_id = ignore_obstacle;
         }
+        let goal_object = self
+            .objects
+            .get(&unit_id)
+            .and_then(Object::movement_goal_object);
         self.pathfinding_system.set_ignore_obstacle(ignore_obstacle);
         let ok = self.assign_unit_path_inner(unit_id, destination, waypoints, false);
+        // Clearing solver path bookkeeping is not a new AI parent command.
+        // Keep the selected identity through queued search/repath admission.
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.set_movement_goal_object(goal_object);
+        }
         self.pathfinding_system.set_ignore_obstacle(None);
         ok
     }

@@ -99,6 +99,7 @@ mod camera_drain;
 #[cfg(feature = "game_client")]
 mod control_bar_bridge;
 mod dispatch;
+mod eva_delivery;
 mod host;
 mod host_authority;
 mod hotkeys;
@@ -192,6 +193,7 @@ pub const ENGINE_SRC: &str = concat!(
     include_str!("hotkeys.rs"),
     include_str!("ini_crc_boot.rs"),
     include_str!("input.rs"),
+    include_str!("eva_delivery.rs"),
     include_str!("mouse.rs"),
     include_str!("mouse/selection_input.rs"),
     include_str!("mouse/camera.rs"),

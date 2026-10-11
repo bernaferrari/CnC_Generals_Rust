@@ -154,36 +154,61 @@ impl CnCGameEngine {
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         if action == "verify" {
+            let context = self
+                .last_presentation_frame
+                .as_ref()
+                .map(|pres| pres.eva_context.clone())
+                .unwrap_or_default();
             let (infos, pending, last, enabled, host_lp, frame) =
-                game_client::eva::eva_check_snapshot();
-            let played = game_client::eva::eva_played_count();
+                self.eva_recipient.speaker.check_snapshot(&context);
+            let played = self.eva_recipient.speaker.played_count();
             self.runtime_host_last_gameplay_cmd = format!(
                 "click_eva_verify_infos={infos}_pending={pending}_last={last:?}_played={played}_en={enabled}_hlp={host_lp}_fr={frame}"
             );
             return;
         }
-        #[cfg(feature = "game_client")]
-        {
-            use game_client::eva::{
-                simulate_eva_disable, simulate_eva_enable, simulate_eva_prepare_low_power_alert,
-                simulate_eva_reset, simulate_eva_set_should_play_by_name, simulate_eva_update,
-            };
-            wnd_ok = match action.as_str() {
-                "enable" => simulate_eva_enable(),
-                // C++ ScriptActions.cpp:6007 — script/user toggles flip the
-                // single TheEva enable state; the host mirror is the leftover
-                // TheEva queue gate that client Eva syncs from.
-                "logic_enable" | "logic_disable" => {
-                    let on = action == "logic_enable";
-                    let _ = gamelogic::helpers::TheEva::set_enabled(on);
-                    simulate_eva_enable()
+        match action.as_str() {
+            "enable" | "logic_enable" => {
+                self.host_game_logic_mut().set_eva_enabled(true);
+                wnd_ok = true;
+            }
+            "disable" | "logic_disable" => {
+                self.host_game_logic_mut().set_eva_enabled(false);
+                wnd_ok = true;
+            }
+            "reset" => {
+                self.host_game_logic_mut().eva_announcements.reset();
+                wnd_ok = true;
+            }
+            "update" => {
+                self.update_owned_eva();
+                wnd_ok = true;
+            }
+            "should_play" | "play" | "prepare" => {
+                let token = if action == "prepare" {
+                    "LOWPOWER"
+                } else {
+                    &message
+                };
+                if let Some(event) =
+                    crate::game_logic::host_eva_log::eva_event_from_table_token(token)
+                {
+                    self.host_game_logic_mut().eva_announcements.request(event);
+                    wnd_ok = true;
                 }
-                "disable" => simulate_eva_disable(),
-                "reset" => simulate_eva_reset(),
-                "update" => simulate_eva_update(),
-                "should_play" | "play" => simulate_eva_set_should_play_by_name(&message),
-                _ => simulate_eva_prepare_low_power_alert(),
-            };
+            }
+            _ => {}
+        }
+        // Diagnostic inputs enter the same owned handoff as ordinary commands.
+        // Power/side remain actual frozen match facts; no synthetic global player.
+        if wnd_ok && action != "update" {
+            let local = self.host_game_logic().local_player_id().unwrap_or(0);
+            let pres = crate::presentation_frame::PresentationFrame::build_from_logic(
+                self.host_game_logic_mut(),
+                local,
+            );
+            self.apply_presentation_eva_alerts(&pres);
+            self.last_presentation_frame = Some(std::rc::Rc::new(pres));
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             format!("click_eva_ok_wnd_{action}")
@@ -657,7 +682,10 @@ impl CnCGameEngine {
                     manager.read().get_active_scheme().is_none()
                 }
                 // C++ setControlBarSchemeByPlayer for the default America side.
-                _ => manager.write().set_active_scheme_for_side("America").is_ok(),
+                _ => manager
+                    .write()
+                    .set_active_scheme_for_side("America")
+                    .is_ok(),
             };
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {

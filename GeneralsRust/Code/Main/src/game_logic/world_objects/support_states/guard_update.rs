@@ -130,7 +130,7 @@ impl GameLogic {
                 let polygon = polygon_name
                     .as_deref()
                     .filter(|n| !n.is_empty())
-                    .and_then(Self::host_named_guard_area_polygon);
+                    .and_then(|name| self.host_named_guard_area_polygon(name));
                 // C++ lookForInnerTarget: inner ring, or polygon bounding radius + point-in-trigger.
                 let (scan_anchor, acquire_radius) = if let Some((c, r, _)) = polygon.as_ref() {
                     (*c, if *r > 0.0 { *r } else { inner })

@@ -111,6 +111,25 @@ pub enum ScriptNamedCommand<'a> {
     Guard { unit: &'a str },
 }
 
+/// CPP ScriptActions5136-5308: nearest selection and goal-object movement.
+#[derive(Debug, Clone, Copy)]
+pub enum ScriptNearestRecipient<'a> {
+    Named(&'a str),
+    Team(&'a str),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ScriptNearestObjectRequest<'a> {
+    pub recipient: ScriptNearestRecipient<'a>,
+    pub object_type: &'a str,
+    pub object_types: &'a [String],
+    pub trigger: &'a str,
+    pub current_player: Option<&'a str>,
+    pub this_object: Option<ObjectID>,
+    pub calling_team: Option<TeamID>,
+    pub condition_team: Option<TeamID>,
+}
+
 /// CPP ScriptActions water changes are synchronous with the next action.
 #[derive(Debug, Clone, Copy)]
 pub enum ScriptWaterRequest<'a> {
@@ -203,6 +222,13 @@ pub trait ScriptExecutionDriver {
 
     /// Some selects this owner exclusively, including missing objects or a
     /// failed command. None retains the standalone Core command adapter.
+    fn nearest_object_move(
+        &mut self,
+        _request: ScriptNearestObjectRequest<'_>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     fn named_command(
         &mut self,
         _request: ScriptNamedCommand<'_>,
@@ -260,6 +286,30 @@ pub trait ScriptExecutionDriver {
     /// Some(false) is authoritative; None selects the standalone camera adapter.
     fn camera_movement_finished(&mut self) -> Option<bool> {
         None
+    }
+
+    /// CPP ScriptConditions924: selected body's current / InitialHealth percent.
+    /// Missing is authoritative absence; Unavailable retains standalone access.
+    fn unit_health_percent(
+        &self,
+        _name: &str,
+        _this_object: Option<ObjectID>,
+    ) -> ScriptOwnerQuery<i32> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// CPP Player1874/Team1751: this player's owned non-inert living members.
+    fn player_has_any_objects(
+        &self,
+        _player: &str,
+        _current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// Present/Missing are authoritative; Unavailable preserves standalone Core behavior.
+    fn eva_enabled(&mut self, _enabled: bool) -> ScriptOwnerQuery<()> {
+        ScriptOwnerQuery::Unavailable
     }
 
     fn object_status(&self, _id: ObjectID) -> ScriptOwnerQuery<ScriptObjectStatus> {

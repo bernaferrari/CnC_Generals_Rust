@@ -1026,28 +1026,14 @@ impl GameLogic {
     pub(in super::super) fn compute_player_power_factors(
         &self,
     ) -> std::collections::HashMap<u32, f32> {
-        // C++ ThingTemplate.cpp:1545-1554 reads these exact values from
-        // TheGlobalData. An existing GlobalData is authoritative even when a
-        // parsed value is zero; CPP's later <=0 safeguard handles that rate.
-        // Retail residuals apply only when no GlobalData exists.
+        // The selected session owns effective engine/map definitions.
+        // Preserve exact authored zeros and C++ arithmetic below.
+        let rules = self.production_energy_rules();
         let (
             low_energy_penalty_modifier,
             min_low_energy_production_speed,
             max_low_energy_production_speed,
-        ) = game_engine::common::ini::get_global_data()
-            .map(|data| {
-                let data = data.read();
-                (
-                    data.low_energy_penalty_modifier,
-                    data.min_low_energy_production_speed,
-                    data.max_low_energy_production_speed,
-                )
-            })
-            .unwrap_or((
-                crate::game_logic::host_structure_economy_residual::LOW_ENERGY_PENALTY_MODIFIER,
-                crate::game_logic::host_structure_economy_residual::MIN_LOW_ENERGY_PRODUCTION_SPEED,
-                crate::game_logic::host_structure_economy_residual::MAX_LOW_ENERGY_PRODUCTION_SPEED,
-            ));
+        ) = (rules.penalty, rules.min_speed, rules.max_speed);
 
         let mut factors = std::collections::HashMap::new();
         for player in self.players.values() {

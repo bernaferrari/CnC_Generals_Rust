@@ -153,10 +153,16 @@ impl GameLogic {
                         &chunky,
                         std::sync::Arc::clone(&ai_draft),
                         &definition_source,
+                        Some(*self.production_energy_rules()),
                     );
                 let parsed_settings = match parsed {
                     Ok(meta) => match self.admit_ai_map_overrides(ai_draft) {
-                        Ok(()) => Some(meta),
+                        Ok(()) => {
+                            if let Some(rules) = meta.production_energy {
+                                self.production_energy.effective = rules;
+                            }
+                            Some(meta)
+                        }
                         Err(err) => {
                             log::warn!("Map AI definition admission failed: {err}");
                             return false;

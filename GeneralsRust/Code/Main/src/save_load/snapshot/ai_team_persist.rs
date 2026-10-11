@@ -23,7 +23,7 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 const TMAI_MAGIC: &[u8; 4] = b"TMAI";
-const TMAI_VERSION: u32 = 10;
+const TMAI_VERSION: u32 = 11;
 
 fn default_fast_as_possible_order() -> f32 {
     999_999.0
@@ -167,6 +167,25 @@ struct ObjectAiOrderPersistV2 {
     can_path_through_units: bool,
     #[serde(default = "default_last_command_source")]
     last_command_source: u32,
+}
+
+// Version 11 appends canonical movement runtime without changing v10 orders.
+// AIInternalMoveToState::xfer preserves goal, prior path goal and timestamp;
+// deriving the prior goal from a target's current pose changes repath timing.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct AiTeamPersistPayloadV11 {
+    ai: AiTeamPersistPayload,
+    movement_runtime: Vec<MovementRuntimePersist>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct MovementRuntimePersist {
+    receiver: u32,
+    goal_object: Option<u32>,
+    path_goal_position: Option<[f32; 3]>,
+    path_timestamp: u32,
+    // Guard/panic can override the host's projected template width.
+    wander_width_override: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -813,8 +832,29 @@ impl From<ObjectAiOrderPersistV6> for ObjectAiOrderPersist {
 }
 
 pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
-    let payload = capture(game_logic);
-    if payload.team_targets.is_empty() && payload.orders.is_empty() {
+    let ai = capture(game_logic);
+    let mut movement_runtime: Vec<_> = game_logic
+        .objects
+        .iter()
+        .map(|(id, object)| MovementRuntimePersist {
+            receiver: id.0,
+            goal_object: object.movement_goal_object().map(|goal| goal.0),
+            path_goal_position: object.path_goal_position.as_ref().map(vec3_to_arr),
+            path_timestamp: object.path_timestamp,
+            wander_width_override: (object.panic_runtime.is_some()
+                || object.unit_ai_runtime.guard_phase().is_some())
+            .then_some(object.wander_width_factor),
+        })
+        .collect();
+    movement_runtime.sort_by_key(|row| row.receiver);
+    let payload = AiTeamPersistPayloadV11 {
+        ai,
+        movement_runtime,
+    };
+    if payload.ai.team_targets.is_empty()
+        && payload.ai.orders.is_empty()
+        && payload.movement_runtime.is_empty()
+    {
         return;
     }
     let Ok(encoded) = bincode_legacy::serialize(&payload) else {
@@ -853,6 +893,7 @@ pub(super) fn apply_from_lifecycle_tail_with_object_records(
         && version != 7
         && version != 8
         && version != 9
+        && version != 10
         && version != TMAI_VERSION
     {
         return Err(SaveLoadError::Corrupted(format!(
@@ -866,7 +907,32 @@ pub(super) fn apply_from_lifecycle_tail_with_object_records(
         ));
     }
     let encoded = &rest[..payload_len];
-    let payload = if version == 1 {
+    let mut movement_runtime = Vec::new();
+    let payload = if version == TMAI_VERSION {
+        let envelope: AiTeamPersistPayloadV11 = bincode_legacy::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("TMAI payload decode: {err}")))?;
+        let mut seen = std::collections::HashSet::new();
+        for row in &envelope.movement_runtime {
+            if row
+                .wander_width_override
+                .is_some_and(|width| !width.is_finite())
+                || row.receiver == 0
+                || row.goal_object == Some(0)
+                || !game_logic.objects.contains_key(&ObjectId(row.receiver))
+                || !seen.insert(row.receiver)
+                || row
+                    .path_goal_position
+                    .is_some_and(|point| !arr_to_vec3(point).is_finite())
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "invalid TMAI movement runtime receiver/identity/position/width".into(),
+                ));
+            }
+        }
+        // Missing target is an ordinary checked lookup failure, not corrupt.
+        movement_runtime = envelope.movement_runtime;
+        envelope.ai
+    } else if version == 1 {
         let old: AiTeamPersistPayloadV1 = bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("TMAI payload decode: {err}")))?;
         AiTeamPersistPayload {
@@ -970,6 +1036,21 @@ pub(super) fn apply_from_lifecycle_tail_with_object_records(
             .map_err(|err| SaveLoadError::Corrupted(format!("TMAI payload decode: {err}")))?
     };
     apply_payload(game_logic, payload, object_records);
+    for object in game_logic.objects.values_mut() {
+        object.set_movement_goal_object(None);
+    }
+    for row in movement_runtime {
+        let object = game_logic
+            .objects
+            .get_mut(&ObjectId(row.receiver))
+            .expect("validated receiver");
+        object.set_movement_goal_object(row.goal_object.map(ObjectId));
+        object.path_goal_position = row.path_goal_position.map(arr_to_vec3);
+        object.path_timestamp = row.path_timestamp;
+        if let Some(width) = row.wander_width_override {
+            object.wander_width_factor = width;
+        }
+    }
     Ok(())
 }
 
@@ -1758,3 +1839,7 @@ mod tests {
         assert!((loaded.desired_speed - 999_999.0).abs() < 1.0);
     }
 }
+
+#[cfg(test)]
+#[path = "movement_goal_tests.rs"]
+mod movement_goal_tests;

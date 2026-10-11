@@ -164,11 +164,18 @@ pub fn simulate_production_door_model_condition_log_door_tick_source() -> bool {
     let Some(body) = function_body(object_source(), "fn tick_production_door(") else {
         return false;
     };
-    let ok = body
-        .contains("Wave 486: door model bits must reach GW before model-condition writeback")
+    let Some(door_body) = function_body(object_source(), "fn tick_one_production_door(") else {
+        return false;
+    };
+    // Door-bank iteration delegates each original phase transition. Check
+    // the actual recorder route rather than requiring a historical comment
+    // or requiring delegated effects in the outer function's text.
+    let ok = body.contains("self.tick_one_production_door(i, now)")
+        && body.contains("sync_primary_production_door")
         && body.contains("record_host_model_condition")
-        && body.contains("refresh_model_condition_bits")
-        && body.contains("record_host_production_door");
+        && door_body.contains("refresh_model_condition_bits")
+        && door_body.contains("record_host_production_door")
+        && door_body.contains("record_host_model_condition");
     residual_action_store(ResidualProductionDoorModelConditionLogAction::DoorTickSource);
     ok
 }

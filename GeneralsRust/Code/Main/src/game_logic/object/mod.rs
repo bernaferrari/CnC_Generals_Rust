@@ -985,6 +985,10 @@ pub struct Object {
     /// C++ m_requestedDestination residual.
     #[serde(default)]
     pub requested_destination: Option<glam::Vec3>,
+    /// C++ AIStateMachine goal object: identity, not a copied movement pose.
+    /// Old host saves did not carry this field; TMAI v11 persists it explicitly.
+    #[serde(default)]
+    movement_goal_object: Option<ObjectId>,
     /// C++ `AIInternalMoveToState::m_pathGoalPosition`. Goal used for the last path.
     #[serde(default)]
     pub path_goal_position: Option<glam::Vec3>,

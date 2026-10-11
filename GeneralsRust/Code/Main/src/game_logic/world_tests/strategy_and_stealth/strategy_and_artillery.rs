@@ -556,17 +556,24 @@ fn path_follow_owned_by_update_movement_single_step() {
 
 #[test]
 fn camera_mod_freeze_time_blocks_simulation_movement_updates() {
-    // Host update_with_dt path (no shadow session): disable GameWorld movement authority.
+    // C++ registerObject starts sleepy updates at frame1 when admitted at frame0.
+    // Warm the driving instance normally before measuring one movement frame.
     let mut baseline = GameLogic::new();
     ensure_test_tank_template(&mut baseline);
     let baseline_unit = baseline
         .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("baseline unit should be created");
+    baseline.update_with_dt_budget(LOGIC_FRAME_TIMESTEP, 1);
+    assert_eq!(
+        baseline.frame, 1,
+        "warm-up must advance the actual initial frame"
+    );
+    assert_eq!(baseline.fixed_step_diagnostics().steps_run, 1);
+    assert!(baseline.unit_command_move_to(baseline_unit, Vec3::new(120.0, 0.0, 0.0)));
     {
-        let (obj, mut movement_events) = baseline
-            .host_object_and_movement_events_mut(baseline_unit)
+        let obj = baseline
+            .host_object_mut(baseline_unit)
             .expect("baseline unit should exist");
-        obj.move_to(Vec3::new(120.0, 0.0, 0.0), &mut movement_events);
         obj.movement.max_speed = 60.0;
         obj.movement.acceleration = 3600.0;
     }
@@ -574,7 +581,11 @@ fn camera_mod_freeze_time_blocks_simulation_movement_updates() {
         .host_object(baseline_unit)
         .expect("baseline unit should exist")
         .get_position();
-    baseline.update_with_dt(1.0 / 30.0);
+    let baseline_frame = baseline.frame;
+    baseline.update_with_dt_budget(LOGIC_FRAME_TIMESTEP, 1);
+    assert_eq!(baseline.frame, baseline_frame + 1);
+    assert_eq!(baseline.fixed_step_diagnostics().steps_run, 1);
+    assert_eq!(baseline.fixed_step_diagnostics().frozen_steps, 0);
     let baseline_after = baseline
         .host_object(baseline_unit)
         .expect("baseline unit should exist")
@@ -590,11 +601,17 @@ fn camera_mod_freeze_time_blocks_simulation_movement_updates() {
     let frozen_unit = frozen
         .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("frozen unit should be created");
+    frozen.update_with_dt_budget(LOGIC_FRAME_TIMESTEP, 1);
+    assert_eq!(
+        frozen.frame, 1,
+        "warm-up must advance the actual initial frame"
+    );
+    assert_eq!(frozen.fixed_step_diagnostics().steps_run, 1);
+    assert!(frozen.unit_command_move_to(frozen_unit, Vec3::new(120.0, 0.0, 0.0)));
     {
-        let (obj, mut movement_events) = frozen
-            .host_object_and_movement_events_mut(frozen_unit)
+        let obj = frozen
+            .host_object_mut(frozen_unit)
             .expect("frozen unit should exist");
-        obj.move_to(Vec3::new(120.0, 0.0, 0.0), &mut movement_events);
         obj.movement.max_speed = 60.0;
         obj.movement.acceleration = 3600.0;
     }
@@ -616,7 +633,15 @@ fn camera_mod_freeze_time_blocks_simulation_movement_updates() {
         .host_object(frozen_unit)
         .expect("frozen unit should exist")
         .get_position();
-    frozen.update_with_dt(1.0 / 60.0);
+    let frozen_frame = frozen.frame;
+    let frozen_time = frozen.sim_time_seconds;
+    // A full fixed step exercises GameLogic's early-script/freeze return;
+    // a half-step could leave pose unchanged without reaching that boundary.
+    frozen.update_with_dt_budget(LOGIC_FRAME_TIMESTEP, 1);
+    assert_eq!(frozen.fixed_step_diagnostics().frozen_steps, 1);
+    assert_eq!(frozen.fixed_step_diagnostics().steps_run, 0);
+    assert_eq!(frozen.frame, frozen_frame);
+    assert_eq!(frozen.sim_time_seconds, frozen_time);
     let frozen_after = frozen
         .host_object(frozen_unit)
         .expect("frozen unit should exist")
@@ -1693,6 +1718,51 @@ fn script_named_timer_and_superweapon_mutations_respect_order() {
 fn combat_kill_spawns_particle_system_registry_entries() {
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    // C++ Weapon.cpp:904-939 only dispatches authored non-null FXLists.
+    // This instant-hit fixture needs a real detonation list, not a synthetic
+    // impact inferred from a nameless Weapon. Admit the exact original
+    // ArtilleryBarrageDamageWeapon fields through the production parser;
+    // rename only its definition identity to isolate it from retail overlays.
+    // INIZH.big Weapon.ini payload: offset3880112,size418787. The unrelated
+    // loose extraction is not an admission prerequisite for this local test.
+    const IMPACT_WEAPON: &str = "CombatRegistryFixtureArtilleryDamage";
+    assert_eq!(
+        crate::assets::ini_template_loader::register_weapons_from_ini_text(
+            r#"
+Weapon CombatRegistryFixtureArtilleryDamage
+  PrimaryDamage = 105.0
+  PrimaryDamageRadius = 50.0
+  AttackRange = 100.0
+  DamageType = EXPLOSION
+  DeathType = EXPLODED
+  WeaponSpeed = 99999.0
+  ProjectileDetonationFX = FX_ArtilleryBarrage
+  RadiusDamageAffects = ENEMIES NEUTRALS ALLIES
+  DelayBetweenShots = 0
+  ClipSize = 1
+  ClipReloadTime = 0
+  AutoReloadsClip = No
+End
+"#
+        ),
+        1,
+        "original-backed fixture definition must use actual ordered admission"
+    );
+    let detonation_fx =
+        crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name(IMPACT_WEAPON);
+    assert_eq!(
+        detonation_fx, "FX_ArtilleryBarrage",
+        "actual admitted Weapon.ini detonation prerequisite"
+    );
+    assert!(
+        crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name(IMPACT_WEAPON).is_empty(),
+        "this fixture exercises the no-FireFX recoil/muzzle route"
+    );
+    game_logic
+        .templates
+        .get_mut("TestTank")
+        .unwrap()
+        .set_primary_weapon_name(IMPACT_WEAPON);
 
     let attacker_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -1734,6 +1804,16 @@ fn combat_kill_spawns_particle_system_registry_entries() {
         "muzzle flash entry required"
     );
 
+    assert!(
+        game_logic
+            .combat_particles()
+            .systems_of_kind(CombatParticleKind::WeaponImpact)
+            .iter()
+            .any(|entry| entry.fx_list_name == detonation_fx
+                && entry.target_object == Some(target_id)),
+        "impact must retain the admitted detonation FX identity and victim"
+    );
+
     // Process destroy list (same end-of-step path as step_simulation).
     game_logic.process_destroy_list();
 
@@ -1768,17 +1848,34 @@ fn combat_kill_spawns_particle_system_registry_entries() {
         assert!(entry.active);
     }
 
+    let presentation =
+        crate::presentation_frame::PresentationFrame::build_from_logic(&mut game_logic, 0);
+    for entry in game_logic.combat_particles().active_systems() {
+        let snapshot = presentation
+            .particle_systems
+            .iter()
+            .find(|system| system.id == entry.id)
+            .expect("owned presentation retains each stable particle identity");
+        assert_eq!(snapshot.template_name, entry.template_name);
+        assert_eq!(snapshot.position, entry.position);
+        assert_eq!(snapshot.kind, entry.kind);
+        assert_eq!(snapshot.target_object, entry.target_object);
+    }
+
     #[cfg(feature = "game_client")]
     {
-        // Client mirror path: at least one spawn should land in ParticleSystemManager.
-        let mirrored = game_logic
-            .combat_particles()
-            .active_systems()
-            .filter(|e| e.client_system_id.is_some())
+        // Deliver the actual owned frame before observing native client state.
+        // Eager host mirror IDs are an optional optimization, not the producer
+        // contract; this adapter backfills systems that were not mirrored.
+        let already_delivered = presentation
+            .particle_systems
+            .iter()
+            .filter(|entry| entry.client_system_id.is_some())
             .count();
+        let delivered = presentation.apply_particle_systems_to_client();
         assert!(
-            mirrored > 0,
-            "with game_client, host entries should mirror into client manager"
+            already_delivered + delivered > 0,
+            "actual presentation delivery must admit combat systems into client manager"
         );
         let guard =
             game_client::effects::get_particle_system_manager().expect("particle manager readable");

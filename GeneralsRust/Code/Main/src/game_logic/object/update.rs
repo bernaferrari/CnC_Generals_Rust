@@ -1,6 +1,22 @@
 use super::*;
 
 impl Object {
+    /// WaveGuideUpdate audio observes this object's admitted definition and
+    /// updates only its runtime clock/latches. No template or RNG registry.
+    pub(crate) fn tick_wave_guide_audio(
+        &mut self,
+        random: &game_engine::common::random_value::SessionRandom,
+        frame: u32,
+    ) -> (Option<String>, Option<String>) {
+        let Some(audio) = self.thing.template.wave_guide_audio.as_ref() else {
+            return (None, None);
+        };
+        let Some(state) = self.wave_guide_data.as_mut() else {
+            return (None, None);
+        };
+        crate::game_logic::host_wave_guide::wave_guide_audio_tick(state, audio, random, frame)
+    }
+
     /// Explicit temporary exit movement suspending this object's Guard machine.
     pub(crate) fn has_guard_quick_exit_overlay(&self) -> bool {
         self.ai_state == AIState::Moving

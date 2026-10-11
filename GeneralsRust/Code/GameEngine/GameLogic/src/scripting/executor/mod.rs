@@ -1508,6 +1508,7 @@ mod actions_world;
 mod dispatch;
 mod eval_basic;
 mod eval_named;
+mod eval_owned_body_census;
 mod eval_player_events;
 mod eval_skirmish;
 
@@ -1533,6 +1534,7 @@ pub const EXECUTOR_SRC: &str = concat!(
     include_str!("actions_world.rs"),
     include_str!("dispatch.rs"),
     include_str!("eval_basic.rs"),
+    include_str!("eval_owned_body_census.rs"),
     include_str!("eval_named.rs"),
     include_str!("eval_player_events.rs"),
     include_str!("eval_skirmish.rs"),

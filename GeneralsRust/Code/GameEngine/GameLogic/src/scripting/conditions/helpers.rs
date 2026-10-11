@@ -1,5 +1,7 @@
 //! Shared helpers for script condition evaluation.
 
+mod snapshot_queries;
+
 use super::ScriptValue;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::player::{Player, player_list};
@@ -253,36 +255,17 @@ pub fn host_bridge_repaired(bridge_name: &str) -> bool {
 }
 
 pub fn host_script_named_unit_id(name: &str) -> Option<u32> {
-    if name.is_empty() {
-        return None;
-    }
-    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().named.get(name).copied())
+    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().named_unit_id(name))
 }
 
 /// True when a host snapshot was injected (any named/team/object/area/tech row).
 pub fn host_script_query_has_any() -> bool {
-    HOST_SCRIPT_QUERY.with(|slot| {
-        let snap = slot.borrow();
-        !snap.named.is_empty()
-            || !snap.objects.is_empty()
-            || !snap.team_ids.is_empty()
-            || !snap.tech_buildings.is_empty()
-    })
+    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().has_any())
 }
 
 /// Host named-unit aliveness from the snapshot (no crate Object).
 pub fn host_script_named_unit_alive(name: &str) -> Option<bool> {
-    if name.is_empty() {
-        return None;
-    }
-    HOST_SCRIPT_QUERY.with(|slot| {
-        let snap = slot.borrow();
-        snap.objects
-            .iter()
-            .find(|o| o.name == name)
-            .map(|o| o.alive)
-            .or_else(|| snap.named.contains_key(name).then_some(true))
-    })
+    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().named_unit_alive(name))
 }
 
 /// True when the host snapshot lists this named unit (alive or dying).
@@ -354,7 +337,7 @@ pub fn host_script_query_object(name: &str) -> Option<HostScriptQueryObject> {
 }
 
 pub fn host_script_query_object_by_id(id: u32) -> Option<HostScriptQueryObject> {
-    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().objects.iter().find(|o| o.id == id).cloned())
+    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().object_by_id(id).cloned())
 }
 
 /// C++ evaluateBuildingEntered on the host snapshot (no leftover contain).
@@ -406,13 +389,7 @@ pub fn host_team_was_fielded(team_name: &str) -> bool {
 }
 
 pub fn host_script_team_unit_ids(team: u32) -> Vec<u32> {
-    HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow()
-            .team_ids
-            .get(&team)
-            .cloned()
-            .unwrap_or_default()
-    })
+    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().team_unit_ids(team).to_vec())
 }
 
 fn host_player_query_key(name: &str) -> String {
@@ -743,15 +720,8 @@ pub fn host_script_named_unit_in_area(
     max_z: f32,
 ) -> bool {
     HOST_SCRIPT_QUERY.with(|slot| {
-        let snap = slot.borrow();
-        snap.objects.iter().any(|o| {
-            o.alive
-                && o.name == name
-                && o.x >= min_x
-                && o.x <= max_x
-                && o.z >= min_z
-                && o.z <= max_z
-        })
+        slot.borrow()
+            .named_unit_in_area(name, (min_x, min_z, max_x, max_z))
     })
 }
 
@@ -789,9 +759,8 @@ pub(crate) fn host_named_unit_point_in_trigger(
     trigger: &crate::polygon_trigger::PolygonTrigger,
 ) -> bool {
     HOST_SCRIPT_QUERY.with(|slot| {
-        slot.borrow().objects.iter().any(|o| {
-            o.name == unit_name && trigger.point_in_trigger_int(&host_xz_to_trigger_point(o.x, o.z))
-        })
+        slot.borrow()
+            .named_unit_point_in_trigger(unit_name, trigger)
     })
 }
 
@@ -860,6 +829,21 @@ impl HostTriggerWorld {
 
     pub fn has_authored_trigger_geometry(&self) -> bool {
         self.geometry_installed
+    }
+
+    /// Resolve a raw or already-qualified name within this world's geometry.
+    /// Script qualification belongs to the driving caller's context.
+    pub fn trigger_area_by_canonical_name(
+        &self,
+        area_name: &str,
+    ) -> Option<crate::polygon_trigger::PolygonTrigger> {
+        if area_name.is_empty() {
+            return None;
+        }
+        self.triggers
+            .iter()
+            .find(|trigger| trigger.get_trigger_name().as_str() == area_name)
+            .cloned()
     }
 
     pub fn trigger_area_by_name(

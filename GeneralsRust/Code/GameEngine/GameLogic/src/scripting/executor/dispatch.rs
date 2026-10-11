@@ -558,7 +558,42 @@ impl ScriptActionDispatcher<'_> {
                 self.do_team_wait_for_not_contained_partial(action)
             }
             ScriptActionType::TeamMoveTowardsNearestObjectType => {
-                self.do_team_move_towards_nearest_object_type(action)
+                use crate::scripting::engine::{
+                    ScriptNearestObjectRequest, ScriptNearestRecipient,
+                };
+                let recipient = self.get_string_param(action, 0)?;
+                let object_type = self.get_string_param(action, 1)?;
+                let trigger = self.get_string_param(action, 2)?;
+                let engine = self.context.borrowed_engine();
+                let object_types: Vec<String> = engine
+                    .get_object_types(&object_type)
+                    .map(|types| {
+                        (0..types.list_size() as i32)
+                            .filter_map(|index| {
+                                types
+                                    .nth_in_list(index)
+                                    .map(|name| name.as_str().to_owned())
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let current_player = engine.get_current_player_name();
+                let request = ScriptNearestObjectRequest {
+                    recipient: ScriptNearestRecipient::Team(&recipient),
+                    object_type: &object_type,
+                    object_types: &object_types,
+                    trigger: &trigger,
+                    current_player: current_player.as_deref(),
+                    this_object: engine.script_object_id(),
+                    calling_team: engine.get_calling_team_id(),
+                    condition_team: engine.get_condition_team_id(),
+                };
+                if let Some(result) = driver.nearest_object_move(request) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_team_move_towards_nearest_object_type(action)
+                }
             }
             ScriptActionType::TeamHuntWithCommandButton => {
                 self.do_team_hunt_with_command_button(action)
@@ -702,7 +737,42 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::UnitIdleForFramecount => self.do_unit_idle_for_framecount(action),
             ScriptActionType::UnitDestroyAllContained => self.do_unit_destroy_all_contained(action),
             ScriptActionType::UnitMoveTowardsNearestObjectType => {
-                self.do_unit_move_towards_nearest_object_type(action)
+                use crate::scripting::engine::{
+                    ScriptNearestObjectRequest, ScriptNearestRecipient,
+                };
+                let recipient = self.get_string_param(action, 0)?;
+                let object_type = self.get_string_param(action, 1)?;
+                let trigger = self.get_string_param(action, 2)?;
+                let engine = self.context.borrowed_engine();
+                let object_types: Vec<String> = engine
+                    .get_object_types(&object_type)
+                    .map(|types| {
+                        (0..types.list_size() as i32)
+                            .filter_map(|index| {
+                                types
+                                    .nth_in_list(index)
+                                    .map(|name| name.as_str().to_owned())
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let current_player = engine.get_current_player_name();
+                let request = ScriptNearestObjectRequest {
+                    recipient: ScriptNearestRecipient::Named(&recipient),
+                    object_type: &object_type,
+                    object_types: &object_types,
+                    trigger: &trigger,
+                    current_player: current_player.as_deref(),
+                    this_object: engine.script_object_id(),
+                    calling_team: engine.get_calling_team_id(),
+                    condition_team: engine.get_condition_team_id(),
+                };
+                if let Some(result) = driver.nearest_object_move(request) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_unit_move_towards_nearest_object_type(action)
+                }
             }
             ScriptActionType::UnitAffectObjectPanelFlags => {
                 self.do_unit_affect_object_panel_flags(action)
@@ -1032,7 +1102,18 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             // EVA/MISC ACTIONS
             // ============================================================================
-            ScriptActionType::EvaSetEnabledDisabled => self.do_eva_set_enabled_disabled(action),
+            ScriptActionType::EvaSetEnabledDisabled => {
+                let enabled = self.get_int_param(action, 0)? != 0;
+                match driver.eva_enabled(enabled) {
+                    crate::scripting::engine::ScriptOwnerQuery::Present(())
+                    | crate::scripting::engine::ScriptOwnerQuery::Missing => {
+                        Ok(ScriptActionResult::Success)
+                    }
+                    crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
+                        self.do_eva_set_enabled_disabled(action)
+                    }
+                }
+            }
             ScriptActionType::OptionsSetOcclusionMode => self.do_options_set_occlusion_mode(action),
             ScriptActionType::OptionsSetDrawiconUiMode => {
                 self.do_options_set_draw_icon_ui_mode(action)

@@ -462,10 +462,8 @@ fn execute_build_no_money_queues_insufficient_funds_eva_and_refuses() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
     use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
-    use gamelogic::helpers::{EvaEvent, TheEva};
+    use gamelogic::helpers::EvaEvent;
     use glam::Vec3;
-
-    let _ = TheEva::drain_events();
     let mut logic = GameLogic::new();
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 10;
@@ -516,7 +514,7 @@ fn execute_build_no_money_queues_insufficient_funds_eva_and_refuses() {
             .any(|o| o.template_name == "TestPoorBarracks"),
         "no structure may be placed without funds"
     );
-    let events = TheEva::drain_events().expect("eva queue");
+    let events = logic.take_eva_requests();
     assert!(
         events.contains(&EvaEvent::InsufficientFunds),
         "C++ PlaceEventTranslator NO_MONEY must pulse EVA_InsufficientFunds, got {events:?}"

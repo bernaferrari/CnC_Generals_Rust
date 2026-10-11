@@ -1,4 +1,4 @@
-//! Wave 534 residual peels: every host `TheEva::set_should_play` edge records
+//! Wave 534 residual peels: every host `eva_announcements.request` edge records
 //! into `host_eva_log` via `record_event` so PresentationFrame EvaAlert audio
 //! covers the full EVA matrix (not only Wave 533 low-power/funds/attack/lost).
 //! Never flips shell `playable_claim`.
@@ -8,7 +8,7 @@
 //!
 //! Sources:
 //! - `host_eva_log.rs` record_event / eva_event_audio_name
-//! - `game_logic.rs` TheEva::set_should_play → record_event
+//! - `game_logic.rs` eva_announcements.request → record_event
 //! - `presentation_frame.rs` EvaAlert collect_audio_events
 //!
 //! Fail-closed:
@@ -25,9 +25,9 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 
 pub const LIVE_PRESENTATION_EVA_FULL_MATRIX_METHOD_NAMES_WAVE534: &[&str] = &[
-    "host_eva_log::record_event",
+    "eva_announcements.request",
     "eva_event_audio_name",
-    "TheEva::set_should_play",
+    "eva_announcements.request",
     "PresentationEvent::EvaAlert",
     "EVA_BeaconDetected",
     "EVA_UpgradeComplete",
@@ -98,9 +98,9 @@ fn pf_source() -> &'static str {
 
 pub fn honesty_presentation_eva_full_matrix_method_names_residual_wave534() -> bool {
     let names = LIVE_PRESENTATION_EVA_FULL_MATRIX_METHOD_NAMES_WAVE534;
-    let ok = residual_name_index(names, "host_eva_log::record_event").is_some()
+    let ok = residual_name_index(names, "eva_announcements.request").is_some()
         && residual_name_index(names, "eva_event_audio_name").is_some()
-        && residual_name_index(names, "TheEva::set_should_play").is_some()
+        && residual_name_index(names, "eva_announcements.request").is_some()
         && residual_name_index(names, "PresentationEvent::EvaAlert").is_some()
         && residual_name_index(names, "EVA_BeaconDetected").is_some()
         && residual_name_index(names, "EVA_UpgradeComplete").is_some()
@@ -113,17 +113,18 @@ pub fn honesty_presentation_eva_full_matrix_source_markers_residual_wave534() ->
     let gl = gl_source();
     let log = log_source();
     let pf = pf_source();
-    let set_n = gl.matches("TheEva::set_should_play").count();
-    let rec_n = gl.matches("host_eva_log::record_event").count();
-    let ok = log.contains("pub fn record_event")
+    let set_n = gl.matches("eva_announcements.request").count();
+    let ok = log.contains("pub fn request")
         && log.contains("pub fn eva_event_audio_name")
         && log.contains("eva_event_table_token")
         && log.contains("eva_event_audio_name")
         && log.contains("EVA_{}")
         && pf.contains("PresentationEvent::EvaAlert")
-        && pf.contains("host_eva_log::take_last_drain")
+        && pf.contains("eva_announcements.take_delivery")
         && set_n > 0
-        && rec_n >= set_n
+        && log.contains("EvaOperation::Request(event)")
+        && !gl.contains("TheEva::set_should_play")
+        && !log.contains("thread_local!")
         && gl.contains("EvaEvent::BeaconDetected")
         && gl.contains("EvaEvent::UpgradeComplete")
         && gl.contains("EvaEvent::VehicleStolen")
@@ -150,17 +151,16 @@ pub fn honesty_presentation_eva_full_matrix_nav_commands_residual_wave534() -> b
 pub fn simulate_presentation_eva_full_matrix_collect_source() -> bool {
     let gl = gl_source();
     let log = log_source();
-    let ok = log.contains("record_event")
-        && gl.matches("host_eva_log::record_event").count()
-            >= gl.matches("TheEva::set_should_play").count();
+    let ok = log.contains("pub fn request")
+        && gl.matches("eva_announcements.request").count() > 0
+        && !gl.contains("TheEva::set_should_play");
     residual_action_store(ResidualPresentationEvaFullMatrixAction::CollectSource);
     ok
 }
 
 pub fn simulate_presentation_eva_full_matrix_dispatch_source() -> bool {
     let pf = pf_source();
-    let ok = pf.contains("PresentationEvent::EvaAlert { name }")
-        && pf.contains("AudioEventRequest::new(name.as_str())");
+    let ok = super::harness::eva_alert_uses_owned_native_speaker(pf, super::engine_scan_src());
     residual_action_store(ResidualPresentationEvaFullMatrixAction::DispatchSource);
     ok
 }

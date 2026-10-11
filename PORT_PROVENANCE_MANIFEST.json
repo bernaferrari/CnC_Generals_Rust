@@ -8559,9 +8559,16 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/eva.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/eva/explicit_context_tests.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -42560,9 +42567,16 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/eva.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/eva/explicit_context_tests.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -157557,7 +157571,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "685428d9c067cdc4ae7a2c0c00fdbe0c06227c9bb0b598363980b5215f23253e",
+  "input_digest": "1272c6f0e458a8fc27158ffae1bc2f4d411da1a8900964efb205c7c258bfff82",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -161279,11 +161293,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2549,
+        "end_line": 2595,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data.rs",
-      "sha256": "a0c21061d9a4758eae1c64506a7ce153c44dbb1bd7fa31f2db4028a8b2defe24",
+      "sha256": "3412b947ee6d6e32c65fa3bfc8f567f557e6d2bb5c3c960681e6f5bd4201c2e3",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -166850,13 +166864,25 @@
     },
     {
       "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 82,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/eva/explicit_context_tests.rs",
+      "sha256": "7f69b8413961ea8a7dbd6433cfedff5f777d95b6967e7964c0e8dd36541e060f",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1357,
+        "end_line": 1454,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/eva.rs",
-      "sha256": "dea3ad4685ff4a6298f59cd08c272fe98ceba154d3a219eb935edd13b1ab1e7c",
+      "sha256": "3706ffd31f6870401a152541ea57216cb6051853c31415fbe41254cc7bf53d2f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

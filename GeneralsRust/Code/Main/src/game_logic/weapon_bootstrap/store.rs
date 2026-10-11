@@ -128,6 +128,19 @@ pub(super) fn seed_death_type_for(
 ) -> gamelogic::damage::DeathType {
     use gamelogic::damage::{DamageType as Dmg, DeathType as Dth};
     let n = name.to_ascii_lowercase();
+    // Weapon.ini AvengerAirLaserOne/Two use SMALL_ARMS / NORMAL despite
+    // their names. Preserve authored death semantics before name heuristics.
+    if matches!(n.as_str(), "avengerairlaserone" | "avengerairlasertwo") {
+        return Dth::Normal;
+    }
+    // Weapon.ini both Missile Defender missile rules declare NORMAL;
+    // "LaserGuided" describes guidance, not LASERED death.
+    if matches!(
+        n.as_str(),
+        "missiledefendermissileweapon" | "missiledefenderlaserguidedmissileweapon"
+    ) {
+        return Dth::Normal;
+    }
     if n.contains("terrorist") || n.contains("suicide") || n.contains("demo_trap") {
         return Dth::Suicided;
     }
@@ -163,6 +176,19 @@ pub(super) fn seed_death_type_for(
 pub(super) fn seed_damage_type_for(name: &str, weapon_speed: f32) -> gamelogic::damage::DamageType {
     use gamelogic::damage::DamageType as D;
     let n = name.to_ascii_lowercase();
+    // WeaponSet.cpp:845-855 estimates armor-adjusted damage before choosing
+    // a slot. LASER would incorrectly make these SMALL_ARMS shots harmless
+    // against AirplaneArmor and prevent their admission entirely.
+    if matches!(n.as_str(), "avengerairlaserone" | "avengerairlasertwo") {
+        return D::SmallArms;
+    }
+    // Exact Weapon.ini types precede generic name categories. A guided
+    // missile is ARMOR_PIERCING, not the LASER type TankArmor resists fully.
+    match n.as_str() {
+        "missiledefenderlaserguidedmissileweapon" => return D::ArmorPiercing,
+        "missiledefendermissileweapon" => return D::InfantryMissile,
+        _ => {}
+    }
     if n.contains("laser") || n.contains("point_defense") || n.contains("pointdefense") {
         return D::Laser;
     }
@@ -489,11 +515,12 @@ pub(super) fn seed_known_host_weapons() -> usize {
             clip_size: 0,
             weapon_speed: 600.0,
         },
-        // AvengerTargetDesignator PRIMARY — STATUS paint residual (0 HP dmg).
-        // PrimaryDamage in retail is duration ms; host residual damage=0.
+        // AvengerTargetDesignator PRIMARY — STATUS duration in milliseconds,
+        // not HP damage (ActiveBody.cpp:460-467). A zero definition duration
+        // would be rejected by the ordinary WeaponSet estimate/chooser.
         SeedWeapon {
             name: AVENGER_TARGET_DESIGNATOR,
-            primary_damage: 0.0,
+            primary_damage: crate::game_logic::host_avenger::AVENGER_FAERIE_FIRE_DURATION_MS as f32,
             attack_range: 200.0,
             delay_frames: 6,
             clip_size: 0,
@@ -503,6 +530,16 @@ pub(super) fn seed_known_host_weapons() -> usize {
         // Delay 200ms → 6 frames. Anti-air only (seeded separately below).
         SeedWeapon {
             name: AVENGER_AIR_LASER,
+            primary_damage: 10.0,
+            attack_range: 300.0,
+            delay_frames: 6,
+            clip_size: 0,
+            weapon_speed: 999_999.0,
+        },
+        // The independent second turret laser has the same authored weapon
+        // metadata; it is not a point-defense LASER damage weapon either.
+        SeedWeapon {
+            name: crate::game_logic::host_avenger::AVENGER_AIR_LASER_TWO,
             primary_damage: 10.0,
             attack_range: 300.0,
             delay_frames: 6,
@@ -1213,8 +1250,15 @@ pub(super) fn seed_known_host_weapons() -> usize {
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
         }
-        // Avenger air laser + Humvee air TOW: airborne only residual.
-        if seed.name == AVENGER_AIR_LASER || seed.name == HUMVEE_MISSILE_WEAPON_AIR {
+        // Weapon.ini AvengerAirLaserOne/Two: airborne Vehicle only;
+        // airborne Infantry and Ground are explicitly disabled.
+        if seed.name == AVENGER_AIR_LASER
+            || seed.name == crate::game_logic::host_avenger::AVENGER_AIR_LASER_TWO
+        {
+            t.anti_mask = WeaponAntiMask::new(WeaponAntiMask::AIRBORNE_VEHICLE);
+        }
+        // Humvee air TOW retains its own airborne categories.
+        if seed.name == HUMVEE_MISSILE_WEAPON_AIR {
             t.anti_mask = WeaponAntiMask::new(0);
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);

@@ -1774,6 +1774,7 @@ impl CnCGameEngine {
                     worker_stop_if_abandoned()?;
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
+                    game_logic.admit_production_energy_base(runtime.block_on(Self::load_production_energy_baseline())?);
                     // Explicit engine-content admission before this session loads a map.
                     let definitions = crate::game_logic::ai_definitions::AiDefinitions::from_engine_baseline();
                     game_logic.set_ai_definition_base(definitions.baseline().clone());
@@ -2025,7 +2026,7 @@ impl CnCGameEngine {
     /// the asset-manager lock (that hung startup). The menu model budget stays
     /// at least 4 for anything this pass misses.
     fn preload_shell_drawable_models(&mut self) {
-        let names = self.game_logic.live_drawable_model_names();
+        let names = self.host_game_logic().live_drawable_model_names();
         if names.is_empty() {
             return;
         }

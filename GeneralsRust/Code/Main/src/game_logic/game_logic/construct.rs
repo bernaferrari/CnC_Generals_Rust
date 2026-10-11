@@ -53,9 +53,11 @@ impl GameLogic {
         let ai_definitions =
             crate::game_logic::ai_definitions::AiDefinitions::from_engine_baseline();
         let mut instance = Self {
+            production_energy: Default::default(),
             ai_definitions,
             map_definition_source: None,
             health_events: crate::game_logic::HostHealthEvents::default(),
+            eva_announcements: Default::default(),
             movement_events: Default::default(),
             // C++ engine-init order (GameEngine.cpp:468-481): immutable content
             // is admitted before the world. Main constructs no Core AI.
@@ -746,6 +748,7 @@ impl GameLogic {
         log::debug!("GameLogic::reset() - resetting game state");
         self.map_definition_source = None;
         self.ai_definitions.reset();
+        self.production_energy.effective = self.production_energy.base;
         self.apply_aidata_enable_repulsors();
         self.refresh_pathfinding_ai_definitions();
         self.publish_gameworld_authority_context();
@@ -1198,6 +1201,7 @@ impl GameLogic {
         self.clear_victory_observation();
         self.health_events.clear();
         self.movement_events.reset();
+        self.eva_announcements.reset();
         self.scripts_loaded = false;
         self.install_multiplayer_scripts = false;
         self.script_event_pump_in_flight

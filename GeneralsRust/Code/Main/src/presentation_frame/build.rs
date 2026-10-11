@@ -1977,10 +1977,50 @@ impl PresentationFrame {
                 power_available: ev.power_available,
             });
         }
-        // Wave 533: EVA pulse drain (sibling of other host logs).
-        for ev in crate::game_logic::host_eva_log::take_last_drain() {
-            events.push(PresentationEvent::EvaAlert { name: ev.name });
+        let eva_delivery = logic.eva_announcements.take_delivery();
+        // SetEnabled clears waiting speech latches even for repeated true.
+        // HUD diagnostics expose only requests remaining after the last control.
+        if eva_delivery.enabled {
+            let first = eva_delivery
+                .operations
+                .iter()
+                .rposition(|op| {
+                    matches!(
+                        op,
+                        crate::game_logic::host_eva_log::EvaOperation::SetEnabled(_)
+                    )
+                })
+                .map_or(0, |i| i + 1);
+            for operation in &eva_delivery.operations[first..] {
+                if let crate::game_logic::host_eva_log::EvaOperation::Request(event) = operation {
+                    events.push(PresentationEvent::EvaAlert {
+                        name: crate::game_logic::host_eva_log::eva_event_audio_name(*event),
+                    });
+                }
+            }
         }
+        #[cfg(feature = "game_client")]
+        let eva_context = game_client::eva::EvaFrameContext {
+            frame: logic.frame,
+            local_player: logic.get_player(local_player_id).map(|player| {
+                let side = logic
+                    .player_template_identity(player.id)
+                    .and_then(crate::game_logic::PlayerTemplateIdentity::side_token)
+                    .filter(|side| !side.is_empty())
+                    .unwrap_or_else(|| match player.team {
+                        crate::game_logic::Team::USA => "America".into(),
+                        crate::game_logic::Team::China => "China".into(),
+                        crate::game_logic::Team::GLA => "GLA".into(),
+                        crate::game_logic::Team::Neutral => String::new(),
+                    });
+                game_client::eva::EvaLocalPlayerContext {
+                    side,
+                    index: player.id,
+                    sufficient_power: player.power_available >= 0
+                        && logic.frame >= player.power_sabotaged_till_frame,
+                }
+            }),
+        };
         for pid in logic.combat_particles().spawned_this_frame() {
             if let Some(entry) = logic.combat_particles().get(*pid) {
                 events.push(PresentationEvent::ParticleSystemSpawned {
@@ -2255,6 +2295,9 @@ impl PresentationFrame {
                 ids.truncate(32);
                 ids
             },
+            eva_delivery,
+            #[cfg(feature = "game_client")]
+            eva_context,
             eva_low_power_count: logic.eva_low_power_count(),
             eva_insufficient_funds_count: logic.eva_insufficient_funds_count(),
             eva_base_under_attack_count: logic.eva_base_under_attack_count(),
