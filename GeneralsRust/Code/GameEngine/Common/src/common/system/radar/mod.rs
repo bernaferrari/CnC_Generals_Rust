@@ -14,9 +14,13 @@ use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use std::sync::OnceLock;
 use std::sync::{Arc, RwLock};
 
+mod presentation;
+pub use presentation::RadarPresentation;
 mod draw_events;
+pub use draw_events::play_radar_event_chirp;
 mod map_source;
 mod objects;
+mod owned;
 mod snapshot;
 mod terrain;
 mod try_event;
@@ -926,6 +930,8 @@ pub fn clip_line_to_rect(
 
 /// Radar system manager (matches C++ Radar class)
 pub struct RadarSystem {
+    owner_identity: Arc<()>,
+    event_identities: [Arc<()>; MAX_RADAR_EVENTS],
     /// Map extents for coordinate conversion
     map_extent: Region3D,
 
@@ -1038,6 +1044,8 @@ impl RadarSystem {
     pub fn new() -> Self {
         let grid_size = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
         Self {
+            owner_identity: Arc::new(()),
+            event_identities: std::array::from_fn(|_| Arc::new(())),
             map_extent: Region3D {
                 lo: Coord3D::new(0.0, 0.0, 0.0),
                 hi: Coord3D::new(0.0, 0.0, 0.0),
@@ -1073,6 +1081,9 @@ impl RadarSystem {
 
     /// Reset radar data (matches C++ Radar::reset)
     pub fn reset(&mut self) {
+        // Invalidate delayed render acknowledgments from the preceding match/map.
+        self.owner_identity = Arc::new(());
+        self.event_identities = std::array::from_fn(|_| Arc::new(()));
         self.object_list.clear();
         self.local_object_list.clear();
         self.clear_all_events();
@@ -1103,33 +1114,9 @@ impl RadarSystem {
             let _ = self.try_new_map_from_source();
         }
 
-        // Update events - check if any should die
-        for event in &mut self.events {
-            if event.active && event.create_frame > 0 && current_frame > event.die_frame {
-                event.active = false;
-            }
+        if self.update_owned(current_frame) {
+            self.refresh_terrain();
         }
-
-        // Check for queued terrain refresh
-        if let Some(refresh_frame) = self.queue_terrain_refresh_frame {
-            if current_frame.saturating_sub(refresh_frame) > RADAR_QUEUE_TERRAIN_REFRESH_DELAY {
-                self.refresh_terrain();
-            }
-        }
-
-        // Update GPS satellite (deactivate if expired)
-        if self.is_gps_active() && current_frame >= self.gps_active_until_frame {
-            self.deactivate_gps_satellite();
-        }
-
-        // Update radar scans (remove expired ones)
-        self.update_radar_scans();
-
-        // Update jamming status for all objects
-        self.update_jamming_status();
-
-        // Update stealth detection
-        self.update_stealth_detection();
         self.sync_objects_from_provider();
     }
 
@@ -1154,78 +1141,8 @@ impl RadarSystem {
         map_max: Coord3D,
         terrain_heights: &[(f32, f32, bool)],
     ) {
-        // C++ Radar::newMap: NAMEKEY LeftHUD then reset + sample.
         self.bind_left_hud_window();
-        self.reset();
-
-        self.map_extent = Region3D {
-            lo: map_min,
-            hi: map_max,
-        };
-
-        // Calculate sampling intervals
-        self.x_sample = self.map_extent.width() / RADAR_CELL_WIDTH as f32;
-        self.y_sample = self.map_extent.height() / RADAR_CELL_HEIGHT as f32;
-
-        // C++ averages every other radar cell (`y+=2`, `x+=2`).
-        let mut terrain_sum = 0.0;
-        let mut water_sum = 0.0;
-        let mut terrain_count = 0;
-        let mut water_count = 0;
-        let expected_samples = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
-        let full_grid = terrain_heights.len() == expected_samples;
-
-        if full_grid {
-            for y in (0..RADAR_CELL_HEIGHT).step_by(2) {
-                for x in (0..RADAR_CELL_WIDTH).step_by(2) {
-                    let (_, z, is_water) = terrain_heights[(y * RADAR_CELL_WIDTH + x) as usize];
-                    if is_water {
-                        water_sum += z;
-                        water_count += 1;
-                    } else {
-                        terrain_sum += z;
-                        terrain_count += 1;
-                    }
-                }
-            }
-        } else {
-            for &(_x, z, is_water) in terrain_heights {
-                if is_water {
-                    water_sum += z;
-                    water_count += 1;
-                } else {
-                    terrain_sum += z;
-                    terrain_count += 1;
-                }
-            }
-        }
-
-        self.terrain_average_z = if terrain_count > 0 {
-            terrain_sum / terrain_count as f32
-        } else {
-            0.0
-        };
-
-        self.water_average_z = if water_count > 0 {
-            water_sum / water_count as f32
-        } else {
-            0.0
-        };
-
-        self.terrain_samples.clear();
-        if full_grid {
-            self.terrain_samples.reserve(expected_samples);
-            for &(_x, z, is_water) in terrain_heights {
-                self.terrain_samples.push(RadarTerrainSample {
-                    height: z,
-                    is_water,
-                });
-            }
-        }
-
-        self.terrain_dirty = true;
-        self.refresh_terrain();
-        snapshot::ensure_the_radar_snapshot_block();
+        self.new_map_impl(map_min, map_max, terrain_heights, false);
     }
 
     /// Add object to radar (matches C++ Radar::addObject)
@@ -1358,13 +1275,17 @@ impl RadarSystem {
             .world_to_radar(world_loc)
             .unwrap_or(ICoord2D::new(0, 0));
 
+        self.event_identities[self.next_free_event] = Arc::new(());
         let event = &mut self.events[self.next_free_event];
         event.event_type = event_type;
         event.active = true;
         event.create_frame = self.current_frame;
-        event.die_frame = self.current_frame + (FRAMES_PER_SECOND as f32 * seconds_to_live) as u32;
-        event.fade_frame =
-            event.die_frame - (FRAMES_PER_SECOND as f32 * FADE_BEFORE_DIE_SECONDS) as u32;
+        event.die_frame = self
+            .current_frame
+            .wrapping_add((FRAMES_PER_SECOND as f32 * seconds_to_live) as u32);
+        event.fade_frame = event
+            .die_frame
+            .wrapping_sub((FRAMES_PER_SECOND as f32 * FADE_BEFORE_DIE_SECONDS) as u32);
         event.color1 = color1;
         event.color2 = color2;
         event.world_loc = *world_loc;
@@ -1609,6 +1530,8 @@ impl RadarSystem {
     ) {
         self.radar_hidden = hidden;
         self.radar_force_on = forced;
+        self.owner_identity = Arc::new(());
+        self.event_identities = std::array::from_fn(|_| Arc::new(()));
         self.events = events;
         self.next_free_event = next_free.min(MAX_RADAR_EVENTS.saturating_sub(1));
         self.last_event = last.filter(|idx| *idx < MAX_RADAR_EVENTS);

@@ -1260,6 +1260,17 @@ impl CnCGameEngine {
         slot: &str,
         save_info: &SaveGameInfo,
     ) -> Result<(), String> {
+        // DrawEvents marks chirps once before saving. Rendering sends immutable
+        // receipts; admit them to this session before serializing soundPlayed.
+        #[cfg(feature = "game_client")]
+        if let Some(ui) = self.game_client.in_game_ui_subsystem() {
+            use game_client::helpers::InGameUiHooks;
+            let ui = game_client::core::subsystems::InGameUiHandle::new(ui);
+            super::run_loop::admit_radar_presentations(
+                &mut self.game_logic,
+                ui.take_radar_acknowledgments(),
+            );
+        }
         // Wave 928: single save authority boundary.
         // Capture the renderer-owned Drawable companion at the same host
         // authority boundary as the logical snapshot.  The pipeline method
@@ -1884,6 +1895,7 @@ impl CnCGameEngine {
                     Self::apply_skybox_hint(&mut self.render_pipeline);
                     self.ensure_presentation_env_seeded();
                     Self::sync_render_terrain_visual(
+                        &mut self.game_logic,
                         &mut self.render_pipeline,
                         &self.graphics_system,
                         loaded_map_name.as_str(),

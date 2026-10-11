@@ -39,7 +39,7 @@ impl RadarSystem {
     }
 }
 
-fn play_radar_event_chirp() {
+pub fn play_radar_event_chirp() {
     if let Some(fb) = super::radar_feedback() {
         fb.play_radar_audio("RadarEvent", -1);
         return;

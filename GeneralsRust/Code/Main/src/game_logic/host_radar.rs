@@ -26,7 +26,7 @@
 //! - Not full capture / sabotage / shared-allied radar edge cases
 //! - Fake / GLA command centers residual-skip (no RadarUpgrade on GLACommandCenter)
 
-use game_engine::common::system::radar::{Coord3D, RadarEventType, get_radar_system};
+use game_engine::common::system::radar::{Coord3D, RadarEventType, RadarSystem};
 use serde::{Deserialize, Serialize};
 
 /// Leftover `Object::on_disabled_edge` radar add/remove pending apply.
@@ -106,16 +106,6 @@ pub fn radar_coord_to_host_world(loc: Coord3D) -> glam::Vec3 {
     glam::Vec3::new(loc.x, loc.z, loc.y)
 }
 
-/// C++ `TheRadar->getLastEventLoc` for spacebar / MSG_META_VIEW_LAST_RADAR_EVENT.
-/// Beacon pulses never become the last event.
-pub fn last_the_radar_event_host_position() -> Option<glam::Vec3> {
-    get_radar_system()
-        .read()
-        .ok()
-        .and_then(|radar| radar.get_last_event_loc())
-        .map(radar_coord_to_host_world)
-}
-
 pub fn pack_player_color_argb(rgb: (u8, u8, u8)) -> u32 {
     0xFF00_0000 | ((rgb.0 as u32) << 16) | ((rgb.1 as u32) << 8) | (rgb.2 as u32)
 }
@@ -126,48 +116,6 @@ pub fn host_time_of_day_is_night() -> bool {
     get_global_data()
         .map(|data| matches!(data.read().time_of_day, TimeOfDay::Night))
         .unwrap_or(false)
-}
-
-/// C++ `TheRadar->createEvent` — rotating triangle + last-event (not beacon).
-pub fn host_create_radar_event(pos: glam::Vec3, event_type: RadarEventType) {
-    host_create_radar_event_for(pos, event_type, RADAR_EVENT_SECONDS_TO_LIVE);
-}
-
-/// C++ `TheRadar->createEvent` with an explicit lifetime (beacon pulse = 0.5s).
-pub fn host_create_radar_event_for(pos: glam::Vec3, event_type: RadarEventType, seconds: f32) {
-    if let Ok(mut radar) = get_radar_system().write() {
-        radar.create_event(&host_world_to_radar_coord(pos), event_type, seconds);
-    }
-}
-
-/// C++ `TheRadar->createPlayerEvent` (battle-plan player colors).
-pub fn host_create_player_radar_event(
-    player_color: u32,
-    pos: glam::Vec3,
-    event_type: RadarEventType,
-) {
-    if let Ok(mut radar) = get_radar_system().write() {
-        radar.create_player_event(
-            player_color,
-            &host_world_to_radar_coord(pos),
-            event_type,
-            RADAR_EVENT_SECONDS_TO_LIVE,
-        );
-    }
-}
-
-/// C++ `Radar::queueTerrainRefresh` (3s delay via leftover `update`).
-pub fn host_radar_queue_terrain_refresh() {
-    if let Ok(mut radar) = get_radar_system().write() {
-        radar.queue_terrain_refresh();
-    }
-}
-
-/// C++ `Radar::refreshTerrain` immediate rebuild (map load / wave-guide).
-pub fn host_radar_refresh_terrain() {
-    if let Ok(mut radar) = get_radar_system().write() {
-        radar.refresh_terrain();
-    }
 }
 
 /// True when template is a residual radar-providing Command Center (not fake).
@@ -435,9 +383,9 @@ mod tests {
 
     #[test]
     fn spacebar_last_event_uses_the_radar_not_hud_queue() {
+        let mut logic = crate::game_logic::GameLogic::new();
         {
-            let radar_system = get_radar_system();
-            let mut radar = radar_system.write().expect("radar write");
+            let radar = logic.radar_mut();
             radar.reset();
             radar.new_map(
                 Coord3D::new(0.0, 0.0, 0.0),
@@ -455,7 +403,9 @@ mod tests {
                 0.5,
             );
         }
-        let pos = last_the_radar_event_host_position().expect("TheRadar last event");
+        let pos = logic
+            .last_the_radar_event_host_position()
+            .expect("TheRadar last event");
         assert!((pos.x - 150.0).abs() < f32::EPSILON);
         assert!((pos.y - 4.0).abs() < f32::EPSILON);
         assert!((pos.z - 250.0).abs() < f32::EPSILON);

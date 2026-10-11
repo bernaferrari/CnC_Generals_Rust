@@ -830,6 +830,7 @@ impl CnCGameEngine {
         Self::apply_skybox_hint(&mut self.render_pipeline);
         self.ensure_presentation_env_seeded();
         Self::sync_render_terrain_visual(
+            &mut self.game_logic,
             &mut self.render_pipeline,
             &self.graphics_system,
             loaded_map_name.as_str(),
@@ -1088,6 +1089,7 @@ impl CnCGameEngine {
     }
 
     pub(super) fn sync_render_terrain_visual(
+        game_logic: &mut crate::game_logic::GameLogic,
         render_pipeline: &mut RenderPipeline,
         graphics_system: &GraphicsSystem,
         map_name: &str,
@@ -1164,9 +1166,10 @@ impl CnCGameEngine {
         // Radar::newMap may have painted the band black. Re-run
         // buildTerrainTexture once hydration completes (C++ parity:
         // W3DRadar::refreshTerrain, W3DRadar.cpp:1421-1432).
-        if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
-            radar.refresh_terrain();
-        }
+        game_logic.admit_radar_terrain_colors(
+            render_pipeline.frozen_radar_terrain_colors(game_logic.radar()),
+            game_logic.radar_water_color(),
+        );
 
         // Presentation already seeded by caller; road bake cannot dual-read live GameLogic.
         if let Err(err) = render_pipeline.sync_runtime_map_roads() {

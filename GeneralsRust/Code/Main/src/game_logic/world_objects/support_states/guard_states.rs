@@ -394,8 +394,7 @@ impl GameLogic {
         let deadline = self.guard_initial_scan_deadline(true);
         if !self.objects.get(&object_id).is_some_and(|o| o.can_move()) {
             if let Some(runtime) = self.unit_ai_runtime_mut(object_id) {
-                runtime.set_guard_phase(Some(GuardPhase::Return { goal }));
-                runtime.set_guard_scan_deadline(Some(deadline));
+                runtime.enter_guard_return(goal, deadline);
             }
             if let Some(o) = self.objects.get_mut(&object_id) {
                 o.set_ai_state(state);
@@ -418,9 +417,7 @@ impl GameLogic {
         let installed = self.path_approach_with_state(object_id, goal, state.clone());
         if let Some(o) = self.objects.get_mut(&object_id) {
             o.set_ai_state(state);
-            o.unit_ai_runtime
-                .set_guard_phase(Some(GuardPhase::Return { goal }));
-            o.unit_ai_runtime.set_guard_scan_deadline(Some(deadline));
+            o.unit_ai_runtime.enter_guard_return(goal, deadline);
         }
         if installed {
             if let Some(o) = self.objects.get_mut(&object_id) {
@@ -681,11 +678,9 @@ impl GameLogic {
         unit.stop_moving();
         unit.set_locomotor_goal_none();
         unit.ignored_obstacle_id = None;
-        unit.unit_ai_runtime.set_guard_phase(Some(GuardPhase::Idle));
-        unit.unit_ai_runtime.set_guard_scan_deadline(Some(deadline));
         // The original idle anchor has no initialized constructor value.
         // Use an explicit entry observation and persist it for safe continuation.
-        unit.unit_ai_runtime.set_guard_anchor(anchor);
+        unit.unit_ai_runtime.enter_guard_idle(deadline, anchor);
     }
 
     /// C++ EnterGuard / HijackGuard: board instead of shooting.

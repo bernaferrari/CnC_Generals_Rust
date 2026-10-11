@@ -326,7 +326,6 @@ impl GameLogic {
 
     /// C++ `doObjectRadarCreateEvent` / `doTeamRadarCreateEvent`.
     pub(in crate::game_logic::game_logic) fn apply_host_radar_event_script_requests(&mut self) {
-        use crate::game_logic::host_radar::host_create_radar_event;
         use gamelogic::scripting::HostScriptRadarEventRequest;
         for req in gamelogic::scripting::take_host_script_radar_event_requests() {
             let (pos, event_type) = match req {
@@ -346,7 +345,7 @@ impl GameLogic {
                     (pos, event_type)
                 }
             };
-            host_create_radar_event(pos, Self::host_script_radar_event_type(event_type));
+            self.host_create_radar_event(pos, Self::host_script_radar_event_type(event_type));
         }
     }
 

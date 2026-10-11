@@ -60,6 +60,8 @@ impl RenderPipeline {
             skybox_textures_hint: None,
             skybox_enabled: true,
             heightmap_world_size: None,
+            #[cfg(feature = "game_client")]
+            radar_terrain_colors: None,
             cached_lighting: Some(initial_lighting.clone()),
             cached_terrain_lighting: Some(initial_lighting),
             last_startup_model_prewarm_signature: None,

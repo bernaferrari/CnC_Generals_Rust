@@ -16457,6 +16457,16 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/owned.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/presentation.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/snapshot.rs"
             },
             {
@@ -188988,7 +188998,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "e6b93959ddc6da7d7b6e47052013e040722432780cc78321c1bb7857db3ff8c9",
+  "provenance_input_digest": "aa515e171bd1af640fc5949a4acb567fa5edef26185506fd14a9678170e58715",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

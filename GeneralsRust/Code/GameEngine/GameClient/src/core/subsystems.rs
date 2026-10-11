@@ -1317,6 +1317,11 @@ pub struct PresentationSuperweaponTimerResidual {
 /// In-game UI subsystem bridge.
 #[derive(Default)]
 pub struct InGameUISubsystem {
+    radar_acknowledgments: Vec<(Arc<()>, Vec<(usize, Arc<()>)>)>,
+    radar_presented_keys: Vec<Arc<()>>,
+
+    radar_presentation: Option<Arc<game_engine::common::system::radar::RadarPresentation>>,
+
     money_display_cache: Option<(i32, String)>,
     /// Wave 964: presentation selection residual (host empty dual-world).
     presentation_selected: Vec<crate::gui::ingame_ui::PresentationSelectedUnitResidual>,
@@ -1905,6 +1910,9 @@ impl InGameUISubsystem {
     }
 
     fn clear_runtime_state(&mut self) {
+        self.radar_presentation = None;
+        self.radar_presented_keys.clear();
+        self.radar_acknowledgments.clear();
         self.money_display_cache = None;
         self.beacon_markers.clear();
         self.pending_beacon_events.clear();
@@ -2095,6 +2103,74 @@ impl InGameUiHandle {
 }
 
 impl InGameUiHooks for InGameUiHandle {
+    fn admit_radar_draw(
+        &self,
+        radar: &game_engine::common::system::radar::RadarPresentation,
+    ) -> usize {
+        let Ok(mut ui) = self.inner.lock() else {
+            return 0;
+        };
+        if !ui
+            .radar_presentation
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current.identity(), radar.identity()))
+        {
+            return 0;
+        }
+        ui.radar_presented_keys.retain(|old| {
+            radar
+                .event_keys()
+                .iter()
+                .any(|(_, identity, _, _)| Arc::ptr_eq(old, identity))
+        });
+        let mut events = Vec::new();
+        let mut chirps = 0;
+        for (index, identity, played, beacon) in radar.event_keys() {
+            if !played
+                && !ui
+                    .radar_presented_keys
+                    .iter()
+                    .any(|old| Arc::ptr_eq(old, identity))
+            {
+                ui.radar_presented_keys.push(identity.clone());
+                events.push((*index, identity.clone()));
+                chirps += usize::from(!*beacon);
+            }
+        }
+        if !events.is_empty() {
+            ui.radar_acknowledgments
+                .push((radar.identity().clone(), events));
+        }
+        chirps
+    }
+    fn take_radar_acknowledgments(&self) -> Vec<(Arc<()>, Vec<(usize, Arc<()>)>)> {
+        self.inner
+            .lock()
+            .map(|mut ui| std::mem::take(&mut ui.radar_acknowledgments))
+            .unwrap_or_default()
+    }
+
+    fn radar_presentation(
+        &self,
+    ) -> Option<Arc<game_engine::common::system::radar::RadarPresentation>> {
+        self.inner.lock().ok()?.radar_presentation.clone()
+    }
+    fn set_radar_presentation(
+        &self,
+        radar: Arc<game_engine::common::system::radar::RadarPresentation>,
+    ) {
+        if let Ok(mut ui) = self.inner.lock() {
+            if !ui
+                .radar_presentation
+                .as_ref()
+                .is_some_and(|old| Arc::ptr_eq(old.identity(), radar.identity()))
+            {
+                ui.radar_presented_keys.clear();
+            }
+            ui.radar_presentation = Some(radar);
+        }
+    }
+
     fn select_area(&self, upper_left: ICoord2D, lower_right: ICoord2D) {
         if let Ok(mut ui) = self.inner.lock() {
             ui.record_selection(upper_left, lower_right);
@@ -3396,5 +3472,55 @@ mod tests {
             removed_from_impl,
             "stub remove_tree_registration must clear the Impl buffer entry"
         );
+    }
+}
+
+#[cfg(test)]
+mod radar_presentation_tests {
+    use super::*;
+    use game_engine::common::system::radar::{
+        Coord3D as RadarPosition, RadarEventType, RadarSystem,
+    };
+
+    #[test]
+    fn radar_draw_admits_chirp_once_and_acks_only_supplied_owner() {
+        let ui = Arc::new(Mutex::new(InGameUISubsystem::default()));
+        let handle = InGameUiHandle::new(ui);
+        let mut first = RadarSystem::new();
+        let mut second = RadarSystem::new();
+        let position = RadarPosition::new(0.5, 0.5, 0.0);
+        first.create_event(&position, RadarEventType::Information, 1.0);
+        second.create_event(&position, RadarEventType::Information, 1.0);
+        let frozen = Arc::new(first.presentation());
+        handle.set_radar_presentation(frozen.clone());
+        assert_eq!(handle.admit_radar_draw(&frozen), 1);
+        assert_eq!(handle.admit_radar_draw(&frozen), 0);
+        let acknowledgments = handle.take_radar_acknowledgments();
+        assert_eq!(acknowledgments.len(), 1);
+        for (identity, events) in acknowledgments {
+            second.acknowledge_presented_events(&identity, &events);
+            first.acknowledge_presented_events(&identity, &events);
+        }
+        assert!(first.presentation().draw_events()[0].sound_played);
+        assert!(!second.presentation().draw_events()[0].sound_played);
+        let other = Arc::new(second.presentation());
+        handle.set_radar_presentation(other.clone());
+        assert_eq!(handle.admit_radar_draw(&frozen), 0);
+        assert_eq!(handle.admit_radar_draw(&other), 1);
+    }
+
+    #[test]
+    fn radar_beacon_is_acknowledged_without_chirp() {
+        let handle = InGameUiHandle::new(Arc::new(Mutex::new(InGameUISubsystem::default())));
+        let mut radar = RadarSystem::new();
+        radar.create_event(
+            &RadarPosition::new(0.5, 0.5, 0.0),
+            RadarEventType::BeaconPulse,
+            1.0,
+        );
+        let frozen = Arc::new(radar.presentation());
+        handle.set_radar_presentation(frozen.clone());
+        assert_eq!(handle.admit_radar_draw(&frozen), 0);
+        assert_eq!(handle.take_radar_acknowledgments().len(), 1);
     }
 }

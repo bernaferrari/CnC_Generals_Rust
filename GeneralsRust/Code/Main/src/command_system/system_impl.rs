@@ -970,19 +970,23 @@ impl CommandSystem {
                 base_cost.supplies,
             );
 
-            if !game_logic.try_spend_player_resources(player_id, &build_cost) {
+            if !game_logic
+                .get_player(player_id)
+                .is_some_and(|player| player.can_afford(&build_cost))
+            {
                 return CommandResult::InvalidCommand;
             }
 
-            let created = game_logic.create_object_under_construction_for_player(
+            let created = game_logic.create_dozer_scaffold(
                 template_name,
                 player_id,
+                unit_id,
                 location,
-                // Wave 232 residual path has no authored facing.
+                // This command carries no authored facing.
                 0.0,
+                build_cost,
             );
             let Some(created_id) = created else {
-                game_logic.player_refund_supplies(player_id, build_cost.supplies);
                 return CommandResult::InvalidCommand;
             };
 

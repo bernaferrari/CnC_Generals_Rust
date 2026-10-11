@@ -164,7 +164,7 @@ impl<'a> CommandExecutor<'a> {
                     continue;
                 };
 
-                if !player.spend_resources(&build_cost) {
+                if !player.can_afford(&build_cost) {
                     // C++ PlaceEventTranslator.cpp:170-178 — confirmed placement
                     // without enough cash: EVA pulse + HUD text, no structure.
                     if self
@@ -181,28 +181,17 @@ impl<'a> CommandExecutor<'a> {
                 }
             }
 
-            let building_id = self.game_logic.create_object_under_construction_for_player(
+            let building_id = self.game_logic.create_dozer_scaffold(
                 template_name,
                 self.current_player_id,
+                unit_id,
                 location,
                 orientation,
+                build_cost,
             );
             let Some(building_id) = building_id else {
-                // Refund on failed placement.
-                if let Some(player) = self.game_logic.get_player_mut(self.current_player_id) {
-                    player.resources.supplies = player
-                        .resources
-                        .supplies
-                        .saturating_add(build_cost.supplies);
-                }
                 return CommandResult::InvalidCommand;
             };
-            // C++ DozerAIUpdate::construct:1676-1677 installs both identities
-            // after newObject returns, before order/task admission.
-            if let Some(building) = self.game_logic.host_object_mut(building_id) {
-                building.producer_id = Some(unit_id);
-                building.builder_id = Some(unit_id);
-            }
             if !self
                 .game_logic
                 .unit_command_set_order_target(unit_id, Some(building_id))

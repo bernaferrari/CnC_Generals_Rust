@@ -3,6 +3,7 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+mod construction;
 mod death;
 mod grant_upgrade;
 
@@ -11,6 +12,7 @@ enum FactoryCreationPurpose {
     AtCreation,
     ProductionExit,
     InstantLineBuild,
+    OrdinaryConstruction,
 }
 
 /// Zero the continuous-fire ramp state when a template re-seeds base weapons.
@@ -1309,7 +1311,9 @@ impl GameLogic {
             let partition_cash = template.build_cost.supplies;
             let partition_threat = u32::from(template.get_threat_value());
             let mut initial_status = ObjectStatus::default();
-            if creation_purpose == FactoryCreationPurpose::InstantLineBuild && is_structure {
+            if creation_purpose == FactoryCreationPurpose::OrdinaryConstruction
+                || (creation_purpose == FactoryCreationPurpose::InstantLineBuild && is_structure)
+            {
                 initial_status.under_construction = true;
             }
             let mut object =
@@ -2356,7 +2360,11 @@ impl GameLogic {
             // SupplyCenter/Stash objects.  `create_object_under_construction`
             // intentionally does not call this; that path fires on the real
             // construction-complete activation edge below.
-            if creation_purpose != FactoryCreationPurpose::InstantLineBuild {
+            if !matches!(
+                creation_purpose,
+                FactoryCreationPurpose::InstantLineBuild
+                    | FactoryCreationPurpose::OrdinaryConstruction
+            ) {
                 let _ = self.spawn_supply_center_one_shot_collector(id);
             }
 
@@ -2538,7 +2546,11 @@ impl GameLogic {
                 // Static path/LOS obstacle (C++ pathfind structure residual).
                 self.block_structure_object_path(id);
             }
-            if creation_purpose != FactoryCreationPurpose::InstantLineBuild {
+            if !matches!(
+                creation_purpose,
+                FactoryCreationPurpose::InstantLineBuild
+                    | FactoryCreationPurpose::OrdinaryConstruction
+            ) {
                 if let Some(obj) = self.objects.get(&id) {
                     if obj.is_kind_of(KindOf::WalkOnTopOfWall) {
                         let wall_height = self.pathfind_ai_rules().wall_height;
@@ -2587,201 +2599,6 @@ impl GameLogic {
             // C++ Drawable ctor / onLevelStart startAmbientSound.
             self.start_ambient_sound(id);
 
-            Some(id)
-        } else {
-            log::warn!("Template not found: {}", template_name);
-            None
-        }
-    }
-
-    /// Create a construction object for an unambiguous faction owner. Command
-    /// and builder paths that know the player must use the owned variant.
-    pub fn create_object_under_construction(
-        &mut self,
-        template_name: &str,
-        team: Team,
-        position: Vec3,
-    ) -> Option<ObjectId> {
-        let owner_player_id = self.unique_player_id_for_team(team);
-        // AI/script placements carry no authored facing residual.
-        self.create_object_under_construction_with_owner(
-            template_name,
-            team,
-            owner_player_id,
-            position,
-            0.0,
-        )
-    }
-
-    /// Create a construction object for one controlling player. Command
-    /// and builder paths that know the player must use the owned variant.
-    pub fn create_object_under_construction_for_player(
-        &mut self,
-        template_name: &str,
-        owner_player_id: u32,
-        position: Vec3,
-        orientation: f32,
-    ) -> Option<ObjectId> {
-        let Some(team) = self.players.get(&owner_player_id).map(|p| p.team) else {
-            return None;
-        };
-        if team == Team::Neutral {
-            return None;
-        }
-        self.create_object_under_construction_with_owner(
-            template_name,
-            team,
-            Some(owner_player_id),
-            position,
-            orientation,
-        )
-    }
-
-    fn create_object_under_construction_with_owner(
-        &mut self,
-        template_name: &str,
-        team: Team,
-        owner_player_id: Option<u32>,
-        position: Vec3,
-        orientation: f32,
-    ) -> Option<ObjectId> {
-        if owner_player_id.is_some_and(|player_id| {
-            self.players.get(&player_id).map(|player| player.team) != Some(team)
-        }) {
-            return None;
-        }
-        // C++ ProductionPrerequisite: leftover is_satisfied for every template.
-        let prerequisites_ok = owner_player_id
-            .map(|player_id| self.player_satisfies_build_prerequisites(player_id, template_name))
-            .unwrap_or_else(|| self.team_satisfies_build_prerequisites(team, template_name));
-        if !prerequisites_ok {
-            log::debug!(
-                "Blocked construction {} for team {:?} (Prerequisites residual)",
-                template_name,
-                team
-            );
-            return None;
-        }
-        // C++ MaxSimultaneousOfType=DeterminedBySuperweaponRestriction residual.
-        let superweapon_ok = owner_player_id
-            .map(|player_id| {
-                self.can_start_superweapon_building_for_player(player_id, template_name)
-            })
-            .unwrap_or_else(|| self.can_start_superweapon_building(team, template_name));
-        if !superweapon_ok {
-            log::debug!(
-                "Blocked superweapon construction {} for team {:?} (MaxSimultaneous residual)",
-                template_name,
-                team
-            );
-            return None;
-        }
-        // C++ Player::canBuildMoreOfType — numeric INI MaxSimultaneousOfType
-        // (unique buildings / heroes) plus link-key rebuild holes.
-        if !self.can_build_more_of_type(owner_player_id, team, template_name) {
-            log::debug!(
-                "Blocked construction {} for team {:?} (MaxSimultaneousOfType)",
-                template_name,
-                team
-            );
-            return None;
-        }
-        if let Some(template) = self.templates.get(template_name).cloned() {
-            // Keep the same PlayerTemplate veterancy binding for a placed
-            // structure as for a completed production spawn.  C++ creates the
-            // ExperienceTracker before construction completes, not only when
-            // its build timer reaches 100%.
-            let player_template_veterancy = owner_player_id.and_then(|player_id| {
-                self.player_template_production_veterancy(player_id, template_name)
-            });
-            let id = self.allocate_object_id();
-            let partition_cash = template.build_cost.supplies;
-            let partition_threat = u32::from(template.get_threat_value());
-            let mut object = Object::new_under_construction(template, id, team);
-            object.attach_host_trigger_world(&self.host_trigger_world);
-            object.owner_player_id = owner_player_id;
-            object.partition_cash_value = partition_cash;
-            object.partition_threat_value = partition_threat;
-            object.set_position(position);
-            // C++ DozerAIUpdate.cpp:1666-1674 — placement facing applied via
-            // setOrientation before flatten/pathfind-add.
-            object.set_orientation(orientation);
-            // C++ DozerAIUpdate.cpp:1692-1696 flattenTerrain then getGroundHeight Z snap.
-            // Applied after insert so the host object exists for snap.
-            if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                self.movement_events.record(
-                    self.frame,
-                    id,
-                    Some([position.x, position.y, position.z]),
-                );
-                object.record_host_movement();
-            }
-
-            self.admit_host_object(object);
-            self.inherit_team_ai_defaults(id);
-
-            let team_ord = match team {
-                Team::USA => 0u8,
-                Team::China => 1,
-                Team::GLA => 2,
-                Team::Neutral => 255,
-            };
-            crate::game_logic::host_spawn_log::record(
-                id,
-                template_name.to_string(),
-                team_ord,
-                [position.x, position.y, position.z],
-            );
-            // Wave 680: mid-frame GameWorld map while coupled shadow tick is live.
-            // End-of-tick host_spawn_log drain remains idempotent for unmapped IDs.
-            let _ = crate::gameworld_shadow::eager_map_host_spawn_if_coupled(
-                self,
-                &crate::game_logic::host_spawn_log::HostSpawnEvent {
-                    id,
-                    template: template_name.to_string(),
-                    team_ordinal: team_ord,
-                    position: [position.x, position.y, position.z],
-                },
-            );
-            // Wave 199: GameWorld SetConstruction sole-tick / progress last-writer.
-            crate::game_logic::host_construction_progress_log::record(id, 0.0, true, 0.0);
-            if let Some(obj) = self.host_objects_mut().get_mut(&id) {
-                obj.record_model_mesh_from_template();
-                obj.record_kind_of_bits_from_template();
-            }
-            // C++ Object.cpp:473 TheRadar->addObject(this) (under construction too).
-            self.host_radar_add_object(id);
-            // C++ Object::initObject → setReceivingDifficultyBonus →
-            // friend_applyDifficultyBonusesForObject (under construction too).
-            self.apply_difficulty_bonuses_for_object(id);
-            // C++ DozerAIUpdate.cpp:1692-1699 flattenTerrain + Z snap + addObjectToPathfindMap.
-            self.flatten_and_snap_construction(id);
-            self.block_structure_object_path(id);
-            let placed_orientation = self
-                .objects
-                .get(&id)
-                .map(|obj| obj.get_orientation())
-                .unwrap_or(0.0);
-            let _ = self.move_objects_for_construction(
-                template_name,
-                position,
-                placed_orientation,
-                None,
-            );
-            if let Some(obj) = self.objects.get(&id) {
-                if obj.is_kind_of(KindOf::WalkOnTopOfWall) {
-                    let wall_height = self.pathfind_ai_rules().wall_height;
-                    self.pathfinding_system
-                        .add_wall_piece_from_object(obj, wall_height);
-                }
-            }
-
-            log::debug!(
-                "Started construction of {} ({}) at {:?}",
-                id,
-                template_name,
-                position
-            );
             Some(id)
         } else {
             log::warn!("Template not found: {}", template_name);

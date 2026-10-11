@@ -60,46 +60,7 @@ pub fn w3d_cameo_movie_draw(window: &GameWindow, inst_data: &WindowInstanceData)
 
 /// Check if radar should be drawn (helper function to avoid lifetime issues)
 pub(super) fn should_draw_radar_check() -> bool {
-    let radar_system = get_radar_system();
-    let Ok(radar) = radar_system.read() else {
-        return false;
-    };
-
-    if radar.is_radar_forced() {
-        return true;
-    }
-
-    if radar.is_radar_hidden() {
-        return false;
-    }
-
-    // Live host stamps Player::hasRadar onto TheRadar each update.
-    if radar.local_has_radar() {
-        return true;
-    }
-
-    // Leftover PlayerList fallback (C++ ThePlayerList->getLocalPlayer()->hasRadar).
-    let Ok(list) = ThePlayerList().read() else {
-        return false;
-    };
-
-    let player_arc = TheControlBar::get_observer_look_at_player_index()
-        .and_then(|index| {
-            if index >= 0 {
-                list.get_player(index).cloned()
-            } else {
-                None
-            }
-        })
-        .or_else(|| list.get_local_player().cloned());
-
-    if let Some(player_arc) = player_arc {
-        if let Ok(player) = player_arc.read() {
-            return player.has_radar();
-        }
-    }
-
-    false
+    crate::helpers::TheInGameUI::radar_presentation().is_some_and(|radar| radar.is_radar_shown())
 }
 
 pub fn w3d_left_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -144,14 +105,10 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
         return;
     }
 
-    let radar_system = get_radar_system();
-    let Ok(mut radar) = radar_system.write() else {
+    let Some(radar) = crate::helpers::TheInGameUI::radar_presentation() else {
         return;
     };
-    // C++ `W3DRadar::draw` already passed hasRadar/forced; chirp here.
-    if !radar.is_radar_shown() && !radar.is_radar_hidden() {
-        radar.set_local_has_radar(true);
-    }
+    crate::helpers::TheInGameUI::admit_radar_draw(&radar);
     let events = radar.draw_events();
 
     // Draw terrain texture from radar system
@@ -174,7 +131,11 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
         // C++ keeps `m_terrainTexture` resident and repaints it only on
         // `newMap`/`refreshTerrain`; key the upload on extent + generation.
         let texture = with_radar_terrain_texture_cache(|terrain_cache| {
-            if terrain_cache.texture.is_none()
+            if !terrain_cache
+                .owner_identity
+                .as_ref()
+                .is_some_and(|owner| Arc::ptr_eq(owner, radar.identity()))
+                || terrain_cache.texture.is_none()
                 || terrain_cache.map_extent_signature != Some(map_extent_signature)
                 || terrain_cache.layer_revision != terrain_generation
             {
@@ -183,6 +144,7 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
                     game_engine::common::system::radar::RADAR_CELL_HEIGHT,
                     terrain_texture,
                 ));
+                terrain_cache.owner_identity = Some(radar.identity().clone());
                 terrain_cache.map_extent_signature = Some(map_extent_signature);
                 terrain_cache.layer_revision = terrain_generation;
             }
@@ -285,7 +247,11 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
 
         let (object_overlay, hero_object_ids) =
             with_radar_object_overlay_texture_cache(|overlay_cache| {
-                if overlay_cache.texture.is_none()
+                if !overlay_cache
+                    .owner_identity
+                    .as_ref()
+                    .is_some_and(|owner| Arc::ptr_eq(owner, radar.identity()))
+                    || overlay_cache.texture.is_none()
                     || overlay_cache.map_extent_signature != Some(map_extent_signature)
                     || should_refresh_w3d_object_overlay(current_frame)
                 {
@@ -296,6 +262,7 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
                         &object_overlay,
                     ));
                     overlay_cache.hero_object_ids = radar.build_hero_reticle_object_ids();
+                    overlay_cache.owner_identity = Some(radar.identity().clone());
                     overlay_cache.map_extent_signature = Some(map_extent_signature);
                 }
                 (
@@ -317,7 +284,11 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
         // key the upload on extent + shroud revision instead of every frame.
         let shroud_revision = radar.shroud_revision();
         let shroud_texture = with_radar_shroud_texture_cache(|shroud_cache| {
-            if shroud_cache.texture.is_none()
+            if !shroud_cache
+                .owner_identity
+                .as_ref()
+                .is_some_and(|owner| Arc::ptr_eq(owner, radar.identity()))
+                || shroud_cache.texture.is_none()
                 || shroud_cache.map_extent_signature != Some(map_extent_signature)
                 || shroud_cache.layer_revision != shroud_revision
             {
@@ -327,6 +298,7 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
                     game_engine::common::system::radar::RADAR_CELL_HEIGHT,
                     &shroud_rgba,
                 ));
+                shroud_cache.owner_identity = Some(radar.identity().clone());
                 shroud_cache.map_extent_signature = Some(map_extent_signature);
                 shroud_cache.layer_revision = shroud_revision;
             }
@@ -369,7 +341,7 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
         }
 
         // Draw active radar events (chirp already consumed by draw_events).
-        for event in &events {
+        for event in events {
             let marker_kind = if event.event_type == RadarEventType::BeaconPulse {
                 RadarEventMarkerKind::Beacon
             } else {

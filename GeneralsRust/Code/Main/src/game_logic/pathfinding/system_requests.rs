@@ -1253,6 +1253,12 @@ impl PathfindingSystem {
         self.sync_wall_pieces_from_objects(objects, wall_height);
     }
 
+    /// Player.cpp1653 removes the old scaffold footprint before re-admission.
+    pub(crate) fn refresh_completed_structure_footprint(&mut self, object: &Object) {
+        self.grid.remove_owned_object_footprint(object.id.0);
+        self.classify_and_pinch_object(object);
+    }
+
     /// Incremental leftover classify + pinch for one live structure (dozer place).
     pub fn classify_and_pinch_object(&mut self, obj: &Object) {
         if let Some((lo, hi)) = self.grid.classify_object_footprint(obj, false) {

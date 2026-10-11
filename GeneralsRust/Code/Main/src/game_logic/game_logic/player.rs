@@ -1067,6 +1067,20 @@ impl Player {
     }
 
     pub fn spend_resources(&mut self, cost: &Resources) -> bool {
+        self.pay_resources(cost, true)
+    }
+
+    /// Money::withdraw at scaffold birth has no ScoreKeeper side effect.
+    /// Player records construction spending when that structure completes.
+    pub(crate) fn withdraw_construction_money(&mut self, amount: u32) {
+        let cost = Resources {
+            supplies: amount.min(self.effective_supplies()),
+            power: 0,
+        };
+        let _ = self.pay_resources(&cost, false);
+    }
+
+    fn pay_resources(&mut self, cost: &Resources, record_spent: bool) -> bool {
         if !self.can_afford(cost) {
             return false;
         }
@@ -1075,7 +1089,9 @@ impl Player {
             self.pending_supply_delta -= cost.supplies as i64;
             self.power_available = power_after;
             if cost.supplies > 0 {
-                self.record_resources_spent(cost.supplies);
+                if record_spent {
+                    self.record_resources_spent(cost.supplies);
+                }
                 crate::game_logic::host_economy_log::record_money_audio(
                     self.id,
                     crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
@@ -1095,7 +1111,9 @@ impl Player {
                     crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
                 );
 
-                self.record_resources_spent(cost.supplies);
+                if record_spent {
+                    self.record_resources_spent(cost.supplies);
+                }
             }
             crate::game_logic::host_economy_log::record(
                 self.id,

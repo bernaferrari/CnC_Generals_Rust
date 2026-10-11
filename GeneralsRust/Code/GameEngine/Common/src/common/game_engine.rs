@@ -27,7 +27,6 @@ use crate::common::ini::{INI, INILoadType, get_global_data};
 use crate::common::message_stream::{GameMessageType, get_message_stream};
 use crate::common::random_value::init_random_with_seed;
 use crate::common::recorder::init_recorder;
-use crate::common::system::radar::get_radar_system;
 use crate::common::system::{
     big_file_system::BigArchiveBackend,
     cd_manager::{get_cd_manager, init_cd_manager},
@@ -643,10 +642,8 @@ impl GameEngine {
         // VERIFY_CRC is a debug-CRC compile-time no-op unless DEBUG_CRC is on.
         crate::verify_crc!();
 
-        if let Ok(mut radar) = get_radar_system().write() {
-            let frame = self.performance_metrics.frame_count.saturating_add(1) as u32;
-            radar.update(frame);
-        }
+        // The native match driver advances its session-owned radar before audio.
+        // This generic application loop has no authority to select a global match.
 
         if let Some(audio) = &mut self.audio_manager {
             audio.update(delta_time)?;

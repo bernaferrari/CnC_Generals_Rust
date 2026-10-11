@@ -666,6 +666,8 @@ pub struct RenderPipeline {
     skybox_textures_hint: Option<[String; 5]>,
     skybox_enabled: bool,
     heightmap_world_size: Option<(f32, f32)>,
+    #[cfg(feature = "game_client")]
+    radar_terrain_colors: Option<game_client::terrain::terrain_visual::FrozenRadarTerrainColors>,
     /// Object/forward lighting selected at map activation.
     cached_lighting: Option<CachedLighting>,
     /// Terrain uses its own GameData `TerrainLighting*` record. Keeping this

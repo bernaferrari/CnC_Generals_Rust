@@ -38,7 +38,7 @@ impl GameLogic {
         self.update_owned_bridge_damage_states();
         if state == HostBodyDamageType::Rubble || callbacks.old_state == HostBodyDamageType::Rubble
         {
-            crate::game_logic::host_radar::host_radar_queue_terrain_refresh();
+            self.host_radar_queue_terrain_refresh();
         }
     }
 

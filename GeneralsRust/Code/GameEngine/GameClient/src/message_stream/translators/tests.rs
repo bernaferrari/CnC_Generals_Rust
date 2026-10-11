@@ -1,8 +1,6 @@
 use super::*;
 use game_engine::common::game_engine::init_game_engine;
-use game_engine::common::system::radar::{
-    Coord3D as RadarCoord3D, RadarEventType, get_radar_system,
-};
+use game_engine::common::system::radar::{Coord3D as RadarCoord3D, RadarEventType, RadarSystem};
 use gamelogic::common::{AsciiString, GeometryInfo, ObjectStatusTypes, Real};
 use gamelogic::player::{Player, PlayerType, player_list};
 use gamelogic::system::game_logic::{
@@ -562,13 +560,28 @@ fn test_meta_path_build_commands_are_enqueued() {
 #[test]
 fn test_meta_view_last_radar_event_centers_tactical_view() {
     let _guard = test_state_lock();
-    let radar = get_radar_system();
-    radar.write().unwrap().reset();
-    let event_pos = RadarCoord3D::new(420.0, 315.0, 7.0);
-    radar
-        .write()
+    let mut radar = RadarSystem::new();
+    let ui = Arc::new(Mutex::new(
+        crate::core::subsystems::InGameUISubsystem::default(),
+    ));
+    crate::helpers::register_in_game_ui_backend(Arc::new(
+        crate::core::subsystems::InGameUiHandle::new(ui),
+    ));
+    let event_pos = RadarCoord3D::new(420.0, 315.0, 0.0);
+    radar.create_event(&event_pos, RadarEventType::Information, 1.0);
+    TheInGameUI::set_radar_presentation(Arc::new(radar.presentation()));
+    let observed = TheInGameUI::radar_presentation()
         .unwrap()
-        .create_event(&event_pos, RadarEventType::Information, 1.0);
+        .get_last_event_loc()
+        .unwrap();
+    assert_eq!(
+        (observed.x, observed.y, observed.z),
+        (event_pos.x, event_pos.y, event_pos.z)
+    );
+    assert!(
+        TheInGameUI::get_input_enabled(),
+        "camera command fixture requires enabled input"
+    );
 
     with_tactical_view(|view| {
         view.set_position(&Point3::new(0.0, 0.0, 0.0));
@@ -580,11 +593,13 @@ fn test_meta_view_last_radar_event_centers_tactical_view() {
 
     assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
     with_tactical_view_ref(|view| {
-        assert!((view.position().x - (event_pos.x - view.width() as f32 * 0.5)).abs() < 0.001);
-        assert!((view.position().y - (event_pos.y - view.height() as f32 * 0.5)).abs() < 0.001);
+        // W3DView.cpp:2304-2351 explicitly skips View::lookAt's 2D
+        // half-window coordinate adjustment and stores the look-at point.
+        // A ground-level event isolates the position handoff from elevated-target ray casting.
+        assert!((view.position().x - event_pos.x).abs() < 0.001);
+        assert!((view.position().y - event_pos.y).abs() < 0.001);
+        assert_eq!(view.position().z, 0.0);
     });
-
-    radar.write().unwrap().reset();
 }
 
 #[test]

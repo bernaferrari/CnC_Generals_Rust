@@ -1671,3 +1671,69 @@ mod visual_heightmap_scale_tests {
         assert_eq!(loaded.border_size, 70);
     }
 }
+
+/// Immutable tile art and indexing captured while this map is being hydrated.
+/// Missing/stand-in art remains None, matching WorldHeightMap::getTerrainColorAt.
+#[derive(Debug, Clone)]
+pub struct FrozenRadarTerrainColors {
+    heightmap: HeightMap,
+    tile_colors: Vec<Option<[f32; 3]>>,
+}
+impl FrozenRadarTerrainColors {
+    pub fn color_at(&self, x: f32, y: f32) -> Option<[f32; 3]> {
+        let index = self.heightmap.tile_ndx_at_world(x, y)?;
+        self.tile_colors.get(index).copied().flatten()
+    }
+}
+impl TerrainVisualImpl {
+    pub fn freeze_radar_terrain_colors(&self) -> Option<FrozenRadarTerrainColors> {
+        let heightmap = self.height_map.as_ref()?.clone();
+        let tile_colors = self
+            .source_tiles
+            .iter()
+            .enumerate()
+            .map(|(index, tile)| {
+                if self
+                    .stand_in_source_tiles
+                    .get(index)
+                    .copied()
+                    .unwrap_or(true)
+                {
+                    return None;
+                }
+                let pixel = tile.as_ref()?.get_rgb_data_for_width(1);
+                if pixel.len() < 3 {
+                    return None;
+                }
+                Some([
+                    pixel[2] as f32 / 255.0,
+                    pixel[1] as f32 / 255.0,
+                    pixel[0] as f32 / 255.0,
+                ])
+            })
+            .collect();
+        Some(FrozenRadarTerrainColors {
+            heightmap,
+            tile_colors,
+        })
+    }
+}
+
+#[cfg(test)]
+mod frozen_radar_color_tests {
+    use super::*;
+
+    #[test]
+    fn frozen_radar_colors_keep_tile_indexing_and_missing_art_explicit() {
+        let mut heightmap = HeightMap::new(2, 2, 100.0, 10.0);
+        heightmap.tile_ndxes = vec![0, 4, 0, 4];
+        let frozen = FrozenRadarTerrainColors {
+            heightmap: heightmap.clone(),
+            tile_colors: vec![Some([0.25, 0.5, 0.75]), None],
+        };
+        assert_eq!(frozen.color_at(0.0, 0.0), Some([0.25, 0.5, 0.75]));
+        assert_eq!(frozen.color_at(10.0, 0.0), None);
+        heightmap.tile_ndxes[0] = 4;
+        assert_eq!(frozen.color_at(0.0, 0.0), Some([0.25, 0.5, 0.75]));
+    }
+}

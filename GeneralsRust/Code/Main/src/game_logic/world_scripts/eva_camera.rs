@@ -45,7 +45,7 @@ impl GameLogic {
         // C++ TheRadar->createEvent(..., RADAR_EVENT_UPGRADE) residual.
         // Host maps upgrade events as Generic radar kind with upgrade honesty.
         self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
-        crate::game_logic::host_radar::host_create_radar_event(
+        self.host_create_radar_event(
             pos,
             game_engine::common::system::radar::RadarEventType::Upgrade,
         );
@@ -237,7 +237,8 @@ impl GameLogic {
         let msg = localization::localize(msg_key, msg_fallback);
         self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Attack);
         // C++ Radar.cpp:1155 tryEvent(UNDER_ATTACK) — minimap blip + last-event.
-        if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
+        {
+            let radar = self.radar_mut();
             let loc = game_engine::common::system::radar::Coord3D {
                 x: pos.x,
                 y: pos.z,
@@ -388,7 +389,8 @@ impl GameLogic {
                 .request(gamelogic::helpers::EvaEvent::UnitLost);
             self.saboteur.record_eva_unit_lost();
             // C++ TheRadar->tryEvent(RADAR_EVENT_FAKE, pos) — spacebar jump, no text.
-            if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
+            {
+                let radar = self.radar_mut();
                 let loc = game_engine::common::system::radar::Coord3D {
                     x: death_pos.x,
                     y: death_pos.z,
@@ -468,7 +470,8 @@ impl GameLogic {
         }
         let msg = localization::localize("RADAR:Infiltration", "Infiltration event");
         self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Attack);
-        if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
+        {
+            let radar = self.radar_mut();
             let loc = game_engine::common::system::radar::Coord3D {
                 x: pos.x,
                 y: pos.z,

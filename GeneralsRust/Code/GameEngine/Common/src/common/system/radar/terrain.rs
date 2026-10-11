@@ -67,12 +67,19 @@ fn average_color(samples: &[[f32; 3]]) -> [f32; 3] {
 impl RadarSystem {
     /// C++ `W3DRadar::buildTerrainTexture` software path.
     pub fn build_terrain_texture_cpp(&mut self) {
+        self.build_terrain_texture_with_source(paint_source(), water_radar_color());
+    }
+
+    /// Paint the supplied owner's frozen tiles/bridges and effective water definition.
+    pub fn build_terrain_texture_with_source(
+        &mut self,
+        source: Option<&dyn RadarTerrainPaintSource>,
+        water: [f32; 3],
+    ) {
         let expected = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
         let hi_z = self.map_extent.hi.z;
         let lo_z = self.map_extent.lo.z;
         let mid_z = self.terrain_average_z;
-        let water = water_radar_color();
-        let source = paint_source();
 
         for y in 0..RADAR_CELL_HEIGHT as i32 {
             for x in 0..RADAR_CELL_WIDTH as i32 {

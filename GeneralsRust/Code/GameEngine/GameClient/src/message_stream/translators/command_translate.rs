@@ -107,10 +107,8 @@ impl GameMessageTranslator for CommandTranslator {
                 return GameMessageDisposition::DestroyMessage;
             }
             GameMessageType::MetaViewLastRadarEvent => {
-                if let Some(position) = get_radar_system()
-                    .read()
-                    .ok()
-                    .and_then(|radar| radar.get_last_event_loc())
+                if let Some(position) =
+                    TheInGameUI::radar_presentation().and_then(|radar| radar.get_last_event_loc())
                 {
                     with_tactical_view(|view| {
                         view.look_at(&Point3::new(position.x, position.y, position.z));

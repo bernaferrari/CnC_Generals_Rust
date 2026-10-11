@@ -1499,7 +1499,7 @@ impl GameLogic {
             SPOTTER_AUDIO_STEALTH_DISCOVERED, SPOTTER_AUDIO_STEALTH_NEUTRALIZED,
             SPOTTER_MESSAGE_STEALTH_DISCOVERED, SPOTTER_MESSAGE_STEALTH_NEUTRALIZED,
         };
-        use game_engine::common::system::radar::{Coord3D, RadarEventType, get_radar_system};
+        use game_engine::common::system::radar::{Coord3D, RadarEventType};
 
         let Some(target) = self.objects.get(&target_id) else {
             return;
@@ -1547,11 +1547,9 @@ impl GameLogic {
         });
 
         if local_detector {
-            let do_feedback = if let Ok(mut radar) = get_radar_system().write() {
-                radar.try_event(RadarEventType::StealthDiscovered, &loc)
-            } else {
-                true
-            };
+            let do_feedback = self
+                .radar_mut()
+                .try_event(RadarEventType::StealthDiscovered, &loc);
             if do_feedback {
                 let msg = crate::localization::localize(
                     SPOTTER_MESSAGE_STEALTH_DISCOVERED,
@@ -1570,7 +1568,8 @@ impl GameLogic {
         }
 
         if local_victim && enemy_detector {
-            let do_feedback = if let Ok(mut radar) = get_radar_system().write() {
+            let do_feedback = {
+                let radar = self.radar_mut();
                 if is_mine {
                     radar.try_event(RadarEventType::StealthNeutralized, &loc)
                 } else {
@@ -1581,8 +1580,6 @@ impl GameLogic {
                     );
                     true
                 }
-            } else {
-                true
             };
             if do_feedback {
                 let msg = crate::localization::localize(

@@ -2093,7 +2093,7 @@ impl GameLogic {
                         | crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged
                         | crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine
                 ) {
-                    crate::game_logic::host_radar::host_radar_queue_terrain_refresh();
+                    self.host_radar_queue_terrain_refresh();
                 }
             }
             let rubble = max <= 0.0
@@ -2138,7 +2138,7 @@ impl GameLogic {
                             );
                         }
                     }
-                    crate::game_logic::host_radar::host_radar_queue_terrain_refresh();
+                    self.host_radar_queue_terrain_refresh();
                 }
                 let due = self.bridge_behavior.take_due_die_fx(id, self.frame);
                 for _ in 0..due {

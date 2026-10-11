@@ -224,7 +224,7 @@ fn native_offset_map_restores_shroud_origin_and_pending_expiry() {
                     .shroud()
                     .lock()
                     .unwrap()
-                    .replace_state(&invalid, 0)
+                    .replace_state_owned(&invalid, 0)
                     .is_err()
             );
             for frame in [150, 151] {

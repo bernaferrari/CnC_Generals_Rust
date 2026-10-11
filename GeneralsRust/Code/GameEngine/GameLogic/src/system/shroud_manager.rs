@@ -1336,6 +1336,17 @@ impl ShroudManager {
     /// grid is rejected before replacing any current state so a staged load
     /// can roll back without a partially installed singleton.
     pub fn replace_state(&mut self, snapshot: &ShroudSnapshot, frame: u32) -> Result<(), String> {
+        self.replace_state_owned(snapshot, frame)?;
+        self.refresh_shroud_for_local_player_at_frame(frame);
+        Ok(())
+    }
+
+    /// Restore the supplied owner only; callers paint their radar explicitly.
+    pub fn replace_state_owned(
+        &mut self,
+        snapshot: &ShroudSnapshot,
+        frame: u32,
+    ) -> Result<(), String> {
         let restored_grid = if let Some(grid) = &snapshot.grid {
             let width = usize::try_from(grid.width)
                 .map_err(|_| "shroud snapshot width is not representable".to_string())?;
@@ -1420,7 +1431,9 @@ impl ShroudManager {
             explored.clear();
         }
         self.force_update();
-        self.refresh_shroud_for_local_player_at_frame(frame);
+        self.last_update_frame = frame;
+        self.last_vision_recalc_frame = frame;
+        self.has_updated_once = true;
         Ok(())
     }
 
@@ -2155,11 +2168,27 @@ impl ShroudManager {
     /// C++ `PartitionManager::refreshShroudForLocalPlayer` for a host player id.
     /// Leftover `player_list` is often empty on the Main host path.
     pub fn refresh_radar_shroud_for_player(&mut self, player_id: u32) {
+        if let Ok(mut radar) = get_radar_system().write() {
+            self.refresh_radar_shroud_for_player_into(
+                player_id,
+                crate::helpers::TheGameLogic::get_frame(),
+                &mut radar,
+            );
+        }
+    }
+
+    /// Paint the driving match radar using its clock, never an active radar slot.
+    pub fn refresh_radar_shroud_for_player_into(
+        &mut self,
+        player_id: u32,
+        frame: u32,
+        radar: &mut game_engine::common::system::radar::RadarSystem,
+    ) {
         if (player_id as usize) >= MAX_PLAYER_COUNT {
             return;
         }
         if let Some(grid) = self.shroud_grid.as_ref() {
-            if let Ok(mut radar) = get_radar_system().write() {
+            {
                 radar.clear_shroud();
                 for y in 0..grid.height {
                     for x in 0..grid.width {
@@ -2180,7 +2209,6 @@ impl ShroudManager {
                 }
             }
         }
-        let frame = crate::helpers::TheGameLogic::get_frame();
         self.last_update_frame = frame;
         self.last_vision_recalc_frame = frame;
         self.has_updated_once = true;

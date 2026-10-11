@@ -510,11 +510,12 @@ impl GameLogic {
             }
         }
         self.set_radar_forced(true);
-        if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
+        {
+            let radar = &mut self.radar;
             radar.force_on(true);
         }
         if let Ok(mut shroud) = self.world_services.shroud().lock() {
-            shroud.refresh_shroud_for_local_player();
+            shroud.refresh_radar_shroud_for_player_into(observer_id, self.frame, &mut self.radar);
         }
         #[cfg(feature = "game_client")]
         {

@@ -37,6 +37,14 @@ impl Drop for ConditionContextRestore<'_> {
 }
 
 impl ScriptEngine {
+    pub(super) fn observe_object_count_changed_frame(&self, driver: &dyn ScriptExecutionDriver) {
+        match driver.object_count_changed_frame() {
+            ScriptOwnerQuery::Present(frame) => self.set_frame_object_count_changed(frame),
+            ScriptOwnerQuery::Missing => self.set_frame_object_count_changed(0),
+            ScriptOwnerQuery::Unavailable => {}
+        }
+    }
+
     /// Update script engine
     pub fn update(&self) -> GameLogicResult<()> {
         let mut driver = CanonicalScriptExecutionDriver;
@@ -53,6 +61,7 @@ impl ScriptEngine {
         context: crate::scripting::executor::ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<()> {
+        self.observe_object_count_changed_frame(driver);
         let context = std::cell::RefCell::new(context);
         let mut execution = ScriptExecution::new(&context, driver);
         self.with_active(|| self.update_active(&mut execution))
@@ -580,6 +589,7 @@ impl ScriptEngine {
         };
         // All engine/list guards and dispatcher context guards ended above.
         execution.driver.after_action()?;
+        self.observe_object_count_changed_frame(execution.driver);
         Ok(result)
     }
 

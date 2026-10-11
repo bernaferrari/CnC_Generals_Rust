@@ -292,6 +292,7 @@ pub(super) fn global_hotkey_text_color() -> u32 {
 
 #[derive(Default)]
 pub(super) struct RadarObjectOverlayTextureCache {
+    pub(super) owner_identity: Option<Arc<()>>,
     pub(super) map_extent_signature: Option<[u32; 6]>,
     pub(super) texture: Option<Arc<wgpu::TextureView>>,
     pub(super) hero_object_ids: Vec<u32>,
@@ -315,6 +316,7 @@ pub(super) fn with_radar_object_overlay_texture_cache<R>(
 /// the layer's `terrain_generation` / `shroud_revision` counter.
 #[derive(Default)]
 pub(super) struct RadarLayerTextureCache {
+    pub(super) owner_identity: Option<Arc<()>>,
     pub(super) map_extent_signature: Option<[u32; 6]>,
     pub(super) layer_revision: u64,
     pub(super) texture: Option<Arc<wgpu::TextureView>>,

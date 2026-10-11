@@ -2097,6 +2097,7 @@ impl CnCGameEngine {
             Self::apply_skybox_hint(&mut self.render_pipeline);
             self.ensure_presentation_env_seeded();
             Self::sync_render_terrain_visual(
+                &mut self.game_logic,
                 &mut self.render_pipeline,
                 &self.graphics_system,
                 active_map_name.as_str(),

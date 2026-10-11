@@ -68,7 +68,7 @@ pub(crate) use world_combat::weapon_visual_capture::{
     PendingWeaponVisualDispatchCapture, source_is_locally_controlled,
 };
 #[path = "../world_objects/mod.rs"]
-mod world_objects;
+pub(crate) mod world_objects;
 #[path = "../world_save.rs"]
 mod world_save;
 #[path = "../world_scripts/mod.rs"]
@@ -263,3 +263,6 @@ mod world_read_owner_tests;
 #[cfg(test)]
 #[path = "../victory_owner_tests.rs"]
 mod victory_owner_tests;
+
+#[path = "../radar_owner.rs"]
+mod radar_owner;

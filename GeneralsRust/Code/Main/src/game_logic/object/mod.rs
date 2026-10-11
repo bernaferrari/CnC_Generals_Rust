@@ -1151,6 +1151,9 @@ pub struct Object {
     /// C++ AI state lifetime belongs to this Object, including reused IDs.
     #[serde(skip)]
     pub(crate) unit_ai_runtime: unit_ai_runtime::UnitAiRuntime,
+    /// Player completion admits power even when instant construction retains UC.
+    #[serde(skip)]
+    pub(crate) construction_power_admitted: bool,
 
     // Command system compatibility fields
     /// Object type identifier

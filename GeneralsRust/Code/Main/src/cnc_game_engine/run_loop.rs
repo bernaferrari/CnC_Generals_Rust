@@ -1036,32 +1036,46 @@ fn host_object_shroud_to_radar(
 
 impl CnCGameEngine {
     /// C++ `GameEngine::update` (`GameEngine.cpp:732`) `TheRadar->UPDATE()`.
-    pub(super) fn host_update_the_radar(&self) {
-        if let Ok(mut shroud) = self.game_logic.world_services.shroud().lock() {
-            shroud.refresh_shroud_for_local_player();
+    pub(super) fn host_update_the_radar(&mut self) {
+        #[cfg(feature = "game_client")]
+        if let Some(ui) = self.game_client.in_game_ui_subsystem() {
+            use game_client::helpers::InGameUiHooks;
+            let ui = game_client::core::subsystems::InGameUiHandle::new(ui);
+            admit_radar_presentations(&mut self.game_logic, ui.take_radar_acknowledgments());
         }
-
+        let frame = self.game_logic.frame;
+        if self.game_logic.radar_mut().update_owned(frame) {
+            self.game_logic.host_radar_refresh_terrain();
+        }
         let local_id = self
             .presentation_or_boot_local_player_id()
             .unwrap_or(self.current_player_id);
         let player = self.game_logic.get_player(local_id);
-        // C++ `Player::isPlayerActive` = `!observer && !dead`.
         let local_player_active = player.map(|p| p.is_alive && !p.is_observer).unwrap_or(true);
         let local_has_radar = player.map(|p| p.has_radar()).unwrap_or(false);
         let radar_forced = self.game_logic.radar_forced();
-        if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
-            radar.set_local_player_active(local_player_active);
-            radar.set_local_has_radar(local_has_radar);
-            radar.force_on(radar_forced);
-            // C++ `getShroudedStatus` is queried at overlay render, after
-            // `Radar::update` rebuilds the object lists. Stamp after sync so
-            // PARTIAL_CLEAR fog-edge blips survive provider rebuild.
-            if let Ok(shroud) = self.game_logic.world_services.shroud().lock() {
-                radar.apply_object_shrouds(|object_id| {
-                    shroud
-                        .get_host_object_shroud_status(local_id, object_id)
-                        .map(host_object_shroud_to_radar)
-                });
+        let shroud_handle = self.game_logic.world_services.shroud().clone();
+        let radar = self.game_logic.radar_mut();
+        radar.set_local_player_active(local_player_active);
+        radar.set_local_has_radar(local_has_radar);
+        radar.force_on(radar_forced);
+        if let Ok(mut shroud) = shroud_handle.lock() {
+            shroud.refresh_radar_shroud_for_player_into(local_id, frame, radar);
+            radar.apply_object_shrouds(|object_id| {
+                shroud
+                    .get_host_object_shroud_status(local_id, object_id)
+                    .map(host_object_shroud_to_radar)
+            });
+        }
+        #[cfg(feature = "game_client")]
+        {
+            // C++ W3DRadar::drawEvents admits its once-only chirp on the first
+            // visible radar draw. The GUI admits sound once and returns checked
+            // event identities; it cannot mutate the session's event ring.
+            if let Some(ui) = self.game_client.in_game_ui_subsystem() {
+                use game_client::helpers::InGameUiHooks;
+                let ui = game_client::core::subsystems::InGameUiHandle::new(ui);
+                ui.set_radar_presentation(std::sync::Arc::new(radar.presentation()));
             }
         }
     }
@@ -1355,16 +1369,18 @@ mod tests {
             "C++ GameEngine.cpp:732 TheRadar->UPDATE before TheAudio->UPDATE"
         );
         assert!(
-            !live.contains("radar.update("),
-            "exactly one radar.update driver: Common GameEngine client-frame \
-             counter (game_engine.rs); host_update_the_radar must not re-drive it"
+            live.contains("radar_mut().update_owned(frame)"),
+            "native drive frame advances its explicitly owned radar"
         );
         let stamp_at = live
             .rfind("apply_object_shrouds")
             .expect("object shroud stamp");
         assert!(
-            stamp_at > live.find("get_radar_system").expect("radar lock"),
-            "shroud stamp runs against the shared radar system"
+            stamp_at
+                > live
+                    .find("radar_mut().update_owned(frame)")
+                    .expect("owned radar update"),
+            "shroud stamp follows the owned radar update"
         );
         assert!(
             live.contains("execute_wait_deadline("),
@@ -1378,3 +1394,20 @@ mod tests {
         );
     }
 }
+
+/// Admit presentation receipts before advancing radar or taking a save.
+/// Identity checks reject another session and overwritten event slots.
+pub(super) fn admit_radar_presentations(
+    logic: &mut GameLogic,
+    receipts: impl IntoIterator<Item = (std::sync::Arc<()>, Vec<(usize, std::sync::Arc<()>)>)>,
+) {
+    for (identity, events) in receipts {
+        logic
+            .radar_mut()
+            .acknowledge_presented_events(&identity, &events);
+    }
+}
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "radar_presentation_save_tests.rs"]
+mod radar_presentation_save_tests;

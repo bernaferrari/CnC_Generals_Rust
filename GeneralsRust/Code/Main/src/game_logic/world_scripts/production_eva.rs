@@ -272,7 +272,7 @@ impl GameLogic {
         // C++ ScriptActions::doRadarCreateEvent — TheRadar->createEvent only.
         // No InGameUI message, no audio. Leftover already matches; this drain
         // is the live handler leftover calls after create_event.
-        crate::game_logic::host_radar::host_create_radar_event(
+        self.host_create_radar_event(
             event.position,
             Self::host_script_radar_event_type(event.event_type),
         );
@@ -1130,13 +1130,47 @@ impl GameLogic {
     }
 
     pub fn notify_structure_construction_complete(&mut self, structure_id: ObjectId) {
+        self.notify_structure_construction_complete_with_prepared_observer(structure_id, |_, _| {});
+    }
+
+    pub(crate) fn notify_structure_construction_complete_with_prepared_observer(
+        &mut self,
+        structure_id: ObjectId,
+        mut observe_prepared: impl FnMut(&GameLogic, ObjectId),
+    ) {
+        if self
+            .objects
+            .get(&structure_id)
+            .is_some_and(|object| object.construction_power_admitted)
+        {
+            return;
+        }
+        let owner_and_rebuild = self.objects.get(&structure_id).and_then(|object| {
+            self.player_owner_for_host_object(object)
+                .map(|owner| (owner, object.status.reconstructing))
+        });
         let Some(obj) = self.objects.get_mut(&structure_id) else {
             return;
         };
         // C++ ProductionUpdate CONSTRUCTION_COMPLETE + duration residual.
         let now = self.frame.max(1);
+        obj.set_status_under_construction(false);
+        obj.status.reconstructing = false;
+        obj.clear_under_construction_model_conditions();
+        obj.construction_percent = 1.0;
+        // Setting COMPLETE refreshes damage visuals from canonical body HP,
+        // after construction model flags have been cleared (CPP544-559).
         obj.set_construction_complete_condition_at(now);
-        obj.stamp_partition_value_threat();
+        let team = obj.team;
+        let pos = obj.get_position();
+        let name = obj.template_name.clone();
+        observe_prepared(self, structure_id);
+        if let Some((owner, rebuilding)) = owner_and_rebuild {
+            self.complete_owned_structure_player(structure_id, owner, rebuilding);
+        }
+        let Some(obj) = self.objects.get_mut(&structure_id) else {
+            return;
+        };
         // C++ SpecialPowerModule ctor (SpecialPowerModule.cpp:88-94) skips
         // startPowerRecharge while UNDER_CONSTRUCTION; construction completion
         // resolves that skip, so non-SharedNSync, non-StartsPaused modules
@@ -1157,11 +1191,12 @@ impl GameLogic {
         for (power, frames) in arm_recharge {
             obj.start_power_recharge_with_frames(&power, frames);
         }
-        let team = obj.team;
-        let pos = obj.get_position();
-        let name = obj.template_name.clone();
         // C++ CreateModules onBuildComplete (Preorder/GrantUpgrade/LockWeapon/SP/Supply).
         self.apply_create_modules_on_build_complete(structure_id);
+        if let Some(object) = self.objects.get_mut(&structure_id) {
+            object.handle_partition_cell_maintenance();
+            object.stamp_partition_value_threat();
+        }
         // C++ Object::updateUpgradeModules after UNDER_CONSTRUCTION clears
         // (DozerAIUpdate.cpp:539-591 / Object.cpp:2410-2438).
         self.apply_researched_player_upgrades_to_object(structure_id);
@@ -1180,7 +1215,7 @@ impl GameLogic {
             &format!("Construction complete: {name}"),
         );
         self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
-        crate::game_logic::host_radar::host_create_radar_event(
+        self.host_create_radar_event(
             pos,
             game_engine::common::system::radar::RadarEventType::Construction,
         );
@@ -1593,7 +1628,7 @@ impl GameLogic {
                     let msg =
                         localization::localize("GUI:OverchargeExhausted", "Overcharge exhausted");
                     self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
-                    crate::game_logic::host_radar::host_create_radar_event(
+                    self.host_create_radar_event(
                         pos,
                         game_engine::common::system::radar::RadarEventType::Information,
                     );

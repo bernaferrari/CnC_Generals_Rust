@@ -10,6 +10,10 @@ use super::script_camera::*;
 use super::*;
 
 pub struct GameLogic {
+    /// Canonical C++ Radar state for this match; construction publishes nothing.
+    pub(crate) radar: game_engine::common::system::radar::RadarSystem,
+    pub(crate) radar_map:
+        crate::game_logic::game_logic::world_objects::radar_live::HostRadarMapState,
     /// CPP GameLogic ctor/reset/Xfer: scoring permission belongs to this match.
     pub(super) is_scoring_enabled: bool,
     pub(crate) production_energy: crate::game_logic::production_energy::ProductionEnergyDefinitions,
@@ -1323,6 +1327,8 @@ pub struct GameLogic {
     pub(super) pending_camera_bw_mode: Option<CameraBwModeRequest>,
     pub(super) pending_camera_motion_blur: Vec<CameraMotionBlurRequest>,
     pub(super) script_skybox_enabled: bool,
+    /// CPP ScriptEngine::m_frameObjectCountChanged, owned by this match.
+    pub(crate) script_object_count_changed_frame: u32,
     pub(super) script_cameo_flash_count: HashMap<String, i32>,
     pub(super) script_named_timers: HashMap<String, (String, bool)>,
     pub(super) script_named_timer_display_shown: bool,

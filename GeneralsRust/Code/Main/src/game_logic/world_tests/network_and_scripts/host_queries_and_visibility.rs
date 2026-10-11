@@ -501,7 +501,6 @@ fn create_object_script_request_spawns_named_host_unit() {
 
 #[test]
 fn live_host_script_unmanned_radar_stealth_apply() {
-    use crate::game_logic::host_radar::last_the_radar_event_host_position;
     use gamelogic::object::registry::OBJECT_REGISTRY;
     use gamelogic::scripting::{
         HostScriptRadarEventRequest, HostScriptStealthEnabledRequest, HostScriptUnmannedRequest,
@@ -569,7 +568,9 @@ fn live_host_script_unmanned_radar_stealth_apply() {
         event_type: 4,
     });
     logic.apply_host_radar_event_script_requests();
-    let last = last_the_radar_event_host_position().expect("radar ping");
+    let last = logic
+        .last_the_radar_event_host_position()
+        .expect("radar ping");
     assert!((last.x - 90.0).abs() < 0.1);
     assert!((last.z - 120.0).abs() < 0.1);
 
@@ -620,7 +621,6 @@ fn live_host_script_unmanned_radar_stealth_apply() {
 
 #[test]
 fn team_create_radar_event_uses_first_member_not_centroid() {
-    use crate::game_logic::host_radar::last_the_radar_event_host_position;
     use gamelogic::object::registry::OBJECT_REGISTRY;
     use gamelogic::scripting::{HostScriptRadarEventRequest, request_host_script_radar_event};
 
@@ -655,7 +655,9 @@ fn team_create_radar_event_uses_first_member_not_centroid() {
         event_type: 4,
     });
     logic.apply_host_radar_event_script_requests();
-    let last = last_the_radar_event_host_position().expect("team radar ping");
+    let last = logic
+        .last_the_radar_event_host_position()
+        .expect("team radar ping");
     assert!(
         (last.x - 10.0).abs() < 0.1 && (last.z - 20.0).abs() < 0.1,
         "TEAM_CREATE_RADAR_EVENT must ping first member, not centroid, got {last:?}"
@@ -736,12 +738,9 @@ fn live_host_polygon_inside_and_enter_without_object_registry() {
     use gamelogic::common::{AsciiString, ICoord3D};
     use gamelogic::object::registry::OBJECT_REGISTRY;
     use gamelogic::polygon_trigger::PolygonTrigger;
-    use gamelogic::scripting::{
-        clear_host_script_query_snapshot, host_script_named_unit_in_named_area,
-    };
+    use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
 
     assert!(OBJECT_REGISTRY.is_empty());
-    clear_host_script_query_snapshot();
     let trigger = PolygonTrigger::new(
         1412,
         AsciiString::from("LivePolyPad"),
@@ -752,11 +751,6 @@ fn live_host_polygon_inside_and_enter_without_object_registry() {
             ICoord3D::new(0, 30, 0),
         ],
     );
-    gamelogic::terrain::get_terrain_logic()
-        .write()
-        .expect("terrain")
-        .add_trigger_area(trigger.clone());
-
     let mut logic = GameLogic::new();
     logic
         .host_trigger_world
@@ -773,21 +767,63 @@ fn live_host_polygon_inside_and_enter_without_object_registry() {
         o.name = "MapNamedScout".into();
         o.team_instance_name = "teamUSA".into();
     }
-    logic.inject_host_script_query_snapshot();
-    assert_eq!(
-        host_script_named_unit_in_named_area("MapNamedScout", "LivePolyPad"),
-        Some(true)
+    let area_condition = |kind| {
+        let mut condition = Condition::new(kind);
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "MapNamedScout".into(),
+            ))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::TriggerArea,
+                "LivePolyPad".into(),
+            ))
+            .unwrap();
+        condition
+    };
+    let mut foreign = GameLogic::new();
+    foreign
+        .host_trigger_world
+        .lock()
+        .unwrap()
+        .set_trigger_areas(&[PolygonTrigger::new(
+            1412,
+            AsciiString::from("LivePolyPad"),
+            vec![
+                ICoord3D::new(100, 100, 0),
+                ICoord3D::new(130, 100, 0),
+                ICoord3D::new(130, 130, 0),
+                ICoord3D::new(100, 130, 0),
+            ],
+        )]);
+    foreign
+        .templates
+        .insert("NamedScout".into(), ThingTemplate::new("NamedScout"));
+    let foreign_id = foreign
+        .create_object("NamedScout", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+        .unwrap();
+    assert_eq!(id, foreign_id);
+    foreign.host_object_mut(foreign_id).unwrap().name = "MapNamedScout".into();
+    assert!(
+        !foreign.owned_script_condition_for_test(area_condition(ConditionType::NamedInsideArea))
     );
-    let trigger =
-        gamelogic::scripting::host_script_lookup_polygon_trigger("LivePolyPad").expect("poly");
-    let host_trigger_world = logic.host_trigger_world.lock().expect("host trigger owner");
-    assert!(gamelogic::scripting::host_object_did_enter(
-        &host_trigger_world,
-        id.0,
-        &trigger,
-        logic.frame,
-    ));
-    clear_host_script_query_snapshot();
+    assert!(
+        foreign.owned_script_condition_for_test(area_condition(ConditionType::NamedOutsideArea))
+    );
+    assert!(
+        !foreign.owned_script_condition_for_test(area_condition(ConditionType::NamedEnteredArea))
+    );
+    // Run the production borrowed driver against this world's live object and
+    // owned polygon. No query snapshot/terrain singleton is published by the fixture.
+    assert!(logic.owned_script_condition_for_test(area_condition(ConditionType::NamedInsideArea)));
+    assert!(logic.owned_script_condition_for_test(area_condition(ConditionType::NamedEnteredArea)));
+    logic.frame += 2;
+    assert!(
+        !logic.owned_script_condition_for_test(area_condition(ConditionType::NamedEnteredArea))
+    );
+    assert!(OBJECT_REGISTRY.is_empty());
 }
 
 #[test]
@@ -857,8 +893,7 @@ fn script_radar_event_reaches_ui_ping() {
     // C++ ScriptActions::doRadarCreateEvent (ScriptActions.cpp:2842) is
     // `TheRadar->createEvent(...)` ONLY: a radar blip + last-event marker.
     // It posts no InGameUI text message and no host radar-message entry.
-    let radar_system = game_engine::common::system::radar::get_radar_system();
-    let radar = radar_system.read().expect("radar");
+    let radar = game_logic.radar();
     let loc = radar
         .get_last_event_loc()
         .expect("script radar event must reach TheRadar");

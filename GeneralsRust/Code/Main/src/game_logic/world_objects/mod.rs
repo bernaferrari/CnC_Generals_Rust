@@ -15,7 +15,7 @@ mod internal_move;
 mod object_ai_combat;
 mod object_queries;
 mod overlord_addon_damage;
-mod radar_live;
+pub(crate) mod radar_live;
 mod ready_completions;
 mod resources_income;
 mod spawn_templates;

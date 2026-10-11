@@ -104,6 +104,7 @@ impl GameLogic {
         self.pending_camera_bw_mode = None;
         self.pending_camera_motion_blur.clear();
         self.script_skybox_enabled = true;
+        self.script_object_count_changed_frame = 0;
         self.script_cameo_flash_count.clear();
         self.script_named_timers.clear();
         self.script_named_timer_display_shown = true;

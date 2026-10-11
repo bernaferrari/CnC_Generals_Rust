@@ -191,6 +191,11 @@ impl SnapshotBuilder {
                     &mut bytes, game_logic,
                 );
 
+                // Framed completion footer is last; its parser never scans
+                // arbitrary object/template payload bytes for a marker.
+                super::super::construction_completion_persist::append_to_lifecycle_tail(
+                    &mut bytes, game_logic,
+                );
                 bytes
             },
             player_ranks: self.snapshot_player_ranks(game_logic)?,
@@ -387,8 +392,23 @@ impl SnapshotBuilder {
                         "ShroudManager lock poisoned while restoring".to_string(),
                     )
                 })?
-                .replace_state(&snapshot.shroud, snapshot.frame_number as u32)
+                .replace_state_owned(&snapshot.shroud, snapshot.frame_number as u32)
                 .map_err(SaveLoadError::Corrupted)?;
+            let local_id = game_logic
+                .get_players()
+                .values()
+                .find(|player| player.is_local)
+                .map(|player| player.id);
+            if let Some(local_id) = local_id {
+                let services = game_logic.world_services.clone();
+                if let Ok(mut shroud) = services.shroud().lock() {
+                    shroud.refresh_radar_shroud_for_player_into(
+                        local_id,
+                        snapshot.frame_number as u32,
+                        game_logic.radar_mut(),
+                    );
+                }
+            }
         }
 
         let tail = super::super::lifecycle_tail::decode_lifecycle_tail(&snapshot.lifecycle_tail)?;
@@ -531,6 +551,10 @@ impl SnapshotBuilder {
         // idle-scan/hold/substate state for objects outside TRAI's capture
         // predicate. TRAI stays ahead only for legacy tails without OXOB.
         super::super::turret_aim_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
+        super::super::construction_completion_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
         )?;

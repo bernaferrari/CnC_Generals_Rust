@@ -43,7 +43,6 @@ pub(in crate::message_stream::translators) use crate::system::GameMessageResult;
 pub(in crate::message_stream::translators) use crate::system::beacon_display;
 pub(in crate::message_stream::translators) use game_engine::common::game_engine::get_game_engine;
 pub(in crate::message_stream::translators) use game_engine::common::ini::ini_game_data::get_global_data;
-pub(in crate::message_stream::translators) use game_engine::common::system::radar::get_radar_system;
 pub(in crate::message_stream::translators) use gamelogic::action_manager::{
     ActionManager, CanEnterType,
 };

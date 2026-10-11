@@ -233,6 +233,7 @@ impl ScriptEngine {
         context: crate::scripting::executor::ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) {
+        self.observe_object_count_changed_frame(driver);
         let current_player = team_id.and_then(|id| match driver.team_current_player(id) {
             ScriptOwnerQuery::Present(player) => player,
             ScriptOwnerQuery::Missing => None,

@@ -37,8 +37,7 @@ pub fn local_pixel_to_radar_cell(
 
     let (radar_x, radar_y) = if scaled_width >= scaled_height {
         let radar_x = (local_x - ul_x) * RADAR_CELL_WIDTH as i32 / scaled_width;
-        let mut radar_y =
-            (((local_y - ul_y) as f32 / scaled_height as f32) * height as f32) as i32;
+        let mut radar_y = (((local_y - ul_y) as f32 / scaled_height as f32) * height as f32) as i32;
         radar_y = (height - radar_y) * RADAR_CELL_HEIGHT as i32 / height;
         (radar_x, radar_y)
     } else {
@@ -53,18 +52,8 @@ pub fn local_pixel_to_radar_cell(
 
 /// C++ `Radar::screenPixelToWorld`.
 pub fn radar_screen_pixel_to_world(mx: i32, my: i32) -> Option<Coord3D> {
-    use game_engine::common::system::radar::get_radar_system;
-
-    let radar = get_radar_system();
-    let radar = radar.read().ok()?;
-    let local_has_radar = player_list()
-        .read()
-        .ok()
-        .and_then(|list| list.get_local_player().cloned())
-        .and_then(|player| player.read().ok().map(|g| g.has_radar()))
-        .unwrap_or(false);
-    let radar_on = radar.is_radar_forced() || (!radar.is_radar_hidden() && local_has_radar);
-    if !radar_on {
+    let radar = TheInGameUI::radar_presentation()?;
+    if !radar.is_radar_shown() {
         return None;
     }
     let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(

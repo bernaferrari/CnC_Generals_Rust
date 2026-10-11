@@ -156,6 +156,10 @@ impl RenderPipeline {
         queue: &Arc<wgpu::Queue>,
         world_bounds: Option<(Vec3, Vec3)>,
     ) -> Result<()> {
+        #[cfg(feature = "game_client")]
+        {
+            self.radar_terrain_colors = None;
+        }
         let Some(path) = self.heightmap_hint() else {
             return Ok(());
         };
@@ -179,6 +183,7 @@ impl RenderPipeline {
                     visual
                         .load_heightmap_with_world_size(path, explicit_world_size)
                         .map_err(|e| anyhow::anyhow!("Terrain heightmap load failed: {}", e))?;
+                    self.radar_terrain_colors = visual.freeze_radar_terrain_colors();
                     self.heightmap_world_size = Some(visual.world_size());
 
                     // Apply skybox textures if provided.
@@ -237,6 +242,7 @@ impl RenderPipeline {
     ) -> Result<bool> {
         #[cfg(feature = "game_client")]
         {
+            self.radar_terrain_colors = None;
             // Presentation-frozen heightmap only (no live GameLogic dual-read).
             let Some(pres) = self.presentation_frame.as_ref() else {
                 return Ok(false);
@@ -302,6 +308,7 @@ impl RenderPipeline {
                             Err(err) => warn!("Terrain source tile load failed: {}", err),
                         }
                     }
+                    self.radar_terrain_colors = visual.freeze_radar_terrain_colors();
                     self.heightmap_world_size = Some(visual.world_size());
                     if self.skybox_enabled {
                         let textures = self.resolved_skybox_hint();
@@ -929,5 +936,33 @@ impl RenderPipeline {
         F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + 'static,
     {
         self.forward_pass.enqueue_pre_scene_callback(callback);
+    }
+}
+
+impl RenderPipeline {
+    /// Sample only this pipeline's completed map hydration; no terrain singleton lookup.
+    pub fn frozen_radar_terrain_colors(
+        &self,
+        radar: &game_engine::common::system::radar::RadarSystem,
+    ) -> Vec<Option<[f32; 3]>> {
+        use game_engine::common::system::radar::{ICoord2D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH};
+        (0..RADAR_CELL_HEIGHT)
+            .flat_map(|y| {
+                (0..RADAR_CELL_WIDTH).map(move |x| {
+                    #[cfg(feature = "game_client")]
+                    {
+                        let position = radar.radar_to_world(&ICoord2D::new(x as i32, y as i32))?;
+                        self.radar_terrain_colors
+                            .as_ref()?
+                            .color_at(position.x, position.y)
+                    }
+                    #[cfg(not(feature = "game_client"))]
+                    {
+                        let _ = (x, y, radar);
+                        None
+                    }
+                })
+            })
+            .collect()
     }
 }

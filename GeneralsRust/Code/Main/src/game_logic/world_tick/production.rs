@@ -106,7 +106,6 @@ impl GameLogic {
             })
             .collect();
 
-        let mut completed_superweapon_detects: Vec<ObjectId> = Vec::new();
         let mut completed_structures: Vec<ObjectId> = Vec::new();
         let mut ready_superweapons: Vec<ObjectId> = Vec::new();
         let mut radar_extend_done: Vec<ObjectId> = Vec::new();
@@ -276,8 +275,6 @@ impl GameLogic {
                             id,
                             obj.template_name.clone(),
                         );
-                        // C++ onStructureConstructionComplete SuperweaponDetected residual.
-                        completed_superweapon_detects.push(id);
                         completed_structures.push(id);
                         stop_build_loops.push(id);
                     }
@@ -356,15 +353,12 @@ impl GameLogic {
             self.radar_extend_completes = self.radar_extend_completes.saturating_add(1);
         }
 
-        for id in completed_superweapon_detects {
-            self.try_eva_superweapon_detected_for_source(id);
-        }
-
         // C++ parity: when a structure finishes construction, release any dozers
         // that were constructing it — set them to Idle.
         for &completed_id in &completed_structures {
-            // C++ SupplyCenterCreate::onBuildComplete residual.
-            self.on_supply_center_build_complete(completed_id);
+            // CPP539-591: visual preparation, Player and CreateModules all
+            // observe the builder's BUILD task before end-dock/task release.
+            self.notify_structure_construction_complete(completed_id);
             let building_pos = self.objects.get(&completed_id).map(|o| o.get_position());
             let mut end_moves: Vec<(ObjectId, glam::Vec3)> = Vec::new();
             let mut finished_builders: Vec<ObjectId> = Vec::new();
@@ -438,11 +432,6 @@ impl GameLogic {
             // C++ internalTaskComplete(DOZER_TASK_BUILD) after the end-dock
             // move is issued. The dock was already copied into end_moves.
             // A leftover task greys every dozer-construct cameo.
-            self.release_finished_builders(&finished_builders);
-            if self.objects.contains_key(&completed_id) {
-                self.record_structure_completion(completed_id);
-            }
-            self.notify_structure_construction_complete(completed_id);
             // Seal first. A path computed before the footprint becomes
             // impassable cannot be followed.
             self.block_structure_object_path(completed_id);
@@ -460,6 +449,7 @@ impl GameLogic {
                     }
                 }
             }
+            self.release_finished_builders(&finished_builders);
         }
         // C++ ACTIVELY_CONSTRUCTING residual for dozers/factories.
         // Wave 815: under coupled shadow, model bit owned by GW expire + logs.
@@ -678,7 +668,6 @@ impl GameLogic {
         if ready.is_empty() {
             return;
         }
-        let mut completed_superweapon_detects: Vec<ObjectId> = Vec::new();
         let mut completed_structures: Vec<ObjectId> = Vec::new();
         for id in ready {
             let Some(obj) = self.objects.get_mut(&id) else {
@@ -697,14 +686,11 @@ impl GameLogic {
                 .record_applied_heal(id, obj.health.current);
             crate::game_logic::host_construction_progress_log::record(id, 1.0, false, 0.0);
             crate::game_logic::host_construction_log::record(id, obj.template_name.clone());
-            completed_superweapon_detects.push(id);
             completed_structures.push(id);
         }
-        for id in completed_superweapon_detects {
-            self.try_eva_superweapon_detected_for_source(id);
-        }
         for &completed_id in &completed_structures {
-            self.on_supply_center_build_complete(completed_id);
+            self.finish_building_sound(completed_id);
+            self.notify_structure_construction_complete(completed_id);
             let building_pos = self.objects.get(&completed_id).map(|o| o.get_position());
             let mut end_moves: Vec<(ObjectId, glam::Vec3)> = Vec::new();
             let mut finished_builders: Vec<ObjectId> = Vec::new();
@@ -775,11 +761,6 @@ impl GameLogic {
                 }
                 finished_builders.push(oid);
             }
-            self.release_finished_builders(&finished_builders);
-            if self.objects.contains_key(&completed_id) {
-                self.record_structure_completion(completed_id);
-            }
-            self.notify_structure_construction_complete(completed_id);
             // Same order as the host completion path: seal the footprint,
             // then leave while ignoring that building.
             self.block_structure_object_path(completed_id);
@@ -797,6 +778,7 @@ impl GameLogic {
                     }
                 }
             }
+            self.release_finished_builders(&finished_builders);
         }
         if !completed_structures.is_empty() {
             // Wave 828: under coupled shadow, ACTIVELY_CONSTRUCTING bit owned by GW expire.

@@ -196,6 +196,43 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(result);
         }
 
+        if matches!(
+            condition_type,
+            ConditionType::NamedInsideArea
+                | ConditionType::NamedOutsideArea
+                | ConditionType::NamedEnteredArea
+        ) {
+            use crate::scripting::engine::ScriptOwnerQuery;
+            let unit = self.get_condition_string_param(condition, 0)?;
+            let area = self.get_condition_string_param(condition, 1)?;
+            let engine = self.context.borrowed_engine();
+            let player = engine.get_current_player_name();
+            let query = if condition_type == ConditionType::NamedEnteredArea {
+                driver.named_entered_area(
+                    &unit,
+                    &area,
+                    player.as_deref(),
+                    engine.script_object_id(),
+                )
+            } else {
+                driver.named_inside_area(&unit, &area, player.as_deref(), engine.script_object_id())
+            };
+            let inside = match query {
+                ScriptOwnerQuery::Unavailable => None,
+                ScriptOwnerQuery::Missing => Some(false),
+                ScriptOwnerQuery::Present(value) => Some(value),
+            };
+            if let Some(value) = inside {
+                return Ok(Self::bool_result(
+                    if condition_type == ConditionType::NamedOutsideArea {
+                        !value
+                    } else {
+                        value
+                    },
+                ));
+            }
+        }
+
         // Dispatch to the appropriate handler based on condition type
         match condition_type {
             // ============================================================================

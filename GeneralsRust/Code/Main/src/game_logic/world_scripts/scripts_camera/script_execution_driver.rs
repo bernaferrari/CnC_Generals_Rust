@@ -161,6 +161,77 @@ impl HostScriptExecutionDriver<'_> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn named_inside_area(
+        &self,
+        unit: &str,
+        area: &str,
+        current_player: Option<&str>,
+        this_object: Option<gamelogic::common::ObjectID>,
+    ) -> ScriptOwnerQuery<bool> {
+        let Some(object) = self
+            .world
+            .owned_named_script_object(unit, this_object.map(ObjectId))
+            .and_then(|id| self.world.host_object(id))
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let Some(area) = self.qualified_area(area, current_player) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let world = self
+            .world
+            .host_trigger_world
+            .lock()
+            .expect("owned named polygon query");
+        let Some(trigger) = world.trigger_area_by_canonical_name(&area) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        // CPP current float position truncates to integer; Main is Y-up/XZ.
+        // Inside deliberately includes dead/inert objects, unlike Entered.
+        let pos = object.get_position();
+        let point = gamelogic::common::ICoord3D::new(pos.x as i32, pos.z as i32, pos.y as i32);
+        ScriptOwnerQuery::Present(trigger.point_in_trigger_int(&point))
+    }
+
+    fn named_entered_area(
+        &self,
+        unit: &str,
+        area: &str,
+        current_player: Option<&str>,
+        this_object: Option<gamelogic::common::ObjectID>,
+    ) -> ScriptOwnerQuery<bool> {
+        let Some(object) = self
+            .world
+            .owned_named_script_object(unit, this_object.map(ObjectId))
+            .and_then(|id| self.world.host_object(id))
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        if object.is_kind_of(KindOf::Inert) {
+            return ScriptOwnerQuery::Present(false);
+        }
+        let Some(area) = self.qualified_area(area, current_player) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let world = self
+            .world
+            .host_trigger_world
+            .lock()
+            .expect("owned named polygon entry");
+        let Some(trigger) = world.trigger_area_by_canonical_name(&area) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        ScriptOwnerQuery::Present(gamelogic::scripting::host_object_did_enter(
+            &world,
+            object.id.0,
+            &trigger,
+            self.world.frame,
+        ))
+    }
+
+    fn object_count_changed_frame(&self) -> ScriptOwnerQuery<u32> {
+        ScriptOwnerQuery::Present(self.world.script_object_count_changed_frame)
+    }
     fn scoring_enabled(&mut self, enabled: bool) -> ScriptOwnerQuery<()> {
         self.world.set_scoring_enabled(enabled);
         ScriptOwnerQuery::Present(())

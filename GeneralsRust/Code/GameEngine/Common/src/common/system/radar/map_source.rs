@@ -88,7 +88,7 @@ impl RadarSystem {
         self.resample_terrain_with_source(source)
     }
 
-    pub(super) fn resample_terrain_with_source(&mut self, source: &dyn RadarMapSource) -> bool {
+    pub fn resample_terrain_with_source(&mut self, source: &dyn RadarMapSource) -> bool {
         if !self.has_map_extent() {
             return false;
         }

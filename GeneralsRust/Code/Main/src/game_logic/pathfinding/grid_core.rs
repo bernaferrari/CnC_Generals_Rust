@@ -362,6 +362,29 @@ impl PathfindingGrid {
         }
     }
 
+    /// Remove only cells still owned by this object, preserving overlapping
+    /// foreign obstacles. Completion then reclassifies its current footprint.
+    pub(super) fn remove_owned_object_footprint(&mut self, object_id: u32) {
+        let cells: Vec<_> = self
+            .occ_obstacle_id
+            .iter()
+            .enumerate()
+            .filter_map(|(index, &id)| (id == object_id).then_some(index))
+            .collect();
+        let mut lo = GridPos::new(i32::MAX, i32::MAX);
+        let mut hi = GridPos::new(i32::MIN, i32::MIN);
+        for index in cells {
+            let pos = GridPos::new(index as i32 % self.width, index as i32 / self.width);
+            if self.clear_cell_obstacle_owned(pos, object_id) {
+                Self::expand_stamp_bounds(&mut lo, &mut hi, pos);
+            }
+        }
+        if lo.x <= hi.x && lo.y <= hi.y {
+            self.refresh_pinched_bounds(lo, hi);
+            self.rebuild_path_zones();
+        }
+    }
+
     /// C++ `PathfindCell::removeObstacle` (AIPathfind.cpp:1473-1483).
     pub fn clear_cell_obstacle_owned(&mut self, pos: GridPos, object_id: u32) -> bool {
         if self.cell_type(pos) == PathfindCellType::Rubble {

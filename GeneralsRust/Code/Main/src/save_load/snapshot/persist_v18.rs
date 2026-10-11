@@ -7,7 +7,7 @@ use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::system::radar::{
-    Coord3D, ICoord2D, MAX_RADAR_EVENTS, RGBAColorInt, RadarEvent, RadarEventType, get_radar_system,
+    Coord3D, ICoord2D, MAX_RADAR_EVENTS, RGBAColorInt, RadarEvent, RadarEventType,
 };
 use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
@@ -515,12 +515,12 @@ fn capture_persist_v18_impl(
     }
 
     // The GameLogic script residual is the authoritative hidden/forced pair:
-    // the frame loop stamps it into the radar singleton every update, and a
-    // fresh/unsynced singleton must not clobber it on capture. The singleton
-    // contributes the persisted event ring (C++ Radar::xfer).
+    // the frame loop stamps it into this instance radar every update.
+    // The same owner contributes the persisted event ring (C++ Radar::xfer).
     persist.radar_hidden = !game_logic.radar_script_enabled();
     persist.radar_forced = game_logic.radar_forced();
-    if let Ok(radar) = get_radar_system().read() {
+    {
+        let radar = game_logic.radar();
         let (_, _, events, next, last) = radar.snapshot_persist_state();
         persist.radar_events = events.iter().map(persist_radar_event).collect();
         persist.radar_next_event = next as i32;
@@ -681,6 +681,17 @@ pub fn restore_persist_v18(
     persist: &WorldPersistV18,
     game_logic: &mut GameLogic,
 ) -> SaveLoadResult<()> {
+    // Reject invalid ring references before mutating this candidate or any adapter.
+    // C++ requires exactly MAX_RADAR_EVENTS in binary Xfer; absent JSON fields
+    // retain their existing default representation for older host save tails.
+    if persist.radar_events.len() > MAX_RADAR_EVENTS
+        || !(0..MAX_RADAR_EVENTS as i32).contains(&persist.radar_next_event)
+        || !(-1..MAX_RADAR_EVENTS as i32).contains(&persist.radar_last_event)
+    {
+        return Err(SaveLoadError::Corrupted(
+            "Invalid saved radar ring indices or capacity".into(),
+        ));
+    }
     // CPP SequentialScript::xfer8143 rejects a retained missing nonzero ID.
     // Team admission precedes this tail; validate the receiver's exact roster
     // before mutating any script engine or resolving names in another world.
@@ -823,7 +834,8 @@ pub fn restore_persist_v18(
     }
 
     game_logic.restore_radar_script_state(!persist.radar_hidden, persist.radar_forced);
-    if let Ok(mut radar) = get_radar_system().write() {
+    {
+        let radar = game_logic.radar_mut();
         let mut events = std::array::from_fn(|_| RadarEvent::default());
         for (idx, entry) in persist
             .radar_events

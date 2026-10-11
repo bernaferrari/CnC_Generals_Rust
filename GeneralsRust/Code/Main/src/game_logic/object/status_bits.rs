@@ -529,6 +529,9 @@ impl Object {
         crate::game_logic::host_status_log::record_deployed(self.id, v);
     }
     pub fn set_status_under_construction(&mut self, v: bool) {
+        if v && !self.status.under_construction {
+            self.construction_power_admitted = false;
+        }
         if self.status.under_construction != v {
             crate::game_logic::host_status_log::request_under_construction_mine_sweep(self.id);
         }

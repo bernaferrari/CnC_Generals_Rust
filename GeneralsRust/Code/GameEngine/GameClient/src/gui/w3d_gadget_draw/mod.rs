@@ -40,7 +40,7 @@ pub(in crate::gui::w3d_gadget_draw) use game_engine::common::ini::ini_map_cache:
 pub(in crate::gui::w3d_gadget_draw) use game_engine::common::ini::set_scheme_draw_func;
 pub(in crate::gui::w3d_gadget_draw) use game_engine::common::system::radar::{
     Coord3D, RGBAColorInt, RadarEventMarkerKind, RadarEventType, Region3D, clip_line_to_rect,
-    get_radar_system, radar_draw_positions, radar_event_marker, should_refresh_w3d_object_overlay,
+    radar_draw_positions, radar_event_marker, should_refresh_w3d_object_overlay,
 };
 pub(in crate::gui::w3d_gadget_draw) use gamelogic::player::{RankProgressInfo, ThePlayerList};
 pub(in crate::gui::w3d_gadget_draw) use std::sync::atomic::{AtomicU8, Ordering};

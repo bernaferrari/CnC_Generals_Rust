@@ -2125,10 +2125,7 @@ impl CnCGameEngine {
                 view.set_width(view_w as i32);
                 view.set_height(view_h as i32);
             });
-            let terrain_z = game_engine::common::system::radar::get_radar_system()
-                .read()
-                .ok()
-                .map(|radar| radar.terrain_average_z())
+            let terrain_z = Some(self.game_logic.radar().terrain_average_z())
                 .filter(|z| z.is_finite())
                 .unwrap_or(self.camera_target.y);
             let pts = with_tactical_view_ref(|view| {
@@ -2157,10 +2154,7 @@ impl CnCGameEngine {
         let terrain_y = {
             #[cfg(feature = "game_client")]
             {
-                game_engine::common::system::radar::get_radar_system()
-                    .read()
-                    .ok()
-                    .map(|radar| radar.terrain_average_z())
+                Some(self.game_logic.radar().terrain_average_z())
                     .filter(|z| z.is_finite())
                     .unwrap_or(self.camera_target.y)
             }

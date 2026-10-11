@@ -441,10 +441,13 @@ impl AIPlayer {
                                 }
                                 adjusted
                             };
-                            let structure_id = game_logic.create_object_under_construction(
+                            let structure_id = game_logic.create_dozer_scaffold(
                                 &template_name,
-                                self.team,
+                                self.player_id,
+                                dozer_id,
                                 build_position,
+                                0.0,
+                                build_cost,
                             )?;
 
                             // The authoritative construction APIs carry the exact live
@@ -455,11 +458,7 @@ impl AIPlayer {
                             let commanded = assigned
                                 && game_logic
                                     .unit_command_begin_construct(dozer_id, build_position);
-                            let paid = commanded
-                                && game_logic
-                                    .get_player_mut(self.player_id)
-                                    .is_some_and(|player| player.spend_resources(&build_cost));
-                            if paid {
+                            if commanded {
                                 Some(structure_id)
                             } else {
                                 // This is only an invariant failure after the earlier

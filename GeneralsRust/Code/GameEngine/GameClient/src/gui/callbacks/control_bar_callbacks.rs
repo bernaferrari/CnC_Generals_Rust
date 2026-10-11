@@ -24,9 +24,7 @@ use crate::language_filter::get_language_filter;
 use crate::message_stream::{GameMessageType, get_message_stream};
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::radar::{
-    ICoord2D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH, get_radar_system,
-};
+use game_engine::common::system::radar::{ICoord2D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH};
 use gamelogic::commands::command::CommandType;
 use gamelogic::commands::selection::get_selection_manager;
 use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
@@ -55,31 +53,8 @@ fn decode_mouse_pos(data: WindowMsgData) -> (i32, i32) {
     (x, y)
 }
 
-fn local_player_has_radar() -> bool {
-    let Ok(list) = ThePlayerList().read() else {
-        return false;
-    };
-    let Some(player) = list.get_local_player() else {
-        return false;
-    };
-    let Ok(player_guard) = player.read() else {
-        return false;
-    };
-    player_guard.has_radar()
-}
-
 fn radar_allows_input() -> bool {
-    let radar_system = get_radar_system();
-    let Ok(radar) = radar_system.read() else {
-        return false;
-    };
-    if radar.is_radar_forced() {
-        return true;
-    }
-    if radar.is_radar_hidden() {
-        return false;
-    }
-    local_player_has_radar()
+    TheInGameUI::radar_presentation().is_some_and(|radar| radar.is_radar_shown())
 }
 
 /// After C++ `LeftHUDInput` validates radar availability, a held middle button
@@ -90,23 +65,7 @@ fn middle_mouse_is_held() -> bool {
 
 fn local_pixel_to_radar(local_x: i32, local_y: i32, width: i32, height: i32) -> Option<ICoord2D> {
     use crate::gui::ingame_ui::local_pixel_to_radar_cell;
-    use game_engine::common::system::radar::get_radar_system;
-    let extent = get_radar_system()
-        .read()
-        .ok()
-        .map(|radar| radar.map_extent())
-        .unwrap_or(game_engine::common::system::radar::Region3D {
-            lo: game_engine::common::system::radar::Coord3D {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-            },
-            hi: game_engine::common::system::radar::Coord3D {
-                x: 1.0,
-                y: 1.0,
-                z: 0.0,
-            },
-        });
+    let extent = TheInGameUI::radar_presentation()?.map_extent();
     let cell = local_pixel_to_radar_cell(
         local_x,
         local_y,
@@ -716,8 +675,7 @@ impl LeftHUDCallbacks {
         let Some(radar_pos) = local_pixel_to_radar(local_x, local_y, width, height) else {
             return;
         };
-        let radar_system = get_radar_system();
-        let Ok(radar) = radar_system.read() else {
+        let Some(radar) = TheInGameUI::radar_presentation() else {
             return;
         };
         let Some(world) = radar.radar_to_world(&radar_pos) else {

@@ -48,6 +48,26 @@ use std::sync::{Arc, Mutex};
 /// `TheInGameUI::*` entry points can forward requests to the modern
 /// Rust subsystem.
 pub trait InGameUiHooks: Send + Sync {
+    fn radar_presentation(
+        &self,
+    ) -> Option<Arc<game_engine::common::system::radar::RadarPresentation>> {
+        None
+    }
+    fn set_radar_presentation(
+        &self,
+        _radar: Arc<game_engine::common::system::radar::RadarPresentation>,
+    ) {
+    }
+    fn admit_radar_draw(
+        &self,
+        _radar: &game_engine::common::system::radar::RadarPresentation,
+    ) -> usize {
+        0
+    }
+    fn take_radar_acknowledgments(&self) -> Vec<(Arc<()>, Vec<(usize, Arc<()>)>)> {
+        Vec::new()
+    }
+
     fn select_area(&self, upper_left: ICoord2D, lower_right: ICoord2D);
     fn issue_move_command(&self, position: Coord3D, queue: bool);
     fn issue_force_attack_ground(&self, position: Coord3D);
@@ -1129,6 +1149,26 @@ pub fn map_cant_build_message(message: &str) -> String {
 pub struct TheInGameUI;
 
 impl TheInGameUI {
+    pub fn admit_radar_draw(radar: &game_engine::common::system::radar::RadarPresentation) {
+        let count = with_backend_result(|backend| backend.admit_radar_draw(radar)).unwrap_or(0);
+        for _ in 0..count {
+            game_engine::common::system::radar::play_radar_event_chirp();
+        }
+    }
+    pub fn take_radar_acknowledgments() -> Vec<(Arc<()>, Vec<(usize, Arc<()>)>)> {
+        with_backend_result(|backend| backend.take_radar_acknowledgments()).unwrap_or_default()
+    }
+
+    pub fn radar_presentation() -> Option<Arc<game_engine::common::system::radar::RadarPresentation>>
+    {
+        with_backend_result(|backend| backend.radar_presentation()).flatten()
+    }
+    pub fn set_radar_presentation(
+        radar: Arc<game_engine::common::system::radar::RadarPresentation>,
+    ) {
+        with_backend(|backend| backend.set_radar_presentation(radar));
+    }
+
     fn set_cursor(cursor: CursorType) {
         with_status(|guard| guard.cursor = cursor);
     }

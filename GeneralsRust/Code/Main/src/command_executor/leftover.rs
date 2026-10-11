@@ -126,12 +126,7 @@ impl<'a> CommandExecutor<'a> {
             ) {
                 return self.game_logic.unit_command_set_ai_state(unit_id, state);
             }
-            return self.path_to_goal_with_state_ignoring(
-                unit_id,
-                dock,
-                state,
-                Some(target_id),
-            );
+            return self.path_to_goal_with_state_ignoring(unit_id, dock, state, Some(target_id));
         }
         let in_interaction_range = source_pos.distance(target_pos)
             <= crate::game_logic::host_repair::HOST_REPAIR_INTERACT_RANGE;
@@ -663,7 +658,11 @@ impl<'a> CommandExecutor<'a> {
             self.game_logic.worker_exit_supply_for_dozer_task(unit_id);
             if self.begin_support_order(unit_id, target_id, target_pos, AIState::Repairing) {
                 any = true;
-            } else if self.game_logic.host_object(unit_id).and_then(|unit| unit.target) != Some(target_id)
+            } else if self
+                .game_logic
+                .host_object(unit_id)
+                .and_then(|unit| unit.target)
+                != Some(target_id)
             {
                 if let Some(obj) = self.game_logic.host_object_mut(unit_id) {
                     obj.dozer_task_repair_target = None;
@@ -986,7 +985,7 @@ impl<'a> CommandExecutor<'a> {
                 .queue_audio_event(AudioEventRequest::new(translate_audio_event(
                     "BeaconPlaced",
                 )));
-            crate::game_logic::host_radar::host_create_radar_event(
+            self.game_logic.host_create_radar_event(
                 pos,
                 game_engine::common::system::radar::RadarEventType::Information,
             );
@@ -1449,7 +1448,7 @@ pub fn tick_live_beacon_client_updates(logic: &mut GameLogic) {
             }
         };
         if should_pulse {
-            crate::game_logic::host_radar::host_create_radar_event_for(
+            logic.host_create_radar_event_for(
                 pos,
                 game_engine::common::system::radar::RadarEventType::BeaconPulse,
                 pulse_seconds,
@@ -1613,12 +1612,11 @@ impl GameLogic {
                 || (arrived_at_dock && target == build_id));
         let on_repair_walk = matches!(state, AIState::Moving)
             && repair_id.is_some()
-            && ((path_at_dock && target == repair_id)
-                || (arrived_at_dock && target == repair_id));
-        let cancel_build = build_id.is_some()
-            && (matches!(state, AIState::Constructing) || on_build_walk);
-        let cancel_repair = repair_id.is_some()
-            && (matches!(state, AIState::Repairing) || on_repair_walk);
+            && ((path_at_dock && target == repair_id) || (arrived_at_dock && target == repair_id));
+        let cancel_build =
+            build_id.is_some() && (matches!(state, AIState::Constructing) || on_build_walk);
+        let cancel_repair =
+            repair_id.is_some() && (matches!(state, AIState::Repairing) || on_repair_walk);
         if !cancel_build && !cancel_repair {
             return;
         }
@@ -1793,8 +1791,11 @@ impl GameLogic {
             .get(&dozer_id)
             .map(|dozer| dozer.selection_radius)
             .unwrap_or(0.0);
-        if !crate::game_logic::host_repair::dozer_within_action_dock(dozer_pos, dozer_radius, snapped)
-        {
+        if !crate::game_logic::host_repair::dozer_within_action_dock(
+            dozer_pos,
+            dozer_radius,
+            snapped,
+        ) {
             self.path_approach_with_state_ignoring(
                 dozer_id,
                 snapped,

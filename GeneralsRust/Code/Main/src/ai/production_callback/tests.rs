@@ -398,3 +398,46 @@ fn supply_spawn_notifies_ai_before_exit_without_replaying_create_or_draining_pai
         },
     );
 }
+
+#[test]
+fn owned_structure_completion_resets_cpp_delays_and_only_exact_pad() {
+    let (mut world, structure) = production_world("UnusedOutput", false);
+    let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
+    ai.building_queue.clear();
+    ai.next_building_time = 80.0;
+    ai.next_team_queue_time = 90.0;
+    let mut bound = AIBuildingInfo::new("DeliveryFactory".into(), Vec3::ZERO, 2);
+    bound.object_id = Some(structure);
+    ai.building_queue.push(bound);
+    ai.building_queue
+        .push(AIBuildingInfo::new("DeliveryFactory".into(), Vec3::ZERO, 2));
+    world.notify_owned_ai_structure_produced(structure);
+    let ai = &world.ai_manager.ai_players[&1];
+    assert_eq!(ai.next_building_time, 0.0);
+    assert_eq!(ai.next_team_queue_time, 0.0);
+    assert!(ai.building_queue[0].is_built);
+    assert!(!ai.building_queue[1].is_built);
+}
+
+#[test]
+fn same_id_structure_completion_keeps_foreign_ai_delays_and_queue_unchanged() {
+    let (mut owner, id) = production_world("UnusedOutput", false);
+    let (mut foreign, foreign_id) = production_world("UnusedOutput", false);
+    assert_eq!(id, foreign_id);
+    for world in [&mut owner, &mut foreign] {
+        let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
+        ai.building_queue.clear();
+        ai.next_building_time = 80.0;
+        ai.next_team_queue_time = 90.0;
+        let mut pad = AIBuildingInfo::new("DeliveryFactory".into(), Vec3::ZERO, 2);
+        pad.object_id = Some(id);
+        ai.building_queue.push(pad);
+    }
+    owner.notify_owned_ai_structure_produced(id);
+    let ai = &foreign.ai_manager.ai_players[&1];
+    assert_eq!(ai.next_building_time, 80.0);
+    assert_eq!(ai.next_team_queue_time, 90.0);
+    assert!(!ai.building_queue[0].is_built);
+    foreign.notify_owned_ai_structure_produced(ObjectId(u32::MAX));
+    assert_eq!(foreign.ai_manager.ai_players[&1].next_building_time, 80.0);
+}

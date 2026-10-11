@@ -414,8 +414,7 @@ fn beacon_client_update_pulses_after_frequency() {
     tick_live_beacon_client_updates(&mut logic);
     logic.frame = logic.frame.saturating_add(31);
     tick_live_beacon_client_updates(&mut logic);
-    let radar_system = game_engine::common::system::radar::get_radar_system();
-    let radar = radar_system.read().expect("radar");
+    let radar = logic.radar();
     assert!(
         radar.get_active_events().iter().any(|e| e.event_type
             == game_engine::common::system::radar::RadarEventType::BeaconPulse

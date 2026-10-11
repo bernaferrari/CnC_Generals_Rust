@@ -7,13 +7,20 @@ use glam::Vec3;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct UnitAiRuntime {
-    guard_scan: Option<u32>,
-    guard_phase: Option<GuardPhase>,
-    guard_updated_frame: Option<u32>,
+    guard: GuardRuntime,
     hunt_scan: Option<u32>,
-    guard_anchor: Option<Vec3>,
     quick_exit: Option<u32>,
     wander: Option<WanderState>,
+}
+
+/// The guard machine owns its continuation as one value. Hunt, wander and
+/// temporary quick exit have independent lifetimes and are kept separate.
+#[derive(Debug, Clone, Default)]
+struct GuardRuntime {
+    scan: Option<u32>,
+    phase: Option<GuardPhase>,
+    updated_frame: Option<u32>,
+    anchor: Option<Vec3>,
 }
 
 /// Active non-combat states of the object's C++ AIGuardMachine.
@@ -48,31 +55,47 @@ pub(crate) enum WanderState {
 
 impl UnitAiRuntime {
     pub(crate) fn guard_phase(&self) -> Option<GuardPhase> {
-        self.guard_phase
+        self.guard.phase
     }
 
     pub(crate) fn set_guard_phase(&mut self, phase: Option<GuardPhase>) {
-        self.guard_phase = phase;
+        self.guard.phase = phase;
+    }
+
+    /// Entry replaces the Return phase and its own scan deadline, while
+    /// retaining the observed Idle anchor and this frame's update stamp.
+    pub(crate) fn enter_guard_return(&mut self, goal: Vec3, deadline: u32) {
+        self.guard.phase = Some(GuardPhase::Return { goal });
+        self.guard.scan = Some(deadline);
+    }
+
+    /// Enter C++ AIGuardIdleState after movement exit. The caller performs the
+    /// entry RNG draw before borrowing the object; this operation installs the
+    /// resulting continuation together without resetting this frame's visit.
+    pub(crate) fn enter_guard_idle(&mut self, deadline: u32, anchor: Option<Vec3>) {
+        self.guard.phase = Some(GuardPhase::Idle);
+        self.guard.scan = Some(deadline);
+        self.guard.anchor = anchor;
     }
 
     pub(crate) fn guard_updated_frame(&self) -> Option<u32> {
-        self.guard_updated_frame
+        self.guard.updated_frame
     }
 
     pub(crate) fn set_guard_updated_frame(&mut self, frame: Option<u32>) {
-        self.guard_updated_frame = frame;
+        self.guard.updated_frame = frame;
     }
 
     pub(crate) fn begin_guard_update(&mut self, frame: u32) -> bool {
-        if self.guard_updated_frame == Some(frame) {
+        if self.guard.updated_frame == Some(frame) {
             return false;
         }
-        self.guard_updated_frame = Some(frame);
+        self.guard.updated_frame = Some(frame);
         true
     }
 
     pub(crate) fn set_guard_anchor(&mut self, anchor: Option<Vec3>) {
-        self.guard_anchor = anchor;
+        self.guard.anchor = anchor;
     }
 
     pub(crate) fn wander_in_place(&self) -> Option<WanderInPlace> {
@@ -102,7 +125,7 @@ impl UnitAiRuntime {
     }
 
     pub(crate) fn guard_scan_deadline(&self) -> Option<u32> {
-        self.guard_scan
+        self.guard.scan
     }
 
     pub(crate) fn hunt_scan_deadline(&self) -> Option<u32> {
@@ -114,11 +137,11 @@ impl UnitAiRuntime {
     }
 
     pub(crate) fn guard_anchor(&self) -> Option<Vec3> {
-        self.guard_anchor
+        self.guard.anchor
     }
 
     pub(crate) fn set_guard_scan_deadline(&mut self, deadline: Option<u32>) {
-        self.guard_scan = deadline;
+        self.guard.scan = deadline;
     }
 
     pub(crate) fn set_hunt_scan_deadline(&mut self, deadline: Option<u32>) {
@@ -130,10 +153,7 @@ impl UnitAiRuntime {
     }
 
     pub(crate) fn clear_guard(&mut self) {
-        self.guard_scan = None;
-        self.guard_anchor = None;
-        self.guard_phase = None;
-        self.guard_updated_frame = None;
+        self.guard = GuardRuntime::default();
     }
 
     pub(crate) fn clear_hunt(&mut self) {
@@ -141,7 +161,7 @@ impl UnitAiRuntime {
     }
 
     pub(crate) fn clear_saved_deadlines(&mut self) {
-        self.guard_scan = None;
+        self.guard.scan = None;
         self.hunt_scan = None;
         self.quick_exit = None;
     }
@@ -152,18 +172,18 @@ impl UnitAiRuntime {
         rate: u32,
         first_jitter: impl FnOnce(u32) -> u32,
     ) -> bool {
-        match self.guard_scan {
+        match self.guard.scan {
             Some(next) if now < next => return false,
             None => {
                 let next = now.wrapping_add(first_jitter(rate));
                 if now < next {
-                    self.guard_scan = Some(next);
+                    self.guard.scan = Some(next);
                     return false;
                 }
             }
             Some(_) => {}
         }
-        self.guard_scan = Some(now.wrapping_add(rate));
+        self.guard.scan = Some(now.wrapping_add(rate));
         true
     }
 
@@ -177,12 +197,12 @@ impl UnitAiRuntime {
 
     /// C++ AIGuardIdleState::update tracks each ground axis independently.
     pub(crate) fn observe_guard_anchor(&mut self, anchor: Vec3) -> bool {
-        let Some(previous) = self.guard_anchor else {
-            self.guard_anchor = Some(anchor);
+        let Some(previous) = self.guard.anchor else {
+            self.guard.anchor = Some(anchor);
             return false;
         };
         if guard_anchor_moved(previous, anchor) {
-            self.guard_anchor = Some(anchor);
+            self.guard.anchor = Some(anchor);
             return true;
         }
         false
@@ -225,6 +245,28 @@ pub(crate) fn guard_anchor_moved(previous: Vec3, current: Vec3) -> bool {
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    #[test]
+    fn guard_idle_entry_replaces_return_continuation_without_revisiting_frame() {
+        let mut state = UnitAiRuntime::default();
+        state.enter_guard_return(Vec3::ONE, 7);
+        state.set_guard_anchor(Some(Vec3::ZERO));
+        state.set_hunt_scan_deadline(Some(99));
+        state.set_quick_exit_deadline(Some(101));
+        assert!(state.begin_guard_update(42));
+        state.enter_guard_idle(60, Some(Vec3::splat(2.0)));
+        assert_eq!(state.guard_phase(), Some(GuardPhase::Idle));
+        assert_eq!(state.guard_scan_deadline(), Some(60));
+        assert_eq!(state.guard_anchor(), Some(Vec3::splat(2.0)));
+        assert!(!state.begin_guard_update(42));
+        state.clear_guard();
+        assert_eq!(state.guard_phase(), None);
+        assert_eq!(state.guard_scan_deadline(), None);
+        assert_eq!(state.guard_anchor(), None);
+        assert!(state.begin_guard_update(42));
+        assert_eq!(state.hunt_scan_deadline(), Some(99));
+        assert_eq!(state.quick_exit_deadline(), Some(101));
+    }
 
     #[test]
     fn scan_deadlines_keep_first_entry_rng_and_exact_frame_consumption() {

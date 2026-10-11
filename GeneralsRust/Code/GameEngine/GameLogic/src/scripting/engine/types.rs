@@ -153,6 +153,11 @@ pub enum ScriptWaterRequest<'a> {
 pub trait ScriptExecutionDriver {
     fn after_action(&mut self) -> GameLogicResult<()>;
 
+    /// CPP7785: the driving match owns object-count invalidation timing.
+    fn object_count_changed_frame(&self) -> ScriptOwnerQuery<u32> {
+        ScriptOwnerQuery::Unavailable
+    }
+
     /// Resolve literal object/player identities against this execution's world.
     /// Types are the driving engine's current ObjectTypes contents. Missing
     /// and Present(false) are authoritative; only Unavailable uses Core's
@@ -288,6 +293,29 @@ pub trait ScriptExecutionDriver {
     /// Some(false) is authoritative; None selects the standalone camera adapter.
     fn camera_movement_finished(&mut self) -> Option<bool> {
         None
+    }
+
+    /// CPP ScriptConditions397: integer current position in this qualified polygon.
+    /// Missing is authoritative; Unavailable retains standalone Core discovery.
+    fn named_inside_area(
+        &self,
+        _unit: &str,
+        _area: &str,
+        _current_player: Option<&str>,
+        _this_object: Option<ObjectID>,
+    ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// CPP ScriptConditions1614: non-inert unit's current/previous-frame entry edge.
+    fn named_entered_area(
+        &self,
+        _unit: &str,
+        _area: &str,
+        _current_player: Option<&str>,
+        _this_object: Option<ObjectID>,
+    ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
     }
 
     /// CPP ScriptConditions924: selected body's current / InitialHealth percent.

@@ -40,6 +40,10 @@ impl Snapshot for RadarSnapshot {
 impl RadarSystem {
     /// C++ `Radar::xfer` version 1 layout.
     pub fn xfer_cpp_chunk(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        if matches!(xfer.get_xfer_mode(), XferMode::Load) {
+            self.owner_identity = std::sync::Arc::new(());
+            self.event_identities = std::array::from_fn(|_| std::sync::Arc::new(()));
+        }
         const CURRENT_VERSION: XferVersion = 1;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)?;

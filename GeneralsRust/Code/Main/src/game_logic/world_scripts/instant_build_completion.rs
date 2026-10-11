@@ -81,26 +81,51 @@ impl GameLogic {
         structure: ObjectId,
         owner: u32,
     ) {
+        self.complete_owned_structure_player(structure, owner, false);
+    }
+
+    pub(crate) fn complete_owned_structure_player(
+        &mut self,
+        structure: ObjectId,
+        owner: u32,
+        rebuilding: bool,
+    ) {
         let Some(object) = self.host_object(structure) else {
             return;
         };
-        if object.owner_player_id != Some(owner) {
+        if object.owner_player_id != Some(owner) || object.construction_power_admitted {
             return;
         }
         let counts_as_building = Self::live_score_counts_as_building_create(object);
         let template_name = object.template_name.clone();
         let base_cost = object.thing().template.build_cost.supplies;
         let cost = self.modified_build_cost_supplies(owner, &template_name, base_cost);
-        // No withdrawal here: C++ records money spent on instant construction
-        // without calling Money::withdraw. The driving session gates scoring.
+        // Player.cpp1639: invalidate this session's script census before
+        // footprint, scoring, power, AI and CreateModule observations.
+        self.script_object_count_changed_frame = self.frame;
+        if let Some(object) = self.objects.get(&structure) {
+            self.pathfinding_system
+                .refresh_completed_structure_footprint(object);
+        }
+        // No withdrawal here; both ordinary and instant completion record
+        // spending. Rebuilding skips ScoreKeeper, as Player.cpp1650 specifies.
         let scoring_enabled = self.is_scoring_enabled();
         if let Some(player) = self.players.get_mut(&owner) {
-            if scoring_enabled && counts_as_building {
+            if !rebuilding && scoring_enabled && counts_as_building {
                 player.record_structure_built();
             }
             // CPP ScoreKeeper::addMoneySpent has no scoring-enabled gate.
-            player.record_resources_spent(cost);
+            if !rebuilding {
+                player.record_resources_spent(cost);
+            }
         }
+        if let Some(object) = self.objects.get_mut(&structure) {
+            object.construction_power_admitted = true;
+        }
+        self.admit_completed_structure_power(owner);
+        // The AI owner callback follows power admission; CreateModules are
+        // invoked by BuildAssistant only after this entire Player callback.
+        self.notify_owned_ai_structure_produced(structure);
         self.try_eva_superweapon_detected_for_source(structure);
     }
 }

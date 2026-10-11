@@ -8,21 +8,22 @@
 
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+use game_engine::common::system::radar::{RadarBridgeSample, RadarTerrainPaintSource};
 
 use game_engine::common::system::radar::{
     Coord3D, RadarMapSource, RadarObject, RadarObjectInsert, RadarObjectProvider,
-    RadarPriorityType, get_radar_system, register_radar_map_source, register_radar_object_provider,
-    resolve_radar_object_color,
+    RadarPriorityType, resolve_radar_object_color,
 };
-use gamelogic::system::shroud_manager::get_shroud_manager;
-use std::sync::{Arc, LazyLock, Mutex};
 
-struct HostRadarMapState {
+pub(crate) struct HostRadarMapState {
     min: Coord3D,
     max: Coord3D,
     ready: bool,
-    local_player_id: u32,
     samples: Vec<(f32, bool)>,
+    colors: Vec<Option<[f32; 3]>>,
+    bridges: Vec<Option<RadarBridgeSample>>,
+    bridge_colors: std::collections::BTreeMap<String, [f32; 3]>,
+    pub(crate) water_color: [f32; 3],
 }
 
 impl HostRadarMapState {
@@ -39,17 +40,54 @@ impl HostRadarMapState {
                 z: 0.0,
             },
             ready: false,
-            local_player_id: 0,
             samples: Vec::new(),
+            colors: Vec::new(),
+            bridges: Vec::new(),
+            bridge_colors: std::collections::BTreeMap::new(),
+            water_color: [140.0 / 255.0, 140.0 / 255.0, 1.0],
         }
     }
 
-    fn sample(&self, world_x: f32, world_y: f32) -> Option<(f32, bool)> {
+    /// Immutable effective content is admitted once, never selected by a refresh.
+    fn admit_effective_definitions(&mut self) {
+        self.water_color = game_engine::common::ini::ini_water::get_water_transparency()
+            .and_then(|definition| {
+                definition
+                    .read()
+                    .ok()
+                    .map(|definition| definition.radar_water_color)
+            })
+            .map(|(r, g, b)| {
+                if r > 1.0 || g > 1.0 || b > 1.0 {
+                    [r / 255.0, g / 255.0, b / 255.0]
+                } else {
+                    [r, g, b]
+                }
+            })
+            .unwrap_or(self.water_color);
+        self.bridge_colors = game_engine::common::ini::try_get_terrain_roads()
+            .map(|roads| {
+                roads
+                    .iter_bridges()
+                    .map(|template| {
+                        let color = template.radar_color;
+                        (
+                            template.name.as_str().to_owned(),
+                            [
+                                color.r as f32 / 255.0,
+                                color.g as f32 / 255.0,
+                                color.b as f32 / 255.0,
+                            ],
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+    }
+
+    fn sample_index(&self, world_x: f32, world_y: f32) -> Option<usize> {
         const W: usize = 128;
         const H: usize = 128;
-        if self.samples.len() != W * H {
-            return None;
-        }
         let span_x = self.max.x - self.min.x;
         let span_y = self.max.y - self.min.y;
         if span_x <= f32::EPSILON || span_y <= f32::EPSILON {
@@ -59,101 +97,46 @@ impl HostRadarMapState {
         let y = ((world_y - self.min.y) / span_y * H as f32).floor() as i32;
         let x = x.clamp(0, W as i32 - 1) as usize;
         let y = y.clamp(0, H as i32 - 1) as usize;
-        self.samples.get(y * W + x).copied()
+        Some(y * W + x)
+    }
+
+    fn sample(&self, world_x: f32, world_y: f32) -> Option<(f32, bool)> {
+        self.samples
+            .get(self.sample_index(world_x, world_y)?)
+            .copied()
     }
 }
 
-static HOST_RADAR_MAP: Mutex<HostRadarMapState> = Mutex::new(HostRadarMapState::empty());
+impl Default for HostRadarMapState {
+    fn default() -> Self {
+        let mut state = Self::empty();
+        state.admit_effective_definitions();
+        state
+    }
+}
 
 #[cfg(test)]
 #[path = "radar_sampling_tests.rs"]
 mod sampling_tests;
 
-struct HostRadarMapSource;
-
-static HOST_RADAR_MAP_REGISTERED: LazyLock<()> = LazyLock::new(|| {
-    let _ = register_radar_map_source(Arc::new(HostRadarMapSource));
-});
-
-static HOST_RADAR_OBJECTS: Mutex<Vec<RadarObjectInsert>> = Mutex::new(Vec::new());
-
-struct HostRadarObjectProvider;
-
-static HOST_RADAR_PROVIDER_REGISTERED: LazyLock<()> = LazyLock::new(|| {
-    let _ = register_radar_object_provider(Arc::new(HostRadarObjectProvider));
-});
-
-impl RadarObjectProvider for HostRadarObjectProvider {
-    fn collect_objects(&self) -> Vec<RadarObjectInsert> {
-        HOST_RADAR_OBJECTS
-            .lock()
-            .ok()
-            .map(|g| g.clone())
-            .unwrap_or_default()
-    }
-}
-
-fn ensure_radar_hooks_registered() {
-    ensure_radar_map_source_registered();
-    LazyLock::force(&HOST_RADAR_PROVIDER_REGISTERED);
-    #[cfg(feature = "game_client")]
-    game_client::terrain::ensure_radar_terrain_paint_source_registered();
-}
-
-impl RadarMapSource for HostRadarMapSource {
-    fn sample_grid(&self, origin: Coord3D, x_sample: f32, y_sample: f32) -> Vec<(f32, f32, bool)> {
-        let state = HOST_RADAR_MAP.lock().ok();
-        // Cached data is complete or absent for the whole grid. Borrow the
-        // fallback terrain once only when there is no usable cache.
-        if let Some(state) = state
-            .as_ref()
-            .filter(|s| s.sample(origin.x, origin.y).is_some())
-        {
-            return game_engine::common::system::radar::sample_radar_map_grid(
-                origin,
-                x_sample,
-                y_sample,
-                |x, y| state.sample(x, y),
-            );
-        }
-        drop(state);
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-        let terrain = terrain_owner_handle.try_read().ok();
-        game_engine::common::system::radar::sample_radar_map_grid(
-            origin,
-            x_sample,
-            y_sample,
-            |x, y| {
-                terrain.as_ref().map(|tl| {
-                    (
-                        tl.get_ground_height(x, y, None),
-                        tl.is_underwater(x, y, None, None),
-                    )
-                })
-            },
-        )
-    }
-
+impl RadarMapSource for HostRadarMapState {
     fn map_extent(&self) -> Option<(Coord3D, Coord3D)> {
-        let guard = HOST_RADAR_MAP.lock().ok()?;
-        if !guard.ready {
-            return None;
-        }
-        Some((guard.min, guard.max))
+        self.ready.then_some((self.min, self.max))
     }
+    fn sample_cell(&self, x: f32, y: f32) -> Option<(f32, bool)> {
+        self.sample(x, y)
+    }
+}
 
-    fn sample_cell(&self, world_x: f32, world_y: f32) -> Option<(f32, bool)> {
-        if let Ok(guard) = HOST_RADAR_MAP.lock() {
-            if let Some(sample) = guard.sample(world_x, world_y) {
-                return Some(sample);
-            }
-        }
-        if let Ok(tl) = gamelogic::terrain::get_terrain_logic().try_read() {
-            let height = tl.get_ground_height(world_x, world_y, None);
-            let water = tl.is_underwater(world_x, world_y, None, None);
-            return Some((height, water));
-        }
-        Some((0.0, false))
+impl RadarTerrainPaintSource for HostRadarMapState {
+    fn terrain_color_at(&self, x: f32, y: f32) -> Option<[f32; 3]> {
+        self.colors.get(self.sample_index(x, y)?).copied().flatten()
+    }
+    fn bridge_at(&self, world: &Coord3D) -> Option<RadarBridgeSample> {
+        self.bridges
+            .get(self.sample_index(world.x, world.y)?)
+            .copied()
+            .flatten()
     }
 }
 
@@ -166,24 +149,23 @@ fn host_to_radar_coord(pos: glam::Vec3) -> Coord3D {
     Coord3D::new(pos.x, pos.z, pos.y)
 }
 
-fn ensure_radar_map_source_registered() {
-    LazyLock::force(&HOST_RADAR_MAP_REGISTERED);
-    LazyLock::force(&HOST_RADAR_PROVIDER_REGISTERED);
-    #[cfg(feature = "game_client")]
-    game_client::terrain::ensure_radar_terrain_paint_source_registered();
-}
-
-fn store_radar_map_extent(min: glam::Vec3, max: glam::Vec3) -> Option<(Coord3D, Coord3D)> {
+fn store_radar_map_extent(
+    state: &mut HostRadarMapState,
+    min: glam::Vec3,
+    max: glam::Vec3,
+) -> Option<(Coord3D, Coord3D)> {
     let lo = host_to_radar_coord(min);
     let hi = host_to_radar_coord(max);
     if (hi.x - lo.x).abs() <= f32::EPSILON || (hi.y - lo.y).abs() <= f32::EPSILON {
         return None;
     }
-    if let Ok(mut guard) = HOST_RADAR_MAP.lock() {
-        guard.min = lo;
-        guard.max = hi;
-        guard.ready = true;
+    if state.min.x != lo.x || state.min.y != lo.y || state.max.x != hi.x || state.max.y != hi.y {
+        state.colors.clear();
+        state.bridges.clear();
     }
+    state.min = lo;
+    state.max = hi;
+    state.ready = true;
     Some((lo, hi))
 }
 
@@ -243,6 +225,25 @@ fn radar_priority_for_object(obj: &Object) -> RadarPriorityType {
 }
 
 impl GameLogic {
+    pub fn radar_water_color(&self) -> [f32; 3] {
+        self.radar_map.water_color
+    }
+
+    /// Admit frozen native tile colors for this exact map. No render/global lookup on refresh.
+    pub fn admit_radar_terrain_colors(
+        &mut self,
+        colors: Vec<Option<[f32; 3]>>,
+        water: [f32; 3],
+    ) -> bool {
+        if colors.len() != 128 * 128 {
+            return false;
+        }
+        self.radar_map.colors = colors;
+        self.radar_map.water_color = water;
+        self.host_radar_refresh_terrain();
+        true
+    }
+
     fn host_player_color(&self, player_id: Option<u32>, team: Team) -> u32 {
         if let Some(id) = player_id {
             if let Some(player) = self.players.get(&id) {
@@ -465,17 +466,22 @@ impl GameLogic {
     /// Bind terrain extent into TheRadar (`Radar::newMap`) without touching
     /// sides_list / polygon. Force-reset so a reload does not keep stale blips.
     pub(in super::super) fn host_radar_on_map_loaded(&mut self) {
-        ensure_radar_map_source_registered();
-        let Some((lo, hi)) = store_radar_map_extent(self.world_min, self.world_max) else {
+        self.radar_map.colors.clear();
+        self.radar_map.bridges.clear();
+        self.radar_map.admit_effective_definitions();
+        let Some((lo, hi)) =
+            store_radar_map_extent(&mut self.radar_map, self.world_min, self.world_max)
+        else {
             return;
         };
         self.host_radar_rescan_terrain();
-        if let Ok(mut radar) = get_radar_system().write() {
-            if !radar.try_new_map_from_source() {
-                radar.new_map(lo, hi, &[]);
-                let _ = radar.try_new_map_from_source();
-            }
-        }
+        let (lo, hi) = self.radar_map.map_extent().expect("admitted radar extent");
+        let heights = self
+            .radar_map
+            .sample_grid(lo, (hi.x - lo.x) / 128.0, (hi.y - lo.y) / 128.0);
+        self.radar.new_map_owned(lo, hi, &heights);
+        self.radar
+            .refresh_owned_terrain_with_source(&self.radar_map, self.radar_map.water_color);
         let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
         for id in ids {
             self.host_radar_add_object(id);
@@ -484,10 +490,7 @@ impl GameLogic {
 
     /// Sample leftover TerrainLogic + live height into the 128x128 radar cache.
     pub(in super::super) fn host_radar_rescan_terrain(&mut self) {
-        let (lo, hi, ready) = match HOST_RADAR_MAP.lock() {
-            Ok(guard) => (guard.min, guard.max, guard.ready),
-            Err(_) => return,
-        };
+        let (lo, hi, ready) = (self.radar_map.min, self.radar_map.max, self.radar_map.ready);
         if !ready {
             return;
         }
@@ -506,6 +509,7 @@ impl GameLogic {
         let terrain_owner_handle = self.world_services.terrain().clone();
         let terrain = terrain_owner_handle.read().ok();
         let mut samples = Vec::with_capacity((W * H) as usize);
+        let mut bridges = Vec::with_capacity((W * H) as usize);
         let mut min_z = f32::MAX;
         let mut max_z = f32::MIN;
         for y in 0..H {
@@ -530,33 +534,60 @@ impl GameLogic {
                 min_z = min_z.min(height);
                 max_z = max_z.max(height);
                 samples.push((height, water));
+                let bridge = terrain.as_ref().and_then(|terrain| {
+                    let loc = gamelogic::common::Coord3D::new(wx, wy, height);
+                    let bridge = terrain.find_bridge_at(&loc)?;
+                    let info = bridge.get_bridge_info();
+                    let object = self.objects.get(&ObjectId(info.bridge_object_id))?;
+                    if object.body_damage_state
+                        == crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+                    {
+                        return None;
+                    }
+                    let color = self
+                        .radar_map
+                        .bridge_colors
+                        .get(bridge.get_bridge_template_name().as_str())
+                        .copied()
+                        .unwrap_or([1.0, 1.0, 1.0]);
+                    Some(RadarBridgeSample {
+                        color,
+                        height: (info.from_left.z
+                            + info.from_right.z
+                            + info.to_left.z
+                            + info.to_right.z)
+                            / 4.0,
+                    })
+                });
+                bridges.push(bridge);
             }
         }
         drop(terrain);
-        if let Ok(mut guard) = HOST_RADAR_MAP.lock() {
+        {
+            let guard = &mut self.radar_map;
             if min_z.is_finite() && max_z.is_finite() && max_z > min_z {
                 guard.min.z = min_z;
                 guard.max.z = max_z;
             }
             guard.samples = samples;
+            guard.bridges = bridges;
         }
     }
 
     /// C++ `TheRadar->addObject` from Object ctor / mid-game spawn.
     pub(in super::super) fn host_radar_add_object(&mut self, id: ObjectId) {
-        ensure_radar_map_source_registered();
-        let needs_extent = get_radar_system()
-            .read()
-            .ok()
-            .is_some_and(|radar| !radar.has_map_extent());
-        if needs_extent {
-            if let Some((lo, hi)) = store_radar_map_extent(self.world_min, self.world_max) {
-                if let Ok(mut radar) = get_radar_system().write() {
-                    let _ = radar.try_new_map_from_source();
-                    if !radar.has_map_extent() {
-                        radar.new_map(lo, hi, &[]);
-                    }
-                }
+        if !self.radar.has_map_extent() {
+            if let Some((lo, hi)) =
+                store_radar_map_extent(&mut self.radar_map, self.world_min, self.world_max)
+            {
+                self.host_radar_rescan_terrain();
+                let (lo, hi) = self.radar_map.map_extent().expect("admitted radar extent");
+                let heights =
+                    self.radar_map
+                        .sample_grid(lo, (hi.x - lo.x) / 128.0, (hi.y - lo.y) / 128.0);
+                self.radar.new_map_owned(lo, hi, &heights);
+                self.radar
+                    .refresh_owned_terrain_with_source(&self.radar_map, self.radar_map.water_color);
             }
         }
         let Some(obj) = self.objects.get(&id) else {
@@ -564,14 +595,16 @@ impl GameLogic {
         };
         let spec = self.host_radar_insert_spec(obj);
         let _ = resolve_radar_object_color(&spec);
-        if let Ok(mut radar) = get_radar_system().write() {
+        {
+            let radar = &mut self.radar;
             radar.add_live_object(spec);
         }
     }
 
     /// C++ `TheRadar->removeObject` from Object dtor / destroy list.
     pub(in super::super) fn host_radar_remove_object(&mut self, id: ObjectId) {
-        if let Ok(mut radar) = get_radar_system().write() {
+        {
+            let radar = &mut self.radar;
             radar.remove_object(id.0);
         }
     }
@@ -580,31 +613,15 @@ impl GameLogic {
     /// pose/stealth each frame. Re-stamp every host object so cloaking,
     /// detection, and movement update the blip (hq-sn4a0).
     pub(in super::super) fn host_radar_sync_live_objects(&mut self) {
-        ensure_radar_hooks_registered();
-        if let Some(local) = self.host_local_player() {
-            if let Ok(mut guard) = HOST_RADAR_MAP.lock() {
-                guard.local_player_id = local.id;
-            }
-        }
         let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
-        let mut specs = Vec::new();
-        for id in &ids {
-            if let Some(obj) = self.objects.get(id) {
-                if obj.is_alive() {
-                    specs.push(self.host_radar_insert_spec(obj));
-                }
-            }
-        }
-        if let Ok(mut store) = HOST_RADAR_OBJECTS.lock() {
-            *store = specs.clone();
-        }
-        if let Some(local) = self.host_local_player() {
+        if let Some(local_id) = self.host_local_player().map(|local| local.id) {
             if let Ok(mut shroud) = self.world_services.shroud().lock() {
-                shroud.refresh_radar_shroud_for_player(local.id);
+                shroud.refresh_radar_shroud_for_player_into(local_id, self.frame, &mut self.radar);
             }
         }
         let live: std::collections::HashSet<u32> = ids.iter().map(|id| id.0).collect();
-        if let Ok(mut radar) = get_radar_system().write() {
+        {
+            let radar = &mut self.radar;
             let stale: Vec<u32> = radar
                 .get_all_objects()
                 .filter(|obj| !live.contains(&obj.object_id))
@@ -629,7 +646,6 @@ impl GameLogic {
 mod tests {
     use super::*;
     use crate::game_logic::{Player, ThingTemplate};
-    use game_engine::common::system::radar::get_radar_system;
     use glam::Vec3;
 
     /// C++ Radar.cpp:118-125 queries live Drawable stealth/pose each update.
@@ -649,8 +665,7 @@ mod tests {
         logic.host_radar_add_object(id);
 
         {
-            let radar_system = get_radar_system();
-            let radar = radar_system.read().expect("radar");
+            let radar = logic.radar();
             let blip = radar
                 .get_all_objects()
                 .find(|o| o.object_id == id.0)
@@ -667,8 +682,7 @@ mod tests {
         }
         logic.host_radar_sync_live_objects();
 
-        let radar_system = get_radar_system();
-        let radar = radar_system.read().expect("radar");
+        let radar = logic.radar();
         let blip = radar
             .get_all_objects()
             .find(|o| o.object_id == id.0)
@@ -691,14 +705,7 @@ mod tests {
 
     #[test]
     fn host_radar_authored_not_on_radar_is_dropped() {
-        // The native radar adapter is still process-owned. A fresh process
-        // gives this new match an empty radar without changing addObject's
-        // original invisible-priority early return.
-        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
-            module_path!(),
-            "host_radar_authored_not_on_radar_is_dropped",
-            host_radar_authored_not_on_radar_is_dropped_case,
-        );
+        host_radar_authored_not_on_radar_is_dropped_case();
     }
 
     fn host_radar_authored_not_on_radar_is_dropped_case() {
@@ -712,8 +719,7 @@ mod tests {
             .create_object_for_player("Decoy", 1, Vec3::new(2.0, 0.0, 2.0))
             .expect("spawn");
         logic.host_radar_add_object(id);
-        let radar_system = get_radar_system();
-        let radar = radar_system.read().expect("radar");
+        let radar = logic.radar();
         assert!(
             radar.get_all_objects().all(|o| o.object_id != id.0),
             "authored NOT_ON_RADAR must not leak a KindOf infantry blip"
@@ -735,8 +741,7 @@ mod tests {
             obj.drawable_hidden = true;
         }
         logic.host_radar_add_object(id);
-        let radar_system = get_radar_system();
-        let radar = radar_system.read().expect("radar");
+        let radar = logic.radar();
         let blip = radar
             .get_all_objects()
             .find(|o| o.object_id == id.0)
@@ -776,8 +781,7 @@ mod tests {
             "C++ Object::isHero walks contained KINDOF_HERO"
         );
         logic.host_radar_add_object(container);
-        let radar_system = get_radar_system();
-        let radar = radar_system.read().expect("radar");
+        let radar = logic.radar();
         let blip = radar
             .get_all_objects()
             .find(|o| o.object_id == container.0)
@@ -802,8 +806,7 @@ mod tests {
             obj.apply_convert_to_car_bomb();
         }
         logic.host_radar_add_object(id);
-        let radar_system = get_radar_system();
-        let radar = radar_system.read().expect("radar");
+        let radar = logic.radar();
         let blip = radar
             .get_all_objects()
             .find(|o| o.object_id == id.0)
@@ -813,11 +816,10 @@ mod tests {
 
     #[test]
     fn host_create_radar_event_sets_last_event() {
-        use crate::game_logic::host_radar::host_create_radar_event;
         use game_engine::common::system::radar::RadarEventType;
-        host_create_radar_event(Vec3::new(40.0, 0.0, 80.0), RadarEventType::Construction);
-        let radar_system = get_radar_system();
-        let radar = radar_system.read().expect("radar");
+        let mut logic = GameLogic::new();
+        logic.host_create_radar_event(Vec3::new(40.0, 0.0, 80.0), RadarEventType::Construction);
+        let radar = logic.radar();
         let loc = radar.get_last_event_loc().expect("last event");
         assert!((loc.x - 40.0).abs() < 0.01);
         assert!((loc.y - 80.0).abs() < 0.01);

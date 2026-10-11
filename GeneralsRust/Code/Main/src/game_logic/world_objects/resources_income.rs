@@ -37,6 +37,21 @@ impl GameLogic {
         }
     }
 
+    /// BuildAssistant retains UNDER_CONSTRUCTION on instant structures.
+    /// Only the explicit Player completion operation admits their power; full
+    /// factory HP/percent during ordinary onCreate does not establish completion.
+    fn object_contributes_power(object: &Object) -> bool {
+        object.is_alive() && (object.is_constructed() || object.construction_power_admitted)
+    }
+
+    pub(crate) fn admit_completed_structure_power(&mut self, player_id: u32) {
+        let totals = self.power_totals_for_player(player_id, Self::object_contributes_power);
+        if let Some(player) = self.players.get_mut(&player_id) {
+            Self::apply_derived_power(player, totals);
+            Self::apply_power_sabotage(player);
+        }
+    }
+
     /// Shared C++-derived grid fold. The caller chooses the object-state
     /// authority: ordinary ticks can read coupled state; snapshot completion
     /// must use the receiving object's fully transferred local fields.
@@ -87,7 +102,7 @@ impl GameLogic {
         let player_ids: Vec<u32> = self.players.keys().copied().collect();
         for player_id in player_ids {
             let totals = self.power_totals_for_player(player_id, |object| {
-                object.is_constructed() && object.is_alive()
+                Self::object_contributes_power(object)
             });
             if let Some(player) = self.players.get_mut(&player_id) {
                 Self::apply_derived_power(player, totals);
@@ -99,9 +114,8 @@ impl GameLogic {
     /// Object::onDisabledEdge adjusts this owner's generation synchronously.
     /// Reuse the canonical grid fold without aging sabotage or replaying income.
     pub(in super::super) fn refresh_power_after_disabled_expiry(&mut self, player_id: u32) {
-        let totals = self.power_totals_for_player(player_id, |object| {
-            object.is_constructed() && object.is_alive()
-        });
+        let totals = self
+            .power_totals_for_player(player_id, |object| Self::object_contributes_power(object));
         if let Some(player) = self.players.get_mut(&player_id) {
             Self::apply_derived_power(player, totals);
             Self::apply_power_sabotage(player);
@@ -119,7 +133,7 @@ impl GameLogic {
         let player_ids: Vec<u32> = self.players.keys().copied().collect();
         for player_id in player_ids {
             let totals = self.power_totals_for_player(player_id, |object| {
-                object.is_constructed() && object.is_alive()
+                Self::object_contributes_power(object)
             });
             let Some(player) = self.players.get_mut(&player_id) else {
                 continue;

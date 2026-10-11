@@ -53,6 +53,8 @@ impl GameLogic {
         let ai_definitions =
             crate::game_logic::ai_definitions::AiDefinitions::from_engine_baseline();
         let mut instance = Self {
+            radar: game_engine::common::system::radar::RadarSystem::new(),
+            radar_map: Default::default(),
             production_energy: Default::default(),
             ai_definitions,
             map_definition_source: None,
@@ -672,6 +674,7 @@ impl GameLogic {
             pending_camera_bw_mode: None,
             pending_camera_motion_blur: Vec::new(),
             script_skybox_enabled: true,
+            script_object_count_changed_frame: 0,
             script_cameo_flash_count: HashMap::new(),
             script_named_timers: HashMap::new(),
             script_named_timer_display_shown: true,
@@ -958,6 +961,8 @@ impl GameLogic {
         self.host_deliver_payloads.clear();
         self.host_money_crates.clear();
         self.host_radar.clear();
+        self.radar.reset();
+        self.radar_map = Default::default();
         self.car_bomb.clear();
         self.saboteur.clear();
         self.usa_pilot.clear();
@@ -1339,6 +1344,7 @@ impl GameLogic {
         self.pending_camera_bw_mode = None;
         self.pending_camera_motion_blur.clear();
         self.script_skybox_enabled = true;
+        self.script_object_count_changed_frame = 0;
         self.script_cameo_flash_count.clear();
         self.script_named_timers.clear();
         self.script_named_timer_display_shown = true;

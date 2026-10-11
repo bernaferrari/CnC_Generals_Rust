@@ -74,6 +74,30 @@ impl AIPlayer {
 }
 
 impl GameLogic {
+    /// C++ AIPlayer::onStructureProduced resets both scheduling delays before
+    /// looking for the exact bound BuildList entry. This is a synchronous owner
+    /// operation, not a later economic poll or a Core registry notification.
+    pub(crate) fn notify_owned_ai_structure_produced(&mut self, structure: ObjectId) {
+        let Some(object) = self.host_object(structure) else {
+            return;
+        };
+        let Some(owner) = self.player_owner_for_host_object(object) else {
+            return;
+        };
+        let Some(ai) = self.ai_manager.ai_players.get_mut(&owner) else {
+            return;
+        };
+        ai.next_team_queue_time = 0.0;
+        ai.next_building_time = 0.0;
+        if let Some(building) = ai
+            .building_queue
+            .iter_mut()
+            .find(|building| building.object_id == Some(structure))
+        {
+            building.is_built = true;
+        }
+    }
+
     /// Deliver exactly one factory exit at the original synchronous callback
     /// point. A missing factory is C++'s null-factory startup case.
     pub(crate) fn notify_owned_ai_unit_produced(

@@ -124,17 +124,6 @@ impl GameLogic {
             for player in self.players.values_mut() {
                 player.add_supply_warehouse(object_id);
             }
-            if let Ok(list) = gamelogic::player::ThePlayerList().read() {
-                for player_arc in list.iter() {
-                    let Ok(mut player_guard) = player_arc.write() else {
-                        continue;
-                    };
-                    let Some(manager) = player_guard.get_resource_manager_mut() else {
-                        continue;
-                    };
-                    manager.add_supply_warehouse(object_id.0);
-                }
-            }
         }
     }
 
@@ -154,17 +143,7 @@ impl GameLogic {
             for player in self.players.values_mut() {
                 player.add_supply_center(object_id);
             }
-            if let Ok(list) = gamelogic::player::ThePlayerList().read() {
-                for player_arc in list.iter() {
-                    let Ok(mut player_guard) = player_arc.write() else {
-                        continue;
-                    };
-                    let Some(manager) = player_guard.get_resource_manager_mut() else {
-                        continue;
-                    };
-                    manager.add_supply_center(object_id.0);
-                }
-            }
+
             // C++ SupplyCenter/Stash SpawnBehavior ModuleTag_12 only becomes
             // eligible after UNDER_CONSTRUCTION clears.  It creates the free
             // starter collector outside the paid ProductionUpdate queue.

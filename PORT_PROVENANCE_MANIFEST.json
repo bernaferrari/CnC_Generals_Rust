@@ -4394,6 +4394,20 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/owned.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/presentation.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/snapshot.rs"
           },
           {
@@ -39510,6 +39524,20 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/objects.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/owned.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/presentation.rs"
           },
           {
             "cargo_reachable": true,
@@ -157571,7 +157599,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "e6b93959ddc6da7d7b6e47052013e040722432780cc78321c1bb7857db3ff8c9",
+  "input_digest": "aa515e171bd1af640fc5949a4acb567fa5edef26185506fd14a9678170e58715",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -161101,11 +161129,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2041,
+        "end_line": 2038,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/game_engine.rs",
-      "sha256": "e70fbf5c132b191ea862c32b3509947561fe93d9e19d63286348dcae5707d4cd",
+      "sha256": "2742b2b242e440731ef6178d689004be77ea74fa5a4fa279c7439c793e6938e5",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -162317,7 +162345,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/draw_events.rs",
-      "sha256": "79572dbe55be8a114957bde333b6fb6c9ce2c59a0e3e7b82d13c47441a765f65",
+      "sha256": "14e3b5d28fee04ed61c5fc6c98760863e21faadcdc63bee095dcfd2126d8af8e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -162329,7 +162357,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/map_source.rs",
-      "sha256": "ea4c318299c74f032dd5270b51b9d388e5c05a736f9ca7c10bf3a35a6b8b9e73",
+      "sha256": "48124e5288746f4bc661b91a2d34a24905a56e2e2f09e5a89ac52d07e31c5326",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -162337,11 +162365,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2624,
+        "end_line": 2547,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/mod.rs",
-      "sha256": "050db372bad5cd41cbefab1d85c4347cce78e03ed2293bd9be89d89f0fc355a4",
+      "sha256": "73074657a1e83955b6a7b185cdf957ac890af847f4cbb39447d4a5544ac9d38f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -162361,11 +162389,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 208,
+        "end_line": 156,
         "start_line": 1
       },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/snapshot.rs",
-      "sha256": "16b709f5c1b6349e6cbd51ff79279547661e7b7bb79ad44f9d8516479bc1c4ce",
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/owned.rs",
+      "sha256": "ea6d45aaf6aa0b1c733f20b79710808906a48ef76780eadbe47c81ece4c8ccc6",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -162373,11 +162401,35 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 180,
+        "end_line": 350,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/presentation.rs",
+      "sha256": "6db444346de52a76e7917a9f87032bcf015529d4abcf8227d5c155b98456842f",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 212,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/snapshot.rs",
+      "sha256": "c63bbf1efb0f43127bf331d6b78d77eae83cf5ff60e2b34cceebc4c74d3e8d2a",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 187,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/terrain.rs",
-      "sha256": "273c17c3eeec25fc21541413ca8b19efe969b032595a5bdeb8978d0d4d5f72d6",
+      "sha256": "5836d299db12698386572e7ebf3c28883780d696b7d1768ebd58f5a962ca328c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -169170,11 +169222,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 93,
+        "end_line": 82,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/ingame_ui/radar_map.rs",
-      "sha256": "3ae565e93fd732e8c5e32a21b7c6cbff81cf1ffe1f4eb9656b21d60687f98255",
+      "sha256": "27c81c1313e5b821b4dc39c2503a5609cbabae020e3ff6c7be5b9ed58258332b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -171323,11 +171375,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1674,
+        "end_line": 1740,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/impl_world.rs",
-      "sha256": "fcab2fe3e86cea2fddf86933a62c3c9a01f8756e22a7b17bdbdf50c1c99d29fb",
+      "sha256": "9aa37da1da484c02229f83a174eab9330f23b4f1d230d9ab8434cdea844c89ea",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -171769,6 +171821,26 @@
           "kind": "fn",
           "line": 1653,
           "name": "file_world_size_uses_map_xy_factor_not_derived_scale"
+        },
+        {
+          "kind": "struct",
+          "line": 1678,
+          "name": "FrozenRadarTerrainColors"
+        },
+        {
+          "kind": "fn",
+          "line": 1683,
+          "name": "color_at"
+        },
+        {
+          "kind": "fn",
+          "line": 1689,
+          "name": "freeze_radar_terrain_colors"
+        },
+        {
+          "kind": "fn",
+          "line": 1727,
+          "name": "frozen_radar_colors_keep_tile_indexing_and_missing_art_explicit"
         }
       ]
     },
