@@ -254,7 +254,17 @@ impl ObjectFactory {
         flags: ObjectCreationFlags,
         extra_status: ObjectStatusMaskType,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
-        self.create_object_inner(template_name, position, team, flags, extra_status, true)
+        self.create_object_inner(
+            template_name,
+            position,
+            team,
+            flags,
+            extra_status,
+            true,
+            None,
+            None,
+            None,
+        )
     }
 
     /// Prepare an installed object in this factory without singleton admission.
@@ -275,6 +285,37 @@ impl ObjectFactory {
             flags | ObjectCreationFlags::NO_DRAWABLE,
             ObjectStatusMaskType::NONE,
             false,
+            None,
+            None,
+            None,
+        )
+    }
+
+    /// Restore construction uses the saved identity from the start: cached
+    /// module owners must never be assembled under a temporary allocated id.
+    /// This factory is the detached receiving candidate, not a live overlay.
+    pub(crate) fn prepare_saved_object(
+        &mut self,
+        template: Arc<dyn ThingTemplate>,
+        object_id: ObjectID,
+        lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
+        body_definitions: Arc<crate::object::body::active_body::BodyDefinitionCatalog>,
+    ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
+        if object_id == crate::common::INVALID_ID || self.object_registry.contains_key(&object_id) {
+            return Err(format!("invalid or duplicate saved Object id {object_id}").into());
+        }
+        let name = template.get_name().to_string();
+        self.template_cache.insert(name.clone(), template);
+        self.create_object_inner(
+            &name,
+            Coord3D::ZERO,
+            None,
+            ObjectCreationFlags::NO_DRAWABLE,
+            ObjectStatusMaskType::NONE,
+            false,
+            Some(object_id),
+            Some(lookup),
+            Some(body_definitions),
         )
     }
 
@@ -286,6 +327,9 @@ impl ObjectFactory {
         flags: ObjectCreationFlags,
         extra_status: ObjectStatusMaskType,
         publish: bool,
+        saved_id: Option<ObjectID>,
+        lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
+        body_definitions: Option<Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         // Get template
         let template = self.get_or_load_template(template_name)?;
@@ -294,23 +338,51 @@ impl ObjectFactory {
         let object_type = self.determine_object_type(template.as_ref());
 
         // Allocate object ID
-        let object_id = self.allocate_object_id();
+        let object_id = saved_id.unwrap_or_else(|| self.allocate_object_id());
+        if saved_id.is_some() {
+            self.next_object_id = self.next_object_id.max(
+                object_id
+                    .checked_add(1)
+                    .ok_or("saved Object id exhausts the receiving identity space")?,
+            );
+        }
 
         // Create base object first
         let mut status_mask = template.get_initial_object_status();
         status_mask |= extra_status;
-        let assemble = if publish {
-            Object::new_with_id_preparing_ai
+        let prepare_ai = object_type == ObjectType::Unit
+            && !flags.contains(ObjectCreationFlags::NO_AI)
+            && (lookup.is_none()
+                || template
+                    .get_behavior_module_info()
+                    .iter()
+                    .any(|entry| entry.name.as_str() == "AIUpdateInterface"));
+        // C++ Object.cpp:419-429 caches an AI interface only from an authored
+        // module. A supplied native constructor must not synthesize the legacy
+        // Unit fallback when the template has no AI module.
+        let base_object = if let Some(lookup) = lookup {
+            Object::new_unpublished_preparing_ai_with_locomotors(
+                template.clone(),
+                object_id,
+                status_mask,
+                prepare_ai,
+                lookup,
+                body_definitions.ok_or("native Object construction body definitions absent")?,
+            )?
         } else {
-            Object::new_unpublished_preparing_ai
+            let assemble = if publish {
+                Object::new_with_id_preparing_ai
+            } else {
+                Object::new_unpublished_preparing_ai
+            };
+            assemble(
+                template.clone(),
+                object_id,
+                status_mask,
+                team.clone(),
+                prepare_ai,
+            )?
         };
-        let base_object = assemble(
-            template.clone(),
-            object_id,
-            status_mask,
-            team.clone(),
-            object_type == ObjectType::Unit && !flags.contains(ObjectCreationFlags::NO_AI),
-        )?;
 
         // Set object ID and position
         {
@@ -320,7 +392,7 @@ impl ObjectFactory {
             if publish {
                 obj_guard.set_position(&position)?;
             } else {
-                obj_guard.geometry_info.position = position;
+                obj_guard.set_prepared_position(&position);
             }
         }
 

@@ -166,6 +166,10 @@ fn companion_save_round_trips_w3d_ghost_snapshots() {
     use std::time::{Duration, SystemTime};
 
     let mut source = GameLogic::new();
+    source.objects.insert(
+        ObjectId(42),
+        Object::new(ThingTemplate::new("GhostParent"), ObjectId(42), Team::USA),
+    );
     {
         let live = &mut source.w3d_ghosts;
         *live = gamelogic::object::w3d_ghost_object::W3DGhostObjectManager::new();
@@ -182,6 +186,7 @@ fn companion_save_round_trips_w3d_ghost_snapshots() {
             &[RenderObjectState {
                 name: "SavedGhost".to_string(),
                 scale: 2.0,
+                geometry_scale: 2.0,
                 color: 0x1122_3344,
                 transform: Matrix3x4::IDENTITY,
                 sub_objects: vec![RenderSubObjectSnapshot {
@@ -241,7 +246,7 @@ fn companion_save_round_trips_w3d_ghost_snapshots() {
     let ghost = &live.used()[0];
     assert_eq!(ghost.parent_object_id(), Some(42));
     assert_eq!(ghost.snapshots(0)[0].render_object.name, "SavedGhost");
-    assert!((ghost.snapshots(0)[0].render_object.scale - 2.0).abs() < f32::EPSILON);
+    assert!((ghost.snapshots(0)[0].render_object.scale - 1.0).abs() < f32::EPSILON);
     assert_eq!(ghost.snapshots(0)[0].render_object.color, 0x1122_3344);
     assert_eq!(
         ghost.snapshots(0)[0].render_object.sub_objects[0].name,

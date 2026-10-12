@@ -420,6 +420,7 @@ mod body_definition_snapshot_tests;
 pub(crate) use body::install_body_for_module;
 #[cfg(test)]
 pub(crate) use body::with_active as with_active_body_binding_for_test;
+pub(crate) use body::{install_body_for_module_with_definitions, register_inert_active_body};
 pub(crate) use contain::contain_handle_for_module;
 pub use contain::{ContainModuleDataAdapter, ContainModuleDataKind};
 pub(crate) use helpers::ActiveBehaviorModule;
@@ -454,3 +455,5 @@ pub const CONTAIN_OVERRIDES_SRC: &str = concat!(
     include_str!("template_locomotor.rs"),
     include_str!("update_modules.rs"),
 );
+
+pub(crate) use update_modules::register_inert_auto_heal;

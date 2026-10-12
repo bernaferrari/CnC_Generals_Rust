@@ -153,9 +153,8 @@ impl AutoDepositUpdate {
         let mut pos = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
-                crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-            })
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         })
         .and_then(|obj| obj.read().ok().map(|g| *g.get_position()))
         .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
@@ -305,8 +304,8 @@ impl UpdateModuleInterface for AutoDepositUpdate {
 
                 if obj_read.is_kind_of(KindOf::Structure) {
                     let geom = obj_read.get_geometry_info();
-                    let width = ((geom.bounds.max.x - geom.bounds.min.x).abs() * 0.5) * 0.3;
-                    let depth = ((geom.bounds.max.y - geom.bounds.min.y).abs() * 0.5) * 0.3;
+                    let width = ((geom.bounds().max.x - geom.bounds().min.x).abs() * 0.5) * 0.3;
+                    let depth = ((geom.bounds().max.y - geom.bounds().min.y).abs() * 0.5) * 0.3;
                     pos.x += game_client_random_value_real(-width, width);
                     pos.y += game_client_random_value_real(-depth, depth);
                 }

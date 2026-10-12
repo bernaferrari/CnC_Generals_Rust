@@ -2,9 +2,9 @@ fn map_collision_geometry(
     info: &crate::common::GeometryInfo,
     template_type: Option<game_engine::system::geometry::GeometryType>,
 ) -> CollisionGeometryInfo {
-    let dx = info.bounds.max.x - info.bounds.min.x;
-    let dy = info.bounds.max.y - info.bounds.min.y;
-    let dz = info.bounds.max.z - info.bounds.min.z;
+    let dx = info.bounds().max.x - info.bounds().min.x;
+    let dy = info.bounds().max.y - info.bounds().min.y;
+    let dz = info.bounds().max.z - info.bounds().min.z;
     let radius = (dx.max(dy) * 0.5).max(0.01);
     let height = dz.max(0.01);
     let is_small = radius < 1.0;

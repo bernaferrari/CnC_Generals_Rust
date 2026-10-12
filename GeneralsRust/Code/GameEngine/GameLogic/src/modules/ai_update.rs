@@ -16,11 +16,37 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Update AI logic
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     /// Run the cached implementation with the driving world's explicit services.
+    fn request_dozer_fortify_with_world(
+        &mut self,
+        _target: ObjectID,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("AI has no supplied Dozer request admission".into())
+    }
+    fn update_dozer_primary_with_world(
+        &mut self,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("AI has no supplied Dozer primary phase".into())
+    }
     fn update_enter_phase_with_world(
         &mut self,
         _world: &mut dyn ai_world::AiWorld,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Err("AI implementation does not support supplied world operations".into())
+    }
+    fn update_exit_phase_with_world(
+        &mut self,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("AI does not admit owned exit phase".into())
+    }
+    fn complete_exit_body_with_world(
+        &mut self,
+        _expected: u32,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("AI does not admit owned exit completion".into())
     }
     fn execute_command_with_world(
         &mut self,
@@ -35,6 +61,19 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// gameplay AI implementations should override this when they own restorable state.
     fn xfer_ai_update_state(&mut self, _xfer: &mut dyn Xfer) -> Result<bool, String> {
         Ok(false)
+    }
+    fn xfer_ai_update_state_with_locomotors(
+        &mut self,
+        _xfer: &mut dyn Xfer,
+        _lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
+    ) -> Result<bool, String> {
+        Err("AI does not admit receiving locomotor definitions".into())
+    }
+    fn load_post_process_with_world(
+        &mut self,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("AI does not admit supplied postload services".into())
     }
     /// C++ `AIUpdateInterface::loadPostProcess` path-cell rebuild.
     fn load_post_process_path_cells(&mut self) {}
@@ -672,6 +711,23 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// C++ AIUpdateInterface::wakeUpAndAttemptToTarget. Idle only; check this frame.
     fn wake_up_and_attempt_to_target(&mut self) {}
     /// Actual cached AI removal callbacks, validated against the retained owner.
+    fn validate_owned_idle(
+        &self,
+        _world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("native idle not admitted".into())
+    }
+    fn validate_removed_move(&self, _owner: &Arc<RwLock<Object>>) -> Result<(), String> {
+        Err("native removed motion not admitted".into())
+    }
+    fn move_removed_with_world(
+        &mut self,
+        _position: Coord3D,
+        _ignored: ObjectID,
+        _world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("native removed motion not admitted".into())
+    }
     fn validate_owned_removal_callbacks(&self, _owner: &Arc<RwLock<Object>>) -> Result<(), String> {
         Err("AI removal callbacks have no supplied owner adapter".into())
     }

@@ -4,6 +4,12 @@ use crate::fow_rendering::ProjectedShroudSnapshot;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
     pub frame: LogicFrame,
+    /// Native ModelDraw scale components, bound to the exact admitted actor.
+    #[serde(skip)]
+    pub(crate) native_ghost_scale_sources: std::collections::HashMap<
+        ObjectId,
+        crate::game_logic::game_logic::world_objects::fog_ghosts::HostGhostScaleSource,
+    >,
     /// Exact session-owned ghost scene; render collection never selects an
     /// ambient ghost manager. This native sidecar is not serialized.
     #[cfg(feature = "game_client")]

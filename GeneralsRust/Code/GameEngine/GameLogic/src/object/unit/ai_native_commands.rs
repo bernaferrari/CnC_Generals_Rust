@@ -2,7 +2,6 @@
 
 #![allow(unused_imports)]
 
-use super::UnitAiStateRuntime;
 use super::ai_command_owner::CommandOwner;
 use super::ai_helpers::*;
 use super::identity::Unit;
@@ -11,6 +10,7 @@ use super::registry::{
     dual_world_registry_unavailable, get_unit_arc, with_unit_mut, with_unit_ref,
 };
 use super::types::*;
+use super::UnitAiStateRuntime;
 use crate::ai::states::AIStateMachineDriver;
 use crate::modules::ai_state_runtime::AiStateRuntime;
 
@@ -970,7 +970,10 @@ impl UnitAiStateRuntime<'_, '_> {
                 let Some(exit_container) = exit_container else {
                     return Ok(());
                 };
-                let Some(container) = TheGameLogic::find_object_by_id(exit_container) else {
+                let Some(container) = (match self.world.as_deref() {
+                    Some(world) => world.object(exit_container),
+                    None => TheGameLogic::find_object_by_id(exit_container),
+                }) else {
                     return Ok(());
                 };
                 if container.try_read().ok().is_some_and(|container| {
@@ -1018,7 +1021,10 @@ impl UnitAiStateRuntime<'_, '_> {
                 let Some(exit_container) = exit_container else {
                     return Ok(());
                 };
-                let Some(container) = TheGameLogic::find_object_by_id(exit_container) else {
+                let Some(container) = (match self.world.as_deref() {
+                    Some(world) => world.object(exit_container),
+                    None => TheGameLogic::find_object_by_id(exit_container),
+                }) else {
                     return Ok(());
                 };
                 if container.try_read().ok().is_some_and(|container| {

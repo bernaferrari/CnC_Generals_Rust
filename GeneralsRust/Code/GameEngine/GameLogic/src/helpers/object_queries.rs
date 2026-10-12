@@ -463,7 +463,7 @@ impl ThePartitionManager {
                 let obj = obj_arc.read().ok()?;
                 let obj_pos = obj.get_position();
                 let geom = obj.get_geometry_info();
-                let center_z_delta = (geom.bounds.min.z + geom.bounds.max.z) * 0.5;
+                let center_z_delta = (geom.bounds().min.z + geom.bounds().max.z) * 0.5;
                 let dx = obj_pos.x - pos.x;
                 let dy = obj_pos.y - pos.y;
                 let dz = (obj_pos.z + center_z_delta) - pos.z;
@@ -499,7 +499,7 @@ impl ThePartitionManager {
         let radius_sqr = radius * radius;
         let source_pos = source.get_position();
         let source_geom = source.get_geometry_info();
-        let source_center_z = (source_geom.bounds.min.z + source_geom.bounds.max.z) * 0.5;
+        let source_center_z = (source_geom.bounds().min.z + source_geom.bounds().max.z) * 0.5;
         let source_radius = source_geom.get_bounding_sphere_radius();
 
         OBJECT_REGISTRY
@@ -509,7 +509,7 @@ impl ThePartitionManager {
                 let obj = obj_arc.read().ok()?;
                 let obj_pos = obj.get_position();
                 let geom = obj.get_geometry_info();
-                let center_z_delta = (geom.bounds.min.z + geom.bounds.max.z) * 0.5;
+                let center_z_delta = (geom.bounds().min.z + geom.bounds().max.z) * 0.5;
                 let dx = obj_pos.x - source_pos.x;
                 let dy = obj_pos.y - source_pos.y;
                 let dz = (obj_pos.z + center_z_delta) - (source_pos.z + source_center_z);

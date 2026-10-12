@@ -42,20 +42,9 @@ impl EngineThingTemplateAdapter {
         let command_set_string =
             crate::common::AsciiString::from(inner.get_command_set_string().as_str());
         let geo = inner.get_template_geometry_info();
-        let half_w = (geo.width.max(0.0) * 0.5) as f32;
-        let half_d = (geo.depth.max(0.0) * 0.5) as f32;
-        let height = geo.height.max(0.0) as f32;
-
         let geometry = crate::common::GeometryInfo {
-            position: crate::common::Coord3D::ZERO,
-            angle: 0.0,
-            bounds: crate::common::AABox {
-                min: crate::common::Coord3D::new(-half_w, -half_d, 0.0),
-                max: crate::common::Coord3D::new(half_w, half_d, height),
-            },
-            height_above_terrain: 0.0,
-            geometry_type: geo.geometry_type,
-            is_small: geo.is_small,
+            shape: geo.clone(),
+            ..Default::default()
         };
 
         Self {

@@ -56,6 +56,7 @@ fn render_object(name: &str) -> RenderObjectState {
     RenderObjectState {
         name: name.to_string(),
         scale: 1.25,
+        geometry_scale: 1.25,
         color: 0xff00_ff00,
         transform: Matrix3x4::IDENTITY,
         sub_objects: vec![
@@ -256,6 +257,7 @@ fn w3d_ghost_xfer_round_trips_snapshot_transform_vis_color_and_shroud() {
     let render = RenderObjectState {
         name: "FogTank".to_string(),
         scale: 1.5,
+        geometry_scale: 1.5,
         color: 0x804c_6680,
         transform,
         sub_objects: vec![
@@ -292,7 +294,11 @@ fn w3d_ghost_xfer_round_trips_snapshot_transform_vis_color_and_shroud() {
     assert_eq!(ghost.previous_shroudedness(0), Some(OBJECTSHROUD_FOGGED));
     let snapshot = &ghost.snapshots(0)[0];
     assert_eq!(snapshot.render_object.name, "FogTank");
-    assert!((snapshot.render_object.scale - 1.5).abs() < f32::EPSILON);
+    assert!((snapshot.render_object.scale - 1.0).abs() < f32::EPSILON);
+    assert_eq!(
+        snapshot.render_object.geometry_scale, 1.0,
+        "C++ recreated geometry uses saved clone ObjectScale1"
+    );
     assert_eq!(snapshot.render_object.color, 0x804c_6680);
     assert_eq!(snapshot.render_object.transform.rows[0][3], 11.0);
     assert_eq!(snapshot.render_object.transform.rows[1][3], 22.0);

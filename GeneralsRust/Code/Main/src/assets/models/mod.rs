@@ -17,6 +17,7 @@ mod w3d_collection_aggregate;
 mod w3d_dazzle_loader;
 mod w3d_emitter_loader;
 mod w3d_format;
+mod w3d_ghost_capture;
 mod w3d_loader;
 mod w3d_loader_parse;
 mod w3d_mesh;

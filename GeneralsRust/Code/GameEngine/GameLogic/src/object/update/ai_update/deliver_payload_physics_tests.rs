@@ -367,9 +367,18 @@ fn held_weapon_range_preserves_geometry_minimum_self_target_and_source_identity(
     let id = 93_551;
     let retired = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
     let current = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
-    retired.write().unwrap().geometry_info.bounds.min = Coord3D::new(-10.0, 0.0, -1.0);
-    retired.write().unwrap().geometry_info.bounds.max = Coord3D::new(10.0, 0.0, 1.0);
-    current.write().unwrap().geometry_info.position = Coord3D::new(500.0, 0.0, 0.0);
+    retired
+        .write()
+        .unwrap()
+        .geometry_info
+        .set_bounds(crate::common::AABox {
+            min: Coord3D::new(-10.0, 0.0, -1.0),
+            max: Coord3D::new(10.0, 0.0, 1.0),
+        });
+    current
+        .write()
+        .unwrap()
+        .set_prepared_position(&Coord3D::new(500.0, 0.0, 0.0));
     crate::object::registry::OBJECT_REGISTRY.register_object(id, &current);
 
     let mut template = WeaponTemplate::new("HeldSourceRange".into());

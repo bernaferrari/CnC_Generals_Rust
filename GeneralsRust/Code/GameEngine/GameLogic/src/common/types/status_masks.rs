@@ -184,12 +184,12 @@ mod tests {
     #[test]
     fn geometry_info_tweak_extents_cycles_type_and_clears_small_flag() {
         let mut geometry = GeometryInfo::default();
-        geometry.geometry_type = EngineGeometryType::Box;
-        geometry.is_small = true;
+        geometry.shape.geometry_type = EngineGeometryType::Box;
+        geometry.shape.is_small = true;
         geometry.tweak_extents(GeometryExtentModType::Type, 1.0);
 
-        assert_eq!(geometry.geometry_type, EngineGeometryType::Sphere);
-        assert!(!geometry.is_small);
+        assert_eq!(geometry.shape.geometry_type, EngineGeometryType::Sphere);
+        assert!(!geometry.shape.is_small);
     }
 
     #[test]
@@ -215,8 +215,8 @@ mod tests {
             for small in [false, true] {
                 let engine_geometry = EngineGeometryInfo::new(kind, small, 12.0, 8.0, 4.0);
                 let logic_geometry = engine_geometry_to_logic(&engine_geometry);
-                assert_eq!(logic_geometry.geometry_type, kind);
-                assert_eq!(logic_geometry.is_small, small);
+                assert_eq!(logic_geometry.shape.geometry_type, kind);
+                assert_eq!(logic_geometry.shape.is_small, small);
                 assert_eq!(logic_geometry.get_major_radius(), 12.0);
                 assert_eq!(logic_geometry.get_minor_radius(), expected_minor);
                 assert_eq!(

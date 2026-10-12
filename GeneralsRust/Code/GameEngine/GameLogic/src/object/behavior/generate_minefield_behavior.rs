@@ -1116,7 +1116,7 @@ impl GenerateMinefieldBehavior {
             crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_guard| {
                 let pos = obj_guard.get_position();
                 let geom = obj_guard.get_geometry_info();
-                let bounds = geom.bounds.clone();
+                let bounds = geom.bounds().clone();
                 let major_radius = ((bounds.max.x - bounds.min.x).abs()) * 0.5;
                 let minor_radius = ((bounds.max.y - bounds.min.y).abs()) * 0.5;
                 GeometryInfo {

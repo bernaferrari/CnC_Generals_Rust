@@ -10,7 +10,12 @@ use super::*;
 
 impl Object {
     /// C++ `Object::setGeometryInfo` (Object.cpp:746-760).
-    pub fn set_geometry_info(&mut self, geom: GeometryInfo) {
+    pub fn set_geometry_info(&mut self, mut geom: GeometryInfo) {
+        // CPP GeometryInfo is shape, not Thing's pose. Retain derived caches
+        // when callers replace Rust's combined geometry view.
+        geom.position = self.transform_matrix.w_axis.truncate();
+        geom.angle = self.geometry_info.angle;
+        geom.height_above_terrain = self.geometry_info.height_above_terrain;
         self.geometry_info = geom;
         if self.partition_data.is_some() {
             if let Some(partition) = crate::helpers::ThePartitionManager::get() {

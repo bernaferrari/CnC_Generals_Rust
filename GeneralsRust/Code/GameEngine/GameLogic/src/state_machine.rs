@@ -6,8 +6,8 @@
 //! Author: Converted from C++ by Claude, original by Michael S. Booth, January 2002
 
 use crate::ai::squad::Squad;
-use crate::common::CoordOrigin;
 use crate::common::types::AsAny;
+use crate::common::CoordOrigin;
 use crate::common::*;
 use crate::object::Object;
 use crate::polygon_trigger::PolygonTrigger;
@@ -1236,6 +1236,18 @@ impl StateMachine {
 
     /// Complete the same step after the driver has released any command loan.
     /// C++ StateMachine.cpp:413-435 checks changed state before using Sleep.
+    /// Resume one original-point callback after its handle driver released AI.
+    pub(crate) fn complete_owned_exit_body(
+        &mut self,
+        expected: StateId,
+        now: u32,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) {
+        if self.control.current_state_id == Some(expected) {
+            self.finish_state_body(now, expected, StateReturnType::Success, ai, &mut ());
+        }
+    }
+
     fn finish_state_body(
         &mut self,
         now: UnsignedInt,

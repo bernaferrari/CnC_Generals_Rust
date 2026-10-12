@@ -407,18 +407,20 @@ impl TargetSnapshot {
 }
 
 fn collision_geometry_from_logic(info: &crate::common::GeometryInfo) -> CollisionGeometryInfo {
-    let dx = (info.bounds.max.x - info.bounds.min.x).abs().max(0.01);
-    let dy = (info.bounds.max.y - info.bounds.min.y).abs().max(0.01);
-    let dz = (info.bounds.max.z - info.bounds.min.z).abs().max(0.01);
+    let dx = (info.bounds().max.x - info.bounds().min.x).abs().max(0.01);
+    let dy = (info.bounds().max.y - info.bounds().min.y).abs().max(0.01);
+    let dz = (info.bounds().max.z - info.bounds().min.z).abs().max(0.01);
     let radius = (dx.max(dy) * 0.5).max(0.01);
 
-    match info.geometry_type {
-        EngineGeometryType::Sphere => CollisionGeometryInfo::new_sphere(radius, info.is_small),
+    match info.shape.geometry_type {
+        EngineGeometryType::Sphere => {
+            CollisionGeometryInfo::new_sphere(radius, info.shape.is_small)
+        }
         EngineGeometryType::Cylinder => {
-            CollisionGeometryInfo::new_cylinder(radius, dz, info.is_small)
+            CollisionGeometryInfo::new_cylinder(radius, dz, info.shape.is_small)
         }
         EngineGeometryType::Box => {
-            CollisionGeometryInfo::new_box(dx, dy, info.is_small).with_z_height(dz)
+            CollisionGeometryInfo::new_box(dx, dy, info.shape.is_small).with_z_height(dz)
         }
     }
 }
@@ -539,9 +541,11 @@ mod tests {
         let unrelated = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
         for (object, radius, angle) in [(&target, 7.0, 1.0), (&unrelated, 2.0, -0.5)] {
             let mut geometry = crate::common::GeometryInfo::default();
-            geometry.geometry_type = EngineGeometryType::Cylinder;
-            geometry.bounds.min = crate::common::Coord3D::new(-radius, -radius, 0.0);
-            geometry.bounds.max = crate::common::Coord3D::new(radius, radius, 3.0);
+            geometry.shape.geometry_type = EngineGeometryType::Cylinder;
+            geometry.set_bounds(crate::common::AABox {
+                min: crate::common::Coord3D::new(-radius, -radius, 0.0),
+                max: crate::common::Coord3D::new(radius, radius, 3.0),
+            });
             geometry.angle = angle;
             object.write().unwrap().set_geometry_info(geometry);
         }

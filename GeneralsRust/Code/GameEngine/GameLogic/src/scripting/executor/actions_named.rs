@@ -1902,9 +1902,9 @@ impl ScriptActionDispatcher<'_> {
             if let Some((x, y)) = obj.get_template().random_offset_on_perimeter() {
                 local.x = x;
                 local.y = y;
-            } else if crate::common::types::geometry_type_to_u32(geom.geometry_type) == 2 {
-                let major = (geom.bounds.max.x - geom.bounds.min.x).abs() * 0.5;
-                let minor = (geom.bounds.max.y - geom.bounds.min.y).abs() * 0.5;
+            } else if crate::common::types::geometry_type_to_u32(geom.shape.geometry_type) == 2 {
+                let major = (geom.bounds().max.x - geom.bounds().min.x).abs() * 0.5;
+                let minor = (geom.bounds().max.y - geom.bounds().min.y).abs() * 0.5;
                 if crate::helpers::get_game_logic_random_value_real(0.0, 1.0) < 0.5 {
                     local.x = crate::helpers::get_game_logic_random_value_real(-major, major);
                     local.y = if crate::helpers::get_game_logic_random_value_real(0.0, 1.0) < 0.5 {

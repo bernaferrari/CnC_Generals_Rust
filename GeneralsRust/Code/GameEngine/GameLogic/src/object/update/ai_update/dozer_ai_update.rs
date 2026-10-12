@@ -34,6 +34,9 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
+mod primary_owned;
+use primary_owned::DozerPrimaryIdle;
+
 const MIN_ACTION_TOLERANCE: Real = 70.0;
 
 const AUTO_ACQUIRE_ENEMIES_NAMES: &[&str] = &[
@@ -439,6 +442,7 @@ pub struct DozerAIUpdate {
     tasks: [DozerTaskEntry; DOZER_NUM_TASKS],
     dock_points: [[DozerDockPointInfo; DOZER_NUM_DOCK_POINTS]; DOZER_NUM_TASKS],
     current_task: DozerTask,
+    primary_idle: Option<DozerPrimaryIdle>,
     build_sub_task: DozerBuildSubTask,
     is_rebuild: bool,
     building_sound: Option<AudioEventRts>,
@@ -489,6 +493,7 @@ impl DozerAIUpdate {
                 ],
             ],
             current_task: DozerTask::Invalid,
+            primary_idle: None,
             build_sub_task: DozerBuildSubTask::SelectBuildDockLocation,
             is_rebuild: false,
             building_sound: None,
@@ -701,6 +706,37 @@ impl DozerAIUpdate {
         }
     }
 
+    /// CPP internalCancelTask2105-2111, after the owner model effect and before
+    /// invoking the same cached AI's Idle command with every guard released.
+    pub(crate) fn cancel_task_bookkeeping_owned(&mut self, task: DozerTask) -> Result<(), String> {
+        if task == DozerTask::Invalid {
+            return Err("invalid cancellation task".into());
+        }
+        self.tasks[task.as_index()] = DozerTaskEntry::default();
+        for point in &mut self.dock_points[task.as_index()] {
+            point.valid = false;
+        }
+        Ok(())
+    }
+
+    /// The Rust task runner is part of the same Dozer operation. Once the
+    /// actual parent FSM has entered Idle, a cancelled runner cannot continue
+    /// construction on its next update (CPP build-state onExit clears task).
+    pub(crate) fn finish_cancelled_task_on_idle_owned(
+        &mut self,
+        task: DozerTask,
+    ) -> Result<(), String> {
+        if task == DozerTask::Invalid {
+            return Err("invalid cancellation task".into());
+        }
+        if self.current_task == task {
+            self.current_task = DozerTask::Invalid;
+            self.dozer_task = None;
+            self.action_state = DozerActionState::PickActionPos;
+        }
+        Ok(())
+    }
+
     pub fn internal_cancel_task(&mut self, task: DozerTask) {
         // Wave 351: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
@@ -708,11 +744,8 @@ impl DozerAIUpdate {
         }
 
         self.internal_task_complete_or_cancelled(task);
-        if task != DozerTask::Invalid {
-            self.tasks[task.as_index()] = DozerTaskEntry::default();
-            for point in &mut self.dock_points[task.as_index()] {
-                point.valid = false;
-            }
+        if self.cancel_task_bookkeeping_owned(task).is_err() {
+            return;
         }
         let _ =
             crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
@@ -1593,6 +1626,14 @@ impl DozerAIUpdate {
 }
 
 impl crate::modules::DozerAIUpdateInterface for DozerAIUpdate {
+    fn finish_cancelled_task_with_world(
+        &mut self,
+        task: DozerTask,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        DozerAIUpdate::finish_cancelled_task_with_world(self, task, world)
+    }
+
     fn set_build_task(
         &mut self,
         building_id: ObjectID,
@@ -1605,6 +1646,16 @@ impl crate::modules::DozerAIUpdateInterface for DozerAIUpdate {
 
     fn cancel_task(&mut self, task: DozerTask) {
         self.cancel_task(task);
+    }
+
+    fn supports_owned_task_cancel(&self) -> bool {
+        true
+    }
+    fn cancel_task_bookkeeping_owned(&mut self, task: DozerTask) -> Result<(), String> {
+        DozerAIUpdate::cancel_task_bookkeeping_owned(self, task)
+    }
+    fn finish_cancelled_task_on_idle_owned(&mut self, task: DozerTask) -> Result<(), String> {
+        DozerAIUpdate::finish_cancelled_task_on_idle_owned(self, task)
     }
 
     fn get_current_task(&self) -> DozerTask {

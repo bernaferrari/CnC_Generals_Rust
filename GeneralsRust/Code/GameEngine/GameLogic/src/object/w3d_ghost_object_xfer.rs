@@ -176,6 +176,7 @@ impl Snapshotable for W3DGhostObject {
                     let mut snapshot = W3DRenderObjectSnapshot::new(RenderObjectState {
                         name,
                         scale,
+                        geometry_scale: scale,
                         color,
                         transform: Matrix3x4::IDENTITY,
                         sub_objects: Vec::new(),

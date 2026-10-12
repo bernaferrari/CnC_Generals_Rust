@@ -375,6 +375,21 @@ impl Player {
         self.add_owned_object_for_object_inner(object.get_id(), object);
     }
 
+    /// Supplied membership phase: the caller dispatches brownout and idle-worker
+    /// effects synchronously after releasing this Player loan.
+    pub(crate) fn change_owned_membership_power(
+        &mut self,
+        object: &Object,
+        adding: bool,
+    ) -> Option<bool> {
+        if adding {
+            self.add_owned_object_id(object.get_id());
+        } else {
+            self.remove_owned_object_id(object.get_id());
+        }
+        self.apply_membership_power_influence(object, adding)
+    }
+
     fn add_owned_object_id(&mut self, object_id: ObjectID) {
         if !self.owned_objects.contains(&object_id) {
             self.owned_objects.push(object_id);
@@ -598,7 +613,14 @@ impl Player {
         &mut self,
         template: &SpecialPowerTemplate,
     ) -> UnsignedInt {
-        let now = TheGameLogic::get_frame();
+        self.get_or_start_special_power_ready_frame_at(template, TheGameLogic::get_frame())
+    }
+
+    pub(crate) fn get_or_start_special_power_ready_frame_at(
+        &mut self,
+        template: &SpecialPowerTemplate,
+        now: UnsignedInt,
+    ) -> UnsignedInt {
         let lookup_id = template.get_id();
         for timer in &self.special_power_ready_timers {
             if timer.template_id == lookup_id {

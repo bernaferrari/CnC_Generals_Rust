@@ -6,6 +6,9 @@ pub struct ThingTemplate {
     pub name: String,
     pub display_name: String,
     pub kind_of: HashSet<KindOf>,
+    /// C++ PartitionData::attachToObject excludes authored W3DDefaultDraw.
+    #[serde(default)]
+    pub(crate) default_draw_without_fog_memory: bool,
     pub max_health: f32,
     pub armor: f32,
     /// C++ `ThingTemplate::m_visionRange` from Object INI `VisionRange`.
@@ -538,6 +541,7 @@ impl ThingTemplate {
             name: name.to_string(),
             display_name: name.to_string(),
             kind_of: HashSet::new(),
+            default_draw_without_fog_memory: false,
             max_health: 100.0,
             armor: 0.0,
             sight_range: 0.0,

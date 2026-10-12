@@ -27,6 +27,7 @@ fn ghost_owner(name: &str, parent: Option<u32>, local: usize) -> W3DGhostObjectM
         &[RenderObjectState {
             name: name.into(),
             scale: 2.0,
+            geometry_scale: 2.0,
             color: 0x1122_3344,
             transform: Matrix3x4::IDENTITY,
             sub_objects: vec![RenderSubObjectSnapshot {
@@ -78,7 +79,7 @@ fn assert_ghost(manager: &W3DGhostObjectManager, name: &str, parent: Option<u32>
     );
     let snapshot = &ghost.snapshots(local)[0];
     assert_eq!(snapshot.render_object.name, name);
-    assert_eq!(snapshot.render_object.scale, 2.0);
+    assert_eq!(snapshot.render_object.scale, 1.0);
     assert_eq!(snapshot.render_object.color, 0x1122_3344);
     assert_eq!(snapshot.render_object.sub_objects[0].name, "TURRET");
     assert!(snapshot.render_object.sub_objects[0].visible);
@@ -91,8 +92,24 @@ fn two_decoded_saves_keep_their_own_ghost_companion_through_interleaved_restore(
     let mut saves = SaveFileManager::with_save_directory(directory.path());
     saves.init().unwrap();
     let mut a = GameLogic::new();
+    a.objects.insert(
+        crate::game_logic::ObjectId(42),
+        crate::game_logic::Object::new(
+            crate::game_logic::ThingTemplate::new("GhostParentA"),
+            crate::game_logic::ObjectId(42),
+            crate::game_logic::Team::USA,
+        ),
+    );
     a.w3d_ghosts = ghost_owner("GhostA", Some(42), 0);
     let mut b = GameLogic::new();
+    b.objects.insert(
+        crate::game_logic::ObjectId(42),
+        crate::game_logic::Object::new(
+            crate::game_logic::ThingTemplate::new("GhostParentB"),
+            crate::game_logic::ObjectId(42),
+            crate::game_logic::Team::China,
+        ),
+    );
     b.w3d_ghosts = ghost_owner("GhostB", Some(42), 1);
     saves.save_game("a", &a, &info("a")).unwrap();
     saves.save_game("b", &b, &info("b")).unwrap();
@@ -164,6 +181,92 @@ fn malformed_ghost_companion_rejects_before_mutating_the_receiving_world() {
         assert_eq!(live.get_current_frame(), 91);
         assert_eq!(live.w3d_ghosts, before);
     }
+}
+
+#[test]
+fn saved_ghost_geometry_is_validated_before_the_receiving_world_changes() {
+    let owner = ghost_owner("FiniteFootprint", None, 0);
+    let bytes = capture_w3d_ghost_xfer_bytes(&owner).unwrap();
+    let valid = decode_w3d_ghost_xfer_bytes(&bytes).unwrap();
+    assert_eq!(
+        capture_w3d_ghost_xfer_bytes(&valid).unwrap(),
+        bytes,
+        "valid original ghost wire remains byte-identical"
+    );
+    let original = owner.used()[0].parent_geometry().unwrap();
+    let mut bad = vec![
+        ParentGeometrySnapshot {
+            geometry_type: 3,
+            ..original
+        },
+        ParentGeometrySnapshot {
+            major_radius: f32::NAN,
+            ..original
+        },
+        ParentGeometrySnapshot {
+            minor_radius: -1.0,
+            ..original
+        },
+        ParentGeometrySnapshot {
+            angle: f32::INFINITY,
+            ..original
+        },
+        ParentGeometrySnapshot {
+            position: [1.0, f32::NAN, 3.0],
+            ..original
+        },
+        ParentGeometrySnapshot {
+            geometry_type: 0,
+            major_radius: f32::MAX,
+            ..original
+        },
+        ParentGeometrySnapshot {
+            major_radius: 12_000.0,
+            minor_radius: 12_000.0,
+            ..original
+        },
+    ];
+    let mut live = GameLogic::new();
+    live.set_current_frame(91);
+    live.w3d_ghosts = ghost_owner("LiveFinite", Some(42), 0);
+    let before = live.w3d_ghosts.clone();
+    for geometry in bad.drain(..) {
+        let mut candidate = owner.clone();
+        candidate.used_mut()[0].set_parent_geometry(geometry);
+        let mut snapshot = WorldSnapshot::default();
+        snapshot.frame_number = 7;
+        snapshot.w3d_ghost_companion = Some(capture_w3d_ghost_xfer_bytes(&candidate).unwrap());
+        assert!(
+            SnapshotBuilder::new()
+                .restore_from_snapshot(&snapshot, &mut live)
+                .is_err()
+        );
+        assert_eq!(live.get_current_frame(), 91);
+        assert_eq!(
+            live.w3d_ghosts, before,
+            "failed geometry cannot alter live snapshots or scene events"
+        );
+    }
+}
+
+#[test]
+fn saved_manager_bounds_the_combined_original_footprint_work() {
+    let mut manager = W3DGhostObjectManager::new();
+    for _ in 0..17 {
+        manager.add_ghost_object(None, false).unwrap();
+        manager.used_mut()[0].set_parent_geometry(ParentGeometrySnapshot {
+            geometry_type: 2,
+            is_small: false,
+            major_radius: 10_240.0,
+            minor_radius: 10_240.0,
+            position: [0.0; 3],
+            angle: 0.0,
+        });
+    }
+    let before = manager.clone();
+    let bytes = capture_w3d_ghost_xfer_bytes(&manager).unwrap();
+    assert!(decode_w3d_ghost_xfer_bytes(&bytes).is_err());
+    assert_eq!(manager, before);
 }
 
 #[test]

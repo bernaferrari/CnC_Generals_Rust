@@ -23,6 +23,7 @@ impl GameLogic {
         // any old docker/dock reservations while the old object is still
         // available to the C++-ordered cancel path.
         if self.objects.contains_key(&object.id) {
+            self.detach_host_fog_ghost(object.id);
             let (tracked_docker, owns_dock_queue) = {
                 let queues = self.host_dock_approach_queues.borrow();
                 (queues.tracks_docker(object.id), queues.has_dock(object.id))
@@ -45,7 +46,9 @@ impl GameLogic {
         object.visual_object_generation = self.allocate_visual_object_generation();
         object.visual_draw_identity_token = std::sync::Arc::new(());
         object.unit_ai_runtime = Default::default();
-        self.objects.insert(object.id, object);
+        let id = object.id;
+        self.objects.insert(id, object);
+        self.attach_host_fog_ghost(id);
     }
 
     /// Runtime visual identity belongs to an admission, including replacing a

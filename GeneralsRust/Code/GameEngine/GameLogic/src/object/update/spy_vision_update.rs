@@ -170,8 +170,7 @@ impl SpyVisionController {
                 .as_ref()
                 .and_then(|team_arc| team_arc.read().ok())
                 .is_some_and(|team| {
-                    owner.get_relationship_with_team(&team)
-                        == Relationship::Enemies
+                    owner.get_relationship_with_team(&team) == Relationship::Enemies
                 });
 
             if !is_enemy {
@@ -382,6 +381,33 @@ impl SpyVisionUpdate {
         }
     }
 
+    pub(crate) fn owned_observation(
+        &self,
+    ) -> Result<(crate::object::UpdateModulePtr, bool, KindOfMaskType), String> {
+        Ok((
+            self.update_proxy
+                .clone()
+                .ok_or("SpyVision has no admitted update proxy")?,
+            self.controller.currently_active,
+            self.data.spy_on_kind_of,
+        ))
+    }
+    pub(crate) fn finish_disabled_at(&mut self, frame: UnsignedInt, now: UnsignedInt) {
+        if frame > now && self.controller.currently_active {
+            self.controller.currently_active = false;
+        }
+        self.controller.disabled_until_frame = if frame > now { frame } else { now };
+        self.controller.reset_timers_next_update = true;
+    }
+    pub(crate) fn finish_activation_at(&mut self, duration: UnsignedInt, now: UnsignedInt) {
+        self.controller.deactivate_frame = if duration == 0 {
+            u32::MAX
+        } else {
+            now.wrapping_add(duration)
+        };
+        self.controller.currently_active = true;
+    }
+
     pub fn set_disabled_until_frame(&mut self, frame: UnsignedInt) {
         let now = crate::helpers::TheGameLogic::get_frame();
         self.controller.set_disabled_until_frame(frame);
@@ -400,8 +426,7 @@ impl SpyVisionUpdate {
 
     fn handle_on_delete(&mut self) {
         if self.controller.currently_active {
-            self.controller
-                .do_activation_work_for_current_owner(false);
+            self.controller.do_activation_work_for_current_owner(false);
         }
     }
 
@@ -450,6 +475,11 @@ impl SpyVisionUpdate {
 }
 
 impl Module for SpyVisionUpdate {
+    fn record_scheduled_wake(&mut self, frame: u32, phase: crate::modules::SleepyUpdatePhase) {
+        self.next_call_frame_and_phase =
+            (frame.min(UPDATE_SLEEP_FOREVER_FRAMES) << 2) | (phase as u32);
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -559,6 +589,10 @@ impl Snapshotable for SpyVisionUpdateModule {
 }
 
 impl Module for SpyVisionUpdateModule {
+    fn record_scheduled_wake(&mut self, frame: u32, phase: crate::modules::SleepyUpdatePhase) {
+        Module::record_scheduled_wake(&mut self.behavior, frame, phase);
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

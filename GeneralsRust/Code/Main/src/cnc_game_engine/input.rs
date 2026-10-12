@@ -1914,6 +1914,8 @@ impl CnCGameEngine {
             None,
             None,
         )?;
+        self.game_logic
+            .admit_host_ghost_draws(self.render_pipeline.take_committed_host_ghost_draws());
         let render_pipeline_elapsed = render_pipeline_started.elapsed();
 
         let attachments_started = Instant::now();

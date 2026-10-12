@@ -9,6 +9,33 @@ pub(in crate::object) fn prepare_unit_ai(
     template: &dyn ThingTemplate,
     object_id: ObjectID,
 ) -> Arc<Mutex<UnitAIUpdate>> {
+    prepare_unit_ai_impl(base_object, template, object_id, None)
+        .expect("legacy Unit preparation has no fallible receiving catalog")
+}
+pub(in crate::object) fn prepare_unit_ai_with_locomotors(
+    base_object: &Arc<RwLock<Object>>,
+    template: &dyn ThingTemplate,
+    object_id: ObjectID,
+    lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
+) -> Result<Arc<Mutex<UnitAIUpdate>>, String> {
+    prepare_unit_ai_impl(base_object, template, object_id, Some(lookup))
+}
+fn prepare_unit_ai_impl(
+    base_object: &Arc<RwLock<Object>>,
+    template: &dyn ThingTemplate,
+    object_id: ObjectID,
+    lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
+) -> Result<Arc<Mutex<UnitAIUpdate>>, String> {
+    if lookup.is_some()
+        && (template.is_kind_of(KindOf::Harvester)
+            || template.get_behavior_module_info().iter().any(|entry| {
+                entry.data.is_ai_module_data() && entry.name.as_str() != "AIUpdateInterface"
+            }))
+    {
+        return Err(
+            "receiving Unit constructor does not admit specialized AI birth callbacks".into(),
+        );
+    }
     let needs_supply_ai = template.is_kind_of(KindOf::Harvester);
     #[cfg(feature = "allow_surrender")]
     let needs_pow_truck_ai = template
@@ -433,7 +460,11 @@ pub(in crate::object) fn prepare_unit_ai(
     );
 
     if let Some(data) = ai_update_module_data {
-        ai_update.apply_factory_ai_update_module_data(&data);
+        if let Some(lookup) = lookup {
+            ai_update.apply_factory_ai_update_module_data_with_locomotors(&data, lookup)?;
+        } else {
+            ai_update.apply_factory_ai_update_module_data(&data);
+        }
     }
-    Arc::new(Mutex::new(ai_update))
+    Ok(Arc::new(Mutex::new(ai_update)))
 }

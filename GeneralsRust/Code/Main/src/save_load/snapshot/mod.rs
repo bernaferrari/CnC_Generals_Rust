@@ -90,6 +90,7 @@ mod world_codec;
 pub(crate) mod ai_player_queue_persist;
 mod ai_team_persist;
 mod angry_mob_persist;
+mod attack_state_persist;
 mod auto_deposit_persist;
 mod bridge_behavior_persist;
 mod chinook_ai_persist;

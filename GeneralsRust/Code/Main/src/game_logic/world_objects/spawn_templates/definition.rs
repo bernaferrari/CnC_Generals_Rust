@@ -183,6 +183,7 @@ impl GameLogic {
         texture_hint: Option<&str>,
     ) -> ThingTemplate {
         let mut template = ThingTemplate::new(template_name);
+        Self::apply_authored_ghost_draw_metadata(&mut template, definition);
         template.radar_upgrade_rules = Some(
             definition
                 .behavior_modules

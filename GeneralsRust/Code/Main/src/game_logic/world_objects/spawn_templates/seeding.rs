@@ -140,6 +140,7 @@ impl GameLogic {
                 Self::apply_authored_temporary_weapon_behavior_metadata(template, &definition);
                 Self::apply_authored_physics_behavior_metadata(template, &definition);
                 Self::apply_authored_geometry(template, &definition);
+                Self::apply_authored_ghost_draw_metadata(template, &definition);
                 Self::apply_authored_weapon_set_create_policy(template, &definition);
                 crate::game_logic::host_move_ambient_audio::apply_authored_audio_events(
                     template,
@@ -268,10 +269,24 @@ impl GameLogic {
         Self::apply_object_definition_create_overrides(template, &definition);
     }
 
+    /// PartitionData::attachToObject excludes the actual W3DDefaultDraw
+    /// module before onCreate; keep this immutable admission metadata on both
+    /// initial templates and subsequent definition refreshes.
+    pub(super) fn apply_authored_ghost_draw_metadata(
+        template: &mut ThingTemplate,
+        definition: &crate::assets::ObjectDefinition,
+    ) {
+        template.default_draw_without_fog_memory = definition
+            .draw_modules
+            .iter()
+            .any(|module| module.declaration.split_whitespace().next() == Some("W3DDefaultDraw"));
+    }
+
     pub(super) fn apply_object_definition_create_overrides(
         template: &mut ThingTemplate,
         definition: &crate::assets::ObjectDefinition,
     ) {
+        Self::apply_authored_ghost_draw_metadata(template, definition);
         if !definition.display_name.is_empty() {
             template.display_name = definition.display_name.clone();
         }

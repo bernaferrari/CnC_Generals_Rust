@@ -6,6 +6,38 @@
 use super::*;
 
 pub trait AiWorld {
+    fn validate_spy_disabled_edge(&self, _owner: &Arc<RwLock<Object>>) -> Result<(), String> {
+        Err("supplied SpyVision callback services unavailable".into())
+    }
+    fn spy_disabled_edge(
+        &mut self,
+        _owner: &Arc<RwLock<Object>>,
+        _disabled: bool,
+    ) -> Result<(), String> {
+        Err("supplied SpyVision callback services unavailable".into())
+    }
+
+    fn validate_dozer_idle_effects(&self, _object: &Arc<RwLock<Object>>) -> Result<(), String> {
+        Err("supplied AI world has no Dozer primary idle effects".into())
+    }
+    fn set_weapon_set_flag(
+        &mut self,
+        _object: &Arc<RwLock<Object>>,
+        _flag: crate::weapon::WeaponSetType,
+        _enabled: bool,
+    ) -> Result<(), String> {
+        Err("supplied AI world has no weapon-set mutation service".into())
+    }
+
+    fn idle_worker_event(
+        &mut self,
+        _object: &Arc<RwLock<Object>>,
+        _player: Int,
+        _adding: bool,
+    ) -> Result<(), String> {
+        Err("supplied AI world has no idle-worker presentation owner".into())
+    }
+
     fn object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>>;
     fn frame(&self) -> UnsignedInt;
     fn terrain_layer_height(&self, x: f32, y: f32, layer: crate::common::PathfindLayerEnum) -> f32;
@@ -60,8 +92,21 @@ pub trait AiWorld {
         object: &mut Object,
         position: &Coord3D,
     ) -> Result<(), String>;
+    fn set_object_orientation(&mut self, _object: &mut Object, _angle: f32) -> Result<(), String> {
+        Err("owned orientation service not admitted".into())
+    }
+    fn set_object_layer(&mut self, _object: &mut Object, _layer: PathfindLayerEnum) {
+        panic!("owned layer service not admitted")
+    }
+    fn wake_physics_after_force(&mut self, _object: &Object) {
+        panic!("owned physics scheduling service not admitted")
+    }
+
     fn cliff_at(&self, _position: &Coord3D) -> Result<bool, String> {
         Err("supplied AI world has no terrain observation".into())
+    }
+    fn has_pathfinder(&self) -> bool {
+        false
     }
     fn pathfinder(&mut self) -> Option<&mut crate::ai::Pathfinder> {
         None
@@ -127,6 +172,19 @@ pub trait AiWorld {
     /// Implementations must resolve both identities through this same store.
     fn enter(&mut self, passenger: ObjectID, target: ObjectID) -> Result<(), String>;
 
+    /// A handle driver must finish this continuation before returning control.
+    fn drives_owned_exit(&self) -> bool {
+        false
+    }
+    fn request_owned_exit(
+        &mut self,
+        _passenger: ObjectID,
+        _owner: ObjectID,
+        _instant: bool,
+    ) -> Result<(), String> {
+        Err("owned exit needs an immediate handle driver".into())
+    }
+
     /// Physical removal at the original Open/Transport callback point.
     fn remove_contained(
         &mut self,
@@ -134,6 +192,12 @@ pub trait AiWorld {
         owner: ObjectID,
         expose: bool,
     ) -> Result<(), String>;
+    fn expose_removed(&mut self, _passenger: &Arc<RwLock<Object>>) {
+        panic!("stealth reveal must be admitted")
+    }
+    fn scatter_removed(&mut self, _passenger: &Arc<RwLock<Object>>, _owner: &Arc<RwLock<Object>>) {
+        panic!("removed scatter must be admitted")
+    }
     fn contain_exit_busy(&self, owner: ObjectID) -> Result<bool, String>;
     fn validate_remove_operation(
         &self,

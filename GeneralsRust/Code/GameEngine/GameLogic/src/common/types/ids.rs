@@ -107,15 +107,14 @@ pub(crate) fn geometry_type_from_u32(value: u32) -> EngineGeometryType {
     }
 }
 
-/// Geometry information (matching C++ GeometryInfo)
+/// Original shape state is stored once, using Common's C++ GeometryInfo.
+/// Position and angle are observations of the owning Thing, not shape dimensions.
 #[derive(Debug, Clone, Copy)]
 pub struct GeometryInfo {
     pub position: Coord3D,
     pub angle: Real,
-    pub bounds: AABox,
     pub height_above_terrain: Real,
-    pub geometry_type: EngineGeometryType,
-    pub is_small: bool,
+    pub shape: game_engine::common::system::GeometryInfo,
 }
 
 impl Default for GeometryInfo {
@@ -123,200 +122,127 @@ impl Default for GeometryInfo {
         Self {
             position: Coord3D::origin(),
             angle: 0.0,
-            bounds: AABox::default(),
             height_above_terrain: 0.0,
-            geometry_type: EngineGeometryType::Box,
-            is_small: false,
+            shape: game_engine::common::system::GeometryInfo::new(
+                EngineGeometryType::Box,
+                false,
+                0.0,
+                0.0,
+                0.0,
+            ),
         }
     }
 }
 
 impl GeometryInfo {
+    pub fn bounds(&self) -> AABox {
+        AABox {
+            min: Coord3D::new(
+                -self.shape.width,
+                -self.shape.depth,
+                -self.shape.get_max_height_below_position(),
+            ),
+            max: Coord3D::new(
+                self.shape.width,
+                self.shape.depth,
+                self.shape.get_max_height_above_position(),
+            ),
+        }
+    }
+    /// Admission of an old bounds adapter into the one canonical shape.
+    pub fn set_bounds(&mut self, bounds: AABox) {
+        self.shape.set(
+            self.shape.geometry_type,
+            self.shape.is_small,
+            bounds.max.z,
+            (bounds.max.x - bounds.min.x) * 0.5,
+            (bounds.max.y - bounds.min.y) * 0.5,
+        );
+    }
     pub fn get_geometry_type(&self) -> EngineGeometryType {
-        self.geometry_type
+        self.shape.geometry_type
     }
-
-    pub fn set_geometry_type(&mut self, geometry_type: EngineGeometryType) {
-        self.geometry_type = geometry_type;
+    pub fn set_geometry_type(&mut self, value: EngineGeometryType) {
+        self.shape.geometry_type = value;
+        self.shape.calc_bounding_stuff();
     }
-
     pub fn get_is_small(&self) -> bool {
-        self.is_small
+        self.shape.is_small
     }
-
-    pub fn set_is_small(&mut self, is_small: bool) {
-        self.is_small = is_small;
+    pub fn set_is_small(&mut self, value: bool) {
+        self.shape.is_small = value;
     }
-
-    /// C++ Geometry.cpp:468-497 uses shape-specific bounding radii.
     pub fn get_bounding_sphere_radius(&self) -> Real {
-        match self.geometry_type {
-            EngineGeometryType::Sphere => self.get_major_radius(),
-            EngineGeometryType::Cylinder => {
-                let half_height = (self.bounds.max.z - self.bounds.min.z).abs() * 0.5;
-                self.get_major_radius().max(half_height)
-            }
-            EngineGeometryType::Box => {
-                let dx = self.bounds.max.x - self.bounds.min.x;
-                let dy = self.bounds.max.y - self.bounds.min.y;
-                let dz = self.bounds.max.z - self.bounds.min.z;
-                ((dx * dx + dy * dy + dz * dz).sqrt() / 2.0).max(0.0)
-            }
-        }
+        self.shape.bounding_sphere_radius
     }
-
-    /// C++ sphere/cylinder footprints are circular; a box uses its XY diagonal.
     pub fn get_bounding_circle_radius(&self) -> Real {
-        match self.geometry_type {
-            EngineGeometryType::Sphere | EngineGeometryType::Cylinder => self.get_major_radius(),
-            EngineGeometryType::Box => {
-                let dx = self.bounds.max.x - self.bounds.min.x;
-                let dy = self.bounds.max.y - self.bounds.min.y;
-                ((dx * dx + dy * dy).sqrt() / 2.0).max(0.0)
-            }
-        }
+        self.shape.bounding_circle_radius
     }
-
-    /// C++ `GeometryInfo::getZDeltaToCenterPosition`.
     pub fn get_z_delta_to_center_position(&self) -> Real {
-        match self.geometry_type {
-            EngineGeometryType::Sphere => 0.0,
-            EngineGeometryType::Box | EngineGeometryType::Cylinder => {
-                (self.bounds.max.z - self.bounds.min.z).abs() * 0.5
-            }
-        }
+        self.shape.get_z_delta_to_center_position()
     }
-
-    /// C++ Geometry.h:119: major radius is the X-axis half extent.
     pub fn get_major_radius(&self) -> Real {
-        (self.bounds.max.x - self.bounds.min.x).abs() * 0.5
+        self.shape.width
     }
-
-    /// C++ Geometry.h:120: minor radius is the Y-axis half extent.
     pub fn get_minor_radius(&self) -> Real {
-        (self.bounds.max.y - self.bounds.min.y).abs() * 0.5
+        self.shape.depth
     }
-
-    /// C++ `GeometryInfo::getFootprintArea`.
     pub fn get_footprint_area(&self) -> Real {
-        match self.geometry_type {
-            EngineGeometryType::Sphere | EngineGeometryType::Cylinder => {
-                std::f32::consts::PI
-                    * self.get_bounding_circle_radius()
-                    * self.get_bounding_circle_radius()
-            }
-            EngineGeometryType::Box => 4.0 * self.get_major_radius() * self.get_minor_radius(),
-        }
+        self.shape.get_footprint_area()
     }
-
-    /// Get max height above position (matches C++ geometry max height).
     pub fn get_max_height_above_position(&self) -> Real {
-        self.bounds.max.z
+        self.shape.get_max_height_above_position()
     }
-
-    /// C++ `GeometryInfo::setMaxHeightAbovePosition`.
     pub fn set_max_height_above_position(&mut self, z: Real) {
-        self.bounds.max.z = z;
+        self.shape.set_max_height_above_position(z);
     }
-
-    /// Get max height below position (matches C++ GeometryInfo::getMaxHeightBelowPosition).
     pub fn get_max_height_below_position(&self) -> Real {
-        let below = -self.bounds.min.z;
-        if below < 0.0 { 0.0 } else { below }
+        self.shape.get_max_height_below_position()
     }
-
-    /// Get the geometry center position given a base position.
     pub fn get_center_position(&self, pos: &Coord3D) -> Coord3D {
         Coord3D::new(
-            pos.x + (self.bounds.min.x + self.bounds.max.x) * 0.5,
-            pos.y + (self.bounds.min.y + self.bounds.max.y) * 0.5,
-            pos.z + (self.bounds.min.z + self.bounds.max.z) * 0.5,
+            pos.x,
+            pos.y,
+            pos.z + self.shape.get_z_delta_to_center_position(),
         )
     }
-
-    /// Calculate min/max pitches from this geometry at `this_pos` to `that` at `that_pos`.
-    /// Matches C++ GeometryInfo::calcPitches (Geometry.cpp).
     pub fn calc_pitches(
         &self,
         this_pos: &Coord3D,
         that: &GeometryInfo,
         that_pos: &Coord3D,
     ) -> (Real, Real) {
-        let this_center = self.get_center_position(this_pos);
-        let dxy =
-            ((that_pos.x - this_center.x).powi(2) + (that_pos.y - this_center.y).powi(2)).sqrt();
-
-        let dz_max = (that_pos.z + that.get_max_height_above_position()) - this_center.z;
-        let max_pitch = dz_max.atan2(dxy);
-
-        let dz_min = (that_pos.z - that.get_max_height_below_position()) - this_center.z;
-        let min_pitch = dz_min.atan2(dxy);
-
-        (min_pitch, max_pitch)
+        let center = self.get_center_position(this_pos);
+        let dxy = ((that_pos.x - center.x).powi(2) + (that_pos.y - center.y).powi(2)).sqrt();
+        (
+            (that_pos.z - that.get_max_height_below_position() - center.z).atan2(dxy),
+            (that_pos.z + that.get_max_height_above_position() - center.z).atan2(dxy),
+        )
     }
-
-    pub fn tweak_extents(
-        &mut self,
-        extent_mod_type: GeometryExtentModType,
-        extent_mod_amount: Real,
-    ) {
-        match extent_mod_type {
-            GeometryExtentModType::Major => {
-                let center_x = (self.bounds.min.x + self.bounds.max.x) * 0.5;
-                let center_y = (self.bounds.min.y + self.bounds.max.y) * 0.5;
-                let half_x = (self.bounds.max.x - self.bounds.min.x).abs() * 0.5;
-                let half_y = (self.bounds.max.y - self.bounds.min.y).abs() * 0.5;
-                let radius = self.get_major_radius() + extent_mod_amount;
-
-                if half_x >= half_y {
-                    self.bounds.min.x = center_x - radius;
-                    self.bounds.max.x = center_x + radius;
-                } else {
-                    self.bounds.min.y = center_y - radius;
-                    self.bounds.max.y = center_y + radius;
-                }
-            }
-            GeometryExtentModType::Minor => {
-                let center_x = (self.bounds.min.x + self.bounds.max.x) * 0.5;
-                let center_y = (self.bounds.min.y + self.bounds.max.y) * 0.5;
-                let half_x = (self.bounds.max.x - self.bounds.min.x).abs() * 0.5;
-                let half_y = (self.bounds.max.y - self.bounds.min.y).abs() * 0.5;
-                let radius = self.get_minor_radius() + extent_mod_amount;
-
-                if half_x <= half_y {
-                    self.bounds.min.x = center_x - radius;
-                    self.bounds.max.x = center_x + radius;
-                } else {
-                    self.bounds.min.y = center_y - radius;
-                    self.bounds.max.y = center_y + radius;
-                }
-            }
-            GeometryExtentModType::Height => {
-                self.bounds.max.z = self.get_max_height_above_position() + extent_mod_amount;
-                if self.bounds.max.z < self.bounds.min.z {
-                    self.bounds.min.z = self.bounds.max.z;
-                }
-            }
+    pub fn tweak_extents(&mut self, kind: GeometryExtentModType, amount: Real) {
+        match kind {
+            GeometryExtentModType::Major => self.shape.width += amount,
+            GeometryExtentModType::Minor => self.shape.depth += amount,
+            GeometryExtentModType::Height => self.shape.height += amount,
             GeometryExtentModType::Type => {
-                self.geometry_type = match self.geometry_type {
+                self.shape.geometry_type = match self.shape.geometry_type {
                     EngineGeometryType::Sphere => EngineGeometryType::Cylinder,
                     EngineGeometryType::Cylinder => EngineGeometryType::Box,
                     EngineGeometryType::Box => EngineGeometryType::Sphere,
-                };
+                }
             }
         }
-
-        self.is_small = false;
+        self.shape.calc_bounding_stuff();
+        self.shape.is_small = false;
     }
-
     pub fn get_descriptive_string(&self) -> String {
         format!(
             "{}/{}({} {} {})",
-            geometry_type_to_u32(self.geometry_type),
-            self.is_small as u32,
-            self.get_major_radius(),
-            self.get_minor_radius(),
-            self.get_max_height_above_position()
+            geometry_type_to_u32(self.shape.geometry_type),
+            self.shape.is_small as u32,
+            self.shape.width,
+            self.shape.depth,
+            self.shape.get_max_height_above_position()
         )
     }
 }

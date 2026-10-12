@@ -1,3 +1,7 @@
+/// Immutable receiving definitions for the original name-based Xfer linkage.
+pub type LocomotorTemplateLookup<'a> =
+    dyn FnMut(&str) -> Result<Option<Arc<LocomotorTemplate>>, String> + 'a;
+
 // ============================================================================
 // LOCOMOTOR SET
 // ============================================================================
@@ -139,6 +143,25 @@ impl LocomotorSet {
         xfer: &mut dyn game_engine::system::Xfer,
         current_name_slot: &mut Option<String>,
     ) -> Result<(), String> {
+        let mut lookup = |name: &str| Ok(LOCOMOTOR_STORE.get_template(name));
+        self.xfer_self_and_cur_loco_ptr_admitted(xfer, current_name_slot, &mut lookup, false)
+    }
+
+    pub fn xfer_self_and_cur_loco_ptr_with_lookup(
+        &mut self,
+        xfer: &mut dyn game_engine::system::Xfer,
+        current_name_slot: &mut Option<String>,
+        lookup: &mut LocomotorTemplateLookup<'_>,
+    ) -> Result<(), String> {
+        self.xfer_self_and_cur_loco_ptr_admitted(xfer, current_name_slot, lookup, true)
+    }
+    fn xfer_self_and_cur_loco_ptr_admitted(
+        &mut self,
+        xfer: &mut dyn game_engine::system::Xfer,
+        current_name_slot: &mut Option<String>,
+        lookup: &mut LocomotorTemplateLookup<'_>,
+        detached: bool,
+    ) -> Result<(), String> {
         const CURRENT_VERSION: u8 = 1;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
@@ -160,11 +183,15 @@ impl LocomotorSet {
                 let mut name = String::new();
                 xfer.xfer_ascii_string(&mut name)
                     .map_err(|e| format!("LocomotorSet xfer template name: {:?}", e))?;
-                let template = LOCOMOTOR_STORE
-                    .get_template(&name)
-                    .ok_or_else(|| format!("LocomotorSet xfer unknown template {name}"))?;
-                let mut loco = Locomotor::new(template);
-                loco.loco_xfer(xfer)?;
+                let template = lookup(&name)?.ok_or_else(|| {
+                    format!("LocomotorSet xfer unknown receiving template {name}")
+                })?;
+                let mut loco = if detached {
+                    Locomotor::new_for_snapshot(template)
+                } else {
+                    Locomotor::new(template)
+                };
+                loco.loco_xfer_with_birth_policy(xfer, detached)?;
                 self.add_locomotor(name, loco);
             }
         } else {

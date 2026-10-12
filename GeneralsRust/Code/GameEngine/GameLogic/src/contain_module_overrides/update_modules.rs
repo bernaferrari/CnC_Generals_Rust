@@ -348,6 +348,32 @@ pub(super) fn auto_heal_behavior_module_factory(
     ))
 }
 
+pub(crate) fn register_inert_auto_heal(
+    factory: &mut game_engine::common::thing::module_factory::ModuleFactory,
+) -> Result<(), String> {
+    factory.register_override(
+        "AutoHealBehavior",
+        ModuleType::Behavior,
+        auto_heal_behavior_module_factory_inert,
+        auto_heal_behavior_data_factory,
+    )
+}
+fn auto_heal_behavior_module_factory_inert(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data = cloned_module_data::<AutoHealBehaviorModuleData>("AutoHealBehavior", &module_data);
+    let id = thing
+        .as_object()
+        .map(|object| object.get_object_id())
+        .unwrap_or(crate::common::INVALID_ID);
+    Box::new(AutoHealBehaviorModule::new(
+        AutoHealBehavior::construct_inert_with_object_id(id, Arc::clone(&data)),
+        &AsciiString::from("AutoHealBehavior"),
+        data,
+    ))
+}
+
 pub(super) fn countermeasures_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
     let mut data = CountermeasuresBehaviorModuleData::default();
     if let Some(ini) = ini {
@@ -673,7 +699,7 @@ pub(super) fn stealth_update_module_factory(
     let data_arc = cloned_module_data::<CoreStealthUpdateModuleData>("StealthUpdate", &module_data);
     let object_id = resolve_owner_id(&thing);
     let module_name_key = NameKeyGenerator::name_to_key("StealthUpdate");
-    Box::new(CoreStealthUpdateModule::new(
+    Box::new(CoreStealthUpdateModule::new_staged(
         module_name_key,
         data_arc,
         object_id,

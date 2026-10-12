@@ -73,6 +73,12 @@ fn awaken_registered_update(
     }
     let phase = module.read().ok().map(|update| update.get_update_phase());
     queue.reschedule(module, wake, phase);
+    if let Some(phase) = phase {
+        module
+            .write()
+            .expect("scheduled module poisoned")
+            .record_scheduled_wake(wake, phase);
+    }
 }
 
 impl UpdateScheduleContext for UpdateExecutionContext<'_> {
@@ -280,8 +286,37 @@ impl GameLogic {
                     .unwrap_or(phase);
                 self.sleepy_updates
                     .reschedule(&module, next_wake, Some(phase));
+                module
+                    .write()
+                    .expect("scheduled module poisoned")
+                    .record_scheduled_wake(next_wake, phase);
             }
         }
+    }
+
+    pub(crate) fn validate_owned_update_wake(
+        &self,
+        module: &UpdateModulePtr,
+    ) -> Result<(), String> {
+        if self.sleepy_updates.entry_for(module).is_none() {
+            return Err("update proxy belongs to another scheduler or is unregistered".into());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn awaken_update_module_with_current(
+        &mut self,
+        module: &UpdateModulePtr,
+        current: Option<&UpdateModulePtr>,
+        now: UnsignedInt,
+        wake: UnsignedInt,
+    ) -> Result<(), String> {
+        self.validate_owned_update_wake(module)?;
+        if current.is_some_and(|cur| Arc::ptr_eq(cur, module)) {
+            return Ok(());
+        }
+        awaken_registered_update(&mut self.sleepy_updates, module, now, wake);
+        Ok(())
     }
 
     pub fn friend_awaken_update_module(
@@ -476,6 +511,28 @@ impl GameLogic {
     // Update Module Registration
     // =========================================================================
 
+    /// The supplied scheduler observes the canonical factory object, without
+    /// publishing it to the compatibility registry or replaying creation.
+    pub(crate) fn validate_scheduling_owner(
+        &self,
+        id: ObjectID,
+        owner: &Arc<RwLock<Object>>,
+    ) -> Result<(), String> {
+        if self
+            .objects
+            .get(&id)
+            .is_some_and(|existing| !Arc::ptr_eq(existing, owner))
+        {
+            return Err("scheduling owner belongs to another factory".into());
+        }
+        Ok(())
+    }
+    pub(crate) fn admit_scheduling_owner(&mut self, id: ObjectID, owner: Arc<RwLock<Object>>) {
+        self.validate_scheduling_owner(id, &owner)
+            .expect("scheduling identity must be pre-admitted");
+        self.objects.entry(id).or_insert(owner);
+    }
+
     /// Register a normal (every-frame) update module
     pub fn register_normal_update_module(&mut self, object_id: ObjectID, module: UpdateModulePtr) {
         // Move one registration between categories/owners, never duplicate it.
@@ -517,6 +574,10 @@ impl GameLogic {
             .map(|module| module.get_update_phase())
             .unwrap_or(SleepyUpdatePhase::Normal);
 
+        module
+            .write()
+            .expect("scheduled module poisoned")
+            .record_scheduled_wake(wake, phase);
         self.sleepy_updates.push(SleepyUpdateEntry {
             wake_frame: wake,
             phase,
@@ -682,6 +743,55 @@ mod sleepy_parity_tests {
     fn insert_test_object(logic: &mut GameLogic, id: ObjectID) {
         let object = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
         logic.objects.insert(id, object);
+    }
+
+    #[test]
+    fn actual_scheduler_updates_saved_clock_after_registration_awaken_and_sleep() {
+        struct SavedClockUpdate {
+            raw: Arc<AtomicU32>,
+        }
+        impl UpdateModuleInterface for SavedClockUpdate {
+            fn record_scheduled_wake(&mut self, frame: u32, phase: SleepyUpdatePhase) {
+                self.raw
+                    .store((frame << 2) | phase as u32, Ordering::Relaxed);
+            }
+            fn get_update_phase(&self) -> SleepyUpdatePhase {
+                SleepyUpdatePhase::Initial
+            }
+            fn update(
+                &mut self,
+            ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+                Ok(UpdateSleepTime::Frames(7))
+            }
+        }
+        let mut factory = crate::object::object_factory::ObjectFactory::new();
+        let id = factory
+            .prepare_object(
+                Arc::new(crate::common::DefaultThingTemplate::new(
+                    "SavedClockOwner".into(),
+                )),
+                crate::common::Coord3D::new(0.0, 0.0, 0.0),
+                None,
+                crate::object::object_factory::ObjectCreationFlags::NO_AI,
+            )
+            .unwrap();
+        let owner = factory.get_object(id).unwrap().get_base_object().unwrap();
+        let mut logic = GameLogic::new();
+        logic.admit_scheduling_owner(id, owner);
+        let raw = Arc::new(AtomicU32::new(0));
+        let module: UpdateModulePtr = Arc::new(RwLock::new(SavedClockUpdate {
+            raw: Arc::clone(&raw),
+        }));
+        logic.frame = 17;
+        logic.register_sleepy_update_module(id, Arc::clone(&module), 23);
+        assert_eq!(raw.load(Ordering::Relaxed), 23 << 2);
+        logic.friend_awaken_update_module(&module, 19);
+        assert_eq!(raw.load(Ordering::Relaxed), 19 << 2);
+        logic.process_sleepy_updates(18);
+        assert_eq!(raw.load(Ordering::Relaxed), 19 << 2);
+        logic.process_sleepy_updates(19);
+        assert_eq!(raw.load(Ordering::Relaxed), 26 << 2);
+        assert_eq!(logic.sleepy_entry_for(&module), Some((id, 26)));
     }
 
     #[test]

@@ -111,6 +111,8 @@ impl Object {
             team,
             prepare_unit_ai,
             true,
+            None,
+            None,
         )
     }
 
@@ -130,6 +132,28 @@ impl Object {
             team,
             prepare_unit_ai,
             false,
+            None,
+            None,
+        )
+    }
+
+    pub(super) fn new_unpublished_preparing_ai_with_locomotors(
+        thing_template: Arc<dyn ThingTemplate>,
+        object_id: ObjectID,
+        object_status_mask: ObjectStatusMaskType,
+        prepare_unit_ai: bool,
+        lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
+        body_definitions: Arc<crate::object::body::active_body::BodyDefinitionCatalog>,
+    ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
+        Self::new_with_id_admission(
+            thing_template,
+            object_id,
+            object_status_mask,
+            None,
+            prepare_unit_ai,
+            false,
+            Some(lookup),
+            Some(body_definitions),
         )
     }
 
@@ -140,6 +164,8 @@ impl Object {
         team: Option<Arc<RwLock<Team>>>,
         prepare_unit_ai: bool,
         publish: bool,
+        lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
+        body_definitions: Option<Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         // set_team runs on the still-unshared object: registration below is
         // what publishes the id, so the previous uniquely-owned write guard
@@ -165,9 +191,13 @@ impl Object {
             register_legacy_object(&object_arc);
         }
 
-        if let Err(err) =
-            Self::init_modules_preparing_ai(&object_arc, thing_template.as_ref(), prepare_unit_ai)
-        {
+        if let Err(err) = Self::init_modules_preparing_ai_with_lookup(
+            &object_arc,
+            thing_template.as_ref(),
+            prepare_unit_ai,
+            lookup,
+            body_definitions.as_ref(),
+        ) {
             if publish && object_id != INVALID_ID {
                 OBJECT_REGISTRY.unregister_object(object_id);
                 unregister_legacy_object(object_id);
@@ -190,6 +220,9 @@ impl Object {
         let team_id = team
             .as_ref()
             .and_then(|team| team.read().ok().map(|team| team.get_id()));
+        let geometry_info = thing_template.get_template_geometry_info();
+        let transform_matrix = Matrix3D::from_translation(geometry_info.position)
+            * Matrix3D::from_rotation_z(geometry_info.angle);
         Self {
             id: object_id,
             producer_id: INVALID_ID,
@@ -296,7 +329,8 @@ impl Object {
             private_status: 0,
             script_status: 0,
 
-            geometry_info: thing_template.get_template_geometry_info(),
+            transform_matrix,
+            geometry_info,
             health_box_offset: Coord3D::new(0.0, 0.0, 0.0),
             i_pos: ICoord3D::ZERO,
 
@@ -927,7 +961,7 @@ impl Object {
         team: Option<Arc<RwLock<Team>>>,
         restoring: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.set_or_restore_team_with_radar_services(team, restoring, None, None)
+        self.set_or_restore_team_with_radar_services(team, restoring, None, None, None)
     }
 
     pub fn set_team_with_player_list_and_radar(
@@ -936,6 +970,39 @@ impl Object {
         players: &crate::player::PlayerList,
         radar: &mut dyn crate::player::RadarEdgeServices,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.set_team_with_player_list_and_services(team, players, radar, None)
+    }
+
+    pub fn set_team_with_player_list_and_services(
+        &mut self,
+        team: Option<Arc<RwLock<Team>>>,
+        players: &crate::player::PlayerList,
+        radar: &mut dyn crate::player::RadarEdgeServices,
+        power: Option<&mut dyn crate::player::PowerBrownoutServices>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.set_team_with_player_list_and_owner_services(team, players, Some(radar), power)
+    }
+
+    /// One concrete domain loan supplies both energy/brownout and radar output.
+    pub fn set_team_with_player_list_and_power(
+        &mut self,
+        team: Option<Arc<RwLock<Team>>>,
+        players: &crate::player::PlayerList,
+        power: &mut dyn crate::player::PowerBrownoutServices,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.set_team_with_player_list_and_owner_services(team, players, None, Some(power))
+    }
+
+    fn set_team_with_player_list_and_owner_services(
+        &mut self,
+        team: Option<Arc<RwLock<Team>>>,
+        players: &crate::player::PlayerList,
+        radar: Option<&mut dyn crate::player::RadarEdgeServices>,
+        power: Option<&mut dyn crate::player::PowerBrownoutServices>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if let (Some(services), Some(team)) = (power.as_deref(), team.as_ref()) {
+            services.validate_team(team)?;
+        }
         let resolved = if let Some(team) = team {
             let inactive = team
                 .read()
@@ -965,7 +1032,8 @@ impl Object {
             resolved.clone(),
             false,
             Some(players),
-            Some(radar),
+            radar,
+            power,
         )?;
         self.original_team_name = resolved
             .as_ref()
@@ -980,6 +1048,7 @@ impl Object {
         restoring: bool,
         players: Option<&crate::player::PlayerList>,
         radar: Option<&mut dyn crate::player::RadarEdgeServices>,
+        mut power: Option<&mut dyn crate::player::PowerBrownoutServices>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let old_team = self.get_team();
         let old_team_id = self.get_team_id();
@@ -1001,10 +1070,29 @@ impl Object {
             .as_ref()
             .and_then(|team_ref| team_ref.read().ok())
             .and_then(|team_guard| team_guard.get_controlling_player_id());
+        let mut old_membership_changed = true;
+        if let Some(power) = power.as_deref() {
+            for controller in [old_player_id, incoming_player_id].into_iter().flatten() {
+                power.validate_borrowed_membership(controller as PlayerIndex, self)?;
+            }
+            // CPP Object.cpp837 removes the member before the old-player callback.
+            if let Some(old) = &old_team {
+                let mut old = old.write().map_err(|_| "power departure team poisoned")?;
+                old_membership_changed = old.get_members().contains(&self.id);
+                if old_membership_changed {
+                    old.remove_member(self.id);
+                }
+            }
+        }
         // CPP Object.cpp:827-854 removes the old player's membership before
         // binding the new team. Player's borrowed-object callback is the one
         // energy admission path and already excludes UnderConstruction.
-        if old_player_id != incoming_player_id {
+        if power
+            .as_ref()
+            .map_or(old_player_id != incoming_player_id, |_| {
+                old_membership_changed
+            })
+        {
             let old_player = if let Some(players) = players {
                 old_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned())
             } else {
@@ -1017,7 +1105,17 @@ impl Object {
                 if self.modules_ready && player.get_num_battle_plans_active() > 0 {
                     player.remove_battle_plan_bonuses_for_object(self);
                 }
-                player.remove_owned_object_for_object(self);
+                if let Some(services) = power.as_deref_mut() {
+                    let index = player.get_player_index();
+                    let brownout = player.change_owned_membership_power(self, false);
+                    drop(player);
+                    if let Some(brownout) = brownout {
+                        services.apply_brownout(index, brownout, self)?;
+                    }
+                    services.membership_idle_worker(index, self, false)?;
+                } else {
+                    player.remove_owned_object_for_object(self);
+                }
             }
         }
 
@@ -1030,13 +1128,27 @@ impl Object {
 
         let new_team = self.get_team();
         let new_team_id = self.get_team_id();
+        let mut new_membership_changed = true;
+        if power.is_some() {
+            if let Some(new) = &new_team {
+                // CPP Object.cpp852 prepends before the arrival energy callback.
+                let mut new = new.write().map_err(|_| "power arrival team poisoned")?;
+                new_membership_changed = !new.get_members().contains(&self.id);
+                if new_membership_changed {
+                    new.add_member(self.id);
+                }
+            }
+        }
 
         let new_player_id = new_team
             .as_ref()
             .and_then(|team_ref| team_ref.read().ok())
             .and_then(|team_guard| team_guard.get_controlling_player_id());
 
-        if old_player_id != new_player_id {
+        if power
+            .as_ref()
+            .map_or(old_player_id != new_player_id, |_| new_membership_changed)
+        {
             let new_player = if let Some(players) = players {
                 new_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned())
             } else {
@@ -1045,9 +1157,22 @@ impl Object {
                 };
                 new_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned())
             };
-            if let Some(player) = new_player {
-                let mut player = player.write().expect("capture new player poisoned");
-                player.add_owned_object_for_object(self);
+            if let Some(player_handle) = new_player {
+                let mut player = player_handle.write().expect("capture new player poisoned");
+                if let Some(services) = power.as_deref_mut() {
+                    let index = player.get_player_index();
+                    let brownout = player.change_owned_membership_power(self, true);
+                    drop(player);
+                    if let Some(brownout) = brownout {
+                        services.apply_brownout(index, brownout, self)?;
+                    }
+                    services.membership_idle_worker(index, self, true)?;
+                    player = player_handle
+                        .write()
+                        .map_err(|_| "power arrival player poisoned")?;
+                } else {
+                    player.add_owned_object_for_object(self);
+                }
                 if self.modules_ready && player.get_num_battle_plans_active() > 0 {
                     player.apply_battle_plan_bonuses_for_object(self);
                 }
@@ -1061,7 +1186,7 @@ impl Object {
         // Keep per-team member lists in sync with object team ownership.
         // Use non-blocking team locks to avoid lock inversion with callers that already
         // hold team write locks while changing object ownership.
-        {
+        if power.is_none() {
             if let Some(old_team_ref) = old_team {
                 if let Ok(mut old_team_guard) = old_team_ref.try_write() {
                     old_team_guard.remove_member(self.id);
@@ -1074,6 +1199,29 @@ impl Object {
             }
         }
 
+        self.finish_team_switch_with_services(
+            old_team_id,
+            new_team_id,
+            old_player_id,
+            new_player_id,
+            restoring,
+            players,
+            radar,
+            power,
+        )
+    }
+
+    pub(super) fn finish_team_switch_with_services(
+        &mut self,
+        old_team_id: Option<crate::team::TeamID>,
+        new_team_id: Option<crate::team::TeamID>,
+        old_player_id: Option<u32>,
+        new_player_id: Option<u32>,
+        restoring: bool,
+        players: Option<&crate::player::PlayerList>,
+        radar: Option<&mut dyn crate::player::RadarEdgeServices>,
+        mut power: Option<&mut dyn crate::player::PowerBrownoutServices>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // One player-list read covers both the capture hand-off and the
         // initial-capture-bonus lookup; owners are cloned out so no guard is
         // held while the callbacks run. `award_initial_capture_bonus_if_needed`
@@ -1097,7 +1245,17 @@ impl Object {
         };
         let capture_bonus_player = if restoring { None } else { new_owner.clone() };
         if old_team_id.is_some() && new_team_id.is_some() && !restoring {
-            self.on_capture_with_radar_services(old_owner, new_owner, radar);
+            if let Some(radar) = radar {
+                self.on_capture_with_radar_services(old_owner, new_owner, Some(radar));
+            } else if let Some(power) = power.as_deref_mut() {
+                self.on_capture_with_radar_services(
+                    old_owner,
+                    new_owner,
+                    Some(power.radar_services()),
+                );
+            } else {
+                self.on_capture_with_radar_services(old_owner, new_owner, None);
+            }
         }
 
         if !restoring {

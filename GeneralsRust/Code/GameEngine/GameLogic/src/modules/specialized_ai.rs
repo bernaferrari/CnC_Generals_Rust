@@ -88,6 +88,14 @@ pub trait WorkerAIUpdateInterface: Send + Sync {
 
 /// Dozer AI update interface (build tasks).
 pub trait DozerAIUpdateInterface: Send + Sync {
+    fn finish_cancelled_task_with_world(
+        &mut self,
+        _task: crate::object::update::ai_update::dozer_ai_update::DozerTask,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("Dozer has no supplied primary reset".into())
+    }
+
     /// Assign a build task for a newly created construction site.
     fn set_build_task(
         &mut self,
@@ -100,6 +108,22 @@ pub trait DozerAIUpdateInterface: Send + Sync {
 
     /// Cancel an active or pending dozer task.
     fn cancel_task(&mut self, _task: crate::object::update::ai_update::dozer_ai_update::DozerTask) {
+    }
+
+    fn supports_owned_task_cancel(&self) -> bool {
+        false
+    }
+    fn cancel_task_bookkeeping_owned(
+        &mut self,
+        _task: crate::object::update::ai_update::dozer_ai_update::DozerTask,
+    ) -> Result<(), String> {
+        Err("dozer has no supplied cancellation continuation".into())
+    }
+    fn finish_cancelled_task_on_idle_owned(
+        &mut self,
+        _task: crate::object::update::ai_update::dozer_ai_update::DozerTask,
+    ) -> Result<(), String> {
+        Err("dozer has no supplied idle cancellation continuation".into())
     }
 
     /// C++ DozerAIInterface::getCurrentTask

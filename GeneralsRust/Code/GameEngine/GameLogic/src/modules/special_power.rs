@@ -39,6 +39,20 @@ pub trait SpecialPowerModuleInterface: Send + Sync {
     fn get_power_name(&self) -> String;
     fn get_percent_ready(&self) -> f32;
     fn pause_countdown(&mut self, pause: bool);
+
+    fn supports_owned_pause(&self) -> bool {
+        false
+    }
+    fn pause_countdown_owned(
+        &mut self,
+        _pause: bool,
+        _frame: u32,
+        _uses_delay: bool,
+        _shared_ready_frame: Option<u32>,
+    ) -> Result<(), String> {
+        Err("special power does not admit a supplied pause clock".into())
+    }
+
     fn mark_special_power_triggered(&mut self, location: Option<&Coord3D>);
     fn on_special_power_creation(&mut self) {
         let _ = self.get_ready_frame();

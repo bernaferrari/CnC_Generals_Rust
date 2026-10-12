@@ -577,7 +577,8 @@ impl UpdateModuleInterface for HordeUpdate {
                             horde_terrain_decal_type(true, has_nationalism, has_fanaticism)
                         } else {
                             let geom = obj.get_geometry_info();
-                            let size = 3.5 * ((geom.bounds.max.x - geom.bounds.min.x).abs() * 0.5);
+                            let size =
+                                3.5 * ((geom.bounds().max.x - geom.bounds().min.x).abs() * 0.5);
                             drawable.set_terrain_decal_size(size, size);
                             horde_terrain_decal_type(false, has_nationalism, has_fanaticism)
                         };

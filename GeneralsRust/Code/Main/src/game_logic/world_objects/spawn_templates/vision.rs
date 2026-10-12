@@ -9,7 +9,7 @@ impl GameLogic {
     pub(in super::super::super) fn update_main_crate_vision(&mut self) {
         use gamelogic::common::Coord3D;
 
-        let shroud = self.world_services.shroud();
+        let shroud = std::sync::Arc::clone(self.world_services.shroud());
         let mut shroud_mgr = match shroud.lock() {
             Ok(mgr) => mgr,
             Err(_) => return,
@@ -197,7 +197,7 @@ impl GameLogic {
         // Reveal/cover counters, delayed expiry and object COI mixing all read
         // this session's grid. No competing global partition stamp/writeback.
         use crate::game_logic::partition_coi::{
-            cells_touched_for_footprint_at_origin, mix_object_shroud_from_cells,
+            cells_touched_for_footprint_clipped, mix_object_shroud_from_cells,
         };
         use gamelogic::common::{Relationship, types::ObjectShroudStatus};
 
@@ -223,8 +223,21 @@ impl GameLogic {
             .collect();
 
         let origin = shroud_mgr.grid_world_origin().unwrap_or([0.0, 0.0]);
+        let dimensions = shroud_mgr
+            .grid_dimensions()
+            .map(|(width, height, _)| [width, height])
+            .unwrap_or([0, 0]);
         for (id, owner, contained, immobile, mine, always_visible, x, z, fp) in object_snaps {
-            let cells = cells_touched_for_footprint_at_origin(origin, x, z, fp);
+            let cells = match cells_touched_for_footprint_clipped(origin, dimensions, x, z, fp) {
+                Ok(cells) => cells,
+                Err(reason) => {
+                    log::error!(
+                        "Rejecting host object {} partition footprint: {reason}",
+                        id.0
+                    );
+                    continue;
+                }
+            };
             for &pid in &player_ids {
                 if always_visible || contained {
                     shroud_mgr.set_host_object_shroud_status(pid, id.0, ObjectShroudStatus::Clear);
@@ -277,6 +290,9 @@ impl GameLogic {
             }
         }
         shroud_mgr.mark_host_vision_ready();
+        if let Err(error) = self.update_host_fog_ghosts_with_shroud(&shroud_mgr) {
+            log::error!("Cannot update this session's fog ghosts: {error}");
+        }
     }
 
     pub(in super::super::super) fn shroud_visibility_snapshot_for_team(

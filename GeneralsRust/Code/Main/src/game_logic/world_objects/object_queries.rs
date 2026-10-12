@@ -1422,6 +1422,15 @@ impl GameLogic {
 
     /// Clear all objects (for snapshot restoration)
     pub fn clear_all_objects(&mut self) {
+        let ghost_parents: Vec<_> = self
+            .w3d_ghosts
+            .used()
+            .iter()
+            .filter_map(|ghost| ghost.parent_object_id().map(ObjectId))
+            .collect();
+        for id in ghost_parents {
+            self.detach_host_fog_ghost(id);
+        }
         // Recreated ObjectIDs must not inherit the old roster's comparisons.
         // Keep authoritative saved trigger flags, restored before this call.
         self.host_guard_area_occupancy.get_mut().clear();

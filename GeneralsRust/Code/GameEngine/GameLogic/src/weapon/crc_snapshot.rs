@@ -142,6 +142,35 @@ impl Snapshotable for Weapon {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.xfer_with_templates(xfer, &mut |name| {
+            with_weapon_store(|store| store.find_weapon_template(name).cloned())
+                .map_err(|error| error.to_string())
+        })
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.load_post_process_with_objects(&mut |id| {
+            crate::helpers::TheGameLogic::find_object_by_id(id).is_some()
+        });
+        Ok(())
+    }
+}
+
+impl Weapon {
+    /// Resolve the saved stream reference in the driving object store, after admission.
+    pub fn load_post_process_with_objects(&mut self, exists: &mut dyn FnMut(ObjectID) -> bool) {
+        if self.projectile_stream_id != INVALID_OBJECT_ID && !exists(self.projectile_stream_id) {
+            self.projectile_stream_id = INVALID_OBJECT_ID;
+        }
+    }
+
+    /// Transfer the original weapon record using this session's immutable definitions.
+    /// Loading never publishes or selects a mutable world.
+    pub fn xfer_with_templates(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        template: &mut dyn FnMut(&str) -> Result<Option<Arc<super::WeaponTemplate>>, String>,
+    ) -> Result<(), String> {
         let current_version: XferVersion = 3;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
@@ -152,9 +181,7 @@ impl Snapshotable for Weapon {
             xfer.xfer_ascii_string(&mut template_name)
                 .map_err(|e| e.to_string())?;
             if xfer.get_xfer_mode() == XferMode::Load {
-                let template =
-                    with_weapon_store(|store| store.find_weapon_template(&template_name).cloned())
-                        .map_err(|e| e.to_string())?;
+                let template = template(&template_name)?;
                 let template = template
                     .ok_or_else(|| format!("Weapon::xfer missing template {}", template_name))?;
                 self.template = template;
@@ -230,15 +257,6 @@ impl Snapshotable for Weapon {
         xfer.xfer_bool(&mut self.leech_weapon_range_active)
             .map_err(|e| e.to_string())?;
 
-        Ok(())
-    }
-
-    fn load_post_process(&mut self) -> Result<(), String> {
-        if self.projectile_stream_id != INVALID_OBJECT_ID
-            && crate::helpers::TheGameLogic::find_object_by_id(self.projectile_stream_id).is_none()
-        {
-            self.projectile_stream_id = INVALID_OBJECT_ID;
-        }
         Ok(())
     }
 }

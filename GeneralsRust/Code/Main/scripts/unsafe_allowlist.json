@@ -329,7 +329,11 @@
       "undocumented": 0
     },
     "Code/GameEngine/GameLogic/src/object/object_xfer.rs": {
-      "constructs": 7,
+      "constructs": 5,
+      "undocumented": 0
+    },
+    "Code/GameEngine/GameLogic/src/object/object_xfer_wire.rs": {
+      "constructs": 2,
       "undocumented": 0
     },
     "Code/GameEngine/GameLogic/src/path/pathfind_cell_info.rs": {

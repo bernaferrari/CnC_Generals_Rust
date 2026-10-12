@@ -1427,12 +1427,13 @@ fn test_spy_vision_shares_enemy_vision() {
         let base = obstacle.base();
         let mut obstacle = base.write().unwrap();
         let mut geometry = *obstacle.get_geometry_info();
-        geometry.bounds.min.x = -3.0;
-        geometry.bounds.min.y = -3.0;
-        geometry.bounds.min.z = 0.0;
-        geometry.bounds.max.x = 3.0;
-        geometry.bounds.max.y = 3.0;
-        geometry.bounds.max.z = 10.0;
+        geometry.shape.set(
+            geometry.get_geometry_type(),
+            geometry.get_is_small(),
+            10.0,
+            3.0,
+            3.0,
+        );
         obstacle.set_geometry_info(geometry);
     }
     manager_arc

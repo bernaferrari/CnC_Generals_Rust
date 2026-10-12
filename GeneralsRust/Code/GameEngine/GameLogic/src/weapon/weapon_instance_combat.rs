@@ -152,26 +152,72 @@ impl Weapon {
     /// Returns `(aim_point, rolled_scatter_radius)` after C++ randomization.
     pub(crate) fn scatter_aim_point(
         &self,
-        mut target: Coord3D,
+        target: Coord3D,
         target_object_type: ObjectType,
         layer: PathfindLayerEnum,
     ) -> (Coord3D, f32) {
+        self.scatter_aim_point_with_observations(
+            target,
+            target_object_type,
+            &mut |lo, hi| self.random_float(lo, hi),
+            &mut |x, y| TheTerrainLogic::get().map(|terrain| terrain.get_layer_height(x, y, layer)),
+        )
+    }
+
+    /// The same scatter geometry with an explicitly supplied simulation stream
+    /// and map. No active-world selection occurs on this route.
+    pub fn calculate_scatter_with_services(
+        &self,
+        target: Coord3D,
+        target_object_type: ObjectType,
+        random: &mut game_engine::common::random_value::RandomState,
+        terrain: &crate::terrain::TerrainLogic,
+    ) -> Coord3D {
+        self.scatter_aim_point_with_observations(
+            target,
+            target_object_type,
+            &mut |lo, hi| random.next_real(lo, hi),
+            &mut |x, y| {
+                Some(terrain.get_layer_height(
+                    x,
+                    y,
+                    crate::path::PathfindLayerEnum::Ground,
+                    None,
+                    false,
+                ))
+            },
+        )
+        .0
+    }
+
+    pub(super) fn authored_scatter_radius(&self, target_object_type: ObjectType) -> f32 {
         let mut scatter_radius = self.template.scatter_radius;
         if target_object_type == ObjectType::Infantry
             && self.template.infantry_inaccuracy_dist > 0.0
         {
             scatter_radius += self.template.infantry_inaccuracy_dist;
         }
+        scatter_radius
+    }
+
+    fn scatter_aim_point_with_observations(
+        &self,
+        mut target: Coord3D,
+        target_object_type: ObjectType,
+        random: &mut dyn FnMut(f32, f32) -> f32,
+        height: &mut dyn FnMut(f32, f32) -> Option<f32>,
+    ) -> (Coord3D, f32) {
+        let scatter_radius = self.authored_scatter_radius(target_object_type);
         if scatter_radius <= 0.0 {
             return (target, 0.0);
         }
 
-        let rolled = self.random_float(0.0, scatter_radius);
-        let angle = self.random_float(0.0, std::f32::consts::PI * 2.0);
+        let rolled = random(0.0, scatter_radius);
+        let angle = random(0.0, std::f32::consts::PI * 2.0);
         target.x += rolled * angle.cos();
         target.y += rolled * angle.sin();
-        if let Some(terrain) = TheTerrainLogic::get() {
-            target.z = terrain.get_layer_height(target.x, target.y, layer);
+        if let Some(height) = height(target.x, target.y) {
+            target.z = height;
         }
         (target, rolled)
     }

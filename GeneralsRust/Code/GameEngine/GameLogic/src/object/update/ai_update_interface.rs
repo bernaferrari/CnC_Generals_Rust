@@ -2759,6 +2759,7 @@ pub struct AIUpdateInterfaceModule {
     module_name_key: NameKeyType,
     data: Arc<AIUpdateModuleData>,
     runtime_ai: Option<Arc<Mutex<dyn crate::modules::AIUpdateInterface>>>,
+    next_call_frame_and_phase: u32,
 }
 
 impl AIUpdateInterfaceModule {
@@ -2767,7 +2768,49 @@ impl AIUpdateInterfaceModule {
             module_name_key,
             data,
             runtime_ai: None,
+            next_call_frame_and_phase: 0,
         }
+    }
+
+    /// Preserve the module's version4 prefix and full runtime field order;
+    /// only immutable locomotor-name resolution comes from the receiving owner.
+    pub(crate) fn xfer_with_locomotors(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
+    ) -> Result<(), String> {
+        let mut wake = self.next_call_frame_and_phase;
+        self.xfer_runtime(xfer, Some(lookup), &mut wake)?;
+        self.next_call_frame_and_phase = wake & !3;
+        Ok(())
+    }
+    fn xfer_runtime(
+        &self,
+        xfer: &mut dyn Xfer,
+        lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
+        wake: &mut u32,
+    ) -> Result<(), String> {
+        if lookup.is_some() && self.runtime_ai.is_none() {
+            return Err("supplied AI snapshot runtime absent".into());
+        }
+        let mut version = 4u8;
+        xfer.xfer_version(&mut version, 4)
+            .map_err(|e| e.to_string())?;
+        crate::object::behavior::behavior_module::xfer_update_module_base_state(xfer, wake)?;
+        if let Some(runtime) = &self.runtime_ai {
+            let mut actor = runtime
+                .lock()
+                .map_err(|_| "AIUpdate runtime poisoned during Xfer")?;
+            match lookup {
+                Some(lookup) => {
+                    actor.xfer_ai_update_state_with_locomotors(xfer, lookup)?;
+                }
+                None => {
+                    actor.xfer_ai_update_state(xfer)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -2786,6 +2829,18 @@ impl AIUpdateInterfaceModule {
 }
 
 impl Module for AIUpdateInterfaceModule {
+    fn get_initial_wake_frame(&mut self) -> Option<u32> {
+        Some(self.next_call_frame_and_phase >> 2)
+    }
+
+    fn record_scheduled_wake(
+        &mut self,
+        frame: u32,
+        phase: game_engine::common::thing::update_module::SleepyUpdatePhase,
+    ) {
+        self.next_call_frame_and_phase = (frame.min(0x3fff_ffff) << 2) | phase as u32;
+    }
+
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -2801,30 +2856,13 @@ impl Module for AIUpdateInterfaceModule {
 
 impl Snapshotable for AIUpdateInterfaceModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: u8 = 4;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| e.to_string())?;
-        if let Some(runtime_ai) = &self.runtime_ai {
-            let mut guard = runtime_ai
-                .lock()
-                .map_err(|_| "AIUpdate runtime lock poisoned during crc".to_string())?;
-            let _ = guard.xfer_ai_update_state(xfer)?;
-        }
-        Ok(())
+        let mut wake = self.next_call_frame_and_phase;
+        self.xfer_runtime(xfer, None, &mut wake)
     }
-
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: u8 = 4;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| e.to_string())?;
-        if let Some(runtime_ai) = &self.runtime_ai {
-            let mut guard = runtime_ai
-                .lock()
-                .map_err(|_| "AIUpdate runtime lock poisoned during xfer".to_string())?;
-            let _ = guard.xfer_ai_update_state(xfer)?;
-        }
+        let mut wake = self.next_call_frame_and_phase;
+        self.xfer_runtime(xfer, None, &mut wake)?;
+        self.next_call_frame_and_phase = wake & !3;
         Ok(())
     }
 
@@ -3887,3 +3925,7 @@ mod tests {
         assert_ne!(ai.cur_locomotor_tag, 0);
     }
 }
+
+#[cfg(test)]
+#[path = "ai_update_interface/update_clock_wire_tests.rs"]
+mod update_clock_wire_tests;

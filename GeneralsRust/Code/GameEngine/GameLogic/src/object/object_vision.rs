@@ -30,32 +30,39 @@ impl Object {
     ///
     /// C++ reference: `Object::setVisionSpiedByPlayer` (ref-counted per spying player).
     pub fn set_vision_spied_by_player(&mut self, spying_player_index: Int, on: Bool) {
-        if spying_player_index < 0 {
-            return;
-        }
-        let idx = spying_player_index as usize;
-        if idx >= MAX_PLAYER_COUNT {
-            return;
-        }
-
-        let was_spied = self.vision_spied_by[idx] > 0;
-        if on {
-            self.vision_spied_by[idx] = self.vision_spied_by[idx].saturating_add(1);
-        } else {
-            self.vision_spied_by[idx] = self.vision_spied_by[idx].saturating_sub(1);
-        }
-        let is_spied = self.vision_spied_by[idx] > 0;
-
-        if was_spied != is_spied {
-            let mut working_mask = PlayerMaskType::none();
-            for i in 0..MAX_PLAYER_COUNT {
-                if self.vision_spied_by[i] > 0 {
-                    working_mask |= PlayerMaskType::from_bits_truncate(1u32 << i);
-                }
-            }
-            self.vision_spied_mask = working_mask;
+        if self.set_vision_spied_state(spying_player_index, on) {
             self.handle_partition_cell_maintenance();
         }
+    }
+
+    /// Shared Object.cpp5222 ref-count edge, before the actual partition service.
+    pub(crate) fn set_vision_spied_state(&mut self, spying_player_index: Int, on: Bool) -> bool {
+        let Ok(idx) = usize::try_from(spying_player_index) else {
+            return false;
+        };
+        if idx >= MAX_PLAYER_COUNT {
+            return false;
+        }
+        self.vision_spied_by[idx] = if on {
+            self.vision_spied_by[idx].wrapping_add(1)
+        } else {
+            self.vision_spied_by[idx].wrapping_sub(1)
+        };
+        let refresh = if on {
+            self.vision_spied_by[idx] == 1
+        } else {
+            self.vision_spied_by[idx] == 0
+        };
+        if refresh {
+            let mut mask = PlayerMaskType::none();
+            for i in 0..MAX_PLAYER_COUNT {
+                if self.vision_spied_by[i] > 0 {
+                    mask |= PlayerMaskType::from_bits_truncate(1u32 << i);
+                }
+            }
+            self.vision_spied_mask = mask;
+        }
+        refresh
     }
 
     pub fn set_vision_spied(&mut self, setting: Bool, by_whom: Int) {

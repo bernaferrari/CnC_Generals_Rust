@@ -31,9 +31,9 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers, the_ai,
+    search_qualifiers, the_ai, AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction,
+    PartitionFilter,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
@@ -42,11 +42,11 @@ use crate::common::xfer::XferExt;
 use crate::common::*;
 use crate::control_bar::get_control_bar_bridge;
 use crate::damage::DamageInfo;
-use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
+use crate::helpers::{get_game_logic_random_value, TheAudio, TheGameLogic, ThePartitionManager};
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
-    ContainWant, ExitDoorType, ExitInterface, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
+    ContainWant, ExitDoorType, ExitInterface, PhysicsBehaviorExt, FAST_AS_POSSIBLE,
 };
 use crate::object::production::AIFreeToExitType;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -56,13 +56,13 @@ use crate::physics::GRAVITY;
 use crate::player::PlayerType;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::engine::get_script_engine;
-use crate::state_machine::cpp_state::{CppState, cpp_transition, register_cpp_state};
+use crate::state_machine::cpp_state::{cpp_transition, register_cpp_state, CppState};
 use crate::state_machine::*;
 use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
 use crate::waypoint::{Waypoint, WaypointId};
 use crate::weapon::{
-    NO_MAX_SHOTS_LIMIT, Weapon, WeaponChoiceCriteria, WeaponLockType, WeaponSlotType, WeaponStatus,
+    Weapon, WeaponChoiceCriteria, WeaponLockType, WeaponSlotType, WeaponStatus, NO_MAX_SHOTS_LIMIT,
 };
 use game_engine::common::system::{GeometryType, Snapshotable, Xfer};
 
@@ -614,6 +614,37 @@ impl CppState for AIExitState {
         Snapshotable::xfer(self, xfer)
     }
 
+    fn cpp_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        if ai.world().is_some() {
+            self.owned_enter(ai)
+        } else {
+            self.cpp_on_enter()
+        }
+    }
+    fn cpp_on_update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        if ai.world().is_some() {
+            self.owned_update(ai)
+        } else {
+            self.cpp_on_update()
+        }
+    }
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        status: StateExitType,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<(), String> {
+        if ai.world().is_some() {
+            self.owned_exit(ai)
+        } else {
+            self.cpp_on_exit(status)
+        }
+    }
     fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
@@ -795,6 +826,37 @@ impl CppState for AIExitInstantlyState {
         Snapshotable::xfer(self, xfer)
     }
 
+    fn cpp_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        if ai.world().is_some() {
+            self.owned_enter(ai)
+        } else {
+            self.cpp_on_enter()
+        }
+    }
+    fn cpp_on_update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        if ai.world().is_some() {
+            Ok(StateReturnType::Success)
+        } else {
+            self.cpp_on_update()
+        }
+    }
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        status: StateExitType,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<(), String> {
+        if ai.world().is_some() {
+            self.owned_exit(ai)
+        } else {
+            self.cpp_on_exit(status)
+        }
+    }
     fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
@@ -975,3 +1037,6 @@ impl Snapshotable for AIEnterState {
         Snapshotable::load_post_process(&mut self.base)
     }
 }
+
+#[path = "enter/owned_exit.rs"]
+mod owned_exit;

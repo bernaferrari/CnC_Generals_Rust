@@ -15,12 +15,6 @@ use game_engine::common::thing::module::{
 };
 use std::sync::Arc;
 
-/// Wave 447: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
-
 /// Module data for FireSpreadUpdate
 /// Matches C++ FireSpreadUpdate.cpp
 #[derive(Debug, Clone)]
@@ -230,8 +224,9 @@ impl FireSpreadUpdate {
     }
 
     pub fn update_simple(&mut self) -> UpdateSleepTime {
-        // Wave 447: empty dual-world → Forever.
-        if dual_world_registry_unavailable() {
+        // A cleared owner cannot represent a live flammable object. Match
+        // the typed missing-owner adapter without inspecting a peer registry.
+        if self.thing == crate::common::INVALID_ID {
             return UpdateSleepTime::Forever;
         }
 
@@ -245,7 +240,7 @@ impl FireSpreadUpdate {
                     )
                 })
             else {
-                return UpdateSleepTime::None;
+                return UpdateSleepTime::Forever;
             };
 
             if !aflame {

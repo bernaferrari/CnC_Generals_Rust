@@ -108,11 +108,28 @@ impl BehaviorInterfaceHandle {
         }
     }
 
+    pub(super) fn may_have_flight_deck(&self) -> bool {
+        match &self.kind {
+            BehaviorInterfaceKind::Helper(_) => false,
+            BehaviorInterfaceKind::Template(value) => value.entry.has_flight_deck,
+            #[cfg(any(test, feature = "internal"))]
+            BehaviorInterfaceKind::Injected(_) => true,
+        }
+    }
+
+    pub(super) fn has_owned_spy_disabled_callback(&self) -> bool {
+        match &self.kind {
+            BehaviorInterfaceKind::Template(value) => value.entry.has_spy_vision,
+            _ => false,
+        }
+    }
+
     pub(super) fn has_owned_default_disabled_callback(&self) -> bool {
         match &self.kind {
             // Both implementations inherit BehaviorModuleInterface's actual
             // default onDisabledEdge; neither resolves its ModuleEntry here.
-            BehaviorInterfaceKind::Helper(_) | BehaviorInterfaceKind::Template(_) => true,
+            BehaviorInterfaceKind::Helper(_) => true,
+            BehaviorInterfaceKind::Template(value) => !value.entry.has_spy_vision,
             #[cfg(any(test, feature = "internal"))]
             BehaviorInterfaceKind::Injected(_) => false,
         }

@@ -103,9 +103,9 @@ impl PartitionManager {
 
         for obj_id in &object_ids {
             // Scoped registry borrow — no Arc handle clone per object.
-            let Some((id, pos)) = OBJECT_REGISTRY.with_object(*obj_id, |obj| {
-                (obj.get_id(), *obj.get_position())
-            }) else {
+            let Some((id, pos)) =
+                OBJECT_REGISTRY.with_object(*obj_id, |obj| (obj.get_id(), *obj.get_position()))
+            else {
                 continue;
             };
             self.add_object(id, (pos.x, pos.y, pos.z));
@@ -305,11 +305,9 @@ impl PartitionManager {
         object_id: ObjectID,
         player_index: usize,
     ) -> Option<crate::common::ObjectShroudStatus> {
-        self.ghost_links.get(&object_id).and_then(|link| {
-            link.shroudedness_previous
-                .get(player_index)
-                .copied()
-        })
+        self.ghost_links
+            .get(&object_id)
+            .and_then(|link| link.shroudedness_previous.get(player_index).copied())
     }
 
     pub fn ghost_frozen_position(&self, object_id: ObjectID) -> Option<Coord3D> {
@@ -330,13 +328,7 @@ impl PartitionManager {
         let orphans = self.orphan_ghost_object_ids();
         for object_id in orphans {
             let status = current_status(object_id);
-            self.apply_object_ghost_shroud_status(
-                object_id,
-                player_index,
-                status,
-                None,
-                manager,
-            );
+            self.apply_object_ghost_shroud_status(object_id, player_index, status, None, manager);
         }
         manager.update_orphaned_objects(&[]);
     }
@@ -460,7 +452,6 @@ impl PartitionManager {
         self.updated_since_last_reset
     }
 
-
     pub fn add_looker(&mut self, player_index: i32, x: i32, y: i32) {
         self.shroud.add_looker(player_index, x, y);
     }
@@ -488,10 +479,13 @@ impl PartitionManager {
             .insert((player_index, store_to_fog), cells);
     }
 
-
     /// C++ `PartitionManager::restoreFoggedCells`.
     pub fn restore_fogged_cells(&mut self, player_index: usize, restore_to_fog: bool) {
-        let Some(cells) = self.fogged_cells.get(&(player_index, restore_to_fog)).cloned() else {
+        let Some(cells) = self
+            .fogged_cells
+            .get(&(player_index, restore_to_fog))
+            .cloned()
+        else {
             return;
         };
         let player = player_index as i32;
@@ -537,6 +531,7 @@ mod ghost_transition_tests {
             render_objects: vec![RenderObjectState {
                 name: name.to_string(),
                 scale: 1.0,
+                geometry_scale: 1.0,
                 color: 0xffff_ffff,
                 transform: Matrix3x4::IDENTITY,
                 sub_objects: Vec::new(),

@@ -17,6 +17,12 @@ use std::sync::{Arc, RwLock};
 /// trigger notifications and semantic presentation messages, not queued game
 /// mutations; Object trigger flags change synchronously during the operation.
 pub struct AiNativeServices<'a> {
+    pub teams: &'a crate::team::TeamFactory,
+    pub client_random: &'a mut game_engine::common::random_value::RandomState,
+    pub idle_worker_events: &'a mut crate::helpers::IdleWorkerEvents,
+    pub dirty_ui_objects: &'a mut Vec<ObjectID>,
+    pub current_update: Option<game_engine::common::thing::update_module::UpdateModulePtr>,
+    pub update_scheduler: &'a mut crate::system::game_logic::GameLogic,
     pub terrain: &'a crate::terrain::TerrainLogic,
     pub pathfinder: &'a mut crate::ai::Pathfinder,
     pub collision: &'a mut crate::object::collide::collision_system::CollisionSystem,
@@ -38,6 +44,8 @@ pub struct BorrowedAiWorld<'a> {
     factory: &'a ObjectFactory,
     players: &'a PlayerList,
     services: AiNativeServices<'a>,
+    exit_driving: bool,
+    pending_exit: Option<owned_exit::ExitContinuation>,
 }
 impl<'a> BorrowedAiWorld<'a> {
     pub fn new(
@@ -55,7 +63,158 @@ impl<'a> BorrowedAiWorld<'a> {
             factory,
             players,
             services,
+            exit_driving: false,
+            pending_exit: None,
         })
+    }
+
+    /// Immutable native owners may be borrowed alongside the mutable operation.
+    pub(crate) fn service_owners(
+        &self,
+    ) -> (
+        &'a ObjectFactory,
+        &'a PlayerList,
+        &'a crate::team::TeamFactory,
+    ) {
+        (self.factory, self.players, self.services.teams)
+    }
+
+    /// Admit a staged authored Stealth module once at its real birth frame.
+    /// Restored controllers already have clocks and must not replay this phase.
+    pub fn admit_prepared_stealth(&mut self, id: ObjectID) -> Result<(), String> {
+        let owner = self.object(id).ok_or("stealth admission owner absent")?;
+        let (handle, entry) = {
+            let object = owner
+                .read()
+                .map_err(|_| "stealth admission owner poisoned")?;
+            (
+                object
+                    .get_stealth()
+                    .ok_or("authored stealth cache absent")?,
+                object
+                    .module_by_name(&crate::common::AsciiString::from("StealthUpdate"))
+                    .ok_or("authored stealth entry absent")?,
+            )
+        };
+        {
+            let controller = handle
+                .lock()
+                .map_err(|_| "stealth admission controller poisoned")?;
+            controller.validate_native_owner(&owner, false)?;
+            if controller.uses_rider_stealth() {
+                return Err(
+                    "native rider-selected stealth owner requires its admitted controller".into(),
+                );
+            }
+            if controller.is_native_ready() {
+                return Err("stealth already admitted or restored".into());
+            }
+        }
+        self.services
+            .update_scheduler
+            .validate_scheduling_owner(id, &owner)?;
+        let mut object = owner
+            .try_write()
+            .map_err(|_| "stealth admission owner unavailable")?;
+        let proxies = object.named_update_registrations("StealthUpdate");
+        let pulse = self
+            .services
+            .client_random
+            .next_real(0.0, std::f32::consts::PI);
+        let (innate, wake) = entry.with_module(|module| {
+            module
+                .as_any_mut()
+                .downcast_mut::<crate::stealth_update::StealthUpdateModule>()
+                .ok_or("wrong authored stealth entry")?
+                .admit_native(&owner, self.services.frame, pulse)
+        })?;
+        if innate {
+            object.set_status(crate::common::ObjectStatusMaskType::CAN_STEALTH, true);
+        }
+        drop(object);
+        self.services
+            .update_scheduler
+            .admit_scheduling_owner(id, Arc::clone(&owner));
+        for proxy in proxies {
+            self.services
+                .update_scheduler
+                .register_sleepy_update_module(id, proxy, wake);
+        }
+        Ok(())
+    }
+
+    fn revealed_enemy_ais(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+    ) -> Result<
+        Vec<(
+            Arc<RwLock<Object>>,
+            Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>,
+        )>,
+        String,
+    > {
+        let object = owner.read().map_err(|_| "reveal owner poisoned")?;
+        let position = *object.get_position();
+        let controller = self
+            .controller(&object)
+            .ok_or("revealed controller absent")?;
+        drop(object);
+        let default_team = controller
+            .read()
+            .map_err(|_| "revealed controller poisoned")?
+            .get_default_team()
+            .ok_or("revealed default team absent")?;
+        let mut result = Vec::new();
+        for player in self.players.iter() {
+            let player = player.read().map_err(|_| "reveal player poisoned")?;
+            let default_team_guard = default_team
+                .read()
+                .map_err(|_| "reveal default team poisoned")?;
+            let enemy =
+                player.get_relationship_with_team(&default_team_guard) == Relationship::Enemies;
+            drop(default_team_guard);
+            let controller = player.get_player_index();
+            drop(player);
+            if !enemy {
+                continue;
+            }
+            for team in self
+                .services
+                .teams
+                .owned_team_instances_for_controller(controller as u32)
+            {
+                let ids = team
+                    .read()
+                    .map_err(|_| "reveal team poisoned")?
+                    .get_members()
+                    .to_vec();
+                for id in ids {
+                    let Some(object) = self.object(id) else {
+                        continue;
+                    };
+                    let guard = object.read().map_err(|_| "reveal enemy poisoned")?;
+                    if !guard
+                        .retained_team()
+                        .as_ref()
+                        .is_some_and(|pin| Arc::ptr_eq(pin, &team))
+                    {
+                        continue;
+                    }
+                    let Some(ai) = guard.get_ai_update_interface() else {
+                        continue;
+                    };
+                    if (*guard.get_position() - position).length() > guard.get_vision_range() {
+                        continue;
+                    }
+                    drop(guard);
+                    ai.lock()
+                        .map_err(|_| "reveal enemy AI poisoned")?
+                        .validate_owned_removal_callbacks(&object)?;
+                    result.push((object, ai));
+                }
+            }
+        }
+        Ok(result)
     }
 
     /// Execute the original queue phase against this factory's cached interfaces.
@@ -239,16 +398,37 @@ impl AiWorld for BorrowedAiWorld<'_> {
         command: crate::ai::AiCommandType,
         source: crate::ai::CommandSourceType,
     ) -> Result<(), String> {
+        if matches!(
+            command,
+            crate::ai::AiCommandType::Exit | crate::ai::AiCommandType::ExitInstantly
+        ) {
+            return if self.exit_driving {
+                Ok(())
+            } else {
+                Err("exit requires actual handle continuation".into())
+            };
+        }
         if !matches!(
             command,
             crate::ai::AiCommandType::Enter
                 | crate::ai::AiCommandType::Idle
                 | crate::ai::AiCommandType::Busy
+                | crate::ai::AiCommandType::MoveToPosition
         ) {
             return Err("native friendly Enter does not admit attack commands".into());
         }
         passenger.controlling_player_id_from_pin()?;
-        passenger.validate_native_leaf_enter_effects()?;
+        if command == crate::ai::AiCommandType::Idle {
+            if let Some(drawable) = passenger.get_drawable() {
+                drop(
+                    drawable
+                        .write()
+                        .map_err(|_| "owned idle drawable poisoned")?,
+                );
+            }
+        } else {
+            passenger.validate_native_leaf_enter_effects()?;
+        }
         if passenger.is_kind_of(KindOf::Aircraft) || passenger.is_kind_of(KindOf::PortableStructure)
         {
             return Err(
@@ -440,6 +620,17 @@ impl AiWorld for BorrowedAiWorld<'_> {
         drop(source);
         complete_enter(self, passenger, target)
     }
+    fn drives_owned_exit(&self) -> bool {
+        self.exit_driving
+    }
+    fn request_owned_exit(
+        &mut self,
+        passenger: ObjectID,
+        owner: ObjectID,
+        instant: bool,
+    ) -> Result<(), String> {
+        self.stage_exit(passenger, owner, instant)
+    }
     fn remove_contained(
         &mut self,
         passenger: ObjectID,
@@ -464,6 +655,45 @@ impl AiWorld for BorrowedAiWorld<'_> {
             .map_err(|_| "native remove contain poisoned")?
             .remove_from_contain_with_world(passenger, expose, self);
         result
+    }
+    fn scatter_removed(&mut self, passenger: &Arc<RwLock<Object>>, owner: &Arc<RwLock<Object>>) {
+        let owner = owner.read().expect("admitted scatter owner poisoned");
+        let radius = owner.get_geometry_info().get_bounding_circle_radius();
+        let center = *owner.get_position();
+        let layer = owner.get_layer();
+        let ignored = owner.get_id();
+        drop(owner);
+        let angle = self.services.random.next_real(0.0, std::f32::consts::TAU);
+        let distance = self
+            .services
+            .random
+            .next_real(radius, radius + radius * 0.5);
+        let mut goal = Coord3D::new(
+            center.x + distance * angle.cos(),
+            center.y + distance * angle.sin(),
+            0.0,
+        );
+        goal.z = self.terrain_layer_height(goal.x, goal.y, layer);
+        let mut rider = passenger
+            .write()
+            .expect("admitted scatter passenger poisoned");
+        self.set_object_orientation(&mut rider, angle)
+            .expect("admitted scatter orientation");
+        let ai = rider.get_ai_update_interface();
+        if ai.is_some() {
+            self.set_object_position(&mut rider, &center)
+                .expect("admitted scatter centre");
+        } else {
+            self.set_object_position(&mut rider, &goal)
+                .expect("admitted scatter position");
+        }
+        drop(rider);
+        if let Some(ai) = ai {
+            ai.lock()
+                .expect("admitted scatter AI poisoned")
+                .move_removed_with_world(goal, ignored, self)
+                .expect("admitted immediate scatter movement");
+        }
     }
     fn contain_exit_busy(&self, owner: ObjectID) -> Result<bool, String> {
         let object = self.object(owner).ok_or("exit busy owner missing")?;
@@ -497,6 +727,9 @@ impl AiWorld for BorrowedAiWorld<'_> {
         if !Arc::ptr_eq(&actual_rider, passenger) || !Arc::ptr_eq(&actual_owner, owner) {
             return Err("native remove participant belongs to another factory".into());
         }
+        self.services
+            .update_scheduler
+            .validate_scheduling_owner(rider.get_id(), passenger)?;
         rider.controlling_player_id_from_pin()?;
         owner_guard.controlling_player_id_from_pin()?;
         rider.validate_native_leaf_enter_effects()?;
@@ -509,14 +742,16 @@ impl AiWorld for BorrowedAiWorld<'_> {
                     .map_err(|_| "native remove owner body poisoned")?,
             );
         }
-        if owner_guard.is_effectively_dead() {
-            return Err("native dead-container scatter not admitted".into());
-        }
-        if rider.get_layer() != owner_guard.get_layer() {
-            return Err("native removal layer-change cells not admitted".into());
-        }
-        if expose && rider.is_kind_of(KindOf::StealthGarrison) && rider.get_stealth().is_some() {
-            return Err("native removal detection callback not admitted".into());
+        let reveal = if expose && rider.is_kind_of(KindOf::StealthGarrison) {
+            rider.get_stealth()
+        } else {
+            None
+        };
+        if let Some(stealth) = &reveal {
+            stealth
+                .lock()
+                .map_err(|_| "remove stealth poisoned")?
+                .validate_native_owner(passenger, true)?;
         }
         if let Some(drawable) = owner_guard.get_drawable() {
             drop(
@@ -525,10 +760,25 @@ impl AiWorld for BorrowedAiWorld<'_> {
                     .map_err(|_| "native remove owner drawable poisoned")?,
             );
         }
-        if let Some(ai) = rider.get_ai_update_interface() {
-            ai.lock()
-                .map_err(|_| "native removal AI poisoned")?
-                .validate_owned_removal_callbacks(passenger)?;
+        let ai = rider.get_ai_update_interface();
+        let dead_owner = owner_guard.is_effectively_dead();
+        drop(rider);
+        drop(owner_guard);
+        if let Some(stealth) = reveal {
+            let orders = stealth
+                .lock()
+                .map_err(|_| "remove stealth poisoned")?
+                .detection_orders_idle_enemies();
+            if orders {
+                self.revealed_enemy_ais(passenger)?;
+            }
+        }
+        if let Some(ai) = ai {
+            let ai = ai.lock().map_err(|_| "native removal AI poisoned")?;
+            ai.validate_owned_removal_callbacks(passenger)?;
+            if dead_owner {
+                ai.validate_removed_move(passenger)?;
+            }
         }
         Ok(())
     }
@@ -578,6 +828,53 @@ impl AiWorld for BorrowedAiWorld<'_> {
         self.services
             .pathfinder
             .add_object_to_map_at_positions(&footprint);
+    }
+    fn expose_removed(&mut self, passenger: &Arc<RwLock<Object>>) {
+        let stealth = passenger
+            .read()
+            .expect("admitted reveal owner poisoned")
+            .get_stealth();
+        let Some(stealth) = stealth else {
+            return;
+        };
+        let orders = stealth
+            .lock()
+            .expect("admitted stealth poisoned")
+            .detection_orders_idle_enemies();
+        let enemies = if orders {
+            self.revealed_enemy_ais(passenger)
+                .expect("admitted enemy wake roster")
+        } else {
+            Vec::new()
+        };
+        let disguise = stealth
+            .lock()
+            .expect("admitted stealth poisoned")
+            .mark_as_detected_at_owned(self.frame(), 0);
+        if disguise {
+            let object = passenger.read().expect("admitted disguise owner poisoned");
+            if object.get_drawable().is_some_and(|drawable| {
+                drawable
+                    .read()
+                    .expect("admitted reveal drawable poisoned")
+                    .is_selected()
+            }) {
+                self.services.dirty_ui_objects.push(object.get_id());
+            }
+        }
+        for (object, ai) in enemies {
+            let current = self
+                .object(object.read().expect("admitted enemy poisoned").get_id())
+                .expect("admitted enemy retired");
+            assert!(
+                Arc::ptr_eq(&current, &object),
+                "admitted enemy replaced during synchronous wake"
+            );
+            ai.lock()
+                .expect("admitted enemy AI poisoned")
+                .wake_up_and_attempt_to_target_at(self.frame())
+                .expect("admitted idle wake");
+        }
     }
     fn clear_contained_held(&mut self, passenger: &mut Object) {
         passenger.clear_held_for_owned_leaf();
@@ -738,8 +1035,97 @@ impl AiWorld for BorrowedAiWorld<'_> {
     fn cliff_at(&self, position: &Coord3D) -> Result<bool, String> {
         Ok(self.services.terrain.is_cliff_cell(position.x, position.y))
     }
+    fn has_pathfinder(&self) -> bool {
+        true
+    }
     fn pathfinder(&mut self) -> Option<&mut crate::ai::Pathfinder> {
         Some(self.services.pathfinder)
+    }
+    fn validate_spy_disabled_edge(&self, owner: &Arc<RwLock<Object>>) -> Result<(), String> {
+        self.validate_spy_edge(owner)
+    }
+    fn spy_disabled_edge(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        disabled: bool,
+    ) -> Result<(), String> {
+        self.apply_spy_edge(owner, disabled)
+    }
+    fn validate_dozer_idle_effects(&self, owner: &Arc<RwLock<Object>>) -> Result<(), String> {
+        let object = owner.try_read().map_err(|_| "Dozer actor unavailable")?;
+        let actual = self.object(object.get_id()).ok_or("Dozer actor absent")?;
+        if !Arc::ptr_eq(owner, &actual) {
+            return Err("Dozer actor belongs to another factory".into());
+        }
+        if object.get_contained_by().is_some() || object.get_contain().is_some() {
+            return Err("Dozer idle inherited-container effects not admitted".into());
+        }
+        let controller = object
+            .controlling_player_id_from_pin()?
+            .ok_or("Dozer controller absent")?;
+        if self.players.get_player(controller as Int).is_none() {
+            return Err("Dozer controller missing from supplied list".into());
+        }
+        if let Some(drawable) = object.get_drawable() {
+            drop(
+                drawable
+                    .try_write()
+                    .map_err(|_| "Dozer drawable unavailable")?,
+            );
+        }
+        Ok(())
+    }
+    fn set_weapon_set_flag(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        flag: crate::weapon::WeaponSetType,
+        enabled: bool,
+    ) -> Result<(), String> {
+        self.validate_dozer_idle_effects(owner)?;
+        let mut actor = owner
+            .try_write()
+            .map_err(|_| "Dozer actor unavailable for weapon flag")?;
+        let flags = actor.get_weapon_bonus_condition();
+        actor
+            .set_weapon_set_flag_with_services(
+                flag,
+                enabled,
+                flags,
+                self.services.frame,
+                self.services.weapon_bonuses,
+            )
+            .map_err(|e| e.to_string())
+    }
+    fn idle_worker_event(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        player: Int,
+        adding: bool,
+    ) -> Result<(), String> {
+        let object = owner
+            .try_read()
+            .map_err(|_| "idle worker actor unavailable")?;
+        let actual = self
+            .object(object.get_id())
+            .ok_or("idle worker actor absent")?;
+        if !Arc::ptr_eq(owner, &actual) {
+            return Err("idle worker belongs to another factory".into());
+        }
+        if player < 0 || self.players.get_player(player).is_none() {
+            return Err("idle worker player absent from supplied list".into());
+        }
+        if adding && object.controlling_player_id_from_pin()? != Some(player as u32) {
+            return Err("idle worker controller mismatch".into());
+        }
+        let id = object.get_id();
+        drop(object);
+        // Removal uses the original stored player row after capture.
+        if adding {
+            self.services.idle_worker_events.add(id, player);
+        } else {
+            self.services.idle_worker_events.remove(id, player);
+        }
+        Ok(())
     }
     fn force_idle_frames(&self) -> u32 {
         self.services.rules.force_idle_frames_count
@@ -867,6 +1253,47 @@ impl AiWorld for BorrowedAiWorld<'_> {
             )
             .map_err(|error| error.to_string())
     }
+    fn wake_physics_after_force(&mut self, object: &Object) {
+        let exact_owner = self
+            .object(object.get_id())
+            .expect("admitted factory owner absent");
+        self.services
+            .update_scheduler
+            .admit_scheduling_owner(object.get_id(), exact_owner);
+        for module in object.named_update_registrations("PhysicsBehavior") {
+            self.services
+                .update_scheduler
+                .register_sleepy_update_module(
+                    object.get_id(),
+                    module,
+                    self.services.frame.wrapping_add(1),
+                );
+        }
+    }
+    fn set_object_layer(&mut self, object: &mut Object, layer: PathfindLayerEnum) {
+        object.set_layer_with_services(layer, self.services.pathfinder, self.services.terrain);
+    }
+    fn set_object_orientation(&mut self, object: &mut Object, angle: f32) -> Result<(), String> {
+        let position = *object.get_position();
+        let mut matrix =
+            glam::Mat4::from_translation(glam::Vec3::new(position.x, position.y, position.z))
+                * glam::Mat4::from_rotation_z(angle);
+        if object.is_kind_of(KindOf::StickToTerrainSlope) {
+            self.services
+                .terrain
+                .align_on_terrain(angle, &position, true, &mut matrix);
+        }
+        let changes = &mut self.services.changed_trigger_objects;
+        let moved = &mut self.services.terrain_moved_objects;
+        object.set_transform_matrix_with_services(
+            &matrix,
+            self.services.terrain,
+            self.services.collision,
+            self.services.frame,
+            &mut |id| changes.push(id),
+            &mut |object| moved.push(object.get_id()),
+        )
+    }
     fn set_object_position(
         &mut self,
         object: &mut Object,
@@ -895,3 +1322,11 @@ impl AiWorld for BorrowedAiWorld<'_> {
         )
     }
 }
+
+#[path = "ai_native_world/owned_exit.rs"]
+mod owned_exit;
+
+#[path = "ai_native_world/spy_power.rs"]
+mod spy_power;
+
+mod owned_damage;

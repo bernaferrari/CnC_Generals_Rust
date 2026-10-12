@@ -362,7 +362,18 @@ impl Object {
             );
         }
         self.validate_owned_leaf_held()?;
-        if !self.collide_module_handles.is_empty() || self.get_contain().is_some() {
+        let has_foreign_collision = self.collide_module_handles.iter().any(|&index| {
+            !self.modules[index]
+                .try_with_module(|module| {
+                    module
+                        .as_any()
+                        .is::<crate::contain_module_overrides::ActiveBehaviorModule<
+                            crate::object::behavior::physics_update::PhysicsBehaviorUpdate,
+                        >>()
+                })
+                .unwrap_or(false)
+        });
+        if has_foreign_collision || self.get_contain().is_some() {
             return Err(
                 "native leaf entry does not admit collide or nested contain callbacks".into(),
             );
@@ -392,7 +403,7 @@ impl Object {
         }
     }
 
-    fn dispatch_disabled_behavior_callbacks(&mut self, becoming_disabled: bool) {
+    pub(super) fn dispatch_disabled_behavior_callbacks(&mut self, becoming_disabled: bool) {
         for behavior in &mut self.behaviors {
             if let Ok(mut guard) = behavior.access() {
                 guard.on_disabled_edge(becoming_disabled);

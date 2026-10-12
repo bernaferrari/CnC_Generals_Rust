@@ -2680,8 +2680,8 @@ impl ShroudManager {
                     continue;
                 }
 
-                let min_z = geom.position.z + geom.bounds.min.z;
-                let max_z = geom.position.z + geom.bounds.max.z;
+                let min_z = geom.position.z + geom.bounds().min.z;
+                let max_z = geom.position.z + geom.bounds().max.z;
                 if sample.z >= min_z && sample.z <= max_z {
                     return false;
                 }

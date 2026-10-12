@@ -50,7 +50,7 @@ fn saturate_rgb(color: Color, factor: Real) -> Color {
 
 /// C++ GeometryInfo::getFootprintArea (πr² cylinder/sphere, 4·major·minor box).
 fn emp_footprint_area(geometry: &crate::common::GeometryInfo) -> Real {
-    match geometry.geometry_type {
+    match geometry.shape.geometry_type {
         game_engine::system::geometry::GeometryType::Sphere
         | game_engine::system::geometry::GeometryType::Cylinder => {
             let r = geometry.get_bounding_circle_radius();
@@ -64,7 +64,7 @@ fn emp_footprint_area(geometry: &crate::common::GeometryInfo) -> Real {
 
 /// C++ GeometryInfo::makeRandomOffsetWithinFootprint (circle rejection / box).
 fn emp_random_offset_within_footprint(geometry: &crate::common::GeometryInfo) -> Coord3D {
-    match geometry.geometry_type {
+    match geometry.shape.geometry_type {
         game_engine::system::geometry::GeometryType::Sphere
         | game_engine::system::geometry::GeometryType::Cylinder => {
             let r = geometry.get_bounding_circle_radius();

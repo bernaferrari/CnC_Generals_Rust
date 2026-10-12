@@ -167,6 +167,7 @@ impl RenderPipeline {
             ),
         >,
     ) -> Result<()> {
+        self.committed_host_ghost_draws.clear();
         let collect_started = Instant::now();
         let object_ids_started = Instant::now();
         // Snapshot ownership: when presentation is present, drive the main unit
@@ -264,6 +265,10 @@ impl RenderPipeline {
                 continue;
             }
             let object_id = u.id;
+            let native_ghost_scales = presentation
+                .as_ref()
+                .and_then(|frame| frame.native_ghost_scale_sources.get(&object_id))
+                .filter(|scales| u.draw_playback_identity.as_ref() == Some(&scales.identity));
             // `UnitRenderInput::world_matrix` already applies the frozen
             // Object INI asset scale.  Applying it again here made every
             // non-1.0 object scale quadratically in the live WGPU pass.
@@ -328,9 +333,10 @@ impl RenderPipeline {
 
             alive_objects += 1;
 
-            if draw_models.is_empty() {
+            if draw_models.is_empty() && native_ghost_scales.is_none() {
                 // Every source selection deliberately suppressed this object.
-                // It is not a missing template that may borrow pristine art.
+                // Eligible fog-memory owners still publish the empty current
+                // observation, invalidating earlier art rather than borrowing it.
                 continue;
             }
 
@@ -354,6 +360,8 @@ impl RenderPipeline {
                 }
             };
 
+            let expected_ghost_models = draw_models.len();
+            let mut ghost_render_objects = Vec::new();
             for draw_model in draw_models {
                 let draw_module_index = draw_model.module_index;
                 // A queued v4 visual record is a one-shot candidate. Remove
@@ -385,14 +393,14 @@ impl RenderPipeline {
                     selection_radius,
                     world_matrix,
                 );
-                if !world_sphere_in_expanded_frustum(
+                let in_frustum = world_sphere_in_expanded_frustum(
                     &frustum_planes,
                     cull_center,
                     cull_radius,
                     camera_position,
-                ) {
+                );
+                if !in_frustum {
                     frustum_culled += 1;
-                    continue;
                 }
 
                 // C++ `RTS3DScene::Visibility_Check` first accepts the
@@ -403,13 +411,19 @@ impl RenderPipeline {
                 // do not query or mutate GameClient here, and do not turn
                 // this into the later `renderOneObject` clear-frame/material
                 // decision.
-                if frozen_direct_candidate_is_scene_culled(
+                let scene_culled = frozen_direct_candidate_is_scene_culled(
                     &self.presentation_direct_shroud_states,
                     self.presentation_direct_shroud_host_epoch,
                     object_id,
                     u.drawable_shroud,
-                ) {
+                );
+                if scene_culled {
                     fow_filtered += 1;
+                }
+                // Only eligible immobile fog-memory actors need an offscreen
+                // native observation. Preserve existing early culling for
+                // ordinary actors instead of advancing their unused playback.
+                if native_ghost_scales.is_none() && (!in_frustum || scene_culled) {
                     continue;
                 }
 
@@ -445,6 +459,42 @@ impl RenderPipeline {
                                     pending_client_drawable_restore,
                                     &visual_plans,
                                 );
+
+                            // Retain the real native ModelDraw pose before any
+                            // mesh visibility/frustum output is converted into
+                            // ordinary items. C++ clones hidden children too.
+                            let color = super::native_ghost_color(u.team_color);
+                            if let (Some(color), Some(scales)) = (color, native_ghost_scales) {
+                                // C++ asset creation scales geometry/HTree; the
+                                // Drawable instance scale remains in its matrix.
+                                let parent = world_matrix
+                                    * Mat4::from_scale(Vec3::splat(1.0 / scales.asset_scale));
+                                if let Some(render_object) = w3d_model
+                                    .capture_native_ghost_render_object(
+                                        parent,
+                                        scales.asset_scale,
+                                        color,
+                                        animation_binding.as_ref(),
+                                        anim_frame,
+                                        &authored_primary_turret,
+                                        u.turret_angle_deg,
+                                        u.turret_pitch_deg,
+                                        &weapon_controls,
+                                        &authored_subobject_visibility,
+                                        u.world_is_night,
+                                    )
+                                {
+                                    ghost_render_objects.push(render_object);
+                                }
+                            }
+
+                            // C++ ModelDraw updates its RenderObj even when
+                            // RTS3DScene later rejects it. A culled building
+                            // must not retain an earlier animation/turret pose
+                            // when PartitionData subsequently captures fog.
+                            if !in_frustum || scene_culled {
+                                continue;
+                            }
 
                             // C++ `HLodClass::Update_Sub_Object_Transforms`
                             // samples its additional-model parent bones after
@@ -831,6 +881,27 @@ impl RenderPipeline {
                     }
                 }
                 render_item_build_elapsed += render_item_build_started.elapsed();
+            }
+            if native_ghost_scales.is_some()
+                && matches!(
+                    u.drawable_shroud.raw_status,
+                    crate::presentation_frame::PresentationObjectShroudStatus::Clear
+                        | crate::presentation_frame::PresentationObjectShroudStatus::PartialClear
+                )
+            {
+                if let Some(identity) = u.draw_playback_identity.clone() {
+                    // Missing/unsupported selected modules cannot leave the
+                    // prior successful model cached under this actor identity.
+                    if ghost_render_objects.len() != expected_ghost_models {
+                        ghost_render_objects.clear();
+                    }
+                    self.committed_host_ghost_draws.push(
+                        crate::game_logic::game_logic::world_objects::fog_ghosts::CommittedHostGhostDraw {
+                            identity, generation: self.frame_number,
+                            render_objects: ghost_render_objects,
+                        },
+                    );
+                }
             }
         }
 
@@ -1420,14 +1491,18 @@ impl RenderPipeline {
             let model = materialized.asset;
             let color = state.argb_color_rgba();
             let color_rgb = Vec3::new(color[0], color[1], color[2]);
-            let scale = Mat4::from_scale(Vec3::splat(state.object_scale));
+            let scale = Mat4::from_scale(Vec3::splat(state.geometry_scale));
             let world_position = state.world_transform.w_axis.truncate();
             for (mesh_index, mesh) in model.meshes.iter().enumerate() {
-                let mesh_local_transform = if let Some(child) = state
-                    .sub_objects
-                    .iter()
-                    .find(|child| child.name.eq_ignore_ascii_case(&mesh.name))
-                {
+                let mesh_local_transform = if let Some(child) =
+                    state.sub_objects.iter().find(|child| {
+                        child.name.eq_ignore_ascii_case(&mesh.name)
+                            || (!mesh.container_name.is_empty()
+                                && child.name.eq_ignore_ascii_case(&format!(
+                                    "{}.{}",
+                                    mesh.container_name, mesh.name
+                                )))
+                    }) {
                     if !child.visible {
                         continue;
                     }
@@ -1454,7 +1529,10 @@ impl RenderPipeline {
                 ) else {
                     continue;
                 };
-                item.set_mesh_local_transform(scale * mesh_local_transform);
+                // Captured child translation already includes the original
+                // HTree asset scale. Scale vertices in child coordinates,
+                // never multiply that world displacement a second time.
+                item.set_mesh_local_transform(mesh_local_transform * scale);
                 stamp_skinned_hierarchy_bind_pose(&mut item, mesh);
                 item.distance = world_position.distance(camera_position);
                 self.render_items.push(item);

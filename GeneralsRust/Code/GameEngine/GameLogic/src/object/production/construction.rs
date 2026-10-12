@@ -161,8 +161,8 @@ impl FoundationValidator {
 
                 if let Some(template) = TheThingFactory::find_template(template_name) {
                     let geom = template.get_template_geometry_info();
-                    let width = (geom.bounds.max.x - geom.bounds.min.x).abs();
-                    let depth = (geom.bounds.max.y - geom.bounds.min.y).abs();
+                    let width = (geom.bounds().max.x - geom.bounds().min.x).abs();
+                    let depth = (geom.bounds().max.y - geom.bounds().min.y).abs();
                     let (half_width, half_depth, is_circular) = match template
                         .get_template_geometry_type()
                         .unwrap_or(GeometryType::Cylinder)
@@ -257,7 +257,8 @@ impl FoundationValidator {
 
         // 2. Clear Path Check
         if self.check_clear_path {
-            let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+            let ai_store = the_ai();
+            if let Ok(ai_guard) = ai_store.read() {
                 if let Some(pathfinding) = ai_guard.pathfinding_system() {
                     if let Ok(pf) = pathfinding.read() {
                         let layer = TheTerrainLogic::get()

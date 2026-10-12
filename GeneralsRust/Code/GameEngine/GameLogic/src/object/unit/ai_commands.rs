@@ -74,48 +74,21 @@ impl UnitAIUpdate {
         command: &crate::ai::AiCommandParams,
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.validate_world_owner(world)?;
-        self.validate_owned_enter_components()?;
-        // The supplied endpoint owns Enter and its immediate terminal entries.
-        // An arbitrary old state could execute an ambient specialized onExit.
-        let current = self
-            .ai_state_machine
-            .as_ref()
-            .ok_or("installed AI has no state machine")?;
-        let initializes_idle = current.get_current_state_id().is_none()
-            && command.cmd == crate::ai::AiCommandType::Idle;
-        if current.get_temporary_state().is_some()
-            || (!initializes_idle
-                && !matches!(current.get_current_state_id(),
-                Some(id) if id == AIStateType::Idle as u32
-                    || id == AIStateType::Enter as u32
-                    || id == AIStateType::Busy as u32))
-        {
-            return Err(
-                "supplied AIEnter does not admit this previous state or temporary state".into(),
-            );
-        }
-        if !matches!(
-            command.cmd,
-            crate::ai::AiCommandType::Enter
-                | crate::ai::AiCommandType::Idle
-                | crate::ai::AiCommandType::AttackObject
-                | crate::ai::AiCommandType::Busy
-        ) {
-            return Err(
-                "supplied AI operation supports the standard AIEnter transition family only".into(),
-            );
-        }
+        self.execute_owned_command_with_ignore(command, world, None)
+    }
+    pub(super) fn execute_owned_command_with_ignore(
+        &mut self,
+        command: &crate::ai::AiCommandParams,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+        ignored: Option<ObjectID>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_owned_command(command, world)?;
         if world.pathfinder().is_none() {
-            return Err("supplied AIEnter requires its owner's pathfinder".into());
+            return Err("admitted pathfinder disappeared".into());
         }
-        let owner = self
-            .runtime
-            .native_owner()
-            .ok_or("installed owner missing")?;
-        let owner = owner.read().map_err(|_| "installed owner poisoned")?;
-        world.validate_enter_operation(&owner, command.obj, command.cmd, command.cmd_source)?;
-        drop(owner);
+        if let Some(ignored) = ignored {
+            self.runtime.ignore_obstacle_id(ignored)?;
+        }
         let machine = self
             .ai_state_machine
             .as_mut()
@@ -129,14 +102,96 @@ impl UnitAIUpdate {
         runtime.execute_command_native(command, &mut machine.driver())
     }
 
+    pub(super) fn validate_owned_command(
+        &self,
+        command: &crate::ai::AiCommandParams,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_world_owner(world)?;
+        let idle = command.cmd == crate::ai::AiCommandType::Idle;
+        let exits = matches!(
+            command.cmd,
+            crate::ai::AiCommandType::Exit | crate::ai::AiCommandType::ExitInstantly
+        );
+        if exits && !world.drives_owned_exit() {
+            return Err("owned exit requires a synchronous handle driver".into());
+        }
+        if command.cmd == crate::ai::AiCommandType::MoveToPosition
+            && command.cmd_source != crate::ai::CommandSourceType::FromAi
+        {
+            return Err("supplied movement currently admits AI-origin removal motion only".into());
+        }
+        self.validate_owned_components(
+            command.cmd == crate::ai::AiCommandType::MoveToPosition || idle || exits,
+            idle,
+        )?;
+        // The supplied endpoint owns Enter and its immediate terminal entries.
+        // An arbitrary old state could execute an ambient specialized onExit.
+        let current = self
+            .ai_state_machine
+            .as_ref()
+            .ok_or("installed AI has no state machine")?;
+        let initializes_idle = current.get_current_state_id().is_none()
+            && command.cmd == crate::ai::AiCommandType::Idle;
+        if current.get_temporary_state().is_some()
+            || (!initializes_idle
+                && !matches!(current.get_current_state_id(),
+                Some(id) if id == AIStateType::Idle as u32
+                    || id == AIStateType::Enter as u32
+                    || id == AIStateType::Busy as u32
+                    || (idle && id == AIStateType::MoveTo as u32)
+                    || id == AIStateType::Exit as u32 || id == AIStateType::ExitInstantly as u32))
+        {
+            return Err(
+                "supplied AIEnter does not admit this previous state or temporary state".into(),
+            );
+        }
+        if !matches!(
+            command.cmd,
+            crate::ai::AiCommandType::Enter
+                | crate::ai::AiCommandType::Idle
+                | crate::ai::AiCommandType::AttackObject
+                | crate::ai::AiCommandType::Busy
+                | crate::ai::AiCommandType::MoveToPosition
+                | crate::ai::AiCommandType::Exit
+                | crate::ai::AiCommandType::ExitInstantly
+        ) {
+            return Err(
+                "supplied AI operation supports the standard AIEnter transition family only".into(),
+            );
+        }
+        if !world.has_pathfinder() {
+            return Err("supplied AIEnter requires its owner's pathfinder".into());
+        }
+        let owner = self
+            .runtime
+            .native_owner()
+            .ok_or("installed owner missing")?;
+        let owner = owner
+            .try_read()
+            .map_err(|_| "installed owner unavailable for native command")?;
+        world.validate_enter_operation(&owner, command.obj, command.cmd, command.cmd_source)?;
+        drop(owner);
+        Ok(())
+    }
+
     pub(super) fn validate_owned_enter_components(
         &self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_owned_components(false, false)
+    }
+    pub(super) fn validate_owned_components(
+        &self,
+        allow_contained: bool,
+        allow_dozer_idle: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let owner = self
             .runtime
             .native_owner()
             .ok_or("installed AI owner missing")?;
-        let owner = owner.read().map_err(|_| "installed AI owner poisoned")?;
+        let owner = owner
+            .try_read()
+            .map_err(|_| "installed AI owner unavailable")?;
         if owner.get_formation_id() != crate::common::FormationID::NONE
             && owner.get_group_id().is_some()
         {
@@ -155,8 +210,12 @@ impl UnitAIUpdate {
         // Eligibility recursively inspects firing passengers and enclosing
         // garrison fire points. Those native callbacks are not yet admitted by
         // this bounded infantry-enter endpoint, including their slave effects.
-        if owner.get_contain().is_some() || owner.get_contained_by().is_some() {
+        if owner.get_contain().is_some() || (!allow_contained && owner.get_contained_by().is_some())
+        {
             return Err("supplied AIEnter does not admit a containing or contained source".into());
+        }
+        if owner.has_flight_deck_module() {
+            return Err("supplied native command does not admit flight deck forwarding".into());
         }
         if owner.get_spawn_behavior_interface_public().is_some() {
             return Err("supplied AIEnter does not admit slave forwarding callbacks".into());
@@ -172,7 +231,7 @@ impl UnitAIUpdate {
             || c.chinook_ai.is_some()
             || c.jet_ai.is_some()
             || c.worker_ai.is_some()
-            || c.dozer_ai.is_some()
+            || (c.dozer_ai.is_some() && !allow_dozer_idle)
             || c.railed_transport_ai.is_some()
             || c.hack_internet_ai.is_some()
             || c.assault_transport_ai.is_some()

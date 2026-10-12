@@ -38,6 +38,13 @@ use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::borrow::Cow;
 use std::sync::{Arc, RwLock};
 
+#[path = "active_body_definitions.rs"]
+mod definitions;
+pub use definitions::BodyDefinitionCatalog;
+#[path = "active_body_owned_damage.rs"]
+mod owned_damage;
+pub use owned_damage::{OwnedDamageObservation, OwnedDamageOutcome};
+
 /// Wave 291: host-only path has no dual-world factory objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
@@ -666,6 +673,9 @@ pub struct ActiveBody {
     armor_template_name: Option<AsciiString>,
     /// The exact owner's immutable definition, bound during module installation.
     engine_template: Option<Arc<dyn ThingTemplate>>,
+    /// Immutable effective definitions selected by this body's constructing
+    /// session. None belongs only to the compatibility adapter.
+    definitions: Option<Arc<BodyDefinitionCatalog>>,
     /// Owning object ID (legacy handle lookup)
     owner_id: ObjectId,
     /// Whether to treat damage-state thresholds as structure semantics.
@@ -685,28 +695,8 @@ impl ActiveBody {
     /// Create a new active body with a known owner ID.
     pub fn new_with_owner(module_data: ActiveBodyModuleData, owner_id: ObjectId) -> Self {
         ensure_default_templates_loaded();
-        let base = BodyModule::new(module_data.base.clone());
-        let mut state = ActiveBodyState::default();
-        state.current_health = module_data.initial_health;
-        state.previous_health = module_data.initial_health;
-        state.max_health = module_data.max_health;
-        state.initial_health = module_data.initial_health;
-
-        let mut body = Self {
-            base,
-            module_data,
-            state,
-            armor: Armor::default(),
-            armor_template_name: None,
-            engine_template: None,
-            owner_id,
-            treat_as_structure: false,
-            min_health_floor: 0.0,
-        };
-
-        // Set correct initial damage state
+        let mut body = Self::new_inert_with_owner(module_data, owner_id);
         body.set_correct_damage_state().unwrap_or_default();
-
         if let Some(default_name) = body.module_data.default_armor_template.clone() {
             if let Err(err) = body.set_armor_by_name(default_name.clone()) {
                 log::warn!(
@@ -716,8 +706,35 @@ impl ActiveBody {
                 );
             }
         }
-
         body
+    }
+
+    /// The actual initializer, without definition lookup or owner effects.
+    /// Native installation completes original armor/damage-state construction
+    /// while borrowing its exact owner, before later creation callbacks.
+    pub(crate) fn new_inert_with_owner(
+        module_data: ActiveBodyModuleData,
+        owner_id: ObjectId,
+    ) -> Self {
+        let base = BodyModule::new(module_data.base.clone());
+        let mut state = ActiveBodyState::default();
+        state.current_health = module_data.initial_health;
+        state.previous_health = module_data.initial_health;
+        state.max_health = module_data.max_health;
+        state.initial_health = module_data.initial_health;
+
+        Self {
+            base,
+            module_data,
+            state,
+            armor: Armor::default(),
+            armor_template_name: None,
+            engine_template: None,
+            definitions: None,
+            owner_id,
+            treat_as_structure: false,
+            min_health_floor: 0.0,
+        }
     }
 
     /// Create a new active body without an owner handle (legacy/tests).
@@ -747,6 +764,15 @@ impl ActiveBody {
         self.state.armor_flags_dirty = true;
         self.validate_armor_and_damage_fx()?;
         self.set_correct_damage_state()
+    }
+
+    pub(crate) fn bind_object_template_with_definitions(
+        &mut self,
+        template: Arc<dyn ThingTemplate>,
+        definitions: Arc<BodyDefinitionCatalog>,
+    ) -> BodyResult<()> {
+        self.definitions = Some(definitions);
+        self.bind_object_template(template)
     }
 
     /// Clear the cached engine template handle (used during deletion).
@@ -813,12 +839,15 @@ impl ActiveBody {
     /// Set the correct damage state based on current health
     fn set_correct_damage_state(&mut self) -> BodyResult<()> {
         let is_structure = self.is_structure_for_damage_state();
-        let thresholds = global_data::read_safe().ok().map(|global| {
-            (
-                global.unit_damaged_thresh,
-                global.unit_really_damaged_thresh,
-            )
-        });
+        let thresholds = match &self.definitions {
+            Some(definitions) => definitions.thresholds(),
+            None => global_data::read_safe().ok().map(|global| {
+                (
+                    global.unit_damaged_thresh,
+                    global.unit_really_damaged_thresh,
+                )
+            }),
+        };
         {
             let state = &mut self.state;
             // C++ calcDamageState returns BODY_PRISTINE before the divide when
@@ -862,9 +891,12 @@ impl ActiveBody {
         self.apply_named_armor(desired_armor_name)?;
 
         if let Some(fx_name) = &damage_fx_name {
-            let missing = get_damage_fx_store()
-                .map(|store| store.find_damage_fx(fx_name.as_str()).is_none())
-                .unwrap_or(true);
+            let missing = match &self.definitions {
+                Some(definitions) => definitions.damage_fx(fx_name.as_str()).is_none(),
+                None => get_damage_fx_store()
+                    .map(|store| store.find_damage_fx(fx_name.as_str()).is_none())
+                    .unwrap_or(true),
+            };
             if missing {
                 log::trace!(
                     "Missing damage FX '{}' referenced by armor template",
@@ -925,7 +957,8 @@ impl ActiveBody {
         );
         match name {
             Some(armor_name) => {
-                let template = TheArmorStore::find_template(&armor_name)
+                let template = self
+                    .find_armor_template(&armor_name)
                     .ok_or(BodyError::ArmorTemplateNotFound(armor_name))?;
                 Ok(Cow::Owned(Armor::from_template(template)))
             }
@@ -972,13 +1005,21 @@ impl ActiveBody {
 
     fn apply_named_armor(&mut self, name: Option<AsciiString>) -> BodyResult<()> {
         if let Some(armor_name) = &name {
-            let template = TheArmorStore::find_template(armor_name)
+            let template = self
+                .find_armor_template(armor_name)
                 .ok_or_else(|| BodyError::ArmorTemplateNotFound(armor_name.clone()))?;
             self.apply_armor_template(template, Some(armor_name.clone()))
         } else {
             self.armor.clear();
             self.armor_template_name = None;
             Ok(())
+        }
+    }
+
+    fn find_armor_template(&self, name: &AsciiString) -> Option<Arc<ArmorTemplate>> {
+        match &self.definitions {
+            Some(definitions) => definitions.armor(name.as_str()),
+            None => TheArmorStore::find_template(name),
         }
     }
 
@@ -1074,7 +1115,11 @@ impl ActiveBody {
             state.next_damage_fx_time = current_time.saturating_add(throttle);
         }
 
-        if let Some(store) = get_damage_fx_store() {
+        if let Some(definitions) = &self.definitions {
+            if let Some(fx) = definitions.damage_fx(fx_name.as_str()) {
+                fx.do_damage_fx(damage_type, dealt, source_obj, victim_obj);
+            }
+        } else if let Some(store) = get_damage_fx_store() {
             if let Some(fx) = store.find_damage_fx(fx_name.as_str()) {
                 fx.do_damage_fx(damage_type, dealt, source_obj, victim_obj);
             }
@@ -1651,8 +1696,7 @@ impl ActiveBody {
 
         // Apply damage scalar if allowed
         if allow_modifier && damage_info.input.damage_type != DamageType::Unresistable {
-            let scalar = self.get_damage_scalar();
-            amount *= scalar;
+            amount = self.scale_ordinary_damage(amount);
         }
 
         // Apply damage if amount is positive or kill is requested
@@ -1681,63 +1725,40 @@ impl ActiveBody {
                 )
             };
 
-            // Store damage info
             let frame_now = current_frame();
-            let mut should_overwrite_last_damage = true;
-            let mut existing_source_id = INVALID_ID;
-            {
-                let state = &self.state;
-                let is_same_or_next_frame = state.last_damage_timestamp == frame_now
-                    || state.last_damage_timestamp == frame_now.wrapping_sub(1);
-                if is_same_or_next_frame {
-                    should_overwrite_last_damage = false;
-                    existing_source_id = state
-                        .last_damage_info
-                        .as_ref()
-                        .map(|info| info.input.source_id)
-                        .unwrap_or(INVALID_ID);
-                }
-            }
-
-            if !should_overwrite_last_damage {
-                let src2_is_preferred = if damage_info.input.source_id == self.owner_id {
-                    context
-                        .map(|context| context.owner_is_preferred_source)
-                        .or_else(|| {
-                            OBJECT_REGISTRY.with_object(damage_info.input.source_id, |guard| {
-                                guard.is_kind_of(crate::common::KindOf::Vehicle)
-                                    || guard.is_kind_of(crate::common::KindOf::Infantry)
-                                    || guard.is_faction_structure()
-                            })
+            let history_tied = self.state.last_damage_timestamp == frame_now
+                || self.state.last_damage_timestamp == frame_now.wrapping_sub(1);
+            let incoming_preferred = if !history_tied {
+                None
+            } else if damage_info.input.source_id == self.owner_id {
+                context
+                    .map(|context| context.owner_is_preferred_source)
+                    .or_else(|| {
+                        OBJECT_REGISTRY.with_object(damage_info.input.source_id, |source| {
+                            source.is_kind_of(KindOf::Vehicle)
+                                || source.is_kind_of(KindOf::Infantry)
+                                || source.is_faction_structure()
                         })
-                } else {
-                    OBJECT_REGISTRY.with_object(damage_info.input.source_id, |guard| {
-                        guard.is_kind_of(crate::common::KindOf::Vehicle)
-                            || guard.is_kind_of(crate::common::KindOf::Infantry)
-                            || guard.is_faction_structure()
                     })
-                };
-                let src1_exists = OBJECT_REGISTRY.contains(existing_source_id);
-
-                if let Some(src2_is_preferred) = src2_is_preferred {
-                    if !src1_exists || src2_is_preferred {
-                        should_overwrite_last_damage = true;
-                    }
-                }
-            }
-
-            if should_overwrite_last_damage {
-                // Keep compatibility fields (death_type / damage_type) in lockstep
-                // with input so last death type (e.g. DEATH_FLOODED) is readable
-                // from either DamageInfo.death_type or input.death_type.
-                damage_info.sync_from_input();
-                {
-                    let state = &mut self.state;
-                    state.last_damage_info = Some(damage_info.clone());
-                    state.last_damage_cleared = false;
-                    state.last_damage_timestamp = frame_now;
-                }
-            }
+            } else {
+                OBJECT_REGISTRY.with_object(damage_info.input.source_id, |source| {
+                    source.is_kind_of(KindOf::Vehicle)
+                        || source.is_kind_of(KindOf::Infantry)
+                        || source.is_faction_structure()
+                })
+            };
+            let prior_source = self
+                .state
+                .last_damage_info
+                .as_ref()
+                .map(|damage| damage.input.source_id)
+                .unwrap_or(INVALID_ID);
+            self.record_damage_history(
+                damage_info,
+                frame_now,
+                incoming_preferred,
+                history_tied && OBJECT_REGISTRY.contains(prior_source),
+            );
 
             // C++ ActiveBody.cpp:574-583 — victim player remembers who attacked.
             let last_source_id = self
@@ -1858,6 +1879,17 @@ impl ActiveBody {
 }
 
 impl BodyModuleInterface for ActiveBody {
+    fn validate_owned_ordinary_damage(&mut self, damage: &DamageInfo) -> BodyResult<()> {
+        self.validate_owned_ordinary_damage_impl(damage)
+    }
+    fn begin_owned_ordinary_damage(
+        &mut self,
+        damage: &mut DamageInfo,
+        observations: OwnedDamageObservation,
+    ) -> BodyResult<OwnedDamageOutcome> {
+        self.begin_owned_ordinary_damage_impl(damage, observations)
+    }
+
     fn validate_owned_damage_estimate(&self) -> BodyResult<()> {
         if !self.state.armor_flags_dirty && self.armor.template().is_some() {
             return Ok(());
@@ -2349,12 +2381,15 @@ impl BodyModuleInterface for ActiveBody {
         } else {
             delta
         };
-        let thresholds = global_data::read_safe().ok().map(|global| {
-            (
-                global.unit_damaged_thresh,
-                global.unit_really_damaged_thresh,
-            )
-        });
+        let thresholds = match &self.definitions {
+            Some(definitions) => definitions.thresholds(),
+            None => global_data::read_safe().ok().map(|global| {
+                (
+                    global.unit_damaged_thresh,
+                    global.unit_really_damaged_thresh,
+                )
+            }),
+        };
         {
             let state = &mut self.state;
             state.previous_health = state.current_health;

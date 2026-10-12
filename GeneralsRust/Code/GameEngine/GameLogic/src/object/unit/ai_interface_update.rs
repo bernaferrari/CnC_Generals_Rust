@@ -118,6 +118,14 @@ impl UnitAIUpdate {
     }
 
     pub(super) fn xfer_ai_update_state(&mut self, xfer: &mut dyn Xfer) -> Result<bool, String> {
+        self.xfer_ai_update_state_with_locomotors(xfer, None)
+    }
+    pub(super) fn xfer_ai_update_state_with_locomotors(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
+    ) -> Result<bool, String> {
+        let supplied = lookup.is_some();
         const FACADE_WAYPOINT_ID: u32 = 0x00FA_CADE;
 
         let is_loading = xfer.is_reading();
@@ -193,6 +201,14 @@ impl UnitAIUpdate {
         let mut attack_info_name = String::new();
         xfer.xfer_ascii_string(&mut attack_info_name)
             .map_err(|e| e.to_string())?;
+        if supplied
+            && is_loading
+            && (!area_to_guard_name.is_empty() || !attack_info_name.is_empty())
+        {
+            return Err(
+                "supplied AI restore needs receiving guard/attack-profile definitions".into(),
+            );
+        }
 
         xfer.xfer_int(&mut self.runtime.data.planning_waypoint_count)
             .map_err(|e| e.to_string())?;
@@ -304,7 +320,8 @@ impl UnitAIUpdate {
         xfer.xfer_object_id(&mut self.runtime.data.move_out_of_way_2)
             .map_err(|e| e.to_string())?;
 
-        self.xfer_locomotor_set_state(xfer)?;
+        self.runtime
+            .xfer_locomotor_set_state_with_lookup(xfer, lookup)?;
 
         xfer.xfer_unsigned_int(&mut self.runtime.data.locomotor_goal_type)
             .map_err(|e| e.to_string())?;
@@ -331,9 +348,12 @@ impl UnitAIUpdate {
                 _ => TurretType::Invalid,
             };
         }
-        let mut attitude = self.runtime.data.attitude as u32;
+        let mut attitude = super::ai_attitude_wire::encode(self.runtime.data.attitude);
         xfer.xfer_unsigned_int(&mut attitude)
             .map_err(|e| e.to_string())?;
+        if is_loading {
+            self.runtime.data.attitude = super::ai_attitude_wire::decode(attitude)?;
+        }
 
         // Preserve the jitter flag already transferred above. The public
         // setter clears it; the original raw Xfer at AIUpdate.cpp:5160 does not.
@@ -399,6 +419,39 @@ impl UnitAIUpdate {
         })?;
         Ok(())
     }
+    pub(super) fn request_dozer_fortify_with_world(
+        &mut self,
+        target: ObjectID,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_world_owner(world)
+            .map_err(|e| e.to_string())?;
+        self.runtime
+            .components
+            .dozer_ai
+            .as_mut()
+            .ok_or("installed AI has no Dozer primary")?
+            .request_fortify_with_world(target, world)
+    }
+
+    pub(super) fn update_dozer_primary_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_world_owner(world)
+            .map_err(|e| e.to_string())?;
+        let idle = self.is_idle();
+        let mut dozer = self
+            .runtime
+            .components
+            .dozer_ai
+            .take()
+            .ok_or("installed AI has no Dozer primary")?;
+        let result = dozer.update_primary_with_world(idle, world);
+        self.runtime.components.dozer_ai = Some(dozer);
+        result
+    }
+
     fn update_with_optional_world(
         &mut self,
         mut world: Option<&mut dyn crate::modules::ai_world::AiWorld>,
@@ -1366,10 +1419,6 @@ impl UnitAIUpdate {
         &mut self,
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<(), String> {
-        self.validate_world_owner(world)
-            .map_err(|error| error.to_string())?;
-        self.validate_owned_enter_components()
-            .map_err(|error| error.to_string())?;
         if self
             .ai_state_machine
             .as_ref()
@@ -1377,6 +1426,25 @@ impl UnitAIUpdate {
             != Some(AIStateType::Enter as u32)
         {
             return Err("supplied postload requires the installed Enter state".into());
+        }
+        self.load_post_process_with_world(world)
+    }
+    pub(crate) fn load_post_process_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_world_owner(world)
+            .map_err(|error| error.to_string())?;
+        self.validate_owned_components(true, false)
+            .map_err(|error| error.to_string())?;
+        let machine = self
+            .ai_state_machine
+            .as_ref()
+            .ok_or("restored AI machine absent")?;
+        if machine.get_temporary_state().is_some()
+            || !matches!(machine.get_current_state_id(),Some(id) if id==AIStateType::Idle as u32 || id==AIStateType::Enter as u32 || id==AIStateType::Exit as u32 || id==AIStateType::ExitInstantly as u32)
+        {
+            return Err("supplied postload does not admit this restored state family".into());
         }
         let owner_arc = self
             .runtime

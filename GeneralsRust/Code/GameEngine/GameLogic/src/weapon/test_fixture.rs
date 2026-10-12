@@ -8,7 +8,6 @@ use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
 pub(super) struct ScopedWeaponFixture<'guard> {
     _isolation: &'guard std::sync::MutexGuard<'static, ()>,
-    seed: [u32; 6],
     previous_terrain: Option<TerrainLogic>,
 }
 
@@ -16,7 +15,6 @@ impl<'guard> ScopedWeaponFixture<'guard> {
     pub(super) fn new(isolation: &'guard std::sync::MutexGuard<'static, ()>) -> Self {
         Self {
             _isolation: isolation,
-            seed: game_engine::common::random_value::get_game_logic_random_seed_state(),
             previous_terrain: None,
         }
     }
@@ -45,7 +43,6 @@ impl Drop for ScopedWeaponFixture<'_> {
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             *terrain = previous;
         }
-        crate::helpers::set_game_logic_random_seed(self.seed);
     }
 }
 
@@ -166,11 +163,10 @@ impl Drop for AdmittedWeaponBodies {
 }
 
 #[test]
-fn assertion_unwind_retires_exact_bodies_and_restores_rng_and_terrain() {
+fn assertion_unwind_retires_exact_bodies_and_restores_terrain() {
     // Keep the isolation guard outside catch_unwind so the deliberate panic
     // does not poison another test's synchronization boundary.
     let isolation = weapon_range_test_guard();
-    let seed = game_engine::common::random_value::get_game_logic_random_seed_state();
     let terrain_owner_handle = crate::terrain::get_terrain_logic();
     let terrain_height = terrain_owner_handle
         .read()
@@ -184,7 +180,6 @@ fn assertion_unwind_retires_exact_bodies_and_restores_rng_and_terrain() {
         let bodies = AdmittedWeaponBodies::new();
         pins.push((bodies.source_id, Arc::clone(&bodies.source)));
         pins.push((bodies.target_id, Arc::clone(&bodies.target)));
-        let _ = crate::helpers::get_game_logic_random_value_real(0.0, 1.0);
         panic!("intentional weapon fixture assertion unwind");
     }));
     assert!(outcome.is_err());
@@ -198,10 +193,6 @@ fn assertion_unwind_retires_exact_bodies_and_restores_rng_and_terrain() {
                 .is_none()
         );
     }
-    assert_eq!(
-        game_engine::common::random_value::get_game_logic_random_seed_state(),
-        seed
-    );
     let terrain_owner_handle = crate::terrain::get_terrain_logic();
     let restored_height = terrain_owner_handle
         .read()

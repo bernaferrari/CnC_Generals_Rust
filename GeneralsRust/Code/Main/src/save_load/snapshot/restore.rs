@@ -434,6 +434,9 @@ impl SnapshotBuilder {
         for module_snapshot in modules.values() {
             match module_snapshot {
                 ModuleSnapshot::AIUpdate(snapshot) => {
+                    if super::attack_state_persist::restore(snapshot, object)? {
+                        continue;
+                    }
                     if super::hunt_state_persist::restore(snapshot, object)? {
                         continue;
                     }

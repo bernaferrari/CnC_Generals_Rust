@@ -64,6 +64,14 @@ pub(crate) fn install_body_for_module(
     module: &dyn Module,
     owner: &mut crate::object::Object,
 ) -> Result<bool, String> {
+    install_body_for_module_with_definitions(module, owner, None)
+}
+
+pub(crate) fn install_body_for_module_with_definitions(
+    module: &dyn Module,
+    owner: &mut crate::object::Object,
+    definitions: Option<&Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
+) -> Result<bool, String> {
     macro_rules! install_body {
         ($data:ty, $body:ty $(, $active:ident)*) => {
             if let Some(binding) = module
@@ -73,9 +81,10 @@ pub(crate) fn install_body_for_module(
                 {
                     let mut runtime = binding.snapshot_body()?;
                     let active: &mut ActiveBody = (&mut *runtime)$(.$active())*;
-                    active
-                        .bind_object_template(owner.get_template().clone())
-                        .map_err(|err| err.to_string())?;
+                    match definitions {
+                        Some(definitions) => active.bind_object_template_with_definitions(owner.get_template().clone(), definitions.clone()),
+                        None => active.bind_object_template(owner.get_template().clone()),
+                    }.map_err(|err| err.to_string())?;
                 }
                 let body: Arc<Mutex<dyn BodyModuleInterface>> = binding.body.clone();
                 owner.set_body_module(Some(body));
@@ -141,6 +150,37 @@ pub(super) fn active_body_instance(
     owner_id: ObjectID,
 ) -> Arc<Mutex<ActiveBody>> {
     Arc::new(Mutex::new(ActiveBody::new_with_owner(data, owner_id)))
+}
+
+fn active_body_instance_inert(
+    data: ActiveBodyModuleData,
+    owner_id: ObjectID,
+) -> Arc<Mutex<ActiveBody>> {
+    Arc::new(Mutex::new(ActiveBody::new_inert_with_owner(data, owner_id)))
+}
+
+fn active_body_module_factory_inert(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data = cloned_module_data_or_default::<ActiveBodyModuleData>("ActiveBody", &module_data);
+    Box::new(BodyBindingModule::new(
+        "ActiveBody",
+        resolve_owner_id(&thing),
+        data,
+        active_body_instance_inert,
+    ))
+}
+
+pub(crate) fn register_inert_active_body(
+    factory: &mut game_engine::common::thing::module_factory::ModuleFactory,
+) -> Result<(), String> {
+    factory.register_override(
+        "ActiveBody",
+        ModuleType::Behavior,
+        active_body_module_factory_inert,
+        active_body_module_data_factory,
+    )
 }
 
 pub(super) fn structure_body_instance(

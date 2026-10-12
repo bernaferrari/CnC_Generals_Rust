@@ -616,6 +616,16 @@ impl TeamFactory {
             .collect()
     }
 
+    /// CPP Player::iterateObjects: player prototype admission order, then each
+    /// prototype's actual instance-list order. Member traversal remains live
+    /// in the caller, which resolves each object at its callback point.
+    pub fn owned_team_instances_for_controller(&self, controller: u32) -> Vec<Arc<RwLock<Team>>> {
+        self.owned_team_prototypes_for_controller(controller)
+            .into_iter()
+            .flat_map(|prototype| self.find_team_instances(prototype.get_name().as_str()))
+            .collect()
+    }
+
     /// Restore the saved visitation sequence after validating every identity.
     /// Definitions not included in an older partial capsule retain their order.
     pub fn restore_prototype_admission_order(&mut self, names: &[String]) -> GameLogicResult<()> {

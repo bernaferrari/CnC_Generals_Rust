@@ -23,6 +23,28 @@ impl Matrix3x4 {
         ],
     };
 
+    /// Reconstruct the structural affine row used by C++ Matrix3D.
+    pub fn to_logic_matrix(self) -> glam::Mat4 {
+        glam::Mat4::from_cols_array(&[
+            self.rows[0][0],
+            self.rows[1][0],
+            self.rows[2][0],
+            0.0,
+            self.rows[0][1],
+            self.rows[1][1],
+            self.rows[2][1],
+            0.0,
+            self.rows[0][2],
+            self.rows[1][2],
+            self.rows[2][2],
+            0.0,
+            self.rows[0][3],
+            self.rows[1][3],
+            self.rows[2][3],
+            1.0,
+        ])
+    }
+
     /// Copy the affine portion of the logic-side matrix without changing its
     /// row/column convention.  The active GameLogic `Matrix3D` is a glam
     /// `Mat4`; this adapter transposes its column-major storage into the
@@ -44,13 +66,19 @@ impl Matrix3x4 {
 pub struct RenderSubObjectSnapshot {
     pub name: String,
     pub visible: bool,
+    /// C++ Get_Sub_Object(i)->Get_Transform: complete world matrix, not local.
     pub transform: Matrix3x4,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RenderObjectState {
     pub name: String,
+    /// Original Get_ObjectScale metadata, serialized by the named ghost block.
     pub scale: f32,
+    /// Runtime-only geometry/prototype scale. C++ Clone copies scaled mesh/
+    /// HTree data independently while RenderObjClass resets ObjectScale to1.
+    /// Loading recreates geometry with the saved metadata scale.
+    pub geometry_scale: f32,
     pub color: u32,
     pub transform: Matrix3x4,
     pub sub_objects: Vec<RenderSubObjectSnapshot>,
@@ -72,7 +100,10 @@ pub struct W3DRenderObjectSnapshot {
 }
 
 impl W3DRenderObjectSnapshot {
-    pub fn new(render_object: RenderObjectState) -> Self {
+    pub fn new(mut render_object: RenderObjectState) -> Self {
+        // CPP rendobj.cpp:126-143 copy ctor; snapshot update restores color,
+        // matrix and HAnim explicitly, but deliberately never ObjectScale.
+        render_object.scale = 1.0;
         let mut snapshot = Self {
             render_object,
             uv_animations_disabled: false,
@@ -82,7 +113,8 @@ impl W3DRenderObjectSnapshot {
         snapshot
     }
 
-    pub fn update(&mut self, render_object: RenderObjectState) {
+    pub fn update(&mut self, mut render_object: RenderObjectState) {
+        render_object.scale = 1.0;
         self.render_object = render_object;
         self.disable_fog_animations();
     }
@@ -787,7 +819,7 @@ impl W3DGhostObjectManager {
     }
 }
 
-pub const OBJECTSHROUD_FOGGED: u8 = 2;
+pub const OBJECTSHROUD_FOGGED: u8 = crate::common::ObjectShroudStatus::Fogged as u8;
 
 /// Active non-network W3D ghost scene owner used by the runtime hooks and Main
 /// render ingress. Keeping its scene queue separate from the generic

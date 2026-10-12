@@ -163,6 +163,7 @@ impl GameLogic {
             // ordinary onDie/onDelete already consumed this registered latch.
             self.unregister_tunnel_containment(event.id);
             self.finish_building_sound(event.id);
+            self.detach_host_fog_ghost(event.id);
             if let Some(obj) = self.objects.remove(&event.id) {
                 // A DockUpdate queue is module-owned; discard it with the
                 // owning dock Object rather than retaining a dead ObjectId.

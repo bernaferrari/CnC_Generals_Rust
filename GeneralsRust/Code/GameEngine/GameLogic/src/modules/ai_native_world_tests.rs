@@ -33,8 +33,10 @@ impl ThingTemplate for EntryTemplate {
             1.0
         };
         let mut geometry = self.base.get_template_geometry_info();
-        geometry.bounds.min = Coord3D::new(-radius, -radius, 0.0);
-        geometry.bounds.max = Coord3D::new(radius, radius, 2.0);
+        geometry.set_bounds(crate::common::AABox {
+            min: Coord3D::new(-radius, -radius, 0.0),
+            max: Coord3D::new(radius, radius, 2.0),
+        });
         geometry
     }
     fn get_template_geometry_type(&self) -> Option<game_engine::common::system::GeometryType> {
@@ -48,6 +50,12 @@ impl ThingTemplate for EntryTemplate {
     }
     fn is_kind_of(&self, kind: KindOf) -> bool {
         self.base.is_kind_of(kind)
+    }
+    fn get_energy_production(&self) -> crate::common::Int {
+        self.base.get_energy_production()
+    }
+    fn get_energy_bonus(&self) -> crate::common::Int {
+        self.base.get_energy_bonus()
     }
     fn get_raw_transport_slot_count(&self) -> u8 {
         1
@@ -169,6 +177,11 @@ impl AudioLocalityResolver for LocalPlayers<'_> {
     }
 }
 struct NativeMatch {
+    scheduler: crate::system::game_logic::GameLogic,
+    teams: crate::team::TeamFactory,
+    client_random: game_engine::common::random_value::RandomState,
+    dirty_ui: Vec<u32>,
+    idle_workers: crate::helpers::IdleWorkerEvents,
     factory: ObjectFactory,
     players: PlayerList,
     terrain: crate::terrain::TerrainLogic,
@@ -193,15 +206,44 @@ impl NativeMatch {
         Self::with_target_owner(target_x, template, false)
     }
     fn with_target_owner(target_x: f32, template: Arc<dyn ThingTemplate>, hostile: bool) -> Self {
+        Self::with_source_template(target_x, template, hostile, infantry_template())
+    }
+    fn with_source_template(
+        target_x: f32,
+        template: Arc<dyn ThingTemplate>,
+        hostile: bool,
+        source_template: Arc<dyn ThingTemplate>,
+    ) -> Self {
+        Self::with_source_at(
+            Coord3D::new(target_x, 50.0, 0.0),
+            template,
+            hostile,
+            source_template,
+        )
+    }
+    fn with_source_at(
+        target_position: Coord3D,
+        template: Arc<dyn ThingTemplate>,
+        hostile: bool,
+        source_template: Arc<dyn ThingTemplate>,
+    ) -> Self {
         let mut factory = ObjectFactory::new();
         let mut players = PlayerList::new();
         players.add_player(Arc::new(RwLock::new(Player::new(0))));
         players.set_local_player_index(0);
-        let team = Arc::new(RwLock::new(crate::team::Team::new(
-            "NativeEnterTeam".into(),
-            1,
-        )));
-        team.write().unwrap().set_controlling_player_id(Some(0));
+        let mut teams = crate::team::TeamFactory::new();
+        let prototype = teams
+            .init_team_owned(
+                "NativeEnterTeam".into(),
+                "Player0".into(),
+                false,
+                None,
+                Some(0),
+            )
+            .unwrap();
+        let team = teams
+            .create_team_on_prototype_with_id(&prototype, 1)
+            .unwrap();
         players
             .get_player(0)
             .unwrap()
@@ -220,14 +262,18 @@ impl NativeMatch {
                 .write()
                 .unwrap()
                 .set_player_relationship_by_index(1, crate::common::Relationship::Enemies);
-            let enemy_team = Arc::new(RwLock::new(crate::team::Team::new(
-                "NativeEnemyTeam".into(),
-                2,
-            )));
-            enemy_team
-                .write()
-                .unwrap()
-                .set_controlling_player_id(Some(1));
+            let prototype = teams
+                .init_team_owned(
+                    "NativeEnemyTeam".into(),
+                    "Player1".into(),
+                    false,
+                    None,
+                    Some(1),
+                )
+                .unwrap();
+            let enemy_team = teams
+                .create_team_on_prototype_with_id(&prototype, 2)
+                .unwrap();
             enemy
                 .write()
                 .unwrap()
@@ -239,7 +285,7 @@ impl NativeMatch {
         };
         let source_id = factory
             .prepare_object(
-                infantry_template(),
+                source_template,
                 Coord3D::new(50.0, 50.0, 0.0),
                 Some(team.clone()),
                 ObjectCreationFlags::empty(),
@@ -248,11 +294,13 @@ impl NativeMatch {
         let target_id = factory
             .prepare_object(
                 template,
-                Coord3D::new(target_x, 50.0, 0.0),
-                Some(target_team),
+                target_position,
+                Some(Arc::clone(&target_team)),
                 ObjectCreationFlags::NO_AI,
             )
             .unwrap();
+        team.write().unwrap().add_member(source_id);
+        target_team.write().unwrap().add_member(target_id);
         let source = factory
             .get_object(source_id)
             .unwrap()
@@ -263,6 +311,22 @@ impl NativeMatch {
             .unwrap()
             .get_base_object()
             .unwrap();
+        assert_eq!(
+            source
+                .read()
+                .unwrap()
+                .controlling_player_id_from_pin()
+                .unwrap(),
+            Some(0)
+        );
+        assert_eq!(
+            target
+                .read()
+                .unwrap()
+                .controlling_player_id_from_pin()
+                .unwrap(),
+            Some(if hostile { 1 } else { 0 })
+        );
         assert!(source.read().unwrap().get_ai_update_interface().is_some());
         assert!(target.read().unwrap().get_contain().is_some());
         let mut terrain = crate::terrain::TerrainLogic::new();
@@ -285,6 +349,11 @@ impl NativeMatch {
             )
             .unwrap();
         Self {
+            scheduler: crate::system::game_logic::GameLogic::new(),
+            teams,
+            client_random: Default::default(),
+            dirty_ui: Vec::new(),
+            idle_workers: Default::default(),
             factory,
             players,
             terrain,
@@ -303,8 +372,22 @@ impl NativeMatch {
         }
     }
     fn operate<R>(&mut self, frame: u32, f: impl FnOnce(&mut BorrowedAiWorld<'_>) -> R) -> R {
+        self.operate_with_current(frame, None, f)
+    }
+    fn operate_with_current<R>(
+        &mut self,
+        frame: u32,
+        current_update: Option<game_engine::common::thing::update_module::UpdateModulePtr>,
+        f: impl FnOnce(&mut BorrowedAiWorld<'_>) -> R,
+    ) -> R {
         let locality = LocalPlayers(&self.players);
         let services = AiNativeServices {
+            current_update,
+            update_scheduler: &mut self.scheduler,
+            teams: &self.teams,
+            client_random: &mut self.client_random,
+            dirty_ui_objects: &mut self.dirty_ui,
+            idle_worker_events: &mut self.idle_workers,
             terrain: &self.terrain,
             pathfinder: &mut self.pathfinder,
             collision: &mut self.collision,
@@ -822,3 +905,24 @@ mod armed_transport_tests;
 
 #[path = "ai_native_world_tests/transport_remove.rs"]
 mod transport_remove_tests;
+
+#[path = "ai_native_world_tests/stealth_remove.rs"]
+mod stealth_remove_tests;
+
+#[path = "ai_native_world_tests/exit_phase.rs"]
+mod exit_phase_tests;
+
+#[path = "ai_native_world_tests/power_cancel.rs"]
+mod power_cancel_tests;
+
+#[path = "ai_native_world_tests/ai_restore.rs"]
+mod ai_restore_tests;
+
+#[path = "ai_native_world_tests/object_restore.rs"]
+mod object_restore_tests;
+
+#[path = "ai_native_world_tests/ordinary_damage.rs"]
+mod ordinary_damage;
+
+#[path = "ai_native_world_tests/spy_power.rs"]
+mod spy_power_tests;

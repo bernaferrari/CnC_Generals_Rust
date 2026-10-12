@@ -876,6 +876,22 @@ impl Object {
         thing_template: &dyn ThingTemplate,
         prepare_unit_ai: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Self::init_modules_preparing_ai_with_lookup(
+            object,
+            thing_template,
+            prepare_unit_ai,
+            None,
+            None,
+        )
+    }
+
+    pub(super) fn init_modules_preparing_ai_with_lookup(
+        object: &Arc<RwLock<Self>>,
+        thing_template: &dyn ThingTemplate,
+        prepare_unit_ai: bool,
+        lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
+        body_definitions: Option<&Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Unpublished owners install the same constructors from an independent
         // catalog. A peer's startup or thread-local override staging cannot
         // replace the definitions halfway through this object's assembly.
@@ -886,6 +902,10 @@ impl Object {
         let owned_factory = if unpublished {
             let mut factory = ModuleFactory::new();
             crate::contain_module_overrides::register_module_overrides(&mut factory)?;
+            crate::contain_module_overrides::register_inert_auto_heal(&mut factory)?;
+            if body_definitions.is_some() {
+                crate::contain_module_overrides::register_inert_active_body(&mut factory)?;
+            }
             for entry in thing_template.get_behavior_module_info() {
                 factory.add_module_internal(
                     None,
@@ -932,9 +952,10 @@ impl Object {
                             let mut owner = object
                                 .write()
                                 .map_err(|_| "object lock poisoned during body installation")?;
-                            crate::contain_module_overrides::install_body_for_module(
+                            crate::contain_module_overrides::install_body_for_module_with_definitions(
                                 module.as_ref(),
                                 &mut owner,
+                                body_definitions,
                             )?;
                         }
                         // C++ Object.cpp:458-462 — onObjectCreated runs only after
@@ -1090,6 +1111,21 @@ impl Object {
                 }
             }
 
+            for index in 0..guard.modules.len() {
+                let entry = &guard.modules[index];
+                if !entry.has_stealth {
+                    continue;
+                }
+                let handle = entry.with_module(|module| {
+                    let module = module
+                        .as_any_mut()
+                        .downcast_mut::<crate::stealth_update::StealthUpdateModule>()
+                        .expect("typed stealth metadata");
+                    module.bind_construction_owner(object, unpublished)
+                });
+                guard.set_stealth_module(handle);
+            }
+
             #[cfg(feature = "allow_surrender")]
             if guard.contain.is_none() {
                 for index in guard.contain_module_handles.clone() {
@@ -1218,11 +1254,21 @@ impl Object {
                 .read()
                 .map_err(|_| "object lock poisoned before AI preparation")?
                 .id;
-            let ai = crate::object::object_factory::factory_ai::prepare_unit_ai(
-                object,
-                thing_template,
-                object_id,
-            );
+            let ai = match lookup {
+                Some(lookup) => {
+                    crate::object::object_factory::factory_ai::prepare_unit_ai_with_locomotors(
+                        object,
+                        thing_template,
+                        object_id,
+                        lookup,
+                    )?
+                }
+                None => crate::object::object_factory::factory_ai::prepare_unit_ai(
+                    object,
+                    thing_template,
+                    object_id,
+                ),
+            };
             let mut owner = object
                 .write()
                 .map_err(|_| "object lock poisoned during AI installation")?;

@@ -337,6 +337,15 @@ impl Object {
         }
     }
 
+    /// Exact installed update proxies for a supplied scheduling owner.
+    pub(crate) fn named_update_registrations(&self, name: &str) -> Vec<UpdateModulePtr> {
+        self.update_module_registrations
+            .iter()
+            .filter(|registration| registration.module_name == name)
+            .map(|registration| registration.module.clone())
+            .collect()
+    }
+
     /// Live update-module proxies registered at object create (C++ behavior modules).
     pub fn update_module_registrations(
         &self,

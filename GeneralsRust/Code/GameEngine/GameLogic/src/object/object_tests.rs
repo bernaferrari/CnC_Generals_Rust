@@ -63,6 +63,7 @@ mod tests {
     #[test]
     fn object_crc_matches_cpp_object_cpp_field_order() {
         let src = include_str!("object_xfer.rs");
+        let wire = include_str!("object_xfer_wire.rs");
         let crc = src
             .split("impl Snapshot for Object {")
             .nth(1)
@@ -73,9 +74,9 @@ mod tests {
         assert!(crc.contains("xfer_user("));
         assert!(crc.contains("size_of::<ObjectID>()"));
         assert!(
-            src.contains("fn xfer_matrix3d_user_blob")
-                && src.contains("xfer_user(")
-                && src.contains("CPP_MATRIX3D_FLOATS"),
+            wire.contains("fn xfer_matrix3d_user_blob")
+                && wire.contains("xfer_user(")
+                && wire.contains("CPP_MATRIX3D_FLOATS"),
             "crc must dump WWMath 3x4 Matrix3D via xferUser blob"
         );
         assert!(crc.contains("size_of::<i64>()"));
@@ -91,31 +92,44 @@ mod tests {
         );
         assert!(crc.contains("WEAPONSLOT_COUNT"));
         assert!(crc.contains("xfer_weapon_crc_like_cpp"));
-        assert!(src.contains("fn xfer_weapon_crc_like_cpp"));
-        assert!(src.contains("crc_snapshot_fields"));
-        assert!(src.contains("laser_id_unused"));
-        assert!(src.contains("scatter_count"));
-        assert!(src.contains("pitch_limited"));
-        assert!(src.contains("leech_weapon_range_active"));
+        assert!(wire.contains("fn xfer_weapon_crc_like_cpp"));
+        assert!(wire.contains("crc_snapshot_fields"));
+        assert!(wire.contains("laser_id_unused"));
+        assert!(wire.contains("scatter_count"));
+        assert!(wire.contains("pitch_limited"));
+        assert!(wire.contains("leech_weapon_range_active"));
     }
 
     #[test]
     fn module_update_proxy_dispatches_fire_spread_update() {
-        let data = Arc::new(
-            crate::object::update::fire_spread_update::FireSpreadUpdateModuleData::default(),
-        );
-        let behavior =
-            crate::object::update::fire_spread_update::FireSpreadUpdate::new(9001, (*data).clone());
-        let mut module = crate::object::update::fire_spread_update::FireSpreadUpdateModule::new(
-            behavior,
-            &AsciiString::from("FireSpreadUpdate"),
-            data,
-        );
-
-        assert!(matches!(
-            ModuleUpdateProxy::dispatch_update(&mut module),
-            Some(UpdateSleepTime::Forever)
-        ));
+        for owner_id in [crate::common::INVALID_ID, 9001] {
+            let data = Arc::new(
+                crate::object::update::fire_spread_update::FireSpreadUpdateModuleData::default(),
+            );
+            let behavior = crate::object::update::fire_spread_update::FireSpreadUpdate::new(
+                owner_id,
+                (*data).clone(),
+            );
+            let mut module = crate::object::update::fire_spread_update::FireSpreadUpdateModule::new(
+                behavior,
+                &AsciiString::from("FireSpreadUpdate"),
+                data,
+            );
+            assert!(
+                matches!(
+                    ModuleUpdateProxy::dispatch_update(&mut module),
+                    Some(UpdateSleepTime::Forever)
+                ),
+                "cleared or retired owner must not request another frame"
+            );
+            assert!(
+                matches!(
+                    ModuleUpdateProxy::dispatch_update(&mut module),
+                    Some(UpdateSleepTime::Forever)
+                ),
+                "sleep selection must remain stable on repeat dispatch"
+            );
+        }
     }
 
     #[test]
@@ -311,38 +325,28 @@ mod tests {
 
     #[test]
     fn object_xfer_routes_through_body_snapshot_and_helpers() {
-        use game_engine::system::xfer_load::XferLoad;
-        use game_engine::system::xfer_save::XferSave;
-        use std::io::Cursor;
-
-        let template: Arc<dyn ThingTemplate> =
-            Arc::new(CtorSpecTemplate::named("BodySnapshotProbe").with_active_body());
-        let saved_owner =
-            Object::new_with_id(template.clone(), 42, ObjectStatusMaskType::NONE, None).unwrap();
+        use crate::object::object_xfer::native_tests::{Candidate, Definitions};
+        let definitions = Definitions::new(100.0);
+        let receiving_definitions = Definitions::new(100.0);
+        let mut sender = Candidate::new();
+        let saved_owner = sender.prepare_source_with_id(&definitions, 42);
         let mut saved = saved_owner.write().unwrap();
         assert!(saved.set_health(55.0).is_ok());
+        assert_eq!(saved.get_health(), 55.0);
         if let Some(helper) = saved.status_damage_helper() {
             helper.set_frame_to_heal_for_test(77);
             helper.set_status_to_heal_for_test(ObjectStatusTypes::Stealthed);
         }
-
-        let mut bytes = Vec::new();
-        {
-            let cursor = Cursor::new(&mut bytes);
-            let mut save = XferSave::new(cursor, 1);
-            saved.xfer(&mut save);
-        }
-
         drop(saved);
-        let loaded_owner =
-            Object::new_with_id(template, 43, ObjectStatusMaskType::NONE, None).unwrap();
+        let record = sender.operate(&definitions, 17, |services| {
+            services.save_object(&saved_owner).unwrap()
+        });
+        let mut candidate = Candidate::new();
+        let loaded_owner = candidate
+            .restore(&receiving_definitions, &[record])
+            .unwrap()
+            .remove(0);
         let mut loaded = loaded_owner.write().unwrap();
-        {
-            let cursor = Cursor::new(&bytes);
-            let mut load = XferLoad::new(cursor, 1);
-            loaded.xfer(&mut load);
-        }
-
         assert_eq!(loaded.get_id(), 42);
         assert!(
             (loaded.get_health() - 55.0).abs() < 0.01,
@@ -358,9 +362,6 @@ mod tests {
             loaded.status_damage_helper().unwrap().get_status_to_heal(),
             ObjectStatusTypes::Stealthed
         );
-        drop(loaded);
-        crate::helpers::TheGameLogic::remove_object(42);
-        crate::helpers::TheGameLogic::remove_object(43);
     }
 
     #[test]
@@ -426,8 +427,19 @@ mod tests {
         use game_engine::system::xfer_save::XferSave;
         use std::io::Cursor;
 
-        let mut first = Object::new_test(77, 100.0);
-        let mut second = Object::new_test(77, 100.0);
+        let helper_owner = |id| {
+            let mut object = Object::new_raw(
+                Arc::new(DefaultThingTemplate::new("CtorHelperState".into())),
+                id,
+                ObjectStatusMaskType::none(),
+                None,
+            );
+            object.ambient_lifecycle_admitted = false;
+            object.install_ctor_helpers();
+            object
+        };
+        let mut first = helper_owner(77);
+        let mut second = helper_owner(77);
         for object in [&mut first, &mut second] {
             if object.repulsor_helper.is_none() {
                 object.repulsor_helper = Some(crate::object::helper::ObjectRepulsorHelper::new(
@@ -511,9 +523,11 @@ mod tests {
         {
             let cursor = Cursor::new(&mut bytes);
             let mut save = XferSave::new(cursor, 1);
-            first.xfer(&mut save);
+            // Exercise the actual constructor-helper named blocks. This
+            // fixture has no team/body and does not claim full Object Xfer.
+            first.xfer_behavior_module_list(&mut save, true).unwrap();
         }
-        let mut restored = Object::new_test(1, 100.0);
+        let mut restored = helper_owner(1);
         restored.repulsor_helper = Some(crate::object::helper::ObjectRepulsorHelper::new(
             crate::object::helper::ObjectRepulsorHelperModuleData::default(),
         ));
@@ -523,7 +537,9 @@ mod tests {
         {
             let cursor = Cursor::new(&bytes);
             let mut load = XferLoad::new(cursor, 1);
-            restored.xfer(&mut load);
+            restored
+                .xfer_behavior_module_list(&mut load, false)
+                .unwrap();
         }
         // C++ SMC/repulsor Xfer stores only the update-module base state; it
         // does not serialize their transient clear flags. Defection Xfer does
@@ -537,6 +553,18 @@ mod tests {
                 .unwrap()
                 .get_defection_detection_end(),
             98
+        );
+        assert_eq!(
+            second.status_damage_helper().unwrap().get_frame_to_heal(),
+            88
+        );
+        assert_eq!(
+            second
+                .defection_helper
+                .as_ref()
+                .unwrap()
+                .get_defection_detection_end(),
+            0
         );
     }
 
@@ -767,33 +795,28 @@ mod tests {
 
     #[test]
     fn object_xfer_module_count_includes_ctor_helpers() {
-        use game_engine::system::xfer_load::XferLoad;
-        use game_engine::system::xfer_save::XferSave;
-        use std::io::Cursor;
-
-        let mut saved = Object::new_test(7, 100.0);
+        use crate::object::object_xfer::native_tests::{Candidate, Definitions};
+        let definitions = Definitions::new(100.0);
+        let receiving_definitions = Definitions::new(100.0);
+        let mut sender = Candidate::new();
+        let saved_owner = sender.prepare_source_with_id(&definitions, 7);
+        let mut saved = saved_owner.write().unwrap();
         assert!(saved.behavior_module_xfer_count() >= 3);
         if let Some(helper) = saved.status_damage_helper() {
             helper.set_frame_to_heal_for_test(88);
         }
-
-        let mut bytes = Vec::new();
-        {
-            let cursor = Cursor::new(&mut bytes);
-            let mut save = XferSave::new(cursor, 1);
-            saved.xfer(&mut save);
-        }
-
-        let mut loaded = Object::new_test(1, 100.0);
-        {
-            let cursor = Cursor::new(&bytes);
-            let mut load = XferLoad::new(cursor, 1);
-            loaded.xfer(&mut load);
-        }
-        assert_eq!(
-            loaded.behavior_module_xfer_count(),
-            saved.behavior_module_xfer_count()
-        );
+        let expected_count = saved.behavior_module_xfer_count();
+        drop(saved);
+        let record = sender.operate(&definitions, 17, |services| {
+            services.save_object(&saved_owner).unwrap()
+        });
+        let mut candidate = Candidate::new();
+        let loaded_owner = candidate
+            .restore(&receiving_definitions, &[record])
+            .unwrap()
+            .remove(0);
+        let mut loaded = loaded_owner.write().unwrap();
+        assert_eq!(loaded.behavior_module_xfer_count(), expected_count);
         let heal_frame = loaded
             .status_damage_helper()
             .map(|helper| helper.get_frame_to_heal())

@@ -67,11 +67,7 @@ pub fn coord2d_to_angle(x: f32, y: f32) -> f32 {
     } else if c > 1.0 {
         c = 1.0;
     }
-    if y < 0.0 {
-        -c.acos()
-    } else {
-        c.acos()
-    }
+    if y < 0.0 { -c.acos() } else { c.acos() }
 }
 
 /// Axis-aligned 2D region (`lo`/`hi`), matching C++ `Region2D`.
@@ -443,10 +439,7 @@ impl Region3D {
 
     /// C++ `Region3D::isInRegionNoZ` — strict inequalities.
     pub fn is_in_region_no_z(&self, query: &Coord3D) -> bool {
-        self.lo.x < query.x
-            && query.x < self.hi.x
-            && self.lo.y < query.y
-            && query.y < self.hi.y
+        self.lo.x < query.x && query.x < self.hi.x && self.lo.y < query.y && query.y < self.hi.y
     }
 
     /// C++ `Region3D::isInRegionWithZ` — strict inequalities.
@@ -664,8 +657,6 @@ impl Matrix3D {
         self.m[1][1] = -s * m01 + c * m11;
     }
 
-
-
     /// Multiply this matrix by another matrix
     pub fn multiply(&self, other: &Matrix3D) -> Matrix3D {
         let mut result = [[0.0; 4]; 4];
@@ -714,7 +705,7 @@ pub enum GeometryType {
 /// C++ Reference: Geometry.h - mirrors m_type, m_isSmall, m_height, m_majorRadius,
 ///   m_minorRadius, m_boundingCircleRadius, m_boundingSphereRadius
 /// Note: `width` and `depth` are legacy aliases for `major_radius` and `minor_radius`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct GeometryInfo {
     pub geometry_type: GeometryType,
     pub is_small: bool,
@@ -788,6 +779,22 @@ impl GeometryInfo {
             }
         }
         self.calc_bounding_stuff();
+    }
+
+    /// Validate a detached receiving candidate without normalizing its saved caches.
+    pub fn validate_saved_shape(&self) -> Result<(), String> {
+        for (name, value) in [
+            ("height", self.height),
+            ("major radius", self.width),
+            ("minor radius", self.depth),
+            ("bounding circle", self.bounding_circle_radius),
+            ("bounding sphere", self.bounding_sphere_radius),
+        ] {
+            if !value.is_finite() || value < 0.0 {
+                return Err(format!("invalid saved geometry {name}: {value}"));
+            }
+        }
+        Ok(())
     }
 
     pub fn major_radius(&self) -> f32 {
@@ -1191,7 +1198,11 @@ impl Snapshotable for GeometryInfo {
             0 => GeometryType::Sphere,
             1 => GeometryType::Cylinder,
             2 => GeometryType::Box,
-            _ => GeometryType::Sphere,
+            _ => {
+                return Err(format!(
+                    "GeometryInfo::xfer invalid geometry type {geo_type}"
+                ));
+            }
         };
 
         xfer.xfer_bool(&mut self.is_small)
@@ -1225,7 +1236,7 @@ impl Snapshotable for GeometryInfo {
 
 #[cfg(test)]
 mod coord3d_cpp_parity {
-    use super::{cpp_zup_to_host_yup, host_yup_to_cpp_zup, Coord3D};
+    use super::{Coord3D, cpp_zup_to_host_yup, host_yup_to_cpp_zup};
 
     #[test]
     fn length_and_length_sqr_match_base_type() {
@@ -1281,7 +1292,7 @@ mod coord3d_cpp_parity {
 
 #[cfg(test)]
 mod basetype_cpp_parity {
-    use super::{coord2d_to_angle, Coord2D, ICoord2D, ICoord3D, RGBColor, Region3D};
+    use super::{Coord2D, ICoord2D, ICoord3D, RGBColor, Region3D, coord2d_to_angle};
 
     #[test]
     fn coord2d_length_and_zero_normalize() {

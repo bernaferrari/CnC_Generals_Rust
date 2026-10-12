@@ -1453,6 +1453,9 @@ pub struct ModuleEntry {
     module: Mutex<Box<dyn Module>>,
     has_dock_update: bool,
     has_firing_tracker: bool,
+    has_flight_deck: bool,
+    has_stealth: bool,
+    has_spy_vision: bool,
 }
 
 impl fmt::Debug for ModuleEntry {
@@ -1479,6 +1482,18 @@ impl ModuleEntry {
         let has_firing_tracker = module_behavior_utility_kind(module.as_mut())
             .and_then(BehaviorUtilityModuleKindMut::into_firing_tracker)
             .is_some();
+        let has_flight_deck = module_production_behavior_kind(module.as_mut())
+            .and_then(ProductionBehaviorModuleKindMut::into_flight_deck_behavior)
+            .is_some();
+        let has_stealth = module
+            .as_any()
+            .is::<crate::stealth_update::StealthUpdateModule>();
+        let has_spy_vision = module
+            .as_any()
+            .is::<crate::object::update::spy_vision_update::SpyVisionUpdate>()
+            || module
+                .as_any()
+                .is::<crate::object::update::spy_vision_update::SpyVisionUpdateModule>();
         Self {
             name,
             tag,
@@ -1487,6 +1502,9 @@ impl ModuleEntry {
             module: Mutex::new(module),
             has_dock_update,
             has_firing_tracker,
+            has_flight_deck,
+            has_stealth,
+            has_spy_vision,
         }
     }
 
@@ -1649,6 +1667,11 @@ fn initial_update_wake_frame(module: &mut dyn Module) -> UnsignedInt {
 }
 
 impl UpdateModuleInterface for ModuleUpdateProxy {
+    fn record_scheduled_wake(&mut self, frame: u32, phase: SleepyUpdatePhase) {
+        self.entry
+            .with_module(|module| module.record_scheduled_wake(frame, phase));
+    }
+
     fn update_scheduled(
         &mut self,
         context: &mut dyn game_engine::common::thing::update_module::UpdateScheduleContext,
@@ -1750,6 +1773,10 @@ impl BehaviorModuleHandle {
 
     pub fn interface_mask(&self) -> ModuleInterfaceType {
         self.entry.mask()
+    }
+
+    pub(crate) fn has_spy_vision(&self) -> bool {
+        self.entry.has_spy_vision
     }
 
     pub fn with_module<F, R>(&self, func: F) -> R
@@ -2187,6 +2214,9 @@ pub struct Object {
     script_status: u8,
 
     // Geometry and position
+    /// C++ Thing::m_transform is authoritative; geometry position/angle are
+    /// derived caches, never a reconstruction of the serialized matrix.
+    transform_matrix: Matrix3D,
     geometry_info: GeometryInfo,
     health_box_offset: Coord3D,
     i_pos: ICoord3D,
@@ -2413,18 +2443,25 @@ mod object_impl_imports;
 mod object_lifecycle;
 mod object_modules;
 mod object_partition_services;
+mod object_power;
+pub(crate) use object_power::PowerDisabledEdge;
 mod object_queries;
 mod object_special_power;
 mod object_status;
+mod object_team_power;
 #[cfg(test)]
 mod object_tests;
 mod object_thing;
 mod object_triggers;
 mod object_update;
 mod object_upgrade;
+#[cfg(test)]
+mod owned_pose_tests;
+#[cfg(test)]
+mod power_brownout_owner_tests;
 pub use object_partition_services::ObjectPartitionServices;
 mod object_vision;
-mod object_xfer;
+pub(crate) mod object_xfer;
 mod status_cmds;
 mod vision;
 

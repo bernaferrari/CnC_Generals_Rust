@@ -683,6 +683,10 @@ pub struct RenderPipeline {
     // Render items for current frame
     render_items: Vec<RenderItem>,
 
+    /// Immutable native W3D observations from the completed model collection.
+    committed_host_ghost_draws:
+        Vec<crate::game_logic::game_logic::world_objects::fog_ghosts::CommittedHostGhostDraw>,
+
     // Rendering state
     frame_number: u64,
     current_pass: Option<RenderPass>,
@@ -941,3 +945,26 @@ pub const RENDER_PIPELINE_SRC: &str = concat!(
     include_str!("pipeline_prewarm.rs"),
     include_str!("residuals.rs"),
 );
+
+/// The native renderer commits this packed house color before ghost cloning.
+/// It is derived from the same authored host color used by ordinary geometry.
+fn native_ghost_color(color: [f32; 4]) -> Option<u32> {
+    if !color.iter().all(|component| component.is_finite()) {
+        return None;
+    }
+    let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u32;
+    Some(
+        (channel(color[3]) << 24)
+            | (channel(color[0]) << 16)
+            | (channel(color[1]) << 8)
+            | channel(color[2]),
+    )
+}
+
+impl RenderPipeline {
+    pub(crate) fn take_committed_host_ghost_draws(
+        &mut self,
+    ) -> Vec<crate::game_logic::game_logic::world_objects::fog_ghosts::CommittedHostGhostDraw> {
+        std::mem::take(&mut self.committed_host_ghost_draws)
+    }
+}

@@ -806,6 +806,13 @@ impl UnitAiRuntime {
         &mut self,
         set: LocomotorSetType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.choose_locomotor_set_with_lookup(set, None)
+    }
+    pub(super) fn choose_locomotor_set_with_lookup(
+        &mut self,
+        set: LocomotorSetType,
+        mut lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut target_set = set;
         if self
             .components
@@ -835,17 +842,28 @@ impl UnitAiRuntime {
         self.data.current_locomotor_set = target_set;
 
         let mut new_set = LocomotorSet::new();
-        for locomotor_name in locomotors {
-            if let Some(template) =
-                crate::locomotor::LOCOMOTOR_STORE.get_template(locomotor_name.as_str())
-            {
-                new_set.add_locomotor(
-                    locomotor_name.as_str().to_string(),
-                    Locomotor::new(template),
-                );
-            } else {
-                log::warn!("Locomotor template '{}' not found", locomotor_name.as_str());
-            }
+        for name in locomotors {
+            let detached = lookup.is_some();
+            let template = match lookup.as_deref_mut() {
+                Some(lookup) => lookup(name.as_str())?.ok_or_else(|| {
+                    format!("receiving locomotor definition {} absent", name.as_str())
+                })?,
+                None => match crate::locomotor::LOCOMOTOR_STORE.get_template(name.as_str()) {
+                    Some(template) => template,
+                    None => {
+                        log::warn!("Locomotor template '{}' not found", name.as_str());
+                        continue;
+                    }
+                },
+            };
+            new_set.add_locomotor(
+                name.as_str().to_string(),
+                if detached {
+                    Locomotor::new_for_snapshot(template)
+                } else {
+                    Locomotor::new(template)
+                },
+            );
         }
 
         let prev_name = self
@@ -1345,14 +1363,28 @@ impl UnitAiRuntime {
         }
     }
     pub(super) fn xfer_locomotor_set_state(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.xfer_locomotor_set_state_with_lookup(xfer, None)
+    }
+    pub(super) fn xfer_locomotor_set_state_with_lookup(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
+    ) -> Result<(), String> {
         // C++ AIUpdate.cpp:5130-5145 clears only the receiving set before load.
         if xfer.is_loading() {
             self.data.locomotor_set.clear();
         }
         let mut current_name = self.data.locomotor_set.active_name().map(str::to_owned);
-        self.data
-            .locomotor_set
-            .xfer_self_and_cur_loco_ptr(xfer, &mut current_name)?;
+        match lookup {
+            Some(lookup) => self
+                .data
+                .locomotor_set
+                .xfer_self_and_cur_loco_ptr_with_lookup(xfer, &mut current_name, lookup)?,
+            None => self
+                .data
+                .locomotor_set
+                .xfer_self_and_cur_loco_ptr(xfer, &mut current_name)?,
+        }
         let mut current_set = self.data.current_locomotor_set as i32;
         xfer.xfer_int(&mut current_set).map_err(|e| e.to_string())?;
         if xfer.is_loading() {

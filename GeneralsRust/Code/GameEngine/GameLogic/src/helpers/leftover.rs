@@ -38,8 +38,7 @@ struct InGameUIState {
     floating_texts: Vec<FloatingTextEntry>,
     world_animations: Vec<WorldAnimationEntry>,
     messages: Vec<String>,
-    idle_worker_additions: Vec<(ObjectID, Int)>,
-    idle_worker_removals: Vec<(ObjectID, Int)>,
+    idle_workers: IdleWorkerEvents,
     last_selection_frame: UnsignedInt,
     superweapons: Vec<SuperweaponEntry>,
     /// C++ parity: InGameUI popup message clear request flag.
@@ -271,27 +270,21 @@ impl TheInGameUI {
     /// Remove a worker from the idle worker UI list.
     pub fn remove_idle_worker(object: &crate::object::Object, player_index: Int) {
         if let Ok(mut state) = IN_GAME_UI_STATE.write() {
-            state
-                .idle_worker_removals
-                .push((object.get_id(), player_index));
+            state.idle_workers.remove(object.get_id(), player_index);
         }
     }
 
     /// Add a worker to the idle worker UI list.
     pub fn add_idle_worker(object: &crate::object::Object, player_index: Int) {
         if let Ok(mut state) = IN_GAME_UI_STATE.write() {
-            state
-                .idle_worker_additions
-                .push((object.get_id(), player_index));
+            state.idle_workers.add(object.get_id(), player_index);
         }
     }
 
     /// Drain pending idle worker add/remove events (matches InGameUI idle worker bookkeeping).
     pub fn take_idle_worker_events() -> (Vec<(ObjectID, Int)>, Vec<(ObjectID, Int)>) {
         if let Ok(mut state) = IN_GAME_UI_STATE.write() {
-            let additions = std::mem::take(&mut state.idle_worker_additions);
-            let removals = std::mem::take(&mut state.idle_worker_removals);
-            return (additions, removals);
+            return state.idle_workers.take();
         }
         (Vec::new(), Vec::new())
     }

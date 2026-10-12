@@ -45,397 +45,33 @@ impl fmt::Display for ObjectXferError {
 
 impl std::error::Error for ObjectXferError {}
 
-fn xfer_matrix3d(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) {
-    // C++ Xfer::xferMatrix3D: version byte + 3 rows × 4 Reals (Object.cpp:4025, Xfer.cpp:818-843).
-    let current_version: u8 = 1;
-    let mut version = current_version;
-    let _ = xfer.xfer_version(&mut version, current_version);
-    xfer_matrix3d_rows(xfer, matrix);
+#[path = "object_xfer_wire.rs"]
+mod wire;
+use wire::*;
+
+fn resolve_saved_team(
+    factory: &crate::team::TeamFactory,
+    team_id: crate::team::TeamID,
+) -> Result<Arc<RwLock<crate::team::Team>>, String> {
+    factory
+        .find_team_by_id(team_id)
+        .ok_or_else(|| format!("missing saved team {team_id}"))
 }
 
-fn xfer_matrix3d_rows(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) {
-    let cols = matrix.to_cols_array();
-    let mut row0 = [cols[0], cols[4], cols[8], cols[12]];
-    let mut row1 = [cols[1], cols[5], cols[9], cols[13]];
-    let mut row2 = [cols[2], cols[6], cols[10], cols[14]];
+#[path = "object_xfer_native.rs"]
+pub(crate) mod native;
+use native::{
+    ObjectSnapshotRecord, ObjectWeaponSetCatalog, ObjectXferDefinitions, ObjectXferServices,
+};
+#[cfg(test)]
+#[path = "object_xfer_native_tests.rs"]
+pub(super) mod native_tests;
 
-    for value in &mut row0 {
-        let _ = xfer.xfer_real(value);
-    }
-    for value in &mut row1 {
-        let _ = xfer.xfer_real(value);
-    }
-    for value in &mut row2 {
-        let _ = xfer.xfer_real(value);
-    }
-
-    let rebuilt_cols = [
-        row0[0], row1[0], row2[0], 0.0, row0[1], row1[1], row2[1], 0.0, row0[2], row1[2], row2[2],
-        0.0, row0[3], row1[3], row2[3], 1.0,
-    ];
-    *matrix = Matrix3D::from_cols_array(&rebuilt_cols);
-}
-
-/// C++ `Object::crc` → `xferSnapshot(thisWeapon)` → `Weapon::crc`.
-fn xfer_weapon_crc_like_cpp(xfer: &mut dyn Xfer, weapon: &crate::weapon::Weapon) {
-    let snap = weapon.crc_snapshot_fields();
-    let mut name = snap.template_name;
-    let _ = xfer.xfer_ascii_string(&mut name);
-
-    let mut wslot = snap.wslot;
-    // SAFETY: `wslot` is a fully initialized stack local of exactly
-    // `size_of::<i32>()` bytes; `xfer_user` only reads/writes that many bytes
-    // through the pointer for the duration of the call.
-    unsafe {
-        let _ = xfer.xfer_user(
-            (&mut wslot as *mut i32).cast::<u8>(),
-            std::mem::size_of::<i32>(),
-        );
-    }
-
-    let mut ammo = snap.ammo_in_clip;
-    let _ = xfer.xfer_unsigned_int(&mut ammo);
-    let mut when_fire = snap.when_we_can_fire_again;
-    let _ = xfer.xfer_unsigned_int(&mut when_fire);
-    let mut when_pre = snap.when_pre_attack_finished;
-    let _ = xfer.xfer_unsigned_int(&mut when_pre);
-    let mut when_reload = snap.when_last_reload_started;
-    let _ = xfer.xfer_unsigned_int(&mut when_reload);
-    let mut last_fire = snap.last_fire_frame;
-    let _ = xfer.xfer_unsigned_int(&mut last_fire);
-
-    let mut stream_id = snap.projectile_stream_id;
-    let _ = xfer.xfer_object_id(&mut stream_id);
-    let mut laser_id_unused: ObjectID = crate::common::INVALID_ID;
-    let _ = xfer.xfer_object_id(&mut laser_id_unused);
-
-    let mut max_shots = snap.max_shot_count;
-    let _ = xfer.xfer_int(&mut max_shots);
-    let mut cur_barrel = snap.cur_barrel;
-    let _ = xfer.xfer_int(&mut cur_barrel);
-    let mut shots_for_barrel = snap.num_shots_for_cur_barrel;
-    let _ = xfer.xfer_int(&mut shots_for_barrel);
-
-    let mut scatter_count = snap.scatter_targets_unused.len() as u16;
-    let _ = xfer.xfer_unsigned_short(&mut scatter_count);
-    for target in &snap.scatter_targets_unused {
-        let mut int_data = *target;
-        let _ = xfer.xfer_int(&mut int_data);
-    }
-
-    let mut pitch_limited = snap.pitch_limited;
-    let _ = xfer.xfer_bool(&mut pitch_limited);
-    let mut leech = snap.leech_weapon_range_active;
-    let _ = xfer.xfer_bool(&mut leech);
-}
-
-/// C++ `xferUser((Matrix3D *)getTransformMatrix(), sizeof(Matrix3D))`.
-/// WWMath `Matrix3D` is 3×4 Reals (48 bytes), row-major.
-fn xfer_matrix3d_user_blob(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) {
-    const CPP_MATRIX3D_FLOATS: usize = 12;
-    let cols = matrix.to_cols_array();
-    let mut blob = [0f32; CPP_MATRIX3D_FLOATS];
-    for row in 0..3 {
-        for col in 0..4 {
-            blob[row * 4 + col] = cols[col * 4 + row];
-        }
-    }
-    // SAFETY: `blob` is a fully initialized `[f32; 12]` stack array; the
-    // xfer reads/writes exactly its 48 bytes within this call.
-    unsafe {
-        let _ = xfer.xfer_user(
-            blob.as_mut_ptr().cast::<u8>(),
-            CPP_MATRIX3D_FLOATS * std::mem::size_of::<f32>(),
-        );
-    }
-    let mut cols = [0f32; 16];
-    for row in 0..3 {
-        for col in 0..4 {
-            cols[col * 4 + row] = blob[row * 4 + col];
-        }
-    }
-    cols[15] = 1.0;
-    *matrix = Matrix3D::from_cols_array(&cols);
-}
-
-fn xfer_u128_bits(xfer: &mut dyn Xfer, value: &mut u128) {
-    let mut lo = (*value & 0xFFFF_FFFF_FFFF_FFFF) as u64;
-    let mut hi = (*value >> 64) as u64;
-    if let Err(err) = xfer.xfer_u64(&mut lo) {
-        panic!("Object xfer_u128_bits failed (lo): {err}");
-    }
-    if let Err(err) = xfer.xfer_u64(&mut hi) {
-        panic!("Object xfer_u128_bits failed (hi): {err}");
-    }
-    *value = ((hi as u128) << 64) | (lo as u128);
-}
-
-fn xfer_coord3d_values(xfer: &mut dyn Xfer, value: &mut Coord3D) {
-    let _ = xfer.xfer_real(&mut value.x);
-    let _ = xfer.xfer_real(&mut value.y);
-    let _ = xfer.xfer_real(&mut value.z);
-}
-
-fn xfer_sighting_info(xfer: &mut dyn Xfer, sighting: &mut SightingInfo) {
-    // C++ SightingInfo::xfer (PartitionManager.cpp:5786-5805): version + Coord3D + howFar + PlayerMask + data.
-    let current_version: u8 = 1;
-    let mut version = current_version;
-    let _ = xfer.xfer_version(&mut version, current_version);
-    xfer_coord3d_values(xfer, &mut sighting.where_pos);
-    let _ = xfer.xfer_real(&mut sighting.how_far);
-    let mut for_whom = sighting.for_whom.bits() as u16;
-    let _ = xfer.xfer_unsigned_short(&mut for_whom);
-    sighting.for_whom = PlayerMaskType::from_bits_retain(for_whom as u32);
-    let _ = xfer.xfer_unsigned_int(&mut sighting.data);
-}
-
-fn xfer_geometry_info(xfer: &mut dyn Xfer, geometry: &mut GeometryInfo) {
-    // C++ GeometryInfo::xfer (Geometry.cpp:544-572): version + GeometryType(4B) + isSmall + 5 Reals.
-    let current_version: u8 = 1;
-    let mut version = current_version;
-    let _ = xfer.xfer_version(&mut version, current_version);
-
-    let mut geom_type = crate::common::types::geometry_type_to_u32(geometry.geometry_type);
-    let _ = xfer.xfer_unsigned_int(&mut geom_type);
-    let _ = xfer.xfer_bool(&mut geometry.is_small);
-
-    let mut height = geometry.get_max_height_above_position();
-    let mut major_radius = geometry.get_major_radius();
-    let mut minor_radius = geometry.get_minor_radius();
-    let mut bounding_circle = geometry.get_bounding_circle_radius();
-    let mut bounding_sphere = geometry.get_bounding_sphere_radius();
-    let _ = xfer.xfer_real(&mut height);
-    let _ = xfer.xfer_real(&mut major_radius);
-    let _ = xfer.xfer_real(&mut minor_radius);
-    let _ = xfer.xfer_real(&mut bounding_circle);
-    let _ = xfer.xfer_real(&mut bounding_sphere);
-
-    if xfer.get_xfer_mode() == game_engine::system::XferMode::Load {
-        geometry.geometry_type = crate::common::types::geometry_type_from_u32(geom_type);
-        let major_radius = major_radius.max(0.0);
-        let minor_radius = minor_radius.max(0.0);
-        geometry.bounds = crate::common::types::AABox {
-            min: Coord3D::new(-major_radius, -minor_radius, 0.0),
-            max: Coord3D::new(major_radius, minor_radius, height.max(0.0)),
-        };
-        let _ = (bounding_circle, bounding_sphere);
-    }
-}
-
-/// C++ `BitFlags<NUMBITS>::xfer` (BitFlagsIO.h:134-205): version + Int count + set-bit names.
-fn xfer_named_bits(xfer: &mut dyn Xfer, bits: &mut u128, names: &[&str]) {
-    let current_version: u8 = 1;
-    let mut version = current_version;
-    let _ = xfer.xfer_version(&mut version, current_version);
-
-    match xfer.get_xfer_mode() {
-        game_engine::system::XferMode::Save => {
-            let mut count = 0i32;
-            for i in 0..names.len() {
-                if (*bits & (1u128 << i)) != 0 {
-                    count += 1;
-                }
-            }
-            let _ = xfer.xfer_int(&mut count);
-            for (i, name) in names.iter().enumerate() {
-                if (*bits & (1u128 << i)) != 0 {
-                    let mut token = (*name).to_string();
-                    let _ = xfer.xfer_ascii_string(&mut token);
-                }
-            }
-        }
-        game_engine::system::XferMode::Load => {
-            *bits = 0;
-            let mut count = 0i32;
-            let _ = xfer.xfer_int(&mut count);
-            for _ in 0..count.max(0) {
-                let mut token = String::new();
-                let _ = xfer.xfer_ascii_string(&mut token);
-                match names
-                    .iter()
-                    .position(|name| name.eq_ignore_ascii_case(&token))
-                {
-                    Some(index) => *bits |= 1u128 << index,
-                    None => panic!("Object::xfer invalid bit name '{}'", token),
-                }
-            }
-        }
-        game_engine::system::XferMode::Crc => {
-            xfer_u128_bits(xfer, bits);
-        }
-        _ => {}
-    }
-}
-
-const OBJECT_STATUS_XFER_NAMES: &[&str] = &[
-    "NONE",
-    "DESTROYED",
-    "CAN_ATTACK",
-    "UNDER_CONSTRUCTION",
-    "UNSELECTABLE",
-    "NO_COLLISIONS",
-    "NO_ATTACK",
-    "AIRBORNE_TARGET",
-    "PARACHUTING",
-    "REPULSOR",
-    "HIJACKED",
-    "AFLAME",
-    "BURNED",
-    "WET",
-    "IS_FIRING_WEAPON",
-    "IS_BRAKING",
-    "STEALTHED",
-    "DETECTED",
-    "CAN_STEALTH",
-    "SOLD",
-    "UNDERGOING_REPAIR",
-    "RECONSTRUCTING",
-    "MASKED",
-    "IS_ATTACKING",
-    "USING_ABILITY",
-    "IS_AIMING_WEAPON",
-    "NO_ATTACK_FROM_AI",
-    "IGNORING_STEALTH",
-    "IS_CARBOMB",
-    "DECK_HEIGHT_OFFSET",
-    "STATUS_RIDER1",
-    "STATUS_RIDER2",
-    "STATUS_RIDER3",
-    "STATUS_RIDER4",
-    "STATUS_RIDER5",
-    "STATUS_RIDER6",
-    "STATUS_RIDER7",
-    "STATUS_RIDER8",
-    "FAERIE_FIRE",
-    "KILLING_SELF",
-    "REASSIGN_PARKING",
-    "BOOBY_TRAPPED",
-    "IMMOBILE",
-    "DISGUISED",
-    "DEPLOYED",
-];
-
-const DISABLED_MASK_XFER_NAMES: &[&str] = &[
-    "DEFAULT",
-    "DISABLED_HACKED",
-    "DISABLED_EMP",
-    "DISABLED_HELD",
-    "DISABLED_PARALYZED",
-    "DISABLED_UNMANNED",
-    "DISABLED_UNDERPOWERED",
-    "DISABLED_FREEFALL",
-    "DISABLED_AWESTRUCK",
-    "DISABLED_BRAINWASHED",
-    "DISABLED_SUBDUED",
-    "DISABLED_SCRIPT_DISABLED",
-    "DISABLED_SCRIPT_UNDERPOWERED",
-];
-
-const WEAPON_SET_XFER_NAMES: &[&str] = &[
-    "VETERAN",
-    "ELITE",
-    "HERO",
-    "PLAYER_UPGRADE",
-    "CRATEUPGRADE_ONE",
-    "CRATEUPGRADE_TWO",
-    "VEHICLE_HIJACK",
-    "CARBOMB",
-    "MINE_CLEARING_DETAIL",
-    "WEAPON_RIDER1",
-    "WEAPON_RIDER2",
-    "WEAPON_RIDER3",
-    "WEAPON_RIDER4",
-    "WEAPON_RIDER5",
-    "WEAPON_RIDER6",
-    "WEAPON_RIDER7",
-    "WEAPON_RIDER8",
-];
-
-const SPECIAL_POWER_XFER_NAMES: &[&str] = &[
-    "SPECIAL_INVALID",
-    "SPECIAL_DAISY_CUTTER",
-    "SPECIAL_PARADROP_AMERICA",
-    "SPECIAL_CARPET_BOMB",
-    "SPECIAL_CLUSTER_MINES",
-    "SPECIAL_EMP_PULSE",
-    "SPECIAL_NAPALM_STRIKE",
-    "SPECIAL_CASH_HACK",
-    "SPECIAL_NEUTRON_MISSILE",
-    "SPECIAL_SPY_SATELLITE",
-    "SPECIAL_DEFECTOR",
-    "SPECIAL_TERROR_CELL",
-    "SPECIAL_AMBUSH",
-    "SPECIAL_BLACK_MARKET_NUKE",
-    "SPECIAL_ANTHRAX_BOMB",
-    "SPECIAL_SCUD_STORM",
-    "SPECIAL_DEMORALIZE_OBSOLETE",
-    "SPECIAL_CRATE_DROP",
-    "SPECIAL_A10_THUNDERBOLT_STRIKE",
-    "SPECIAL_DETONATE_DIRTY_NUKE",
-    "SPECIAL_ARTILLERY_BARRAGE",
-    "SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES",
-    "SPECIAL_REMOTE_CHARGES",
-    "SPECIAL_TIMED_CHARGES",
-    "SPECIAL_HELIX_NAPALM_BOMB",
-    "SPECIAL_HACKER_DISABLE_BUILDING",
-    "SPECIAL_TANKHUNTER_TNT_ATTACK",
-    "SPECIAL_BLACKLOTUS_CAPTURE_BUILDING",
-    "SPECIAL_BLACKLOTUS_DISABLE_VEHICLE_HACK",
-    "SPECIAL_BLACKLOTUS_STEAL_CASH_HACK",
-    "SPECIAL_INFANTRY_CAPTURE_BUILDING",
-    "SPECIAL_RADAR_VAN_SCAN",
-    "SPECIAL_SPY_DRONE",
-    "SPECIAL_DISGUISE_AS_VEHICLE",
-    "SPECIAL_BOOBY_TRAP",
-    "SPECIAL_REPAIR_VEHICLES",
-    "SPECIAL_PARTICLE_UPLINK_CANNON",
-    "SPECIAL_CASH_BOUNTY",
-    "SPECIAL_CHANGE_BATTLE_PLANS",
-    "SPECIAL_CIA_INTELLIGENCE",
-    "SPECIAL_CLEANUP_AREA",
-    "SPECIAL_LAUNCH_BAIKONUR_ROCKET",
-    "SPECIAL_SPECTRE_GUNSHIP",
-    "SPECIAL_GPS_SCRAMBLER",
-    "SPECIAL_FRENZY",
-    "SPECIAL_SNEAK_ATTACK",
-    "SPECIAL_CHINA_CARPET_BOMB",
-    "EARLY_SPECIAL_CHINA_CARPET_BOMB",
-    "SPECIAL_LEAFLET_DROP",
-    "EARLY_SPECIAL_LEAFLET_DROP",
-    "EARLY_SPECIAL_FRENZY",
-    "SPECIAL_COMMUNICATIONS_DOWNLOAD",
-    "EARLY_SPECIAL_REPAIR_VEHICLES",
-    "SPECIAL_TANK_PARADROP",
-    "SUPW_SPECIAL_PARTICLE_UPLINK_CANNON",
-    "AIRF_SPECIAL_DAISY_CUTTER",
-    "NUKE_SPECIAL_CLUSTER_MINES",
-    "NUKE_SPECIAL_NEUTRON_MISSILE",
-    "AIRF_SPECIAL_A10_THUNDERBOLT_STRIKE",
-    "AIRF_SPECIAL_SPECTRE_GUNSHIP",
-    "INFA_SPECIAL_PARADROP_AMERICA",
-    "SLTH_SPECIAL_GPS_SCRAMBLER",
-    "AIRF_SPECIAL_CARPET_BOMB",
-    "SUPR_SPECIAL_CRUISE_MISSILE",
-    "LAZR_SPECIAL_PARTICLE_UPLINK_CANNON",
-    "SUPW_SPECIAL_NEUTRON_MISSILE",
-    "SPECIAL_BATTLESHIP_BOMBARDMENT",
-];
-
-fn xfer_coord2d_values(xfer: &mut dyn Xfer, value: &mut Coord2D) {
-    let _ = xfer.xfer_real(&mut value.x);
-    let _ = xfer.xfer_real(&mut value.y);
-}
-
-fn xfer_color_rgba(xfer: &mut dyn Xfer, value: &mut Color) {
-    let mut packed = ((value.a as u32) << 24)
-        | ((value.b as u32) << 16)
-        | ((value.g as u32) << 8)
-        | (value.r as u32);
-    let _ = xfer.xfer_unsigned_int(&mut packed);
-    value.r = (packed & 0xFF) as u8;
-    value.g = ((packed >> 8) & 0xFF) as u8;
-    value.b = ((packed >> 16) & 0xFF) as u8;
-    value.a = ((packed >> 24) & 0xFF) as u8;
+#[derive(Clone, Copy)]
+struct SavedObjectPrefix {
+    version: u8,
+    mode: game_engine::system::XferMode,
+    team_id: crate::team::TeamID,
 }
 
 fn weapon_set_flags_to_bits(flags: WeaponSetFlags) -> u32 {
@@ -517,6 +153,22 @@ impl EngineSnapshotable for FiringTracker {
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
     }
+}
+
+fn xfer_installed_module(
+    module: &mut dyn engine_module::Module,
+    xfer: &mut dyn Xfer,
+    definitions: Option<&native::ObjectXferDefinitions<'_>>,
+) -> Result<(), String> {
+    if let Some(definitions) = definitions {
+        if let Some(ai) = module
+            .as_any_mut()
+            .downcast_mut::<crate::object::update::AIUpdateInterfaceModule>()
+        {
+            return ai.xfer_with_locomotors(xfer, &mut |name| Ok(definitions.locomotor(name)));
+        }
+    }
+    module.xfer(xfer)
 }
 
 impl Object {
@@ -611,6 +263,15 @@ impl Object {
         xfer: &mut dyn Xfer,
         is_saving: bool,
     ) -> Result<(), ObjectXferError> {
+        self.xfer_behavior_module_list_with_definitions(xfer, is_saving, None)
+    }
+
+    fn xfer_behavior_module_list_with_definitions(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        is_saving: bool,
+        definitions: Option<&native::ObjectXferDefinitions<'_>>,
+    ) -> Result<(), ObjectXferError> {
         let object_id = self.id;
         let mut module_count = self.behavior_module_xfer_count();
         xfer.xfer_unsigned_short(&mut module_count)
@@ -664,11 +325,10 @@ impl Object {
             let remaining =
                 (module_count as usize).saturating_sub(self.ctor_helper_xfer_tags().len());
             for entry in self.modules.iter().take(remaining) {
-                let mut module_identifier = entry
-                    .with_module(|module| {
-                        NameKeyGenerator::key_to_name(module.get_module_tag_name_key())
-                    })
-                    .unwrap_or_else(|| entry.tag().to_string());
+                // The installed descriptor owns the authored tag. Save and
+                // load must use the same identity even when programmatically
+                // supplied ModuleData has no name-key publication.
+                let mut module_identifier = entry.tag().to_string();
                 xfer.xfer_ascii_string(&mut module_identifier)
                     .map_err(|err| {
                         ObjectXferError::new(object_id, Some(&module_identifier), "module_tag", err)
@@ -685,7 +345,7 @@ impl Object {
                 xfer.begin_block()
                     .map_err(|err| module_error("begin_block", err))?;
                 entry
-                    .with_module(|module| module.xfer(xfer))
+                    .with_module(|module| xfer_installed_module(module, xfer, definitions))
                     .map_err(|err| {
                         ObjectXferError::new(
                             object_id,
@@ -702,7 +362,6 @@ impl Object {
                 let mut module_identifier = String::new();
                 xfer.xfer_ascii_string(&mut module_identifier)
                     .map_err(|err| ObjectXferError::new(object_id, None, "module_tag", err))?;
-                let module_identifier_key = NameKeyGenerator::name_to_key(&module_identifier);
                 let module_error = |operation, err| {
                     ObjectXferError::new(
                         object_id,
@@ -720,15 +379,14 @@ impl Object {
                         .map_err(|err| module_error("end_block", err))?;
                     continue;
                 }
-                let module_index = self.modules.iter().position(|entry| {
-                    entry.with_module(|module| {
-                        module.get_module_tag_name_key() == module_identifier_key
-                    })
-                });
+                let module_index = self
+                    .modules
+                    .iter()
+                    .position(|entry| entry.tag().as_str() == module_identifier.as_str());
                 if let Some(index) = module_index {
                     let entry = &self.modules[index];
                     entry
-                        .with_module(|module| module.xfer(xfer))
+                        .with_module(|module| xfer_installed_module(module, xfer, definitions))
                         .map_err(|err| {
                             ObjectXferError::new(
                                 object_id,
@@ -874,11 +532,9 @@ impl Snapshot for Object {
 impl Object {
     /// Transfer Object state, stopping when its behavior-module traversal fails.
     ///
-    /// Propagates reported errors from module counts, tags, block operations,
-    /// helper/module transfers, and unknown-module skips. Existing unchecked
-    /// primitive and other non-module transfers remain outside this bounded
-    /// error-propagation path. Earlier mutations, callbacks, and stream I/O are
-    /// not rolled back on failure.
+    /// Stops at failed primitive, nested, helper and module transfers with the
+    /// object and phase in the error. Earlier mutations, callbacks and stream
+    /// I/O are not rolled back; load into a detached candidate for transactionality.
     pub fn xfer_checked(&mut self, xfer: &mut dyn Xfer) -> Result<(), ObjectXferError> {
         self.xfer_with_optional_trigger_frame(xfer, None, &mut |id| {
             crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(id);
@@ -902,9 +558,42 @@ impl Object {
         frame: Option<UnsignedInt>,
         changed: &mut dyn FnMut(ObjectID),
     ) -> Result<(), ObjectXferError> {
+        let prefix = self.xfer_prefix(xfer, &mut |object, change| match change {
+            SavedTransformChange::Matrix(matrix) => {
+                object.set_transform_matrix_with_trigger_context(&matrix, frame, changed);
+                Ok(())
+            }
+            SavedTransformChange::Position(position) => object.set_position(&position),
+            SavedTransformChange::Orientation(angle) => object.set_orientation(angle),
+        })?;
+        let is_loading = prefix.mode == game_engine::system::XferMode::Load;
+        if is_loading {
+            // CPP Object.cpp4104-4113 rejects an unresolved team. Release the
+            // factory loan before lifecycle callbacks can resolve team services.
+            let team_factory = crate::team::get_team_factory();
+            let restored_team = {
+                let factory = team_factory
+                    .lock()
+                    .map_err(|error| ObjectXferError::new(self.id, None, "team", error))?;
+                resolve_saved_team(&factory, prefix.team_id)
+                    .map_err(|error| ObjectXferError::new(self.id, None, "team", error))?
+            };
+            self.set_or_restore_team(Some(restored_team), true)
+                .map_err(|error| ObjectXferError::new(self.id, None, "team", error))?;
+        }
+
+        self.xfer_tail(xfer, prefix, None)
+    }
+
+    fn xfer_prefix(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        apply_transform: &mut dyn FnMut(&mut Object, SavedTransformChange) -> Result<(), String>,
+    ) -> Result<SavedObjectPrefix, ObjectXferError> {
         let current_version: u8 = 9;
         let mut version = current_version;
-        let _ = xfer.xfer_version(&mut version, current_version);
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|error| ObjectXferError::new(self.id, None, "version", error))?;
 
         let xfer_mode = xfer.get_xfer_mode();
         let is_loading = xfer_mode == game_engine::system::XferMode::Load;
@@ -914,25 +603,32 @@ impl Object {
         );
 
         let mut id = self.get_id();
-        let _ = xfer.xfer_unsigned_int(&mut id);
+        xfer.xfer_unsigned_int(&mut id)
+            .map_err(|error| ObjectXferError::new(self.id, None, "id", error))?;
         self.set_id(id);
 
-        let mut transform = self.get_transform_matrix();
-        xfer_matrix3d(xfer, &mut transform);
-        self.set_transform_matrix_with_trigger_context(&transform, frame, changed);
+        let transform = self.get_transform_matrix();
+        xfer_transform_phase(xfer, version, transform, &mut |change| {
+            apply_transform(self, change)
+        })
+        .map_err(|error| ObjectXferError::new(self.id, None, "transform", error))?;
 
         let mut team_id = self.get_team_id().unwrap_or(crate::team::TEAM_ID_INVALID);
-        let _ = xfer.xfer_unsigned_int(&mut team_id);
+        xfer.xfer_unsigned_int(&mut team_id)
+            .map_err(|error| ObjectXferError::new(self.id, None, "team_id", error))?;
 
-        let _ = xfer.xfer_unsigned_int(&mut self.producer_id);
-        let _ = xfer.xfer_unsigned_int(&mut self.builder_id);
+        xfer.xfer_unsigned_int(&mut self.producer_id)
+            .map_err(|error| ObjectXferError::new(self.id, None, "producer_id", error))?;
+        xfer.xfer_unsigned_int(&mut self.builder_id)
+            .map_err(|error| ObjectXferError::new(self.id, None, "builder_id", error))?;
 
         let mut drawable_id = self
             .drawable
             .as_ref()
             .and_then(|drawable| drawable.read().ok().map(|guard| guard.get_drawable_id()))
             .unwrap_or(INVALID_ID);
-        let _ = xfer.xfer_unsigned_int(&mut drawable_id);
+        xfer.xfer_unsigned_int(&mut drawable_id)
+            .map_err(|error| ObjectXferError::new(self.id, None, "drawable_id", error))?;
         if is_loading {
             if let Some(drawable) = &self.drawable {
                 if let Ok(mut drawable_guard) = drawable.write() {
@@ -942,73 +638,101 @@ impl Object {
         }
 
         let mut name = self.name.to_string();
-        let _ = xfer.xfer_ascii_string(&mut name);
+        xfer.xfer_ascii_string(&mut name)
+            .map_err(|error| ObjectXferError::new(self.id, None, "name", error))?;
         if is_loading {
             self.name = AsciiString::from(name.as_str());
         }
         if version >= 8 {
             let mut status_bits = self.status.bits() as u128;
-            xfer_named_bits(xfer, &mut status_bits, OBJECT_STATUS_XFER_NAMES);
+            xfer_named_bits(xfer, &mut status_bits, OBJECT_STATUS_XFER_NAMES)
+                .map_err(|error| ObjectXferError::new(self.id, None, "xfer_named_bits", error))?;
             self.status = ObjectStatusMaskType::from_bits_retain(status_bits as u64);
         } else {
             let mut old_status: u32 = self.status.bits() as u32;
-            let _ = xfer.xfer_unsigned_int(&mut old_status);
+            xfer.xfer_unsigned_int(&mut old_status)
+                .map_err(|error| ObjectXferError::new(self.id, None, "old_status", error))?;
             if is_loading {
-                self.status = ObjectStatusMaskType::from_bits_retain(old_status as u64);
+                self.status = restore_legacy_status(old_status);
             }
         }
 
-        let _ = xfer.xfer_unsigned_byte(&mut self.script_status);
-        let _ = xfer.xfer_unsigned_byte(&mut self.private_status);
+        xfer.xfer_unsigned_byte(&mut self.script_status)
+            .map_err(|error| ObjectXferError::new(self.id, None, "script_status", error))?;
+        xfer.xfer_unsigned_byte(&mut self.private_status)
+            .map_err(|error| ObjectXferError::new(self.id, None, "private_status", error))?;
 
-        if is_loading {
-            if let Ok(factory) = crate::team::get_team_factory().lock() {
-                let restored_team = factory.find_team_by_id(team_id);
-                if let Err(err) = self.set_or_restore_team(restored_team, true) {
-                    warn!(
-                        "Object::xfer failed to restore team for object {}: {}",
-                        self.id, err
-                    );
-                }
-            }
-        }
+        Ok(SavedObjectPrefix {
+            version,
+            mode: xfer_mode,
+            team_id,
+        })
+    }
 
-        xfer_geometry_info(xfer, &mut self.geometry_info);
+    fn xfer_tail(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        prefix: SavedObjectPrefix,
+        mut services: Option<&mut native::ObjectXferServices<'_>>,
+    ) -> Result<(), ObjectXferError> {
+        let version = prefix.version;
+        let is_loading = prefix.mode == game_engine::system::XferMode::Load;
+        let is_saving = matches!(
+            prefix.mode,
+            game_engine::system::XferMode::Save | game_engine::system::XferMode::Crc
+        );
+        xfer_geometry_info(xfer, &mut self.geometry_info)
+            .map_err(|error| ObjectXferError::new(self.id, None, "xfer_geometry_info", error))?;
 
-        xfer_sighting_info(xfer, &mut self.partition_last_look);
+        xfer_sighting_info(xfer, &mut self.partition_last_look)
+            .map_err(|error| ObjectXferError::new(self.id, None, "xfer_sighting_info", error))?;
         if version >= 9 {
-            xfer_sighting_info(xfer, &mut self.partition_reveal_all_last_look);
+            xfer_sighting_info(xfer, &mut self.partition_reveal_all_last_look).map_err(
+                |error| ObjectXferError::new(self.id, None, "xfer_sighting_info", error),
+            )?;
         } else if is_loading {
             self.partition_reveal_all_last_look.reset();
         }
-        xfer_sighting_info(xfer, &mut self.partition_last_shroud);
+        xfer_sighting_info(xfer, &mut self.partition_last_shroud)
+            .map_err(|error| ObjectXferError::new(self.id, None, "xfer_sighting_info", error))?;
 
         let mut vision_spied_mask = self.vision_spied_mask.bits() as u16;
         for value in &mut self.vision_spied_by {
-            let _ = xfer.xfer_int(value);
+            xfer.xfer_int(value)
+                .map_err(|error| ObjectXferError::new(self.id, None, "int", error))?;
         }
-        let _ = xfer.xfer_unsigned_short(&mut vision_spied_mask);
+        xfer.xfer_unsigned_short(&mut vision_spied_mask)
+            .map_err(|error| ObjectXferError::new(self.id, None, "vision_spied_mask", error))?;
         self.vision_spied_mask = PlayerMaskType::from_bits_retain(vision_spied_mask as u32);
 
-        let _ = xfer.xfer_real(&mut self.vision_range);
-        let _ = xfer.xfer_real(&mut self.shroud_clearing_range);
-        let _ = xfer.xfer_real(&mut self.shroud_range);
+        xfer.xfer_real(&mut self.vision_range)
+            .map_err(|error| ObjectXferError::new(self.id, None, "vision_range", error))?;
+        xfer.xfer_real(&mut self.shroud_clearing_range)
+            .map_err(|error| ObjectXferError::new(self.id, None, "shroud_clearing_range", error))?;
+        xfer.xfer_real(&mut self.shroud_range)
+            .map_err(|error| ObjectXferError::new(self.id, None, "shroud_range", error))?;
 
         let mut disabled_mask_bits = self.disabled_mask.bits() as u128;
-        xfer_named_bits(xfer, &mut disabled_mask_bits, DISABLED_MASK_XFER_NAMES);
+        xfer_named_bits(xfer, &mut disabled_mask_bits, DISABLED_MASK_XFER_NAMES)
+            .map_err(|error| ObjectXferError::new(self.id, None, "xfer_named_bits", error))?;
         self.disabled_mask = DisabledMaskType::from_bits_retain(disabled_mask_bits as u32);
 
         if is_saving || version >= 2 {
-            let _ = xfer.xfer_bool(&mut self.single_use_command_used);
+            xfer.xfer_bool(&mut self.single_use_command_used)
+                .map_err(|error| {
+                    ObjectXferError::new(self.id, None, "single_use_command_used", error)
+                })?;
         } else {
             self.single_use_command_used = false;
         }
 
         for frame in &mut self.disabled_till_frame {
-            let _ = xfer.xfer_unsigned_int(frame);
+            xfer.xfer_unsigned_int(frame)
+                .map_err(|error| ObjectXferError::new(self.id, None, "unsigned_int", error))?;
         }
 
-        let _ = xfer.xfer_unsigned_int(&mut self.smc_until);
+        xfer.xfer_unsigned_int(&mut self.smc_until)
+            .map_err(|error| ObjectXferError::new(self.id, None, "smc_until", error))?;
 
         // C++ Object.cpp:4168-4173 — radar reloads as a separate chunk.
         if is_loading && self.radar_data.is_some() {
@@ -1022,56 +746,77 @@ impl Object {
             self.experience_tracker = Some(Box::new(ExperienceTracker::new(self.id)));
         }
         if let Some(tracker) = &mut self.experience_tracker {
-            if let Err(err) = tracker.xfer_state(xfer) {
-                warn!(
-                    "Object::xfer failed for experience tracker on object {}: {}",
-                    self.id, err
-                );
-            }
+            tracker
+                .xfer_state(xfer)
+                .map_err(|error| ObjectXferError::new(self.id, None, "experience", error))?;
         }
 
         if version >= 6 {
             let mut contained_by_id = self.contained_by_id;
-            let _ = xfer.xfer_unsigned_int(&mut contained_by_id);
+            xfer.xfer_unsigned_int(&mut contained_by_id)
+                .map_err(|error| ObjectXferError::new(self.id, None, "contained_by_id", error))?;
             if !is_saving {
                 self.contained_by_id = contained_by_id;
             }
         }
 
-        let _ = xfer.xfer_unsigned_int(&mut self.contained_by_frame);
-        let _ = xfer.xfer_real(&mut self.construction_percent);
+        xfer.xfer_unsigned_int(&mut self.contained_by_frame)
+            .map_err(|error| ObjectXferError::new(self.id, None, "contained_by_frame", error))?;
+        xfer.xfer_real(&mut self.construction_percent)
+            .map_err(|error| ObjectXferError::new(self.id, None, "construction_percent", error))?;
 
         // C++ Object.cpp:4204 then 4207 — construction percent is followed by xferUpgradeMask.
         // ActiveBody is a BehaviorModule and is framed inside the m_behaviors module list.
         let mut upgrade_mask_bits = self.object_upgrades_completed.bits();
-        if let Err(err) = xfer.xfer_upgrade_mask(&mut upgrade_mask_bits) {
-            panic!(
-                "Object::xfer upgrade mask failed for object {}: {err}",
-                self.id
-            );
+        if let Some(services) = services.as_deref_mut() {
+            xfer.xfer_upgrade_mask_with_center(
+                &mut upgrade_mask_bits,
+                services.definitions.upgrades,
+            )
+            .map_err(|error| ObjectXferError::new(self.id, None, "upgrades", error))?;
+        } else {
+            xfer.xfer_upgrade_mask(&mut upgrade_mask_bits)
+                .map_err(|error| ObjectXferError::new(self.id, None, "upgrades", error))?;
         }
         self.object_upgrades_completed = UpgradeMaskType::from_bits_retain(upgrade_mask_bits);
 
         let mut original_team_name = self.original_team_name.to_string();
-        let _ = xfer.xfer_ascii_string(&mut original_team_name);
+        xfer.xfer_ascii_string(&mut original_team_name)
+            .map_err(|error| ObjectXferError::new(self.id, None, "original_team_name", error))?;
         if is_loading {
             self.original_team_name = AsciiString::from(original_team_name.as_str());
         }
 
-        xfer_color_rgba(xfer, &mut self.indicator_color);
-        xfer_coord3d_values(xfer, &mut self.health_box_offset);
+        xfer_color_rgba(xfer, &mut self.indicator_color)
+            .map_err(|error| ObjectXferError::new(self.id, None, "xfer_color_rgba", error))?;
+        xfer_coord3d_values(xfer, &mut self.health_box_offset)
+            .map_err(|error| ObjectXferError::new(self.id, None, "xfer_coord3d_values", error))?;
 
-        let _ = xfer.xfer_unsigned_byte(&mut self.num_trigger_areas_active);
-        let _ = xfer.xfer_unsigned_int(&mut self.entered_or_exited_frame);
-        let _ = xfer.xfer_int(&mut self.i_pos.x);
-        let _ = xfer.xfer_int(&mut self.i_pos.y);
-        let _ = xfer.xfer_int(&mut self.i_pos.z);
+        xfer.xfer_unsigned_byte(&mut self.num_trigger_areas_active)
+            .map_err(|error| {
+                ObjectXferError::new(self.id, None, "num_trigger_areas_active", error)
+            })?;
+        xfer.xfer_unsigned_int(&mut self.entered_or_exited_frame)
+            .map_err(|error| {
+                ObjectXferError::new(self.id, None, "entered_or_exited_frame", error)
+            })?;
+        xfer.xfer_int(&mut self.i_pos.x)
+            .map_err(|error| ObjectXferError::new(self.id, None, "i_pos", error))?;
+        xfer.xfer_int(&mut self.i_pos.y)
+            .map_err(|error| ObjectXferError::new(self.id, None, "i_pos", error))?;
+        xfer.xfer_int(&mut self.i_pos.z)
+            .map_err(|error| ObjectXferError::new(self.id, None, "i_pos", error))?;
 
         if (self.num_trigger_areas_active as usize) > MAX_TRIGGER_AREA_INFOS {
-            panic!(
-                "Object::xfer - Invalid m_numTriggerAreasActive = {}, max is {}",
-                self.num_trigger_areas_active, MAX_TRIGGER_AREA_INFOS
-            );
+            return Err(ObjectXferError::new(
+                self.id,
+                None,
+                "triggers",
+                format!(
+                    "invalid active trigger count {}, max {}",
+                    self.num_trigger_areas_active, MAX_TRIGGER_AREA_INFOS
+                ),
+            ));
         }
         let trigger_count = self.num_trigger_areas_active as usize;
         for i in 0..trigger_count {
@@ -1080,60 +825,94 @@ impl Object {
                 .as_ref()
                 .map(|trigger| trigger.get_trigger_name().to_string())
                 .unwrap_or_default();
-            let _ = xfer.xfer_ascii_string(&mut trigger_name);
+            xfer.xfer_ascii_string(&mut trigger_name)
+                .map_err(|error| ObjectXferError::new(self.id, None, "trigger_name", error))?;
             if is_loading {
                 self.trigger_info[i].trigger = None;
                 if !trigger_name.is_empty() {
-                    let terrain = crate::terrain::get_terrain_logic();
-                    if let Ok(terrain_guard) = terrain.read() {
-                        self.trigger_info[i].trigger = terrain_guard
+                    if let Some(services) = services.as_deref() {
+                        self.trigger_info[i].trigger = services
+                            .terrain
                             .get_trigger_area_by_name(&trigger_name)
                             .cloned()
                             .map(Arc::new);
+                    } else {
+                        let terrain = crate::terrain::get_terrain_logic();
+                        if let Ok(terrain_guard) = terrain.read() {
+                            self.trigger_info[i].trigger = terrain_guard
+                                .get_trigger_area_by_name(&trigger_name)
+                                .cloned()
+                                .map(Arc::new);
+                        }
                     }
                 }
             }
             let mut entered = u8::from(self.trigger_info[i].entered);
-            let _ = xfer.xfer_unsigned_byte(&mut entered);
+            xfer.xfer_unsigned_byte(&mut entered)
+                .map_err(|error| ObjectXferError::new(self.id, None, "entered", error))?;
             self.trigger_info[i].entered = entered != 0;
 
             let mut exited = u8::from(self.trigger_info[i].exited);
-            let _ = xfer.xfer_unsigned_byte(&mut exited);
+            xfer.xfer_unsigned_byte(&mut exited)
+                .map_err(|error| ObjectXferError::new(self.id, None, "exited", error))?;
             self.trigger_info[i].exited = exited != 0;
 
             let mut is_inside = u8::from(self.trigger_info[i].is_inside);
-            let _ = xfer.xfer_unsigned_byte(&mut is_inside);
+            xfer.xfer_unsigned_byte(&mut is_inside)
+                .map_err(|error| ObjectXferError::new(self.id, None, "is_inside", error))?;
             self.trigger_info[i].is_inside = is_inside != 0;
         }
 
         let mut layer = self.layer as u32;
-        let _ = xfer.xfer_unsigned_int(&mut layer);
+        xfer.xfer_unsigned_int(&mut layer)
+            .map_err(|error| ObjectXferError::new(self.id, None, "layer", error))?;
         if is_loading {
             self.layer = PathfindLayerEnum::from_u32(layer);
         }
 
         let mut destination_layer = self.destination_layer as u32;
-        let _ = xfer.xfer_unsigned_int(&mut destination_layer);
+        xfer.xfer_unsigned_int(&mut destination_layer)
+            .map_err(|error| ObjectXferError::new(self.id, None, "destination_layer", error))?;
         if is_loading {
             self.destination_layer = PathfindLayerEnum::from_u32(destination_layer);
         }
 
-        let _ = xfer.xfer_bool(&mut self.is_selectable);
-        let _ = xfer.xfer_unsigned_int(&mut self.safe_occlusion_frame);
+        xfer.xfer_bool(&mut self.is_selectable)
+            .map_err(|error| ObjectXferError::new(self.id, None, "is_selectable", error))?;
+        xfer.xfer_unsigned_int(&mut self.safe_occlusion_frame)
+            .map_err(|error| ObjectXferError::new(self.id, None, "safe_occlusion_frame", error))?;
 
         let mut formation_id = self.formation_id.as_u32();
-        let _ = xfer.xfer_unsigned_int(&mut formation_id);
+        xfer.xfer_unsigned_int(&mut formation_id)
+            .map_err(|error| ObjectXferError::new(self.id, None, "formation_id", error))?;
         self.formation_id = FormationID::new(formation_id);
         if !self.formation_id.is_none() {
-            xfer_coord2d_values(xfer, &mut self.formation_offset);
+            xfer_coord2d_values(xfer, &mut self.formation_offset).map_err(|error| {
+                ObjectXferError::new(self.id, None, "xfer_coord2d_values", error)
+            })?;
         }
 
         // C++ Object.cpp:4264-4356 — UnsignedShort counts m_behaviors (helpers first).
-        self.xfer_behavior_module_list(xfer, is_saving)?;
+        self.xfer_behavior_module_list_with_definitions(
+            xfer,
+            is_saving,
+            services.as_deref().map(|services| &services.definitions),
+        )?;
 
         if version >= 3 {
-            let _ = xfer.xfer_unsigned_int(&mut self.sole_healing_benefactor_id);
-            let _ = xfer.xfer_unsigned_int(&mut self.sole_healing_benefactor_expiration_frame);
+            xfer.xfer_unsigned_int(&mut self.sole_healing_benefactor_id)
+                .map_err(|error| {
+                    ObjectXferError::new(self.id, None, "sole_healing_benefactor_id", error)
+                })?;
+            xfer.xfer_unsigned_int(&mut self.sole_healing_benefactor_expiration_frame)
+                .map_err(|error| {
+                    ObjectXferError::new(
+                        self.id,
+                        None,
+                        "sole_healing_benefactor_expiration_frame",
+                        error,
+                    )
+                })?;
         } else if is_loading {
             self.sole_healing_benefactor_id = INVALID_ID;
             self.sole_healing_benefactor_expiration_frame = 0;
@@ -1142,53 +921,82 @@ impl Object {
         if version >= 4 {
             let mut cur_weapon_set_flags =
                 weapon_set_flags_to_bits(self.cur_weapon_set_flags) as u128;
-            xfer_named_bits(xfer, &mut cur_weapon_set_flags, WEAPON_SET_XFER_NAMES);
+            xfer_named_bits(xfer, &mut cur_weapon_set_flags, WEAPON_SET_XFER_NAMES)
+                .map_err(|error| ObjectXferError::new(self.id, None, "xfer_named_bits", error))?;
             self.cur_weapon_set_flags = weapon_set_flags_from_bits(cur_weapon_set_flags as u32);
 
             let mut weapon_bonus_condition = self.weapon_bonus_condition.bits();
-            let _ = xfer.xfer_unsigned_int(&mut weapon_bonus_condition);
+            xfer.xfer_unsigned_int(&mut weapon_bonus_condition)
+                .map_err(|error| {
+                    ObjectXferError::new(self.id, None, "weapon_bonus_condition", error)
+                })?;
             self.weapon_bonus_condition =
                 WeaponBonusConditionFlags::from_bits_retain(weapon_bonus_condition);
 
             for condition in &mut self.last_weapon_condition {
-                let _ = xfer.xfer_unsigned_byte(condition);
+                xfer.xfer_unsigned_byte(condition)
+                    .map_err(|error| ObjectXferError::new(self.id, None, "unsigned_byte", error))?;
             }
 
-            if is_loading {
-                if let Err(err) = self.refresh_weapon_set() {
-                    warn!(
-                        "Object::xfer failed to prepare weapon set for object {}: {}",
-                        self.id, err
-                    );
+            if let Some(services) = services.as_deref_mut() {
+                let definitions = &services.definitions;
+                let own_name = self.get_template_name().to_string();
+                let own_sets = self.weapon_set.installed_definition_sets();
+                self.weapon_set
+                    .xfer_with_named_definitions(
+                        xfer,
+                        definitions.frame,
+                        &mut |name| {
+                            Ok(if name == own_name {
+                                Some(own_sets.clone())
+                            } else {
+                                definitions.weapon_sets(name)
+                            })
+                        },
+                        &mut |name| Ok(definitions.weapon(name)),
+                    )
+                    .map_err(|error| ObjectXferError::new(self.id, None, "weapons", error))?;
+            } else {
+                if is_loading {
+                    self.refresh_weapon_set().map_err(|error| {
+                        ObjectXferError::new(self.id, None, "weapon preparation", error)
+                    })?;
                 }
-            }
-            let template_name = self.get_template_name().to_string();
-            self.weapon_set.remember_thing_template_name(&template_name);
-            if let Err(err) = self.weapon_set.xfer_state(xfer) {
-                warn!(
-                    "Object::xfer failed to serialize weapon set for object {}: {}",
-                    self.id, err
-                );
+                let template_name = self.get_template_name().to_string();
+                self.weapon_set.remember_thing_template_name(&template_name);
+                self.weapon_set
+                    .xfer_state(xfer)
+                    .map_err(|error| ObjectXferError::new(self.id, None, "weapons", error))?;
             }
 
             let mut special_power_bits = self.special_power_bits.bits();
-            xfer_named_bits(xfer, &mut special_power_bits, SPECIAL_POWER_XFER_NAMES);
+            xfer_named_bits(xfer, &mut special_power_bits, SPECIAL_POWER_XFER_NAMES)
+                .map_err(|error| ObjectXferError::new(self.id, None, "xfer_named_bits", error))?;
             self.special_power_bits = SpecialPowerMask::from_bits_retain(special_power_bits);
 
             let mut command_override = self.command_set_string_override.to_string();
-            let _ = xfer.xfer_ascii_string(&mut command_override);
+            xfer.xfer_ascii_string(&mut command_override)
+                .map_err(|error| ObjectXferError::new(self.id, None, "command_override", error))?;
             if is_loading {
                 self.command_set_string_override = AsciiString::from(command_override.as_str());
             }
 
-            let _ = xfer.xfer_bool(&mut self.modules_ready);
+            xfer.xfer_bool(&mut self.modules_ready)
+                .map_err(|error| ObjectXferError::new(self.id, None, "modules_ready", error))?;
         }
 
         if version >= 5 {
-            let _ = xfer.xfer_bool(&mut self.is_receiving_difficulty_bonus);
+            xfer.xfer_bool(&mut self.is_receiving_difficulty_bonus)
+                .map_err(|error| {
+                    ObjectXferError::new(self.id, None, "is_receiving_difficulty_bonus", error)
+                })?;
         } else {
             self.is_receiving_difficulty_bonus = false;
         }
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "object_xfer_transform_tests.rs"]
+mod transform_tests;

@@ -117,6 +117,19 @@ pub trait PhysicsBehavior: Send + Sync + std::fmt::Debug {
         self.apply_motive_force(force);
     }
 
+    /// Admitted native force observes the supplied owner and operation clock.
+    fn supports_motive_force_at(&self) -> bool {
+        false
+    }
+    fn apply_motive_force_with_object_at(
+        &mut self,
+        _force: &Vec3D,
+        _owner: &crate::object::Object,
+        _frame: u32,
+    ) -> bool {
+        panic!("explicit motive force must be admitted before removal");
+    }
+
     /// Get current turning rate
     fn get_turning(&self) -> Real {
         // Default implementation - return zero

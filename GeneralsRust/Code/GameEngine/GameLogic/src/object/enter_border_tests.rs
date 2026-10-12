@@ -12,15 +12,17 @@ fn object(id: ObjectID, position: Coord3D) -> Object {
         None,
     );
     object.ambient_lifecycle_admitted = false;
-    object.geometry_info.position = position;
+    object.set_prepared_position(&position);
     object
 }
 
 fn goal(shape: GeometryType) -> Object {
     let mut goal = object(2, Coord3D::new(100.0, 100.0, 0.0));
-    goal.geometry_info.geometry_type = shape;
-    goal.geometry_info.bounds.min = Coord3D::new(-10.0, -2.0, 0.0);
-    goal.geometry_info.bounds.max = Coord3D::new(10.0, 2.0, 3.0);
+    goal.geometry_info.shape.geometry_type = shape;
+    goal.geometry_info.set_bounds(crate::common::AABox {
+        min: Coord3D::new(-10.0, -2.0, 0.0),
+        max: Coord3D::new(10.0, 2.0, 3.0),
+    });
     goal
 }
 

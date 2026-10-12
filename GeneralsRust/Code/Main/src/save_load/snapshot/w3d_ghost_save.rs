@@ -44,6 +44,39 @@ pub fn decode_w3d_ghost_xfer_bytes(bytes: &[u8]) -> SaveLoadResult<W3DGhostObjec
             "Trailing bytes in CHUNK_GhostObject manager".into(),
         ));
     }
+    // The wire is unchanged, but its geometry can subsequently drive actual
+    // orphan partition queries. Validate before the candidate becomes live.
+    let mut footprint_samples = 0u64;
+    for ghost in loaded.used() {
+        let Some(geometry) = ghost.parent_geometry() else {
+            continue;
+        };
+        if geometry.geometry_type > 2 || !geometry.position.iter().all(|value| value.is_finite()) {
+            return Err(SaveLoadError::Corrupted(
+                "Invalid saved ghost geometry or position".into(),
+            ));
+        }
+        let samples = crate::game_logic::partition_coi::footprint_sample_cost(
+            crate::game_logic::partition_coi::HostPartitionFootprint {
+                major_radius: geometry.major_radius,
+                minor_radius: geometry.minor_radius,
+                angle: geometry.angle,
+                is_small: geometry.is_small,
+                is_box: geometry.geometry_type == 2,
+            },
+        )
+        .map_err(|reason| SaveLoadError::Corrupted(reason.into()))?;
+        footprint_samples = footprint_samples.checked_add(samples).ok_or_else(|| {
+            SaveLoadError::Corrupted("Saved ghost footprint budget overflow".into())
+        })?;
+        // A manager-sized budget also prevents many individually admitted
+        // large footprints from imposing unbounded work on its next tick.
+        if footprint_samples > (1 << 24) {
+            return Err(SaveLoadError::Corrupted(
+                "Saved ghost manager exceeds the supported footprint sample budget".into(),
+            ));
+        }
+    }
     // Manager Xfer unlocks to allocate its saved modules (W3DGhostObject.cpp:1172).
     // GameState.cpp:683 also unlocks after the named blocks have loaded.
     loaded.set_save_lock_ghost_objects(false);

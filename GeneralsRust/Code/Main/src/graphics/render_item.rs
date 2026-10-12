@@ -173,7 +173,9 @@ pub struct GhostRenderState {
     pub parent_object_id: Option<ObjectId>,
     pub model_name: String,
     pub world_transform: Mat4,
+    /// Original serialized metadata. This must not drive prototype geometry.
     pub object_scale: f32,
+    pub geometry_scale: f32,
     /// Exact packed C++ ARGB color. Keep the source integer until a shader
     /// material path explicitly consumes it; normalized floats lose the
     /// authoritative payload identity.
@@ -189,6 +191,8 @@ pub struct GhostRenderState {
 }
 
 /// One frozen HLOD child retained for the dedicated ghost pass.
+/// Wire matrices are world-space; this local cache is explicitly derived from
+/// the frozen parent inverse, so WGPU never composes the parent twice.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GhostSubObjectState {
     pub name: String,
@@ -218,6 +222,7 @@ impl GhostRenderState {
             model_name,
             world_transform,
             object_scale,
+            geometry_scale: object_scale,
             argb_color,
             lighting_route: GhostLightingRoute::AlwaysFogged,
             suppress_parent,
@@ -278,10 +283,24 @@ impl GhostRenderState {
             snapshot.render_object.render_object.color,
             suppress_parent,
         )?;
+        let geometry_scale = snapshot.render_object.render_object.geometry_scale;
+        if !geometry_scale.is_finite() || geometry_scale <= 0.0 {
+            return None;
+        }
+        state.geometry_scale = geometry_scale;
+        let inverse_parent = world_transform.inverse();
+        if !snapshot.render_object.render_object.sub_objects.is_empty()
+            && !inverse_parent.is_finite()
+        {
+            return None;
+        }
         let mut sub_objects =
             Vec::with_capacity(snapshot.render_object.render_object.sub_objects.len());
         for child in &snapshot.render_object.render_object.sub_objects {
-            let local_transform = ghost_matrix3x4_to_mat4(child.transform)?;
+            let local_transform = inverse_parent * ghost_matrix3x4_to_mat4(child.transform)?;
+            if !local_transform.is_finite() {
+                return None;
+            }
             if child.name.trim().is_empty() {
                 return None;
             }
@@ -1065,6 +1084,7 @@ mod tests {
         let render_object = RenderObjectState {
             name: "GhostTank".to_string(),
             scale: 0.75,
+            geometry_scale: 0.75,
             color: 0x804c6680,
             transform: Matrix3x4::IDENTITY,
             sub_objects: Vec::new(),
@@ -1276,6 +1296,7 @@ mod tests {
             render_object: W3DRenderObjectSnapshot::new(RenderObjectState {
                 name: "MissingHlod".to_string(),
                 scale: 1.0,
+                geometry_scale: 1.0,
                 color: 0xffff_ffff,
                 transform: Matrix3x4::IDENTITY,
                 sub_objects: Vec::new(),
@@ -1518,5 +1539,75 @@ mod tests {
         let packed = house_color_from_argb(0xFFCC_3311).expect("nonzero RGB");
         assert!((packed[0] - 204.0 / 255.0).abs() < 1e-5);
         assert!((packed[2] - 17.0 / 255.0).abs() < 1e-5);
+    }
+}
+
+#[cfg(all(test, feature = "game_client"))]
+mod ghost_world_child_tests {
+    use super::*;
+    #[test]
+    fn frozen_hlod_wire_world_child_becomes_relative_once_for_wgpu() {
+        let parent =
+            Mat4::from_translation(Vec3::new(100.0, 200.0, 300.0)) * Mat4::from_rotation_y(0.7);
+        let local = Mat4::from_translation(Vec3::new(20.0, 60.0, -40.0));
+        let child_world = parent * local;
+        let snapshot = FrozenW3DGhostSnapshot {
+            key: W3DGhostSnapshotKey {
+                ghost_id: 1,
+                player_index: 0,
+                snapshot_index: 0,
+            },
+            parent_object_id: Some(42),
+            drawable_info: gamelogic::object::w3d_ghost_object::W3DDrawableInfo::default(),
+            parent_geometry: None,
+            render_object: W3DRenderObjectSnapshot::new(RenderObjectState {
+                name: "Building".into(),
+                scale: 2.0,
+                geometry_scale: 2.0,
+                color: 0xff12_3456,
+                transform: Matrix3x4::from_logic_matrix(parent),
+                class_id: RenderObjectClass::HLod,
+                sub_objects: vec![
+                    gamelogic::object::w3d_ghost_object::RenderSubObjectSnapshot {
+                        name: "Building.Body".into(),
+                        visible: true,
+                        transform: Matrix3x4::from_logic_matrix(child_world),
+                    },
+                ],
+            }),
+        };
+        let frame = FrozenGhostSceneFrame {
+            revision: 4,
+            snapshots: vec![snapshot],
+            hidden_parent_object_ids: vec![42],
+        };
+        let scene = materialize_frozen_w3d_ghost_scene(&frame, |name| {
+            Some(Arc::new(W3DModel::new(name.into())))
+        })
+        .unwrap();
+        let state = &scene.items[0].state;
+        let reconstructed = state.world_transform * state.sub_objects[0].local_transform;
+        for (actual, expected) in reconstructed
+            .to_cols_array()
+            .into_iter()
+            .zip(child_world.to_cols_array())
+        {
+            assert!(
+                (actual - expected).abs() < 0.0001,
+                "world parent applied once"
+            );
+        }
+        // C++ asset Scale has already changed HTree displacement. Scaling
+        // vertices on the right keeps that saved child location unchanged.
+        let mesh_transform = state.world_transform
+            * state.sub_objects[0].local_transform
+            * Mat4::from_scale(Vec3::splat(state.geometry_scale));
+        assert!(
+            mesh_transform
+                .w_axis
+                .truncate()
+                .distance(child_world.w_axis.truncate())
+                < 0.0001
+        );
     }
 }

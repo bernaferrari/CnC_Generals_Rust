@@ -88,12 +88,12 @@ impl super::partition_manager::PartitionFilter for PartitionFilterWouldCollide {
         };
 
         let geom = obj_guard.get_geometry_info();
-        let dx = geom.bounds.max.x - geom.bounds.min.x;
-        let dy = geom.bounds.max.y - geom.bounds.min.y;
-        let dz = geom.bounds.max.z - geom.bounds.min.z;
+        let dx = geom.bounds().max.x - geom.bounds().min.x;
+        let dy = geom.bounds().max.y - geom.bounds().min.y;
+        let dz = geom.bounds().max.z - geom.bounds().min.z;
         let radius = (dx.max(dy) * 0.5).max(0.01);
         let height = dz.max(0.01);
-        let is_small = geom.is_small;
+        let is_small = geom.shape.is_small;
 
         let obj_geom = match obj_guard.get_template_geometry_type() {
             Some(game_engine::system::geometry::GeometryType::Sphere) => {

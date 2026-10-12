@@ -198,7 +198,28 @@ impl UnitAIUpdate {
         self.apply_module_data(data, false);
     }
 
+    pub(crate) fn apply_factory_ai_update_module_data_with_locomotors(
+        &mut self,
+        data: &AIUpdateModuleData,
+        lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
+    ) -> Result<(), String> {
+        self.apply_module_data_with_locomotors(data, false, Some(lookup))
+    }
     fn apply_module_data(&mut self, data: &AIUpdateModuleData, legacy_unit: bool) {
+        self.apply_module_data_with_locomotors(data, legacy_unit, None)
+            .expect("legacy AI data application has no fallible definition admission");
+    }
+    fn apply_module_data_with_locomotors(
+        &mut self,
+        data: &AIUpdateModuleData,
+        legacy_unit: bool,
+        lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
+    ) -> Result<(), String> {
+        if lookup.is_some()
+            && (data.turret_primary().is_some() || data.turret_secondary().is_some())
+        {
+            return Err("receiving constructor does not admit turret birth callbacks".into());
+        }
         self.runtime.data.surrender_duration_frames = data.surrender_duration_frames();
         self.runtime.data.auto_acquire_enemies_when_idle = data.auto_acquire_enemies_when_idle();
         self.runtime.data.mood_attack_check_rate_frames = data.mood_attack_check_rate();
@@ -247,7 +268,14 @@ impl UnitAIUpdate {
             let _ = self.ensure_turret_machine(TurretType::Secondary);
         }
 
-        let _ = self.choose_locomotor_set(LocomotorSetType::Normal);
+        if let Some(lookup) = lookup {
+            self.runtime
+                .choose_locomotor_set_with_lookup(LocomotorSetType::Normal, Some(lookup))
+                .map_err(|e| e.to_string())?;
+        } else {
+            let _ = self.choose_locomotor_set(LocomotorSetType::Normal);
+        }
+        Ok(())
     }
     pub(super) fn ensure_turret_machine(
         &mut self,

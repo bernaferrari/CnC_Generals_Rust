@@ -2043,8 +2043,21 @@ impl PresentationFrame {
             particle_systems.len(),
         );
 
+        let native_ghost_scale_sources = logic.host_objects().values().filter(|object| {
+            object.is_kind_of(KindOf::Immobile) && !object.get_template().default_draw_without_fog_memory
+        }).map(|object| {
+            let instance_scale = if object.drawable_instance_scale.is_finite() && object.drawable_instance_scale > 0.0 {
+                object.drawable_instance_scale
+            } else { 1.0 };
+            let combined = direct_host_visual_mesh_scale(logic, object, &direct_host_visual_template_name(object));
+            (object.id, crate::game_logic::game_logic::world_objects::fog_ghosts::HostGhostScaleSource {
+                identity: logic.live_draw_playback_identity(object),
+                asset_scale: combined / instance_scale, instance_scale,
+            })
+        }).collect();
         let mut frame = Self {
             frame: LogicFrame(logic.get_frame()),
+            native_ghost_scale_sources,
             #[cfg(feature = "game_client")]
             w3d_ghost_scene,
             total_play_time_seconds: logic.get_total_play_time(),

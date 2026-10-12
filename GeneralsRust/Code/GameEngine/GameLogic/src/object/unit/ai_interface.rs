@@ -27,6 +27,19 @@ impl AIUpdateInterface for UnitAIUpdate {
             Ok(())
         }
     }
+    fn xfer_ai_update_state_with_locomotors(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
+    ) -> Result<bool, String> {
+        UnitAIUpdate::xfer_ai_update_state_with_locomotors(self, xfer, Some(lookup))
+    }
+    fn load_post_process_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        UnitAIUpdate::load_post_process_with_world(self, world)
+    }
     fn load_post_process_enter_with_world(
         &mut self,
         world: &mut dyn crate::modules::ai_world::AiWorld,
@@ -42,11 +55,92 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::update(self)
     }
 
+    fn request_dozer_fortify_with_world(
+        &mut self,
+        target: ObjectID,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        UnitAIUpdate::request_dozer_fortify_with_world(self, target, world)
+    }
+    fn update_dozer_primary_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        UnitAIUpdate::update_dozer_primary_with_world(self, world)
+    }
     fn update_enter_phase_with_world(
         &mut self,
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         UnitAIUpdate::update_enter_phase_with_world(self, world)
+    }
+    fn update_exit_phase_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_world_owner(world)
+            .map_err(|e| e.to_string())?;
+        self.validate_owned_components(true, false)
+            .map_err(|e| e.to_string())?;
+        let machine = self
+            .ai_state_machine
+            .as_mut()
+            .ok_or("exit machine absent")?;
+        if !world.drives_owned_exit()
+            || machine.get_temporary_state().is_some()
+            || !matches!(machine.get_current_state_id(), Some(id) if id == AIStateType::Exit as u32 || id == AIStateType::ExitInstantly as u32)
+        {
+            return Err(
+                "exit phase requires synchronous handle driver and ordinary exit state".into(),
+            );
+        }
+        let mut runtime = super::UnitAiStateRuntime {
+            runtime: &mut self.runtime,
+            parent_exists: true,
+            parent_state_id: None,
+            world: Some(world),
+        };
+        machine
+            .update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
+                ai.execute_command_native(terminal.params(), driver)
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    fn complete_exit_body_with_world(
+        &mut self,
+        expected: u32,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_world_owner(world)
+            .map_err(|e| e.to_string())?;
+        if expected != AIStateType::Exit as u32 {
+            return Err("only ordinary exit has deferred body completion".into());
+        }
+        let now = world.frame();
+        let machine = self
+            .ai_state_machine
+            .as_mut()
+            .ok_or("exit machine absent")?;
+        let mut runtime = super::UnitAiStateRuntime {
+            runtime: &mut self.runtime,
+            parent_exists: true,
+            parent_state_id: None,
+            world: Some(world),
+        };
+        let previous = machine.get_current_state_id();
+        machine
+            .base
+            .complete_owned_exit_body(expected, now, &mut runtime);
+        if machine.get_current_state_id() != previous {
+            // Same callback as AIStateMachineDriver::set_state_with_ai, after
+            // the actual terminal entry has completed synchronously.
+            crate::modules::ai_state_runtime::AiStateRuntime::set_queue_for_path_time(
+                &mut runtime,
+                0,
+            );
+        }
+        Ok(())
     }
     fn execute_command_with_world(
         &mut self,
@@ -802,6 +896,46 @@ impl AIUpdateInterface for UnitAIUpdate {
     fn wake_up_and_attempt_to_target(&mut self) {
         UnitAIUpdate::wake_up_and_attempt_to_target(self)
     }
+    fn validate_owned_idle(
+        &self,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        let command = crate::ai::AiCommandParams::new(
+            crate::ai::AiCommandType::Idle,
+            crate::ai::CommandSourceType::FromAi,
+        );
+        self.validate_owned_command(&command, world)
+            .map_err(|error| error.to_string())
+    }
+    fn validate_removed_move(&self, owner: &Arc<RwLock<Object>>) -> Result<(), String> {
+        self.validate_owned_removal_callbacks(owner)?;
+        self.validate_owned_components(true, false)
+            .map_err(|error| error.to_string())?;
+        let machine = self
+            .ai_state_machine
+            .as_ref()
+            .ok_or("removed movement machine missing")?;
+        if machine.get_temporary_state().is_some()
+            || !matches!(machine.get_current_state_id(), Some(id) if id == crate::ai::states::AIStateType::Idle as u32 || id == crate::ai::states::AIStateType::Enter as u32 || id == crate::ai::states::AIStateType::Busy as u32)
+        {
+            return Err("removed move previous state not admitted".into());
+        }
+        Ok(())
+    }
+    fn move_removed_with_world(
+        &mut self,
+        position: Coord3D,
+        ignored: ObjectID,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        let mut command = crate::ai::AiCommandParams::new(
+            crate::ai::AiCommandType::MoveToPosition,
+            crate::ai::CommandSourceType::FromAi,
+        );
+        command.pos = position;
+        self.execute_owned_command_with_ignore(&command, world, Some(ignored))
+            .map_err(|error| error.to_string())
+    }
     fn validate_owned_removal_callbacks(&self, owner: &Arc<RwLock<Object>>) -> Result<(), String> {
         let actual = self
             .runtime
@@ -952,5 +1086,16 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn ai_go_prone(&mut self, damage_info: &DamageInfo, _cmd_source: crate::ai::CommandSourceType) {
         UnitAIUpdate::ai_go_prone(self, damage_info, _cmd_source)
+    }
+}
+
+#[cfg(test)]
+impl UnitAIUpdate {
+    /// Pin an existing future queue deadline as a saved runtime precondition.
+    pub(crate) fn set_queue_deadline_for_test(&mut self, deadline: u32) {
+        self.runtime.data.queue_for_path_frame = deadline;
+    }
+    pub(crate) fn queue_deadline_for_test(&self) -> u32 {
+        self.runtime.data.queue_for_path_frame
     }
 }

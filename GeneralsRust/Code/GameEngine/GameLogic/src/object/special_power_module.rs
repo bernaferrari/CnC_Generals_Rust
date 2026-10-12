@@ -329,6 +329,51 @@ impl SpecialPowerModule {
         SpecialPowerModuleInterface::get_required_science(self)
     }
 
+    /// CPP pauseCountdown728-752. The observation is taken before incrementing
+    /// the reference count; final unpause extends the original ready deadline.
+    fn apply_countdown_pause(&mut self, pause: bool, frame: u32, percent: f32) {
+        if pause {
+            if self.paused_count == 0 {
+                self.paused_on_frame = frame;
+                self.paused_percent = percent;
+            }
+            self.paused_count = self.paused_count.wrapping_add(1);
+        } else if self.paused_count > 0 {
+            self.paused_count -= 1;
+            if self.paused_count == 0 {
+                self.available_on_frame = self
+                    .available_on_frame
+                    .wrapping_add(frame.wrapping_sub(self.paused_on_frame));
+            }
+        }
+    }
+
+    fn percent_ready_observed(&self, frame: u32, uses_delay: bool, shared: Option<u32>) -> f32 {
+        if self.paused_count > 0 && self.paused_percent == 1.0 {
+            return 0.99999;
+        }
+        if !uses_delay {
+            return 1.0;
+        }
+        let ready = shared.map_or(
+            self.paused_count == 0 && frame >= self.available_on_frame,
+            |ready| frame >= ready,
+        );
+        if ready {
+            return 1.0;
+        }
+        if self.paused_count > 0 {
+            return self.paused_percent;
+        }
+        let Some(template) = &self.module_data.special_power_template else {
+            return 0.0;
+        };
+        1.0 - shared
+            .unwrap_or(self.available_on_frame)
+            .wrapping_sub(frame) as f32
+            / template.get_reload_time() as f32
+    }
+
     /// Compatibility wrapper for call sites that invoke trait methods directly on the struct.
     pub fn pause_countdown(&mut self, pause: bool) {
         SpecialPowerModuleInterface::pause_countdown(self, pause);
@@ -858,27 +903,13 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
     }
 
     fn pause_countdown(&mut self, pause: bool) {
-        // Reference-counted pause system - multiple sources can pause the same power
-        // Matches C++ SpecialPowerModule::pauseCountdown() lines 224-243
-        if pause {
-            if self.paused_count == 0 {
-                // Only record on first pause (not on nested pauses)
-                let current_frame = crate::helpers::TheGameLogic::get_frame();
-                self.paused_on_frame = current_frame;
-                self.paused_percent = SpecialPowerModuleInterface::get_percent_ready(self);
-            }
-            self.paused_count += 1;
-        } else if self.paused_count > 0 {
-            self.paused_count -= 1;
-
-            // Update ready time if fully unpaused
-            // This extends the ready frame by the amount of time paused
-            if self.paused_count == 0 {
-                let current_frame = crate::helpers::TheGameLogic::get_frame();
-                let pause_duration = current_frame.saturating_sub(self.paused_on_frame);
-                self.available_on_frame = self.available_on_frame.saturating_add(pause_duration);
-            }
-        }
+        let frame = crate::helpers::TheGameLogic::get_frame();
+        let percent = if pause && self.paused_count == 0 {
+            SpecialPowerModuleInterface::get_percent_ready(self)
+        } else {
+            self.paused_percent
+        };
+        self.apply_countdown_pause(pause, frame, percent);
     }
 
     fn do_special_power(&mut self, command_options: SpecialPowerCommandOptions) {
@@ -1223,6 +1254,22 @@ impl EngineSpecialPowerModuleInterface for SpecialPowerModule {
 
     fn pause_countdown(&mut self, pause: bool) {
         SpecialPowerModuleInterface::pause_countdown(self, pause)
+    }
+
+    fn supports_owned_pause(&self) -> bool {
+        true
+    }
+
+    fn pause_countdown_owned(
+        &mut self,
+        pause: bool,
+        frame: u32,
+        uses_delay: bool,
+        shared_ready_frame: Option<u32>,
+    ) -> Result<(), String> {
+        let percent = self.percent_ready_observed(frame, uses_delay, shared_ready_frame);
+        self.apply_countdown_pause(pause, frame, percent);
+        Ok(())
     }
 
     fn mark_special_power_triggered(&mut self, location: Option<&crate::common::Coord3D>) {

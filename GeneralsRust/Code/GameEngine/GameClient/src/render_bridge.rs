@@ -771,8 +771,7 @@ impl RenderBridge {
         }
 
         let mut world_transform = model_draw.world_transform;
-        if let Some(recoil) = crate::core::game_client::recoil_glam_for_object(object_id)
-        {
+        if let Some(recoil) = crate::core::game_client::recoil_glam_for_object(object_id) {
             world_transform *= recoil;
         }
         let submission = DrawSubmission {
@@ -1587,7 +1586,17 @@ impl WrapRenderObj {
                     .inner
                     .as_any()
                     .downcast_ref::<ww3d_assets::prototypes::HlodInstance>()?;
-                let sub_objects = materialize_hlod_ghost_children(hlod, submission, assets)?;
+                let mut sub_objects = materialize_hlod_ghost_children(hlod, submission, assets)?;
+                // CPP hlod.cpp:3242/3253 installs the world-rooted HTree
+                // matrix on every child. Ghost xfer writes Get_Transform,
+                // never a local bone pose. The scratch adapter above samples
+                // relative to identity; compose its actual parent exactly once.
+                for child in &mut sub_objects {
+                    child.transform =
+                        gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(
+                            transform * child.transform.to_logic_matrix(),
+                        );
+                }
                 (RenderObjectClass::HLod, sub_objects)
             }
             _ => return None,
@@ -1596,6 +1605,7 @@ impl WrapRenderObj {
         Some(W3DRenderObjectSnapshot::new(RenderObjectState {
             name: self.inner.get_name().to_string(),
             scale,
+            geometry_scale: scale,
             color,
             transform: gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(transform),
             sub_objects,
@@ -2259,7 +2269,8 @@ mod tests {
             .materialize_exact_w3d_render_object_snapshot(&submission)
             .expect("complete mesh source should materialize");
         assert_eq!(snapshot.render_object.name, "GhostMesh");
-        assert_eq!(snapshot.render_object.scale, 1.25);
+        assert_eq!(snapshot.render_object.scale, 1.0);
+        assert_eq!(snapshot.render_object.geometry_scale, 1.25);
         assert_eq!(snapshot.render_object.color, 0x7f102030);
         assert_eq!(snapshot.render_object.class_id, RenderObjectClass::Mesh);
         assert_eq!(snapshot.render_object.sub_objects, Vec::new());
@@ -2777,7 +2788,8 @@ mod tests {
         assert!(!capture.drawable_effectively_hidden);
         assert_eq!(capture.render_objects.len(), 1);
         assert_eq!(capture.render_objects[0].name, "GhostMesh");
-        assert_eq!(capture.render_objects[0].scale, 1.5);
+        assert_eq!(capture.render_objects[0].scale, 1.0);
+        assert_eq!(capture.render_objects[0].geometry_scale, 1.5);
         assert_eq!(capture.render_objects[0].color, 0x7f10_2030);
         assert_eq!(capture.render_objects[0].class_id, RenderObjectClass::Mesh);
         assert!(capture.render_objects[0].sub_objects.is_empty());
@@ -3356,6 +3368,7 @@ mod tests {
             render_object: W3DRenderObjectSnapshot::new(RenderObjectState {
                 name: "Tank".to_string(),
                 scale: 1.25,
+                geometry_scale: 1.25,
                 color: 0xff00ff00,
                 transform: Matrix3x4::IDENTITY,
                 sub_objects: Vec::new(),

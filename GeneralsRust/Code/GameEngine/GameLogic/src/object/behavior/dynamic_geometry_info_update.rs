@@ -261,13 +261,13 @@ fn geometry_with_dimensions(
     minor_radius: Real,
 ) -> GeometryInfo {
     let mut geometry = old_geometry.clone();
-    let major_radius = major_radius.abs();
-    let minor_radius = minor_radius.abs();
-    let height = height.abs();
-    geometry.bounds = AABox {
-        min: Coord3D::new(-major_radius, -minor_radius, 0.0),
-        max: Coord3D::new(major_radius, minor_radius, height),
-    };
+    geometry.shape.set(
+        geometry.get_geometry_type(),
+        geometry.get_is_small(),
+        height,
+        major_radius,
+        minor_radius,
+    );
     geometry
 }
 

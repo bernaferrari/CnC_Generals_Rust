@@ -389,8 +389,28 @@ impl WeaponSet {
         self.weapon_template_sets.push(Arc::new(template_set));
     }
 
+    /// Fresh native construction binds the receiving immutable definitions.
+    /// The stable Arcs are shared with named Xfer lookup, so the next normal
+    /// update does not interpret an identical set as a definition change.
+    pub(crate) fn install_definition_sets(
+        &mut self,
+        template_name: &str,
+        sets: Vec<Arc<WeaponTemplateSet>>,
+    ) -> Result<(), String> {
+        if self.has_any_weapons() || self.has_weapon_template_sets() {
+            return Err("receiving WeaponSet definitions are already installed".into());
+        }
+        self.weapon_template_sets = sets;
+        self.remember_thing_template_name(template_name);
+        Ok(())
+    }
+
     pub fn has_weapon_template_sets(&self) -> bool {
         !self.weapon_template_sets.is_empty()
+    }
+
+    pub(crate) fn installed_definition_sets(&self) -> Vec<Arc<WeaponTemplateSet>> {
+        self.weapon_template_sets.clone()
     }
 
     pub fn remember_thing_template_name(&mut self, name: &str) {
@@ -399,11 +419,60 @@ impl WeaponSet {
 
     /// Serialize WeaponSet state for save/load parity with C++ WeaponSet::xfer.
     pub fn xfer_state(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.xfer_with_definitions(
+            xfer,
+            crate::helpers::TheGameLogic::get_frame(),
+            &mut |name| crate::helpers::TheThingFactory::find_template(name).is_some(),
+            &mut |name| {
+                super::store::with_weapon_store(|store| store.find_weapon_template(name).cloned())
+                    .map_err(|error| error.to_string())
+            },
+        )
+    }
+
+    /// Preserve WeaponSet.cpp:197-299 wire ordering with supplied immutable definitions.
+    /// The owner has installed sets for its exact remembered ThingTemplate name.
+    /// A different saved name is rejected rather than using another template's
+    /// definitions. SparseMatchFinder selection and constructor time use this
+    /// receiving owner; full fresh Object admission supplies these dependencies.
+    pub fn xfer_with_definitions(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        frame: u32,
+        thing_exists: &mut dyn FnMut(&str) -> bool,
+        weapon_template: &mut dyn FnMut(&str) -> Result<Option<Arc<WeaponTemplate>>, String>,
+    ) -> Result<(), String> {
+        self.xfer_definition_record(xfer, frame, thing_exists, weapon_template, None)
+    }
+
+    /// Resolve the serialized Thing name through this session's effective
+    /// definitions, then use the same SparseMatchFinder and original wire.
+    pub fn xfer_with_named_definitions(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        frame: u32,
+        sets: &mut dyn FnMut(&str) -> Result<Option<Vec<Arc<WeaponTemplateSet>>>, String>,
+        weapon_template: &mut dyn FnMut(&str) -> Result<Option<Arc<WeaponTemplate>>, String>,
+    ) -> Result<(), String> {
+        self.xfer_definition_record(xfer, frame, &mut |_| false, weapon_template, Some(sets))
+    }
+
+    fn xfer_definition_record(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        frame: u32,
+        thing_exists: &mut dyn FnMut(&str) -> bool,
+        weapon_template: &mut dyn FnMut(&str) -> Result<Option<Arc<WeaponTemplate>>, String>,
+        mut named_sets: Option<
+            &mut dyn FnMut(&str) -> Result<Option<Vec<Arc<WeaponTemplateSet>>>, String>,
+        >,
+    ) -> Result<(), String> {
         let current_version: XferVersion = 1;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
 
+        let receiving_template_name = self.thing_template_name.clone();
         // C++ WeaponSet.cpp:197-235: name and flags are Save/Load only. CRC starts at the slots.
         let mode = xfer.get_xfer_mode();
         if mode == XferMode::Save || mode == XferMode::Load {
@@ -427,26 +496,36 @@ impl WeaponSet {
                 if self.thing_template_name.is_empty() {
                     self.current_weapon_template_set = None;
                 } else {
-                    if crate::helpers::TheThingFactory::find_template(&self.thing_template_name)
-                        .is_none()
-                    {
-                        return Err(format!(
-                            "WeaponSet::xfer missing thing template {}",
-                            self.thing_template_name
-                        ));
-                    }
                     let wanted = WeaponSetFlags::from_bits(ws_flags_bits as u32);
-                    let Some(matched) = self
-                        .weapon_template_sets
-                        .iter()
-                        .find(|set| set.conditions.bits() == wanted.bits())
-                        .cloned()
-                    else {
-                        return Err(format!(
+                    let matched = if let Some(resolve) = named_sets.as_mut() {
+                        let sets = resolve(&self.thing_template_name)?.ok_or_else(|| {
+                            format!(
+                                "WeaponSet::xfer missing thing template {}",
+                                self.thing_template_name,
+                            )
+                        })?;
+                        Self::find_best_weapon_template_set_in(&sets, &wanted)
+                    } else {
+                        if !thing_exists(&self.thing_template_name) {
+                            return Err(format!(
+                                "WeaponSet::xfer missing thing template {}",
+                                self.thing_template_name
+                            ));
+                        }
+                        if self.thing_template_name != receiving_template_name {
+                            return Err(format!(
+                                "WeaponSet::xfer receiving definitions belong to {}, not {}",
+                                receiving_template_name, self.thing_template_name
+                            ));
+                        }
+                        self.find_best_weapon_template_set(&wanted)
+                    }
+                    .ok_or_else(|| {
+                        format!(
                             "WeaponSet::xfer missing weapon set flags for {}",
                             self.thing_template_name
-                        ));
-                    };
+                        )
+                    })?;
                     self.current_weapon_template_set = Some(matched);
                 }
             }
@@ -470,14 +549,14 @@ impl WeaponSet {
                     });
 
                     if let Some(template) = template {
-                        self.weapons[index] = Some(Weapon::new(template, slot));
+                        self.weapons[index] = Some(Weapon::new_at(template, slot, frame));
                     }
                 }
 
                 let weapon = self.weapons[index].as_mut().ok_or_else(|| {
                     format!("WeaponSet::xfer_state missing weapon in slot {:?}", slot)
                 })?;
-                weapon.xfer(xfer)?;
+                weapon.xfer_with_templates(xfer, weapon_template)?;
             } else if xfer.get_xfer_mode() == XferMode::Load {
                 self.weapons[index] = None;
             }
@@ -520,8 +599,8 @@ impl WeaponSet {
             crate::damage::DamageTypeFlags::from_bits_retain(damage_bits as u64);
 
         // C++ WeaponSet::xfer does not recompute anti-mask, damage flags, or
-        // m_hasPitchLimit. That flag stays false until the next set rebuild,
-        // so isAnyWithinTargetPitch returns true after load.
+        // m_hasPitchLimit. It retains the receiving object's installed value
+        // (ThingFactory::newObject -> initObject -> updateWeaponSet precedes load).
 
         Ok(())
     }
@@ -589,6 +668,13 @@ impl WeaponSet {
         &self,
         conditions: &WeaponSetFlags,
     ) -> Option<Arc<WeaponTemplateSet>> {
+        Self::find_best_weapon_template_set_in(&self.weapon_template_sets, conditions)
+    }
+
+    fn find_best_weapon_template_set_in(
+        sets: &[Arc<WeaponTemplateSet>],
+        conditions: &WeaponSetFlags,
+    ) -> Option<Arc<WeaponTemplateSet>> {
         // C++ SparseMatchFinder::findBestInfoSlow: maximize bits the set
         // requires that the object has, then minimize yes-bits the object lacks.
         // A set that requires a missing bit can still win on a larger overlap.
@@ -597,7 +683,7 @@ impl WeaponSet {
         let mut best_yes_match = 0i32;
         let mut best_extraneous = 999i32;
 
-        for template_set in &self.weapon_template_sets {
+        for template_set in sets {
             let yes_bits = template_set.conditions.bits();
             let yes_match = (object_bits & yes_bits).count_ones() as i32;
             let extraneous = (yes_bits & !object_bits).count_ones() as i32;
@@ -1272,7 +1358,10 @@ fn xfer_named_bits(xfer: &mut dyn Xfer, bits: &mut u128, names: &[&str]) -> Resu
             *bits = 0;
             let mut count = 0i32;
             xfer.xfer_int(&mut count).map_err(|e| e.to_string())?;
-            for _ in 0..count.max(0) {
+            if count < 0 {
+                return Err("negative WeaponSet named-flag count".into());
+            }
+            for _ in 0..count {
                 let mut token = String::new();
                 xfer.xfer_ascii_string(&mut token)
                     .map_err(|e| e.to_string())?;
@@ -1281,6 +1370,8 @@ fn xfer_named_bits(xfer: &mut dyn Xfer, bits: &mut u128, names: &[&str]) -> Resu
                     .position(|name| name.eq_ignore_ascii_case(&token))
                 {
                     *bits |= 1u128 << index;
+                } else {
+                    return Err(format!("unknown WeaponSet named flag {token}"));
                 }
             }
         }
@@ -1305,6 +1396,10 @@ mod tests {
     use game_engine::common::bit_flags::WeaponSetFlags as EngineWeaponSetBits;
     use game_engine::common::system::kind_of::KindOfMask;
     use game_engine::thing::thing_template::WeaponTemplateSet as EngineWeaponTemplateSet;
+
+    mod owned_xfer_tests {
+        include!("owned_xfer_tests.rs");
+    }
 
     fn test_weapon_template(name: &str, clip_size: i32) -> Arc<WeaponTemplate> {
         let mut template = WeaponTemplate::new(name.to_string());

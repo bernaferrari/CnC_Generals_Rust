@@ -86,6 +86,9 @@ include!("particles.rs");
 include!("game_client.rs");
 include!("object_helpers.rs");
 include!("globals.rs");
+mod idle_workers;
+pub use idle_workers::IdleWorkerEvents;
+
 include!("leftover.rs");
 include!("select_object_apply.rs");
 

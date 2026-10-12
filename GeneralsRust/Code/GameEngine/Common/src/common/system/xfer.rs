@@ -19,6 +19,9 @@ use crate::common::system::upgrade::with_upgrade_center;
 use crate::common::thing::thing::KindOfType;
 use std::io;
 
+#[path = "upgrade_mask_wire.rs"]
+mod upgrade_mask_wire;
+
 /// Type alias for XferVersion - matches C++ line 29
 /// C++ Reference: typedef UnsignedByte XferVersion (1 byte)
 /// CRITICAL: Must remain u8 for binary compatibility with C++ save files
@@ -507,8 +510,8 @@ pub trait Xfer {
     /// # Safety
     /// The caller must ensure that `data` points to a valid buffer
     /// of at least `data_size` bytes.
-        // SAFETY: forwards the caller's pointer contract to the concrete
-        // xfer_implementation; no new dereferencing happens here.
+    // SAFETY: forwards the caller's pointer contract to the concrete
+    // xfer_implementation; no new dereferencing happens here.
     unsafe fn xfer_user(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
         self.xfer_implementation(data, data_size)
     }
@@ -743,60 +746,27 @@ pub trait Xfer {
         }
     }
 
+    /// Original upgrade-name wire using this session's immutable definitions.
+    /// The center is borrowed only; loading changes the caller's mask.
+    fn xfer_upgrade_mask_with_center(
+        &mut self,
+        upgrade_mask_data: &mut u128,
+        center: &crate::common::system::upgrade::UpgradeCenter,
+    ) -> io::Result<()> {
+        upgrade_mask_wire::xfer_upgrade_mask_with_center(self, upgrade_mask_data, center)
+    }
+
     fn xfer_upgrade_mask(&mut self, upgrade_mask_data: &mut u128) -> io::Result<()> {
-        const CURRENT_VERSION: XferVersion = 1;
-        let mut version = CURRENT_VERSION;
-        self.xfer_version(&mut version, CURRENT_VERSION)?;
-
-        match self.get_xfer_mode() {
-            XferMode::Save => {
-                // PARITY_NOTE: C++ Xfer::xferUpgradeMask writes the name of every
-                // template whose mask is set, walking TheUpgradeCenter's list.
-                let selected_names =
-                    with_upgrade_center(|center| center.upgrade_names_in_mask(*upgrade_mask_data));
-
-                let mut count = selected_names.len() as u16;
-                self.xfer_unsigned_short(&mut count)?;
-                for mut upgrade_name in selected_names {
-                    self.xfer_ascii_string(&mut upgrade_name)?;
-                }
-                Ok(())
-            }
-            XferMode::Load => {
-                let mut count = 0u16;
-                self.xfer_unsigned_short(&mut count)?;
-                *upgrade_mask_data = 0;
-
-                for _ in 0..count {
-                    let mut upgrade_name = String::new();
-                    self.xfer_ascii_string(&mut upgrade_name)?;
-
-                    // C++: TheUpgradeCenter->findUpgrade(name), XFER_UNKNOWN_STRING if NULL.
-                    let Some(upgrade_mask) =
-                        with_upgrade_center(|center| center.mask_for_name(&upgrade_name))
-                    else {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!(
-                                "Xfer::xfer_upgrade_mask - Unknown upgrade '{}'",
-                                upgrade_name
-                            ),
-                        ));
-                    };
-
-                    *upgrade_mask_data |= upgrade_mask.bits();
-                }
-                Ok(())
-            }
-            XferMode::Crc => self.xfer_u128(upgrade_mask_data),
-            _ => Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                format!(
-                    "xfer_upgrade_mask - Unknown xfer mode {:?}",
-                    self.get_xfer_mode()
-                ),
-            )),
-        }
+        // Compatibility resolves each observation through the existing adapter;
+        // owner-scoped restore calls the same wire body with its own definitions.
+        upgrade_mask_wire::xfer_upgrade_mask_with_lookup(
+            self,
+            upgrade_mask_data,
+            &mut |bits| with_upgrade_center(|center| center.upgrade_names_in_mask(bits)),
+            &mut |name| {
+                with_upgrade_center(|center| center.mask_for_name(name).map(|mask| mask.bits()))
+            },
+        )
     }
 
     /// Xfer Matrix3D - matches C++ Xfer.cpp lines 818-843
@@ -922,8 +892,8 @@ pub trait Xfer {
     /// # Safety
     /// The caller must ensure that `data` points to a valid buffer
     /// of at least `data_size` bytes.
-        // SAFETY: implementors own the actual byte transfer and must honor
-        // the documented contract: `data` valid for `data_size` bytes.
+    // SAFETY: implementors own the actual byte transfer and must honor
+    // the documented contract: `data` valid for `data_size` bytes.
     unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()>;
 }
 
@@ -935,7 +905,7 @@ pub trait Xferable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::system::upgrade::{get_upgrade_center, initialize_upgrade_center};
+    use crate::common::system::upgrade::UpgradeCenter;
     use crate::common::system::xfer_save::XferSave;
     use std::io::Cursor;
 
@@ -981,11 +951,8 @@ mod tests {
 
     #[test]
     fn xfer_upgrade_mask_saves_names_in_upgrade_center_order() {
-        initialize_upgrade_center();
-
+        let mut center = UpgradeCenter::new();
         let (mask_a, mask_c) = {
-            let center = get_upgrade_center();
-            let mut center = center.write().expect("UpgradeCenter poisoned");
             let mask_a = center
                 .new_upgrade(AsciiString::from("XferOrderUpgradeA"))
                 .get_mask()
@@ -1006,7 +973,8 @@ mod tests {
             let cursor = Cursor::new(&mut saved);
             let mut xfer = XferSave::new(cursor, 0);
             let mut mask = mask_a | mask_c;
-            xfer.xfer_upgrade_mask(&mut mask).unwrap();
+            xfer.xfer_upgrade_mask_with_center(&mut mask, &center)
+                .unwrap();
         }
 
         let mut expected = vec![1, 2, 0];

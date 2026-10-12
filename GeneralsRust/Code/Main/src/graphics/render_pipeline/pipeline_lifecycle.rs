@@ -67,6 +67,7 @@ impl RenderPipeline {
             last_startup_model_prewarm_signature: None,
             hlod_aggregate_prewarm_attempts: HashSet::new(),
             render_items: Vec::new(),
+            committed_host_ghost_draws: Vec::new(),
             frame_number: 0,
             current_pass: None,
             current_player_id: 0, // Default to player 0

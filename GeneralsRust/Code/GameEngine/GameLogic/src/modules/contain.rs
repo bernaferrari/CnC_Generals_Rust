@@ -86,6 +86,13 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         false
     }
 
+    fn supports_owned_zero_path_exit(&self) -> bool {
+        false
+    }
+    fn finish_owned_zero_path_exit(&mut self, _world: &mut dyn ai_world::AiWorld) {
+        panic!("zero-path exit callback not admitted")
+    }
+
     /// Synchronous boarding through the driving store after object guards end.
     /// Derived containers opt in only when their complete callback is supported.
     fn add_to_contain_with_world(
@@ -663,7 +670,11 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     /// Get contain max as i32 (matches legacy API).
     fn get_contain_max(&self) -> i32 {
         let max = self.get_max_capacity();
-        if max == usize::MAX { -1 } else { max as i32 }
+        if max == usize::MAX {
+            -1
+        } else {
+            max as i32
+        }
     }
 
     /// Return container pip display data for selected-object UI.

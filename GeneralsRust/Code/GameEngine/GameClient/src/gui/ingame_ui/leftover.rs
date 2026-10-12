@@ -25,7 +25,8 @@ impl InGameUI {
 
     /// Update resources display
     pub fn update_resources(&mut self, credits: i32, power_available: i32, power_used: i32) {
-        self.resource_display.update(credits, power_available, power_used);
+        self.resource_display
+            .update(credits, power_available, power_used);
     }
 
     /// Set local player id used for selection and command routing.
@@ -393,7 +394,6 @@ impl InGameUI {
         }
     }
 
-
     // ── GUI command system ─────────────────────────────────────────────
     // C++: InGameUI::setGUICommand() (InGameUI.cpp:2865)
     // C++: InGameUI::getGUICommand() (InGameUI.cpp:2923)
@@ -449,18 +449,13 @@ impl InGameUI {
         TheInGameUI::set_mouse_cursor(MouseCursor::Arrow);
         if self.gui_command.is_some() && needs_target && !is_context {
             if let Some(pending) = pending {
-                if let Some(cursor_type) =
-                    RadiusCursorType::from_name(&pending.radius_cursor_type)
+                if let Some(cursor_type) = RadiusCursorType::from_name(&pending.radius_cursor_type)
                 {
                     if cursor_type != RadiusCursorType::None {
                         TheInGameUI::set_radius_cursor_active_with_type(
                             &pending.radius_cursor_type,
                         );
-                        self.set_radius_cursor(
-                            cursor_type,
-                            Coord3D::new(0.0, 0.0, 0.0),
-                            1.0,
-                        );
+                        self.set_radius_cursor(cursor_type, Coord3D::new(0.0, 0.0, 0.0), 1.0);
                     }
                 }
             }
@@ -470,7 +465,6 @@ impl InGameUI {
         }
         self.mouse_mode_cursor = self.current_cursor;
     }
-
 
     pub fn get_gui_command(&self) -> Option<&String> {
         self.gui_command.as_ref()
@@ -540,8 +534,9 @@ impl InGameUI {
                 let footprint = TheThingFactory::find_template(&name)
                     .map(|t| {
                         let info = t.get_template_geometry_info();
-                        let half_w = (info.bounds.max.x - info.bounds.min.x) / 2.0;
-                        let half_h = (info.bounds.max.y - info.bounds.min.y) / 2.0;
+                        let bounds = info.bounds();
+                        let half_w = (bounds.max.x - bounds.min.x) / 2.0;
+                        let half_h = (bounds.max.y - bounds.min.y) / 2.0;
                         Vec2::new(half_w.abs().max(1.0), half_h.abs().max(1.0))
                     })
                     .unwrap_or(Vec2::new(1.0, 1.0));
@@ -731,12 +726,8 @@ impl InGameUI {
         self.video_stream = Some(stream);
         self.video_buffer = Some(crate::video_buffer::VideoBufferHandle::new(buffer));
         self.currently_playing_movie = Some(movie_name.to_string());
-        self.attach_window_video_buffer(
-            Self::radar_movie_window_name(),
-            self.video_buffer.clone(),
-        );
+        self.attach_window_video_buffer(Self::radar_movie_window_name(), self.video_buffer.clone());
     }
-
 
     pub fn stop_movie(&mut self) {
         self.attach_window_video_buffer(Self::radar_movie_window_name(), None);
@@ -752,7 +743,6 @@ impl InGameUI {
             TheScriptEngine::notify_of_completed_video(&name);
         }
     }
-
 
     pub fn is_movie_playing(&self) -> bool {
         self.currently_playing_movie.is_some() && self.video_stream.is_some()
@@ -811,9 +801,8 @@ impl InGameUI {
         window_name: &str,
         buffer: Option<crate::video_buffer::VideoBufferHandle>,
     ) {
-        let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
-            window_name,
-        );
+        let key =
+            game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(window_name);
         with_window_manager_ref(|manager| {
             if let Some(window) = manager.get_window_by_id(key as i32) {
                 window.borrow_mut().set_video_buffer(buffer.clone());
@@ -841,7 +830,6 @@ impl InGameUI {
         // C++ InGameUI::popupMessage always UpdateDiplomacyBriefingText first.
         TheInGameUI::popup_message(identifier, x, y, width, pause, pause_music);
     }
-
 
     fn update_movie_playback(&mut self) {
         let mut stop_main = false;
@@ -877,5 +865,4 @@ impl InGameUI {
     // ── World animations ──────────────────────────────────────────────
     // C++: InGameUI.cpp:5257 (addWorldAnimation), 5292 (clearWorldAnimations),
     //       5323 (updateAndDrawWorldAnimations)
-
 }

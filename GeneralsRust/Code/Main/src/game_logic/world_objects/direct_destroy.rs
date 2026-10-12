@@ -290,6 +290,7 @@ impl GameLogic {
                 self.named_unit_history.insert(object.name.clone());
             }
         }
+        self.detach_host_fog_ghost(id);
         let Some(object) = self.objects.remove(&id) else {
             return false;
         };

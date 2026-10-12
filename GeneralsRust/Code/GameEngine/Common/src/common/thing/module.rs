@@ -755,6 +755,14 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     fn get_initial_wake_frame(&mut self) -> Option<u32> {
         None
     }
+
+    /// Record the canonical scheduler deadline in modules that serialize it.
+    fn record_scheduled_wake(
+        &mut self,
+        _frame: u32,
+        _phase: super::update_module::SleepyUpdatePhase,
+    ) {
+    }
 }
 
 /// Base module implementation

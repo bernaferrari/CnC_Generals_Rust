@@ -1296,8 +1296,9 @@ impl MissileAIUpdate {
         let missile_geom = missile_guard.get_geometry_info();
         let goal_geom = goal_guard.get_geometry_info();
         let missile_center_z =
-            missile_pos.z + (missile_geom.bounds.min.z + missile_geom.bounds.max.z) * 0.5;
-        let goal_center_z = goal_pos.z + (goal_geom.bounds.min.z + goal_geom.bounds.max.z) * 0.5;
+            missile_pos.z + (missile_geom.bounds().min.z + missile_geom.bounds().max.z) * 0.5;
+        let goal_center_z =
+            goal_pos.z + (goal_geom.bounds().min.z + goal_geom.bounds().max.z) * 0.5;
         let dx = missile_pos.x - goal_pos.x;
         let dy = missile_pos.y - goal_pos.y;
         let dz = missile_center_z - goal_center_z;

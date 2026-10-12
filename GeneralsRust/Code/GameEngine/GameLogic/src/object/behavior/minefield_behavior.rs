@@ -458,8 +458,9 @@ impl MinefieldBehavior {
         let mut scoot_time = self.module_data.scoot_from_starting_point_time;
         let gravity = crate::object::die::eject_pilot_die::current_gravity();
         if start.z > end_on_ground.z {
-            let falling_time =
-                (2.0 * (start.z - end_on_ground.z) / gravity.abs()).sqrt().ceil() as u32;
+            let falling_time = (2.0 * (start.z - end_on_ground.z) / gravity.abs())
+                .sqrt()
+                .ceil() as u32;
             scoot_time = scoot_time.max(falling_time);
         }
 
@@ -714,8 +715,8 @@ impl MinefieldBehavior {
                 *other_object.get_position(),
                 *object.get_position(),
                 geom.get_geometry_type(),
-                (geom.bounds.max.x - geom.bounds.min.x).abs() * 0.5,
-                (geom.bounds.max.y - geom.bounds.min.y).abs() * 0.5,
+                (geom.bounds().max.x - geom.bounds().min.x).abs() * 0.5,
+                (geom.bounds().max.y - geom.bounds().min.y).abs() * 0.5,
                 worker,
                 clearing,
                 object.relationship_to(&other_object),

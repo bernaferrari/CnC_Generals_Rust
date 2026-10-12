@@ -367,6 +367,7 @@ impl SnapshotBuilder {
         // The already decoded manager is private to this load candidate.
         // Commit at the original GhostObject phase; no shared pending slot.
         game_logic.w3d_ghosts = ghosts;
+        game_logic.restore_host_fog_ghost_links();
         // CHUNK_GameClient belongs to the presentation client. The host keeps
         // its bytes staged until the candidate GameLogic commits; applying
         // them here would mutate the still-playable client's drawables.
@@ -425,6 +426,10 @@ impl SnapshotBuilder {
                 }
             }
         }
+
+        game_logic
+            .restore_host_fog_ghost_shroud_history()
+            .map_err(SaveLoadError::Corrupted)?;
 
         let tail = super::super::lifecycle_tail::decode_lifecycle_tail(&snapshot.lifecycle_tail)?;
         super::super::lifecycle_tail::apply_lifecycle_tail_to_host(&tail, game_logic)?;

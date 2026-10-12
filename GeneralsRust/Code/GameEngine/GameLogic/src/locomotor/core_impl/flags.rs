@@ -16,6 +16,13 @@ impl Locomotor {
     /// Matches C++ Locomotor::xfer (Locomotor.cpp:722-750)
     /// Version 2 adds donutTimer.
     pub fn loco_xfer(&mut self, xfer: &mut dyn game_engine::system::Xfer) -> Result<(), String> {
+        self.loco_xfer_with_birth_policy(xfer, false)
+    }
+    fn loco_xfer_with_birth_policy(
+        &mut self,
+        xfer: &mut dyn game_engine::system::Xfer,
+        detached: bool,
+    ) -> Result<(), String> {
         use game_engine::system::Xfer as XferTrait;
 
         // Version
@@ -23,6 +30,11 @@ impl Locomotor {
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| format!("Locomotor xfer version: {:?}", e))?;
+        if detached && xfer.is_loading() && version < 2 {
+            return Err(
+                "native Locomotor v1 restore requires an explicit receiving birth frame".into(),
+            );
+        }
 
         if version >= 2 {
             xfer.xfer_unsigned_int(&mut self.donut_timer)
@@ -185,4 +197,3 @@ impl Locomotor {
         (self.flags & FLAG_ULTRA_ACCURATE) != 0
     }
 }
-

@@ -117,15 +117,12 @@ impl CheckpointUpdate {
         })
     }
     fn y_radius(geom: &GeometryInfo) -> Real {
-        (geom.bounds.max.y - geom.bounds.min.y) * 0.5
+        (geom.bounds().max.y - geom.bounds().min.y) * 0.5
     }
 
     fn set_geometry_minor_radius(geom: &mut GeometryInfo, new_radius: Real) {
-        let center_y = (geom.bounds.min.y + geom.bounds.max.y) * 0.5;
-        geom.bounds.min.y = center_y - new_radius;
-        geom.bounds.max.y = center_y + new_radius;
+        geom.shape.set_minor_radius(new_radius);
     }
-
 
     /// Check for nearby allies and enemies
     fn check_for_allies_and_enemies(&mut self) {
@@ -172,12 +169,14 @@ impl CheckpointUpdate {
             obj.set_geometry_info(scan_geometry);
         }
 
-        let ai_store = the_ai();let enemy = ai_store.read().ok().and_then(|ai| {
+        let ai_store = the_ai();
+        let enemy = ai_store.read().ok().and_then(|ai| {
             ai.find_closest_enemy(obj_id, vision_range, 0, None, None)
                 .ok()
                 .flatten()
         });
-        let ai_store = the_ai();let ally = ai_store
+        let ai_store = the_ai();
+        let ally = ai_store
             .read()
             .ok()
             .and_then(|ai| ai.find_closest_ally(obj_id, vision_range, 0).ok().flatten());

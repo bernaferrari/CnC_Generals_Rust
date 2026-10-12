@@ -1890,6 +1890,7 @@ mod tests {
             render_objects: vec![RenderObjectState {
                 name: name.to_string(),
                 scale: 1.25,
+                geometry_scale: 1.25,
                 color: 0xff00_ff00,
                 transform: Matrix3x4::IDENTITY,
                 sub_objects: Vec::new(),

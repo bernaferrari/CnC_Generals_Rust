@@ -1,23 +1,23 @@
 use crate::upgrade::UpgradeTemplatePlayerExt;
 use std::any::Any;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use crate::common::{
-    Bool, CommandSourceType, DisabledMaskType, FROM_CENTER_2D, Int, KindOf, ObjectID,
-    ObjectStatusMaskType, ObjectStatusTypes, Real, Relationship, UnsignedInt,
+    Bool, CommandSourceType, DisabledMaskType, Int, KindOf, ObjectID, ObjectStatusMaskType,
+    ObjectStatusTypes, Real, Relationship, UnsignedInt, FROM_CENTER_2D,
 };
 use crate::helpers::{
-    TheAudio, TheGameLogic, ThePartitionManager, game_client_random_value_real,
-    game_logic_random_value,
+    game_client_random_value_real, game_logic_random_value, TheAudio, TheGameLogic,
+    ThePartitionManager,
 };
 use crate::modules::{
-    StealthUpdate as StealthUpdateTrait, UPDATE_SLEEP_NONE, UpdateModuleInterface,
+    StealthUpdate as StealthUpdateTrait, UpdateModuleInterface, UPDATE_SLEEP_NONE,
 };
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::{Object, ObjectScriptStatusBit};
-use crate::player::{PlayerArcExt, player_list};
-use game_engine::common::ini::{FieldParse, INI, INIError};
+use crate::player::{player_list, PlayerArcExt};
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::xfer::XferMode;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
@@ -33,6 +33,9 @@ fn dual_world_registry_unavailable() -> bool {
 }
 
 /// Handle type exposed to gameplay systems for interacting with stealth state.
+#[path = "stealth_update/owned_reveal.rs"]
+mod owned_reveal;
+
 pub type StealthUpdateHandle = Arc<Mutex<StealthController>>;
 
 const STEALTH_NOT_WHILE_ATTACKING: u32 = 0x00000001;
@@ -141,7 +144,7 @@ fn play_fx_at_object(object_id: ObjectID, fx_name: &str) {
 
 fn refresh_radar_for_object(object_id: ObjectID) {
     use game_engine::common::system::radar::{
-        Coord3D as RadarCoord3D, RadarObject, RadarPriorityType, get_radar_system,
+        get_radar_system, Coord3D as RadarCoord3D, RadarObject, RadarPriorityType,
     };
     let Some(pos) = OBJECT_REGISTRY.with_object(object_id, |obj| *obj.get_position()) else {
         return;
@@ -303,6 +306,8 @@ impl Snapshotable for StealthUpdateModuleData {
 
 /// Concrete stealth controller implementing the runtime interface.
 pub struct StealthController {
+    owner: Option<Weak<RwLock<Object>>>,
+    native_ready: bool,
     data: Arc<StealthUpdateModuleData>,
     object_id: ObjectID,
     is_stealthed: bool,
@@ -352,10 +357,26 @@ impl std::fmt::Debug for StealthController {
 
 impl StealthController {
     fn new(data: Arc<StealthUpdateModuleData>, object_id: ObjectID) -> Self {
-        let now = TheGameLogic::get_frame();
+        Self::new_at(
+            data,
+            object_id,
+            TheGameLogic::get_frame(),
+            game_client_random_value_real(0.0, PI),
+            true,
+        )
+    }
+    fn new_at(
+        data: Arc<StealthUpdateModuleData>,
+        object_id: ObjectID,
+        now: u32,
+        pulse: f32,
+        native_ready: bool,
+    ) -> Self {
         let stealth_delay = data.stealth_delay_frames;
         let starts_enabled = !data.team_disguised;
         Self {
+            owner: None,
+            native_ready,
             data,
             object_id,
             is_stealthed: false,
@@ -365,7 +386,7 @@ impl StealthController {
             frames_granted: 0,
             enabled: starts_enabled,
             pulse_phase_rate: 0.2,
-            pulse_phase: game_client_random_value_real(0.0, PI),
+            pulse_phase: pulse,
             disguise_as_player_index: -1,
             disguise_as_template_name: None,
             disguise_transition_frames: 0,
@@ -380,6 +401,15 @@ impl StealthController {
     where
         F: FnMut(&mut Object) -> Result<R, StealthUpdateError>,
     {
+        if let Some(owner) = &self.owner {
+            let owner = owner
+                .upgrade()
+                .ok_or_else(|| StealthUpdateError::new("retired StealthUpdate owner"))?;
+            let mut owner = owner
+                .write()
+                .map_err(|_| StealthUpdateError::new("StealthUpdate owner poisoned"))?;
+            return f(&mut owner);
+        }
         OBJECT_REGISTRY
             .with_object_mut(self.object_id, |guard| f(guard))
             .ok_or_else(|| {
@@ -743,7 +773,11 @@ impl StealthController {
                         None => true,
                     };
                     if allied_or_inactive {
-                        if night { own_night } else { own_color }
+                        if night {
+                            own_night
+                        } else {
+                            own_color
+                        }
                     } else {
                         crate::player::with_player(disguise_idx, |g| {
                             if night {
@@ -1452,6 +1486,14 @@ impl StealthUpdateModule {
     }
 
     fn register_with_object(&self) {
+        if self
+            .controller
+            .lock()
+            .map(|controller| controller.owner.is_some())
+            .unwrap_or(true)
+        {
+            return;
+        }
         // Wave 283: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
             return;
@@ -1619,6 +1661,9 @@ impl Snapshotable for StealthUpdateModule {
         if version >= 2 {
             xfer.xfer_unsigned_int(&mut controller.frames_granted)
                 .map_err(|e| e.to_string())?;
+        }
+        if xfer.get_xfer_mode() == XferMode::Load {
+            controller.native_ready = true;
         }
 
         Ok(())
@@ -2118,22 +2163,18 @@ mod tests {
         data.set_forbidden_status_from_tokens(&["MASKED"])
             .expect("forbidden");
 
-        assert!(
-            data.hint_detectable_states()
-                .contains(ObjectStatusMaskType::STEALTHED)
-        );
-        assert!(
-            data.hint_detectable_states()
-                .contains(ObjectStatusMaskType::DETECTED)
-        );
-        assert!(
-            data.required_status()
-                .contains(ObjectStatusMaskType::CAN_STEALTH)
-        );
-        assert!(
-            data.forbidden_status()
-                .contains(ObjectStatusMaskType::MASKED)
-        );
+        assert!(data
+            .hint_detectable_states()
+            .contains(ObjectStatusMaskType::STEALTHED));
+        assert!(data
+            .hint_detectable_states()
+            .contains(ObjectStatusMaskType::DETECTED));
+        assert!(data
+            .required_status()
+            .contains(ObjectStatusMaskType::CAN_STEALTH));
+        assert!(data
+            .forbidden_status()
+            .contains(ObjectStatusMaskType::MASKED));
     }
 
     #[test]
@@ -2160,11 +2201,9 @@ mod tests {
 
         {
             let guard = object.read().unwrap();
-            assert!(
-                guard
-                    .get_status_bits()
-                    .contains(ObjectStatusMaskType::STEALTHED)
-            );
+            assert!(guard
+                .get_status_bits()
+                .contains(ObjectStatusMaskType::STEALTHED));
         }
 
         {
@@ -2175,11 +2214,9 @@ mod tests {
 
         {
             let guard = object.read().unwrap();
-            assert!(
-                !guard
-                    .get_status_bits()
-                    .contains(ObjectStatusMaskType::STEALTHED)
-            );
+            assert!(!guard
+                .get_status_bits()
+                .contains(ObjectStatusMaskType::STEALTHED));
         }
 
         OBJECT_REGISTRY.unregister_object(object_id);

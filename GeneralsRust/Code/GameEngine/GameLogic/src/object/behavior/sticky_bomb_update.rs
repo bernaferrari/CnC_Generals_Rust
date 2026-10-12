@@ -265,9 +265,7 @@ impl StickyBombUpdate {
                     } else {
                         pos.z += self.module_data.offset_z;
                     }
-                    let created = obj
-                        .get_template()
-                        .get_per_unit_sound("StickyBombCreated");
+                    let created = obj.get_template().get_per_unit_sound("StickyBombCreated");
                     let _ = obj.set_position(&pos);
                     drop(obj);
 
@@ -324,7 +322,11 @@ impl StickyBombUpdate {
         }
         if target_id != OBJECT_INVALID_ID {
             let mark = TheGameLogic::find_object_by_id(self.object_id)
-                .and_then(|obj| obj.read().ok().map(|guard| guard.is_kind_of(KindOf::BoobyTrap)))
+                .and_then(|obj| {
+                    obj.read()
+                        .ok()
+                        .map(|guard| guard.is_kind_of(KindOf::BoobyTrap))
+                })
                 .unwrap_or(false);
             if mark {
                 if let Some(target_arc) = TheGameLogic::find_object_by_id(target_id) {
@@ -392,33 +394,33 @@ impl StickyBombUpdate {
                     if let Some((target_guard, obj)) =
                         target_arc.read().ok().zip(object_arc.read().ok())
                     {
-                    let bonus = WeaponBonus::default();
-                    let bounding_circle = target_guard
-                        .get_geometry_info()
-                        .get_bounding_circle_radius();
-                    let primary_damage = template.get_primary_damage(&bonus);
-                    let secondary_damage = template.get_secondary_damage(&bonus);
-                    let primary_range =
-                        template.get_primary_damage_radius(&bonus) + bounding_circle;
-                    let secondary_range =
-                        template.get_secondary_damage_radius(&bonus) + bounding_circle;
-                    let source_player_mask = obj
-                        .with_controlling_player(|player| player.get_player_mask())
-                        .unwrap_or(PlayerMaskType::none());
-                    let mut damage_info = DamageInfo::new();
-                    damage_info.input.source_id = obj.get_id();
-                    damage_info.input.source_player_mask = source_player_mask;
-                    damage_info.input.damage_type = template.damage_type.into();
-                    damage_info.input.death_type = template.death_type.into();
-                    damage_info.input.damage_status_type = template.damage_status_type.into();
-                    Some((
-                        *target_guard.get_position(),
-                        primary_damage,
-                        secondary_damage,
-                        primary_range,
-                        secondary_range,
-                        damage_info,
-                    ))
+                        let bonus = WeaponBonus::default();
+                        let bounding_circle = target_guard
+                            .get_geometry_info()
+                            .get_bounding_circle_radius();
+                        let primary_damage = template.get_primary_damage(&bonus);
+                        let secondary_damage = template.get_secondary_damage(&bonus);
+                        let primary_range =
+                            template.get_primary_damage_radius(&bonus) + bounding_circle;
+                        let secondary_range =
+                            template.get_secondary_damage_radius(&bonus) + bounding_circle;
+                        let source_player_mask = obj
+                            .with_controlling_player(|player| player.get_player_mask())
+                            .unwrap_or(PlayerMaskType::none());
+                        let mut damage_info = DamageInfo::new();
+                        damage_info.input.source_id = obj.get_id();
+                        damage_info.input.source_player_mask = source_player_mask;
+                        damage_info.input.damage_type = template.damage_type.into();
+                        damage_info.input.death_type = template.death_type.into();
+                        damage_info.input.damage_status_type = template.damage_status_type.into();
+                        Some((
+                            *target_guard.get_position(),
+                            primary_damage,
+                            secondary_damage,
+                            primary_range,
+                            secondary_range,
+                            damage_info,
+                        ))
                     } else {
                         None
                     }
@@ -444,7 +446,7 @@ impl StickyBombUpdate {
                             };
                             let victim_pos = *victim.get_position();
                             let geom = victim.get_geometry_info();
-                            let center_z_delta = (geom.bounds.min.z + geom.bounds.max.z) * 0.5;
+                            let center_z_delta = (geom.bounds().min.z + geom.bounds().max.z) * 0.5;
                             let delta = Coord3D::new(
                                 victim_pos.x - target_pos.x,
                                 victim_pos.y - target_pos.y,
@@ -529,9 +531,7 @@ impl UpdateModuleInterface for StickyBombUpdate {
                         None
                     } else {
                         crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
-                            || {
-                                crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-                            },
+                            || crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id),
                         )
                     };
                     if dead {
@@ -553,7 +553,8 @@ impl UpdateModuleInterface for StickyBombUpdate {
                             };
                             if immobile {
                                 if let Some(terrain) = TheTerrainLogic::get() {
-                                    new_pos.z = terrain.get_ground_height(new_pos.x, new_pos.y, None);
+                                    new_pos.z =
+                                        terrain.get_ground_height(new_pos.x, new_pos.y, None);
                                 }
                             } else {
                                 new_pos.z += self.module_data.offset_z;

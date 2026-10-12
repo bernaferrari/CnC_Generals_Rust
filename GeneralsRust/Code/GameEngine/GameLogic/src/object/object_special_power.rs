@@ -165,8 +165,13 @@ impl Object {
         applied
     }
 
+    pub(crate) fn has_flight_deck_module(&self) -> bool {
+        self.modules.iter().any(|entry| entry.has_flight_deck)
+    }
+
     pub(crate) fn forward_command_to_flight_deck(&self, params: &crate::ai::AiCommandParams) {
         for entry in &self.modules {
+            if !entry.has_flight_deck { continue; }
             let forwarded = entry.with_module(|module| {
                 module_production_behavior_kind(module)
                     .and_then(ProductionBehaviorModuleKindMut::into_flight_deck_behavior)
@@ -185,6 +190,7 @@ impl Object {
         }
 
         for behavior_arc in &self.behaviors {
+            if !behavior_arc.may_have_flight_deck() { continue; }
             let mut behavior_arc = behavior_arc.clone();
             let Ok(mut behavior_guard) = behavior_arc.access() else {
                 continue;

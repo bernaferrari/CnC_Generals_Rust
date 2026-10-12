@@ -54,6 +54,16 @@ impl RandomState {
         self.rng.u32(..)
     }
 
+    /// The same range arithmetic as the existing real-value adapter, using
+    /// this explicitly borrowed stream rather than selecting an active owner.
+    pub fn next_real(&mut self, lo: f32, hi: f32) -> f32 {
+        let delta = hi - lo;
+        if delta <= 0.0 {
+            return hi;
+        }
+        (self.next_u32() as f32 * MULT_FACTOR) * delta + lo
+    }
+
     /// Reset this stream without publishing or changing another instance.
     pub fn seed_random(&mut self, seed_value: u32) {
         self.rng.seed(u64::from(seed_value));

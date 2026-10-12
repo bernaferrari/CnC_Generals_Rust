@@ -233,6 +233,16 @@ macro_rules! impl_special_power_subclass {
                 )
             }
 
+            fn supports_owned_pause(&self) -> bool {
+                $crate::modules::SpecialPowerModuleInterface::supports_owned_pause(&self.base_module)
+            }
+            fn pause_countdown_owned(&mut self, pause: bool, frame: u32,
+                uses_delay: bool, shared: Option<u32>) -> Result<(), String> {
+                $crate::modules::SpecialPowerModuleInterface::pause_countdown_owned(
+                    &mut self.base_module, pause, frame, uses_delay, shared)
+            }
+
+
             fn mark_special_power_triggered(&mut self, location: Option<&$crate::common::Coord3D>) {
                 $crate::object::special_power_module::SpecialPowerModuleInterface::mark_special_power_triggered(
                     self,

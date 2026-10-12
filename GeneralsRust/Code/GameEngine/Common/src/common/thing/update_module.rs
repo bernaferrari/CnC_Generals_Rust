@@ -231,6 +231,9 @@ pub type DisabledMask = DisabledMaskType;
 
 /// Update module interface for general updates (matching C++ UpdateModuleInterface)
 pub trait UpdateModuleInterface: Send + Sync {
+    /// Synchronize a module's saved clock after the scheduler changes its deadline.
+    fn record_scheduled_wake(&mut self, _frame: u32, _phase: SleepyUpdatePhase) {}
+
     /// Update the module
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         Ok(UpdateSleepTime::None)

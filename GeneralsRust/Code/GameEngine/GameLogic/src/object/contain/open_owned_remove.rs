@@ -7,6 +7,7 @@ pub(in crate::object::contain) struct PreparedContainRemove {
     pub passenger: Arc<RwLock<Object>>,
     pub members: Vec<Arc<RwLock<Object>>>,
     stealth: bool,
+    expose: bool,
     enclosing: bool,
 }
 impl OpenContain {
@@ -62,6 +63,7 @@ impl OpenContain {
             passenger,
             members,
             stealth,
+            expose,
             enclosing,
         }))
     }
@@ -79,6 +81,9 @@ impl OpenContain {
             .retain(|candidate| *candidate != id);
         if prepared.stealth {
             self.stealth_units_contained -= 1;
+            if prepared.expose {
+                world.expose_removed(&prepared.passenger);
+            }
         }
         let owner = prepared
             .owner
@@ -97,9 +102,7 @@ impl OpenContain {
                 .set_object_position(&mut rider, &position)
                 .expect("admitted remove position effects");
         }
-        // Initial native family admits equal layers. No ambient setLayer or
-        // alternate cell update is hidden behind a successful removal.
-        debug_assert_eq!(rider.get_layer(), layer);
+        world.set_object_layer(&mut rider, layer);
         drop(rider);
         if self.last_unload_sound_frame != world.frame() {
             if let Some(sound) = &self.module_data.exit_sound {
@@ -213,5 +216,30 @@ impl OpenContain {
         }
         self.xfer_contain_id_list.clear();
         Ok(())
+    }
+}
+
+impl OpenContain {
+    /// OpenContain.cpp exitObjectViaDoor: door pulse precedes the zero-path
+    /// branch. Native removal already admitted this object's map footprint.
+    pub(in crate::object::contain) fn finish_zero_path_exit_with_world(
+        &mut self,
+        world: &mut dyn AiWorld,
+    ) {
+        assert!(self.module_data.number_of_exit_paths <= 0);
+        self.door_close_countdown = self.module_data.door_open_time;
+        if self.door_close_countdown != 0 {
+            let owner = world
+                .object(self.get_object_id())
+                .expect("admitted exit owner retired");
+            owner
+                .write()
+                .expect("admitted exit owner poisoned")
+                .clear_and_set_model_condition_flags(
+                    MODELCONDITION_DOOR_1_CLOSING,
+                    MODELCONDITION_DOOR_1_OPENING,
+                )
+                .expect("admitted exit model flags");
+        }
     }
 }

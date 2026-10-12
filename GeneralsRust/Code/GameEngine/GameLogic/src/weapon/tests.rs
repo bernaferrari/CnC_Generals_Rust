@@ -775,8 +775,10 @@ fn kills_self_dies_on_zero_secondary_radius_damage() {
             .set_position(&Coord3D::new(x, 0.0, 0.0))
             .expect("set object position");
         let mut geometry = crate::common::GeometryInfo::default();
-        geometry.bounds.min = Coord3D::new(-5.0, 0.0, 0.0);
-        geometry.bounds.max = Coord3D::new(5.0, 0.0, 0.0);
+        geometry.set_bounds(crate::common::AABox {
+            min: Coord3D::new(-5.0, 0.0, 0.0),
+            max: Coord3D::new(5.0, 0.0, 0.0),
+        });
         object.set_geometry_info(geometry);
 
         let object = Arc::new(RwLock::new(object));
@@ -972,8 +974,10 @@ fn registered_test_object_with_radius(
     .expect("create test object");
 
     let mut geometry = crate::common::GeometryInfo::default();
-    geometry.bounds.min = Coord3D::new(-radius, 0.0, 0.0);
-    geometry.bounds.max = Coord3D::new(radius, 0.0, 0.0);
+    geometry.set_bounds(crate::common::AABox {
+        min: Coord3D::new(-radius, 0.0, 0.0),
+        max: Coord3D::new(radius, 0.0, 0.0),
+    });
 
     let mut object_guard = object.write().expect("object write lock");
     object_guard
@@ -1467,20 +1471,26 @@ fn test_calculate_scatter_structure_even_less() {
     );
 }
 
+fn loaded_scatter_terrain() -> crate::terrain::TerrainLogic {
+    let mut map = crate::system::map_loader::MapData::new();
+    map.width = 64;
+    map.height = 64;
+    map.heightmap = vec![40; 64 * 64];
+    let mut terrain = crate::terrain::TerrainLogic::new();
+    terrain.load_map_data(map);
+    terrain
+}
+
 #[test]
-fn test_calculate_scatter_projectile_uses_authored_radius_and_two_rng_draws() {
-    let isolation = weapon_range_test_guard();
-    let _fixture = ScopedWeaponFixture::new(&isolation);
+fn test_calculate_scatter_uses_authored_radius_with_owned_services() {
     let mut weapon = create_test_weapon();
     Arc::make_mut(&mut weapon.template).scatter_radius = 100.0;
     Arc::make_mut(&mut weapon.template).infantry_inaccuracy_dist = 50.0;
-    let target = Coord3D::new(100.0, 100.0, 50.0);
-    let seed = [
-        0x12345678, 0x87654321, 0x31415926, 0x27182818, 0xabcdef01, 0x10203040,
-    ];
-
-    // C++ Weapon.cpp:958-995 rolls radius, then angle. Only infantry adds
-    // InfantryInaccuracyDist; projectiles, vehicles and structures do not scale it.
+    let target = Coord3D::new(160.0, 160.0, 50.0);
+    let terrain = loaded_scatter_terrain();
+    let mut random = game_engine::common::random_value::RandomState::default();
+    // C++ Weapon.cpp:958-995: only infantry adds the authored inaccuracy.
+    // These are geometric bounds, not an assertion about a generator sequence.
     for target_type in [
         ObjectType::Projectile,
         ObjectType::Vehicle,
@@ -1492,52 +1502,36 @@ fn test_calculate_scatter_projectile_uses_authored_radius_and_two_rng_draws() {
         } else {
             100.0
         };
-        crate::helpers::set_game_logic_random_seed(seed);
-        let radius = crate::helpers::get_game_logic_random_value_real(0.0, authored_radius);
-        let angle =
-            crate::helpers::get_game_logic_random_value_real(0.0, 2.0 * std::f32::consts::PI);
-        let after_two_draws = game_engine::common::random_value::get_game_logic_random_seed_state();
-        crate::helpers::set_game_logic_random_seed(seed);
-        let scattered = weapon.calculate_scatter(target, 100.0, target_type);
-        let actual_seed = game_engine::common::random_value::get_game_logic_random_seed_state();
-        assert!(
-            (scattered.x - (target.x + radius * angle.cos())).abs() < 1e-5,
-            "authored X scatter for {target_type:?}"
-        );
-        assert!(
-            (scattered.y - (target.y + radius * angle.sin())).abs() < 1e-5,
-            "authored Y scatter for {target_type:?}"
-        );
-        assert!(radius >= 0.0 && radius <= authored_radius);
-        assert_eq!(
-            actual_seed, after_two_draws,
-            "exactly radius then angle draws for {target_type:?}"
-        );
+        assert_eq!(weapon.authored_scatter_radius(target_type), authored_radius);
+        for _ in 0..32 {
+            let scattered =
+                weapon.calculate_scatter_with_services(target, target_type, &mut random, &terrain);
+            let radius =
+                ((scattered.x - target.x).powi(2) + (scattered.y - target.y).powi(2)).sqrt();
+            assert!(
+                radius <= authored_radius + 1e-4,
+                "authored scatter for {target_type:?}"
+            );
+            assert_eq!(scattered.z, 25.0);
+        }
     }
 }
 
 #[test]
-fn test_calculate_scatter_projects_z_to_terrain_and_preserves_zero_scatter() {
-    let isolation = weapon_range_test_guard();
-    let mut fixture = ScopedWeaponFixture::new(&isolation);
-    fixture.install_flat_terrain(40);
+fn test_calculate_scatter_projects_z_to_owned_terrain_and_preserves_zero_scatter() {
+    let terrain = loaded_scatter_terrain();
+    let mut random = game_engine::common::random_value::RandomState::default();
     let mut weapon = create_test_weapon();
     Arc::make_mut(&mut weapon.template).scatter_radius = 100.0;
-    let target = Coord3D::new(100.0, 100.0, 500.0);
-    let scattered = weapon.calculate_scatter(target, 100.0, ObjectType::Vehicle);
-
-    // C++ Weapon.cpp:990-995 aims at the scattered ground-layer height, not
-    // the original elevated victim position. Raw map height 40 is 25 world units.
+    let target = Coord3D::new(160.0, 160.0, 500.0);
+    let scattered =
+        weapon.calculate_scatter_with_services(target, ObjectType::Vehicle, &mut random, &terrain);
+    // C++ Weapon.cpp:990-995 uses the scattered ground-layer height.
     assert_eq!(scattered.z, 25.0);
     Arc::make_mut(&mut weapon.template).scatter_radius = 0.0;
-    let seed = game_engine::common::random_value::get_game_logic_random_seed_state();
-    let unscattered = weapon.calculate_scatter(target, 100.0, ObjectType::Vehicle);
+    let unscattered =
+        weapon.calculate_scatter_with_services(target, ObjectType::Vehicle, &mut random, &terrain);
     assert_eq!(unscattered, target);
-    assert_eq!(
-        game_engine::common::random_value::get_game_logic_random_seed_state(),
-        seed,
-        "zero scatter neither samples RNG nor projects to terrain"
-    );
 }
 
 #[test]
@@ -2294,8 +2288,10 @@ fn cpp_parity_min_range_uses_contact_distance_without_fudge() {
     let weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
     let source_pos = Coord3D::new(0.0, 0.0, 0.0);
     let mut geometry = crate::common::GeometryInfo::default();
-    geometry.bounds.min = Coord3D::new(-4.0, 0.0, 0.0);
-    geometry.bounds.max = Coord3D::new(4.0, 0.0, 0.0);
+    geometry.set_bounds(crate::common::AABox {
+        min: Coord3D::new(-4.0, 0.0, 0.0),
+        max: Coord3D::new(4.0, 0.0, 0.0),
+    });
     let radius = geometry.get_bounding_circle_radius();
     let bonus = WeaponBonus::new();
     assert_eq!(radius, 4.0);

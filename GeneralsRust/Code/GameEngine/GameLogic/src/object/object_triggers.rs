@@ -7,6 +7,26 @@
 use super::object_impl_imports::*;
 use super::*;
 
+// Matrix3D.cpp:226 / WWMath::Atan2 promotes both float components to the
+// double libm call and casts its result back to float. atan2f can differ by
+// one ULP even at the signed -PI boundary.
+pub(super) fn cpp_matrix_z_rotation(matrix: &Matrix3D) -> Real {
+    (matrix.x_axis.y as f64).atan2(matrix.x_axis.x as f64) as Real
+}
+
+// Common/System/GameCommon.cpp27-42: -PI belongs to the +PI boundary.
+// Callers admitting saved input validate finite/canonical angles first.
+pub(super) fn normalize_orientation_angle(mut angle: Real) -> Real {
+    let pi = std::f32::consts::PI;
+    while angle > pi {
+        angle -= 2.0 * pi;
+    }
+    while angle <= -pi {
+        angle += 2.0 * pi;
+    }
+    angle
+}
+
 impl Object {
     /// Get unit direction vector in 2D (x, y) based on the object's facing angle.
     /// Returns (cos(angle), sin(angle)) representing the forward direction.
@@ -55,7 +75,17 @@ impl Object {
         frame: Option<UnsignedInt>,
         changed: &mut dyn FnMut(ObjectID),
     ) {
-        let (pos_diff, ang_diff) = self.apply_transform_local(matrix, &mut |object| {
+        self.set_transform_matrix_with_pose_and_trigger_context(matrix, None, frame, changed);
+    }
+
+    fn set_transform_matrix_with_pose_and_trigger_context(
+        &mut self,
+        matrix: &Matrix3D,
+        cached_pose: Option<(Coord3D, Real)>,
+        frame: Option<UnsignedInt>,
+        changed: &mut dyn FnMut(ObjectID),
+    ) {
+        let (pos_diff, ang_diff) = self.apply_transform_local(matrix, cached_pose, &mut |object| {
             object.calculate_height_above_terrain()
         });
         let translation = self.geometry_info.position;
@@ -90,25 +120,16 @@ impl Object {
     fn apply_transform_local(
         &mut self,
         matrix: &Matrix3D,
+        cached_pose: Option<(Coord3D, Real)>,
         height: &mut dyn FnMut(&Object) -> Real,
     ) -> (bool, bool) {
-        let (_, _, translation) = matrix.to_scale_rotation_translation();
+        // Thing.cpp:226-241 copies the rows directly. Translation does not
+        // require decomposition: finite shear/singular bases are valid rows.
+        let (translation, new_angle) = cached_pose
+            .unwrap_or_else(|| (matrix.w_axis.truncate(), cpp_matrix_z_rotation(matrix)));
         let old_pos = self.geometry_info.position;
-        let pi = std::f32::consts::PI;
-        let mut new_angle = matrix.x_axis.y.atan2(matrix.x_axis.x);
-        while new_angle > pi {
-            new_angle -= 2.0 * pi;
-        }
-        while new_angle < -pi {
-            new_angle += 2.0 * pi;
-        }
-        let mut old_angle = self.geometry_info.angle;
-        while old_angle > pi {
-            old_angle -= 2.0 * pi;
-        }
-        while old_angle < -pi {
-            old_angle += 2.0 * pi;
-        }
+        let old_angle = self.geometry_info.angle;
+        self.transform_matrix = *matrix;
         self.geometry_info.position = translation;
         self.geometry_info.angle = new_angle;
         self.geometry_info.height_above_terrain = height(self);
@@ -137,10 +158,154 @@ impl Object {
         changed: &mut dyn FnMut(ObjectID),
         notify_terrain_moved: &mut dyn FnMut(&Object),
     ) -> Result<(), String> {
-        if self.get_contain().is_some() {
+        if self.contain.is_some() {
             return Err("leaf transform does not admit nested containment callbacks".into());
         }
-        let (pos_diff, ang_diff) = self.apply_transform_local(matrix, &mut |object| {
+        self.apply_transform_with_services(
+            matrix,
+            terrain,
+            collision,
+            frame,
+            changed,
+            notify_terrain_moved,
+            false,
+            None,
+        )
+    }
+
+    /// Xfer applies the transform before module payloads/postload, so an
+    /// actual fresh Open/Transport controller has no riders yet. Its real
+    /// empty-roster callback still resets the original fire-point cache.
+    pub(super) fn set_snapshot_transform_with_services(
+        &mut self,
+        matrix: &Matrix3D,
+        terrain: &crate::terrain::TerrainLogic,
+        collision: &mut crate::object::collide::collision_system::CollisionSystem,
+        frame: u32,
+        changed: &mut dyn FnMut(ObjectID),
+        notify_terrain_moved: &mut dyn FnMut(&Object),
+    ) -> Result<(), String> {
+        self.apply_transform_with_services(
+            matrix,
+            terrain,
+            collision,
+            frame,
+            changed,
+            notify_terrain_moved,
+            true,
+            None,
+        )
+    }
+
+    /// Thing.cpp:145-172 retains the basis when moving a non-slope object.
+    /// This callback runs before the old-save orientation value is read.
+    pub(super) fn set_snapshot_position_with_services(
+        &mut self,
+        position: &Coord3D,
+        terrain: &crate::terrain::TerrainLogic,
+        collision: &mut crate::object::collide::collision_system::CollisionSystem,
+        frame: u32,
+        changed: &mut dyn FnMut(ObjectID),
+        notify_terrain_moved: &mut dyn FnMut(&Object),
+    ) -> Result<(), String> {
+        let mut matrix = self.transform_matrix;
+        if self.is_kind_of(KindOf::StickToTerrainSlope) {
+            terrain.align_on_terrain(self.geometry_info.angle, position, true, &mut matrix);
+        } else {
+            matrix.w_axis = position.extend(1.0);
+        }
+        let cached_pose = if self.is_kind_of(KindOf::StickToTerrainSlope) {
+            None
+        } else {
+            Some((*position, self.geometry_info.angle))
+        };
+        self.apply_transform_with_services(
+            &matrix,
+            terrain,
+            collision,
+            frame,
+            changed,
+            notify_terrain_moved,
+            true,
+            cached_pose,
+        )
+    }
+
+    /// Thing.cpp:174-218 always makes orientation upright/terrain-aligned,
+    /// preserving the translation already installed by the prior phase.
+    pub(super) fn set_snapshot_orientation_with_services(
+        &mut self,
+        angle: Real,
+        terrain: &crate::terrain::TerrainLogic,
+        collision: &mut crate::object::collide::collision_system::CollisionSystem,
+        frame: u32,
+        changed: &mut dyn FnMut(ObjectID),
+        notify_terrain_moved: &mut dyn FnMut(&Object),
+    ) -> Result<(), String> {
+        let position = self.transform_matrix.w_axis.truncate();
+        let mut matrix = Matrix3D::from_translation(position) * Matrix3D::from_rotation_z(angle);
+        if self.is_kind_of(KindOf::StickToTerrainSlope) {
+            terrain.align_on_terrain(angle, &position, true, &mut matrix);
+        }
+        self.apply_transform_with_services(
+            &matrix,
+            terrain,
+            collision,
+            frame,
+            changed,
+            notify_terrain_moved,
+            true,
+            Some((position, normalize_orientation_angle(angle))),
+        )
+    }
+
+    /// Inert factory construction: install pose without admitting effects.
+    pub(super) fn set_prepared_position(&mut self, position: &Coord3D) {
+        self.transform_matrix.w_axis = position.extend(1.0);
+        self.geometry_info.position = *position;
+    }
+
+    fn apply_transform_with_services(
+        &mut self,
+        matrix: &Matrix3D,
+        terrain: &crate::terrain::TerrainLogic,
+        collision: &mut crate::object::collide::collision_system::CollisionSystem,
+        frame: u32,
+        changed: &mut dyn FnMut(ObjectID),
+        notify_terrain_moved: &mut dyn FnMut(&Object),
+        snapshot: bool,
+        cached_pose: Option<(Coord3D, Real)>,
+    ) -> Result<(), String> {
+        // Validate callbacks before changing pose. A populated owner needs
+        // supplied rider transform services. An unchanged saved pose does not
+        // execute this callback and therefore does not need that capability.
+        let translation = matrix.w_axis.truncate();
+        let angle = normalize_orientation_angle(cpp_matrix_z_rotation(matrix));
+        let moved = (self.geometry_info.position - translation)
+            .abs()
+            .max_element()
+            > 0.01
+            || (normalize_orientation_angle(self.geometry_info.angle) - angle).abs() > 0.01;
+        let contain = self.contain.clone();
+        let mut empty_contain = if snapshot && moved {
+            match contain.as_ref() {
+                Some(contain) => {
+                    let controller = contain
+                        .lock()
+                        .map_err(|_| "Object transform contain poisoned")?;
+                    if controller.get_contained_count() != 0 || self.drawable.is_some() {
+                        return Err(
+                            "snapshot transform requires an empty headless container".into()
+                        );
+                    }
+                    Some(controller)
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+        let (pos_diff, ang_diff) = self.apply_transform_local(matrix, cached_pose, &mut |object| {
             let p = object.get_position();
             p.z - terrain.get_layer_height(
                 p.x,
@@ -150,6 +315,12 @@ impl Object {
                 false,
             )
         });
+        if pos_diff || ang_diff {
+            if let Some(contain) = empty_contain.as_mut() {
+                contain.redeploy_riders_at(&self.geometry_info.position, &[]);
+            }
+        }
+        drop(empty_contain);
         if (pos_diff || ang_diff) && self.partition_data.is_some() {
             let p = self.geometry_info.position;
             let position = crate::object::collide::Coord3D::new(p.x, p.y, p.z);
@@ -162,7 +333,9 @@ impl Object {
                     self.get_template_geometry_type(),
                 );
                 // Same initial-placement fallback as the compatibility adapter.
-                let _ = collision.register_object(self.id, position, geometry, None);
+                collision
+                    .register_object(self.id, position, geometry, None)
+                    .map_err(|error| error.to_string())?;
             }
         }
         if pos_diff {
@@ -440,6 +613,7 @@ impl Object {
         let moved = (old.x - position.x).abs() > 0.01
             || (old.y - position.y).abs() > 0.01
             || (old.z - position.z).abs() > 0.01;
+        self.transform_matrix.w_axis = glam::Vec4::new(position.x, position.y, position.z, 1.0);
         self.geometry_info.position = position.clone();
         self.geometry_info.height_above_terrain = self.calculate_height_above_terrain();
         let geom = Self::collision_geometry_from_bounds(
@@ -816,9 +990,9 @@ impl Object {
         info: &crate::common::GeometryInfo,
         template_type: Option<game_engine::system::geometry::GeometryType>,
     ) -> crate::object::collide::collision_geometry::GeometryInfo {
-        let dx = info.bounds.max.x - info.bounds.min.x;
-        let dy = info.bounds.max.y - info.bounds.min.y;
-        let dz = info.bounds.max.z - info.bounds.min.z;
+        let dx = info.bounds().max.x - info.bounds().min.x;
+        let dy = info.bounds().max.y - info.bounds().min.y;
+        let dz = info.bounds().max.z - info.bounds().min.z;
         let radius = (dx.max(dy) * 0.5).max(0.01);
         let height = dz.max(0.01);
         let is_small = radius < 1.0;
@@ -862,52 +1036,20 @@ impl Object {
 
     /// Set object orientation (stored on geometry info; rendering updates occur elsewhere).
     pub fn set_orientation(&mut self, angle: Real) -> Result<(), String> {
+        let position = self.transform_matrix.w_axis.truncate();
+        let mut matrix = Matrix3D::from_translation(position) * Matrix3D::from_rotation_z(angle);
         if self.is_kind_of(KindOf::StickToTerrainSlope) {
             let terrain = crate::terrain::get_terrain_logic();
-            if let Ok(terrain) = terrain.try_read() {
-                let mut mtx = Matrix3D::IDENTITY;
-                let pos = self.geometry_info.position;
-                terrain.align_on_terrain(angle, &pos, true, &mut mtx);
-                drop(terrain);
-                self.set_transform_matrix(&mtx);
-                return Ok(());
-            }
+            let terrain = terrain.read().map_err(|_| "orientation terrain poisoned")?;
+            terrain.align_on_terrain(angle, &position, true, &mut matrix);
         }
-        let mut angle = angle;
-        let pi = std::f32::consts::PI;
-        while angle > pi {
-            angle -= 2.0 * pi;
-        }
-        while angle < -pi {
-            angle += 2.0 * pi;
-        }
-        let mut old = self.geometry_info.angle;
-        while old > pi {
-            old -= 2.0 * pi;
-        }
-        while old < -pi {
-            old += 2.0 * pi;
-        }
-        self.geometry_info.angle = angle;
-        if let Some(drawable) = &self.drawable {
-            if let Ok(mut drawable) = drawable.write() {
-                let current = crate::drawable::Drawable::get_transform(&*drawable);
-                if current.x_axis.z.abs() < 1.0e-4 {
-                    let pos = self.geometry_info.position;
-                    let matrix = Matrix3D::from_translation(pos) * Matrix3D::from_rotation_z(angle);
-                    drawable.set_transform(matrix);
-                }
-            }
-        }
-        if (old - angle).abs() > 0.01 {
-            let pos = self.geometry_info.position;
-            let _ = crate::object::collide::collision_system::with_collision_system_mut(|system| {
-                let collision_pos = crate::object::collide::Coord3D::new(pos.x, pos.y, pos.z);
-                let _ = system.update_object_pose(self.id, collision_pos, angle);
-                Ok::<(), crate::object::collide::CollisionError>(())
-            });
-            self.react_contain_to_transform();
-        }
+        // Thing.cpp uses raw input for rows and normalizeAngle for its cache.
+        self.set_transform_matrix_with_pose_and_trigger_context(
+            &matrix,
+            Some((position, normalize_orientation_angle(angle))),
+            None,
+            &mut |id| crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(id),
+        );
         Ok(())
     }
 
@@ -942,8 +1084,7 @@ impl Object {
     /// # Returns
     /// The transformation matrix for this object (position, rotation, scale)
     pub fn get_transform_matrix(&self) -> Mat4 {
-        Mat4::from_translation(self.geometry_info.position)
-            * Mat4::from_rotation_z(self.geometry_info.angle)
+        self.transform_matrix
     }
 
     //=========================================================================
@@ -969,6 +1110,35 @@ impl Object {
         self.layer = layer;
         // C++: TheAI->pathfinder()->updatePos(this, getPosition());
         self.sync_pathfinder_pos(false);
+    }
+
+    /// Same remove/change/update ordering as setLayer, against the admitted
+    /// factory's pathfinder and terrain rather than selecting an active world.
+    pub(crate) fn set_layer_with_services(
+        &mut self,
+        layer: PathfindLayerEnum,
+        pf: &mut crate::ai::Pathfinder,
+        terrain: &crate::terrain::TerrainLogic,
+    ) {
+        if layer == self.layer {
+            return;
+        }
+        let old = crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(self.layer as u32);
+        pf.remove_pos_cells(self.id, 0, true, old);
+        self.layer = layer;
+        let cell = crate::ai::pathfind_astar::GridCoord::from_world(self.get_position());
+        let interacts = terrain.object_interacts_with_bridge_end(
+            self,
+            crate::path::PathfindLayerEnum::from_u32(layer as u32),
+        );
+        pf.update_pos_cells(
+            cell,
+            self.id,
+            crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32),
+            0,
+            true,
+            interacts,
+        );
     }
 
     /// Best-effort C++ Pathfinder::removePos / updatePos around a layer change.
@@ -1160,7 +1330,7 @@ mod trigger_identity_tests {
         let id = 0x00B0_1B22;
         let make_object = || {
             let mut obj = Object::new_test(id, 100.0);
-            obj.geometry_info.position = Coord3D::new(20.0, 20.0, 0.0);
+            obj.set_prepared_position(&Coord3D::new(20.0, 20.0, 0.0));
             obj.i_pos = ICoord3D::new(20, 20, 0);
             obj.num_trigger_areas_active = 1;
             obj.trigger_info[0].trigger = Some(Arc::new(square(4243, "BorrowedExitArea")));

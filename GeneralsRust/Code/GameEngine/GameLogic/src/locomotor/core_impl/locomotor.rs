@@ -50,7 +50,6 @@ pub struct Locomotor {
     /// 1.0 except on the wheels move-towards path, where it is |speed|/turnSpeed in [0, 1].
     wheeled_turn_factor: Real,
 
-
     /// Flags
     flags: u32,
 }
@@ -94,6 +93,27 @@ impl Locomotor {
         let donut_timer = TheGameLogic::get_frame()
             + (DONUT_TIME_DELAY_SECONDS * LOGICFRAMES_PER_SECOND as Real) as u32;
 
+        Self::new_with_initial_conditions(
+            template,
+            angle_offset,
+            offset_increment,
+            offset_increasing,
+            donut_timer,
+        )
+    }
+
+    /// Version2 Xfer overwrites every constructor clock/random field. Keep a
+    /// detached receiving candidate inert until those saved values are decoded.
+    pub(crate) fn new_for_snapshot(template: Arc<LocomotorTemplate>) -> Self {
+        Self::new_with_initial_conditions(template, 0.0, 0.0, false, 0)
+    }
+    fn new_with_initial_conditions(
+        template: Arc<LocomotorTemplate>,
+        angle_offset: f32,
+        offset_increment: f32,
+        offset_increasing: bool,
+        donut_timer: u32,
+    ) -> Self {
         Self {
             max_speed: template.max_speed,
             max_turn_rate: template.max_turn_rate,
@@ -237,5 +257,4 @@ impl Locomotor {
         const FUDGE: Real = 1.05;
         dist * FUDGE
     }
-
 }

@@ -359,23 +359,32 @@ impl PhysicsBehaviorHandle {
     }
 
     fn apply_motive_force_with_object_impl(&mut self, force: &Vec3, owner: Option<&GameObject>) {
-        let prev = self.state.motive_force_expires;
+        self.apply_motive_force_at(force, owner, TheGameLogic::get_frame());
+    }
+
+    fn apply_motive_force_at(&mut self, force: &Vec3, owner: Option<&GameObject>, now: u32) {
         self.state.motive_force_expires = 0;
-        self.apply_force_with_obj(force, owner);
-        let now = TheGameLogic::get_frame();
-        self.state.motive_force_expires = now.saturating_add(MOTIVE_FRAMES);
-        if prev == 0 {
-            self.state.motive_force_expires = now.saturating_add(MOTIVE_FRAMES);
-        }
+        self.apply_force_with_obj_at(force, owner, now, true);
+        self.state.motive_force_expires = now.wrapping_add(MOTIVE_FRAMES);
     }
 
     fn apply_force_with_obj(&mut self, force: &Vec3, obj: Option<&GameObject>) {
+        self.apply_force_with_obj_at(force, obj, TheGameLogic::get_frame(), true);
+    }
+
+    fn apply_force_with_obj_at(
+        &mut self,
+        force: &Vec3,
+        obj: Option<&GameObject>,
+        now: u32,
+        schedule: bool,
+    ) {
         if !force.x.is_finite() || !force.y.is_finite() || !force.z.is_finite() {
             return;
         }
 
         let mut mod_force = *force;
-        if self.is_motive() {
+        if self.state.motive_force_expires > now {
             let dirs = obj.map(|o| o.get_unit_direction_vector_2d()).or_else(|| {
                 self.object_arc().and_then(|arc| {
                     arc.try_read()
@@ -397,14 +406,12 @@ impl PhysicsBehaviorHandle {
         self.state.accel.y += mod_force.y * mass_inv;
         self.state.accel.z += mod_force.z * mass_inv;
 
-        if !self.state.has_flag(FLAG_IS_IN_UPDATE) {
+        if schedule && !self.state.has_flag(FLAG_IS_IN_UPDATE) {
             if let Some(owner) = obj {
-                let now = TheGameLogic::get_frame();
-                owner.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
+                owner.reschedule_named_update("PhysicsBehavior", now.wrapping_add(1));
             } else if let Some(owner) = self.object_arc() {
                 if let Ok(owner) = owner.read() {
-                    let now = TheGameLogic::get_frame();
-                    owner.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
+                    owner.reschedule_named_update("PhysicsBehavior", now.wrapping_add(1));
                 }
             }
         }
@@ -528,6 +535,21 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
 
     fn apply_motive_force_with_object(&mut self, force: &Vec3, owner: &GameObject) {
         self.apply_motive_force_with_object_impl(force, Some(owner));
+    }
+
+    fn supports_motive_force_at(&self) -> bool {
+        true
+    }
+    fn apply_motive_force_with_object_at(
+        &mut self,
+        force: &Vec3,
+        owner: &GameObject,
+        frame: u32,
+    ) -> bool {
+        self.state.motive_force_expires = 0;
+        self.apply_force_with_obj_at(force, Some(owner), frame, false);
+        self.state.motive_force_expires = frame.wrapping_add(MOTIVE_FRAMES);
+        !self.state.has_flag(FLAG_IS_IN_UPDATE)
     }
 
     fn get_turning(&self) -> Real {

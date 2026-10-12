@@ -225,6 +225,11 @@ impl AdmissionMatch {
     }
 
     fn can_enter(&self, mode: CanEnterType) -> bool {
+        let mut scheduler = crate::system::game_logic::GameLogic::new();
+        let teams = crate::team::TeamFactory::new();
+        let mut client_random = Default::default();
+        let mut dirty_ui = Vec::new();
+        let mut idle_workers = crate::helpers::IdleWorkerEvents::default();
         let terrain = crate::terrain::TerrainLogic::new();
         let mut pathfinder = crate::ai::Pathfinder::new();
         let mut collision = crate::object::collide::collision_system::CollisionSystem::new();
@@ -242,6 +247,12 @@ impl AdmissionMatch {
             &self.factory,
             &self.players,
             AiNativeServices {
+                current_update: None,
+                update_scheduler: &mut scheduler,
+                teams: &teams,
+                client_random: &mut client_random,
+                dirty_ui_objects: &mut dirty_ui,
+                idle_worker_events: &mut idle_workers,
                 terrain: &terrain,
                 pathfinder: &mut pathfinder,
                 collision: &mut collision,

@@ -11,6 +11,7 @@ mod create_destroy_die;
 mod damage_application;
 mod destroy_list_bounty;
 mod direct_destroy;
+pub(crate) mod fog_ghosts;
 mod host_ops_writeback;
 mod internal_move;
 mod object_ai_combat;
@@ -34,3 +35,6 @@ mod residual_repulsor_owner_tests;
 
 #[cfg(test)]
 mod bridge_body_callback_tests;
+
+#[cfg(test)]
+mod fog_ghost_tests;

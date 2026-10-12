@@ -753,6 +753,7 @@ pub struct AutoHealBehavior {
     /// Last `setWakeFrame` request (C++ AutoHealBehavior.cpp:148/154). Test/debug.
     last_wake_sleep: Option<UpdateSleepTime>,
     upgrade_masks: AutoHealUpgradeMaskCache,
+    owned_birth_admitted: bool,
 }
 
 impl fmt::Debug for AutoHealBehavior {
@@ -766,11 +767,11 @@ impl fmt::Debug for AutoHealBehavior {
 }
 
 impl AutoHealBehavior {
-    pub(crate) fn construct_with_object_id(
+    pub(crate) fn construct_inert_with_object_id(
         object_id: ObjectID,
         module_data: Arc<AutoHealBehaviorModuleData>,
     ) -> Self {
-        let mut behavior = Self {
+        Self {
             module_data,
             radius_particle_system_id: INVALID_PARTICLE_SYSTEM_ID,
             soonest_heal_frame: 0,
@@ -780,7 +781,68 @@ impl AutoHealBehavior {
             object_id,
             last_wake_sleep: None,
             upgrade_masks: AutoHealUpgradeMaskCache::Unresolved,
+            owned_birth_admitted: false,
+        }
+    }
+    pub(crate) fn validate_owned_damage_callback(&self) -> Result<(), String> {
+        if self.module_data.radius != 0.0 || self.module_data.radius_particle_system_tmpl.is_some()
+        {
+            return Err("native AutoHeal radius effects not admitted".into());
+        }
+        Ok(())
+    }
+    pub(crate) fn admit_owned_birth(
+        &mut self,
+        frame: u32,
+        random: &mut game_engine::common::random_value::RandomState,
+    ) -> Result<u32, String> {
+        self.validate_owned_damage_callback()?;
+        if self.owned_birth_admitted {
+            return Err("AutoHeal birth already admitted".into());
+        }
+        self.owned_birth_admitted = true;
+        self.upgrade_executed = self.module_data.initially_active;
+        let delay = self.module_data.healing_delay;
+        let wake = if !self.upgrade_executed {
+            0x3fff_ffff
+        } else if delay == 0 {
+            frame.wrapping_add(1)
+        } else {
+            frame.wrapping_add(1 + random.next_u32() % delay)
         };
+        self.next_call_frame_and_phase = (wake.min(0x3fff_ffff) << 2) | 2;
+        Ok(wake)
+    }
+    pub(crate) fn is_owned_birth_admitted(&self) -> bool {
+        self.owned_birth_admitted
+    }
+    pub(crate) fn damage_wake_at(&self, frame: u32) -> Option<UpdateSleepTime> {
+        if self.stopped || !self.is_upgrade_active() || self.module_data.radius != 0.0 {
+            return None;
+        }
+        if self.module_data.start_healing_delay > 0 {
+            Some(update_sleep_time(self.module_data.start_healing_delay))
+        } else if frame > self.soonest_heal_frame {
+            Some(UPDATE_SLEEP_NONE)
+        } else {
+            None
+        }
+    }
+    pub(crate) fn on_damage_at_owned(&mut self, frame: u32) -> Option<u32> {
+        let sleep = self.damage_wake_at(frame)?;
+        self.last_wake_sleep = Some(sleep);
+        let wake = match sleep {
+            UpdateSleepTime::None => frame.wrapping_add(1),
+            UpdateSleepTime::Forever => 0x3fff_ffff,
+            UpdateSleepTime::Frames(delay) => frame.wrapping_add(delay),
+        };
+        Some(wake)
+    }
+    pub(crate) fn construct_with_object_id(
+        object_id: ObjectID,
+        module_data: Arc<AutoHealBehaviorModuleData>,
+    ) -> Self {
+        let mut behavior = Self::construct_inert_with_object_id(object_id, module_data);
 
         if let Some(radius_tmpl) = &behavior.module_data.radius_particle_system_tmpl {
             if let Some(manager) = TheParticleSystemManager::get() {
@@ -810,6 +872,7 @@ impl AutoHealBehavior {
             behavior.set_wake_frame(UPDATE_SLEEP_FOREVER);
         }
 
+        behavior.owned_birth_admitted = true;
         behavior
     }
 
@@ -906,11 +969,8 @@ impl AutoHealBehavior {
                     if data.radius == 0.0 {
                         let _ = obj_write.attempt_healing_from_source_id(amount, healer_id);
                     } else {
-                        let _ = obj_write.attempt_healing_from_sole_benefactor_id(
-                            amount,
-                            healer_id,
-                            delay,
-                        );
+                        let _ = obj_write
+                            .attempt_healing_from_sole_benefactor_id(amount, healer_id, delay);
                     }
                 });
         }
@@ -1064,18 +1124,8 @@ impl DamageModuleInterface for AutoHealBehavior {
         &mut self,
         _damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if self.stopped {
-            return Ok(());
-        }
-
-        let data = &self.module_data;
-        if self.is_upgrade_active() && data.radius == 0.0 {
-            // If we have a start healing delay, getting damaged resets our healing process
-            if data.start_healing_delay > 0 {
-                self.set_wake_frame(update_sleep_time(data.start_healing_delay));
-            } else if crate::helpers::TheGameLogic::get_frame() > self.soonest_heal_frame {
-                self.set_wake_frame(UPDATE_SLEEP_NONE);
-            }
+        if let Some(sleep) = self.damage_wake_at(TheGameLogic::get_frame()) {
+            self.set_wake_frame(sleep);
         }
 
         Ok(())
@@ -1145,6 +1195,17 @@ impl Snapshotable for AutoHealBehaviorModule {
 }
 
 impl Module for AutoHealBehaviorModule {
+    fn get_initial_wake_frame(&mut self) -> Option<u32> {
+        Some(self.behavior.next_call_frame_and_phase >> 2)
+    }
+    fn record_scheduled_wake(
+        &mut self,
+        frame: u32,
+        phase: game_engine::common::thing::update_module::SleepyUpdatePhase,
+    ) {
+        self.behavior.next_call_frame_and_phase = (frame.min(0x3fff_ffff) << 2) | phase as u32;
+    }
+
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -1464,6 +1525,7 @@ impl Snapshotable for AutoHealBehavior {
             .map_err(|e| e.to_string())?;
 
         if xfer.get_xfer_mode() == XferMode::Load {
+            self.owned_birth_admitted = true;
             if self.stopped {
                 self.set_wake_frame(UPDATE_SLEEP_FOREVER);
             }
@@ -1537,7 +1599,6 @@ impl AutoHealBehavior {
             AutoHealUpgradeMaskCache::Ready(pair) => ("ready", Some(*pair)),
         }
     }
-
 }
 
 // Helper function to create UpdateSleepTime

@@ -53,7 +53,7 @@ impl Thing for Object {
     }
 
     fn set_angle(&mut self, angle: Real) {
-        self.geometry_info.angle = angle;
+        let _ = Object::set_orientation(self, angle);
     }
 }
 

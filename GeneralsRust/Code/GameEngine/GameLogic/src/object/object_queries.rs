@@ -20,6 +20,10 @@ impl Object {
         }
     }
 
+    pub(crate) fn retained_team(&self) -> Option<Arc<RwLock<Team>>> {
+        self.team_pin.clone()
+    }
+
     /// AI helper: idle if AI present.
     pub fn ai_idle(&mut self) {
         if let Some(ai) = &self.ai {
@@ -572,7 +576,11 @@ impl Object {
         let ai = self.ai.as_ref()?;
         let guard = ai.lock().ok()?;
         let id = guard.get_goal_object_id();
-        if id != INVALID_ID { Some(id) } else { None }
+        if id != INVALID_ID {
+            Some(id)
+        } else {
+            None
+        }
     }
 
     pub fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {

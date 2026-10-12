@@ -399,9 +399,12 @@ impl Player {
 
     /// Attack tracking
     pub fn set_attacked_by(&mut self, player_index: Int) {
+        self.set_attacked_by_at(player_index, TheGameLogic::get_frame());
+    }
+    pub(crate) fn set_attacked_by_at(&mut self, player_index: Int, frame: u32) {
         if player_index >= 0 && (player_index as usize) < MAX_PLAYER_COUNT {
             self.attacked_by[player_index as usize] = true;
-            self.attacked_frame = TheGameLogic::get_frame();
+            self.attacked_frame = frame;
         }
     }
 

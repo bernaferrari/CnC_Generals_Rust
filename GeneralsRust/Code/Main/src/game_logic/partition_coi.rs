@@ -81,24 +81,14 @@ fn do_small_fill_at_origin(
     origin: [f32; 2],
     center_x: f32,
     center_z: f32,
-    mut radius: f32,
+    radius: f32,
 ) -> Vec<(i32, i32)> {
-    let half_cell = PARTITION_CELL_SIZE_RESIDUAL * 0.5;
-    if radius > half_cell {
-        radius = half_cell;
-    }
-    let (x1, z1) = world_to_cell_at_origin(origin, center_x - radius, center_z - radius);
-    let (x2, z2) = world_to_cell_at_origin(origin, center_x + radius, center_z + radius);
-    let mut cells = Vec::new();
-    for x in x1.min(x2)..=x1.max(x2) {
-        for z in z1.min(z2)..=z1.max(z2) {
-            push_unique(&mut cells, (x, z));
-        }
-    }
-    if cells.is_empty() {
-        cells.push(world_to_cell_at_origin(origin, center_x, center_z));
-    }
-    cells
+    collect_footprint(
+        origin,
+        center_x,
+        center_z,
+        HostPartitionFootprint::small_circle(radius),
+    )
 }
 
 pub fn do_circle_fill(center_x: f32, center_z: f32, radius: f32) -> Vec<(i32, i32)> {
@@ -111,29 +101,18 @@ fn do_circle_fill_at_origin(
     center_z: f32,
     radius: f32,
 ) -> Vec<(i32, i32)> {
-    let (cx, cz) = world_to_cell_at_origin(origin, center_x, center_z);
-    let mut cell_radius = world_to_cell_dist(radius);
-    if cell_radius < 1 {
-        cell_radius = 1;
-    }
-    let mut cells = Vec::new();
-    let mut y = cell_radius - 1;
-    let mut dec = 3 - 2 * cell_radius;
-    for x in 0..cell_radius {
-        h_line(&mut cells, cx - x, cx + x, cz + y);
-        h_line(&mut cells, cx - x, cx + x, cz - y);
-        h_line(&mut cells, cx - y, cx + y, cz + x);
-        h_line(&mut cells, cx - y, cx + y, cz - x);
-        if dec >= 0 {
-            dec += (1 - y) << 2;
-            y -= 1;
-        }
-        dec += (x << 2) + 6;
-    }
-    if cells.is_empty() {
-        cells.push((cx, cz));
-    }
-    cells
+    collect_footprint(
+        origin,
+        center_x,
+        center_z,
+        HostPartitionFootprint {
+            major_radius: radius,
+            minor_radius: radius,
+            angle: 0.0,
+            is_small: false,
+            is_box: false,
+        },
+    )
 }
 
 pub fn do_rect_fill(
@@ -161,48 +140,130 @@ fn do_rect_fill_at_origin(
     halfsize_z: f32,
     angle: f32,
 ) -> Vec<(i32, i32)> {
-    let c = angle.cos();
-    let s = angle.sin();
-    let step_size = PARTITION_CELL_SIZE_RESIDUAL * 0.5;
-    let ydx = s * step_size;
-    let ydy = -c * step_size;
-    let xdx = c * step_size;
-    let xdy = s * step_size;
-    let step_size_inv_times_2 = 2.0 / step_size;
-    let num_steps_x = (halfsize_x * step_size_inv_times_2).ceil() as i32;
-    let num_steps_z = (halfsize_z * step_size_inv_times_2).ceil() as i32;
-    let mut tl_x = center_x - halfsize_x * c - halfsize_z * s;
-    let mut tl_z = center_z + halfsize_z * c - halfsize_x * s;
-    let mut cells = Vec::new();
-    for _iz in 0..num_steps_z.max(1) {
-        let mut x = tl_x;
-        let mut z = tl_z;
-        for _ix in 0..num_steps_x.max(1) {
-            push_unique(&mut cells, world_to_cell_at_origin(origin, x, z));
-            x += xdx;
-            z += xdy;
+    collect_footprint(
+        origin,
+        center_x,
+        center_z,
+        HostPartitionFootprint {
+            major_radius: halfsize_x,
+            minor_radius: halfsize_z,
+            angle,
+            is_small: false,
+            is_box: true,
+        },
+    )
+}
+
+trait FootprintSink {
+    fn cell(&mut self, x: i64, z: i64);
+    fn span(&mut self, lo: i64, hi: i64, z: i64) {
+        for x in lo..=hi {
+            self.cell(x, z);
         }
-        tl_x += ydx;
-        tl_z += ydy;
-    }
-    if cells.is_empty() {
-        cells.push(world_to_cell_at_origin(origin, center_x, center_z));
-    }
-    cells
-}
-
-fn h_line(cells: &mut Vec<(i32, i32)>, x1: i32, x2: i32, z: i32) {
-    let (lo, hi) = if x1 <= x2 { (x1, x2) } else { (x2, x1) };
-    for x in lo..=hi {
-        push_unique(cells, (x, z));
     }
 }
 
-fn push_unique(cells: &mut Vec<(i32, i32)>, cell: (i32, i32)) {
-    if !cells.contains(&cell) {
-        cells.push(cell);
+#[derive(Default)]
+struct FootprintCells {
+    cells: Vec<(i32, i32)>,
+    seen: std::collections::HashSet<(i32, i32)>,
+}
+
+impl FootprintSink for FootprintCells {
+    fn cell(&mut self, x: i64, z: i64) {
+        // Original cell indices are signed Int. Avoid overflow for invalid
+        // off-map inputs; valid original indices retain first-visit order.
+        if let (Ok(x), Ok(z)) = (i32::try_from(x), i32::try_from(z)) {
+            if self.seen.insert((x, z)) {
+                self.cells.push((x, z));
+            }
+        }
     }
 }
+
+fn collect_footprint(
+    origin: [f32; 2],
+    x: f32,
+    z: f32,
+    fp: HostPartitionFootprint,
+) -> Vec<(i32, i32)> {
+    let mut cells = FootprintCells::default();
+    stamp_footprint(origin, x, z, fp, &mut cells);
+    cells.cells
+}
+
+/// Shared original sampler. The sink performs getCellAt admission; circle
+/// scanlines can therefore be clipped before enumerating off-map coordinates.
+fn stamp_footprint(
+    origin: [f32; 2],
+    x: f32,
+    z: f32,
+    fp: HostPartitionFootprint,
+    cells: &mut impl FootprintSink,
+) {
+    if fp.is_small {
+        let radius = fp.major_radius.min(PARTITION_CELL_SIZE_RESIDUAL * 0.5);
+        let (x1, z1) = world_to_cell_at_origin(origin, x - radius, z - radius);
+        let (x2, z2) = world_to_cell_at_origin(origin, x + radius, z + radius);
+        for ix in x1 as i64..=x2 as i64 {
+            for iz in z1 as i64..=z2 as i64 {
+                cells.cell(ix, iz);
+            }
+        }
+    } else if fp.is_box {
+        let c = fp.angle.cos();
+        let s = fp.angle.sin();
+        let step_size = PARTITION_CELL_SIZE_RESIDUAL * 0.5;
+        let ydx = s * step_size;
+        let ydy = -c * step_size;
+        let xdx = c * step_size;
+        let xdy = s * step_size;
+        let inv_times_2 = 2.0 / step_size;
+        let nx = (fp.major_radius * inv_times_2).ceil() as i32;
+        let nz = (fp.minor_radius * inv_times_2).ceil() as i32;
+        if nx <= 0 || nz <= 0 {
+            return;
+        }
+        let mut tl_x = x - fp.major_radius * c - fp.minor_radius * s;
+        let mut tl_z = z + fp.minor_radius * c - fp.major_radius * s;
+        // CPP PartitionManager.cpp:1781-1799: zero steps produce no COIs.
+        for _iz in 0..nz {
+            let mut sx = tl_x;
+            let mut sz = tl_z;
+            for _ix in 0..nx {
+                let (ix, iz) = world_to_cell_at_origin(origin, sx, sz);
+                cells.cell(ix as i64, iz as i64);
+                sx += xdx;
+                sz += xdy;
+            }
+            tl_x += ydx;
+            tl_z += ydy;
+        }
+    } else {
+        let (cx, cz) = world_to_cell_at_origin(origin, x, z);
+        let (cx, cz) = (cx as i64, cz as i64);
+        let radius = i64::from(world_to_cell_dist(fp.major_radius).max(1));
+        let mut y = radius - 1;
+        let mut dec = 3 - 2 * radius;
+        for x in 0..radius {
+            cells.span(cx - x, cx + x, cz + y);
+            cells.span(cx - x, cx + x, cz - y);
+            cells.span(cx - y, cx + y, cz + x);
+            cells.span(cx - y, cx + y, cz - x);
+            if dec >= 0 {
+                dec += (1 - y) << 2;
+                y -= 1;
+            }
+            dec += (x << 2) + 6;
+        }
+    }
+}
+
+mod clipped;
+pub(crate) use clipped::{cells_touched_for_footprint_clipped, footprint_sample_cost};
+
+#[cfg(test)]
+mod footprint_tests;
 
 /// C++ `PartitionData::getShroudedStatus` cell mix (`PartitionManager.cpp:1615-1674`).
 /// Returns `(status, ever_seen)` after applying fogged-enemy / mine / neutral-mobile rules.

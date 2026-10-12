@@ -300,6 +300,13 @@ impl SnapshotBuilder {
             modules.insert("AIGuardState".to_owned(), ModuleSnapshot::AIUpdate(guard));
         }
 
+        if let Some(attack) = super::attack_state_persist::capture(object)? {
+            modules.insert(
+                "AttackStateMachine".to_owned(),
+                ModuleSnapshot::AIUpdate(attack),
+            );
+        }
+
         if let Some(building_data) = &object.building_data {
             let production_queue = building_data
                 .production_queue
