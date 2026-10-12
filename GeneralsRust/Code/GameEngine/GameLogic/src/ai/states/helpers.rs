@@ -142,3 +142,15 @@ pub(crate) fn resolve_waypoint_by_id(id: WaypointId) -> Option<Arc<Waypoint>> {
     let waypoint = terrain.get_waypoint_by_id(id)?;
     Some(Arc::new(Waypoint::from_terrain(waypoint)))
 }
+
+/// Resolve against the driving operation. A missing waypoint in a supplied
+/// world must never fall through to a different world's terrain.
+pub(crate) fn resolve_waypoint_for_runtime(
+    id: WaypointId,
+    runtime: Option<&dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+) -> Option<Arc<Waypoint>> {
+    match runtime {
+        Some(runtime) => runtime.waypoint_by_id(id),
+        None => resolve_waypoint_by_id(id),
+    }
+}

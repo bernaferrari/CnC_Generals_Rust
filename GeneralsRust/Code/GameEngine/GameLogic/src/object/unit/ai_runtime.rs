@@ -97,7 +97,7 @@ impl UnitAiRuntime {
         self.get_locomotor_distance_to_goal_with_world(fallback_goal, None)
     }
 
-    fn get_locomotor_distance_to_goal_with_world(
+    pub(super) fn get_locomotor_distance_to_goal_with_world(
         &mut self,
         fallback_goal: Option<Coord3D>,
         mut world: Option<&mut dyn crate::modules::ai_world::AiWorld>,
@@ -701,8 +701,8 @@ impl UnitAiRuntime {
         let mood_matrix = self.get_mood_matrix_value(parent_exists);
         Self::mood_matrix_action_adjustment(action, mood_matrix)
     }
-    fn get_mood_matrix_action_adjustment_with_world(
-        &mut self,
+    pub(super) fn get_mood_matrix_action_adjustment_with_world(
+        &self,
         parent_exists: bool,
         action: MoodMatrixAction,
         world: &dyn crate::modules::ai_world::AiWorld,
@@ -1114,7 +1114,7 @@ impl UnitAiRuntime {
         goal: &Coord3D,
         layer: crate::common::PathfindLayerEnum,
     ) -> Result<(), String> {
-        self.update_goal_position_impl(goal, layer, None, None)
+        self.update_goal_position_impl(goal, layer, None, None, None)
     }
 
     pub(super) fn update_goal_position_with_pathfinder(
@@ -1123,7 +1123,22 @@ impl UnitAiRuntime {
         layer: crate::common::PathfindLayerEnum,
         pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
     ) -> Result<(), String> {
-        self.update_goal_position_impl(goal, layer, Some(pathfinder), None)
+        self.update_goal_position_impl(goal, layer, Some(pathfinder), None, None)
+    }
+
+    pub(super) fn update_ground_goal_position_with_observed_height(
+        &mut self,
+        goal: &Coord3D,
+        height: Real,
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+    ) -> Result<(), String> {
+        self.update_goal_position_impl(
+            goal,
+            crate::common::PathfindLayerEnum::Ground,
+            Some(pathfinder),
+            None,
+            Some(height),
+        )
     }
 
     fn update_goal_position_with_world(
@@ -1132,7 +1147,7 @@ impl UnitAiRuntime {
         layer: crate::common::PathfindLayerEnum,
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<(), String> {
-        self.update_goal_position_impl(goal, layer, None, Some(world))
+        self.update_goal_position_impl(goal, layer, None, Some(world), None)
     }
 
     fn update_goal_position_impl(
@@ -1141,11 +1156,14 @@ impl UnitAiRuntime {
         layer: crate::common::PathfindLayerEnum,
         mut driving_pathfinder: Option<&mut crate::ai::pathfind_complete::PathfindingSystem>,
         mut world: Option<&mut dyn crate::modules::ai_world::AiWorld>,
+        ground_height: Option<Real>,
     ) -> Result<(), String> {
         let owner_arc = self
             .native_owner()
             .ok_or_else(|| "unit owner no longer available".to_string())?;
-        let is_ground_movement = if let Some(world) = world.as_deref() {
+        let is_ground_movement = if ground_height.is_some() {
+            true
+        } else if let Some(world) = world.as_deref() {
             let owner = owner_arc.read().map_err(|_| "unit owner lock poisoned")?;
             self.is_doing_ground_movement_for_owner_with_world(&owner, Some(world))?
         } else {
@@ -1167,7 +1185,10 @@ impl UnitAiRuntime {
             other => crate::path::PathfindLayerEnum::from_u32(other as u32),
         };
         let mut interacts_with_bridge_end = false;
-        if let Some(world) = world.as_deref() {
+        if let Some(height) = ground_height {
+            adjusted.z = height;
+            owner.set_destination_layer(crate::common::PathfindLayerEnum::Ground);
+        } else if let Some(world) = world.as_deref() {
             adjusted.z = world.goal_layer_height(adjusted.x, adjusted.y, layer);
             if layer != crate::common::PathfindLayerEnum::Ground {
                 interacts_with_bridge_end = world.bridge_layer_interaction(&owner, layer)?;
@@ -2154,8 +2175,17 @@ impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
     fn is_doing_combat_drop(&self) -> bool {
         self.runtime.is_doing_combat_drop()
     }
-    fn set_queue_for_path_time(&mut self, _frames: UnsignedInt) {
-        self.runtime.set_queue_for_path_time(_frames)
+    fn set_queue_for_path_time(&mut self, frames: UnsignedInt) {
+        match self.world.as_deref() {
+            Some(world) => {
+                self.runtime.data.queue_for_path_frame = if frames == 0 {
+                    0
+                } else {
+                    world.frame().wrapping_add(frames)
+                }
+            }
+            None => self.runtime.set_queue_for_path_time(frames),
+        }
     }
     fn is_temporarily_preventing_aim_success(&self) -> bool {
         self.runtime.is_temporarily_preventing_aim_success()
@@ -2376,8 +2406,47 @@ impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
         _waypoint: &crate::waypoint::Waypoint,
         _group_offset: &Coord2D,
     ) -> Result<(), String> {
-        self.runtime
-            .set_path_from_waypoint(_waypoint, _group_offset)
+        let Some(world) = self.world.as_deref_mut() else {
+            return self
+                .runtime
+                .set_path_from_waypoint(_waypoint, _group_offset);
+        };
+        let owner = self
+            .runtime
+            .native_owner()
+            .ok_or("installed waypoint owner missing")?;
+        let start = *owner
+            .read()
+            .map_err(|_| "installed waypoint owner poisoned")?
+            .get_position();
+        // C++ AIUpdate.cpp:574-599: direct authored links, preserving authored Z.
+        // This is the exact-path API, not a replacement for ordinary PF requests.
+        let mut coords = vec![start];
+        let mut current = Some(Arc::new(_waypoint.clone()));
+        let mut count = 0;
+        while let Some(waypoint) = current.take() {
+            let mut position = waypoint.position;
+            position.x += _group_offset.x;
+            position.y += _group_offset.y;
+            let next_id = waypoint.get_link(0);
+            if next_id.is_none() {
+                position = world
+                    .pathfinder()
+                    .ok_or("exact waypoint path has no owner pathfinder")?
+                    .snap_position(&position);
+            }
+            coords.push(position);
+            current = next_id.and_then(|id| world.waypoint_by_id(id));
+            count += 1;
+            if count > WAYPOINT_PATH_LIMIT {
+                break;
+            }
+        }
+        self.runtime.destroy_path();
+        self.runtime.set_current_path_snapshot_from_coords(&coords);
+        self.runtime.data.waiting_for_path = false;
+        self.runtime.data.path_timestamp = world.frame();
+        Ok(())
     }
     fn is_waiting_for_path(&self) -> bool {
         self.runtime.is_waiting_for_path()
@@ -2571,9 +2640,6 @@ impl UnitAiRuntime {
         pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
         frame: Option<u32>,
     ) -> Result<(), String> {
-        if frame.is_some() && self.data.is_final_goal {
-            return Err("supplied Enter path install requires a non-final goal".into());
-        }
         let installed_path = self.path_with_cpp_final_node(path)?;
         let last = *installed_path
             .last()
@@ -2589,7 +2655,7 @@ impl UnitAiRuntime {
             loco.clear_path();
         }
         self.set_current_path_snapshot_from_coords(&installed_path);
-        if self.data.is_final_goal && self.is_doing_ground_movement() {
+        if frame.is_none() && self.data.is_final_goal && self.is_doing_ground_movement() {
             let layer = TheTerrainLogic::get()
                 .map(|terrain| terrain.get_layer_for_destination(&last))
                 .unwrap_or(crate::common::PathfindLayerEnum::Ground);

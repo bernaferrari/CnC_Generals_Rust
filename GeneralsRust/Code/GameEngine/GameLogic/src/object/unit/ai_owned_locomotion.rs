@@ -121,3 +121,49 @@ impl UnitAIUpdate {
         self.runtime.data.locomotor_goal_type = 1;
     }
 }
+
+/// Read-only evidence from the installed controller; never used for simulation.
+#[cfg(test)]
+pub(crate) struct NativeWaypointObservation {
+    pub(crate) requested_destination: Coord3D,
+    pub(crate) waiting_for_path: bool,
+    pub(crate) has_path: bool,
+    pub(crate) current_waypoint: Option<crate::waypoint::WaypointId>,
+    pub(crate) completed_waypoint: Option<crate::waypoint::WaypointId>,
+    pub(crate) parent_goal: Option<Coord3D>,
+}
+#[cfg(test)]
+impl UnitAIUpdate {
+    pub(crate) fn native_path_distance_for_test(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<Real, String> {
+        self.validate_world_owner(world)
+            .map_err(|error| error.to_string())?;
+        let goal = self
+            .ai_state_machine
+            .as_ref()
+            .and_then(|machine| machine.get_goal_position());
+        let distance = self
+            .runtime
+            .get_locomotor_distance_to_goal_with_world(goal, Some(world));
+        if distance.is_finite() {
+            Ok(distance)
+        } else {
+            Err("native runtime distance is nonfinite".into())
+        }
+    }
+    pub(crate) fn native_waypoint_observation_for_test(&self) -> NativeWaypointObservation {
+        NativeWaypointObservation {
+            requested_destination: self.runtime.data.requested_destination,
+            waiting_for_path: self.runtime.data.waiting_for_path,
+            has_path: self.runtime.data.current_path_snapshot.is_some(),
+            current_waypoint: self.runtime.data.current_waypoint_id,
+            completed_waypoint: self.runtime.data.completed_waypoint_id,
+            parent_goal: self
+                .ai_state_machine
+                .as_ref()
+                .and_then(|machine| machine.get_goal_position()),
+        }
+    }
+}

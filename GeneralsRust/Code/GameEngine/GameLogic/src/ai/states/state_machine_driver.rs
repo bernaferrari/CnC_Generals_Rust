@@ -28,6 +28,7 @@ impl AIStateMachineDriver<'_> {
         }
         self.data.goal_path.clear();
         self.data.goal_waypoint = None;
+        self.data.pending_goal_waypoint_name = None;
         self.data.goal_squad = None;
         self.data.goal_polygon = None;
         self.base.set_goal_squad(None);
@@ -109,6 +110,7 @@ impl AIStateMachineDriver<'_> {
     }
     pub(crate) fn set_goal_waypoint(&mut self, waypoint: Option<Arc<Waypoint>>) {
         self.data.goal_waypoint = waypoint;
+        self.data.pending_goal_waypoint_name = None;
         let waypoint_id = self.data.goal_waypoint.as_ref().map(|w| w.id);
         self.base.set_goal_waypoint(waypoint_id);
     }
@@ -301,14 +303,7 @@ impl AIStateMachineDriver<'_> {
         }
 
         if let Some(waypoint_id) = params.waypoint {
-            if let Ok(terrain_guard) = get_terrain_logic().read() {
-                if let Some(waypoint) = terrain_guard.get_waypoint_by_id(waypoint_id) {
-                    let arc = Arc::new(Waypoint::from_terrain(waypoint));
-                    self.set_goal_waypoint(Some(arc));
-                } else {
-                    self.set_goal_waypoint(None);
-                }
-            }
+            self.set_goal_waypoint(resolve_waypoint_for_runtime(waypoint_id, ai.as_deref()));
         }
 
         if matches!(

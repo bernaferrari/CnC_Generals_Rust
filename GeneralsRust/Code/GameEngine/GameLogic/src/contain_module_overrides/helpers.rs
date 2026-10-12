@@ -137,6 +137,14 @@ impl<T: BehaviorModuleInterface + Snapshotable + 'static> Module for ActiveBehav
         self.behavior.get_sleepy_update_interface()
     }
 
+    fn get_sleepy_update_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::update_module::UpdateModuleInterface> {
+        // Preserve the inner class's explicit opt-in for phase and disabled
+        // metadata, just as the update dispatcher does. Physics is phase 1.
+        self.behavior.get_sleepy_update_interface()
+    }
+
     fn get_initial_wake_frame(&mut self) -> Option<u32> {
         self.behavior.behavior_initial_wake_frame()
     }

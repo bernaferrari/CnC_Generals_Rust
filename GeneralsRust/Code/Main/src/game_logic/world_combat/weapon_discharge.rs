@@ -281,7 +281,7 @@ fn leftover_handle_weapon_fire_fx_at_fx_bone(
     source: ObjectId,
     capture: &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture,
 ) -> bool {
-    let leftover_obj = gamelogic::helpers::TheGameLogic::find_object_by_id(source.0)
+    let leftover_obj = crate::game_logic::crate_object_bridge::crate_object(source.0)
         .or_else(|| gamelogic::object::registry::OBJECT_REGISTRY.get_object(source.0));
     let Some(leftover_obj) = leftover_obj else {
         return false;

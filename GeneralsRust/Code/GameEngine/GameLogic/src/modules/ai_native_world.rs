@@ -286,6 +286,39 @@ impl<'a> BorrowedAiWorld<'a> {
     }
 }
 impl AiWorld for BorrowedAiWorld<'_> {
+    fn waypoint_pathfind_extent(&self) -> Result<crate::common::Region3D, String> {
+        Ok(self.services.terrain.get_maximum_pathfind_extent())
+    }
+    fn waypoint_is_on_wall(&self, position: &Coord3D) -> Result<bool, String> {
+        Ok(self.services.pathfinder.is_point_on_wall(position))
+    }
+    fn waypoint_wall_height(&self) -> Result<Real, String> {
+        Ok(self.services.rules.wall_height)
+    }
+    fn random_waypoint_link(&mut self, last: usize) -> Result<usize, String> {
+        let count = u32::try_from(last)
+            .ok()
+            .and_then(|last| last.checked_add(1))
+            .ok_or("waypoint link range exceeds simulation integer width")?;
+        Ok((self.services.random.next_u32() % count) as usize)
+    }
+
+    fn waypoint_by_name(&self, name: &str) -> Option<Arc<crate::waypoint::Waypoint>> {
+        self.services
+            .terrain
+            .get_waypoint_by_name(&crate::common::AsciiString::from(name))
+            .map(|waypoint| Arc::new(crate::waypoint::Waypoint::from_terrain(waypoint)))
+    }
+    fn waypoint_by_id(
+        &self,
+        id: crate::waypoint::WaypointId,
+    ) -> Option<Arc<crate::waypoint::Waypoint>> {
+        self.services
+            .terrain
+            .get_waypoint_by_id(id)
+            .map(|waypoint| Arc::new(crate::waypoint::Waypoint::from_terrain(waypoint)))
+    }
+
     fn object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
         self.factory.get_object(id)?.get_base_object()
     }
@@ -417,6 +450,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
                 | crate::ai::AiCommandType::Idle
                 | crate::ai::AiCommandType::Busy
                 | crate::ai::AiCommandType::MoveToPosition
+                | crate::ai::AiCommandType::FollowWaypointPath
         ) {
             return Err("native friendly Enter does not admit attack commands".into());
         }
@@ -1372,5 +1406,6 @@ mod owned_destroy;
 mod owned_updates;
 
 mod owned_locomotion;
+mod owned_physics;
 
 pub(crate) mod owned_disposal;

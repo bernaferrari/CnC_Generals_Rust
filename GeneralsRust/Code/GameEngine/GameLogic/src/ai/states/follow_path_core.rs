@@ -79,6 +79,9 @@ pub(crate) struct FollowWaypointPathCore {
     pub(crate) is_follow_waypoint_path_state: bool,
     pub(crate) current_waypoint: Option<Arc<Waypoint>>,
     pub(crate) prior_waypoint: Option<Arc<Waypoint>>,
+    /// Loaded IDs awaiting the driving terrain. While present, the resolved
+    /// coordinate references are empty; serialization preserves these IDs.
+    pub(crate) pending_waypoints: Option<(Option<WaypointId>, Option<WaypointId>)>,
     pub(crate) group_offset: Coord2D,
     pub(crate) angle: Real,
     pub(crate) frames_sleeping: UnsignedInt,
@@ -95,6 +98,7 @@ impl FollowWaypointPathCore {
             is_follow_waypoint_path_state,
             current_waypoint: None,
             prior_waypoint: None,
+            pending_waypoints: None,
             group_offset: Coord2D::new(0.0, 0.0),
             angle: 0.0,
             frames_sleeping: 0,
@@ -105,6 +109,39 @@ impl FollowWaypointPathCore {
         }
     }
 
+    fn waypoint_ids(&self) -> (WaypointId, WaypointId) {
+        let (current, prior) = self.pending_waypoints.unwrap_or_else(|| {
+            (
+                self.current_waypoint.as_ref().map(|waypoint| waypoint.id),
+                self.prior_waypoint.as_ref().map(|waypoint| waypoint.id),
+            )
+        });
+        (current.unwrap_or(INVALID_ID), prior.unwrap_or(INVALID_ID))
+    }
+
+    pub(crate) fn resolve_loaded_waypoints(
+        &mut self,
+        runtime: Option<&dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) -> Result<(), String> {
+        let Some((current, prior)) = self.pending_waypoints else {
+            return Ok(());
+        };
+        let resolve = |id: Option<WaypointId>| -> Result<Option<Arc<Waypoint>>, String> {
+            id.map(|id| {
+                resolve_waypoint_for_runtime(id, runtime).ok_or_else(|| {
+                    format!("saved waypoint {id} is missing from the driving terrain")
+                })
+            })
+            .transpose()
+        };
+        let current = resolve(current)?;
+        let prior = resolve(prior)?;
+        self.current_waypoint = current;
+        self.prior_waypoint = prior;
+        self.pending_waypoints = None;
+        Ok(())
+    }
+
     pub(crate) fn has_next_waypoint(&self) -> bool {
         self.current_waypoint
             .as_ref()
@@ -113,23 +150,36 @@ impl FollowWaypointPathCore {
     }
 
     pub(crate) fn get_next_waypoint(&mut self, state: &State) -> Option<Arc<Waypoint>> {
-        self.get_next_waypoint_with_control(state, None)
+        self.get_next_waypoint_with_control(state, None, None)
+            .ok()
+            .flatten()
     }
 
     pub(crate) fn get_next_waypoint_with_control(
         &mut self,
         state: &State,
         control: Option<&mut crate::state_machine::StateMachineControl>,
-    ) -> Option<Arc<Waypoint>> {
-        let current = self.current_waypoint.as_ref()?;
+        mut runtime: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) -> Result<Option<Arc<Waypoint>>, String> {
+        let Some(current) = self.current_waypoint.as_ref() else {
+            return Ok(None);
+        };
         let link_count = current.get_num_links();
         if link_count == 0 {
             self.prior_waypoint = self.current_waypoint.clone();
-            return None;
+            return Ok(None);
         }
 
-        let which = get_game_logic_random_value(0, (link_count - 1) as i32) as usize;
-        let next_id = current.get_link(which)?;
+        let which = match runtime
+            .as_deref_mut()
+            .and_then(|runtime| runtime.world_mut())
+        {
+            Some(world) => world.random_waypoint_link(link_count - 1)?,
+            None => get_game_logic_random_value(0, (link_count - 1) as i32) as usize,
+        };
+        let Some(next_id) = current.get_link(which) else {
+            return Err("waypoint selected an invalid link".into());
+        };
         self.prior_waypoint = self.current_waypoint.clone();
         if let Some(control) = control {
             control.set_goal_position(current.position);
@@ -138,10 +188,22 @@ impl FollowWaypointPathCore {
                 guard.set_goal_position(current.position);
             }
         }
-        resolve_waypoint_by_id(next_id)
+        Ok(resolve_waypoint_for_runtime(
+            next_id,
+            runtime
+                .as_deref()
+                .map(|runtime| &*runtime as &dyn AiStateRuntime),
+        ))
     }
 
     pub(crate) fn calc_extra_path_distance(&self) -> Real {
+        self.calc_extra_path_distance_with_runtime(None)
+    }
+
+    pub(crate) fn calc_extra_path_distance_with_runtime(
+        &self,
+        runtime: Option<&dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) -> Real {
         let mut extra = PATHFIND_CELL_SIZE_F / 10.0;
         let mut cur = self.current_waypoint.clone();
         let mut limit = 5;
@@ -157,7 +219,7 @@ impl FollowWaypointPathCore {
             let Some(next_id) = next_id else {
                 break;
             };
-            let next = resolve_waypoint_by_id(next_id);
+            let next = resolve_waypoint_for_runtime(next_id, runtime);
             let Some(next_way) = next else {
                 break;
             };
@@ -194,8 +256,15 @@ impl FollowWaypointPathCore {
 
         let mut dest = current_waypoint.position;
         self.goal_layer = PathfindLayerEnum::Ground;
-        if is_point_on_wall(&dest) {
-            dest.z = get_wall_height();
+        let on_wall = match ai.world() {
+            Some(world) => world.waypoint_is_on_wall(&dest)?,
+            None => is_point_on_wall(&dest),
+        };
+        if on_wall {
+            dest.z = match ai.world() {
+                Some(world) => world.waypoint_wall_height()?,
+                None => get_wall_height(),
+            };
             self.goal_layer = PathfindLayerEnum::Wall;
         }
         self.goal_position = dest;
@@ -205,21 +274,40 @@ impl FollowWaypointPathCore {
             self.goal_position.y += self.group_offset.y;
         }
 
-        if let Ok(terrain_guard) = get_terrain_logic().read() {
+        // Observe terrain while its owner is borrowed, then apply the shared
+        // C++ extent rules without retaining that borrow during AI mutations.
+        let extent = if let Some(world) = ai.world() {
+            if self.goal_layer == PathfindLayerEnum::Wall {
+                if !world.waypoint_is_on_wall(&self.goal_position)? {
+                    self.goal_position = dest;
+                }
+                self.goal_position.z = world.waypoint_wall_height()?;
+            } else {
+                self.goal_position.z = world.terrain_layer_height(
+                    self.goal_position.x,
+                    self.goal_position.y,
+                    PathfindLayerEnum::Ground,
+                );
+            }
+            Some(world.waypoint_pathfind_extent()?)
+        } else if let Ok(terrain_guard) = get_terrain_logic().read() {
             if self.goal_layer == PathfindLayerEnum::Wall {
                 if !is_point_on_wall(&self.goal_position) {
                     self.goal_position = dest;
                 }
                 self.goal_position.z = get_wall_height();
             } else {
-                self.goal_layer = PathfindLayerEnum::Ground;
                 self.goal_position.z = terrain_guard.get_ground_height(
                     self.goal_position.x,
                     self.goal_position.y,
                     None,
                 );
             }
-            let extent = terrain_guard.get_maximum_pathfind_extent();
+            Some(terrain_guard.get_maximum_pathfind_extent())
+        } else {
+            None
+        };
+        if let Some(extent) = extent {
             if is_in_region_no_z(&extent, &dest) && !is_in_region_no_z(&extent, &self.goal_position)
             {
                 if self.goal_position.x < extent.lo.x + PATHFIND_CELL_SIZE_F {
@@ -251,7 +339,8 @@ impl FollowWaypointPathCore {
             }
         }
 
-        ai.set_path_extra_distance(self.calc_extra_path_distance())
+        let extra = self.calc_extra_path_distance_with_runtime(Some(&*ai));
+        ai.set_path_extra_distance(extra)
             .map_err(|e| e.to_string())?;
         if let Some(control) = control {
             control.set_goal_position(self.goal_position);
@@ -282,16 +371,8 @@ impl FollowWaypointPathCore {
         let mut goal_position_x = self.goal_position.x;
         let mut goal_position_y = self.goal_position.y;
         let mut goal_position_z = self.goal_position.z;
-        let mut current_id: WaypointId = self
-            .current_waypoint
-            .as_ref()
-            .map(|w| w.id)
-            .unwrap_or(INVALID_ID);
-        let mut prior_id: WaypointId = self
-            .prior_waypoint
-            .as_ref()
-            .map(|w| w.id)
-            .unwrap_or(INVALID_ID);
+        let (mut current_id, _) = self.waypoint_ids();
+        let (_, mut prior_id) = self.waypoint_ids();
         xfer.xfer_real(&mut group_offset_x)
             .map_err(|e| format!("Failed to crc group_offset.x: {:?}", e))?;
         xfer.xfer_real(&mut group_offset_y)
@@ -333,34 +414,20 @@ impl FollowWaypointPathCore {
         xfer.xfer_real(&mut self.goal_position.z)
             .map_err(|e| format!("Failed to xfer goal_position.z: {:?}", e))?;
 
-        let mut current_id: WaypointId = self
-            .current_waypoint
-            .as_ref()
-            .map(|w| w.id)
-            .unwrap_or(INVALID_ID);
+        let (mut current_id, _) = self.waypoint_ids();
         xfer.xfer_unsigned_int(&mut current_id)
             .map_err(|e| format!("Failed to xfer current waypoint id: {:?}", e))?;
-        if xfer.is_loading() {
-            self.current_waypoint = if current_id == INVALID_ID {
-                None
-            } else {
-                resolve_waypoint_by_id(current_id)
-            };
-        }
 
-        let mut prior_id: WaypointId = self
-            .prior_waypoint
-            .as_ref()
-            .map(|w| w.id)
-            .unwrap_or(INVALID_ID);
+        let (_, mut prior_id) = self.waypoint_ids();
         xfer.xfer_unsigned_int(&mut prior_id)
             .map_err(|e| format!("Failed to xfer prior waypoint id: {:?}", e))?;
         if xfer.is_loading() {
-            self.prior_waypoint = if prior_id == INVALID_ID {
-                None
-            } else {
-                resolve_waypoint_by_id(prior_id)
-            };
+            self.current_waypoint = None;
+            self.prior_waypoint = None;
+            self.pending_waypoints = Some((
+                (current_id != INVALID_ID).then_some(current_id),
+                (prior_id != INVALID_ID).then_some(prior_id),
+            ));
         }
 
         Ok(())

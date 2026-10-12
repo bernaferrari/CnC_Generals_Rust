@@ -1874,7 +1874,7 @@ impl CnCGameEngine {
         }
 
         if let Some(id) = builder_id {
-            if let Some(builder) = gamelogic::helpers::TheGameLogic::find_object_by_id(id.0) {
+            if let Some(builder) = crate::game_logic::crate_object_bridge::crate_object(id.0) {
                 if let Ok(guard) = builder.read() {
                     if let Some(tmpl) =
                         gamelogic::helpers::TheThingFactory::find_template(&template)

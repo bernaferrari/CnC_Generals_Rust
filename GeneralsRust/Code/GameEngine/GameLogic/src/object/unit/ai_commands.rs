@@ -109,6 +109,35 @@ impl UnitAIUpdate {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.validate_world_owner(world)?;
         let idle = command.cmd == crate::ai::AiCommandType::Idle;
+        let waypoint = command.cmd == crate::ai::AiCommandType::FollowWaypointPath;
+        if waypoint {
+            let id = command
+                .waypoint
+                .ok_or("owned waypoint command is missing its initial waypoint")?;
+            let first = world
+                .waypoint_by_id(id)
+                .ok_or("owned waypoint command references no waypoint in this world")?;
+            if !first.position.x.is_finite()
+                || !first.position.y.is_finite()
+                || !first.position.z.is_finite()
+            {
+                return Err("owned waypoint command has non-finite coordinates".into());
+            }
+            world.waypoint_pathfind_extent()?;
+            world.waypoint_is_on_wall(&first.position)?;
+            world.waypoint_wall_height()?;
+            if (self.runtime.get_mood_matrix_action_adjustment_with_world(
+                true,
+                crate::ai::MoodMatrixAction::Move,
+                world,
+            ) & crate::ai::mood_matrix_adjustment::ACTION_TO_ATTACK_MOVE)
+                != 0
+            {
+                return Err(
+                    "owned waypoint command does not yet admit attack-move mood escalation".into(),
+                );
+            }
+        }
         let exits = matches!(
             command.cmd,
             crate::ai::AiCommandType::Exit | crate::ai::AiCommandType::ExitInstantly
@@ -122,7 +151,7 @@ impl UnitAIUpdate {
             return Err("supplied movement currently admits AI-origin removal motion only".into());
         }
         self.validate_owned_components(
-            command.cmd == crate::ai::AiCommandType::MoveToPosition || idle || exits,
+            command.cmd == crate::ai::AiCommandType::MoveToPosition || idle || exits || waypoint,
             idle,
         )?;
         // The supplied endpoint owns Enter and its immediate terminal entries.
@@ -140,7 +169,8 @@ impl UnitAIUpdate {
                     || id == AIStateType::Enter as u32
                     || id == AIStateType::Busy as u32
                     || (idle && id == AIStateType::MoveTo as u32)
-                    || id == AIStateType::Exit as u32 || id == AIStateType::ExitInstantly as u32))
+                    || id == AIStateType::Exit as u32 || id == AIStateType::ExitInstantly as u32
+                    || id == AIStateType::FollowWaypointPathAsIndividuals as u32))
         {
             return Err(
                 "supplied AIEnter does not admit this previous state or temporary state".into(),
@@ -153,6 +183,7 @@ impl UnitAIUpdate {
                 | crate::ai::AiCommandType::AttackObject
                 | crate::ai::AiCommandType::Busy
                 | crate::ai::AiCommandType::MoveToPosition
+                | crate::ai::AiCommandType::FollowWaypointPath
                 | crate::ai::AiCommandType::Exit
                 | crate::ai::AiCommandType::ExitInstantly
         ) {

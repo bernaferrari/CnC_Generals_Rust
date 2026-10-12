@@ -913,7 +913,7 @@ impl Object {
         &self,
         target_id: ObjectId,
     ) -> gamelogic::common::Coord3D {
-        if let Some(arc) = gamelogic::helpers::TheGameLogic::find_object_by_id(target_id.0) {
+        if let Some(arc) = crate::game_logic::crate_object_bridge::crate_object(target_id.0) {
             if let Ok(guard) = arc.read() {
                 return *guard.get_position();
             }

@@ -111,6 +111,7 @@ pub(super) struct AIStateMachineData {
     pub(super) goal_path: Vec<Coord3D>,
     /// C++ m_goalWaypoint counterpart.
     pub(super) goal_waypoint: Option<Arc<Waypoint>>,
+    pub(super) pending_goal_waypoint_name: Option<String>,
     /// C++ m_goalSquad counterpart.
     pub(super) goal_squad: Option<Arc<Squad>>,
     /// Rust extension; no direct C++ field counterpart.
@@ -186,6 +187,7 @@ impl AIStateMachine {
                 observations: Vec::new(),
                 goal_path: Vec::new(),
                 goal_waypoint: None,
+                pending_goal_waypoint_name: None,
                 goal_squad: None,
                 goal_polygon: None,
                 temporary_state_id: None,
@@ -785,6 +787,33 @@ impl AIStateMachine {
     }
 
     /// Set goal waypoint
+    /// Validate the loaded name without committing anything. The caller also
+    /// validates the current state's saved IDs before admitting both references.
+    pub(crate) fn stage_loaded_goal_waypoint(
+        &self,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<Option<Option<Arc<Waypoint>>>, String> {
+        self.data
+            .pending_goal_waypoint_name
+            .as_ref()
+            .map(|name| {
+                if name.is_empty() {
+                    Ok(None)
+                } else {
+                    world.waypoint_by_name(name).map(Some).ok_or_else(|| {
+                        format!("saved goal waypoint {name} is missing from the driving terrain")
+                    })
+                }
+            })
+            .transpose()
+    }
+
+    pub(crate) fn commit_loaded_goal_waypoint(&mut self, staged: Option<Option<Arc<Waypoint>>>) {
+        if let Some(waypoint) = staged {
+            self.set_goal_waypoint(waypoint);
+        }
+    }
+
     pub fn set_goal_waypoint(&mut self, waypoint: Option<Arc<Waypoint>>) {
         self.driver().set_goal_waypoint(waypoint)
     }
@@ -1066,30 +1095,27 @@ impl Snapshotable for AIStateMachine {
 
         let mut waypoint_name = self
             .data
-            .goal_waypoint
-            .as_ref()
-            .map(|waypoint| waypoint.name.clone())
-            .unwrap_or_default();
-
+            .pending_goal_waypoint_name
+            .clone()
+            .unwrap_or_else(|| {
+                self.data
+                    .goal_waypoint
+                    .as_ref()
+                    .map(|waypoint| waypoint.name.clone())
+                    .unwrap_or_default()
+            });
         xfer.xfer_ascii_string(&mut waypoint_name)
             .map_err(|e| format!("Failed to xfer AIStateMachine waypoint name: {:?}", e))?;
-
-        if xfer.is_loading() && !waypoint_name.is_empty() {
-            let mut loaded_waypoint = None;
-            let lookup = AsciiString::from(waypoint_name.as_str());
-            if let Ok(terrain) = get_terrain_logic().read() {
-                if let Some(waypoint) = terrain.get_waypoint_by_name(&lookup) {
-                    loaded_waypoint = Some(Arc::new(Waypoint::new(
-                        waypoint.get_id(),
-                        *waypoint.get_location(),
-                        waypoint.get_name().as_str().to_string(),
-                    )));
-                }
-            }
-            self.data.goal_waypoint = loaded_waypoint;
+        if xfer.is_loading() {
+            self.data.goal_waypoint = None;
+            self.data.pending_goal_waypoint_name = Some(waypoint_name);
+            // A loaded name has not been admitted against the driving terrain.
+            // Clear the old resolved ID until the explicit reference commit.
+            self.base.set_goal_waypoint(None);
+        } else if self.data.pending_goal_waypoint_name.is_none() {
+            self.base
+                .set_goal_waypoint(self.data.goal_waypoint.as_ref().map(|waypoint| waypoint.id));
         }
-        let waypoint_id = self.data.goal_waypoint.as_ref().map(|waypoint| waypoint.id);
-        self.base.set_goal_waypoint(waypoint_id);
 
         let mut has_squad = self.data.goal_squad.is_some();
         xfer.xfer_bool(&mut has_squad)

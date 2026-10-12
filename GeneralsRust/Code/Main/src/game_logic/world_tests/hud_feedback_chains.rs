@@ -19,7 +19,9 @@ const OCL_OBJECT_ID: u32 = 972_883;
 
 fn install_named_window(name: &str, width: i32, height: i32) {
     game_client::gui::with_window_manager(|manager| {
-        let win = manager.create_window(None, 0, 0, width, height).expect(name);
+        let win = manager
+            .create_window(None, 0, 0, width, height)
+            .expect(name);
         win.borrow_mut().set_name(name);
     });
 }
@@ -42,7 +44,9 @@ fn window_text(name: &str) -> Option<String> {
 
 fn window_hidden(name: &str) -> Option<bool> {
     game_client::gui::with_window_manager_ref(|manager| {
-        manager.find_window_by_name(name).map(|w| w.borrow().is_hidden())
+        manager
+            .find_window_by_name(name)
+            .map(|w| w.borrow().is_hidden())
     })
 }
 
@@ -65,10 +69,9 @@ fn superweapon_object_produces_counting_down_strip_entry_that_hits_ready() {
     gamelogic::object::registry::OBJECT_REGISTRY.register_object(SW_OBJECT_ID, &object);
 
     // Public-timer shared-n-sync template with a 5s (150-frame) recharge.
-    let base =
-        gamelogic::object::special_power_template::find_or_create_special_power_template(
-            &gamelogic::common::AsciiString::from(SW_POWER_NAME),
-        );
+    let base = gamelogic::object::special_power_template::find_or_create_special_power_template(
+        &gamelogic::common::AsciiString::from(SW_POWER_NAME),
+    );
     let template = gamelogic::object::special_power_template::SpecialPowerTemplate::new(
         SW_POWER_NAME.to_string(),
         base.get_id(),
@@ -250,7 +253,9 @@ fn under_construction_selection_writes_localized_percent_label() {
     set_window_hidden("ControlBar.wnd:UnderConstructionWindow", true);
     game_client::gui::with_window_manager(|manager| {
         if let Some(win) = manager.find_window_by_name("ControlBar.wnd:UnderConstructionDesc") {
-            let _ = win.borrow_mut().set_text("CONTROLBAR:UnderConstructionDesc");
+            let _ = win
+                .borrow_mut()
+                .set_text("CONTROLBAR:UnderConstructionDesc");
         }
     });
 

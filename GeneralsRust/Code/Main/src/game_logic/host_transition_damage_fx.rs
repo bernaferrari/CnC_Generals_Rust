@@ -611,7 +611,7 @@ pub fn leftover_named_slot_world_transform(
 ) -> (glam::Vec3, Option<glam::Mat4>) {
     let loc = loc.cloned().unwrap_or_default();
     let particle = loc.as_particle();
-    let leftover_owner = gamelogic::helpers::TheGameLogic::find_object_by_id(owner);
+    let leftover_owner = crate::game_logic::crate_object_bridge::crate_object(owner);
     let leftover_guard = leftover_owner.as_ref().and_then(|h| h.read().ok());
     let leftover_yaw = leftover_guard
         .as_ref()
@@ -752,7 +752,7 @@ fn play_authored_transition_ocl_with_source(
         return;
     };
     let ctx = gamelogic::object_creation_list::live_creation_context();
-    let leftover_owner = gamelogic::helpers::TheGameLogic::find_object_by_id(owner);
+    let leftover_owner = crate::game_logic::crate_object_bridge::crate_object(owner);
     let owner_guard = leftover_owner.as_ref().and_then(|h| h.read().ok());
     let _ = ocl.create_with_owner_flag(
         &ctx,
@@ -930,7 +930,7 @@ pub fn spawn_transition_particles_at_pose(
     frame: u32,
     owner: crate::game_logic::ObjectId,
 ) -> Vec<u32> {
-    let leftover_owner = gamelogic::helpers::TheGameLogic::find_object_by_id(owner.0);
+    let leftover_owner = crate::game_logic::crate_object_bridge::crate_object(owner.0);
     let leftover_guard = leftover_owner.as_ref().and_then(|h| h.read().ok());
     let leftover_yaw = leftover_guard
         .as_ref()

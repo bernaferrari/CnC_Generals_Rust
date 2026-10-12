@@ -35,6 +35,12 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Err("AI implementation does not support supplied world operations".into())
     }
+    fn update_waypoint_phase_with_world(
+        &mut self,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Err("AI implementation does not support supplied waypoint updates".into())
+    }
     /// Execute one installed UnitAI POSITION_ON_PATH phase against its supplied world.
     fn update_locomotor_path_phase_with_world(
         &mut self,
@@ -155,6 +161,12 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Get remaining distance to goal along locomotor path (matches C++ getLocomotorDistanceToGoal).
+    fn get_locomotor_distance_to_goal_with_world(
+        &mut self,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<Real, String> {
+        Err("AI implementation does not support supplied path distance".into())
+    }
     fn get_locomotor_distance_to_goal(&mut self) -> Real {
         0.0
     }

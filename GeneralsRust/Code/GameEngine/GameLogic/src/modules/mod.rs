@@ -45,3 +45,7 @@ pub const MODULES_SRC: &str = concat!(
 
 #[cfg(test)]
 mod ai_native_world_tests;
+#[cfg(test)]
+pub(crate) use ai_native_world_tests::{
+    owned_native_path_save_control, owned_native_turn_control, owned_native_waypoint_control,
+};

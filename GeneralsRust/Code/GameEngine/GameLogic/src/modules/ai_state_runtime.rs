@@ -44,6 +44,16 @@ pub(crate) trait AiStateRuntime {
         None
     }
 
+    fn waypoint_by_id(
+        &self,
+        id: crate::waypoint::WaypointId,
+    ) -> Option<Arc<crate::waypoint::Waypoint>> {
+        match self.world() {
+            Some(world) => world.waypoint_by_id(id),
+            None => crate::ai::states::helpers::resolve_waypoint_by_id(id),
+        }
+    }
+
     fn enter_owned(&mut self, _passenger: ObjectID, _target: ObjectID) -> Result<(), String> {
         Err("AI operation has no supplied containment owner".into())
     }

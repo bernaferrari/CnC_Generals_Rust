@@ -458,22 +458,77 @@ impl UnitAIUpdate {
         if !Arc::ptr_eq(&owner, &supplied) {
             return Err("queued Enter belongs to another factory".into());
         }
-        self.validate_owned_enter_components()
-            .map_err(|error| error.to_string())?;
-        if self.get_current_state_id() != Some(AIStateType::Enter as u32)
+        let state = self.get_current_state_id();
+        let movement = matches!(state, Some(id) if id == AIStateType::FollowWaypointPathAsIndividuals as u32 || id == AIStateType::MoveTo as u32);
+        if movement {
+            self.validate_owned_components(true, false)
+                .map_err(|error| error.to_string())?;
+            let object = owner.read().map_err(|_| "queued movement owner poisoned")?;
+            if object.get_layer() != crate::common::PathfindLayerEnum::Ground
+                || object.is_disabled_by_type(DisabledType::Held)
+                || self.runtime.data.locomotor_set.get_valid_surfaces()
+                    & crate::ai::pathfind_complete::SURFACE_AIR
+                    != 0
+            {
+                return Err(
+                    "supplied queued movement currently requires ordinary ground motion".into(),
+                );
+            }
+            let position = object.get_position();
+            let height = terrain.get_ground_height(position.x, position.y, None);
+            let allows_fall = match object.get_physics() {
+                Some(physics) => physics
+                    .access()
+                    .map_err(|_| "queued movement Physics unavailable")?
+                    .get_allow_to_fall(),
+                None => false,
+            };
+            if Object::is_above_terrain_height(position.z, height) && allows_fall {
+                return Err("supplied queued movement does not admit falling owners".into());
+            }
+        } else {
+            self.validate_owned_enter_components()
+                .map_err(|error| error.to_string())?;
+        }
+        if (!movement && state != Some(AIStateType::Enter as u32))
             || self.runtime.data.is_safe_path
             || self.runtime.data.is_attack_path
             || self.runtime.data.is_approach_path
-            || self.runtime.data.is_final_goal
+            || (!movement && self.runtime.data.is_final_goal)
         {
-            return Err("supplied Enter queue does not admit this path family".into());
+            return Err("supplied queue does not admit this path family".into());
         }
         let observations =
             crate::ai::pathfind_complete::PathfindObservations::admit(factory, players, terrain)?;
-        self.do_queued_pathfind_with_observations(
+        let found = self.do_queued_pathfind_with_observations(
             pathfinder,
             Some((frame, terrain.get_maximum_pathfind_extent(), &observations)),
-        )
+        )?;
+        if movement && self.runtime.data.is_final_goal {
+            if let Some(last) = self
+                .runtime
+                .data
+                .current_path_snapshot
+                .as_ref()
+                .and_then(|path| path.get_last_node_position())
+                .copied()
+            {
+                if self
+                    .runtime
+                    .data
+                    .installed_path_layers
+                    .last()
+                    .copied()
+                    .is_some_and(|layer| layer != PathfindLayerEnum::Ground as u8)
+                {
+                    return Err("supplied final waypoint result is not a ground path".into());
+                }
+                let height = terrain.get_ground_height(last.x, last.y, None);
+                self.runtime
+                    .update_ground_goal_position_with_observed_height(&last, height, pathfinder)?;
+            }
+        }
+        Ok(found)
     }
 
     fn do_queued_pathfind_with_observations(
@@ -607,6 +662,9 @@ impl UnitAIUpdate {
                 .map(|layer| *layer as u8)
                 .collect::<Vec<_>>(),
         );
+        if frame.is_some() {
+            return Ok(());
+        }
         self.apply_final_ground_path_layer_with_pathfinder(&result.waypoints, pathfinder)
     }
 

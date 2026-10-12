@@ -218,6 +218,38 @@ impl PhysicsInterfaceHandle {
         result
     }
 
+    pub(crate) fn integrate_ground_at(
+        &self,
+        owner: &mut super::Object,
+        frame: u32,
+        gravity: f32,
+        start_ground: f32,
+        ground_height: impl FnMut(f32, f32) -> f32,
+    ) -> Result<super::behavior::physics_update::OwnedPhysicsStep, String> {
+        self.installed_update_proxy(owner)?;
+        let PhysicsInterfaceKind::Module(handle) = &self.kind else {
+            unreachable!()
+        };
+        handle.with_module(|module| module.as_any_mut()
+            .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<PhysicsBehaviorUpdate>>()
+            .ok_or("installed Physics module absent")?.behavior_mut()
+            .integrate_ground_at(owner, frame, gravity, start_ground, ground_height))
+    }
+
+    pub(crate) fn finish_ground_at(
+        &self,
+        owner: &mut super::Object,
+        frame: u32,
+    ) -> Result<crate::modules::UpdateSleepTime, String> {
+        self.installed_update_proxy(owner)?;
+        let PhysicsInterfaceKind::Module(handle) = &self.kind else {
+            unreachable!()
+        };
+        handle.with_module(|module| Ok(module.as_any_mut()
+            .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<PhysicsBehaviorUpdate>>()
+            .ok_or("installed Physics module absent")?.behavior_mut().finish_ground_at(owner, frame)))
+    }
+
     pub(crate) fn installed_is_stunned(&self) -> Result<bool, String> {
         let PhysicsInterfaceKind::Module(handle) = &self.kind else {
             return Err("stun observation requires installed Physics storage".into());

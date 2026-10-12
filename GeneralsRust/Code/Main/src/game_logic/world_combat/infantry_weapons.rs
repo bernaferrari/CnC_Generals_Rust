@@ -716,7 +716,7 @@ impl GameLogic {
     /// residual: reload, queue maxShots attack-position, aim turrets.
     pub fn activate_fire_weapon_power(&mut self, source_id: ObjectId, location: Vec3) -> bool {
         // Leftover FireWeaponPower when dual-world object is registered.
-        if let Some(obj) = gamelogic::helpers::TheGameLogic::find_object_by_id(source_id.0) {
+        if let Some(obj) = crate::game_logic::crate_object_bridge::crate_object(source_id.0) {
             if let Ok(guard) = obj.read() {
                 let loc = gamelogic::common::Coord3D::new(location.x, location.z, location.y);
                 guard.do_special_power_at_location(
@@ -762,7 +762,7 @@ impl GameLogic {
         if self.objects.get(&target_id).is_none() {
             return false;
         }
-        if let Some(obj) = gamelogic::helpers::TheGameLogic::find_object_by_id(source_id.0) {
+        if let Some(obj) = crate::game_logic::crate_object_bridge::crate_object(source_id.0) {
             if let Ok(guard) = obj.read() {
                 guard.do_special_power_at_object(
                     "SpecialPowerBattleshipBombardment",
@@ -941,7 +941,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get(&ObjectId(source_id)) {
             return obj.is_alive();
         }
-        if let Some(obj) = gamelogic::helpers::TheGameLogic::find_object_by_id(source_id) {
+        if let Some(obj) = crate::game_logic::crate_object_bridge::crate_object(source_id) {
             if let Ok(guard) = obj.read() {
                 if guard.is_effectively_dead() || guard.is_destroyed() {
                     return false;

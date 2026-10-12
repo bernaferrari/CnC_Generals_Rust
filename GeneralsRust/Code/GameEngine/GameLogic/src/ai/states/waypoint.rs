@@ -101,10 +101,11 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
     ) -> StateReturnType {
         self.core.append_goal_position = false;
         self.core.prior_waypoint = None;
+        self.core.pending_waypoints = None;
         self.core.frames_sleeping = 0;
         self.core.group_offset = Coord2D::new(0.0, 0.0);
         self.core.angle = 0.0;
-        self.core.current_waypoint = waypoint.and_then(resolve_waypoint_by_id);
+        self.core.current_waypoint = waypoint.and_then(|id| ai.waypoint_by_id(id));
         if self.core.current_waypoint.is_none() && !self.core.move_as_group {
             return StateReturnType::Failure;
         }
@@ -164,10 +165,8 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
             return StateReturnType::Failure;
         }
         ai.set_desired_speed(speed);
-        if ai
-            .set_path_extra_distance(self.core.calc_extra_path_distance())
-            .is_err()
-        {
+        let extra = self.core.calc_extra_path_distance_with_runtime(Some(&*ai));
+        if ai.set_path_extra_distance(extra).is_err() {
             return StateReturnType::Failure;
         }
         if ai.is_doing_ground_movement() {
@@ -184,6 +183,9 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
         &mut self,
         ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
+        if self.core.resolve_loaded_waypoints(Some(&*ai)).is_err() {
+            return StateReturnType::Failure;
+        }
         if self.core.frames_sleeping > 0 {
             self.core.frames_sleeping = self.core.frames_sleeping.saturating_sub(1);
             return StateReturnType::Continue;
@@ -397,6 +399,7 @@ impl AIFollowWaypointPathAsTeamState {
     ) -> Result<StateReturnType, String> {
         self.core.append_goal_position = false;
         self.core.prior_waypoint = None;
+        self.core.pending_waypoints = None;
         self.core.frames_sleeping = 0;
         self.core.group_offset = Coord2D::new(0.0, 0.0);
         self.core.angle = 0.0;
@@ -417,7 +420,8 @@ impl AIFollowWaypointPathAsTeamState {
                     })
             })
             .or(self.base.goal_waypoint_copied);
-        self.core.current_waypoint = waypoint_id.and_then(resolve_waypoint_by_id);
+        self.core.current_waypoint =
+            waypoint_id.and_then(|id| resolve_waypoint_for_runtime(id, borrowed.as_deref()));
         if self.core.current_waypoint.is_none() && !self.core.move_as_group {
             return Ok(StateReturnType::Failure);
         }
@@ -502,8 +506,11 @@ impl AIFollowWaypointPathAsTeamState {
         }
         self.core.compute_path(&mut *ai_guard)?;
         ai_guard.set_desired_speed(speed);
+        let extra = self
+            .core
+            .calc_extra_path_distance_with_runtime(Some(&*ai_guard));
         ai_guard
-            .set_path_extra_distance(self.core.calc_extra_path_distance())
+            .set_path_extra_distance(extra)
             .map_err(|e| e.to_string())?;
         if ai_guard.is_doing_ground_movement() {
             let _ = ai_guard.update_goal_position(&self.core.goal_position, self.core.goal_layer);
@@ -518,6 +525,7 @@ impl AIFollowWaypointPathAsTeamState {
         mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         mut control: Option<&mut crate::state_machine::StateMachineControl>,
     ) -> Result<StateReturnType, String> {
+        self.core.resolve_loaded_waypoints(borrowed.as_deref())?;
         if self.core.frames_sleeping > 0 {
             self.core.frames_sleeping = self.core.frames_sleeping.saturating_sub(1);
             return Ok(StateReturnType::Continue);
@@ -604,7 +612,8 @@ impl AIFollowWaypointPathAsTeamState {
                         .map(|waypoint| waypoint.id)
                 {
                     self.core.prior_waypoint = self.core.current_waypoint.clone();
-                    self.core.current_waypoint = waypoint_id.and_then(resolve_waypoint_by_id);
+                    self.core.current_waypoint =
+                        waypoint_id.and_then(|id| ai_guard.waypoint_by_id(id));
                     if self.core.current_waypoint.is_none() {
                         return Ok(StateReturnType::Success);
                     }
@@ -672,9 +681,11 @@ impl AIFollowWaypointPathAsTeamState {
             }
         }
         if status != StateReturnType::Continue {
-            let next = self
-                .core
-                .get_next_waypoint_with_control(&self.base, control.as_deref_mut());
+            let next = self.core.get_next_waypoint_with_control(
+                &self.base,
+                control.as_deref_mut(),
+                Some(&mut *ai_guard),
+            )?;
             self.core.current_waypoint = next.clone();
             let prior_id = self
                 .core
@@ -758,7 +769,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamExactState {
         _goal_pos: Coord3D,
         waypoint: Option<crate::waypoint::WaypointId>,
     ) -> StateReturnType {
-        let Some(current) = waypoint.and_then(resolve_waypoint_by_id) else {
+        let Some(current) = waypoint.and_then(|id| ai.waypoint_by_id(id)) else {
             return StateReturnType::Failure;
         };
         let Some(owner) = self.base.get_machine_owner() else {
@@ -918,7 +929,7 @@ impl AIFollowWaypointPathAsTeamExactState {
             })
             .or(self.base.goal_waypoint_copied);
         let current = waypoint_id
-            .and_then(resolve_waypoint_by_id)
+            .and_then(|id| resolve_waypoint_for_runtime(id, borrowed.as_deref()))
             .ok_or_else(|| "follow waypoint exact missing waypoint".to_string())?;
         if let Some(control) = control.as_deref_mut() {
             control.set_goal_position(current.position);
@@ -1007,10 +1018,11 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
     ) -> StateReturnType {
         self.core.append_goal_position = false;
         self.core.prior_waypoint = None;
+        self.core.pending_waypoints = None;
         self.core.frames_sleeping = 0;
         self.core.group_offset = Coord2D::new(0.0, 0.0);
         self.core.angle = 0.0;
-        self.core.current_waypoint = waypoint.and_then(resolve_waypoint_by_id);
+        self.core.current_waypoint = waypoint.and_then(|id| ai.waypoint_by_id(id));
         if self.core.current_waypoint.is_none() && !self.core.move_as_group {
             return StateReturnType::Failure;
         }
@@ -1037,10 +1049,8 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
             return StateReturnType::Failure;
         }
         ai.set_desired_speed(FAST_AS_POSSIBLE);
-        if ai
-            .set_path_extra_distance(self.core.calc_extra_path_distance())
-            .is_err()
-        {
+        let extra = self.core.calc_extra_path_distance_with_runtime(Some(&*ai));
+        if ai.set_path_extra_distance(extra).is_err() {
             return StateReturnType::Failure;
         }
         if ai.is_doing_ground_movement() {
@@ -1057,6 +1067,9 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
         &mut self,
         ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
+        if self.core.resolve_loaded_waypoints(Some(&*ai)).is_err() {
+            return StateReturnType::Failure;
+        }
         if self.core.frames_sleeping > 0 {
             self.core.frames_sleeping = self.core.frames_sleeping.saturating_sub(1);
             return StateReturnType::Continue;
@@ -1227,6 +1240,7 @@ impl AIFollowWaypointPathAsIndividualsState {
     ) -> Result<StateReturnType, String> {
         self.core.append_goal_position = false;
         self.core.prior_waypoint = None;
+        self.core.pending_waypoints = None;
         self.core.frames_sleeping = 0;
         self.core.group_offset = Coord2D::new(0.0, 0.0);
         self.core.angle = 0.0;
@@ -1246,7 +1260,8 @@ impl AIFollowWaypointPathAsIndividualsState {
                     })
             })
             .or(self.base.goal_waypoint_copied);
-        self.core.current_waypoint = waypoint_id.and_then(resolve_waypoint_by_id);
+        self.core.current_waypoint =
+            waypoint_id.and_then(|id| resolve_waypoint_for_runtime(id, borrowed.as_deref()));
         if self.core.current_waypoint.is_none() && !self.core.move_as_group {
             return Ok(StateReturnType::Failure);
         }
@@ -1297,8 +1312,11 @@ impl AIFollowWaypointPathAsIndividualsState {
         }
         self.core.compute_path(&mut *ai_guard)?;
         ai_guard.set_desired_speed(FAST_AS_POSSIBLE);
+        let extra = self
+            .core
+            .calc_extra_path_distance_with_runtime(Some(&*ai_guard));
         ai_guard
-            .set_path_extra_distance(self.core.calc_extra_path_distance())
+            .set_path_extra_distance(extra)
             .map_err(|e| e.to_string())?;
         if ai_guard.is_doing_ground_movement() {
             let _ = ai_guard.update_goal_position(&self.core.goal_position, self.core.goal_layer);
@@ -1311,6 +1329,7 @@ impl AIFollowWaypointPathAsIndividualsState {
         mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         mut control: Option<&mut crate::state_machine::StateMachineControl>,
     ) -> Result<StateReturnType, String> {
+        self.core.resolve_loaded_waypoints(borrowed.as_deref())?;
         if self.core.frames_sleeping > 0 {
             self.core.frames_sleeping = self.core.frames_sleeping.saturating_sub(1);
             return Ok(StateReturnType::Continue);
@@ -1389,9 +1408,11 @@ impl AIFollowWaypointPathAsIndividualsState {
             StateReturnType::Continue
         };
         if status != StateReturnType::Continue {
-            let next = self
-                .core
-                .get_next_waypoint_with_control(&self.base, control.as_deref_mut());
+            let next = self.core.get_next_waypoint_with_control(
+                &self.base,
+                control.as_deref_mut(),
+                Some(&mut *ai_guard),
+            )?;
             self.core.current_waypoint = next.clone();
             let prior_id = self
                 .core
@@ -1466,7 +1487,7 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsExactState {
         _goal_pos: Coord3D,
         waypoint: Option<crate::waypoint::WaypointId>,
     ) -> StateReturnType {
-        let Some(current) = waypoint.and_then(resolve_waypoint_by_id) else {
+        let Some(current) = waypoint.and_then(|id| ai.waypoint_by_id(id)) else {
             return StateReturnType::Failure;
         };
         let _ = ai.set_can_path_through_units(true);
@@ -1604,7 +1625,7 @@ impl AIFollowWaypointPathAsIndividualsExactState {
             })
             .or(self.base.goal_waypoint_copied);
         let current = waypoint_id
-            .and_then(resolve_waypoint_by_id)
+            .and_then(|id| resolve_waypoint_for_runtime(id, borrowed.as_deref()))
             .ok_or_else(|| "follow waypoint exact missing waypoint".to_string())?;
         if let Some(control) = control.as_deref_mut() {
             control.set_goal_position(current.position);

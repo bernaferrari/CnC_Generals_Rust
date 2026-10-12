@@ -74,6 +74,12 @@ impl AIUpdateInterface for UnitAIUpdate {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         UnitAIUpdate::update_enter_phase_with_world(self, world)
     }
+    fn update_waypoint_phase_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        UnitAIUpdate::update_waypoint_phase_with_world(self, world)
+    }
     fn update_locomotor_path_phase_with_world(
         &mut self,
         world: &mut dyn crate::modules::ai_world::AiWorld,
@@ -554,6 +560,12 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::peek_cached_point_on_path(self)
     }
 
+    fn get_locomotor_distance_to_goal_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<Real, String> {
+        UnitAIUpdate::get_locomotor_distance_to_goal_with_world(self, world)
+    }
     fn get_locomotor_distance_to_goal(&mut self) -> Real {
         UnitAIUpdate::get_locomotor_distance_to_goal(self)
     }

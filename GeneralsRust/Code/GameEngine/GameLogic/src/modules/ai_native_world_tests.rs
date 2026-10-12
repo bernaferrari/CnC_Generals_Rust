@@ -962,3 +962,12 @@ mod disposal;
 
 #[path = "ai_native_world_tests/locomotion.rs"]
 mod locomotion;
+
+#[path = "ai_native_world_tests/waypoint_motion.rs"]
+mod waypoint_motion;
+
+pub(crate) use waypoint_motion::{
+    individual_waypoints_use_real_queue_physics_and_inline_second_goal as owned_native_waypoint_control,
+    other_path_moves_its_real_owner_and_continues_after_canonical_ai_xfer as owned_native_path_save_control,
+    other_turn_is_not_repeated_by_actual_physics_integration as owned_native_turn_control,
+};

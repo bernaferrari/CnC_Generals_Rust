@@ -623,12 +623,29 @@ pub struct PartitionFilterStealthedAndUndetected {
     allow: bool,
 }
 
+/// Borrowed observation dependencies from one actual simulation owner.
+pub(crate) struct StealthFilterContext<'a> {
+    pub(crate) source: &'a crate::object::Object,
+    pub(crate) source_player: &'a crate::player::Player,
+    pub(crate) players: &'a crate::player::PlayerList,
+    pub(crate) object_by_id:
+        &'a dyn Fn(ObjectId) -> Option<Arc<std::sync::RwLock<crate::object::Object>>>,
+}
+
 impl PartitionFilterStealthedAndUndetected {
     pub fn new(obj_id: ObjectId, allow: bool) -> Self {
         Self { obj_id, allow }
     }
 
-    fn with_source_player<R>(&self, f: impl FnOnce(&crate::player::Player) -> R) -> Option<R> {
+    fn with_source<R>(
+        &self,
+        context: Option<&StealthFilterContext<'_>>,
+        f: impl FnOnce(&crate::object::Object, &crate::player::Player) -> R,
+    ) -> Option<R> {
+        if let Some(context) = context {
+            return (context.source.get_id() == self.obj_id)
+                .then(|| f(context.source, context.source_player));
+        }
         // Wave 266: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -636,10 +653,17 @@ impl PartitionFilterStealthedAndUndetected {
 
         crate::object::registry::OBJECT_REGISTRY
             .get_object(self.obj_id)
-            .and_then(|source| source.read().ok()?.with_controlling_player(f))
+            .and_then(|source| {
+                let source = source.read().ok()?;
+                source.with_controlling_player(|player| f(&source, player))
+            })
     }
 
-    fn disguised_as_enemy_for_source(&self, target: &crate::object::Object) -> Option<bool> {
+    fn disguised_as_enemy_for_source(
+        &self,
+        target: &crate::object::Object,
+        context: Option<&StealthFilterContext<'_>>,
+    ) -> Option<bool> {
         if !target.test_status(ObjectStatusTypes::Disguised) {
             return None;
         }
@@ -653,11 +677,15 @@ impl PartitionFilterStealthedAndUndetected {
             return None;
         };
 
-        self.with_source_player(|source_player| {
-            let other_player = ThePlayerList()
-                .read()
-                .ok()
-                .and_then(|list| list.get_player(disguised_player_index).cloned());
+        self.with_source(context, |_, source_player| {
+            let other_player = if let Some(context) = context {
+                context.players.get_player(disguised_player_index).cloned()
+            } else {
+                ThePlayerList()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_player(disguised_player_index).cloned())
+            };
             let Some(other_team) =
                 other_player.and_then(|player| player.read().ok()?.get_default_team())
             else {
@@ -672,7 +700,11 @@ impl PartitionFilterStealthedAndUndetected {
         .flatten()
     }
 
-    fn neutral_container_hides_enemy_stealth_units(&self, target: &crate::object::Object) -> bool {
+    fn neutral_container_hides_enemy_stealth_units(
+        &self,
+        target: &crate::object::Object,
+        context: Option<&StealthFilterContext<'_>>,
+    ) -> bool {
         let Some(contain) = target.get_contain() else {
             return false;
         };
@@ -684,10 +716,14 @@ impl PartitionFilterStealthedAndUndetected {
             return false;
         }
 
-        let Some(first_member) = contain
-            .get_contained_objects()
-            .first()
-            .and_then(|id| crate::helpers::TheGameLogic::find_object_by_id(*id))
+        let Some(first_member) =
+            contain
+                .get_contained_objects()
+                .first()
+                .and_then(|id| match context {
+                    Some(context) => (context.object_by_id)(*id),
+                    None => crate::helpers::TheGameLogic::find_object_by_id(*id),
+                })
         else {
             return false;
         };
@@ -700,7 +736,7 @@ impl PartitionFilterStealthedAndUndetected {
             return false;
         }
 
-        self.with_source_player(|source_player_guard| {
+        self.with_source(context, |source_object, source_player_guard| {
             let Some(victim_player) =
                 contain.get_apparent_controlling_player(Some(source_player_guard))
             else {
@@ -717,14 +753,42 @@ impl PartitionFilterStealthedAndUndetected {
                 return false;
             };
 
-            source_player_guard.get_relationship_with_team(&victim_team) == Relationship::Enemies
+            let Some(source_team) = source_object.get_team() else {
+                return false;
+            };
+            let Ok(source_team) = source_team.read() else {
+                return false;
+            };
+            let relationship = if source_team.get_id() == victim_team.get_id() {
+                Relationship::Allies
+            } else {
+                source_team
+                    .override_relationship_with_team(&victim_team)
+                    .unwrap_or_else(|| source_player_guard.get_relationship_with_team(&victim_team))
+            };
+            relationship == Relationship::Enemies
         })
         .unwrap_or(false)
     }
 }
 
-impl super::partition_manager::PartitionFilter for PartitionFilterStealthedAndUndetected {
-    fn allow(&self, obj: &dyn GameObject) -> bool {
+impl PartitionFilterStealthedAndUndetected {
+    pub(crate) fn allow_with_context(
+        &self,
+        obj: &dyn GameObject,
+        context: &StealthFilterContext<'_>,
+    ) -> bool {
+        if context.source.get_id() != self.obj_id {
+            return false;
+        }
+        self.allow_using(obj, Some(context))
+    }
+
+    fn allow_using(
+        &self,
+        obj: &dyn GameObject,
+        context: Option<&StealthFilterContext<'_>>,
+    ) -> bool {
         if let Some(handle) = obj.as_object_handle() {
             if let Ok(guard) = handle.read() {
                 let stealthed = guard.test_status(ObjectStatusTypes::Stealthed);
@@ -734,7 +798,9 @@ impl super::partition_manager::PartitionFilter for PartitionFilterStealthedAndUn
                     if !guard.is_kind_of(KindOf::Disguiser) {
                         return self.allow;
                     }
-                    if let Some(disguised_as_enemy) = self.disguised_as_enemy_for_source(&guard) {
+                    if let Some(disguised_as_enemy) =
+                        self.disguised_as_enemy_for_source(&guard, context)
+                    {
                         return if disguised_as_enemy {
                             !self.allow
                         } else {
@@ -744,12 +810,18 @@ impl super::partition_manager::PartitionFilter for PartitionFilterStealthedAndUn
                     return !self.allow;
                 }
 
-                if self.neutral_container_hides_enemy_stealth_units(&guard) {
+                if self.neutral_container_hides_enemy_stealth_units(&guard, context) {
                     return self.allow;
                 }
             }
         }
         !self.allow
+    }
+}
+
+impl super::partition_manager::PartitionFilter for PartitionFilterStealthedAndUndetected {
+    fn allow(&self, obj: &dyn GameObject) -> bool {
+        self.allow_using(obj, None)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -2052,78 +2124,141 @@ mod tests {
         OBJECT_REGISTRY.unregister_object(91_003);
     }
 
+    fn owned_filter_object(
+        id: crate::common::ObjectID,
+        kind_of: &str,
+        team: Arc<RwLock<Team>>,
+    ) -> Arc<RwLock<Object>> {
+        let mut template = DefaultThingTemplate::new(format!("OwnedFilter{id}"));
+        template.parse_object_fields_from_ini(&HashMap::from([(
+            "KindOf".to_string(),
+            kind_of.to_string(),
+        )]));
+        Object::new_unpublished_preparing_ai(
+            Arc::new(template),
+            id,
+            ObjectStatusMaskType::none(),
+            Some(team),
+            false,
+        )
+        .unwrap()
+    }
+
     #[test]
     fn stealthed_disguiser_without_disguise_module_is_not_hidden() {
-        OBJECT_REGISTRY.clear();
-
         let team = team_for_player("SourceTeam", 30, 0);
-        let source = registered_object_with_kind_of(93_101, "STRUCTURE", team);
-        let target = object_with_kind_of("DISGUISER");
-        target.write().expect("target write lock").set_status(
+        let source = owned_filter_object(93_101, "STRUCTURE", Arc::clone(&team));
+        let target = owned_filter_object(93_102, "DISGUISER", team);
+        target.write().unwrap().set_status(
             ObjectStatusMaskType::STEALTHED | ObjectStatusMaskType::DISGUISED,
             true,
         );
-
-        let filter =
-            PartitionFilterStealthedAndUndetected::new(source.read().unwrap().get_id(), true);
-
-        assert!(!filter.allow(&target));
-
-        OBJECT_REGISTRY.unregister_object(93_101);
+        let source_player = Player::new(0);
+        let players = crate::player::PlayerList::new();
+        let source_guard = source.read().unwrap();
+        let lookup = |_id| None;
+        let context = StealthFilterContext {
+            source: &source_guard,
+            source_player: &source_player,
+            players: &players,
+            object_by_id: &lookup,
+        };
+        let filter = PartitionFilterStealthedAndUndetected::new(source_guard.get_id(), true);
+        assert!(!filter.allow_with_context(&target, &context));
     }
 
     #[test]
     fn stealthed_container_hides_enemy_undetected_passengers() {
-        OBJECT_REGISTRY.clear();
-
         let player0 = Arc::new(RwLock::new(Player::new(0)));
         let player1 = Arc::new(RwLock::new(Player::new(1)));
         let source_team = team_for_player("SourceTeam", 31, 0);
         let enemy_team = team_for_player("EnemyTeam", 32, 1);
         player0
             .write()
-            .expect("player0 write lock")
+            .unwrap()
             .set_default_team(Some(Arc::clone(&source_team)));
         player1
             .write()
-            .expect("player1 write lock")
+            .unwrap()
             .set_default_team(Some(Arc::clone(&enemy_team)));
         player0
             .write()
-            .expect("player0 write lock")
+            .unwrap()
             .set_player_relationship_by_index(1, Relationship::Enemies);
-        reset_player_list_with_players(&[Arc::clone(&player0), Arc::clone(&player1)]);
-
-        let source = registered_object_with_kind_of(93_201, "STRUCTURE", Arc::clone(&source_team));
-        let container =
-            registered_object_with_kind_of(93_202, "STRUCTURE", Arc::clone(&enemy_team));
-        let passenger = registered_object_with_kind_of(93_203, "INFANTRY", Arc::clone(&enemy_team));
+        let mut players = crate::player::PlayerList::new();
+        players.add_player(Arc::clone(&player0));
+        players.add_player(Arc::clone(&player1));
+        let source = owned_filter_object(93_201, "STRUCTURE", Arc::clone(&source_team));
+        let container = owned_filter_object(93_202, "STRUCTURE", Arc::clone(&enemy_team));
+        let passenger = owned_filter_object(93_203, "INFANTRY", Arc::clone(&enemy_team));
         passenger
             .write()
-            .expect("passenger write lock")
+            .unwrap()
             .set_status(ObjectStatusMaskType::STEALTHED, true);
-
+        let second_passenger = owned_filter_object(93_204, "INFANTRY", Arc::clone(&enemy_team));
+        second_passenger.write().unwrap().set_status(
+            ObjectStatusMaskType::STEALTHED | ObjectStatusMaskType::DETECTED,
+            true,
+        );
         let contain: Arc<Mutex<dyn ContainModuleInterface>> =
             Arc::new(Mutex::new(TestStealthContain {
                 contained: vec![93_203],
                 apparent_player: Arc::clone(&player1),
                 stealth_units: 1,
             }));
+        container.write().unwrap().set_contain(Some(contain));
+        let objects = HashMap::from([
+            (93_201, Arc::clone(&source)),
+            (93_202, Arc::clone(&container)),
+            (93_203, Arc::clone(&passenger)),
+            (93_204, Arc::clone(&second_passenger)),
+        ]);
+        let lookup = |id| objects.get(&id).cloned();
+        let source_guard = source.read().unwrap();
+        let player_guard = player0.read().unwrap();
+        let context = StealthFilterContext {
+            source: &source_guard,
+            source_player: &player_guard,
+            players: &players,
+            object_by_id: &lookup,
+        };
+        let allow_filter = PartitionFilterStealthedAndUndetected::new(source_guard.get_id(), true);
+        let reject_filter =
+            PartitionFilterStealthedAndUndetected::new(source_guard.get_id(), false);
+        assert!(allow_filter.allow_with_context(&container, &context));
+        assert!(!reject_filter.allow_with_context(&container, &context));
+        let ordered_contain: Arc<Mutex<dyn ContainModuleInterface>> =
+            Arc::new(Mutex::new(TestStealthContain {
+                contained: vec![93_203, 93_204],
+                apparent_player: Arc::clone(&player1),
+                stealth_units: 2,
+            }));
         container
             .write()
-            .expect("container write lock")
-            .set_contain(Some(contain));
-
-        let allow_filter =
-            PartitionFilterStealthedAndUndetected::new(source.read().unwrap().get_id(), true);
-        let reject_filter =
-            PartitionFilterStealthedAndUndetected::new(source.read().unwrap().get_id(), false);
-
-        assert!(allow_filter.allow(&container));
-        assert!(!reject_filter.allow(&container));
-
-        OBJECT_REGISTRY.unregister_object(93_201);
-        OBJECT_REGISTRY.unregister_object(93_202);
-        OBJECT_REGISTRY.unregister_object(93_203);
+            .unwrap()
+            .set_contain(Some(ordered_contain));
+        assert!(
+            allow_filter.allow_with_context(&container, &context),
+            "CPP inspects first passenger, not the detected second passenger"
+        );
+        assert!(!reject_filter.allow_with_context(&container, &context));
+        // CPP PartitionManager.cpp5520 reads the first actual passenger's detection.
+        passenger
+            .write()
+            .unwrap()
+            .set_status(ObjectStatusMaskType::DETECTED, true);
+        assert!(!allow_filter.allow_with_context(&container, &context));
+        assert!(reject_filter.allow_with_context(&container, &context));
+        passenger
+            .write()
+            .unwrap()
+            .set_status(ObjectStatusMaskType::DETECTED, false);
+        // CPP5527 observes the source team's override before the player's relation.
+        source_team
+            .write()
+            .unwrap()
+            .set_override_team_relationship(32, Relationship::Allies);
+        assert!(!allow_filter.allow_with_context(&container, &context));
+        assert!(reject_filter.allow_with_context(&container, &context));
     }
 }

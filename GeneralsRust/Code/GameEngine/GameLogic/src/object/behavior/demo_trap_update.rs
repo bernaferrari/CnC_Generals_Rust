@@ -237,6 +237,13 @@ pub struct DemoTrapUpdate {
     weapon_fired: bool,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum TrapScanDecision {
+    Stop,
+    Detonate,
+    Scan,
+}
+
 impl DemoTrapUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
@@ -259,6 +266,37 @@ impl DemoTrapUpdate {
             detonated: false,
             weapon_fired: false,
         })
+    }
+
+    /// C++ DemoTrapUpdate.cpp:107–164, before any partition scan or detonation.
+    /// Reads the actual receiving object and keeps the countdown under this module.
+    fn prepare_scan(&mut self, me: &GameObject) -> TrapScanDecision {
+        if self.detonated
+            || me.test_status(ObjectStatusTypes::UnderConstruction)
+            || me.test_status(ObjectStatusTypes::Sold)
+        {
+            return TrapScanDecision::Stop;
+        }
+        if me.is_effectively_dead() {
+            return if self.module_data.detonate_when_killed {
+                TrapScanDecision::Detonate
+            } else {
+                TrapScanDecision::Stop
+            };
+        }
+        let slot = me.get_current_weapon().map(|(_, slot)| slot);
+        if slot == Some(self.module_data.detonation_weapon_slot) {
+            return TrapScanDecision::Detonate;
+        }
+        if self.next_scan_frames > 0 {
+            self.next_scan_frames -= 1;
+            return TrapScanDecision::Stop;
+        }
+        if slot == Some(self.module_data.manual_mode_weapon_slot) {
+            return TrapScanDecision::Stop;
+        }
+        self.next_scan_frames = self.module_data.scan_frames as i32;
+        TrapScanDecision::Scan
     }
 
     pub fn detonate(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -323,44 +361,15 @@ impl UpdateModuleInterface for DemoTrapUpdate {
             return UPDATE_SLEEP_NONE;
         };
 
-        if me.test_status(ObjectStatusTypes::UnderConstruction)
-            || me.test_status(ObjectStatusTypes::Sold)
-        {
-            return UPDATE_SLEEP_NONE;
-        }
-
-        if me.is_effectively_dead() {
-            if self.module_data.detonate_when_killed {
+        match self.prepare_scan(&me) {
+            TrapScanDecision::Stop => return UPDATE_SLEEP_NONE,
+            TrapScanDecision::Detonate => {
                 drop(me);
                 let _ = self.detonate();
+                return UPDATE_SLEEP_NONE;
             }
-            return UPDATE_SLEEP_NONE;
+            TrapScanDecision::Scan => {}
         }
-
-        // Get the current weapon slot -- this determines what mode we're in.
-        let weapon_slot = me.get_current_weapon().map(|(_weapon, slot)| slot);
-
-        if weapon_slot == Some(self.module_data.detonation_weapon_slot) {
-            // We've been externally triggered by the press of a command button.
-            drop(me);
-            let _ = self.detonate();
-            return UPDATE_SLEEP_NONE;
-        }
-
-        // Don't scan every frame for performance reasons.
-        if self.next_scan_frames > 0 {
-            self.next_scan_frames -= 1;
-            return UPDATE_SLEEP_NONE;
-        }
-
-        if weapon_slot == Some(self.module_data.manual_mode_weapon_slot) {
-            // Don't scan!
-            return UPDATE_SLEEP_NONE;
-        }
-
-        // Reset timer here -- because if we are in manual mode, and switch, we want instant
-        // gratification (if possible).
-        self.next_scan_frames = self.module_data.scan_frames as i32;
 
         // Scan for a valid enemy in proximity range.
         let me_pos = *me.get_position();
@@ -663,7 +672,7 @@ mod tests {
     }
 
     impl TrapOwner {
-        fn new(id: ObjectID) -> Self {
+        fn local_object(id: ObjectID) -> GameObject {
             let mut object = GameObject::new_test(id, 100.0);
             // All three modes have genuine weapons, as DemoTrapUpdate.cpp requires.
             let mut weapons = WeaponTemplateSet::new();
@@ -694,7 +703,11 @@ mod tests {
             }
             object.weapon_set.add_weapon_template_set(veteran_weapons);
             object.refresh_weapon_set().unwrap();
-            let object = Arc::new(RwLock::new(object));
+            object
+        }
+
+        fn new(id: ObjectID) -> Self {
+            let object = Arc::new(RwLock::new(Self::local_object(id)));
             let mut logic = GameLogic::new();
             logic.register_object(object.clone()).unwrap();
             Self { logic, object, id }
@@ -720,9 +733,19 @@ mod tests {
         })
     }
 
+    fn local_update(owner: &GameObject) -> DemoTrapUpdate {
+        DemoTrapUpdate {
+            object_id: owner.get_id(),
+            module_data: data(false),
+            next_call_frame_and_phase: 0,
+            next_scan_frames: 0,
+            detonated: false,
+            weapon_fired: false,
+        }
+    }
+
     #[test]
     fn detonated_demo_trap_update_returns_none_like_cpp() {
-        let _lock = crate::test_sync::lock();
         // C++ checks m_detonated before touching its owner or partition manager.
         let mut update = DemoTrapUpdate {
             object_id: INVALID_ID,
@@ -738,54 +761,74 @@ mod tests {
 
     #[test]
     fn under_construction_demo_trap_update_returns_none_like_cpp() {
-        let _lock = crate::test_sync::lock();
-        let owner = TrapOwner::new(9402);
-        owner
-            .object
-            .write()
-            .unwrap()
-            .set_status(ObjectStatusMaskType::UNDER_CONSTRUCTION, true);
-        let mut update = DemoTrapUpdate::new(owner.object.clone(), data(false)).unwrap();
+        let mut owner = TrapOwner::local_object(9402);
+        owner.set_status(ObjectStatusMaskType::UNDER_CONSTRUCTION, true);
+        let mut update = local_update(&owner);
         update.next_scan_frames = 2;
-        assert_eq!(update.update_simple(), UpdateSleepTime::None);
+        assert_eq!(update.prepare_scan(&owner), TrapScanDecision::Stop);
         assert_eq!(update.next_scan_frames, 2);
         assert!(!update.detonated);
-        assert!(!owner.object.read().unwrap().is_effectively_dead());
+        assert!(!owner.is_effectively_dead());
     }
 
     #[test]
     fn sold_demo_trap_update_preserves_scan_delay_like_cpp() {
-        let _lock = crate::test_sync::lock();
-        let owner = TrapOwner::new(9404);
-        owner
-            .object
-            .write()
-            .unwrap()
-            .set_status(ObjectStatusMaskType::SOLD, true);
-        let mut update = DemoTrapUpdate::new(owner.object.clone(), data(false)).unwrap();
+        let mut owner = TrapOwner::local_object(9404);
+        owner.set_status(ObjectStatusMaskType::SOLD, true);
+        let mut update = local_update(&owner);
         update.next_scan_frames = 2;
-        assert_eq!(update.update_simple(), UpdateSleepTime::None);
+        assert_eq!(update.prepare_scan(&owner), TrapScanDecision::Stop);
         assert_eq!(update.next_scan_frames, 2);
         assert!(!update.detonated);
-        assert!(!owner.object.read().unwrap().is_effectively_dead());
+        assert!(!owner.is_effectively_dead());
     }
 
     #[test]
     fn scan_delay_demo_trap_decrements_and_returns_none_like_cpp() {
-        let _lock = crate::test_sync::lock();
-        let owner = TrapOwner::new(9403);
+        let owner = TrapOwner::local_object(9403);
         assert_eq!(
-            owner.object.read().unwrap().get_current_weapon().unwrap().1,
+            owner.get_current_weapon().unwrap().1,
             WeaponSlotType::Primary
         );
-        let mut update = DemoTrapUpdate::new(owner.object.clone(), data(false)).unwrap();
+        let mut update = local_update(&owner);
         update.next_scan_frames = 2;
-        assert_eq!(update.update_simple(), UpdateSleepTime::None);
+        assert_eq!(update.prepare_scan(&owner), TrapScanDecision::Stop);
         assert_eq!(update.next_scan_frames, 1);
-        assert_eq!(update.update_simple(), UpdateSleepTime::None);
+        assert_eq!(update.prepare_scan(&owner), TrapScanDecision::Stop);
         assert_eq!(update.next_scan_frames, 0);
         assert!(!update.detonated);
-        assert!(!owner.object.read().unwrap().is_effectively_dead());
+        assert!(!owner.is_effectively_dead());
+    }
+
+    #[test]
+    fn borrowed_demo_scan_preserves_cpp_weapon_and_countdown_priority() {
+        let mut owner = TrapOwner::local_object(9407);
+        let mut update = local_update(&owner);
+        update.next_scan_frames = 2;
+        owner.set_weapon_lock(WeaponSlotType::Secondary, WeaponLockType::LockedTemporarily);
+        assert_eq!(
+            owner.get_current_weapon().unwrap().1,
+            WeaponSlotType::Secondary
+        );
+        assert_eq!(update.prepare_scan(&owner), TrapScanDecision::Detonate);
+        assert_eq!(update.next_scan_frames, 2);
+        owner.set_weapon_lock(WeaponSlotType::Primary, WeaponLockType::LockedTemporarily);
+        assert_eq!(update.prepare_scan(&owner), TrapScanDecision::Stop);
+        assert_eq!(update.next_scan_frames, 1);
+        assert_eq!(update.prepare_scan(&owner), TrapScanDecision::Stop);
+        assert_eq!(update.next_scan_frames, 0);
+        assert_eq!(update.prepare_scan(&owner), TrapScanDecision::Stop);
+        assert_eq!(update.next_scan_frames, 0);
+        owner.set_weapon_lock(WeaponSlotType::Tertiary, WeaponLockType::LockedTemporarily);
+        assert_eq!(
+            owner.get_current_weapon().unwrap().1,
+            WeaponSlotType::Tertiary
+        );
+        assert_eq!(update.prepare_scan(&owner), TrapScanDecision::Scan);
+        assert_eq!(
+            update.next_scan_frames,
+            update.module_data.scan_frames as i32
+        );
     }
 
     #[test]

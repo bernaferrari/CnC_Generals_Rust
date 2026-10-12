@@ -419,6 +419,67 @@ impl UnitAIUpdate {
         })?;
         Ok(())
     }
+    pub(super) fn update_waypoint_phase_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_world_owner(world)?;
+        self.validate_owned_components(true, false)?;
+        if (self.runtime.get_mood_matrix_action_adjustment_with_world(
+            true,
+            crate::ai::MoodMatrixAction::Move,
+            &*world,
+        ) & crate::ai::mood_matrix_adjustment::ACTION_TO_ATTACK_MOVE)
+            != 0
+        {
+            return Err(
+                "owned waypoint phase does not yet admit attack-move mood escalation".into(),
+            );
+        }
+        let machine = self
+            .ai_state_machine
+            .as_mut()
+            .ok_or("installed AI has no machine")?;
+        if machine.get_current_state_id()
+            != Some(AIStateType::FollowWaypointPathAsIndividuals as u32)
+            || machine.get_temporary_state().is_some()
+        {
+            return Err(
+                "owned waypoint phase requires the ordinary individual waypoint state".into(),
+            );
+        }
+        if !world.has_pathfinder() {
+            return Err("owned waypoint phase has no pathfinder".into());
+        }
+        let staged_goal = machine.stage_loaded_goal_waypoint(&*world)?;
+        let mut runtime = super::UnitAiStateRuntime {
+            runtime: &mut self.runtime,
+            parent_exists: true,
+            parent_state_id: None,
+            world: Some(world),
+        };
+        let state = machine
+            .base
+            .get_state_mut(AIStateType::FollowWaypointPathAsIndividuals as u32)
+            .ok_or("owned waypoint state missing")?;
+        let state = state
+            .as_mut()
+            .as_any_mut()
+            .downcast_mut::<crate::state_machine::cpp_state::CppStateAdapter<
+                crate::ai::states::AIFollowWaypointPathAsIndividualsState,
+            >>()
+            .ok_or("owned waypoint state has an unexpected implementation")?;
+        state
+            .inner_mut()
+            .core
+            .resolve_loaded_waypoints(Some(&runtime))?;
+        machine.commit_loaded_goal_waypoint(staged_goal);
+        machine.update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
+            ai.execute_command_native(terminal.params(), driver)
+        })?;
+        Ok(())
+    }
+
     pub(super) fn request_dozer_fortify_with_world(
         &mut self,
         target: ObjectID,

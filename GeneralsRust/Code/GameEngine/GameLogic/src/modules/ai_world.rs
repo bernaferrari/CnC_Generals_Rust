@@ -105,6 +105,28 @@ pub trait AiWorld {
     fn cliff_at(&self, _position: &Coord3D) -> Result<bool, String> {
         Err("supplied AI world has no terrain observation".into())
     }
+    /// Resolve only this operation's terrain; absence never selects another world.
+    fn waypoint_pathfind_extent(&self) -> Result<crate::common::Region3D, String> {
+        Err("supplied waypoint extent unavailable".into())
+    }
+    fn waypoint_is_on_wall(&self, _position: &Coord3D) -> Result<bool, String> {
+        Err("supplied waypoint wall query unavailable".into())
+    }
+    fn waypoint_wall_height(&self) -> Result<Real, String> {
+        Err("supplied waypoint wall height unavailable".into())
+    }
+    fn random_waypoint_link(&mut self, _last: usize) -> Result<usize, String> {
+        Err("supplied waypoint link selection unavailable".into())
+    }
+    fn waypoint_by_name(&self, _name: &str) -> Option<Arc<crate::waypoint::Waypoint>> {
+        None
+    }
+    fn waypoint_by_id(
+        &self,
+        _id: crate::waypoint::WaypointId,
+    ) -> Option<Arc<crate::waypoint::Waypoint>> {
+        None
+    }
     fn has_pathfinder(&self) -> bool {
         false
     }

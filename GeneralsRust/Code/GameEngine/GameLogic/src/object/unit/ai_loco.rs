@@ -420,6 +420,58 @@ impl UnitAIUpdate {
             self.runtime.get_legacy_locomotor_distance_to_goal()
         }
     }
+    pub(super) fn get_locomotor_distance_to_goal_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<Real, String> {
+        self.validate_world_owner(world)
+            .map_err(|error| error.to_string())?;
+        self.validate_owned_components(true, false)
+            .map_err(|error| error.to_string())?;
+        if !world.has_pathfinder() {
+            return Err("owned movement distance requires its pathfinder".into());
+        }
+        if self.runtime.data.ignore_obstacle_id != INVALID_ID {
+            return Err(
+                "owned movement distance does not yet admit ignored obstacle footprints".into(),
+            );
+        }
+        let owner = self
+            .runtime
+            .native_owner()
+            .ok_or("owned distance actor missing")?;
+        {
+            let object = owner
+                .read()
+                .map_err(|_| "owned distance actor unavailable")?;
+            self.runtime
+                .is_doing_ground_movement_for_owner_with_world(&object, Some(&*world))?;
+            if !object.get_position().x.is_finite()
+                || !object.get_position().y.is_finite()
+                || !object.get_position().z.is_finite()
+            {
+                return Err("owned distance actor has a non-finite position".into());
+            }
+        }
+        if let Some(path) = self.runtime.data.current_path_snapshot.as_ref() {
+            if !path.is_finite_single_layer(crate::ai::pathfind::PathfindLayerEnum::from_u32(
+                owner
+                    .read()
+                    .map_err(|_| "owned distance actor unavailable")?
+                    .get_layer() as u32,
+            )) {
+                return Err("owned movement distance requires a finite single-layer path".into());
+            }
+        }
+        let fallback = self
+            .ai_state_machine
+            .as_ref()
+            .and_then(|machine| machine.get_goal_position());
+        Ok(self
+            .runtime
+            .get_locomotor_distance_to_goal_with_world(fallback, Some(world)))
+    }
+
     pub(super) fn get_speed(&self) -> f32 {
         self.runtime.get_speed()
     }

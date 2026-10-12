@@ -8,8 +8,11 @@ mod physics_bounce;
 mod physics_collide;
 #[path = "physics_crush.rs"]
 mod physics_crush;
+#[path = "physics_owned_tick.rs"]
+mod physics_owned_tick;
 #[path = "physics_reset.rs"]
 mod physics_reset;
+pub(crate) use physics_owned_tick::OwnedPhysicsStep;
 use physics_reset::PhysicsResetWake;
 
 use crate::common::audio::AudioEventRts;
@@ -863,31 +866,29 @@ impl PhysicsBehaviorUpdate {
         let apply_ground = state.has_flag(FLAG_APPLY_FRICTION2D_WHEN_AIRBORNE)
             || !obj.is_significantly_above_terrain()
             || deck_taxiing;
+        Self::apply_friction_at(
+            module_data,
+            obj,
+            state,
+            TheGameLogic::get_frame(),
+            apply_ground,
+            contained_items_mass(obj),
+        );
+    }
+
+    fn apply_friction_at(
+        module_data: &PhysicsBehaviorModuleData,
+        obj: &GameObject,
+        state: &mut PhysicsBehaviorState,
+        frame: u32,
+        apply_ground: bool,
+        cargo_mass: Real,
+    ) {
         if apply_ground {
             apply_ypr_damping(state, 1.0 - DEFAULT_LATERAL_FRICTION);
 
-            if state.vel.x != 0.0 || state.vel.y != 0.0 {
-                let (dir_x, dir_y) = obj.get_unit_direction_vector_2d();
-                let mass = state.mass + contained_items_mass(obj);
-
-                let lateral_dot = state.vel.x * -dir_y + state.vel.y * dir_x;
-                let lateral_vel_x = lateral_dot * -dir_y;
-                let lateral_vel_y = lateral_dot * dir_x;
-
-                let lf = mass * Self::get_lateral_friction(module_data, state);
-                let mut force = Coord3D::new(-(lf * lateral_vel_x), -(lf * lateral_vel_y), 0.0);
-
-                if state.motive_force_expires <= TheGameLogic::get_frame() {
-                    let forward_dot = state.vel.x * dir_x + state.vel.y * dir_y;
-                    let forward_vel_x = forward_dot * dir_x;
-                    let forward_vel_y = forward_dot * dir_y;
-                    let ff = mass * Self::get_forward_friction(module_data, state);
-                    force.x += -(ff * forward_vel_x);
-                    force.y += -(ff * forward_vel_y);
-                }
-                let mass_inv = if mass.abs() < 0.0001 { 0.0 } else { 1.0 / mass };
-                state.accel += force * mass_inv;
-            }
+            state.accel +=
+                Self::ground_friction_acceleration(module_data, obj, state, frame, cargo_mass);
         } else {
             let aero = -Self::get_aerodynamic_friction(module_data, state);
             state.accel.x += state.vel.x * aero;
@@ -895,6 +896,69 @@ impl PhysicsBehaviorUpdate {
             state.accel.z += state.vel.z * aero;
             apply_ypr_damping(state, 1.0 + aero);
         }
+    }
+
+    fn ground_friction_acceleration(
+        module_data: &PhysicsBehaviorModuleData,
+        obj: &GameObject,
+        state: &PhysicsBehaviorState,
+        frame: u32,
+        cargo_mass: Real,
+    ) -> Coord3D {
+        if state.vel.x != 0.0 || state.vel.y != 0.0 {
+            let (dir_x, dir_y) = obj.get_unit_direction_vector_2d();
+            let mass = state.mass + cargo_mass;
+
+            let lateral_dot = state.vel.x * -dir_y + state.vel.y * dir_x;
+            let lateral_vel_x = lateral_dot * -dir_y;
+            let lateral_vel_y = lateral_dot * dir_x;
+
+            let lf = mass * Self::get_lateral_friction(module_data, state);
+            let mut force = Coord3D::new(-(lf * lateral_vel_x), -(lf * lateral_vel_y), 0.0);
+
+            if state.motive_force_expires <= frame {
+                let forward_dot = state.vel.x * dir_x + state.vel.y * dir_y;
+                let forward_vel_x = forward_dot * dir_x;
+                let forward_vel_y = forward_dot * dir_y;
+                let ff = mass * Self::get_forward_friction(module_data, state);
+                force.x += -(ff * forward_vel_x);
+                force.y += -(ff * forward_vel_y);
+            }
+            let mass_inv = if mass.abs() < 0.0001 { 0.0 } else { 1.0 / mass };
+            return force * mass_inv;
+        }
+        Coord3D::ZERO
+    }
+
+    fn integrate_translation(
+        accel: Coord3D,
+        mut velocity: Coord3D,
+        mut position: Coord3D,
+        braking: bool,
+        projectile: bool,
+    ) -> (Coord3D, Coord3D) {
+        velocity += accel;
+        for value in [&mut velocity.x, &mut velocity.y, &mut velocity.z] {
+            if value.abs() < 0.001 {
+                *value = 0.0;
+            }
+        }
+        if braking {
+            if !projectile {
+                position.z += velocity.z;
+            }
+        } else {
+            position += velocity;
+        }
+        (velocity, position)
+    }
+
+    fn clamp_ground(velocity: &mut Coord3D, position: &mut Coord3D, ground: Real) {
+        velocity.z += ground - position.z;
+        if velocity.z > 0.0 {
+            velocity.z = 0.0;
+        }
+        position.z = ground;
     }
 
     fn handle_bounce(
@@ -963,32 +1027,16 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
             Self::apply_gravity(state);
             Self::apply_frictional_forces(&module_data, &obj, state);
 
-            state.vel += state.accel;
-
-            let thresh = 0.001;
-            if state.vel.x.abs() < thresh {
-                state.vel.x = 0.0;
-            }
-            if state.vel.y.abs() < thresh {
-                state.vel.y = 0.0;
-            }
-            if state.vel.z.abs() < thresh {
-                state.vel.z = 0.0;
-            }
-
+            let (velocity, mut pos) = Self::integrate_translation(
+                state.accel,
+                state.vel,
+                prev_pos,
+                obj.test_status(ObjectStatusTypes::Braking),
+                obj.is_kind_of(KindOf::Projectile),
+            );
+            state.vel = velocity;
             state.vel_mag = INVALID_VEL_MAG;
-
-            let mut pos = prev_pos;
-            let old_pos_z = pos.z;
-
-            if obj.test_status(ObjectStatusTypes::Braking) {
-                // C++: projectiles never integrate while braking; others only integrate Z.
-                if !obj.is_kind_of(KindOf::Projectile) {
-                    pos.z += state.vel.z;
-                }
-            } else {
-                pos += state.vel;
-            }
+            let old_pos_z = prev_pos.z;
 
             if !pos.x.is_finite() || !pos.y.is_finite() || !pos.z.is_finite() {
                 // C++ PhysicsUpdate.cpp:665-669 — NaN translation destroys the object.
@@ -1029,13 +1077,8 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
             }
 
             if pos.z <= ground_z {
-                let dz = ground_z - pos.z;
-                state.vel.z += dz;
-                if state.vel.z > 0.0 {
-                    state.vel.z = 0.0;
-                }
+                Self::clamp_ground(&mut state.vel, &mut pos, ground_z);
                 state.vel_mag = INVALID_VEL_MAG;
-                pos.z = ground_z;
                 state.set_flag(FLAG_ALLOW_TO_FALL, false);
                 if state.has_flag(FLAG_IS_STUNNED) {
                     obj.clear_model_condition_state(MODELCONDITION_STUNNED_FLAILING);

@@ -135,16 +135,23 @@ pub fn dispatch_collide_modules(
     use gamelogic::object::collide::{COLLISION_MANAGER, Coord3D, GameObject};
     use gamelogic::object::registry::OBJECT_REGISTRY;
 
+    // Collide modules belong to GameLogic-crate Objects. A host match never
+    // admits any (host objects stay out of the registry), so every lookup
+    // below would miss: skip the manager lock and singleton probes per pair.
+    if OBJECT_REGISTRY.is_empty() {
+        return;
+    }
+
     let collide_loc = Coord3D::new(loc.x, loc.z, loc.y);
     let collide_n = Coord3D::new(normal.x, normal.z, normal.y);
     let inv_n = Coord3D::new(-collide_n.x, -collide_n.y, -collide_n.z);
 
     let other_b = OBJECT_REGISTRY
         .get_object(b_id.0)
-        .or_else(|| gamelogic::helpers::TheGameLogic::find_object_by_id(b_id.0));
+        .or_else(|| crate::game_logic::crate_object_bridge::crate_object(b_id.0));
     let other_a = OBJECT_REGISTRY
         .get_object(a_id.0)
-        .or_else(|| gamelogic::helpers::TheGameLogic::find_object_by_id(a_id.0));
+        .or_else(|| crate::game_logic::crate_object_bridge::crate_object(a_id.0));
 
     if let Some(handle) = &other_b {
         let _ = COLLISION_MANAGER.handle_collision(
