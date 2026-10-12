@@ -582,8 +582,6 @@ mod tests {
 
     #[test]
     fn sabotage_duration_parse_from_ini_uses_cpp_duration_frames() {
-        let _lock = crate::test_sync::lock();
-
         let mut data = SabotageInternetCenterCrateCollideModuleData::default();
         let mut ini = INI::new();
         ini.with_inline_source(

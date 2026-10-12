@@ -541,8 +541,6 @@ mod tests {
 
     #[test]
     fn unit_crate_parser_preserves_cpp_fields() {
-        let _lock = crate::test_sync::lock();
-
         let mut data = UnitCrateCollideModuleData::default();
         parse_unit_count(&mut INI::new(), &mut data, &["3"]).expect("unit count parses");
         parse_unit_name(&mut INI::new(), &mut data, &["AmericaTank"]).expect("unit name parses");

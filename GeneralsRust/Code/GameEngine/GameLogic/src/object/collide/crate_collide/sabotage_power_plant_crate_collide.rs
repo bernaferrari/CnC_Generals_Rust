@@ -388,8 +388,7 @@ impl LegacyCollideAdapter for SabotagePowerPlantCrateCollide {
 
         if SabotagePowerPlantCrateCollide::is_valid_to_execute(self, other_id)? {
             let success = SabotagePowerPlantCrateCollide::execute_crate_behavior(self, other_id)?;
-            if let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-            {
+            if let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) {
                 self.base
                     .finish_execution_attempt(&other, success)
                     .map_err(GameError::from)?;
@@ -457,8 +456,6 @@ mod tests {
 
     #[test]
     fn sabotage_power_duration_parse_from_ini_uses_cpp_duration_frames() {
-        let _lock = crate::test_sync::lock();
-
         let mut data = SabotagePowerPlantCrateCollideModuleData::default();
         let mut ini = INI::new();
         ini.with_inline_source(

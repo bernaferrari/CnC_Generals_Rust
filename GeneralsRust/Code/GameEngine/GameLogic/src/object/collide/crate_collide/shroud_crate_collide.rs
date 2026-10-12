@@ -486,8 +486,6 @@ mod tests {
 
     #[test]
     fn shroud_crate_parse_from_ini_preserves_cpp_base_fields() {
-        let _lock = crate::test_sync::lock();
-
         let mut data = ShroudCrateCollideModuleData::default();
         let mut ini = INI::new();
         ini.with_inline_source(

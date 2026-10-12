@@ -524,8 +524,6 @@ mod tests {
 
     #[test]
     fn car_bomb_crate_parse_from_ini_accepts_cpp_kindof_masks() {
-        let _lock = crate::test_sync::lock();
-
         let mut data = ConvertToCarBombCrateCollideModuleData::default();
         let mut ini = INI::new();
         ini.with_inline_source(

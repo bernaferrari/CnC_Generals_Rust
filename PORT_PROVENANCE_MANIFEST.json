@@ -158593,7 +158593,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "d0d7a3208c2709a1b35591edacb2f4dfe06c43fa7d4b4f486393a232d9e0d3aa",
+  "input_digest": "c2032aa134ff2c07a545255367cf46686245770919d6375bb8f653f225ff0af8",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -200184,11 +200184,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 561,
+        "end_line": 559,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/crate_collide/convert_to_car_bomb_crate_collide.rs",
-      "sha256": "3ac5012f8d910425591a9e32db148fa301fa3fc975fb99fa45c3260f9d824d8a",
+      "sha256": "f1953635c4c53119858a6063d38c6eafe2d009f5ed827041888ca81a020e22be",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200196,11 +200196,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 660,
+        "end_line": 658,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/crate_collide/convert_to_hijacked_vehicle_crate_collide.rs",
-      "sha256": "14352ab4adfb0fdf4e769fd07cb047b5490cba4176678ead9fc77bb82473597c",
+      "sha256": "d734c8c9d7dd0231f995b569b489a270f9807d2f2189137663a3de9e4dfc20cf",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200244,11 +200244,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 813,
+        "end_line": 811,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/crate_collide/money_crate_collide.rs",
-      "sha256": "3d1d4385e0ecf66e3a3a2904d0afeb1dbb56f7079b31bdc215d958b046eb4ee9",
+      "sha256": "3e29051d0768cb40271b840ec16ad3c995ec939e7683a16be3f66b4314162faa",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200256,11 +200256,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 466,
+        "end_line": 464,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/crate_collide/sabotage_command_center_crate_collide.rs",
-      "sha256": "a287b0fe9fa4123265a38af2b1b93fa663cdb04606bbaa0704e0b3c1e133f02d",
+      "sha256": "1327f5173d29d362fca4869b457ee6df6acd25369ad5f33af1499de6c52f6053",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200280,11 +200280,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 475,
+        "end_line": 476,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/crate_collide/sabotage_fake_building_crate_collide.rs",
-      "sha256": "d37f99975962c36a9ed28a5fe31019031f9e07c0e078fe426a1118fe6050c945",
+      "sha256": "85fdd22e43a298fc5f3912caa0020d39c42ef38e7c2d663adac3e9f0a2082823",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200292,11 +200292,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 625,
+        "end_line": 623,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/crate_collide/sabotage_internet_center_crate_collide.rs",
-      "sha256": "c6647a7865da00418a299852d3ee94af80b9d82f44dbf39571bb6f51515edcec",
+      "sha256": "d00efdec71e95b5fc676667a4ec1f421a94d5c306455e720fef06f4b83ec46b7",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200304,11 +200304,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 494,
+        "end_line": 491,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/crate_collide/sabotage_military_factory_crate_collide.rs",
-      "sha256": "3a11881bf8ccf6778d68e96350e3a2fa21589ad851cb9a883733be34b2734d3a",
+      "sha256": "6037412da903000c27257ea8ef5b312f506ed12cc2240bb43c021cf3fe49f860",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200316,11 +200316,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 488,
+        "end_line": 485,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/crate_collide/sabotage_power_plant_crate_collide.rs",
-      "sha256": "4dad76aee0913c364e251bd2ab4f96146020611f3ef5d66df95d5517623a340b",
+      "sha256": "9080e8d5ce9e2f88d39a10750f1149a6e4d451e51eece6d60b769158dfe4dc5d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200328,11 +200328,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 470,
+        "end_line": 468,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/crate_collide/sabotage_superweapon_crate_collide.rs",
-      "sha256": "3628c8189909fc48b9d3ec40f9104ff22a2b05b9b9c1d149f8fe36393a9cb894",
+      "sha256": "5430b52c295209badcdf2cbf8adbbae91882b7ce308c0a6763b55f285dffe22f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200340,11 +200340,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 618,
+        "end_line": 615,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/crate_collide/sabotage_supply_center_crate_collide.rs",
-      "sha256": "0e916e04b23f88e99d3a6a61549d5c3589f75e62dd276548abf37a06fe0ff4b5",
+      "sha256": "3eb8d447c310c26826ab90b3b605c7c227f0263223f4f80495667bb1e0eb2105",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200352,11 +200352,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 635,
+        "end_line": 632,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/crate_collide/sabotage_supply_dropzone_crate_collide.rs",
-      "sha256": "705880c8a377690df069a71be2fb474fde38f301ec45ec9873e44a9103643bbc",
+      "sha256": "caf157698ac4a256092445670a31c9f7c356eee9c7c6caa624c7379e0ccfcd15",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200364,11 +200364,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 978,
+        "end_line": 976,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/crate_collide/salvage_crate_collide.rs",
-      "sha256": "5cfe0a77321a41215af816ccffec57c7214622faff388c8a8a01998ea9d804a9",
+      "sha256": "6a6ded6f1b8d6e81e56ecb1da06f221644358e0043312776e16eebe59ccb1646",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200388,11 +200388,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 514,
+        "end_line": 512,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/crate_collide/shroud_crate_collide.rs",
-      "sha256": "516df69eec56f48a0692cadef73c7aafca040b210419792a74caf80e84f67666",
+      "sha256": "aad3971696cd990a1e34ae20b06d5918a403038768450b8f4be7b6b05dabb6db",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200400,11 +200400,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 820,
+        "end_line": 818,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/crate_collide/unit_crate_collide.rs",
-      "sha256": "a89212bf76821ce76f573171f11d5bae50fb9fc71e8ba620c2a0e1976428365a",
+      "sha256": "25d3f3f008dc83539ee7dd630753750f16fa0c65088329c4cabe570dcb26ed8c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203808,11 +203808,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 1276,
+        "end_line": 1288,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_enter_command_tests.rs",
-      "sha256": "6fa29d39d3d7bec9518a37ee729b76a902625b317305b813ef4b6c892bded9de",
+      "sha256": "133c7258b5bc6685b56d47ad5dd7795d78340e3d2e79ccfb3e77170bc955268e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

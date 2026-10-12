@@ -328,7 +328,11 @@ impl SabotageFakeBuildingCrateCollide {
         }
 
         let (should_damage, max_health) = match other.read() {
-            Ok(other_lock) if other_lock.with_controlling_player(|_| true).unwrap_or(false) => {
+            Ok(other_lock)
+                if other_lock
+                    .with_controlling_player(|_| true)
+                    .unwrap_or(false) =>
+            {
                 match other_lock.get_body_module() {
                     Some(body) => match body.lock() {
                         Ok(body_guard) => (true, body_guard.get_max_health()),
@@ -372,8 +376,7 @@ impl LegacyCollideAdapter for SabotageFakeBuildingCrateCollide {
 
         if SabotageFakeBuildingCrateCollide::is_valid_to_execute(self, other_id)? {
             let success = SabotageFakeBuildingCrateCollide::execute_crate_behavior(self, other_id)?;
-            if let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-            {
+            if let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) {
                 self.base
                     .finish_execution_attempt(&other, success)
                     .map_err(GameError::from)?;
@@ -423,8 +426,6 @@ mod tests {
 
     #[test]
     fn fake_building_sabotage_parse_from_ini_preserves_cpp_base_fields() {
-        let _lock = crate::test_sync::lock();
-
         let mut data = SabotageFakeBuildingCrateCollideModuleData::default();
         let mut ini = INI::new();
         ini.with_inline_source(

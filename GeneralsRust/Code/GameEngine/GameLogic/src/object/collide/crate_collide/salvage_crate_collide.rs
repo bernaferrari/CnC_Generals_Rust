@@ -765,8 +765,6 @@ mod tests {
 
     #[test]
     fn salvage_crate_parse_from_ini_preserves_cpp_fields() {
-        let _lock = crate::test_sync::lock();
-
         let mut data = SalvageCrateCollideModuleData::default();
         let mut ini = INI::new();
         ini.with_inline_source(

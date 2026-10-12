@@ -579,8 +579,6 @@ mod tests {
 
     #[test]
     fn hijacked_vehicle_crate_parse_from_ini_preserves_cpp_base_fields() {
-        let _lock = crate::test_sync::lock();
-
         let mut data = ConvertToHijackedVehicleCrateCollideModuleData::default();
         let mut ini = INI::new();
         ini.with_inline_source(

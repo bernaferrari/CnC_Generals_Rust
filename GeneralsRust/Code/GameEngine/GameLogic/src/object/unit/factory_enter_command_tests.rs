@@ -556,7 +556,6 @@ fn native_face_and_go_prone_commands_match_cpp_owner_behavior() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     definitions();
     let count = get_thing_factory()
         .unwrap()
@@ -734,11 +733,28 @@ fn native_face_and_go_prone_commands_match_cpp_owner_behavior() {
         .write()
         .unwrap()
         .set_status(crate::common::ObjectStatusMaskType::NO_ATTACK, true);
-    crate::system::game_logic::get_game_logic()
-        .lock()
-        .unwrap()
-        .register_object(Arc::clone(&foreign))
-        .unwrap();
+    // A second world admits its own same-ID object. Admission must never
+    // replace the original world's canonical object to fabricate this peer.
+    let mut foreign_logic = crate::system::game_logic::GameLogic::new();
+    foreign_logic.register_object(Arc::clone(&foreign)).unwrap();
+    assert!(Arc::ptr_eq(
+        &foreign_logic.find_object_by_id(owner_id).unwrap(),
+        &foreign,
+    ));
+    assert!(Arc::ptr_eq(
+        &crate::system::game_logic::get_game_logic()
+            .lock()
+            .unwrap()
+            .find_object_by_id(owner_id)
+            .unwrap(),
+        &owner,
+    ));
+    assert!(Arc::ptr_eq(
+        &crate::object::registry::OBJECT_REGISTRY
+            .get_object(owner_id)
+            .unwrap(),
+        &foreign,
+    ));
 
     let mut go_prone = AiCommandParams::new(AiCommandType::GoProne, CommandSourceType::FromAI);
     go_prone.damage.output.actual_damage_dealt = 10.0;
@@ -796,11 +812,7 @@ fn native_face_and_go_prone_commands_match_cpp_owner_behavior() {
             .unwrap()
             .test_status(crate::common::ObjectStatusTypes::NoAttack)
     );
-    crate::system::game_logic::get_game_logic()
-        .lock()
-        .unwrap()
-        .register_object(Arc::clone(&owner))
-        .unwrap();
+    crate::object::registry::OBJECT_REGISTRY.register_object(owner_id, &owner);
 }
 
 #[test]
