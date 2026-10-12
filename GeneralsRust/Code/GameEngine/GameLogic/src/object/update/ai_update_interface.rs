@@ -1168,100 +1168,20 @@ impl AIUpdateInterface {
     /// C++ AIUpdateInterface::computePath – computes a path to destination,
     /// returns false if no path found.  Lines ~AIUpdate.cpp:440.
     pub fn compute_path(&mut self, destination: Coord3D) -> bool {
-        self.requested_destination = destination;
-        if !self.is_blocked_and_stuck {
-            self.destroy_path();
-        }
-
-        if self.can_compute_quick_path() {
-            return self.compute_quick_path(destination);
-        }
-
-        self.retry_path = false;
-
-        let start = self.final_position;
-        if start == Coord3D::ZERO {
-            self.path_timestamp = TheGameLogic::get_frame();
-            self.blocked_frames = 0;
-            self.is_blocked_and_stuck = false;
-            return false;
-        }
+        let frame = TheGameLogic::get_frame();
         let surfaces = self.current_locomotor_set_surfaces();
-        if surfaces == 0 {
-            self.path_timestamp = TheGameLogic::get_frame();
-            self.blocked_frames = 0;
-            self.is_blocked_and_stuck = false;
-            return false;
+        let quick = self.can_compute_quick_path();
+        if let Some(result) = self.prepare_compute_path_at(destination, frame, surfaces, quick) {
+            return result;
         }
-
         let ai_store = crate::ai::the_ai();
         let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
-            self.path_timestamp = TheGameLogic::get_frame();
-            self.blocked_frames = 0;
-            self.is_blocked_and_stuck = false;
-            return false;
+            return self.fail_compute_path_at(frame);
         };
         let Ok(mut pathfinder) = pathfinder.write() else {
-            self.path_timestamp = TheGameLogic::get_frame();
-            self.blocked_frames = 0;
-            self.is_blocked_and_stuck = false;
-            return false;
+            return self.fail_compute_path_at(frame);
         };
-        let ignore_obstacle_id = if self.ignore_obstacle_id == INVALID_ID {
-            None
-        } else {
-            Some(self.ignore_obstacle_id)
-        };
-
-        if !self.is_final_goal
-            && pathfinder.is_line_passable_for_surfaces(
-                &start,
-                &destination,
-                surfaces,
-                ignore_obstacle_id,
-            )
-        {
-            drop(pathfinder);
-            return self.compute_quick_path(destination);
-        }
-
-        let request = crate::ai::pathfind_complete::PathRequest {
-            object_id: INVALID_ID,
-            from: start,
-            to: destination,
-            surfaces,
-            is_crusher: false,
-            unit_radius: 0.0,
-            allow_partial: false,
-            move_allies: self.can_path_through_units,
-            ignore_obstacle_id,
-            is_human: false,
-        };
-        let mut path_result = pathfinder.find_path_result(request.clone());
-        if !path_result.success && self.path.is_none() {
-            path_result = pathfinder.find_closest_path_result(request);
-            self.retry_path = true;
-        }
-        drop(pathfinder);
-
-        if path_result.success {
-            self.destroy_path();
-            self.path = Some(path_result.waypoints);
-            self.queue_for_path_frame = 0;
-            self.set_locomotor_goal_position_on_path();
-            self.is_blocked = false;
-        } else if self.path.is_some() && self.is_blocked_and_stuck {
-            self.destroy_path();
-            self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
-            self.final_position = start;
-            self.set_locomotor_goal_none();
-            self.is_blocked = false;
-        }
-
-        self.path_timestamp = TheGameLogic::get_frame();
-        self.blocked_frames = 0;
-        self.is_blocked_and_stuck = false;
-        self.path.is_some()
+        self.compute_prepared_path_with_pathfinder_at(destination, &mut pathfinder, frame, surfaces)
     }
 
     fn compute_approach_path(&mut self, destination: Coord3D) -> bool {
@@ -1539,33 +1459,7 @@ impl AIUpdateInterface {
     /// C++ AIUpdateInterface::computeQuickPath – build a direct two-node path
     /// for airborne/non-ground movement.
     pub fn compute_quick_path(&mut self, destination: Coord3D) -> bool {
-        if let Some(path) = self.path.as_ref() {
-            if let Some(close_node) = path.last() {
-                let dx = destination.x - close_node.x;
-                let dy = destination.y - close_node.y;
-                let dz = destination.z - close_node.z;
-                if dx * dx + dy * dy + dz * dz < 0.25 {
-                    return true;
-                }
-            }
-        }
-
-        let mut start = self.final_position;
-        if start == Coord3D::ZERO {
-            return false;
-        }
-        start.z = destination.z;
-
-        self.destroy_path();
-        self.path = Some(vec![start, destination]);
-        self.path_timestamp = TheGameLogic::get_frame();
-        self.blocked_frames = 0;
-        self.is_blocked = false;
-        self.is_blocked_and_stuck = false;
-        self.queue_for_path_frame = 0;
-        self.waiting_for_path = false;
-        self.set_locomotor_goal_position_on_path();
-        true
+        self.compute_quick_path_at(destination, TheGameLogic::get_frame())
     }
 
     fn path_timestamp_is_recent(&self, now: UnsignedInt) -> bool {
@@ -2558,10 +2452,16 @@ impl AIUpdateInterface {
     /// we should re-queue for a pathfind.  Must NOT be set directly.
     /// Ported from AIUpdate.cpp:936.
     pub fn set_queue_for_path_time(&mut self, frames: UnsignedInt) {
-        self.queue_for_path_frame = if frames != 0 {
-            TheGameLogic::get_frame().saturating_add(frames)
-        } else {
+        self.set_queue_for_path_time_at(TheGameLogic::get_frame(), frames);
+    }
+
+    /// C++ AIUpdate.cpp:936–952 unsigned absolute queue expiry. Zero clears
+    /// the queue marker; nonzero delays wrap with the driving logic frame.
+    pub(super) fn set_queue_for_path_time_at(&mut self, frame: UnsignedInt, frames: UnsignedInt) {
+        self.queue_for_path_frame = if frames == 0 {
             0
+        } else {
+            frame.wrapping_add(frames)
         };
     }
 
@@ -3237,22 +3137,40 @@ mod tests {
 
     #[test]
     fn compute_and_destroy_path_update_cpp_state() {
-        let _lock = crate::test_sync::lock();
-        let _map = InitializedPathfinder::new();
-        let owner_id = 7401;
-        let (_owner, _owner_cleanup) =
-            register_collision_object(owner_id, Coord3D::new(1.0, 2.0, 0.0), 0.0, None);
-        let mut ai = ground_path_ai(owner_id);
+        let mut map = crate::system::map_loader::MapData::new();
+        map.width = 32;
+        map.height = 32;
+        map.heightmap = vec![0; 32 * 32];
+        map.boundaries.push(ICoord2D::new(32, 32));
+        let mut terrain = crate::terrain::TerrainLogic::new();
+        terrain.load_map_geometry(map);
+        let mut pathfinder = crate::ai::Pathfinder::new();
+        pathfinder.rebuild_from_terrain(&terrain);
+        let locomotor = crate::locomotor::LocomotorTemplate::new_wheeled("OwnedComputePath".into());
+        let mut data = AIUpdateModuleData::default();
+        data.add_locomotor_set_entry(LocomotorSetType::Normal, "OwnedComputePath".into());
+        let mut ai = AIUpdateInterface::new_for_object(Arc::new(data), 7401);
         assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
+        let frame = 70;
         ai.set_final_position(Coord3D::new(1.0, 2.0, 0.0));
         ai.is_blocked = true;
         ai.is_blocked_and_stuck = true;
         ai.retry_path = true;
-        ai.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
+        ai.set_queue_for_path_time_at(frame, LOGICFRAMES_PER_SECOND);
+        assert_eq!(
+            ai.get_queue_for_path_frame(),
+            frame + LOGICFRAMES_PER_SECOND
+        );
 
-        assert!(ai.compute_path(Coord3D::new(8.0, 9.0, 0.0)));
+        assert!(ai.compute_path_with_pathfinder_at(
+            Coord3D::new(8.0, 9.0, 0.0),
+            &mut pathfinder,
+            frame,
+            locomotor.surfaces,
+            false
+        ));
         assert!(ai.get_path().is_some());
-        assert_eq!(ai.get_path_timestamp(), TheGameLogic::get_frame());
+        assert_eq!(ai.get_path_timestamp(), frame);
         assert!(!ai.is_blocked);
         assert!(!ai.is_blocked_and_stuck);
         assert!(!ai.retry_path);
@@ -3953,3 +3871,6 @@ mod tests {
 #[cfg(test)]
 #[path = "ai_update_interface/update_clock_wire_tests.rs"]
 mod update_clock_wire_tests;
+
+#[path = "ai_update_owned_path.rs"]
+mod owned_path;

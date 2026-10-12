@@ -46,16 +46,17 @@ impl Object {
         transform: Option<&Matrix3D>,
     ) -> Matrix3D {
         let object_transform = self.get_transform_matrix();
-        let world_transform = if let Some(local) = transform {
+        // Thing.cpp317-335 computes matrix and point independently. The bone
+        // matrix already contains its translation; applying the point again
+        // doubles that offset (and can rotate it a second time).
+        if let Some(local) = transform {
             object_transform * *local
+        } else if let Some(pos) = bone_pos {
+            let mut world_transform = object_transform;
+            world_transform.w_axis = object_transform.transform_point3(*pos).extend(1.0);
+            world_transform
         } else {
             object_transform
-        };
-
-        if let Some(pos) = bone_pos {
-            world_transform * Matrix3D::from_translation(*pos)
-        } else {
-            world_transform
         }
     }
 
@@ -386,10 +387,7 @@ impl Object {
 
         let mut world_positions = Vec::with_capacity(count);
         for i in 0..count {
-            let world_transform =
-                self.convert_bone_pos_to_world_pos(Some(&positions[i]), Some(&transforms[i]));
-            let (_, _, translation) = world_transform.to_scale_rotation_translation();
-            world_positions.push(translation);
+            world_positions.push(self.get_transform_matrix().transform_point3(positions[i]));
         }
 
         world_positions
@@ -445,8 +443,7 @@ impl Object {
 
         let world_transform =
             self.convert_bone_pos_to_world_pos(Some(&bone_pos), Some(&bone_transform));
-        let (_, _, translation) = world_transform.to_scale_rotation_translation();
-        position = translation;
+        position = self.get_transform_matrix().transform_point3(bone_pos);
         transform = world_transform;
 
         (true, position, transform)

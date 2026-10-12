@@ -158,27 +158,13 @@ impl UnitAiRuntime {
             path.compute_flight_dist_to_goal(&position)
         } else {
             let info = if let Some(world) = world.as_deref_mut() {
-                let ignore_cells =
-                    ignore_obstacle_id
-                        .and_then(|id| world.object(id))
-                        .and_then(|object| {
-                            let object = object.read().expect("admitted path obstacle poisoned");
-                            crate::ai::object_footprint_positions_with_height(&object, |x, y| {
-                                world.terrain_layer_height(
-                                    x,
-                                    y,
-                                    crate::common::PathfindLayerEnum::Ground,
-                                )
-                            })
-                            .map(|positions| {
-                                positions
-                                    .into_iter()
-                                    .map(|position| {
-                                        crate::ai::pathfind_astar::GridCoord::from_world(&position)
-                                    })
-                                    .collect()
-                            })
-                        });
+                let ignore_cells = match super::ai_owned_locomotion::ignored_obstacle_cells(
+                    world,
+                    ignore_obstacle_id,
+                ) {
+                    Ok(cells) => cells,
+                    Err(_) => return Real::INFINITY,
+                };
                 let pathfinder = world.pathfinder().expect("admitted owner pathfinder");
                 let mut context = super::ai_loco::NativePathMovementContext::borrowed(
                     pathfinder,

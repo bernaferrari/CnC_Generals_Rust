@@ -253,6 +253,13 @@ pub trait AiWorld {
     fn scatter_removed(&mut self, _passenger: &Arc<RwLock<Object>>, _owner: &Arc<RwLock<Object>>) {
         panic!("removed scatter must be admitted")
     }
+    fn exit_free_to_exit(
+        &self,
+        _passenger: ObjectID,
+        _owner: ObjectID,
+    ) -> Result<crate::object::production::AIFreeToExitType, String> {
+        Err("supplied exit has no container AI observation".into())
+    }
     fn contain_exit_busy(&self, owner: ObjectID) -> Result<bool, String>;
     fn validate_remove_operation(
         &self,

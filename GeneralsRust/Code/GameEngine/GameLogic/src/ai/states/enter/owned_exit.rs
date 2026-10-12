@@ -40,7 +40,13 @@ fn update(base: &State, ai: &mut dyn AiStateRuntime) -> Result<StateReturnType, 
     let Some(goal) = world.object(goal_id) else {
         return Ok(StateReturnType::Failure);
     };
-    // The admitted native family has no vehicle/aircraft free-to-exit override.
+    let passenger_id = owner.read().map_err(|_| "exit rider poisoned")?.get_id();
+    if world.exit_free_to_exit(passenger_id, goal_id)?
+        == crate::object::production::AIFreeToExitType::WaitToExit
+    {
+        return Ok(StateReturnType::Continue);
+    }
+    // C++ observes the goal AI before looking up/checking its ExitInterface.
     let has_contain = goal
         .read()
         .map_err(|_| "exit goal poisoned")?

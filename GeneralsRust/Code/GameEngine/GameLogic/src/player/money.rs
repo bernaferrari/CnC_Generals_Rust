@@ -162,6 +162,16 @@ impl<'a> PlayerMoneyMut<'a> {
         self.deposit_with_submission(amount, play_sound, |money| money.submit_sound(true))
     }
 
+    /// Supply the receiving session's synchronous sound admission; arithmetic
+    /// and academy accounting retain the same Money.cpp ordering.
+    pub(crate) fn deposit_with_admission(
+        &mut self,
+        amount: u32,
+        submit: impl FnOnce(&Self),
+    ) -> Result<(), GameError> {
+        self.deposit_with_submission(amount, true, submit)
+    }
+
     fn deposit_with_submission(
         &mut self,
         amount: u32,

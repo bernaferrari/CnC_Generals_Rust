@@ -6,7 +6,7 @@ use crate::object::behavior::instant_death_behavior::InstantDeathBehaviorModuleD
 use crate::object::body::active_body::BodyDefinitionCatalog;
 use std::collections::HashMap;
 
-fn instant_actor() -> Arc<dyn ThingTemplate> {
+pub(super) fn instant_actor() -> Arc<dyn ThingTemplate> {
     let actual = ordinary_damage::damage_actor(false);
     let mut base = DefaultThingTemplate::new("NativeInstantVictim".into());
     base.add_kind_of(KindOf::Infantry);
@@ -24,6 +24,12 @@ pub(super) fn native_death_world() -> NativeMatch {
     native_world_with_death(instant_actor())
 }
 fn native_world_with_death(victim: Arc<dyn ThingTemplate>) -> NativeMatch {
+    native_world_with_templates(ordinary_damage::damage_actor(false), victim)
+}
+pub(super) fn native_world_with_templates(
+    source: Arc<dyn ThingTemplate>,
+    victim: Arc<dyn ThingTemplate>,
+) -> NativeMatch {
     let mut game = NativeMatch::new(150.0);
     let mut factory = ObjectFactory::new();
     let mut scheduler = crate::system::game_logic::GameLogic::new();
@@ -64,7 +70,7 @@ fn native_world_with_death(victim: Arc<dyn ThingTemplate>) -> NativeMatch {
 
     let mut catalog = game_engine::common::thing::module_factory::ModuleFactory::new();
     crate::contain_module_overrides::register_native_module_overrides(&mut catalog).unwrap();
-    let templates = [ordinary_damage::damage_actor(false), victim];
+    let templates = [source, victim];
     for template in &templates {
         for entry in template.get_behavior_module_info() {
             catalog.add_module_internal(
@@ -455,4 +461,105 @@ fn installed_ai_death_latch_and_actual_proxy_wake_precede_destroy() {
             .is_ai_in_dead_state()
     );
     assert_eq!(peer.get_health(), 100.0);
+}
+
+#[test]
+fn local_death_removes_receiving_radar_and_creates_fake_event_at_operation_frame() {
+    use super::super::ai_native_world::NativeDeathNotification;
+    use game_engine::common::system::radar::{RadarEventType, RadarObject};
+    let mut game = native_death_world();
+    let mut peer = native_death_world();
+    game.players.set_local_player_index(1);
+    peer.players.set_local_player_index(1);
+    for world in [&mut game, &mut peer] {
+        let mut data = RadarObject::new(2);
+        data.priority = game_engine::common::system::radar::RadarPriorityType::Unit;
+        data.world_pos = game_engine::common::system::radar::Coord3D::new(150.0, 50.0, 0.0);
+        world.radar.add_object(data.clone());
+        world
+            .target
+            .write()
+            .unwrap()
+            .set_radar_data_for_test(Some(Box::new(data)));
+    }
+    let target = game.target.clone();
+    let peer_guard = peer.target.write().unwrap();
+    game.operate(731, |world| {
+        assert_eq!(
+            world.attempt_damage_owned(&target, &mut fatal(1)).unwrap(),
+            150.0
+        );
+    });
+    {
+        let object = target.read().unwrap();
+        assert_eq!(object.get_health(), 0.0);
+        assert!(
+            object.is_destroyed(),
+            "lethal hit must finish installed onDie"
+        );
+        assert!(
+            !game.radar.contains_object(2),
+            "radar link remains: {:?}",
+            object.owned_radar_data().is_some()
+        );
+    }
+    assert!(target.read().unwrap().owned_radar_data().is_none());
+    assert_eq!(
+        game.death_notifications,
+        vec![NativeDeathNotification::UnitLost { player: 1 }]
+    );
+    let (_, _, events, _, _) = game.radar.snapshot_persist_state();
+    assert!(
+        game.radar.get_active_events().is_empty(),
+        "CPP Fake event is retained for spacebar, never drawn"
+    );
+    let event = events
+        .iter()
+        .find(|event| event.event_type == RadarEventType::Fake)
+        .unwrap();
+    assert_eq!(event.create_frame, 731);
+    assert_eq!(event.world_loc.x, target.read().unwrap().get_position().x);
+    assert!(peer.radar.contains_object(2));
+    assert!(peer.radar.get_active_events().is_empty());
+    assert!(peer.death_notifications.is_empty());
+    assert_eq!(peer_guard.get_health(), 100.0);
+}
+
+#[test]
+fn missing_receiving_radar_link_rejects_death_before_health() {
+    use game_engine::common::system::radar::RadarObject;
+    let mut game = native_death_world();
+    let target = game.target.clone();
+    target
+        .write()
+        .unwrap()
+        .set_radar_data_for_test(Some(Box::new(RadarObject::new(2))));
+    game.operate(732, |world| {
+        assert!(world.attempt_damage_owned(&target, &mut fatal(1)).is_err())
+    });
+    assert_eq!(target.read().unwrap().get_health(), 100.0);
+    assert!(!target.read().unwrap().is_destroyed());
+    assert!(game.death_notifications.is_empty());
+}
+
+#[test]
+fn direct_destroy_keeps_radar_until_original_destructor_phase() {
+    use game_engine::common::system::radar::RadarObject;
+    let mut game = native_death_world();
+    let target = game.target.clone();
+    let mut data = RadarObject::new(2);
+    data.priority = game_engine::common::system::radar::RadarPriorityType::Unit;
+    game.radar.add_object(data.clone());
+    target
+        .write()
+        .unwrap()
+        .set_radar_data_for_test(Some(Box::new(data)));
+    game.operate(733, |world| world.destroy_object_owned(2).unwrap());
+    assert!(game.radar.contains_object(2));
+    assert!(target.read().unwrap().owned_radar_data().is_some());
+    assert!(game.death_notifications.is_empty());
+    assert_eq!(game.dispose_destroyed(734).unwrap(), 1);
+    assert!(!game.radar.contains_object(2));
+    assert!(target.read().unwrap().owned_radar_data().is_none());
+    assert!(game.factory.get_object(2).is_none());
 }

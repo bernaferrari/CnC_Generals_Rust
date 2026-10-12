@@ -152,6 +152,8 @@ pub struct AIFollowPathState {
 impl AIFollowPathState {
     pub fn new(machine: &StateMachine, follow_exit_production: bool) -> Self {
         let mut base = AIMoveToState::new(machine);
+        // C++ FollowPath inherits InternalMoveTo, not AIMoveTo's attack-move policy.
+        base.is_move_to = false;
         base.base.name = if follow_exit_production {
             "AIFollowExitProductionPath".to_string()
         } else {
@@ -1040,5 +1042,16 @@ impl Snapshotable for AIFollowPathState {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod owned_follow_policy_tests {
+    use super::*;
+    #[test]
+    fn authored_path_uses_internal_movement_without_move_to_mood_policy() {
+        let machine = StateMachine::new(None, "FollowPath policy");
+        assert!(!AIFollowPathState::new(&machine, false).base.is_move_to);
+        assert!(!AIFollowPathState::new(&machine, true).base.is_move_to);
     }
 }

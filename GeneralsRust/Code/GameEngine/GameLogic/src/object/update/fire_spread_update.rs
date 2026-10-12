@@ -314,13 +314,38 @@ impl FireSpreadUpdate {
     /// Calculate next spread delay with randomization
     /// Matches C++ FireSpreadUpdate.cpp:149-156
     fn calc_next_spread_delay(&self) -> u32 {
-        let delay = game_logic_random_value(
+        self.calc_next_spread_delay_with(game_logic_random_value)
+    }
+
+    fn calc_next_spread_delay_with(&self, mut draw: impl FnMut(u32, u32) -> u32) -> u32 {
+        draw(
             self.module_data.min_spread_try_delay,
             self.module_data.max_spread_try_delay,
-        );
+        )
+        .max(1)
+    }
 
-        // Ensure at least 1 frame delay (C++ line 153-154)
-        delay.max(1)
+    fn wake_delay_if_aflame_with_random(
+        &self,
+        is_aflame: bool,
+        random: &mut game_engine::common::random_value::RandomState,
+    ) -> Option<u32> {
+        is_aflame.then(|| {
+            self.calc_next_spread_delay_with(|min, max| {
+                if min >= max {
+                    return min;
+                }
+                // Same inclusive wrapping range arithmetic as the existing Common
+                // integer adapter; only the explicitly supplied stream changes.
+                let lo = min as i32;
+                let hi = max as i32;
+                let delta = hi.wrapping_sub(lo).wrapping_add(1) as u32;
+                if delta == 0 {
+                    return max;
+                }
+                ((random.next_u32() % delta) as i32).wrapping_add(lo) as u32
+            })
+        })
     }
 
     /// Save state to xfer
@@ -439,6 +464,15 @@ impl Module for FireSpreadUpdateModule {
 impl FireSpreadControlInterface for FireSpreadUpdateModule {
     fn wake_delay_if_aflame(&mut self, is_aflame: bool) -> Option<u32> {
         self.behavior.wake_delay_if_aflame(is_aflame)
+    }
+    fn wake_delay_if_aflame_with_random(
+        &mut self,
+        is_aflame: bool,
+        random: &mut game_engine::common::random_value::RandomState,
+    ) -> Result<Option<u32>, String> {
+        Ok(self
+            .behavior
+            .wake_delay_if_aflame_with_random(is_aflame, random))
     }
 }
 

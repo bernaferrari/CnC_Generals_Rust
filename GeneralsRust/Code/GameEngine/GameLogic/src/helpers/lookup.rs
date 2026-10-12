@@ -3,6 +3,13 @@
 // Split from `helpers.rs` for module-size parity.
 // Observable behavior is unchanged.
 
+/// Adapt the receiving immutable content definition without selecting a factory.
+pub(crate) fn adapt_owned_thing_template(
+    inner: Arc<EngineThingTemplate>,
+) -> Arc<dyn crate::common::ThingTemplate> {
+    Arc::new(EngineThingTemplateAdapter::new(inner))
+}
+
 struct EngineThingTemplateAdapter {
     inner: Arc<EngineThingTemplate>,
     name: crate::common::AsciiString,

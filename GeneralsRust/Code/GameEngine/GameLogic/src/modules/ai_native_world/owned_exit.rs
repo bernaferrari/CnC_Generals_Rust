@@ -6,6 +6,27 @@ pub(super) struct ExitContinuation {
     instant: bool,
 }
 impl BorrowedAiWorld<'_> {
+    pub(super) fn observe_exit_free_to_exit(
+        &self,
+        passenger: ObjectID,
+        owner: ObjectID,
+    ) -> Result<crate::object::production::AIFreeToExitType, String> {
+        let passenger = self.object(passenger).ok_or("exit rider absent")?;
+        let owner = self.object(owner).ok_or("exit target absent")?;
+        if Arc::ptr_eq(&passenger, &owner) {
+            return Err("exit rider cannot contain itself".into());
+        }
+        let ai = owner
+            .read()
+            .map_err(|_| "exit target poisoned")?
+            .get_ai_update_interface();
+        let Some(ai) = ai else {
+            return Ok(crate::object::production::AIFreeToExitType::FreeToExit);
+        };
+        let passenger = passenger.read().map_err(|_| "exit rider poisoned")?;
+        let ai = ai.lock().map_err(|_| "exit target AI poisoned")?;
+        ai.get_ai_free_to_exit_with_world(&passenger, self)
+    }
     fn validate_exit_pair(
         &self,
         passenger: &Arc<RwLock<Object>>,
@@ -17,16 +38,33 @@ impl BorrowedAiWorld<'_> {
         if rider.get_contained_by() != Some(target.get_id()) {
             return Err("exit source is not this owner's passenger".into());
         }
-        if target.get_ai_update_interface().is_some() {
-            return Err("native exit free-to-exit AI callback not admitted".into());
+        if let Some(ai) = target.get_ai_update_interface() {
+            drop(target);
+            ai.lock()
+                .map_err(|_| "exit target AI poisoned")?
+                .get_ai_free_to_exit_with_world(&rider, self)?;
+        } else {
+            drop(target);
         }
+        let target = owner.read().map_err(|_| "exit owner poisoned")?;
         let contain = target.get_contain().ok_or("exit container absent")?;
-        if !contain
-            .lock()
-            .map_err(|_| "exit contain poisoned")?
-            .supports_owned_zero_path_exit()
-        {
+        let contain = contain.lock().map_err(|_| "exit contain poisoned")?;
+        if !contain.supports_owned_zero_path_exit() && !contain.supports_owned_numbered_exit() {
             return Err("native exit path/bone continuation not admitted".into());
+        }
+        if contain.supports_owned_numbered_exit() {
+            if target.is_kind_of(crate::common::KindOf::Vehicle)
+                || target.get_layer() != crate::common::PathfindLayerEnum::Ground
+            {
+                return Err("numbered exit currently requires a ground structure".into());
+            }
+            if let Some(drawable) = target.get_drawable() {
+                drop(
+                    drawable
+                        .read()
+                        .map_err(|_| "exit pristine drawable poisoned")?,
+                );
+            }
         }
         Ok(())
     }
@@ -80,10 +118,40 @@ impl BorrowedAiWorld<'_> {
             .expect("admitted exit owner poisoned")
             .get_contain()
             .expect("admitted exit container retired");
-        contain
-            .lock()
-            .expect("admitted exit container poisoned")
-            .finish_owned_zero_path_exit(self);
+        let path = {
+            let mut contain = contain.lock().expect("admitted exit container poisoned");
+            if contain.supports_owned_numbered_exit() {
+                Some(contain.finish_owned_numbered_exit(self))
+            } else {
+                contain.finish_owned_zero_path_exit(self);
+                None
+            }
+        };
+        if let Some(path) = path {
+            {
+                let mut passenger = step
+                    .passenger
+                    .write()
+                    .expect("admitted exit passenger poisoned");
+                self.set_object_position(&mut passenger, &path.start)
+                    .expect("admitted numbered exit position");
+                self.set_object_orientation(&mut passenger, path.orientation)
+                    .expect("admitted numbered exit orientation");
+                self.set_object_layer(&mut passenger, path.layer);
+                self.services
+                    .pathfinder
+                    .add_object_to_map(id, &[path.start], false);
+            }
+            let ai = step
+                .passenger
+                .read()
+                .expect("admitted exit actor poisoned")
+                .get_ai_update_interface()
+                .expect("admitted exit AI retired");
+            ai.lock()
+                .expect("admitted exit AI poisoned")
+                .follow_contain_exit_with_world(goal, path.end, path.rally, self)?;
+        }
         if !step.instant {
             let ai = step
                 .passenger
@@ -122,6 +190,22 @@ impl BorrowedAiWorld<'_> {
         };
         let owner = self.object(goal).ok_or("exit owner absent")?;
         self.validate_exit_pair(&passenger, &owner)?;
+        if instant {
+            let contain = owner
+                .read()
+                .map_err(|_| "exit owner poisoned")?
+                .get_contain()
+                .ok_or("exit contain absent")?;
+            if !contain
+                .lock()
+                .map_err(|_| "exit contain poisoned")?
+                .supports_owned_zero_path_exit()
+            {
+                return Err(
+                    "numbered instant exit requires the original QuickExit callback".into(),
+                );
+            }
+        }
         if owner
             .read()
             .map_err(|_| "exit owner poisoned")?

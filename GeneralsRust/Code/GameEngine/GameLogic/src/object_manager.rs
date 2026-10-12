@@ -1413,6 +1413,15 @@ impl ObjectManager {
         }
     }
 
+    /// Bound a source-only native operation by the complete spatial index,
+    /// not center-distance culling (large target geometry may overlap a query).
+    pub(crate) fn has_only_spatial_object(&self, id: ObjectID) -> bool {
+        self.spatial_partition.object_positions.len() == 1
+            && self.spatial_partition.object_positions.contains_key(&id)
+            && self.spatial_partition.object_cells.len() == 1
+            && self.spatial_partition.object_cells.contains_key(&id)
+    }
+
     /// Find objects within radius
     pub fn find_objects_in_radius(&self, center: Coord3D, radius: Real) -> Vec<ObjectID> {
         self.spatial_partition

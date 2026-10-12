@@ -14,7 +14,7 @@ mod physics_owned_shock;
 mod physics_owned_tick;
 #[path = "physics_reset.rs"]
 mod physics_reset;
-pub(crate) use physics_owned_tick::OwnedPhysicsStep;
+pub(crate) use physics_owned_tick::{OwnedLanding, OwnedPhysicsStep, PreparedOwnedPhysicsStep};
 use physics_reset::PhysicsResetWake;
 
 use crate::common::audio::AudioEventRts;

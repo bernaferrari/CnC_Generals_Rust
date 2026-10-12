@@ -477,6 +477,8 @@ pub enum BehaviorError {
     InvalidPosition,
     #[error("No space available for mine placement")]
     NoSpaceAvailable,
+    #[error("Minefield service unavailable: {0}")]
+    ServiceUnavailable(String),
     #[error("Minefield already generated")]
     MinefieldAlreadyGenerated,
 }
@@ -530,7 +532,116 @@ fn destroy_minefield_mines_before_reset(
     state.generated = false;
 }
 
+fn circle_positions(
+    center: Coord3D,
+    radius: f32,
+    mine_radius: f32,
+) -> impl Iterator<Item = Coord3D> {
+    let increment = (2.0 * std::f32::consts::PI) / circle_mine_count(radius, mine_radius) as f32;
+    let limit = 2.0 * std::f32::consts::PI - increment * 0.5;
+    let mut angle: f32 = 0.0;
+    std::iter::from_fn(move || {
+        if angle >= limit {
+            return None;
+        }
+        let position = Coord3D::new(
+            center.x + radius * angle.cos(),
+            center.y + radius * angle.sin(),
+            center.z,
+        );
+        angle += increment;
+        Some(position)
+    })
+}
+
+/// Match-owned mine placement services. Placement includes terrain/layer validation,
+/// the orientation draw, structure rejection, actual creation, producer and scoot.
+/// Implementations must reject unsupported definition/callback families in preflight.
+pub(crate) trait MinefieldPlacement {
+    fn preflight(&self, owner: ObjectId, template: &str) -> BehaviorResult<(GeometryInfo, f32)>;
+    fn random_real(&mut self, low: f32, high: f32) -> f32;
+    fn place(
+        &mut self,
+        owner: ObjectId,
+        template: &str,
+        position: &Coord3D,
+        skip: f32,
+    ) -> BehaviorResult<ObjectId>;
+    fn remove(&mut self, owner: ObjectId, mine: ObjectId) -> BehaviorResult<()>;
+}
+
 impl GenerateMinefieldBehavior {
+    pub(crate) fn place_mines_owned(
+        &mut self,
+        services: &mut dyn MinefieldPlacement,
+    ) -> BehaviorResult<()> {
+        if self.state.generated {
+            return Err(BehaviorError::MinefieldAlreadyGenerated);
+        }
+        if self.config.smart_border
+            || !self.config.border_only
+            || !self.config.always_circular
+            || self.config.generation_fx.is_some()
+            || self.state.upgraded
+        {
+            return Err(BehaviorError::ServiceUnavailable(
+                "owned minefield admits normal circular border without generation FX".into(),
+            ));
+        }
+        let (mut geometry, mine_radius) =
+            services.preflight(self.object_id, &self.config.mine_name)?;
+        if let Some(target) = self.state.target {
+            geometry.center = target;
+        }
+        let radius = geometry.major_radius + self.config.distance_around_object;
+        let jitter = mine_radius * self.config.random_jitter;
+        for mut position in circle_positions(geometry.center, radius, mine_radius) {
+            if jitter > 0.0 {
+                position.x += services.random_real(-jitter, jitter);
+                position.y += services.random_real(-jitter, jitter);
+            }
+            match services.place(
+                self.object_id,
+                &self.config.mine_name,
+                &position,
+                self.config.skip_if_this_much_under_structure,
+            ) {
+                Ok(id) => {
+                    if self.config.upgradable {
+                        self.state.mine_list.push(id);
+                    }
+                }
+                Err(BehaviorError::NoSpaceAvailable | BehaviorError::InvalidPosition) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        self.state.generated = true;
+        self.state.current_mine_template = self.config.mine_name.clone();
+        Ok(())
+    }
+
+    pub(crate) fn on_die_owned(
+        &mut self,
+        _damage: &DamageInfo,
+        services: &mut dyn MinefieldPlacement,
+    ) -> BehaviorResult<()> {
+        if self.config.on_death {
+            self.place_mines_owned(services)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn clear_mines_owned(
+        &mut self,
+        services: &mut dyn MinefieldPlacement,
+    ) -> BehaviorResult<()> {
+        for id in self.state.mine_list.clone() {
+            services.remove(self.object_id, id)?;
+        }
+        self.state.mine_list.clear();
+        self.state.generated = false;
+        Ok(())
+    }
     /// Create a new generate minefield behavior from explicit config (builder/tests).
     pub fn new_from_config(
         object_id: ObjectId,
@@ -755,31 +866,17 @@ impl GenerateMinefieldBehavior {
         mine_template: &str,
         mine_radius: f32,
     ) -> BehaviorResult<()> {
-        let num_mines = circle_mine_count(radius, mine_radius);
-        let angle_inc = (2.0 * std::f32::consts::PI) / num_mines as f32;
-        let angle_limit = (2.0 * std::f32::consts::PI) - angle_inc * 0.5;
         let mine_jitter = mine_radius * self.config.random_jitter;
-
-        let mut angle = 0.0;
-        while angle < angle_limit {
-            let mut position = Coord3D::new(
-                center.x + radius * angle.cos(),
-                center.y + radius * angle.sin(),
-                center.z,
-            );
-
+        for mut position in circle_positions(*center, radius, mine_radius) {
             if mine_jitter > 0.0 {
                 position.x += self.random_value(-mine_jitter, mine_jitter);
                 position.y += self.random_value(-mine_jitter, mine_jitter);
             }
-
             if let Ok(mine_id) = self.place_mine_at(&position, mine_template) {
                 if self.config.upgradable {
                     self.state.mine_list.push(mine_id);
                 }
             }
-
-            angle += angle_inc;
         }
 
         Ok(())
@@ -1921,11 +2018,10 @@ mod tests {
 
     #[test]
     fn test_mine_placement() {
-        let _guard = crate::test_sync::lock();
-        let fixture = super::test_fixture::MinefieldFixture::new(98_101);
+        let mut fixture = super::test_fixture::MinefieldFixture::new(98_101);
         let mut behavior = fixture.behavior(false);
 
-        let result = behavior.place_mines();
+        let result = behavior.place_mines_owned(&mut fixture);
         assert!(result.is_ok());
 
         let stats = behavior.get_statistics();
@@ -1950,14 +2046,13 @@ mod tests {
 
     #[test]
     fn test_death_behavior() {
-        let _guard = crate::test_sync::lock();
-        let fixture = super::test_fixture::MinefieldFixture::new(98_102);
+        let mut fixture = super::test_fixture::MinefieldFixture::new(98_102);
         let mut behavior = fixture.behavior(true);
 
         let damage_info =
             DamageInfo::with_simple(1000.0, 42, DamageType::Explosion, DeathType::Normal);
 
-        let result = crate::modules::DieModuleInterface::on_die(&mut behavior, &damage_info);
+        let result = behavior.on_die_owned(&damage_info, &mut fixture);
         assert!(result.is_ok());
 
         let stats = behavior.get_statistics();
@@ -2000,30 +2095,27 @@ mod tests {
 
     #[test]
     fn test_mine_clearing() {
-        let _guard = crate::test_sync::lock();
-        let fixture = super::test_fixture::MinefieldFixture::new(98_103);
+        let mut fixture = super::test_fixture::MinefieldFixture::new(98_103);
         let mut behavior = fixture.behavior(false);
 
         // Generate mines first
-        behavior.place_mines().expect("real minefield generation");
+        behavior
+            .place_mines_owned(&mut fixture)
+            .expect("real minefield generation");
         assert!(behavior.get_statistics().is_generated);
         let mines = fixture.assert_real_mines(&behavior);
 
         // Clear mines
-        let result = behavior.clear_mines();
+        let result = behavior.clear_mines_owned(&mut fixture);
         assert!(result.is_ok());
 
         let stats = behavior.get_statistics();
         assert!(!stats.is_generated);
         assert_eq!(stats.mine_count, 0);
-        let retained: Vec<_> = {
-            let manager_handle = crate::object_manager::get_object_manager();
-            let manager = manager_handle.read().unwrap();
-            mines
-                .iter()
-                .map(|id| manager.get_object(*id).is_some())
-                .collect()
-        };
+        let retained: Vec<_> = mines
+            .iter()
+            .map(|id| fixture.factory.get_object(*id).is_some())
+            .collect();
         assert!(
             retained.into_iter().all(|present| present),
             "mine remains owned until deletion boundary"

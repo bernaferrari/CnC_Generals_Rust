@@ -62,6 +62,14 @@ pub fn contain_admission_with_lookup(
         .unwrap_or(false)
 }
 
+pub struct OwnedContainExitPath {
+    pub(crate) start: Coord3D,
+    pub(crate) end: Coord3D,
+    pub(crate) orientation: Real,
+    pub(crate) layer: PathfindLayerEnum,
+    pub(crate) rally: Option<Coord3D>,
+}
+
 pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     /// Admission against an explicit store and relationship owner. Unsupported
     /// derived modules must not rediscover a process-global player or rider.
@@ -84,6 +92,16 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     /// physical owner's inherited weapon bonus services admitted pre-push.
     fn requires_owned_weapon_refresh(&self) -> bool {
         false
+    }
+
+    fn supports_owned_numbered_exit(&self) -> bool {
+        false
+    }
+    fn finish_owned_numbered_exit(
+        &mut self,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> OwnedContainExitPath {
+        panic!("numbered exit callback not admitted")
     }
 
     fn supports_owned_zero_path_exit(&self) -> bool {
@@ -670,11 +688,7 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     /// Get contain max as i32 (matches legacy API).
     fn get_contain_max(&self) -> i32 {
         let max = self.get_max_capacity();
-        if max == usize::MAX {
-            -1
-        } else {
-            max as i32
-        }
+        if max == usize::MAX { -1 } else { max as i32 }
     }
 
     /// Return container pip display data for selected-object UI.

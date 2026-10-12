@@ -22,8 +22,7 @@ impl Object {
         Ok(())
     }
     pub(crate) fn validate_owned_on_die_tail(&self) -> Result<(), String> {
-        if self.radar_data.is_some()
-            || self.drawable.is_some()
+        if self.drawable.is_some()
             || self.producer_id != INVALID_ID
             || self.test_status(ObjectStatusTypes::BoobyTrapped)
             || self.test_status(ObjectStatusTypes::Reconstructing)
@@ -41,6 +40,42 @@ impl Object {
         }
         Ok(())
     }
+    /// CPP Object.cpp:1956–1968 removes radar at the effectively-dead edge,
+    /// before onDamage/score/onDie. Its later onDie check is then a no-op.
+    pub(crate) fn set_effectively_dead_with_radar(
+        &mut self,
+        dead: bool,
+        radar: &mut game_engine::common::system::radar::RadarSystem,
+    ) -> Result<(), String> {
+        if dead {
+            if let Some(data) = self.radar_data.as_deref() {
+                if data.object_id != self.id || !radar.contains_object(self.id) {
+                    return Err("effectively-dead radar link belongs to another owner".into());
+                }
+            }
+            self.private_status |= ObjectPrivateStatusBits::EffectivelyDead as u8;
+            if self.radar_data.is_some() {
+                assert!(
+                    radar.remove_object(self.id),
+                    "admitted effectively-dead radar link"
+                );
+                self.radar_data = None;
+            }
+        } else {
+            self.private_status &= !(ObjectPrivateStatusBits::EffectivelyDead as u8);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn owned_radar_data(&self) -> Option<&RadarObject> {
+        self.radar_data.as_deref()
+    }
+
+    /// CPP Radar::deleteFromList removes the object's radar link too.
+    pub(crate) fn clear_owned_radar_data(&mut self) {
+        self.radar_data = None;
+    }
+
     pub(crate) fn begin_owned_on_die(&mut self) {
         #[cfg(any(debug_assertions, feature = "internal"))]
         {

@@ -243,3 +243,36 @@ impl OpenContain {
         }
     }
 }
+
+impl OpenContain {
+    pub(in crate::object::contain) fn finish_numbered_exit_with_world(
+        &mut self,
+        world: &mut dyn AiWorld,
+    ) -> crate::modules::OwnedContainExitPath {
+        assert!(self.module_data.number_of_exit_paths > 0);
+        // Door flags precede pristine-bone selection, matching OpenContain.cpp915.
+        self.door_close_countdown = self.module_data.door_open_time;
+        let owner = world
+            .object(self.get_object_id())
+            .expect("admitted exit owner retired");
+        let mut owner = owner.write().expect("admitted exit owner poisoned");
+        if self.door_close_countdown != 0 {
+            owner
+                .clear_and_set_model_condition_flags(
+                    MODELCONDITION_DOOR_1_CLOSING,
+                    MODELCONDITION_DOOR_1_OPENING,
+                )
+                .expect("admitted numbered exit model flags");
+        }
+        let (_, start_name, end_name) = self.exit_bone_names_for_next_path();
+        let (_, start, _) = owner.get_single_logical_bone_position(&start_name);
+        let (_, end, _) = owner.get_single_logical_bone_position(&end_name);
+        crate::modules::OwnedContainExitPath {
+            start,
+            end,
+            orientation: owner.get_orientation(),
+            layer: owner.get_layer(),
+            rally: self.rally_point_exists.then_some(self.rally_point),
+        }
+    }
+}

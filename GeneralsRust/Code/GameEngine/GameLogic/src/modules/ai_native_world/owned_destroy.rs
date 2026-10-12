@@ -9,6 +9,11 @@ impl BorrowedAiWorld<'_> {
             .try_read()
             .map_err(|_| "native destroy object already borrowed")?;
         object.native_destroy_plan()?;
+        if let Some(data) = object.owned_radar_data() {
+            if data.object_id != id || !self.services.radar.contains_object(id) {
+                return Err("native destroy radar link belongs to another owner".into());
+            }
+        }
         if let Some(controller) = object.controlling_player_id_from_pin()? {
             if self.players.get_player(controller as Int).is_none() {
                 return Err("native destroy controller absent".into());

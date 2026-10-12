@@ -56,6 +56,7 @@ impl AssistedTargetingUpdateModuleData {
 }
 
 pub struct AssistedTargetingUpdate {
+    owner: Weak<RwLock<GameObject>>,
     object_id: ObjectID,
     module_data: Arc<AssistedTargetingUpdateModuleData>,
     /// UpdateModule scheduler state serialized by the C++ base class.
@@ -75,6 +76,7 @@ impl AssistedTargetingUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
+            owner: Arc::downgrade(&object),
             object_id: object
                 .read()
                 .ok()
@@ -119,12 +121,7 @@ impl AssistedTargetingUpdate {
         };
 
         // C++ AssistedTargetingUpdate.cpp:96-97 — requires controlling player.
-        let team = if let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
+        let team = if let Some(me_arc) = self.owner.upgrade() {
             me_arc
                 .read()
                 .ok()
@@ -212,17 +209,7 @@ impl BehaviorModuleInterface for AssistedTargetingUpdate {
 
 impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
     fn is_free_to_assist(&self) -> bool {
-        // Wave 336: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
-        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        let Some(me_arc) = self.owner.upgrade() else {
             return false;
         };
         let Ok(me) = me_arc.read() else {
@@ -246,12 +233,7 @@ impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
             return;
         }
 
-        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        let Some(me_arc) = self.owner.upgrade() else {
             return;
         };
         let Ok(mut me) = me_arc.write() else {
@@ -467,7 +449,6 @@ mod tests {
     #[test]
     fn is_free_to_assist_uses_current_weapon_not_assist_slot() {
         let object = Arc::new(RwLock::new(Object::new_test(0xA5515701, 100.0)));
-        OBJECT_REGISTRY.register_object(0xA5515701, &object);
         let mut set = WeaponTemplateSet::new();
         let mut template = WeaponTemplate::new("ReadyPrimary".to_string());
         template.clip_size = 1;
@@ -504,7 +485,13 @@ mod tests {
         });
         let assisted = AssistedTargetingUpdate::new(Arc::clone(&object), module_data).unwrap();
 
+        let peer = Arc::new(RwLock::new(Object::new_test(0xA5515701, 100.0)));
+        let _peer_loan = peer.write().unwrap();
         assert!(assisted.is_free_to_assist());
-        OBJECT_REGISTRY.unregister_object(0xA5515701);
+        drop(object);
+        assert!(
+            !assisted.is_free_to_assist(),
+            "retired owner cannot bind to the same-ID peer"
+        );
     }
 }

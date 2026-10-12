@@ -662,3 +662,100 @@ mod tests {
         assert_eq!(player.get_skill_points(), 200);
     }
 }
+
+/// Prepared rank ledger change against immutable definitions from its session.
+/// Science grants remain explicit obligations, never omitted from a rank change.
+pub(crate) struct OwnedKillSkillAward {
+    skill_points: Int,
+    rank_level: Int,
+    level_up: Int,
+    level_down: Int,
+    science_purchase_points: Int,
+}
+impl Player {
+    /// Initialize only this player's rank ledger from admitted content. The
+    /// caller supplies intrinsic points at session startup; restore retains its
+    /// saved ledger and must not replay initialization.
+    pub(crate) fn initialize_owned_rank_ledger(
+        &mut self,
+        ranks: &crate::system::rank_info::RankInfoStore,
+        intrinsic_points: Int,
+    ) -> Result<(), String> {
+        let first = ranks
+            .get_rank_info(1)
+            .ok_or("receiving initial rank definition absent")?;
+        if !first.sciences_granted.is_empty() {
+            return Err("native initial-rank science callbacks not admitted".into());
+        }
+        self.rank_level = 1;
+        self.skill_points = 0;
+        self.level_down = 0;
+        self.level_up = ranks
+            .get_rank_info(2)
+            .map(|r| r.skill_points_needed)
+            .unwrap_or(Int::MAX);
+        self.science_purchase_points =
+            intrinsic_points.wrapping_add(first.science_purchase_points_granted);
+        Ok(())
+    }
+
+    pub(crate) fn prepare_owned_kill_skill_award(
+        &self,
+        delta: Int,
+        ranks: &crate::system::rank_info::RankInfoStore,
+        rank_limit: Int,
+    ) -> Result<OwnedKillSkillAward, String> {
+        let mut award = OwnedKillSkillAward {
+            skill_points: self.skill_points,
+            rank_level: self.rank_level,
+            level_up: self.level_up,
+            level_down: self.level_down,
+            science_purchase_points: self.science_purchase_points,
+        };
+        let delta = (delta as Real * self.skill_points_modifier).ceil() as Int;
+        if delta == 0 {
+            return Ok(award);
+        }
+        let cap = rank_limit.min(ranks.get_rank_level_count() as Int);
+        let cap_info = ranks
+            .get_rank_info(cap as usize)
+            .ok_or("receiving rank cap definition absent")?;
+        award.skill_points = self
+            .skill_points
+            .wrapping_add(delta)
+            .min(cap_info.skill_points_needed);
+        while award.skill_points >= award.level_up {
+            let next = (award.rank_level + 1).min(cap);
+            if next <= award.rank_level {
+                break;
+            }
+            let rank = ranks
+                .get_rank_info(next as usize)
+                .ok_or("receiving rank definition absent")?;
+            if !rank.sciences_granted.is_empty() {
+                return Err("native rank science-grant callbacks not admitted".into());
+            }
+            award.science_purchase_points = award
+                .science_purchase_points
+                .wrapping_add(rank.science_purchase_points_granted)
+                .max(0);
+            award.skill_points = award.skill_points.max(rank.skill_points_needed);
+            award.level_down = rank.skill_points_needed;
+            award.level_up = ranks
+                .get_rank_info((next + 1) as usize)
+                .map(|r| r.skill_points_needed)
+                .unwrap_or(Int::MAX);
+            award.rank_level = next;
+        }
+        Ok(award)
+    }
+    pub(crate) fn commit_owned_kill_skill_award(&mut self, award: OwnedKillSkillAward) -> bool {
+        let changed = self.rank_level != award.rank_level;
+        self.skill_points = award.skill_points;
+        self.rank_level = award.rank_level;
+        self.level_up = award.level_up;
+        self.level_down = award.level_down;
+        self.science_purchase_points = award.science_purchase_points;
+        changed
+    }
+}

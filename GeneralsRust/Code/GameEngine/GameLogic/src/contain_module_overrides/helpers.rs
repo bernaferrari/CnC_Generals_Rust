@@ -115,6 +115,10 @@ impl<T: BehaviorModuleInterface + Snapshotable + 'static> ActiveBehaviorModule<T
 }
 
 impl<T: BehaviorModuleInterface + Snapshotable + 'static> Module for ActiveBehaviorModule<T> {
+    fn get_module_data(&self) -> &dyn ModuleData {
+        self.data.as_ref()
+    }
+
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -180,10 +184,14 @@ where
     let data_arc = cloned_module_data::<TData>(module_name, &module_data);
     let engine_data: Arc<dyn ModuleData> = data_arc.clone();
     let legacy_data: Arc<dyn LegacyModuleData> = data_arc;
-    let owner_id = resolve_owner_id(&thing);
-    // Wave 449: missing dual-world/host owner → no-op module (no panic).
-    let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
-        return missing_owner_module(module_name, engine_data);
+    // C++ constructs the module for the supplied Thing. A numeric ID cannot
+    // select another match's owner, including when a retired ID is reused.
+    let object = match crate::object::supplied_module_owner(thing.as_ref()) {
+        Ok(object) => object,
+        Err(error) => {
+            warn!("{module_name} supplied owner unavailable: {error}");
+            return missing_owner_module(module_name, engine_data);
+        }
     };
     let behavior = match create(object, legacy_data) {
         Ok(behavior) => behavior,

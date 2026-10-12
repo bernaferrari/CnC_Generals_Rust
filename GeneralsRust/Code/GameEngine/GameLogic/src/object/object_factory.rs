@@ -399,13 +399,12 @@ impl ObjectFactory {
         // Create base object first
         let mut status_mask = template.get_initial_object_status();
         status_mask |= extra_status;
-        let prepare_ai = object_type == ObjectType::Unit
-            && !flags.contains(ObjectCreationFlags::NO_AI)
-            && (lookup.is_none()
-                || template
-                    .get_behavior_module_info()
-                    .iter()
-                    .any(|entry| entry.name.as_str() == "AIUpdateInterface"));
+        let authored_ai = template
+            .get_behavior_module_info()
+            .iter()
+            .any(|entry| entry.name.as_str() == "AIUpdateInterface");
+        let prepare_ai = !flags.contains(ObjectCreationFlags::NO_AI)
+            && (authored_ai || (lookup.is_none() && object_type == ObjectType::Unit));
         // C++ Object.cpp:419-429 caches an AI interface only from an authored
         // module. A supplied native constructor must not synthesize the legacy
         // Unit fallback when the template has no AI module.

@@ -265,6 +265,15 @@ impl PhysicsInterfaceHandle {
     }
 
     #[cfg(test)]
+    pub(crate) fn set_freefall_for_test(&self, owner: &super::Object) -> Result<(), String> {
+        self.installed_update_proxy(owner)?;
+        self.with_installed_update(|physics| {
+            physics.set_freefall_for_test();
+            Ok(())
+        })
+    }
+
+    #[cfg(test)]
     pub(crate) fn set_immune_freefall_for_test(&self, owner: &super::Object) -> Result<(), String> {
         self.installed_update_proxy(owner)?;
         self.with_installed_update(|physics| {
@@ -273,22 +282,54 @@ impl PhysicsInterfaceHandle {
         })
     }
 
-    pub(crate) fn integrate_owned_at(
+    pub(crate) fn prepare_owned_at(
         &self,
-        owner: &mut super::Object,
+        owner: &super::Object,
         frame: u32,
         gravity: f32,
         start_ground: f32,
         ground_height: impl FnMut(f32, f32) -> f32,
+    ) -> Result<super::behavior::physics_update::PreparedOwnedPhysicsStep, String> {
+        self.installed_update_proxy(owner)?;
+        self.with_installed_update(|physics| {
+            physics.prepare_owned_at(owner, frame, gravity, start_ground, ground_height)
+        })
+    }
+
+    pub(crate) fn commit_owned_at(
+        &self,
+        owner: &mut super::Object,
+        prepared: super::behavior::physics_update::PreparedOwnedPhysicsStep,
     ) -> Result<super::behavior::physics_update::OwnedPhysicsStep, String> {
         self.installed_update_proxy(owner)?;
-        let PhysicsInterfaceKind::Module(handle) = &self.kind else {
-            unreachable!()
-        };
-        handle.with_module(|module| module.as_any_mut()
-            .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<PhysicsBehaviorUpdate>>()
-            .ok_or("installed Physics module absent")?.behavior_mut()
-            .integrate_owned_at(owner, frame, gravity, start_ground, ground_height))
+        self.with_installed_update(|physics| physics.commit_owned_at(owner, prepared))
+    }
+
+    pub(crate) fn begin_owned_landing_at(
+        &self,
+        owner: &super::Object,
+        airborne_at_end: bool,
+    ) -> Result<Option<super::behavior::physics_update::OwnedLanding>, String> {
+        self.installed_update_proxy(owner)?;
+        self.with_installed_update(|physics| {
+            Ok(physics.begin_owned_landing_at(owner, airborne_at_end))
+        })
+    }
+
+    pub(crate) fn ground_collision_owned_at(&self, owner: &super::Object) -> Result<(), String> {
+        self.installed_update_proxy(owner)?;
+        self.with_installed_update(|physics| physics.ground_collision_owned_at(owner))
+    }
+
+    pub(crate) fn falling_damage_owned_at(
+        &self,
+        owner: &super::Object,
+        active_velocity_z: f32,
+    ) -> Result<Option<crate::damage::DamageInfo>, String> {
+        self.installed_update_proxy(owner)?;
+        self.with_installed_update(|physics| {
+            Ok(physics.falling_damage_owned_at(owner, active_velocity_z))
+        })
     }
 
     pub(crate) fn prepare_freefall_cleanup_at(&self, owner: &super::Object) -> Result<(), String> {

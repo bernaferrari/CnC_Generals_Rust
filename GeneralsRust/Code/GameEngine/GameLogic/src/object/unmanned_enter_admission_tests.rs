@@ -242,6 +242,11 @@ impl AdmissionMatch {
         let mut audio = AudioManager::new();
         let locality = LocalPlayers(&self.players);
         let mut random = Default::default();
+        let ranks = crate::system::rank_info::RankInfoStore::default();
+        let mut kill_awards = Vec::new();
+        let mut radar = Default::default();
+        let mut death_notifications = Vec::new();
+        let deposit_sound = Default::default();
         let rules = crate::ai::AiData::default();
         let bonuses = crate::weapon::WeaponBonusSet::default();
         let mut triggers = Vec::new();
@@ -250,6 +255,12 @@ impl AdmissionMatch {
             &self.factory,
             &self.players,
             AiNativeServices {
+                radar: &mut radar,
+                death_notifications: &mut death_notifications,
+                rank_info: &ranks,
+                rank_level_limit: i32::MAX,
+                money_deposit_sound: &deposit_sound,
+                kill_award_events: &mut kill_awards,
                 groups: &[],
                 disposal: None,
                 current_update: None,

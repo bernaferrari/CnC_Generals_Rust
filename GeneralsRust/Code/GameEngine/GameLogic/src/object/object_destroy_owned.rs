@@ -56,7 +56,6 @@ impl Object {
         if self.contain.is_some()
             || self.get_container_id().is_some()
             || self.drawable.is_some()
-            || self.radar_data.is_some()
             || self.group_id.is_some()
             || self.has_any_special_power()
             || self.thing_template.get_energy_production() != 0
@@ -77,6 +76,9 @@ impl Object {
                     if crate::contain_module_overrides::has_owned_empty_body_delete(module)
                         || module.as_any().is::<AIUpdateInterfaceModule>()
                         || module.as_any().is::<SlowDeathBehavior>()
+                        // CPP Physics destructor only releases its owned audio value;
+                        // this actual wrapper inherits the empty Module::on_delete.
+                        || module.as_any().is::<crate::contain_module_overrides::ActiveBehaviorModule<crate::object::behavior::physics_update::PhysicsBehaviorUpdate>>()
                     {
                         return Ok(true);
                     }

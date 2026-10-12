@@ -34,15 +34,11 @@ impl BorrowedAiWorld<'_> {
         let victim = owner.try_read().map_err(|_| "lethal owner unavailable")?;
         victim.validate_owned_on_die_tail()?;
         victim.validate_owned_death_callbacks(self.services.slow_death_scale)?;
-        let victim_player = self.controller(&victim);
-        if let Some(player) = &victim_player {
-            let player = player
-                .try_write()
-                .map_err(|_| "lethal player unavailable")?;
-            if player.get_player_index() == self.players.get_local_player_index()
-                && damage.input.source_id != victim.get_id()
+        if let Some(data) = victim.owned_radar_data() {
+            if data.object_id != victim.get_id()
+                || !self.services.radar.contains_object(data.object_id)
             {
-                return Err("native local death EVA/radar delivery not admitted".into());
+                return Err("native dying radar link belongs to another owner".into());
             }
         }
         let ai = victim.get_ai_update_interface();
@@ -101,35 +97,19 @@ impl BorrowedAiWorld<'_> {
             return Ok(());
         }
         if let Some(killer) = self.controller(&source) {
-            if !Arc::ptr_eq(&killer, &victim_player) {
-                let killer = killer
-                    .try_write()
-                    .map_err(|_| "score killer player unavailable")?;
-                if killer.get_cash_bounty() != 0.0
-                    || (!victim.test_status(ObjectStatusTypes::UnderConstruction)
-                        && victim
-                            .get_template()
-                            .get_skill_point_value(victim.get_veterancy_level() as usize)
-                            != 0)
-                {
-                    return Err("native kill bounty/rank effects not admitted".into());
-                }
+            if Arc::ptr_eq(&killer, &victim_player) {
+                return Ok(());
             }
         }
-        if source
-            .with_experience_tracker(|tracker| tracker.is_accepting_experience_points())
-            .unwrap_or(false)
-            && !victim.test_status(ObjectStatusTypes::UnderConstruction)
-        {
-            return Err("native kill experience effects not admitted".into());
-        }
+        self.validate_owned_kill_awards(source, &victim)?;
         Ok(())
     }
 
-    fn score_native_kill(&self, victim: &Arc<RwLock<Object>>, source: ObjectID) {
+    fn score_native_kill(&mut self, victim: &Arc<RwLock<Object>>, source: ObjectID) {
         let Some(source) = self.object(source) else {
             return;
         };
+        let source_arc = Arc::clone(&source);
         let victim_arc = victim;
         let victim = victim_arc.read().expect("admitted score victim");
         let source_guard = if Arc::ptr_eq(&source, victim_arc) {
@@ -167,14 +147,18 @@ impl BorrowedAiWorld<'_> {
             return;
         }
         if let Some(killer) = self.controller(&source) {
-            if !Arc::ptr_eq(&killer, &victim_player) {
-                killer
-                    .write()
-                    .expect("admitted killer player")
-                    .get_score_keeper_mut()
-                    .add_object_destroyed_obj_with_policy(&observation, scoring);
+            if Arc::ptr_eq(&killer, &victim_player) {
+                return;
             }
+            killer
+                .write()
+                .expect("admitted killer player")
+                .get_score_keeper_mut()
+                .add_object_destroyed_obj_with_policy(&observation, scoring);
         }
+        drop(source_guard);
+        drop(victim);
+        self.apply_owned_kill_awards(&source_arc, victim_arc);
     }
 
     fn mark_native_ai_dead(
@@ -453,6 +437,14 @@ impl BorrowedAiWorld<'_> {
                     .expect("admitted InstantDeath destruction");
             }
         }
+        // CPP: radar removal follows every die module and precedes partition.
+        {
+            let mut object = owner.write().expect("admitted onDie radar owner");
+            if object.owned_radar_data().is_some() {
+                assert!(self.services.radar.remove_object(id), "admitted radar link");
+                object.clear_owned_radar_data();
+            }
+        }
         {
             let mut object = owner.write().expect("admitted onDie tail owner");
             self.maintain_partition(&mut object, false);
@@ -466,6 +458,29 @@ impl BorrowedAiWorld<'_> {
                 .read()
                 .expect("admitted onDie player")
                 .get_player_index();
+            if index == self.players.get_local_player_index() && damage.input.source_id != id {
+                let object = owner.read().expect("admitted local death owner");
+                if object.is_kind_of(KindOf::Structure)
+                    && object.is_kind_of(KindOf::CountsForVictory)
+                {
+                    self.services
+                        .death_notifications
+                        .push(NativeDeathNotification::BuildingLost { player: index });
+                } else if object.is_kind_of(KindOf::Infantry) || object.is_kind_of(KindOf::Vehicle)
+                {
+                    self.services
+                        .death_notifications
+                        .push(NativeDeathNotification::UnitLost { player: index });
+                    let position = object.get_position();
+                    self.services.radar.try_event_owned(
+                        self.services.frame,
+                        game_engine::common::system::radar::RadarEventType::Fake,
+                        &game_engine::common::system::radar::Coord3D::new(
+                            position.x, position.y, position.z,
+                        ),
+                    );
+                }
+            }
             self.idle_worker_event(owner, index as Int, false)
                 .expect("admitted death idle removal");
         }

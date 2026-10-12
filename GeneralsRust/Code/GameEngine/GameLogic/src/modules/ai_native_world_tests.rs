@@ -177,6 +177,11 @@ impl AudioLocalityResolver for LocalPlayers<'_> {
     }
 }
 struct NativeMatch {
+    radar: game_engine::common::system::radar::RadarSystem,
+    death_notifications: Vec<super::ai_native_world::NativeDeathNotification>,
+    ranks: crate::system::rank_info::RankInfoStore,
+    deposit_sound: game_engine::common::audio::AudioEventRts,
+    kill_awards: Vec<super::ai_native_world::NativeKillAwardEvent>,
     groups: Vec<Arc<RwLock<crate::ai::AiGroup>>>,
     scheduler: crate::system::game_logic::GameLogic,
     disposal: super::ai_native_world::owned_disposal::NativeDisposalState,
@@ -295,13 +300,22 @@ impl NativeMatch {
                 ObjectCreationFlags::empty(),
             )
             .unwrap();
+        let target_flags = if template
+            .get_behavior_module_info()
+            .iter()
+            .any(|entry| entry.name.as_str() == "AIUpdateInterface")
+        {
+            ObjectCreationFlags::empty()
+        } else {
+            ObjectCreationFlags::NO_AI
+        };
         let target_id = factory
             .prepare_object(
                 &mut scheduler,
                 template,
                 target_position,
                 Some(Arc::clone(&target_team)),
-                ObjectCreationFlags::NO_AI,
+                target_flags,
             )
             .unwrap();
         team.write().unwrap().add_member(source_id);
@@ -354,6 +368,11 @@ impl NativeMatch {
             )
             .unwrap();
         Self {
+            ranks: Default::default(),
+            deposit_sound: Default::default(),
+            kill_awards: Vec::new(),
+            radar: Default::default(),
+            death_notifications: Vec::new(),
             groups: Vec::new(),
             scheduler,
             disposal: super::ai_native_world::owned_disposal::NativeDisposalState::new().unwrap(),
@@ -408,6 +427,12 @@ impl NativeMatch {
     ) -> R {
         let locality = LocalPlayers(&self.players);
         let services = AiNativeServices {
+            radar: &mut self.radar,
+            death_notifications: &mut self.death_notifications,
+            rank_info: &self.ranks,
+            rank_level_limit: i32::MAX,
+            money_deposit_sound: &self.deposit_sound,
+            kill_award_events: &mut self.kill_awards,
             groups: &self.groups,
             disposal: Some(&mut self.disposal),
             current_update,
@@ -976,3 +1001,9 @@ pub(crate) use waypoint_motion::{
 };
 
 pub(crate) use locomotion::explicit_goal_moves_canonical_owner_without_path_or_foreign_writes as owned_native_explicit_goal_control;
+
+#[path = "ai_native_world_tests/kill_awards.rs"]
+mod kill_awards;
+
+#[path = "ai_native_world_tests/physics_landing.rs"]
+mod physics_landing;

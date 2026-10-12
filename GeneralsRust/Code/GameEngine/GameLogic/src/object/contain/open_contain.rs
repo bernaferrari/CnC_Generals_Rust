@@ -12,9 +12,9 @@ use super::{ContainerIniParse, ContainerInterface};
 use crate::ai::the_ai;
 use crate::common::audio::AudioEventRts;
 use crate::common::{
-    CommandSourceType, Coord3D, GameResult, KindOf, KindOfMaskType, Matrix3D, ModelConditionFlags,
+    CommandSourceType, Coord3D, GameResult, KindOf, KindOfMaskType, LOGICFRAMES_PER_SECOND,
+    MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING, Matrix3D, ModelConditionFlags,
     ObjectID, PathfindLayerEnum, PlayerMaskType, ThingTemplate, TurretType, UnsignedInt,
-    LOGICFRAMES_PER_SECOND, MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::error::GameLogicError as GameError;
@@ -23,15 +23,15 @@ use crate::modules::{
     AIUpdateInterfaceExt, ContainModuleInterface, ContainWant, ExitDoorType, PhysicsBehavior,
     UpdateSleepTime,
 };
+use crate::object::Object;
 use crate::object::behavior::auto_heal_behavior::parse_kind_of_mask;
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::die::{
-    parse_death_type_flags_tokens, parse_object_status_mask_tokens,
-    parse_veterancy_level_flags_tokens, DieMuxData,
+    DieMuxData, parse_death_type_flags_tokens, parse_object_status_mask_tokens,
+    parse_veterancy_level_flags_tokens,
 };
 use crate::object::drawable::DrawableArcExt;
-use crate::object::Object;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 #[path = "open_admission.rs"]
@@ -2659,6 +2659,15 @@ impl OpenContain {
 }
 
 impl ContainModuleInterface for OpenContain {
+    fn supports_owned_numbered_exit(&self) -> bool {
+        self.module_data.number_of_exit_paths > 0
+    }
+    fn finish_owned_numbered_exit(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> crate::modules::OwnedContainExitPath {
+        self.finish_numbered_exit_with_world(world)
+    }
     fn supports_owned_zero_path_exit(&self) -> bool {
         self.module_data.number_of_exit_paths <= 0
     }

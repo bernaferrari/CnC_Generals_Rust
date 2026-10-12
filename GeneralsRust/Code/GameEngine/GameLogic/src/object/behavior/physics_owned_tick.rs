@@ -6,9 +6,43 @@ pub(crate) struct OwnedPhysicsStep {
     pub(crate) transform: Option<Mat4>,
     pub(crate) height_above_terrain: Option<Real>,
     pub(crate) enable_freefall: bool,
+    pub(crate) previous_position: Coord3D,
+    pub(crate) active_velocity_z: Real,
+}
+
+/// Calculated motion awaiting callback admission. This contains operation
+/// results, not a clone or alternate owner of canonical Physics state.
+pub(crate) struct PreparedOwnedPhysicsStep {
+    pub(crate) landing_expected: bool,
+    pub(crate) landing_damage: Option<DamageInfo>,
+    owner: Weak<RwLock<GameObject>>,
+    owner_id: ObjectID,
+    previous_position: Coord3D,
+    previous_transform: Mat4,
+    transform: Mat4,
+    position: Coord3D,
+    velocity: Coord3D,
+    acceleration: Coord3D,
+    damping: Real,
+    ground: Real,
+    airborne_at_start: bool,
+    held: bool,
+    stun_relief: bool,
+    active_velocity_z: Real,
+}
+
+pub(crate) struct OwnedLanding {
+    pub(crate) sound: Option<AudioEventRts>,
 }
 
 impl PhysicsBehaviorUpdate {
+    #[cfg(test)]
+    pub(in crate::object) fn set_freefall_for_test(&mut self) {
+        self.physics_handle
+            .state
+            .set_flag(FLAG_IS_IN_FREEFALL, true);
+    }
+
     #[cfg(test)]
     pub(in crate::object) fn set_immune_freefall_for_test(&mut self) {
         self.physics_handle
@@ -19,14 +53,14 @@ impl PhysicsBehaviorUpdate {
             .set_flag(FLAG_IS_IN_FREEFALL, true);
     }
 
-    pub(in crate::object) fn integrate_owned_at(
-        &mut self,
-        obj: &mut GameObject,
+    pub(in crate::object) fn prepare_owned_at(
+        &self,
+        obj: &GameObject,
         frame: u32,
         gravity: Real,
         start_ground: Real,
         mut ground_height: impl FnMut(Real, Real) -> Real,
-    ) -> Result<OwnedPhysicsStep, String> {
+    ) -> Result<PreparedOwnedPhysicsStep, String> {
         let state = &self.physics_handle.state;
         let airborne_at_start =
             GameObject::is_above_terrain_height(obj.get_position().z, start_ground);
@@ -42,15 +76,8 @@ impl PhysicsBehaviorUpdate {
             || state.has_flag(FLAG_IS_IN_UPDATE)
             || state.current_overlap != crate::common::INVALID_ID
             || state.previous_overlap != crate::common::INVALID_ID
-            || (!immune_landing
-                && (airborne_at_start
-                    || state.has_flag(FLAG_IS_IN_FREEFALL)
-                    || state.has_flag(FLAG_WAS_AIRBORNE_LAST_FRAME)))
         {
-            return Err(
-                "owned Physics requires explicit cargo, bounce and nonimmune landing continuations"
-                    .into(),
-            );
+            return Err("owned Physics requires explicit cargo and bounce continuations".into());
         }
         if state.has_flag(FLAG_IS_IN_FREEFALL)
             || obj.is_disabled_by_type(DisabledType::DisabledFreefall)
@@ -75,6 +102,8 @@ impl PhysicsBehaviorUpdate {
             || !self.module_data.aerodynamic_friction.is_finite()
             || !self.module_data.pitch_roll_yaw_factor.is_finite()
             || !self.module_data.center_of_mass_offset.is_finite()
+            || !self.module_data.min_fall_speed_for_damage.is_finite()
+            || !self.module_data.fall_height_damage_factor.is_finite()
             || !state.pitch_rate.is_finite()
             || !state.roll_rate.is_finite()
             || !state.yaw_rate.is_finite()
@@ -88,6 +117,7 @@ impl PhysicsBehaviorUpdate {
         let mut acceleration = state.accel;
         let mut ground = start_ground;
         let mut stun_relief = false;
+        let mut active_velocity_z = 0.0;
         let significantly_above =
             crate::object::die::eject_pilot_die::is_significantly_above_terrain_height(
                 obj.get_position().z - start_ground,
@@ -124,6 +154,7 @@ impl PhysicsBehaviorUpdate {
             if !pos.is_finite() || !ground.is_finite() {
                 return Err("ordinary Physics movement requires finite destination terrain".into());
             }
+            active_velocity_z = velocity.z;
             if pos.z <= ground {
                 Self::clamp_ground(&mut velocity, &mut pos, ground);
             } else if !state.has_flag(FLAG_IS_IN_FREEFALL)
@@ -131,11 +162,6 @@ impl PhysicsBehaviorUpdate {
                 && !state.has_flag(FLAG_ALLOW_TO_FALL)
             {
                 pos.z = ground;
-            } else if !immune_landing {
-                return Err(
-                    "owned Physics flight requires a supplied nonimmune landing continuation"
-                        .into(),
-                );
             }
             // CPP PhysicsUpdate.cpp:689–742 rotates the actual basis, never
             // reconstructs Euler angles. Friction damps rates before rotation.
@@ -151,39 +177,186 @@ impl PhysicsBehaviorUpdate {
             }
             matrix.w_axis = pos.extend(1.0);
         }
-        // No canonical field changes until all terrain/phase validation passes.
+        let was_airborne = if state.has_flag(FLAG_UPDATE_EVER_RUN) {
+            state.has_flag(FLAG_WAS_AIRBORNE_LAST_FRAME)
+        } else {
+            airborne_at_start
+        };
+        let landing_expected =
+            was_airborne && !GameObject::is_above_terrain_height(pos.z, ground) && !immune_landing;
+        Ok(PreparedOwnedPhysicsStep {
+            landing_expected,
+            landing_damage: if landing_expected {
+                Self::falling_damage(
+                    &self.module_data,
+                    obj.get_id(),
+                    active_velocity_z,
+                    velocity,
+                    state.mass,
+                )
+            } else {
+                None
+            },
+            owner: self.physics_handle.owner.clone(),
+            owner_id: self.object_id,
+            previous_position: *obj.get_position(),
+            previous_transform: obj.get_transform_matrix(),
+            transform: matrix,
+            position: pos,
+            velocity,
+            acceleration,
+            damping,
+            ground,
+            airborne_at_start,
+            held,
+            stun_relief,
+            active_velocity_z,
+        })
+    }
+
+    pub(in crate::object) fn commit_owned_at(
+        &mut self,
+        obj: &mut GameObject,
+        prepared: PreparedOwnedPhysicsStep,
+    ) -> Result<OwnedPhysicsStep, String> {
+        if !Weak::ptr_eq(&prepared.owner, &self.physics_handle.owner)
+            || prepared.owner_id != self.object_id
+            || self.object_id != obj.get_id()
+            || prepared.previous_position != *obj.get_position()
+            || prepared.previous_transform != obj.get_transform_matrix()
+        {
+            return Err("prepared Physics operation belongs to a changed owner".into());
+        }
         let state = &mut self.physics_handle.state;
         state.set_flag(FLAG_IS_IN_UPDATE, true);
         if !state.has_flag(FLAG_UPDATE_EVER_RUN) {
-            state.set_flag(FLAG_WAS_AIRBORNE_LAST_FRAME, airborne_at_start);
+            state.set_flag(FLAG_WAS_AIRBORNE_LAST_FRAME, prepared.airborne_at_start);
         }
         state.prev_accel = state.accel;
-        if !held {
-            apply_ypr_damping(state, damping);
-            state.accel = acceleration;
-            state.vel = velocity;
+        if !prepared.held {
+            apply_ypr_damping(state, prepared.damping);
+            state.accel = prepared.acceleration;
+            state.vel = prepared.velocity;
             state.vel_mag = INVALID_VEL_MAG;
             if !state.has_flag(FLAG_HAS_PITCHROLLYAW) {
                 state.yaw_angle = obj.get_orientation();
             }
-            if pos.z <= ground {
+            if prepared.position.z <= prepared.ground {
                 state.set_flag(FLAG_ALLOW_TO_FALL, false);
             }
-            if state.has_flag(FLAG_IS_STUNNED) && stun_relief {
+            if state.has_flag(FLAG_IS_STUNNED) && prepared.stun_relief {
                 state.set_flag(FLAG_IS_STUNNED, false);
                 obj.clear_model_condition_state(MODELCONDITION_STUNNED);
             }
-            if pos.z <= ground && state.has_flag(FLAG_IS_STUNNED) {
+            if prepared.position.z <= prepared.ground && state.has_flag(FLAG_IS_STUNNED) {
                 obj.clear_model_condition_state(MODELCONDITION_STUNNED_FLAILING);
                 obj.set_model_condition_state(MODELCONDITION_STUNNED);
             }
         }
         Ok(OwnedPhysicsStep {
-            transform: (!held).then_some(matrix),
-            height_above_terrain: (!held).then_some(pos.z - ground),
-            enable_freefall: !held && pos.z > ground && state.has_flag(FLAG_IS_IN_FREEFALL),
+            transform: (!prepared.held).then_some(prepared.transform),
+            height_above_terrain: (!prepared.held).then_some(prepared.position.z - prepared.ground),
+            enable_freefall: !prepared.held
+                && prepared.position.z > prepared.ground
+                && state.has_flag(FLAG_IS_IN_FREEFALL),
+            previous_position: prepared.previous_position,
+            active_velocity_z: prepared.active_velocity_z,
         })
     }
+
+    #[cfg(test)]
+    pub(in crate::object) fn integrate_owned_at(
+        &mut self,
+        obj: &mut GameObject,
+        frame: u32,
+        gravity: Real,
+        start_ground: Real,
+        ground_height: impl FnMut(Real, Real) -> Real,
+    ) -> Result<OwnedPhysicsStep, String> {
+        let prepared = self.prepare_owned_at(obj, frame, gravity, start_ground, ground_height)?;
+        self.commit_owned_at(obj, prepared)
+    }
+
+    fn falling_damage(
+        data: &PhysicsBehaviorModuleData,
+        owner_id: ObjectID,
+        active_velocity_z: Real,
+        velocity: Coord3D,
+        mass: Real,
+    ) -> Option<DamageInfo> {
+        let net_speed = -active_velocity_z - data.min_fall_speed_for_damage;
+        if net_speed <= 0.0
+            || !(velocity.x.abs() <= 0.01 || (active_velocity_z / velocity.x).abs() >= 3.0)
+            || !(velocity.y.abs() <= 0.01 || (active_velocity_z / velocity.y).abs() >= 3.0)
+        {
+            return None;
+        }
+        let mut damage = DamageInfo::with_simple(
+            net_speed * mass * data.fall_height_damage_factor,
+            owner_id,
+            DamageType::Falling,
+            DeathType::Splatted,
+        );
+        damage.input.shock_wave_amount = 0.0;
+        damage.input.shock_wave_radius = 0.0;
+        damage.sync_from_input();
+        Some(damage)
+    }
+
+    pub(in crate::object) fn begin_owned_landing_at(
+        &mut self,
+        owner: &GameObject,
+        airborne_at_end: bool,
+    ) -> Option<OwnedLanding> {
+        let state = &mut self.physics_handle.state;
+        // CPP resets accumulated acceleration/overlap before audio/collision.
+        state.accel = Coord3D::ZERO;
+        state.previous_overlap = state.current_overlap;
+        state.current_overlap = crate::common::INVALID_ID;
+        if !state.has_flag(FLAG_WAS_AIRBORNE_LAST_FRAME)
+            || airborne_at_end
+            || state.has_flag(FLAG_IMMUNE_TO_FALLING_DAMAGE)
+        {
+            return None;
+        }
+        let mut sound = self.physics_handle.bounce_sound.clone();
+        if let Some(sound) = &mut sound {
+            sound.set_object_id(owner.get_id());
+        }
+        Some(OwnedLanding { sound })
+    }
+
+    /// CPP Physics::onCollide(nullptr), for the admitted no-projectile,
+    /// uncontained leaf owner. Foreign callback families are explicit errors.
+    pub(in crate::object) fn ground_collision_owned_at(
+        &self,
+        owner: &GameObject,
+    ) -> Result<(), String> {
+        if self.object_id != owner.get_id()
+            || owner.is_kind_of(KindOf::Projectile)
+            || owner.get_contained_by().is_some()
+        {
+            return Err(
+                "ground Physics collision requires supplied projectile/container callback".into(),
+            );
+        }
+        Ok(())
+    }
+
+    pub(in crate::object) fn falling_damage_owned_at(
+        &self,
+        owner: &GameObject,
+        active_velocity_z: Real,
+    ) -> Option<DamageInfo> {
+        Self::falling_damage(
+            &self.module_data,
+            owner.get_id(),
+            active_velocity_z,
+            self.physics_handle.state.vel,
+            self.physics_handle.state.mass,
+        )
+    }
+
     /// Matrix3D Rotate_X/Y/Z post-multiply the original basis in this order.
     fn integrate_basis(
         matrix: Mat4,
@@ -223,9 +396,6 @@ impl PhysicsBehaviorUpdate {
         airborne_at_end: bool,
     ) -> UpdateSleepTime {
         let state = &mut self.physics_handle.state;
-        state.accel = Coord3D::ZERO;
-        state.previous_overlap = state.current_overlap;
-        state.current_overlap = crate::common::INVALID_ID;
         state.set_flag(FLAG_UPDATE_EVER_RUN, true);
         state.set_flag(FLAG_WAS_AIRBORNE_LAST_FRAME, airborne_at_end);
         state.set_flag(FLAG_IS_IN_UPDATE, false);
@@ -293,6 +463,7 @@ mod tests {
                 .has_flag(FLAG_WAS_AIRBORNE_LAST_FRAME)
         );
         assert!(step.enable_freefall);
+        physics.begin_owned_landing_at(&owner, true);
         assert_eq!(
             physics.finish_owned_at(&mut owner, 5, true),
             UPDATE_SLEEP_NONE
@@ -319,6 +490,7 @@ mod tests {
         physics.prepare_freefall_cleanup_at();
         // Adapter executes the validated default disabled edge outside its module loan.
         owner.disabled_mask.clear(DisabledType::DisabledFreefall);
+        physics.begin_owned_landing_at(&owner, false);
         physics.finish_owned_at(&mut owner, 5, false);
         assert!(!owner.is_disabled_by_type(DisabledType::DisabledFreefall));
         assert!(!physics.physics_handle.state.has_flag(FLAG_IS_IN_FREEFALL));
@@ -341,6 +513,7 @@ mod tests {
             .unwrap();
         assert!(step.transform.is_none());
         assert!(step.height_above_terrain.is_none());
+        physics.begin_owned_landing_at(&owner, true);
         assert_eq!(
             physics.finish_owned_at(&mut owner, 5, true),
             UPDATE_SLEEP_NONE
@@ -393,6 +566,8 @@ mod tests {
                 .unwrap()
                 .abs_diff_eq(restored.transform.unwrap(), 0.000001)
         );
+        physics.begin_owned_landing_at(&owner.read().unwrap(), false);
+        other.begin_owned_landing_at(&peer.read().unwrap(), false);
         assert_eq!(
             physics.finish_owned_at(&mut owner.write().unwrap(), 5, false),
             UPDATE_SLEEP_NONE

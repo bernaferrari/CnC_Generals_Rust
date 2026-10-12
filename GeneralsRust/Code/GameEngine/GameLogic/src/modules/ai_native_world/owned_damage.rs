@@ -4,6 +4,24 @@ use crate::damage::{BodyDamageType, DamageInfo};
 use crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule;
 use crate::object::body::active_body::OwnedDamageObservation;
 use game_engine::common::thing::module::ModuleInterfaceType;
+
+/// Validated inputs and exact installed callbacks for one synchronous hit.
+/// This plan holds handles, never Object/Body loans or copied writable state.
+struct PreparedDamage {
+    id: ObjectID,
+    body: Arc<std::sync::Mutex<dyn crate::modules::BodyModuleInterface>>,
+    auto_heals: Vec<crate::object::BehaviorModuleHandle>,
+    proxies: Vec<game_engine::common::thing::update_module::UpdateModulePtr>,
+    controller: Option<Arc<RwLock<crate::player::Player>>>,
+    repulsable: bool,
+    sounds: (
+        crate::common::audio::AudioEventRts,
+        crate::common::audio::AudioEventRts,
+        crate::common::audio::AudioEventRts,
+    ),
+    candidate: DamageInfo,
+    observations: OwnedDamageObservation,
+}
 impl BorrowedAiWorld<'_> {
     /// Native assembly only stages AutoHeal. Admit its actual birth deadline
     /// against this owner before allowing onDamage to awaken it.
@@ -79,6 +97,135 @@ impl BorrowedAiWorld<'_> {
         owner: &Arc<RwLock<Object>>,
         damage: &mut DamageInfo,
     ) -> Result<f32, String> {
+        let PreparedDamage {
+            id,
+            body,
+            auto_heals,
+            proxies,
+            controller,
+            repulsable,
+            sounds,
+            mut candidate,
+            observations,
+        } = self.prepare_damage_owned(owner, damage)?;
+        // The dead marker is observable by onDamage, before score and onDie.
+        drop(
+            owner
+                .try_write()
+                .map_err(|_| "damage owner unavailable for commit")?,
+        );
+        let outcome = {
+            let mut body = body.try_lock().map_err(|_| "damage body unavailable")?;
+            body.begin_owned_native_damage(&mut candidate, observations)
+                .map_err(|error| error.to_string())?
+        };
+        if outcome.transition.effectively_dead {
+            owner
+                .write()
+                .expect("pre-admitted damaged owner")
+                .set_effectively_dead_with_radar(true, self.services.radar)
+                .expect("pre-admitted effectively-dead radar edge");
+        }
+        if !outcome.processed {
+            self.finish_damage_shock(owner, &candidate)?;
+            *damage = candidate;
+            return Ok(damage.output.actual_damage_dealt);
+        }
+        // Neither the Object nor its Body is borrowed across callbacks.
+        if outcome.damaged {
+            if let (Some(victim), Some(source)) = (&controller, self.object(outcome.last_source)) {
+                let source_controller = {
+                    let source = source
+                        .read()
+                        .map_err(|_| "recorded damage source poisoned")?;
+                    self.controller(&source)
+                };
+                if let Some(source_controller) = source_controller {
+                    let index = source_controller
+                        .read()
+                        .map_err(|_| "damage source player poisoned")?
+                        .get_player_index();
+                    victim
+                        .write()
+                        .map_err(|_| "damage victim player poisoned")?
+                        .set_attacked_by_at(index as Int, self.services.frame);
+                }
+            }
+            for (handle, proxy) in auto_heals.into_iter().zip(proxies) {
+                let wake = handle.with_module(|module| {
+                    module
+                        .as_any_mut()
+                        .downcast_mut::<AutoHealBehaviorModule>()
+                        .expect("admitted AutoHeal identity")
+                        .behavior_mut()
+                        .on_damage_at_owned(self.services.frame)
+                });
+                if let Some(wake) = wake {
+                    self.services
+                        .update_scheduler
+                        .awaken_update_module_with_current(
+                            &proxy,
+                            self.services.current_update.as_ref(),
+                            self.services.frame,
+                            wake,
+                        )
+                        .expect("pre-admitted damage callback wake");
+                }
+            }
+            if outcome.transition.changed_state {
+                let mut sound = match outcome.transition.damage_state {
+                    BodyDamageType::Damaged => sounds.0,
+                    BodyDamageType::ReallyDamaged => sounds.1,
+                    _ => crate::common::audio::AudioEventRts::default(),
+                };
+                if !sound.get_event_name().is_empty() {
+                    sound.set_object_id(id);
+                    let _ = self.add_audio_event(&sound);
+                }
+            }
+            if outcome.previous_health / outcome.max_health > 0.5
+                && outcome.current_health / outcome.max_health < 0.5
+                && outcome.current_health > 0.0
+                && self.services.random.next_u32() % 100 < 25
+            {
+                let mut fear = sounds.2;
+                if !fear.get_event_name().is_empty() {
+                    fear.set_object_id(id);
+                    let position = *owner.read().expect("admitted fear owner").get_position();
+                    fear.set_position(&(position.x, position.y, position.z));
+                    let _ = self.add_audio_event(&fear);
+                }
+            }
+        }
+        if outcome.damaged && outcome.current_health <= 0.0 && outcome.previous_health > 0.0 {
+            self.finish_native_lethal(owner, &candidate);
+        }
+        if self.services.rules.enable_repulsors && repulsable {
+            owner
+                .write()
+                .map_err(|_| "damage owner poisoned")?
+                .set_status(ObjectStatusTypes::Repulsor.into(), true);
+        }
+        self.finish_damage_shock(owner, &candidate)?;
+        *damage = candidate;
+        Ok(damage.output.actual_damage_dealt)
+    }
+    /// Validate all current damage/death callbacks without changing health,
+    /// scheduling, presentation or the session random stream. Landing uses
+    /// this before integrating, then prepares again at the original hit point.
+    pub(super) fn validate_damage_owned(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        damage: &DamageInfo,
+    ) -> Result<(), String> {
+        self.prepare_damage_owned(owner, damage).map(|_| ())
+    }
+
+    fn prepare_damage_owned(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        damage: &DamageInfo,
+    ) -> Result<PreparedDamage, String> {
         let (id, body, handles, proxies, is_structure, controller, repulsable, sounds) = {
             let object = owner.try_read().map_err(|_| "damage owner unavailable")?;
             if !self
@@ -187,105 +334,16 @@ impl BorrowedAiWorld<'_> {
         if lethal {
             self.validate_native_lethal(owner, &candidate)?;
         }
-        // The dead marker is observable by onDamage, before score and onDie.
-        drop(
-            owner
-                .try_write()
-                .map_err(|_| "damage owner unavailable for commit")?,
-        );
-        let outcome = {
-            let mut body = body.try_lock().map_err(|_| "damage body unavailable")?;
-            body.begin_owned_native_damage(&mut candidate, observations)
-                .map_err(|error| error.to_string())?
-        };
-        if outcome.transition.effectively_dead {
-            owner
-                .write()
-                .expect("pre-admitted damaged owner")
-                .set_effectively_dead(true);
-        }
-        if !outcome.processed {
-            self.finish_damage_shock(owner, &candidate)?;
-            *damage = candidate;
-            return Ok(damage.output.actual_damage_dealt);
-        }
-        // Neither the Object nor its Body is borrowed across callbacks.
-        if outcome.damaged {
-            if let (Some(victim), Some(source)) = (&controller, self.object(outcome.last_source)) {
-                let source_controller = {
-                    let source = source
-                        .read()
-                        .map_err(|_| "recorded damage source poisoned")?;
-                    self.controller(&source)
-                };
-                if let Some(source_controller) = source_controller {
-                    let index = source_controller
-                        .read()
-                        .map_err(|_| "damage source player poisoned")?
-                        .get_player_index();
-                    victim
-                        .write()
-                        .map_err(|_| "damage victim player poisoned")?
-                        .set_attacked_by_at(index as Int, self.services.frame);
-                }
-            }
-            for (handle, proxy) in auto_heals.into_iter().zip(proxies) {
-                let wake = handle.with_module(|module| {
-                    module
-                        .as_any_mut()
-                        .downcast_mut::<AutoHealBehaviorModule>()
-                        .expect("admitted AutoHeal identity")
-                        .behavior_mut()
-                        .on_damage_at_owned(self.services.frame)
-                });
-                if let Some(wake) = wake {
-                    self.services
-                        .update_scheduler
-                        .awaken_update_module_with_current(
-                            &proxy,
-                            self.services.current_update.as_ref(),
-                            self.services.frame,
-                            wake,
-                        )
-                        .expect("pre-admitted damage callback wake");
-                }
-            }
-            if outcome.transition.changed_state {
-                let mut sound = match outcome.transition.damage_state {
-                    BodyDamageType::Damaged => sounds.0,
-                    BodyDamageType::ReallyDamaged => sounds.1,
-                    _ => crate::common::audio::AudioEventRts::default(),
-                };
-                if !sound.get_event_name().is_empty() {
-                    sound.set_object_id(id);
-                    let _ = self.add_audio_event(&sound);
-                }
-            }
-            if outcome.previous_health / outcome.max_health > 0.5
-                && outcome.current_health / outcome.max_health < 0.5
-                && outcome.current_health > 0.0
-                && self.services.random.next_u32() % 100 < 25
-            {
-                let mut fear = sounds.2;
-                if !fear.get_event_name().is_empty() {
-                    fear.set_object_id(id);
-                    let position = *owner.read().expect("admitted fear owner").get_position();
-                    fear.set_position(&(position.x, position.y, position.z));
-                    let _ = self.add_audio_event(&fear);
-                }
-            }
-        }
-        if outcome.damaged && outcome.current_health <= 0.0 && outcome.previous_health > 0.0 {
-            self.finish_native_lethal(owner, &candidate);
-        }
-        if self.services.rules.enable_repulsors && repulsable {
-            owner
-                .write()
-                .map_err(|_| "damage owner poisoned")?
-                .set_status(ObjectStatusTypes::Repulsor.into(), true);
-        }
-        self.finish_damage_shock(owner, &candidate)?;
-        *damage = candidate;
-        Ok(damage.output.actual_damage_dealt)
+        Ok(PreparedDamage {
+            id,
+            body,
+            auto_heals,
+            proxies,
+            controller,
+            repulsable,
+            sounds,
+            candidate,
+            observations,
+        })
     }
 }

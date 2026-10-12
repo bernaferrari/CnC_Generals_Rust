@@ -7,6 +7,35 @@ use super::ai_helpers::to_locomotor_body_damage_type;
 use super::ai_loco::NativePathMovementContext;
 use super::imports::*;
 
+/// Same footprint definition as the supplied queued Pathfinder observations.
+/// Missing retired obstacles match C++ NULL-ignore semantics; a poisoned live
+/// object is an error rather than an unrelated global lookup.
+pub(super) fn ignored_obstacle_cells(
+    world: &dyn crate::modules::ai_world::AiWorld,
+    id: Option<ObjectID>,
+) -> Result<Option<std::collections::HashSet<crate::ai::pathfind_astar::GridCoord>>, String> {
+    let Some(object) = id
+        .filter(|id| *id != INVALID_ID)
+        .and_then(|id| world.object(id))
+    else {
+        return Ok(None);
+    };
+    let object = object
+        .read()
+        .map_err(|_| "native ignored path obstacle poisoned")?;
+    Ok(
+        crate::ai::object_footprint_positions_with_height(&object, |x, y| {
+            world.terrain_layer_height(x, y, crate::common::PathfindLayerEnum::Ground)
+        })
+        .map(|positions| {
+            positions
+                .into_iter()
+                .map(|position| crate::ai::pathfind_astar::GridCoord::from_world(&position))
+                .collect()
+        }),
+    )
+}
+
 impl UnitAIUpdate {
     pub(super) fn update_locomotor_phase_with_world(
         &mut self,
@@ -38,9 +67,9 @@ impl UnitAIUpdate {
         world.validate_owned_locomotor_step(&owner, active)?;
         let penalty = world.locomotor_movement_penalty()?;
         let ignore_obstacle_id = self.runtime.data.ignore_obstacle_id;
-        if ignore_obstacle_id != crate::common::INVALID_ID {
-            return Err("native path phase with ignored obstacle cells is not admitted".into());
-        }
+        let ignore_obstacle =
+            (ignore_obstacle_id != crate::common::INVALID_ID).then_some(ignore_obstacle_id);
+        let ignore_cells = ignored_obstacle_cells(world, ignore_obstacle)?;
 
         let (current, layer, condition) = {
             let object = owner
@@ -88,8 +117,13 @@ impl UnitAIUpdate {
             let pathfinder = world
                 .pathfinder()
                 .ok_or("native path phase requires its supplied Pathfinder")?;
-            let mut context =
-                NativePathMovementContext::borrowed(pathfinder, surfaces, None, layer, None);
+            let mut context = NativePathMovementContext::borrowed(
+                pathfinder,
+                surfaces,
+                ignore_obstacle,
+                layer,
+                ignore_cells,
+            );
             let point = path.compute_point_on_path(&current, &mut context);
             drop(context);
             if point.layer != crate::ai::pathfind::PathfindLayerEnum::Ground {

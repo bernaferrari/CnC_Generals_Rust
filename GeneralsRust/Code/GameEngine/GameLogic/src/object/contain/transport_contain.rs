@@ -15,7 +15,7 @@ use super::{ContainerIniParse, ContainerInterface, ObjectTemplate, OpenContain};
 use crate::ai::the_ai;
 use crate::common::{
     CommandSourceType, Coord3D, DisabledType, GameResult, KindOf, Matrix3D, ModelConditionState,
-    ObjectID, PathfindLayerEnum, PlayerMaskType, WeaponSlotType, SECONDS_PER_LOGICFRAME_REAL,
+    ObjectID, PathfindLayerEnum, PlayerMaskType, SECONDS_PER_LOGICFRAME_REAL, WeaponSlotType,
 };
 use crate::damage::DamageInfo;
 use crate::helpers::TheGameLogic;
@@ -28,7 +28,7 @@ use crate::modules::{
 use crate::object::{Object, ObjectArcExt};
 use crate::player::Player;
 use crate::weapon::WeaponSetType;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// C++ `TransportContain::isPassengerAllowedToFire` (TransportContain.cpp:576-578):
@@ -1677,6 +1677,15 @@ impl Snapshotable for TransportContain {
 }
 
 impl ContainModuleInterface for TransportContain {
+    fn supports_owned_numbered_exit(&self) -> bool {
+        self.module_data.base.number_of_exit_paths > 0
+    }
+    fn finish_owned_numbered_exit(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> crate::modules::OwnedContainExitPath {
+        self.base.finish_numbered_exit_with_world(world)
+    }
     fn supports_owned_zero_path_exit(&self) -> bool {
         self.module_data.base.number_of_exit_paths <= 0
     }
@@ -1788,11 +1797,7 @@ impl ContainModuleInterface for TransportContain {
 
     fn get_max_capacity(&self) -> usize {
         let max = self.get_contain_max();
-        if max < 0 {
-            usize::MAX
-        } else {
-            max as usize
-        }
+        if max < 0 { usize::MAX } else { max as usize }
     }
 
     fn get_container_pips_to_show(&self) -> (i32, i32, bool) {

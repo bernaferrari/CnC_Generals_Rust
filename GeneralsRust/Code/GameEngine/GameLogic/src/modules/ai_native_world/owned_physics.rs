@@ -31,41 +31,93 @@ impl BorrowedAiWorld<'_> {
         self.services
             .update_scheduler
             .validate_owned_update_wake(&proxy)?;
-        let mut object = owner.write().map_err(|_| "Physics owner poisoned")?;
         let frame = self.services.frame;
         let terrain = self.services.terrain;
-        let layer = crate::path::PathfindLayerEnum::from_u32(object.get_layer() as u32);
-        let position = object.get_position();
-        let ground = terrain.get_layer_height(position.x, position.y, layer, None, false);
-        let step = physics.integrate_owned_at(
-            &mut object,
-            frame,
-            self.services.gravity,
-            ground,
-            |x, y| terrain.get_layer_height(x, y, layer, None, false),
-        )?;
-        if step.enable_freefall {
-            object.set_freefall_for_owned_leaf();
-            object.set_model_condition_state(crate::common::MODELCONDITION_FREEFALL);
-        }
-        let pose_result = if let Some(transform) = step.transform {
-            object.set_transform_matrix_with_services(
-                &transform,
-                terrain,
-                &mut self.services.collision,
-                frame,
-                &mut |id| self.services.changed_trigger_objects.push(id),
-                &mut |object| self.services.terrain_moved_objects.push(object.get_id()),
-            )
-        } else {
-            Ok(())
+        let prepared = {
+            let object = owner.read().map_err(|_| "Physics owner poisoned")?;
+            let layer = crate::path::PathfindLayerEnum::from_u32(object.get_layer() as u32);
+            let position = object.get_position();
+            let ground = terrain.get_layer_height(position.x, position.y, layer, None, false);
+            physics.prepare_owned_at(&object, frame, self.services.gravity, ground, |x, y| {
+                terrain.get_layer_height(x, y, layer, None, false)
+            })?
         };
-        if let Some(height) = step.height_above_terrain {
-            object.set_height_above_terrain(height);
+        if prepared.landing_expected {
+            // CPP Object::onCollide(nullptr) visits every installed collider.
+            // Admit the complete leaf set before Physics/pose changes; custom
+            // collide, containment, projectile and disabled families remain errors.
+            owner
+                .read()
+                .map_err(|_| "landing owner poisoned")?
+                .validate_native_leaf_enter_effects()?;
+            if let Some(damage) = &prepared.landing_damage {
+                self.validate_damage_owned(owner, damage)?;
+            }
         }
-        // The canonical module loan ended before pose notifications. Finish it
-        // even if pose admission reports an error, so IS_IN_UPDATE never leaks.
-        let airborne_at_end = self.above_terrain(&object)?;
+        let (step, pose_result) = {
+            let mut object = owner.write().map_err(|_| "Physics owner poisoned")?;
+            let step = physics.commit_owned_at(&mut object, prepared)?;
+            if step.enable_freefall {
+                object.set_freefall_for_owned_leaf();
+                object.set_model_condition_state(crate::common::MODELCONDITION_FREEFALL);
+            }
+            let result = if let Some(transform) = step.transform {
+                object.set_transform_matrix_with_services(
+                    &transform,
+                    terrain,
+                    &mut self.services.collision,
+                    frame,
+                    &mut |id| self.services.changed_trigger_objects.push(id),
+                    &mut |object| self.services.terrain_moved_objects.push(object.get_id()),
+                )
+            } else {
+                Ok(())
+            };
+            if let Some(height) = step.height_above_terrain {
+                object.set_height_above_terrain(height);
+            }
+            (step, result)
+        };
+        let airborne_at_end =
+            self.above_terrain(&*owner.read().map_err(|_| "landing owner poisoned")?)?;
+        // Reset canonical acceleration/overlap before any landing callbacks.
+        let landing = physics.begin_owned_landing_at(
+            &*owner.read().map_err(|_| "landing owner poisoned")?,
+            airborne_at_end,
+        )?;
+        let landing_result = (|| -> Result<(), String> {
+            pose_result?;
+            let Some(landing) = landing else {
+                return Ok(());
+            };
+            // The retail CPP branch copies and emits the configured event before
+            // Object::onCollide. FIX_AUDIO volume shaping is a separate build contract.
+            if let Some(sound) = landing.sound {
+                self.add_audio_event(&sound);
+            }
+            {
+                let object = owner
+                    .read()
+                    .map_err(|_| "landing collider owner poisoned")?;
+                if !object.test_status(crate::common::ObjectStatusTypes::NoCollisions) {
+                    physics.ground_collision_owned_at(&object)?;
+                }
+            }
+            // Reread Physics after the synchronous collider, just as CPP does.
+            let damage = physics.falling_damage_owned_at(
+                &*owner.read().map_err(|_| "fall damage owner poisoned")?,
+                step.active_velocity_z,
+            )?;
+            if let Some(mut damage) = damage {
+                self.attempt_damage_owned(owner, &mut damage)?;
+                let mut object = owner.write().map_err(|_| "fallen owner poisoned")?;
+                if object.is_effectively_dead() {
+                    object.set_model_condition_state(crate::common::MODELCONDITION_SPLATTED);
+                }
+            }
+            Ok(())
+        })();
+        let mut object = owner.write().map_err(|_| "Physics finish owner poisoned")?;
         if !airborne_at_end {
             physics.prepare_freefall_cleanup_at(&object)?;
             if object.is_disabled_by_type(crate::common::DisabledType::DisabledFreefall) {
@@ -74,7 +126,7 @@ impl BorrowedAiWorld<'_> {
             object.clear_model_condition_state(crate::common::MODELCONDITION_FREEFALL);
         }
         let sleep = physics.finish_owned_at(&mut object, frame, airborne_at_end)?;
-        pose_result?;
+        landing_result?;
         Ok(sleep)
     }
 

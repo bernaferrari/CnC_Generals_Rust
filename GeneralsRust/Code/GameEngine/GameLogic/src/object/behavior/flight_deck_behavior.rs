@@ -687,13 +687,28 @@ impl FlightDeckBehavior {
     }
 
     fn purge_dead(state: &mut FlightDeckState) {
+        Self::purge_dead_with_lookup(state, TheGameLogic::get_frame(), |id| {
+            TheGameLogic::find_object_by_id(id)
+                .and_then(|object| {
+                    object
+                        .read()
+                        .ok()
+                        .map(|object| object.is_effectively_dead())
+                })
+                .unwrap_or(true)
+        });
+    }
+
+    fn purge_dead_with_lookup(
+        state: &mut FlightDeckState,
+        now: UnsignedInt,
+        mut dead: impl FnMut(ObjectID) -> bool,
+    ) {
         for space in state.parking_spaces.iter_mut() {
             if space.object_id == INVALID_OBJECT_ID {
                 continue;
             }
-            let is_dead = TheGameLogic::find_object_by_id(space.object_id)
-                .and_then(|arc| arc.read().ok().map(|guard| guard.is_effectively_dead()))
-                .unwrap_or(true);
+            let is_dead = dead(space.object_id);
             if is_dead {
                 space.object_id = INVALID_OBJECT_ID;
             }
@@ -701,17 +716,13 @@ impl FlightDeckBehavior {
 
         for runway in state.runways.iter_mut() {
             if runway.in_use_by_for_takeoff != INVALID_OBJECT_ID {
-                let dead = TheGameLogic::find_object_by_id(runway.in_use_by_for_takeoff)
-                    .and_then(|arc| arc.read().ok().map(|guard| guard.is_effectively_dead()))
-                    .unwrap_or(true);
+                let dead = dead(runway.in_use_by_for_takeoff);
                 if dead {
                     runway.in_use_by_for_takeoff = INVALID_OBJECT_ID;
                 }
             }
             if runway.in_use_by_for_landing != INVALID_OBJECT_ID {
-                let dead = TheGameLogic::find_object_by_id(runway.in_use_by_for_landing)
-                    .and_then(|arc| arc.read().ok().map(|guard| guard.is_effectively_dead()))
-                    .unwrap_or(true);
+                let dead = dead(runway.in_use_by_for_landing);
                 if dead {
                     runway.in_use_by_for_landing = INVALID_OBJECT_ID;
                 }
@@ -724,22 +735,19 @@ impl FlightDeckBehavior {
                 purged = true;
                 return false;
             }
-            let dead = TheGameLogic::find_object_by_id(info.object_id)
-                .and_then(|arc| arc.read().ok().map(|guard| guard.is_effectively_dead()))
-                .unwrap_or(true);
+            let dead = dead(info.object_id);
             if dead {
                 purged = true;
             }
             !dead
         });
         if purged {
-            Self::reset_wake_frame(state);
+            Self::reset_wake_frame_at(state, now);
         }
     }
 
     fn build_info(&mut self, create_units: Bool) -> BehaviorResult<()> {
-        let state = &mut self.state;
-        if state.got_info {
+        if self.state.got_info {
             return Ok(());
         }
 
@@ -758,6 +766,47 @@ impl FlightDeckBehavior {
         self.thing_template =
             TheThingFactory::find_template(self.config.thing_template_name.as_str());
 
+        let template = self.thing_template.clone();
+        let deck_height_offset = self.config.landing_deck_height_offset;
+        self.build_geometry_for_owner(&owner_guard, |prep, orient| {
+            let mut object_id = INVALID_OBJECT_ID;
+            if let (Some(template), true) = (&template, create_units) {
+                if let Some(team_arc) = owner_guard
+                    .with_controlling_player(|player_guard| player_guard.get_default_team())
+                    .flatten()
+                {
+                    if let Ok(team_guard) = team_arc.read() {
+                        if let Ok(factory) = TheThingFactory::get() {
+                            if let Ok(jet_arc) =
+                                factory.new_object(Arc::clone(template), &*team_guard)
+                            {
+                                if let Ok(mut jet_guard) = jet_arc.write() {
+                                    jet_guard.set_producer(Some(&owner_guard));
+                                    if deck_height_offset != 0.0 {
+                                        jet_guard.set_status(
+                                            ObjectStatusMaskType::DECK_HEIGHT_OFFSET,
+                                            true,
+                                        );
+                                    }
+                                    let _ = jet_guard.set_position(&prep);
+                                    let _ = jet_guard.set_orientation(orient);
+                                    object_id = jet_guard.get_id();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            object_id
+        })
+    }
+
+    fn build_geometry_for_owner(
+        &mut self,
+        owner_guard: &GameObject,
+        mut create_unit: impl FnMut(Coord3D, Real) -> ObjectID,
+    ) -> BehaviorResult<()> {
+        let state = &mut self.state;
         let num_rows = self.config.num_rows.max(0) as usize;
         let num_cols = self.config.num_cols.max(0).min(MAX_RUNWAYS as i32) as usize;
 
@@ -782,34 +831,7 @@ impl FlightDeckBehavior {
                     }
                 }
 
-                let mut object_id = INVALID_OBJECT_ID;
-                if let (Some(template), true) = (&self.thing_template, create_units) {
-                    if let Some(team_arc) = owner_guard
-                        .with_controlling_player(|player_guard| player_guard.get_default_team())
-                        .flatten()
-                    {
-                        if let Ok(team_guard) = team_arc.read() {
-                            if let Ok(factory) = TheThingFactory::get() {
-                                if let Ok(jet_arc) =
-                                    factory.new_object(Arc::clone(template), &*team_guard)
-                                {
-                                    if let Ok(mut jet_guard) = jet_arc.write() {
-                                        jet_guard.set_producer(Some(&owner_guard));
-                                        if self.config.landing_deck_height_offset != 0.0 {
-                                            jet_guard.set_status(
-                                                ObjectStatusMaskType::DECK_HEIGHT_OFFSET,
-                                                true,
-                                            );
-                                        }
-                                        let _ = jet_guard.set_position(&prep);
-                                        let _ = jet_guard.set_orientation(orient);
-                                        object_id = jet_guard.get_id();
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                let object_id = create_unit(prep, orient);
 
                 state.parking_spaces.push(ParkingSpace {
                     object_id,
@@ -922,11 +944,14 @@ impl FlightDeckBehavior {
     }
 
     fn reset_wake_frame(state: &mut FlightDeckState) {
+        Self::reset_wake_frame_at(state, TheGameLogic::get_frame());
+    }
+    fn reset_wake_frame_at(state: &mut FlightDeckState, now: UnsignedInt) {
         const HEAL_RATE_FRAMES: UnsignedInt = LOGICFRAMES_PER_SECOND / 5;
         if state.healing_objects.is_empty() {
             state.next_heal_frame = NEVER;
         } else {
-            state.next_heal_frame = TheGameLogic::get_frame() + HEAL_RATE_FRAMES;
+            state.next_heal_frame = now.wrapping_add(HEAL_RATE_FRAMES);
         }
     }
 
@@ -1743,6 +1768,202 @@ impl FlightDeckBehavior {
     }
 }
 
+impl FlightDeckBehavior {
+    fn release_space_in_state(state: &mut FlightDeckState, id: ObjectID) {
+        if let Some(space) = state
+            .parking_spaces
+            .iter_mut()
+            .find(|space| space.object_id == id)
+        {
+            space.object_id = INVALID_OBJECT_ID;
+        }
+    }
+
+    fn reserve_space_index(state: &mut FlightDeckState, id: ObjectID) -> Option<usize> {
+        let index = state
+            .parking_spaces
+            .iter()
+            .position(|space| space.object_id == id)
+            .or_else(|| {
+                state
+                    .parking_spaces
+                    .iter()
+                    .position(|space| space.object_id == INVALID_OBJECT_ID)
+            })?;
+        state.parking_spaces[index].object_id = id;
+        Some(index)
+    }
+
+    fn runway_reservation_in_state(
+        state: &FlightDeckState,
+        runway_index: Int,
+        reservation_type: SharedRunwayReservationType,
+    ) -> ObjectID {
+        if let Some(runway) = state.runways.get(runway_index as usize) {
+            match reservation_type {
+                SharedRunwayReservationType::Takeoff => runway.in_use_by_for_takeoff,
+                SharedRunwayReservationType::Landing => runway.in_use_by_for_landing,
+            }
+        } else {
+            INVALID_OBJECT_ID
+        }
+    }
+    pub(crate) fn get_runway_reservation_with_owner(
+        &mut self,
+        owner: &GameObject,
+        runway: Int,
+        reservation: SharedRunwayReservationType,
+        now: UnsignedInt,
+        dead: impl FnMut(ObjectID) -> bool,
+    ) -> Result<ObjectID, String> {
+        self.prepare_reservation_owner(owner)?;
+        Self::purge_dead_with_lookup(&mut self.state, now, dead);
+        Ok(Self::runway_reservation_in_state(
+            &self.state,
+            runway,
+            reservation,
+        ))
+    }
+
+    fn reserve_runway_in_state(
+        state: &mut FlightDeckState,
+        num_cols: Int,
+        object_id: ObjectID,
+        for_landing: Bool,
+    ) -> Bool {
+        let mut runway_index: Option<usize> = None;
+
+        if !for_landing {
+            let num_cols = num_cols.max(0) as usize;
+            let row_limit = num_cols.min(state.parking_spaces.len());
+            for space in state.parking_spaces.iter().take(row_limit) {
+                if space.object_id == object_id {
+                    runway_index = Some(space.runway_index);
+                    break;
+                }
+            }
+        } else {
+            for space in state.parking_spaces.iter() {
+                if space.object_id == object_id {
+                    runway_index = Some(space.runway_index);
+                    break;
+                }
+            }
+        }
+
+        let Some(runway_index) = runway_index else {
+            return false;
+        };
+
+        let Some(runway) = state.runways.get_mut(runway_index) else {
+            return false;
+        };
+
+        if for_landing {
+            if runway.in_use_by_for_landing == object_id {
+                return true;
+            }
+            if runway.in_use_by_for_landing == INVALID_OBJECT_ID {
+                runway.in_use_by_for_landing = object_id;
+                return true;
+            }
+            return false;
+        }
+
+        if runway.in_use_by_for_takeoff == object_id {
+            return true;
+        }
+        if runway.in_use_by_for_takeoff == INVALID_OBJECT_ID {
+            runway.in_use_by_for_takeoff = object_id;
+            return true;
+        }
+        false
+    }
+}
+
+impl FlightDeckBehavior {
+    fn prepare_reservation_owner(&mut self, owner: &GameObject) -> Result<(), String> {
+        if owner.get_id() != self.object_id {
+            return Err("flight deck belongs to another owner".into());
+        }
+        if self.state.got_info {
+            return Ok(());
+        }
+        if owner.test_status(crate::common::ObjectStatusTypes::UnderConstruction)
+            || owner.test_status(crate::common::ObjectStatusTypes::Sold)
+        {
+            return Err("flight deck owner is unavailable".into());
+        }
+        if !self.config.thing_template_name.is_empty() {
+            return Err("flight deck creation requires a supplied factory".into());
+        }
+        self.build_geometry_for_owner(owner, |_, _| INVALID_OBJECT_ID)
+            .map_err(|error| error.to_string())
+    }
+    pub(crate) fn reserve_space_with_owner(
+        &mut self,
+        owner: &GameObject,
+        rider: &mut GameObject,
+        parking_offset: Real,
+        info: &mut SharedPPInfo,
+        now: UnsignedInt,
+        dead: impl FnMut(ObjectID) -> bool,
+    ) -> Result<Bool, String> {
+        self.prepare_reservation_owner(owner)?;
+        let id = rider.get_id();
+        if id == INVALID_OBJECT_ID {
+            return Ok(false);
+        }
+        Self::purge_dead_with_lookup(&mut self.state, now, dead);
+        let Some(_) = Self::reserve_space_index(&mut self.state, id) else {
+            return Ok(false);
+        };
+        if self.config.landing_deck_height_offset != 0.0 {
+            rider.set_status(ObjectStatusMaskType::DECK_HEIGHT_OFFSET, true);
+        }
+        self.calc_pp_info(id, info);
+        if parking_offset != 0.0 {
+            info.parking_space.x += parking_offset * info.parking_orientation.cos();
+            info.parking_space.y += parking_offset * info.parking_orientation.sin();
+        }
+        Ok(true)
+    }
+    pub(crate) fn release_space_with_owner(
+        &mut self,
+        owner: &GameObject,
+        rider: &mut GameObject,
+        now: UnsignedInt,
+        dead: impl FnMut(ObjectID) -> bool,
+    ) -> Result<(), String> {
+        self.prepare_reservation_owner(owner)?;
+        Self::purge_dead_with_lookup(&mut self.state, now, dead);
+        Self::release_space_in_state(&mut self.state, rider.get_id());
+        rider.clear_status(ObjectStatusMaskType::DECK_HEIGHT_OFFSET);
+        Ok(())
+    }
+
+    pub(crate) fn reserve_runway_with_owner(
+        &mut self,
+        owner: &GameObject,
+        id: ObjectID,
+        landing: Bool,
+        now: UnsignedInt,
+        dead: impl FnMut(ObjectID) -> bool,
+    ) -> Result<Bool, String> {
+        self.prepare_reservation_owner(owner)?;
+        if id == INVALID_OBJECT_ID {
+            return Ok(false);
+        }
+        Self::purge_dead_with_lookup(&mut self.state, now, dead);
+        Ok(Self::reserve_runway_in_state(
+            &mut self.state,
+            self.config.num_cols,
+            id,
+            landing,
+        ))
+    }
+}
+
 impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
     fn should_reserve_door_when_queued(&self, _thing_template: &ObjectTemplate) -> Bool {
         true
@@ -1815,26 +2036,9 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
         let state = &mut self.state;
         Self::purge_dead(state);
 
-        let mut target_index = None;
-        for (index, space) in state.parking_spaces.iter().enumerate() {
-            if space.object_id == object_id {
-                target_index = Some(index);
-                break;
-            }
-        }
-
-        if target_index.is_none() {
-            target_index = state
-                .parking_spaces
-                .iter()
-                .position(|space| space.object_id == INVALID_OBJECT_ID);
-        }
-
-        let Some(target_index) = target_index else {
+        let Some(_) = Self::reserve_space_index(state, object_id) else {
             return false;
         };
-
-        state.parking_spaces[target_index].object_id = object_id;
         if self.config.landing_deck_height_offset != 0.0 {
             if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
                 if let Ok(mut guard) = obj.write() {
@@ -1859,12 +2063,7 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
         }
         let state = &mut self.state;
         Self::purge_dead(state);
-        for space in state.parking_spaces.iter_mut() {
-            if space.object_id == object_id {
-                space.object_id = INVALID_OBJECT_ID;
-                break;
-            }
-        }
+        Self::release_space_in_state(state, object_id);
 
         if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
             if let Ok(mut guard) = obj.write() {
@@ -1883,53 +2082,7 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
         }
         let state = &mut self.state;
         Self::purge_dead(state);
-        let mut runway_index: Option<usize> = None;
-
-        if !for_landing {
-            let num_cols = self.config.num_cols.max(0) as usize;
-            let row_limit = num_cols.min(state.parking_spaces.len());
-            for space in state.parking_spaces.iter().take(row_limit) {
-                if space.object_id == object_id {
-                    runway_index = Some(space.runway_index);
-                    break;
-                }
-            }
-        } else {
-            for space in state.parking_spaces.iter() {
-                if space.object_id == object_id {
-                    runway_index = Some(space.runway_index);
-                    break;
-                }
-            }
-        }
-
-        let Some(runway_index) = runway_index else {
-            return false;
-        };
-
-        let Some(runway) = state.runways.get_mut(runway_index) else {
-            return false;
-        };
-
-        if for_landing {
-            if runway.in_use_by_for_landing == object_id {
-                return true;
-            }
-            if runway.in_use_by_for_landing == INVALID_OBJECT_ID {
-                runway.in_use_by_for_landing = object_id;
-                return true;
-            }
-            return false;
-        }
-
-        if runway.in_use_by_for_takeoff == object_id {
-            return true;
-        }
-        if runway.in_use_by_for_takeoff == INVALID_OBJECT_ID {
-            runway.in_use_by_for_takeoff = object_id;
-            return true;
-        }
-        false
+        Self::reserve_runway_in_state(state, self.config.num_cols, object_id, for_landing)
     }
 
     fn calc_pp_info(&self, object_id: ObjectID, info: &mut SharedPPInfo) {
@@ -2013,14 +2166,7 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
         }
         let state = &mut self.state;
         Self::purge_dead(state);
-        if let Some(runway) = state.runways.get(runway_index as usize) {
-            match reservation_type {
-                SharedRunwayReservationType::Takeoff => runway.in_use_by_for_takeoff,
-                SharedRunwayReservationType::Landing => runway.in_use_by_for_landing,
-            }
-        } else {
-            INVALID_OBJECT_ID
-        }
+        Self::runway_reservation_in_state(state, runway_index, reservation_type)
     }
 
     fn transfer_runway_reservation_to_next_in_line_for_takeoff(&mut self, object_id: ObjectID) {
@@ -2683,6 +2829,28 @@ mod tests {
         FlightDeckBehavior::new(object_id, config)
     }
 
+    fn local_member_dead(objects: &[&Object], id: ObjectID) -> bool {
+        objects
+            .iter()
+            .find(|object| object.get_id() == id)
+            .map(|object| object.is_effectively_dead())
+            .unwrap_or(true)
+    }
+
+    fn create_owned_test_flight_deck() -> (FlightDeckBehavior, Object) {
+        let id = next_test_object_id();
+        let owner = Object::new_test(id, 100.0);
+        let config = FlightDeckBehaviorModuleData {
+            num_rows: 3,
+            num_cols: 2,
+            heal_amount: 1.0,
+            approach_height: 50.0,
+            landing_deck_height_offset: 10.0,
+            ..Default::default()
+        };
+        (FlightDeckBehavior::new(id, config), owner)
+    }
+
     fn register_test_object(object_id: ObjectID) -> Arc<RwLock<Object>> {
         let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
         OBJECT_REGISTRY.register_object(object_id, &object);
@@ -2794,62 +2962,148 @@ mod tests {
 
     #[test]
     fn test_parking_space_reservation() {
-        let (mut flight_deck, owner) = create_test_flight_deck_with_owner();
+        let (mut flight_deck, owner) = create_owned_test_flight_deck();
         let mut info = SharedPPInfo::default();
         let jet_id = next_test_object_id();
-        let _jet = register_test_object(jet_id);
+        let mut jet = Object::new_test(jet_id, 100.0);
 
-        let result = flight_deck.reserve_space(jet_id, 0.0, &mut info);
+        let result = flight_deck
+            .reserve_space_with_owner(&owner, &mut jet, 0.0, &mut info, 71, |_| true)
+            .unwrap();
         assert!(result);
 
         let stats = flight_deck.get_statistics();
         assert_eq!(stats.occupied_spaces, 1);
         assert_eq!(stats.available_spaces, 5);
-
-        OBJECT_REGISTRY.unregister_object(jet_id);
-        OBJECT_REGISTRY.unregister_object(owner.read().unwrap().get_id());
     }
 
     #[test]
     fn test_runway_reservation() {
-        let (mut flight_deck, owner) = create_test_flight_deck_with_owner();
+        let (mut flight_deck, owner) = create_owned_test_flight_deck();
         let mut info = SharedPPInfo::default();
         let jet_id = next_test_object_id();
-        let _jet = register_test_object(jet_id);
-        let _ = flight_deck.reserve_space(jet_id, 0.0, &mut info);
+        let mut jet = Object::new_test(jet_id, 100.0);
+        let _ = flight_deck
+            .reserve_space_with_owner(&owner, &mut jet, 0.0, &mut info, 71, |_| true)
+            .unwrap();
 
-        let result = flight_deck.reserve_runway(jet_id, false); // takeoff
+        let result = flight_deck
+            .reserve_runway_with_owner(&owner, jet_id, false, 72, |id| {
+                id != jet.get_id() || jet.is_effectively_dead()
+            })
+            .unwrap(); // takeoff
         assert!(result);
 
-        let reservation =
-            flight_deck.get_runway_reservation(0, SharedRunwayReservationType::Takeoff);
+        let reservation = flight_deck
+            .get_runway_reservation_with_owner(
+                &owner,
+                0,
+                SharedRunwayReservationType::Takeoff,
+                72,
+                |id| local_member_dead(&[&jet], id),
+            )
+            .unwrap();
         assert_eq!(reservation, jet_id);
+    }
 
-        OBJECT_REGISTRY.unregister_object(jet_id);
-        OBJECT_REGISTRY.unregister_object(owner.read().unwrap().get_id());
+    #[test]
+    fn owned_runway_reservation_preserves_front_row_and_missing_dead_purge() {
+        let (mut deck, owner) = create_owned_test_flight_deck();
+        let mut first = Object::new_test(next_test_object_id(), 100.0);
+        let mut second = Object::new_test(next_test_object_id(), 100.0);
+        let mut back = Object::new_test(next_test_object_id(), 100.0);
+        let mut info = SharedPPInfo::default();
+        let first_id = first.get_id();
+        let second_id = second.get_id();
+        let back_id = back.get_id();
+        assert!(
+            deck.reserve_space_with_owner(&owner, &mut first, 0.0, &mut info, 71, |_| true)
+                .unwrap()
+        );
+        assert!(
+            deck.reserve_space_with_owner(&owner, &mut second, 0.0, &mut info, 71, |id| {
+                local_member_dead(&[&first], id)
+            })
+            .unwrap()
+        );
+        assert!(
+            deck.reserve_space_with_owner(&owner, &mut back, 0.0, &mut info, 71, |id| {
+                local_member_dead(&[&first, &second], id)
+            })
+            .unwrap()
+        );
+        let alive = |id| local_member_dead(&[&first, &second, &back], id);
+        assert!(
+            !deck
+                .reserve_runway_with_owner(&owner, back_id, false, 72, alive)
+                .unwrap()
+        );
+        assert!(
+            deck.reserve_runway_with_owner(&owner, back_id, true, 72, alive)
+                .unwrap()
+        );
+        assert!(
+            deck.reserve_runway_with_owner(&owner, first_id, false, 72, alive)
+                .unwrap()
+        );
+        assert!(
+            deck.reserve_runway_with_owner(&owner, first_id, false, 72, alive)
+                .unwrap()
+        );
+        assert_eq!(
+            deck.get_runway_reservation_with_owner(
+                &owner,
+                0,
+                SharedRunwayReservationType::Takeoff,
+                73,
+                |id| local_member_dead(&[&first, &second, &back], id)
+            )
+            .unwrap(),
+            first_id
+        );
+        assert!(
+            deck.reserve_runway_with_owner(&owner, back_id, true, 73, |id| local_member_dead(
+                &[&second, &back],
+                id
+            ))
+            .unwrap()
+        );
+        assert_eq!(
+            deck.get_runway_reservation_with_owner(
+                &owner,
+                0,
+                SharedRunwayReservationType::Takeoff,
+                74,
+                |id| local_member_dead(&[&second, &back], id)
+            )
+            .unwrap(),
+            INVALID_OBJECT_ID
+        );
+        assert!(!deck.has_reserved_space(first_id));
     }
 
     #[test]
     fn test_space_release() {
-        let (mut flight_deck, owner) = create_test_flight_deck_with_owner();
+        let (mut flight_deck, owner) = create_owned_test_flight_deck();
         let mut info = SharedPPInfo::default();
         let jet_id = next_test_object_id();
-        let _jet = register_test_object(jet_id);
+        let mut jet = Object::new_test(jet_id, 100.0);
 
         // Reserve space
-        let _ = flight_deck.reserve_space(jet_id, 0.0, &mut info);
+        let _ = flight_deck
+            .reserve_space_with_owner(&owner, &mut jet, 0.0, &mut info, 71, |_| true)
+            .unwrap();
         assert!(flight_deck.has_reserved_space(jet_id));
 
         // Release space
-        flight_deck.release_space(jet_id);
+        flight_deck
+            .release_space_with_owner(&owner, &mut jet, 72, |id| id != jet_id)
+            .unwrap();
         assert!(!flight_deck.has_reserved_space(jet_id));
 
         let stats = flight_deck.get_statistics();
         assert_eq!(stats.occupied_spaces, 0);
         assert_eq!(stats.available_spaces, 6);
-
-        OBJECT_REGISTRY.unregister_object(jet_id);
-        OBJECT_REGISTRY.unregister_object(owner.read().unwrap().get_id());
     }
 
     #[test]

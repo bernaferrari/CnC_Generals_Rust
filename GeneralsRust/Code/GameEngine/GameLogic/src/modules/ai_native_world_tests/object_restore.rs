@@ -236,6 +236,11 @@ fn fresh_with_templates(
         )
         .unwrap();
     let mut game = NativeMatch {
+        ranks: Default::default(),
+        kill_awards: Vec::new(),
+        deposit_sound: Default::default(),
+        radar: Default::default(),
+        death_notifications: Vec::new(),
         groups: Vec::new(),
         disposal: crate::modules::ai_native_world::owned_disposal::NativeDisposalState::new()
             .unwrap(),

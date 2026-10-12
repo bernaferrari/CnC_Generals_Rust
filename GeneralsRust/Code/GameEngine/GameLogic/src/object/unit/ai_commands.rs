@@ -109,6 +109,12 @@ impl UnitAIUpdate {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.validate_world_owner(world)?;
         let idle = command.cmd == crate::ai::AiCommandType::Idle;
+        let follow_path = command.cmd == crate::ai::AiCommandType::FollowPath;
+        if follow_path
+            && (command.coords.is_empty() || command.coords.iter().any(|point| !point.is_finite()))
+        {
+            return Err("owned FollowPath requires finite authored points".into());
+        }
         let waypoint = matches!(
             command.cmd,
             crate::ai::AiCommandType::FollowWaypointPath
@@ -157,7 +163,11 @@ impl UnitAIUpdate {
             return Err("supplied movement currently admits AI-origin removal motion only".into());
         }
         self.validate_owned_components(
-            command.cmd == crate::ai::AiCommandType::MoveToPosition || idle || exits || waypoint,
+            command.cmd == crate::ai::AiCommandType::MoveToPosition
+                || idle
+                || exits
+                || waypoint
+                || follow_path,
             idle,
         )?;
         // The supplied endpoint owns Enter and its immediate terminal entries.
@@ -179,7 +189,8 @@ impl UnitAIUpdate {
                     || id == AIStateType::FollowWaypointPathAsIndividuals as u32
                     || id == AIStateType::FollowWaypointPathAsIndividualsExact as u32
                     || id == AIStateType::FollowWaypointPathAsTeam as u32
-                    || id == AIStateType::FollowWaypointPathAsTeamExact as u32))
+                    || id == AIStateType::FollowWaypointPathAsTeamExact as u32
+                    || id == AIStateType::FollowPath as u32))
         {
             return Err(
                 "supplied AIEnter does not admit this previous state or temporary state".into(),
@@ -196,6 +207,7 @@ impl UnitAIUpdate {
                 | crate::ai::AiCommandType::FollowWaypointPathExact
                 | crate::ai::AiCommandType::FollowWaypointPathAsTeam
                 | crate::ai::AiCommandType::FollowWaypointPathAsTeamExact
+                | crate::ai::AiCommandType::FollowPath
                 | crate::ai::AiCommandType::Exit
                 | crate::ai::AiCommandType::ExitInstantly
         ) {

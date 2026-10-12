@@ -536,6 +536,7 @@ pub fn stealth_or_detector_update_processes(any_disabled: bool, disabled_held: b
 /// StealthDetectorUpdate behavior module
 pub struct StealthDetectorUpdate {
     object_id: ObjectID,
+    owner: std::sync::Weak<RwLock<GameObject>>,
     module_data: Arc<StealthDetectorUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     enabled: Bool,
@@ -564,8 +565,8 @@ impl StealthDetectorUpdate {
         // C++ StealthDetectorUpdate.cpp:67-70 — random first wake so detectors
         // do not all scan on the same frame.
         let update_rate = specific_data.update_rate.max(1);
-        let now = crate::helpers::TheGameLogic::get_frame();
         let next_call_frame_and_phase = if enabled {
+            let now = crate::helpers::TheGameLogic::get_frame();
             let wake = stealth_detector_ctor_wake_frames(update_rate);
             now.saturating_add(wake)
         } else {
@@ -574,6 +575,7 @@ impl StealthDetectorUpdate {
 
         Ok(Self {
             object_id,
+            owner: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase,
             enabled,
@@ -581,6 +583,75 @@ impl StealthDetectorUpdate {
             ping_particle_id: None,
             beacon_particle_id: None,
         })
+    }
+
+    fn sleep_for_owner(&self, owner: &GameObject) -> Option<UpdateSleepTime> {
+        if !self.enabled || owner.is_effectively_dead() {
+            Some(UpdateSleepTime::Forever)
+        } else if owner.test_status(ObjectStatusTypes::UnderConstruction) {
+            Some(UpdateSleepTime::None)
+        } else if owner.test_status(ObjectStatusTypes::Sold) {
+            Some(UpdateSleepTime::Forever)
+        } else {
+            None
+        }
+    }
+
+    fn detection_sleep(&self) -> UpdateSleepTime {
+        UpdateSleepTime::from_u32(self.module_data.update_rate)
+    }
+
+    /// An actual installed, effect-free detector scan against a supplied
+    /// source-only spatial index. Rich targets/presentation require the broader
+    /// native detection operation; they must never be discovered ambiently here.
+    pub(crate) fn update_empty_partition_with_owner(
+        &mut self,
+        owner: &Arc<RwLock<GameObject>>,
+        spatial: &crate::object_manager::ObjectManager,
+    ) -> Result<UpdateSleepTime, String> {
+        let bound = self.owner.upgrade().ok_or("detector owner disappeared")?;
+        if !Arc::ptr_eq(&bound, owner) {
+            return Err("detector owner belongs to another allocation".into());
+        }
+        let owner = owner.read().map_err(|_| "detector owner poisoned")?;
+        if owner.get_id() != self.object_id {
+            return Err("detector owner identity changed".into());
+        }
+        let data = &self.module_data;
+        if owner.get_contained_by().is_some()
+            || data.ping_sound.is_some()
+            || data.loud_ping_sound.is_some()
+            || data.ir_beacon_particle_sys.is_some()
+            || data.ir_particle_sys.is_some()
+            || data.ir_bright_particle_sys.is_some()
+            || data.ir_grid_particle_sys.is_some()
+            || !self.grid_particle_ids.is_empty()
+            || self.ping_particle_id.is_some()
+            || self.beacon_particle_id.is_some()
+        {
+            return Err("native detector contain/audio/particle operation not admitted".into());
+        }
+        let range = if data.detection_range > 0.0 {
+            data.detection_range
+        } else {
+            owner.get_vision_range()
+        };
+        if !range.is_finite() || range < 0.0 {
+            return Err("native detector range invalid".into());
+        }
+        if !spatial.has_only_spatial_object(self.object_id) {
+            return Err("native detector requires its complete source-only spatial index".into());
+        }
+        let nearby = spatial.find_objects_in_radius(*owner.get_position(), range);
+        if !nearby.contains(&self.object_id) || nearby.iter().any(|id| *id != self.object_id) {
+            return Err("native detector requires its admitted source-only spatial index".into());
+        }
+        if let Some(sleep) = self.sleep_for_owner(&owner) {
+            return Ok(sleep);
+        }
+        // The real query found only this detector, which the C++ scan skips.
+        // No configured presentation or existing particles require side effects.
+        Ok(self.detection_sleep())
     }
 
     /// Check if detector is enabled
@@ -867,23 +938,12 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = object.read() {
-                // Check if effectively dead (C++ lines 128-129)
-                if obj.is_effectively_dead() {
-                    self.clear_grid_particles();
-                    self.clear_ping_beacon_particles();
-                    return UpdateSleepTime::Forever;
-                }
-
-                // Wait until fully constructed (C++ lines 131-133)
-                if obj.test_status(ObjectStatusTypes::UnderConstruction) {
-                    return UpdateSleepTime::None;
-                }
-
-                // Turn off forever when sold (C++ lines 135-137)
-                if obj.test_status(ObjectStatusTypes::Sold) {
-                    self.clear_grid_particles();
-                    self.clear_ping_beacon_particles();
-                    return UpdateSleepTime::Forever;
+                if let Some(sleep) = self.sleep_for_owner(&obj) {
+                    if sleep == UpdateSleepTime::Forever {
+                        self.clear_grid_particles();
+                        self.clear_ping_beacon_particles();
+                    }
+                    return sleep;
                 }
 
                 // C++ StealthDetectorUpdate.cpp:139-161 — garrisonable containers
@@ -902,10 +962,10 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
                         .unwrap_or(false);
                     if garrisonable {
                         if !self.module_data.can_detect_while_garrisoned {
-                            return UpdateSleepTime::from_u32(self.module_data.update_rate);
+                            return self.detection_sleep();
                         }
                     } else if !self.module_data.can_detect_while_transported {
-                        return UpdateSleepTime::from_u32(self.module_data.update_rate);
+                        return self.detection_sleep();
                     }
                 }
 
@@ -1008,7 +1068,7 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
                 }
 
                 // Return sleep time for next update (C++ line 400)
-                return UpdateSleepTime::from_u32(self.module_data.update_rate);
+                return self.detection_sleep();
             }
         }
 
@@ -1163,6 +1223,7 @@ mod tests {
     fn stealth_detector_processes_held_disabled_like_cpp() {
         let detector = StealthDetectorUpdate {
             object_id: crate::common::INVALID_ID,
+            owner: std::sync::Weak::new(),
             module_data: Arc::new(StealthDetectorUpdateModuleData::default()),
             next_call_frame_and_phase: 0,
             enabled: true,

@@ -1491,6 +1491,46 @@ impl PartitionFilterPlayerAffiliation {
             affiliation,
         }
     }
+
+    /// CPP PartitionManager.cpp:5058–5091 using the receiving roster and the
+    /// actual target's team. No owner publication or registry lookup occurs.
+    pub(crate) fn allow_with_players(
+        &self,
+        obj: &dyn GameObject,
+        players: &crate::player::PlayerList,
+    ) -> Result<bool, String> {
+        let target = obj
+            .as_object_handle()
+            .ok_or("affiliation target has no actual object")?;
+        let target = target.read().map_err(|_| "affiliation target poisoned")?;
+        let player = players
+            .get_player(self.player_id.0.into())
+            .ok_or("affiliation player absent from receiving roster")?;
+        let player = player.read().map_err(|_| "affiliation player poisoned")?;
+        let relation = match target.get_team() {
+            Some(team) => {
+                let team = team
+                    .read()
+                    .map_err(|_| "affiliation target team poisoned")?;
+                player.get_relationship_with_team(&team)
+            }
+            None => Relationship::Neutral,
+        };
+        Ok(self.allow_relationship(relation, target.get_player_id() == Some(self.player_id)))
+    }
+
+    fn allow_relationship(&self, relation: Relationship, same_player: bool) -> bool {
+        let matches = match relation {
+            Relationship::Enemies => self.affiliation & AFFILIATION_ALLOW_ENEMIES != 0,
+            Relationship::Neutral => self.affiliation & AFFILIATION_ALLOW_NEUTRAL != 0,
+            Relationship::Allies => self.affiliation & AFFILIATION_ALLOW_ALLIES != 0,
+        };
+        if matches || same_player {
+            self.match_flag
+        } else {
+            !self.match_flag
+        }
+    }
 }
 
 impl super::partition_manager::PartitionFilter for PartitionFilterPlayerAffiliation {
@@ -1503,17 +1543,7 @@ impl super::partition_manager::PartitionFilter for PartitionFilterPlayerAffiliat
         };
 
         let rel = compute_player_affiliation(self.player_id, &other_guard);
-        let matches = match rel {
-            Relationship::Enemies => self.affiliation & AFFILIATION_ALLOW_ENEMIES != 0,
-            Relationship::Neutral => self.affiliation & AFFILIATION_ALLOW_NEUTRAL != 0,
-            Relationship::Allies => self.affiliation & AFFILIATION_ALLOW_ALLIES != 0,
-        };
-
-        if matches || other_guard.get_player_id() == Some(self.player_id) {
-            return self.match_flag;
-        }
-
-        !self.match_flag
+        self.allow_relationship(rel, other_guard.get_player_id() == Some(self.player_id))
     }
 
     fn debug_name(&self) -> &'static str {
@@ -2003,28 +2033,60 @@ mod tests {
     fn player_affiliation_uses_player_team_relationships() {
         let player0 = Arc::new(RwLock::new(Player::new(0)));
         let player1 = Arc::new(RwLock::new(Player::new(1)));
-        reset_player_list_with_players(&[Arc::clone(&player0), Arc::clone(&player1)]);
-
+        let mut players = crate::player::PlayerList::new();
+        players.add_player(Arc::clone(&player0));
+        players.add_player(Arc::clone(&player1));
         player0
             .write()
-            .expect("player write lock")
+            .unwrap()
             .set_player_relationship_by_index(1, Relationship::Enemies);
-
         let enemy_team = team_for_player("EnemyTeam", 1, 1);
-        let target = structure_object();
-        target
-            .write()
-            .expect("target write lock")
-            .set_team(Some(enemy_team))
-            .expect("set target team");
-
+        let target = owned_filter_object(93_901, "STRUCTURE", Arc::clone(&enemy_team));
         let enemy_filter =
             PartitionFilterPlayerAffiliation::new(PlayerId(0), AFFILIATION_ALLOW_ENEMIES, true);
         let neutral_filter =
             PartitionFilterPlayerAffiliation::new(PlayerId(0), AFFILIATION_ALLOW_NEUTRAL, true);
-
-        assert!(enemy_filter.allow(&target));
-        assert!(!neutral_filter.allow(&target));
+        assert!(enemy_filter.allow_with_players(&target, &players).unwrap());
+        assert!(
+            !neutral_filter
+                .allow_with_players(&target, &players)
+                .unwrap()
+        );
+        let reject_enemy =
+            PartitionFilterPlayerAffiliation::new(PlayerId(0), AFFILIATION_ALLOW_ENEMIES, false);
+        assert!(!reject_enemy.allow_with_players(&target, &players).unwrap());
+        // Another same-index roster must not alter this roster's relation.
+        let mut foreign = crate::player::PlayerList::new();
+        foreign.add_player(Arc::new(RwLock::new(Player::new(0))));
+        foreign.add_player(Arc::new(RwLock::new(Player::new(1))));
+        assert!(!enemy_filter.allow_with_players(&target, &foreign).unwrap());
+        assert!(
+            neutral_filter
+                .allow_with_players(&target, &foreign)
+                .unwrap()
+        );
+        assert!(enemy_filter.allow_with_players(&target, &players).unwrap());
+        // CPP Player::getRelationship checks an exact team override first.
+        player0
+            .write()
+            .unwrap()
+            .set_team_relationship(&enemy_team.read().unwrap(), Relationship::Allies);
+        assert!(!enemy_filter.allow_with_players(&target, &players).unwrap());
+        let allies =
+            PartitionFilterPlayerAffiliation::new(PlayerId(0), AFFILIATION_ALLOW_ALLIES, true);
+        assert!(allies.allow_with_players(&target, &players).unwrap());
+        // Own-controller fallback applies even when no relation bit is allowed.
+        let own = owned_filter_object(93_902, "STRUCTURE", team_for_player("OwnTeam", 2, 0));
+        assert!(
+            PartitionFilterPlayerAffiliation::new(PlayerId(0), 0, true)
+                .allow_with_players(&own, &players)
+                .unwrap()
+        );
+        assert!(
+            !PartitionFilterPlayerAffiliation::new(PlayerId(0), 0, false)
+                .allow_with_players(&own, &players)
+                .unwrap()
+        );
     }
 
     #[test]

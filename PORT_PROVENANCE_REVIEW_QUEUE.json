@@ -53442,6 +53442,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update_owned_path.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/animated_particle_sys_bone_client_update.rs"
             },
             {
@@ -189355,7 +189360,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "2c4b2522732afbcc3ad01c7da3defb07ada1936a7b2543d4a89bdeb7ec556334",
+  "provenance_input_digest": "60630ee82eac53261fa87675ff9bae2013244be91cbd060a8660d6040621c42a",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

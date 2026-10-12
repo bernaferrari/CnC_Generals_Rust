@@ -359,6 +359,31 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         crate::object::production::AIFreeToExitType::FreeToExit
     }
 
+    /// Checked instance callback at C++ AIExit's free-to-exit observation point.
+    fn follow_contain_exit_with_world(
+        &mut self,
+        _ignore: ObjectID,
+        _end: Coord3D,
+        _rally: Option<Coord3D>,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("supplied numbered exit AI unsupported".into())
+    }
+    fn update_follow_path_phase_with_world(
+        &mut self,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("supplied FollowPath phase unsupported".into())
+    }
+
+    fn get_ai_free_to_exit_with_world(
+        &self,
+        _exiter: &Object,
+        _world: &dyn ai_world::AiWorld,
+    ) -> Result<crate::object::production::AIFreeToExitType, String> {
+        Err("target AI does not admit supplied free-to-exit observation".into())
+    }
+
     /// Mark this unit as demoralized for a duration in frames.
     /// Matches C++ AIUpdateInterface::setDemoralized.
     fn set_demoralized(&mut self, duration_frames: UnsignedInt) {

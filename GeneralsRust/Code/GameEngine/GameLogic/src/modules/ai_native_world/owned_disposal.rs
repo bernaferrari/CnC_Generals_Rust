@@ -20,6 +20,12 @@ impl NativeDisposalState {
 impl AiNativeServices<'_> {
     fn reborrow(&mut self) -> AiNativeServices<'_> {
         AiNativeServices {
+            radar: self.radar,
+            death_notifications: self.death_notifications,
+            rank_info: self.rank_info,
+            rank_level_limit: self.rank_level_limit,
+            money_deposit_sound: self.money_deposit_sound,
+            kill_award_events: self.kill_award_events,
             groups: self.groups,
             disposal: self.disposal.as_deref_mut(),
             teams: self.teams,
@@ -146,8 +152,18 @@ pub(crate) fn finish_native_destroyed_objects(
                 .scripts
                 .set_frame_object_count_changed(services.frame);
         }
-        // This admitted family has neither radar data nor a drawable. Original
-        // sendObjectDestroyed therefore has no presentation binding to retire.
+        // CPP destructor removes radar before sendObjectDestroyed and team unlink.
+        {
+            let mut object = owner.write().map_err(|_| "retiring radar owner poisoned")?;
+            if object.owned_radar_data().is_some() {
+                assert!(
+                    services.radar.remove_object(id),
+                    "admitted retiring radar link"
+                );
+                object.clear_owned_radar_data();
+            }
+        }
+        // Drawable bindings remain unsupported by this native family.
         if let Some(team) = team {
             let was_member = {
                 let mut team = team.write().map_err(|_| "retiring native team poisoned")?;

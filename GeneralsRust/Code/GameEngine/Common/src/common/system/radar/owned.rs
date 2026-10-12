@@ -2,6 +2,24 @@
 use super::*;
 
 impl RadarSystem {
+    /// Admit a synchronous logic event with this session's frame.
+    pub fn try_event_owned(
+        &mut self,
+        frame: u32,
+        kind: RadarEventType,
+        position: &Coord3D,
+    ) -> bool {
+        self.current_frame = frame;
+        self.try_event(kind, position)
+    }
+
+    pub fn contains_object(&self, id: u32) -> bool {
+        self.local_object_list
+            .iter()
+            .chain(self.object_list.iter())
+            .any(|object| object.object_id == id)
+    }
+
     /// Advance the supplied match radar without selecting process-wide stores.
     /// Returns whether its owner must re-sample terrain at the original phase.
     pub fn update_owned(&mut self, current_frame: u32) -> bool {

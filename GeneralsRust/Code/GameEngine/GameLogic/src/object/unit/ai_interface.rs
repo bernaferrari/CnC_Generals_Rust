@@ -334,6 +334,116 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::get_ai_free_to_exit(self, exiter)
     }
 
+    fn follow_contain_exit_with_world(
+        &mut self,
+        ignore: ObjectID,
+        mut end: Coord3D,
+        rally: Option<Coord3D>,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_world_owner(world)
+            .map_err(|error| error.to_string())?;
+        self.runtime.data.ignore_obstacle_id = INVALID_ID;
+        self.runtime.data.ignore_collisions_until =
+            world.frame().wrapping_add(LOGICFRAMES_PER_SECOND);
+        {
+            let mut runtime = super::UnitAiStateRuntime {
+                runtime: &mut self.runtime,
+                parent_exists: true,
+                parent_state_id: None,
+                world: Some(world),
+            };
+            crate::modules::ai_state_runtime::AiStateRuntime::adjust_destination(
+                &mut runtime,
+                &mut end,
+            );
+        }
+        let owner = self.runtime.native_owner().ok_or("exit actor absent")?;
+        let physics = owner
+            .read()
+            .map_err(|_| "exit actor poisoned")?
+            .get_physics();
+        let previous = physics.as_ref().map(|physics| {
+            let mut physics = physics.access().expect("admitted exit Physics poisoned");
+            let previous = physics.get_allow_to_fall();
+            physics.set_allow_to_fall(false);
+            previous
+        });
+        let mut command = crate::ai::AiCommandParams::new(
+            crate::ai::AiCommandType::FollowPath,
+            crate::ai::CommandSourceType::FromAi,
+        );
+        command.obj = Some(ignore);
+        command.coords = vec![end, end];
+        if let Some(rally) = rally {
+            command.coords.push(rally);
+        }
+        let result = self
+            .execute_command_with_world(&command, world)
+            .map_err(|error| error.to_string())
+            .and_then(|_| {
+                let layer = world.layer_for_destination(&end)?;
+                let mut runtime = super::UnitAiStateRuntime {
+                    runtime: &mut self.runtime,
+                    parent_exists: true,
+                    parent_state_id: None,
+                    world: Some(world),
+                };
+                crate::modules::ai_state_runtime::AiStateRuntime::update_goal_position(
+                    &mut runtime,
+                    &end,
+                    layer,
+                )
+            });
+        if let (Some(physics), Some(previous)) = (physics, previous) {
+            physics
+                .access()
+                .expect("admitted exit Physics poisoned")
+                .set_allow_to_fall(previous);
+        }
+        result
+    }
+    fn update_follow_path_phase_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_world_owner(world)
+            .map_err(|error| error.to_string())?;
+        self.validate_owned_components(true, false)
+            .map_err(|error| error.to_string())?;
+        let machine = self
+            .ai_state_machine
+            .as_mut()
+            .ok_or("FollowPath machine absent")?;
+        if machine.get_current_state_id() != Some(AIStateType::FollowPath as u32)
+            || machine.get_temporary_state().is_some()
+        {
+            return Err("supplied phase requires ordinary FollowPath".into());
+        }
+        let mut runtime = super::UnitAiStateRuntime {
+            runtime: &mut self.runtime,
+            parent_exists: true,
+            parent_state_id: None,
+            world: Some(world),
+        };
+        machine
+            .update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
+                ai.execute_command_native(terminal.params(), driver)
+            })
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    fn get_ai_free_to_exit_with_world(
+        &self,
+        exiter: &Object,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<crate::object::production::AIFreeToExitType, String> {
+        self.validate_world_owner(world)
+            .map_err(|error| error.to_string())?;
+        Ok(UnitAIUpdate::get_ai_free_to_exit(self, exiter))
+    }
+
     fn set_path_extra_distance(
         &mut self,
         distance: Real,

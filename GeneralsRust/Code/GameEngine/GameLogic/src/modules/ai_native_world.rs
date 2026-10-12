@@ -13,10 +13,24 @@ use crate::object::{Object, ObjectPartitionServices};
 use crate::player::{PlayerList, PlayerType};
 use std::sync::{Arc, RwLock};
 
+/// Presentation notification emitted at the original onDie observation point.
+/// The application drains these after the synchronous simulation operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeDeathNotification {
+    BuildingLost { player: i32 },
+    UnitLost { player: i32 },
+}
+
 /// Actual driving-instance native owners. Output lists are original-phase
 /// trigger notifications and semantic presentation messages, not queued game
 /// mutations; Object trigger flags change synchronously during the operation.
 pub struct AiNativeServices<'a> {
+    pub radar: &'a mut game_engine::common::system::radar::RadarSystem,
+    pub death_notifications: &'a mut Vec<NativeDeathNotification>,
+    pub rank_info: &'a crate::system::rank_info::RankInfoStore,
+    pub rank_level_limit: i32,
+    pub money_deposit_sound: &'a game_engine::common::audio::AudioEventRts,
+    pub kill_award_events: &'a mut Vec<NativeKillAwardEvent>,
     pub groups: &'a [Arc<RwLock<crate::ai::AiGroup>>],
     pub(crate) disposal: Option<&'a mut owned_disposal::NativeDisposalState>,
     pub teams: &'a crate::team::TeamFactory,
@@ -504,6 +518,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
                 | crate::ai::AiCommandType::FollowWaypointPathExact
                 | crate::ai::AiCommandType::FollowWaypointPathAsTeam
                 | crate::ai::AiCommandType::FollowWaypointPathAsTeamExact
+                | crate::ai::AiCommandType::FollowPath
         ) {
             return Err("native friendly Enter does not admit attack commands".into());
         }
@@ -784,6 +799,13 @@ impl AiWorld for BorrowedAiWorld<'_> {
                 .move_removed_with_world(goal, ignored, self)
                 .expect("admitted immediate scatter movement");
         }
+    }
+    fn exit_free_to_exit(
+        &self,
+        passenger: ObjectID,
+        owner: ObjectID,
+    ) -> Result<crate::object::production::AIFreeToExitType, String> {
+        self.observe_exit_free_to_exit(passenger, owner)
     }
     fn contain_exit_busy(&self, owner: ObjectID) -> Result<bool, String> {
         let object = self.object(owner).ok_or("exit busy owner missing")?;
@@ -1465,3 +1487,6 @@ pub(crate) mod owned_disposal;
 
 #[path = "ai_native_world/owned_shock.rs"]
 mod owned_shock;
+
+mod owned_kill_awards;
+pub use owned_kill_awards::NativeKillAwardEvent;

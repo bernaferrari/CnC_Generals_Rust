@@ -410,37 +410,77 @@ fn canonical_detector_factory_xfer_round_trips_base_wake_and_enabled() {
 
 #[test]
 fn canonical_detector_dispatch_preserves_detection_rate_in_actual_sleepy_queue() {
-    let _guard = crate::test_sync::lock();
-    let mut fixture = DetectorFixture::new(
+    let id = 0x5D37_0013;
+    let (object, proxy) = owned_detector_without_admission_with_data(
+        id,
         StealthDetectorUpdateModuleData {
+            initially_disabled: true,
             update_rate: 10,
             ..Default::default()
         },
-        0x5D37_0013,
     );
-    let entry = fixture
-        .object
+    let mut owner = GameLogic::new();
+    owner.admit_scheduling_owner(id, Arc::clone(&object));
+    owner.register_sleepy_update_module(id, Arc::clone(&proxy), UpdateSleepTime::Forever.to_u32());
+    set_owned_detector(&object, true, &mut OwnedSchedule(&mut owner));
+    let mut spatial = crate::object_manager::ObjectManager::new();
+    spatial.update_object_position(id, *object.read().unwrap().get_position());
+    // A distant indexed center still prevents the bounded empty-scan route:
+    // CPP target geometry may overlap range even when the center does not.
+    let mut rich_spatial = crate::object_manager::ObjectManager::new();
+    rich_spatial.update_object_position(id, *object.read().unwrap().get_position());
+    rich_spatial.update_object_position(id + 1, crate::common::Coord3D::new(10000.0, 10000.0, 0.0));
+    let entry = object
         .read()
         .unwrap()
-        .find_module_by_name("StealthDetectorUpdate")
+        .find_update_module("StealthDetectorUpdate")
         .unwrap();
-    let proxy: UpdateModulePtr = Arc::new(RwLock::new(ModuleUpdateProxy::new(entry, fixture.id)));
-    // The real proxy dispatches the same installed factory allocation, and
-    // GameLogic owns this registration. No synthetic countdown is involved.
-    fixture
-        .owner
-        .register_sleepy_update_module(fixture.id, proxy.clone(), 1);
-    assert_eq!(fixture.owner.sleepy_update_count(), 1);
-    fixture.owner.update(1).unwrap();
+    let rejected = entry
+        .with_module_downcast::<StealthDetectorUpdateModule, _, _>(|module| {
+            module
+                .behavior_mut()
+                .update_empty_partition_with_owner(&object, &rich_spatial)
+        })
+        .unwrap()
+        .unwrap_err();
+    assert!(rejected.contains("complete source-only"), "{rejected}");
     assert_eq!(
-        fixture.owner.sleepy_entry_for(&proxy),
-        Some((fixture.id, 11))
+        owner.sleepy_entry_for(&proxy),
+        Some((id, 1)),
+        "rejection leaves actual wake unchanged"
     );
-    fixture.owner.update(10).unwrap();
-    assert_eq!(fixture.owner.sleepy_entry_for(&proxy).unwrap().1, 11);
-    fixture.owner.update(11).unwrap();
-    assert_eq!(fixture.owner.sleepy_entry_for(&proxy).unwrap().1, 21);
-    assert_eq!(fixture.owner.sleepy_update_count(), 1);
+    let dispatch = |owner: &mut GameLogic, frame| {
+        owner.set_current_frame(frame as u64);
+        let update = owner
+            .next_owned_scheduled_update(frame)
+            .unwrap()
+            .expect("actual due detector registration");
+        assert_eq!(update.object_id, id);
+        assert!(Arc::ptr_eq(&update.module, &proxy));
+        assert!(update.should_process);
+        let entry = object
+            .read()
+            .unwrap()
+            .find_update_module("StealthDetectorUpdate")
+            .unwrap();
+        let sleep = entry
+            .with_module_downcast::<StealthDetectorUpdateModule, _, _>(|module| {
+                module
+                    .behavior_mut()
+                    .update_empty_partition_with_owner(&object, &spatial)
+            })
+            .unwrap()
+            .unwrap();
+        owner.finish_owned_scheduled_update(frame, update, sleep);
+    };
+    assert_eq!(owner.sleepy_update_count(), 1);
+    dispatch(&mut owner, 1);
+    assert_eq!(owner.sleepy_entry_for(&proxy), Some((id, 11)));
+    assert!(owner.next_owned_scheduled_update(10).unwrap().is_none());
+    assert_eq!(owner.sleepy_entry_for(&proxy).unwrap().1, 11);
+    dispatch(&mut owner, 11);
+    assert_eq!(owner.sleepy_entry_for(&proxy).unwrap().1, 21);
+    assert_eq!(owner.sleepy_update_count(), 1);
 }
 
 /// Test adapter over the actual owned heap, not a simulated wake recorder.
@@ -459,11 +499,20 @@ impl game_engine::common::thing::update_module::UpdateScheduleContext for OwnedS
 }
 
 fn owned_detector_without_admission(id: ObjectID) -> (Arc<RwLock<GameObject>>, UpdateModulePtr) {
+    owned_detector_without_admission_with_data(
+        id,
+        StealthDetectorUpdateModuleData {
+            initially_disabled: true,
+            ..Default::default()
+        },
+    )
+}
+fn owned_detector_without_admission_with_data(
+    id: ObjectID,
+    data: StealthDetectorUpdateModuleData,
+) -> (Arc<RwLock<GameObject>>, UpdateModulePtr) {
     let object = Arc::new(RwLock::new(GameObject::new_test(id, 100.0)));
-    let data = Arc::new(StealthDetectorUpdateModuleData {
-        initially_disabled: true,
-        ..Default::default()
-    });
+    let data = Arc::new(data);
     let legacy_data: Arc<dyn ModuleData> = data.clone();
     let behavior = StealthDetectorUpdate::new(object.clone(), legacy_data).unwrap();
     let module = StealthDetectorUpdateModule::new(

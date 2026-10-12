@@ -160,3 +160,31 @@ fn cpp_matrix_angle_keeps_signed_boundary_while_orientation_normalizes_only_cach
     );
     assert_eq!(*object.get_position(), position);
 }
+
+#[test]
+fn cpp_bone_point_and_matrix_are_independent_without_double_translation() {
+    let mut object = inert_object();
+    let world = Matrix3D::from_rotation_translation(
+        glam::Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+        Coord3D::new(50.0, 60.0, 0.0),
+    );
+    transform(&mut object, &world);
+    let local = Matrix3D::from_rotation_translation(
+        glam::Quat::from_rotation_z(0.3),
+        Coord3D::new(-20.0, 0.0, 0.0),
+    );
+    let point = Coord3D::new(-20.0, 0.0, 0.0);
+    assert_eq!(
+        object.convert_bone_pos_to_world_pos(Some(&point), Some(&local)),
+        world * local
+    );
+    assert_eq!(
+        object.convert_bone_pos_to_world_pos(None, Some(&local)),
+        world * local
+    );
+    let position_only = object.convert_bone_pos_to_world_pos(Some(&point), None);
+    assert!((position_only.w_axis.truncate() - world.transform_point3(point)).length() < 1.0e-5);
+    assert_eq!(position_only.x_axis, world.x_axis);
+    assert_eq!(position_only.y_axis, world.y_axis);
+    assert_eq!(position_only.z_axis, world.z_axis);
+}
