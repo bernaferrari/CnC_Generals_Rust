@@ -3259,6 +3259,7 @@ mod record;
 mod rtb;
 mod status_bits;
 mod stealth;
+mod structure_topple_filters;
 mod update;
 pub mod visual;
 mod weapons;

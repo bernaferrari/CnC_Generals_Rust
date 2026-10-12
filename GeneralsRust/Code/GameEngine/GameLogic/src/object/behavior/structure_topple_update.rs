@@ -29,7 +29,6 @@ use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
-use std::str::FromStr;
 use std::sync::{Arc, RwLock, Weak};
 
 /// Wave 315: host-only path has no dual-world factory objects.
@@ -294,43 +293,8 @@ fn parse_damage_fx_types(
     data: &mut StructureToppleUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if first_value_token(tokens).is_none() {
-        return Err(INIError::InvalidData);
-    }
-
-    let mut flags = crate::damage::DamageTypeFlags::empty();
-    for token in value_tokens(tokens) {
-        for entry in token.split(',').map(str::trim).filter(|t| !t.is_empty()) {
-            if entry.eq_ignore_ascii_case("ALL") {
-                flags = crate::damage::DamageTypeFlags::all_flags();
-                continue;
-            }
-            if entry.eq_ignore_ascii_case("NONE") {
-                flags = crate::damage::DamageTypeFlags::empty();
-                continue;
-            }
-
-            let (remove, name) = if let Some(stripped) = entry.strip_prefix('-') {
-                (true, stripped.trim())
-            } else if let Some(stripped) = entry.strip_prefix('+') {
-                (false, stripped.trim())
-            } else {
-                (false, entry)
-            };
-
-            if let Ok(damage_type) = DamageType::from_str(name) {
-                let flag =
-                    crate::damage::DamageTypeFlags::from_bits_truncate(1 << damage_type as u64);
-                if remove {
-                    flags.remove(flag);
-                } else {
-                    flags.insert(flag);
-                }
-            }
-        }
-    }
-
-    data.damage_fx_types = flags;
+    let values: Vec<_> = value_tokens(tokens).collect();
+    data.damage_fx_types = crate::damage::flag_parsing::parse_damage_type_flags_tokens(&values)?;
     Ok(())
 }
 

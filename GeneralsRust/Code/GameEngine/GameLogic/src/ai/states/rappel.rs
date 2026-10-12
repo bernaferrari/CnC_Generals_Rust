@@ -179,14 +179,20 @@ impl CppState for AIRappelIntoState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "rappel missing owner".to_string())?;
-        let mut owner_guard = owner
-            .write()
-            .map_err(|_| "rappel owner lock poisoned".to_string())?;
-        if !owner_guard.is_kind_of(KindOf::CanRappel) {
-            return Ok(StateReturnType::Failure);
-        }
-        owner_guard.set_model_condition_state(ModelConditionFlags::RAPPELLING);
-        if let Some(physics) = owner_guard.get_physics() {
+        // Publish the CPP-visible condition first, then release the owner
+        // before PhysicsBehavior captures its exact proxy and schedules the
+        // reset wake. Reset may synchronously query this same owner.
+        let physics = {
+            let mut owner_guard = owner
+                .write()
+                .map_err(|_| "rappel owner lock poisoned".to_string())?;
+            if !owner_guard.is_kind_of(KindOf::CanRappel) {
+                return Ok(StateReturnType::Failure);
+            }
+            owner_guard.set_model_condition_state(ModelConditionFlags::RAPPELLING);
+            owner_guard.get_physics()
+        };
+        if let Some(physics) = physics {
             physics.reset_dynamic_physics();
         }
 
@@ -202,11 +208,14 @@ impl CppState for AIRappelIntoState {
             }
         }
 
+        let owner_pos = *owner
+            .read()
+            .map_err(|_| "rappel owner lock poisoned".to_string())?
+            .get_position();
         let terrain = get_terrain_logic();
         let terrain_guard = terrain
             .read()
             .map_err(|_| "rappel terrain lock poisoned".to_string())?;
-        let owner_pos = *owner_guard.get_position();
         let layer = terrain_guard.get_highest_layer_for_destination(&owner_pos);
         self.dest_z = terrain_guard.get_layer_height(owner_pos.x, owner_pos.y, layer, None, false);
         if self.target_is_bldg {
@@ -224,6 +233,10 @@ impl CppState for AIRappelIntoState {
         }
 
         let max_rappel_rate = GRAVITY.abs() * (LOGICFRAMES_PER_SECOND as Real) * 2.5;
+        drop(terrain_guard);
+        let mut owner_guard = owner
+            .write()
+            .map_err(|_| "rappel owner lock poisoned".to_string())?;
         self.rappel_rate = -owner_guard.ai_fire_desired_speed.min(max_rappel_rate);
         owner_guard.ai_pending_rappel = true;
         owner_guard.ai_pending_rappel_obj = self.base.get_machine_goal_object_id();
@@ -423,3 +436,7 @@ impl Snapshotable for AICombatDropState {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "rappel_reset_tests.rs"]
+mod reset_tests;

@@ -533,12 +533,47 @@ mod tests {
 
     #[test]
     fn target_snapshot_uses_supplied_object_with_same_id_in_another_world() {
-        let _lock = crate::test_sync::lock();
-        let id = 0xD15A;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let name = concat!(
+                module_path!(),
+                "::target_snapshot_uses_supplied_object_with_same_id_in_another_world"
+            );
+            if !matches!(
+                crate::test_process::run_bounded(
+                    name.strip_prefix("gamelogic::").unwrap_or(name),
+                    "GENERALS_SQUISH_TARGET_OWNER_CHILD",
+                ),
+                crate::test_process::TestProcess::Child
+            ) {
+                return;
+            }
+        }
         let mut driving = crate::system::game_logic::GameLogic::new();
         let mut foreign = crate::system::game_logic::GameLogic::new();
-        let target = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
-        let unrelated = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+        let mut driving_factory = crate::object::object_factory::ObjectFactory::new();
+        let mut foreign_factory = crate::object::object_factory::ObjectFactory::new();
+        let prepare = |factory: &mut crate::object::object_factory::ObjectFactory,
+                       logic: &mut crate::system::game_logic::GameLogic| {
+            let id = factory
+                .prepare_object(
+                    logic,
+                    Arc::new(crate::common::DefaultThingTemplate::new(
+                        "SuppliedSquishTarget".into(),
+                    )),
+                    crate::common::Coord3D::ZERO,
+                    None,
+                    crate::object::object_factory::ObjectCreationFlags::NO_AI,
+                )
+                .unwrap();
+            (
+                id,
+                factory.get_object(id).unwrap().get_base_object().unwrap(),
+            )
+        };
+        let (id, target) = prepare(&mut driving_factory, &mut driving);
+        let (foreign_id, unrelated) = prepare(&mut foreign_factory, &mut foreign);
+        assert_eq!(id, foreign_id);
         for (object, radius, angle) in [(&target, 7.0, 1.0), (&unrelated, 2.0, -0.5)] {
             let mut geometry = crate::common::GeometryInfo::default();
             geometry.shape.geometry_type = EngineGeometryType::Cylinder;
@@ -546,22 +581,32 @@ mod tests {
                 min: crate::common::Coord3D::new(-radius, -radius, 0.0),
                 max: crate::common::Coord3D::new(radius, radius, 3.0),
             });
-            geometry.angle = angle;
-            object.write().unwrap().set_geometry_info(geometry);
+            let mut actor = object.write().unwrap();
+            // Object.cpp746 replaces shape, not Thing.cpp's transform/angle.
+            actor.set_geometry_info(geometry);
+            actor.set_orientation(angle).unwrap();
         }
-        // Each world owns its object; only the unrelated adapter is published.
-        // C++ SquishCollide.cpp:73-91 reads the supplied `other` pointer itself.
-        driving.track_object_in_update_list(target.clone()).unwrap();
+        // Only the unrelated genuine owner is published; the collision reads
+        // its supplied pointer (CPP SquishCollide.cpp73-91), not that ID cache.
         foreign.register_object(unrelated.clone()).unwrap();
         let snapshot = TargetSnapshot::from_game_object(&target, &target);
-        let radius = snapshot.geometry.get_major_radius();
-        let orientation = snapshot.orientation;
+        assert_eq!(
+            snapshot.geometry.get_major_radius(),
+            7.0,
+            "the other world's ID adapter is unrelated"
+        );
+        assert_eq!(snapshot.orientation, 1.0);
+        assert_eq!(unrelated.read().unwrap().get_orientation(), -0.5);
+        assert_eq!(
+            TargetSnapshot::from_game_object(&unrelated, &unrelated)
+                .geometry
+                .get_major_radius(),
+            2.0
+        );
         foreign.destroy_object(id);
         foreign.process_destroy_list().unwrap();
         driving.destroy_object(id);
         driving.process_destroy_list().unwrap();
-        assert_eq!(radius, 7.0, "the other world's ID adapter is unrelated");
-        assert_eq!(orientation, 1.0);
     }
 
     #[test]

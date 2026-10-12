@@ -1,6 +1,10 @@
 //! Retail Object INI seeding and template/model lookup helpers.
 use super::*;
 
+#[cfg(test)]
+#[path = "structure_topple_admission_tests.rs"]
+mod structure_topple_admission_tests;
+
 impl GameLogic {
     /// Seed templates for retail Object INI entries that the hand-authored
     /// bootstrap does not already cover.
@@ -139,6 +143,7 @@ impl GameLogic {
                 Self::apply_authored_power_plant_update_metadata(template, &definition);
                 Self::apply_authored_temporary_weapon_behavior_metadata(template, &definition);
                 Self::apply_authored_physics_behavior_metadata(template, &definition);
+                Self::apply_authored_structure_death_metadata(template, &definition);
                 Self::apply_authored_geometry(template, &definition);
                 Self::apply_authored_ghost_draw_metadata(template, &definition);
                 Self::apply_authored_weapon_set_create_policy(template, &definition);
@@ -398,6 +403,7 @@ impl GameLogic {
         Self::apply_authored_power_plant_update_metadata(template, definition);
         Self::apply_authored_temporary_weapon_behavior_metadata(template, definition);
         Self::apply_authored_physics_behavior_metadata(template, definition);
+        Self::apply_authored_structure_death_metadata(template, definition);
         Self::apply_authored_geometry(template, definition);
         Self::apply_authored_stealth_update_metadata(template, definition);
         apply_production_prerequisites_from_definition(template, definition);

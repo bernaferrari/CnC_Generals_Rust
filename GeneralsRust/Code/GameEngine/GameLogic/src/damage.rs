@@ -13,6 +13,9 @@ use bitflags::bitflags;
 use std::str::FromStr;
 use std::sync::Arc;
 
+/// Original INI.cpp1780-1812 flag grammar, shared by typed module parsers.
+pub mod flag_parsing;
+
 /// Convenience aliases for body damage states used throughout legacy modules.
 pub const BODY_PRISTINE: BodyDamageType = BodyDamageType::Pristine;
 pub const BODY_DAMAGED: BodyDamageType = BodyDamageType::Damaged;

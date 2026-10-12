@@ -360,6 +360,9 @@ pub trait PhysicsBehaviorExt {
 }
 
 trait PhysicsStorageAccess {
+    fn reset_dynamic_physics(&self) {
+        self.with_mut(|physics| physics.reset_dynamic_physics());
+    }
     fn with_ref<R>(&self, f: impl FnOnce(&dyn PhysicsBehavior) -> R) -> R;
     fn with_mut<R>(&self, f: impl FnOnce(&mut dyn PhysicsBehavior) -> R) -> R;
 }
@@ -381,6 +384,9 @@ impl PhysicsStorageAccess for Arc<Mutex<dyn PhysicsBehavior>> {
 }
 
 impl PhysicsStorageAccess for crate::object::PhysicsInterfaceHandle {
+    fn reset_dynamic_physics(&self) {
+        self.reset_dynamic_physics_borrowed();
+    }
     fn with_ref<R>(&self, f: impl FnOnce(&dyn PhysicsBehavior) -> R) -> R {
         self.with_physics(|physics| f(physics))
     }
@@ -548,7 +554,7 @@ impl<T: PhysicsStorageAccess> PhysicsBehaviorExt for T {
     }
 
     fn reset_dynamic_physics(&self) {
-        with_physics_mut(self, |physics| physics.reset_dynamic_physics());
+        PhysicsStorageAccess::reset_dynamic_physics(self);
     }
 }
 

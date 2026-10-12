@@ -8,6 +8,9 @@ mod physics_bounce;
 mod physics_collide;
 #[path = "physics_crush.rs"]
 mod physics_crush;
+#[path = "physics_reset.rs"]
+mod physics_reset;
+use physics_reset::PhysicsResetWake;
 
 use crate::common::audio::AudioEventRts;
 use crate::common::xfer::XferExt;
@@ -577,39 +580,8 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     }
 
     fn reset_dynamic_physics(&mut self) {
-        self.state.accel = Coord3D::ZERO;
-        self.state.prev_accel = Coord3D::ZERO;
-        self.state.vel = Coord3D::ZERO;
-        self.state.vel_mag = 0.0;
-        self.state.turning = 0;
-        self.state.yaw_rate = 0.0;
-        self.state.roll_rate = 0.0;
-        self.state.pitch_rate = 0.0;
-        self.update_pitch_roll_yaw_flag();
-        if let Some(object) = self.object_arc() {
-            if let Ok(guard) = object.read() {
-                let now = TheGameLogic::get_frame();
-                let zero_vel =
-                    self.state.vel.x == 0.0 && self.state.vel.y == 0.0 && self.state.vel.z == 0.0;
-                let zero_accel = self.state.accel.x == 0.0
-                    && self.state.accel.y == 0.0
-                    && self.state.accel.z == 0.0;
-                let asleep = zero_vel
-                    && zero_accel
-                    && !self.state.has_flag(FLAG_HAS_PITCHROLLYAW)
-                    && self.state.motive_force_expires <= now
-                    && guard.get_layer() == crate::common::PathfindLayerEnum::Ground
-                    && !guard.is_above_terrain()
-                    && self.state.current_overlap == crate::common::INVALID_ID
-                    && self.state.previous_overlap == crate::common::INVALID_ID
-                    && self.state.has_flag(FLAG_UPDATE_EVER_RUN);
-                let wake = if asleep {
-                    UpdateSleepTime::Forever.to_u32()
-                } else {
-                    now.saturating_add(1)
-                };
-                guard.reschedule_named_update("PhysicsBehavior", wake);
-            }
+        if let Some(wake) = self.prepare_dynamic_physics_reset() {
+            wake.apply();
         }
     }
 

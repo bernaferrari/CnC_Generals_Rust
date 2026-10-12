@@ -14,7 +14,15 @@ use game_engine::common::thing::module_factory::ModuleFactory;
 
 #[test]
 fn authored_normal_battle_plan_controls_registered_detector_before_next_callback() {
-    let _guard = crate::test_sync::lock();
+    const TEST_NAME: &str = concat!(
+        "object::behavior::battle_plan_update::schedule_tests::",
+        "authored_normal_battle_plan_controls_registered_detector_before_next_callback"
+    );
+    if let crate::test_process::TestProcess::ParentVerified =
+        crate::test_process::run_bounded(TEST_NAME, "GENERALS_DETECTOR_BATTLE_PLAN_CHILD")
+    {
+        return;
+    }
     let _players = super::delete_tests::PlayerListRestore::new();
     let player = Arc::new(RwLock::new(Player::new(0)));
     player_list().write().unwrap().add_player(player.clone());
@@ -33,6 +41,15 @@ fn authored_normal_battle_plan_controls_registered_detector_before_next_callback
         .unwrap()
         .set_team(Some(team))
         .unwrap();
+    // BattlePlanUpdate's C++ callback visits the controller's player-owned
+    // objects. `set_team` binds the team on this raw test object, but does not
+    // perform GameLogic's normal ownership enrollment.
+    player.write().unwrap().add_owned_object(fixture.id);
+    assert_eq!(
+        player.read().unwrap().get_all_objects(),
+        vec![fixture.id],
+        "fixture must be present in the receiving player's native object list"
+    );
     let base_vision = fixture.object.read().unwrap().get_vision_range();
 
     let data: Arc<dyn EngineModuleData> = Arc::new(BattlePlanUpdateModuleData {

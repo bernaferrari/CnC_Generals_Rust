@@ -159,6 +159,9 @@ impl Object {
         {
             return true; // already toppling
         }
+        if !self.structure_topple_die_is_applicable() {
+            return false;
+        }
         let pos = self.get_position();
         let (mut dx, mut dz) = match attacker_pos {
             Some((ax, az)) => (pos.x - ax, pos.z - az),
@@ -184,7 +187,11 @@ impl Object {
         let definition = self.thing.template.structure_topple_definition.clone();
         let default_definition =
             crate::game_logic::host_structure_topple::definition::StructureToppleDefinition::default();
-        let definition = definition.as_deref().unwrap_or(&default_definition);
+        let definition = match &definition {
+            Some(Ok(definition)) => definition.as_ref(),
+            Some(Err(_)) => return false,
+            None => &default_definition,
+        };
         data.bind_crushing_weapon(&definition.fx.weapon);
         data.crushing_fx = definition.fx.fx.clone();
         data.bind_topple_fx(&definition.fx);
@@ -844,6 +851,12 @@ impl Object {
     }
 
     fn dispatch_pending_structure_topple_fx(&mut self) {
+        if !self.structure_topple_fx_is_allowed() {
+            if let Some(data) = self.structure_topple_data.as_mut() {
+                let _ = data.take_pending_fx();
+            }
+            return;
+        }
         let pos = self.get_position();
         let ori = self.get_orientation();
         let player = self.owner_player_id.map(|p| p as i32).unwrap_or(-1);

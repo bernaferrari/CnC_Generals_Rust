@@ -98,16 +98,15 @@ pub fn parse_death_type_flags_tokens(tokens: &[&str]) -> Result<DeathTypeFlags, 
             } else if let Some(stripped) = entry.strip_prefix('+') {
                 (false, stripped.trim())
             } else {
-                (false, entry)
+                return Err(INIError::InvalidData);
             };
 
-            if let Some(death_type) = death_type_from_name(name) {
-                flags = if remove {
-                    clear_death_type_flag(flags, death_type)
-                } else {
-                    set_death_type_flag(flags, death_type)
-                };
-            }
+            let death_type = death_type_from_name(name).ok_or(INIError::InvalidData)?;
+            flags = if remove {
+                clear_death_type_flag(flags, death_type)
+            } else {
+                set_death_type_flag(flags, death_type)
+            };
         }
     }
 
@@ -139,16 +138,15 @@ pub fn parse_veterancy_level_flags_tokens(
             } else if let Some(stripped) = entry.strip_prefix('+') {
                 (false, stripped.trim())
             } else {
-                (false, entry)
+                return Err(INIError::InvalidData);
             };
 
-            if let Some(level) = veterancy_level_from_name(name) {
-                let bit = 1u32 << (level as u32);
-                if remove {
-                    flags &= !bit;
-                } else {
-                    flags |= bit;
-                }
+            let level = veterancy_level_from_name(name).ok_or(INIError::InvalidData)?;
+            let bit = 1u32 << (level as u32);
+            if remove {
+                flags &= !bit;
+            } else {
+                flags |= bit;
             }
         }
     }
@@ -246,7 +244,22 @@ impl DieMuxData {
         obj_status_bits: ObjectStatusMask,
         damage_info: &DamageInfo,
     ) -> bool {
-        if !crate::damage::get_death_type_flag(self.death_types, damage_info.input.death_type) {
+        self.is_die_applicable_for_death(
+            obj_veterancy_level,
+            obj_status_bits,
+            damage_info.input.death_type,
+        )
+    }
+
+    /// Original DieModule.cpp47-66, with the observing owner's actual values.
+    /// Both full Core objects and the Main host use this single predicate.
+    pub fn is_die_applicable_for_death(
+        &self,
+        obj_veterancy_level: VeterancyLevel,
+        obj_status_bits: ObjectStatusMask,
+        death_type: DeathType,
+    ) -> bool {
+        if !crate::damage::get_death_type_flag(self.death_types, death_type) {
             return false;
         }
         if !get_veterancy_level_flag(self.veterancy_levels, obj_veterancy_level) {
@@ -279,13 +292,13 @@ fn death_type_from_name(name: &str) -> Option<DeathType> {
         "SPLATTED" => Some(DeathType::Splatted),
         "POISONED_BETA" => Some(DeathType::PoisonedBeta),
         "POISONED_GAMMA" => Some(DeathType::PoisonedGamma),
-        "EXTRA_2" | "EXTRA2" => Some(DeathType::Extra2),
-        "EXTRA_3" | "EXTRA3" => Some(DeathType::Extra3),
-        "EXTRA_4" | "EXTRA4" => Some(DeathType::Extra4),
-        "EXTRA_5" | "EXTRA5" => Some(DeathType::Extra5),
-        "EXTRA_6" | "EXTRA6" => Some(DeathType::Extra6),
-        "EXTRA_7" | "EXTRA7" => Some(DeathType::Extra7),
-        "EXTRA_8" | "EXTRA8" => Some(DeathType::Extra8),
+        "EXTRA_2" => Some(DeathType::Extra2),
+        "EXTRA_3" => Some(DeathType::Extra3),
+        "EXTRA_4" => Some(DeathType::Extra4),
+        "EXTRA_5" => Some(DeathType::Extra5),
+        "EXTRA_6" => Some(DeathType::Extra6),
+        "EXTRA_7" => Some(DeathType::Extra7),
+        "EXTRA_8" => Some(DeathType::Extra8),
         _ => None,
     }
 }
@@ -761,5 +774,62 @@ mod tests {
         assert_eq!(death_type_from_name("EXTRA_2"), Some(DeathType::Extra2));
         assert_eq!(death_type_from_name("extra_8"), Some(DeathType::Extra8));
         assert!(parse_death_type_flags_tokens(&["ALL", "-NORMAL"]).is_ok());
+    }
+
+    #[test]
+    fn original_die_flags_reject_unknown_and_unsigned_names() {
+        for tokens in [&["NORMAL"][..], &["+UNKNOWN"][..], &["ALL", "-"][..]] {
+            assert!(parse_death_type_flags_tokens(tokens).is_err());
+        }
+        for tokens in [&["REGULAR"][..], &["+UNKNOWN"][..], &["ALL", "-"][..]] {
+            assert!(parse_veterancy_level_flags_tokens(tokens).is_err());
+        }
+        let flags =
+            parse_death_type_flags_tokens(&["NONE", "+NORMAL", "+CRUSHED", "-NORMAL"]).unwrap();
+        assert!(!crate::damage::get_death_type_flag(
+            flags,
+            DeathType::Normal
+        ));
+        assert!(crate::damage::get_death_type_flag(
+            flags,
+            DeathType::Crushed
+        ));
+    }
+
+    #[test]
+    fn shared_die_predicate_uses_exact_supplied_death_veterancy_and_status() {
+        let mux = DieMuxData {
+            death_types: parse_death_type_flags_tokens(&["NONE", "+NORMAL"]).unwrap(),
+            veterancy_levels: parse_veterancy_level_flags_tokens(&["NONE", "+VETERAN"]).unwrap(),
+            required_status: parse_object_status_mask_tokens(&["HIJACKED", "IS_ATTACKING"])
+                .unwrap(),
+            exempt_status: parse_object_status_mask_tokens(&["BOOBY_TRAPPED"]).unwrap(),
+        };
+        let required = parse_object_status_mask_tokens(&["HIJACKED", "IS_ATTACKING"]).unwrap();
+        assert!(mux.is_die_applicable_for_death(
+            VeterancyLevel::Veteran,
+            required,
+            DeathType::Normal
+        ));
+        assert!(!mux.is_die_applicable_for_death(
+            VeterancyLevel::Regular,
+            required,
+            DeathType::Normal
+        ));
+        assert!(!mux.is_die_applicable_for_death(
+            VeterancyLevel::Veteran,
+            required,
+            DeathType::Crushed
+        ));
+        assert!(!mux.is_die_applicable_for_death(
+            VeterancyLevel::Veteran,
+            parse_object_status_mask_tokens(&["HIJACKED"]).unwrap(),
+            DeathType::Normal
+        ));
+        assert!(!mux.is_die_applicable_for_death(
+            VeterancyLevel::Veteran,
+            required | mux.exempt_status,
+            DeathType::Normal
+        ));
     }
 }

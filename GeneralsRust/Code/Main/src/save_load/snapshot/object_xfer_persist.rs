@@ -36,13 +36,28 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXOB_MAGIC: &[u8; 4] = b"OXOB";
-const OXOB_VERSION: u32 = 13;
+const OXOB_VERSION: u32 = 14;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectXferPersistPayload {
     objects: Vec<ObjectXferPersist>,
     script_status: Vec<ObjectScriptStatusPersist>,
     structures: Vec<StructureTopplePersist>,
+    damage_info: Vec<ObjectDamageInfoPersist>,
+}
+
+/// v13 added canonical topple poses, before body damage-type continuation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ObjectXferPersistPayloadV13 {
+    objects: Vec<ObjectXferPersist>,
+    script_status: Vec<ObjectScriptStatusPersist>,
+    structures: Vec<StructureTopplePersist>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ObjectDamageInfoPersist {
+    object_id: u32,
+    last_damage_type: Option<crate::game_logic::combat::DamageType>,
 }
 
 /// v12 added only targetable/masked. Its positional layout is retained.
@@ -1580,6 +1595,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         && version != 10
         && version != 11
         && version != 12
+        && version != 13
         && version != OXOB_VERSION
     {
         return Err(SaveLoadError::Corrupted(format!(
@@ -1604,6 +1620,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
             script_status: Vec::new(),
             structures: Vec::new(),
+            damage_info: Vec::new(),
         }
     } else if version == 2 {
         let old: ObjectXferPersistPayloadV2 = bincode_legacy::deserialize(encoded)
@@ -1616,6 +1633,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
             script_status: Vec::new(),
             structures: Vec::new(),
+            damage_info: Vec::new(),
         }
     } else if version == 3 {
         let old: ObjectXferPersistPayloadV3 = bincode_legacy::deserialize(encoded)
@@ -1628,6 +1646,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
             script_status: Vec::new(),
             structures: Vec::new(),
+            damage_info: Vec::new(),
         }
     } else if version == 4 {
         let old: ObjectXferPersistPayloadV4 = bincode_legacy::deserialize(encoded)
@@ -1640,6 +1659,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
             script_status: Vec::new(),
             structures: Vec::new(),
+            damage_info: Vec::new(),
         }
     } else if version == 5 {
         let old: ObjectXferPersistPayloadV5 = bincode_legacy::deserialize(encoded)
@@ -1652,6 +1672,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
             script_status: Vec::new(),
             structures: Vec::new(),
+            damage_info: Vec::new(),
         }
     } else if version == 6 {
         let old: ObjectXferPersistPayloadV6 = bincode_legacy::deserialize(encoded)
@@ -1664,6 +1685,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
             script_status: Vec::new(),
             structures: Vec::new(),
+            damage_info: Vec::new(),
         }
     } else if version == 7 {
         let old: ObjectXferPersistPayloadV7 = bincode_legacy::deserialize(encoded)
@@ -1676,6 +1698,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
             script_status: Vec::new(),
             structures: Vec::new(),
+            damage_info: Vec::new(),
         }
     } else if version == 8 {
         let old: ObjectXferPersistPayloadV8 = bincode_legacy::deserialize(encoded)
@@ -1688,6 +1711,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
             script_status: Vec::new(),
             structures: Vec::new(),
+            damage_info: Vec::new(),
         }
     } else if version == 9 {
         let old: ObjectXferPersistPayloadV9 = bincode_legacy::deserialize(encoded)
@@ -1700,6 +1724,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
             script_status: Vec::new(),
             structures: Vec::new(),
+            damage_info: Vec::new(),
         }
     } else if version == 10 {
         let old: ObjectXferPersistPayloadV10 = bincode_legacy::deserialize(encoded)
@@ -1712,6 +1737,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
             script_status: Vec::new(),
             structures: Vec::new(),
+            damage_info: Vec::new(),
         }
     } else if version == 11 {
         let old: ObjectXferPersistPayloadV11 = bincode_legacy::deserialize(encoded)
@@ -1720,6 +1746,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             objects: old.objects,
             script_status: Vec::new(),
             structures: Vec::new(),
+            damage_info: Vec::new(),
         }
     } else if version == 12 {
         let old: ObjectXferPersistPayloadV12 = bincode_legacy::deserialize(encoded)
@@ -1728,12 +1755,37 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             objects: old.objects,
             script_status: old.script_status,
             structures: Vec::new(),
+            damage_info: Vec::new(),
+        }
+    } else if version == 13 {
+        let old: ObjectXferPersistPayloadV13 = bincode_legacy::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
+        ObjectXferPersistPayload {
+            objects: old.objects,
+            script_status: old.script_status,
+            structures: old.structures,
+            damage_info: Vec::new(),
         }
     } else {
         bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?
     };
     validate_structure_records(game_logic, &payload.structures)?;
+    let mut damage_ids = std::collections::HashSet::new();
+    for entry in &payload.damage_info {
+        if !damage_ids.insert(entry.object_id)
+            || game_logic.host_object(ObjectId(entry.object_id)).is_none()
+        {
+            return Err(SaveLoadError::Corrupted(
+                "invalid saved body damage-info owner".into(),
+            ));
+        }
+    }
+    if version == OXOB_VERSION && damage_ids.len() != game_logic.host_objects().len() {
+        return Err(SaveLoadError::Corrupted(
+            "incomplete saved body damage-info owners".into(),
+        ));
+    }
     // Decode the complete suffix before changing the receiving objects. A bad
     // record must not reset their existing clocks or script state.
     reset_object_xfer(game_logic);
@@ -1844,10 +1896,20 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
                 })
         })
         .collect();
+    let mut damage_info: Vec<_> = game_logic
+        .host_objects()
+        .iter()
+        .map(|(id, object)| ObjectDamageInfoPersist {
+            object_id: id.0,
+            last_damage_type: object.last_damage_info_type,
+        })
+        .collect();
+    damage_info.sort_by_key(|entry| entry.object_id);
     ObjectXferPersistPayload {
         objects,
         script_status,
         structures,
+        damage_info,
     }
 }
 
@@ -1889,6 +1951,12 @@ fn validate_structure_records(
         ];
         if !ids.insert(entry.object_id)
             || !object.thing().template.authored_structure_topple
+            || object
+                .thing()
+                .template
+                .structure_topple_definition
+                .as_ref()
+                .is_some_and(Result::is_err)
             || !entry.matrix.iter().all(|value| value.is_finite())
             || !values.iter().all(|value| value.is_finite())
             || !data.angle_fx.iter().all(|(angle, _)| angle.is_finite())
@@ -1915,6 +1983,7 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
         object.script_targetable = false;
         object.status.masked = false;
         object.structure_topple_data = None;
+        object.last_damage_info_type = None;
         object.unit_ai_runtime.clear_saved_deadlines();
         object.status.disabled_held = false;
         object.single_use_command_used = false;
@@ -1962,6 +2031,14 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
 fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) {
     // Original Object::xfer restores raw status; it does not replay mask or
     // script commands. The receiving world already owns these exact objects.
+    for entry in payload.damage_info {
+        if let Some(object) = game_logic
+            .host_objects_mut()
+            .get_mut(&ObjectId(entry.object_id))
+        {
+            object.last_damage_info_type = entry.last_damage_type;
+        }
+    }
     for entry in payload.structures {
         if let Some(object) = game_logic
             .host_objects_mut()
@@ -2246,6 +2323,99 @@ mod tests {
         let object = source.host_object(id).unwrap();
         assert!(object.script_targetable && object.status.masked);
         assert!(object.structure_topple_data.is_none());
+    }
+
+    #[test]
+    fn exact_v13_reader_preserves_topple_pose_and_uses_absent_damage_history_default() {
+        let mut source = GameLogic::new();
+        let mut template = crate::game_logic::ThingTemplate::new("V13ToppleOwner");
+        template.add_kind_of(crate::game_logic::KindOf::Structure);
+        template.authored_structure_topple = true;
+        source.templates.insert(template.name.clone(), template);
+        let id = source
+            .create_object(
+                "V13ToppleOwner",
+                crate::game_logic::Team::USA,
+                glam::Vec3::new(2.0, 0.0, 7.0),
+            )
+            .unwrap();
+        let object = source.host_object_mut(id).unwrap();
+        assert!(object.prepare_structure_topple_with_direction(
+            13,
+            None,
+            Some((0.6, 0.8)),
+            7,
+            None
+        ));
+        object.script_targetable = true;
+        object.status.masked = true;
+        object.last_damage_info_type = Some(crate::game_logic::combat::DamageType::Flame);
+        let matrix = object.get_transform_matrix();
+        let current = capture(&source);
+        let old = ObjectXferPersistPayloadV13 {
+            objects: current.objects,
+            script_status: current.script_status,
+            structures: current.structures,
+        };
+        let encoded = bincode_legacy::serialize(&old).unwrap();
+        let mut bytes = OXOB_MAGIC.to_vec();
+        append_u32(&mut bytes, 13);
+        append_u32(&mut bytes, encoded.len() as u32);
+        bytes.extend_from_slice(&encoded);
+        apply_from_lifecycle_tail(&bytes, &mut source).unwrap();
+        let object = source.host_object(id).unwrap();
+        assert!(object.script_targetable && object.status.masked);
+        assert_eq!(object.get_transform_matrix(), matrix);
+        assert_eq!(
+            object
+                .structure_topple_data
+                .as_ref()
+                .unwrap()
+                .topple_start_frame,
+            20
+        );
+        assert_eq!(
+            object.last_damage_info_type, None,
+            "v13 did not save this original body field"
+        );
+    }
+
+    #[test]
+    fn malformed_body_history_owner_preserves_receiving_history_and_pose() {
+        let mut receiving = GameLogic::new();
+        receiving.templates.insert(
+            "BodyHistoryOwner".into(),
+            crate::game_logic::ThingTemplate::new("BodyHistoryOwner"),
+        );
+        let id = receiving
+            .create_object(
+                "BodyHistoryOwner",
+                crate::game_logic::Team::USA,
+                glam::Vec3::new(3.0, 0.0, 9.0),
+            )
+            .unwrap();
+        receiving.host_object_mut(id).unwrap().last_damage_info_type =
+            Some(crate::game_logic::combat::DamageType::Flame);
+        let matrix = receiving.host_object(id).unwrap().get_transform_matrix();
+        let mut payload = capture(&receiving);
+        payload.damage_info.push(ObjectDamageInfoPersist {
+            object_id: id.0,
+            last_damage_type: None,
+        });
+        let encoded = bincode_legacy::serialize(&payload).unwrap();
+        let mut bytes = OXOB_MAGIC.to_vec();
+        append_u32(&mut bytes, OXOB_VERSION);
+        append_u32(&mut bytes, encoded.len() as u32);
+        bytes.extend_from_slice(&encoded);
+        assert!(apply_from_lifecycle_tail(&bytes, &mut receiving).is_err());
+        assert_eq!(
+            receiving.host_object(id).unwrap().last_damage_info_type,
+            Some(crate::game_logic::combat::DamageType::Flame)
+        );
+        assert_eq!(
+            receiving.host_object(id).unwrap().get_transform_matrix(),
+            matrix
+        );
     }
 
     #[test]

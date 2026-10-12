@@ -111,10 +111,14 @@ pub struct ThingTemplate {
     /// Effective immutable module data belongs to the receiving definition
     /// catalog. It is reconstructed from Object INI, never appended to the
     /// historical positional raw Thing/ThingTemplate serde record.
+    /// An authored parse error remains an explicit admission rejection.
     #[serde(skip)]
     pub(crate) structure_topple_definition: Option<
-        std::sync::Arc<
-            crate::game_logic::host_structure_topple::definition::StructureToppleDefinition,
+        Result<
+            std::sync::Arc<
+                crate::game_logic::host_structure_topple::definition::StructureToppleDefinition,
+            >,
+            String,
         >,
     >,
     /// Exact authored WaveGuideUpdate audio; absent modules have no audio authority.

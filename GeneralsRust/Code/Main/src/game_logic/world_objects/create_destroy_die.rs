@@ -1319,6 +1319,10 @@ impl GameLogic {
         }
 
         if let Some(template) = self.templates.get(template_name).cloned() {
+            if let Some(Err(error)) = &template.structure_topple_definition {
+                log::error!("Rejecting object {template_name}: {error}");
+                return None;
+            }
             // C++ Object.cpp asks the controlling Player for the exact
             // `ProductionVeterancyLevel` while constructing every Object.
             // Resolve it before moving the ThingTemplate into Object so a

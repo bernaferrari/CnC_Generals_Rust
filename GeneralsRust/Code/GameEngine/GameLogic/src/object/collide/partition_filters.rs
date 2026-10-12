@@ -1719,6 +1719,24 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, RwLock};
 
+    fn isolated_filter_case(name: &str) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            matches!(
+                crate::test_process::run_bounded(
+                    name.strip_prefix("gamelogic::").unwrap_or(name),
+                    "GENERALS_PARTITION_FILTER_OWNER_CHILD",
+                ),
+                crate::test_process::TestProcess::Child
+            )
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = name;
+            true
+        }
+    }
+
     #[derive(Debug)]
     struct TestStealthContain {
         contained: Vec<crate::common::ObjectID>,
@@ -1939,6 +1957,12 @@ mod tests {
 
     #[test]
     fn reject_behind_uses_transform_x_vector() {
+        if !isolated_filter_case(concat!(
+            module_path!(),
+            "::reject_behind_uses_transform_x_vector"
+        )) {
+            return;
+        }
         OBJECT_REGISTRY.clear();
 
         let team = team_for_player("SourceTeam", 20, 0);
@@ -1977,6 +2001,12 @@ mod tests {
 
     #[test]
     fn reject_buildings_only_accepts_enemy_fs_base_defense_for_human_sources() {
+        if !isolated_filter_case(concat!(
+            module_path!(),
+            "::reject_buildings_only_accepts_enemy_fs_base_defense_for_human_sources"
+        )) {
+            return;
+        }
         OBJECT_REGISTRY.clear();
 
         let player0 = Arc::new(RwLock::new(Player::new(0)));

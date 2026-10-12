@@ -17,7 +17,7 @@ fn lethal_owner(collapse: bool) -> (GameLogic, ObjectId, Option<ObjectId>) {
             crate::game_logic::host_structure_topple::definition::StructureToppleDefinition::default();
         definition.fx.weapon = "ToppledStructureWeapon".into();
         definition.fx.fx = "FX_DefaultStructureCrushing".into();
-        template.structure_topple_definition = Some(std::sync::Arc::new(definition));
+        template.structure_topple_definition = Some(Ok(std::sync::Arc::new(definition)));
     }
     template.authored_structure_collapse = collapse;
     template.energy_production = Some(10);

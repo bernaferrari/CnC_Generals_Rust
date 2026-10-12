@@ -335,7 +335,16 @@ fn authored_factory_exposes_one_detector_for_control_update_and_snapshot() {
 
 #[test]
 fn canonical_detector_factory_xfer_round_trips_base_wake_and_enabled() {
-    let _guard = crate::test_sync::lock();
+    const TEST_NAME: &str = concat!(
+        "object::behavior::stealth_detector_update::stealth_detector_update_tests::",
+        "canonical_detector_factory_xfer_round_trips_base_wake_and_enabled"
+    );
+    if let crate::test_process::TestProcess::ParentVerified =
+        crate::test_process::run_bounded(TEST_NAME, "GENERALS_DETECTOR_FACTORY_XFER_CHILD")
+    {
+        return;
+    }
+
     let source = DetectorFixture::new(Default::default(), 0x5D37_0011);
     let destination = DetectorFixture::new(Default::default(), 0x5D37_0012);
     source.with_detector(|detector| {

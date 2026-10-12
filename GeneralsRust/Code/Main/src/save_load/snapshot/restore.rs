@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
 
+#[cfg(test)]
+#[path = "structure_topple_admission_tests.rs"]
+mod structure_topple_admission_tests;
+
 impl SnapshotBuilder {
     // Private helper methods for snapshot restoration
 
@@ -27,6 +31,13 @@ impl SnapshotBuilder {
         // this candidate's own UpgradeCenter. Validate both catalogs before
         // restoring any objects, independently of their saved ID order.
         for id in &ids {
+            if let Some(template) = game_logic.templates.get(&objects[id].template_name) {
+                if let Some(Err(error)) = &template.structure_topple_definition {
+                    return Err(SaveLoadError::Corrupted(format!(
+                        "Cannot restore object {id}: {error}"
+                    )));
+                }
+            }
             for module in objects[id].modules.values() {
                 if let ModuleSnapshot::Production(production) = module {
                     for entry in &production.production_queue {
@@ -117,6 +128,12 @@ impl SnapshotBuilder {
             t
         };
 
+        if let Some(Err(error)) = &template.structure_topple_definition {
+            return Err(SaveLoadError::Corrupted(format!(
+                "Cannot restore object {}: {error}",
+                snapshot.id
+            )));
+        }
         let mut object = Object::new_with_logic_frame(
             template,
             snapshot.id,

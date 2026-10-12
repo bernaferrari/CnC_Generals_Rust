@@ -46662,6 +46662,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/garrison_contain.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/garrison_query_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/Object/Contain/GarrisonContain.cpp",
@@ -50714,6 +50719,7 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_bounce.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_collide.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_crush.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_reset.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/pilot_find_vehicle_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/point_defense_laser_update.rs",
@@ -51299,6 +51305,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_reset.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_update.rs"
             },
             {
@@ -51775,6 +51786,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/garrison_contain.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/garrison_query_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -66999,6 +67015,7 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_bounce.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_collide.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_crush.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_reset.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_update.rs"
           ],
           "candidate_destinations": [
@@ -67016,6 +67033,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_crush.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_reset.rs"
             },
             {
               "cargo_reachable": true,
@@ -74650,31 +74672,18 @@
           "blockers": [
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
-            "unreviewed_source_range_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/damage/bone_fx_damage.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/damage/damage_module.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/damage/transition_damage_fx.rs"
+            "unreviewed_source_range_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/damage/bone_fx_damage.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/damage.rs"
             },
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/damage/damage_module.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/damage/mod.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/damage/transition_damage_fx.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/damage/flag_parsing.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/System/Damage.cpp",
@@ -189312,7 +189321,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "c838d20ddec80cb1db9e07e3fc5aed87932d1addb364e3fd82819329cd2eac9e",
+  "provenance_input_digest": "862d81b34ae6caedeb0a5fc7e926e759b48bd0e5ba6570b0e42b7c0bfc03a472",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

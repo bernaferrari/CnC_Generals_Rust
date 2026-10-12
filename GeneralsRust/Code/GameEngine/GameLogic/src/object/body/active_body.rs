@@ -3295,6 +3295,16 @@ mod death_flooded_tests {
 
     #[test]
     fn kill_pilot_destroys_moving_rider_change_bike() {
+        const TEST_NAME: &str = concat!(
+            "object::body::active_body::death_flooded_tests::",
+            "kill_pilot_destroys_moving_rider_change_bike"
+        );
+        if let crate::test_process::TestProcess::ParentVerified =
+            crate::test_process::run_bounded(TEST_NAME, "GENERALS_KILL_PILOT_MOVING_CHILD")
+        {
+            return;
+        }
+
         // C++ ActiveBody.cpp:380-385: moving RiderChangeContain bike is killed.
         OBJECT_REGISTRY.clear();
         let bike = vehicle_with_contain(601, true, true, vec![602]);
@@ -3318,6 +3328,16 @@ mod death_flooded_tests {
 
     #[test]
     fn kill_pilot_kills_rider_on_stationary_bike() {
+        const TEST_NAME: &str = concat!(
+            "object::body::active_body::death_flooded_tests::",
+            "kill_pilot_kills_rider_on_stationary_bike"
+        );
+        if let crate::test_process::TestProcess::ParentVerified =
+            crate::test_process::run_bounded(TEST_NAME, "GENERALS_KILL_PILOT_STATIONARY_CHILD")
+        {
+            return;
+        }
+
         // C++ ActiveBody.cpp:387-396: stationary bike evacuates + kills rider.
         OBJECT_REGISTRY.clear();
         let bike = vehicle_with_contain(701, true, false, vec![702]);

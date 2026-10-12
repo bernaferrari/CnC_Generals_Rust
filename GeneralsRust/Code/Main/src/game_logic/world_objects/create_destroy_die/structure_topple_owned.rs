@@ -20,6 +20,13 @@ impl GameLogic {
         effects: Vec<crate::game_logic::host_structure_topple::StructureToppleFxEvent>,
     ) {
         for effect in effects {
+            if !self
+                .objects
+                .get(&id)
+                .is_some_and(|object| object.structure_topple_fx_is_allowed())
+            {
+                continue;
+            }
             if effect.at_object {
                 self.dispatch_fx_list_at_host_object(&effect.name, id, None);
             } else {

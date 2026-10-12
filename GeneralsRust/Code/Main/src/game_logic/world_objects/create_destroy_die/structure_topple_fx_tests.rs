@@ -5,6 +5,9 @@ use gamelogic::common::{Coord3D, Matrix3D, ObjectShroudStatus};
 use gamelogic::helpers::HostFxObjectPose;
 use std::sync::mpsc::{self, Receiver, Sender};
 
+#[path = "structure_topple_filter_tests.rs"]
+mod structure_topple_filter_tests;
+
 #[derive(Debug)]
 struct Effect {
     name: &'static str,
@@ -68,10 +71,19 @@ fn world(local: u32, x: f32) -> (GameLogic, ObjectId) {
     world_with_crushing(local, x, None)
 }
 fn world_with_crushing(local: u32, x: f32, weapon: Option<&str>) -> (GameLogic, ObjectId) {
+    world_with_filters(local, x, weapon, "")
+}
+fn world_with_filters(
+    local: u32,
+    x: f32,
+    weapon: Option<&str>,
+    filters: &str,
+) -> (GameLogic, ObjectId) {
     let mut parser = crate::assets::IniParser::new();
     parser
         .parse_ini_content(
-            r#"
+            &format!(
+                r#"
 Object AuthoredOwnTopple
   KindOf = STRUCTURE SELECTABLE
   Body = ActiveBody ModuleTag_Body
@@ -87,9 +99,11 @@ Object AuthoredOwnTopple
     AngleFX = 0.2 FX_OwnToppleLater
     MinToppleBurstDelay = 34
     MaxToppleBurstDelay = 34
+{filters}
   End
 End
-"#,
+"#
+            ),
             "owned-topple.ini",
         )
         .unwrap();
@@ -98,7 +112,12 @@ End
         parser.get_definition("AuthoredOwnTopple").unwrap(),
         None,
     );
-    let definition = template.structure_topple_definition.as_ref().unwrap();
+    let definition = template
+        .structure_topple_definition
+        .as_ref()
+        .unwrap()
+        .as_ref()
+        .unwrap();
     assert_eq!(definition.integrity, 0.1);
     assert_eq!(definition.decay, 0.0);
     assert_eq!(
@@ -114,7 +133,7 @@ End
         let mut definition = definition.as_ref().clone();
         definition.fx.weapon = weapon.to_owned();
         definition.fx.fx = "FX_OwnToppleCrush".into();
-        template.structure_topple_definition = Some(std::sync::Arc::new(definition));
+        template.structure_topple_definition = Some(Ok(std::sync::Arc::new(definition)));
     }
     let mut world = GameLogic::new();
     world.add_player(Player::new(local, Team::USA, "Local", true));

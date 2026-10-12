@@ -2998,10 +2998,16 @@ impl Snapshotable for GarrisonContain {
 
 impl ContainModuleInterface for GarrisonContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
-            return self.is_valid_container_for(&*obj_guard, true);
-        });
-        false
+        // A garrison cannot board itself. Reject before borrowing the owner
+        // again through the registry (the caller may hold that exact object).
+        if object_id == INVALID_ID || object_id == self.base.get_object_id() {
+            return false;
+        }
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |passenger| {
+                self.is_valid_container_for(passenger, true)
+            })
+            .unwrap_or(false)
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -3649,13 +3655,46 @@ mod tests {
         assert!(!data.immune_to_clear_building_attacks);
     }
 
-    fn reset_players() {
+    pub(super) fn isolated_garrison_case(name: &str) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            matches!(
+                crate::test_process::run_bounded(
+                    name.strip_prefix("gamelogic::").unwrap_or(name),
+                    "GENERALS_GARRISON_TRAIT_OWNER_CHILD",
+                ),
+                crate::test_process::TestProcess::Child
+            )
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = name;
+            true
+        }
+    }
+
+    pub(super) fn authored_capacity_one(mobile: bool) -> GarrisonContainModuleData {
+        let mut data = GarrisonContainModuleData::default();
+        INI::new()
+            .with_inline_source(
+                &format!(
+                    "ContainMax = 1\nMobileGarrison = {}\nEnd\n",
+                    if mobile { "Yes" } else { "No" }
+                ),
+                |ini| data.parse_from_ini(ini),
+            )
+            .unwrap();
+        assert_eq!(data.base.contain_max, 1);
+        data
+    }
+
+    pub(super) fn reset_players() {
         let mut list = ThePlayerList().write().expect("player list write");
         list.clear();
         list.add_player(Arc::new(RwLock::new(Player::new(0))));
     }
 
-    fn owned_object(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
+    pub(super) fn owned_object(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
         let team = Arc::new(RwLock::new(Team::new(
             format!("{name}Team").into(),
             id + 10_000,
@@ -3663,12 +3702,32 @@ mod tests {
         team.write()
             .expect("team write")
             .set_controlling_player_id(Some(player_index));
-        let template = Arc::new(DefaultThingTemplate::new(name.to_string()));
-        Object::new_with_id(template, id, ObjectStatusMaskType::none(), Some(team))
-            .expect("owned test object")
+        let template = super::garrison_query_tests::building_template(name);
+        let object = Object::new_with_id(template, id, ObjectStatusMaskType::none(), Some(team))
+            .expect("owned test object");
+        {
+            let guard = object.read().unwrap();
+            assert!(guard.is_kind_of(KindOf::Structure));
+            assert!(
+                guard
+                    .behavior_modules()
+                    .iter()
+                    .any(|module| module.name().as_str() == "ActiveBody")
+            );
+            assert_eq!(
+                guard
+                    .get_body_module()
+                    .expect("actual authored garrison Body")
+                    .lock()
+                    .unwrap()
+                    .get_health(),
+                100.0
+            );
+        }
+        object
     }
 
-    fn infantry(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
+    pub(super) fn infantry(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
         let team = Arc::new(RwLock::new(Team::new(
             format!("{name}Team").into(),
             id + 10_000,
@@ -3689,7 +3748,7 @@ mod tests {
         .expect("infantry test object")
     }
 
-    fn cleanup_objects(ids: &[ObjectID]) {
+    pub(super) fn cleanup_objects(ids: &[ObjectID]) {
         // Wave 260: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
             return;
@@ -3703,15 +3762,18 @@ mod tests {
 
     #[test]
     fn trait_containment_uses_garrison_lifecycle_like_cpp() {
-        let _lock = crate::test_sync::lock();
+        if !isolated_garrison_case(concat!(
+            module_path!(),
+            "::trait_containment_uses_garrison_lifecycle_like_cpp"
+        )) {
+            return;
+        }
         reset_players();
         let owner = owned_object("GarrisonOwner", 96001, 0);
         let passenger = infantry("GarrisonPassenger", 96002, 0);
-        let mut contain = GarrisonContain::new(
-            Arc::downgrade(&owner),
-            &GarrisonContainModuleData::default(),
-        )
-        .expect("garrison contain");
+        let mut contain =
+            GarrisonContain::new(Arc::downgrade(&owner), &authored_capacity_one(false))
+                .expect("garrison contain");
 
         ContainModuleInterface::contain_object(&mut contain, 96002).expect("contain passenger");
 
@@ -3745,15 +3807,18 @@ mod tests {
 
     #[test]
     fn trait_release_clears_last_garrison_occupant_state_like_cpp() {
-        let _lock = crate::test_sync::lock();
+        if !isolated_garrison_case(concat!(
+            module_path!(),
+            "::trait_release_clears_last_garrison_occupant_state_like_cpp"
+        )) {
+            return;
+        }
         reset_players();
         let owner = owned_object("GarrisonReleaseOwner", 96003, 0);
         let passenger = infantry("GarrisonReleasePassenger", 96004, 0);
-        let mut contain = GarrisonContain::new(
-            Arc::downgrade(&owner),
-            &GarrisonContainModuleData::default(),
-        )
-        .expect("garrison contain");
+        let mut contain =
+            GarrisonContain::new(Arc::downgrade(&owner), &authored_capacity_one(false))
+                .expect("garrison contain");
 
         ContainModuleInterface::contain_object(&mut contain, 96004).expect("contain passenger");
         contain.hide_garrisoned_state_from_non_allies = true;
@@ -3790,14 +3855,16 @@ mod tests {
 
     #[test]
     fn mobile_garrison_moves_every_contained_object_like_cpp() {
-        let _lock = crate::test_sync::lock();
+        if !isolated_garrison_case(concat!(
+            module_path!(),
+            "::mobile_garrison_moves_every_contained_object_like_cpp"
+        )) {
+            return;
+        }
         reset_players();
         let owner = owned_object("MobileGarrisonOwner", 96005, 0);
         let passenger = infantry("MobileGarrisonPassenger", 96006, 0);
-        let data = GarrisonContainModuleData {
-            mobile_garrison: true,
-            ..Default::default()
-        };
+        let data = authored_capacity_one(true);
         let mut contain =
             GarrisonContain::new(Arc::downgrade(&owner), &data).expect("mobile garrison contain");
 
@@ -3818,3 +3885,7 @@ mod tests {
         cleanup_objects(&[96005, 96006]);
     }
 }
+
+#[cfg(test)]
+#[path = "garrison_query_tests.rs"]
+mod garrison_query_tests;

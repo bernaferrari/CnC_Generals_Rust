@@ -119,6 +119,31 @@ impl PhysicsInterfaceHandle {
         }
     }
 
+    /// CPP reset effects remain synchronous, but wake registration happens
+    /// after the installed module loan ends so it can record its actual wake.
+    pub(crate) fn reset_dynamic_physics_borrowed(&self) {
+        match &self.kind {
+            PhysicsInterfaceKind::Module(module) => {
+                let wake = module.with_module(|module| {
+                    module
+                            .as_any_mut()
+                            .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<
+                                PhysicsBehaviorUpdate,
+                            >>()
+                            .expect("installed PhysicsBehavior descriptor")
+                            .behavior_mut()
+                            .reset_dynamic_physics_borrowed()
+                });
+                if let Some(wake) = wake {
+                    wake.apply();
+                }
+            }
+            PhysicsInterfaceKind::Shared(_) => {
+                self.with_physics(|physics| physics.reset_dynamic_physics())
+            }
+        }
+    }
+
     /// Identity comparison without locking. Container and rider can reference
     /// the same physics; callers must not borrow that state twice concurrently.
     pub fn same_instance(&self, other: &Self) -> bool {

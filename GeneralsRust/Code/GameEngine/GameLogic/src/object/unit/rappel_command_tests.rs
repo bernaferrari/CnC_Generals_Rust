@@ -123,7 +123,6 @@ fn admitted_cached_ai_rappel_entry_resets_physics_without_reentering_owner() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = Fixture::new();
     let (transform, physics) = {
         let owner = fixture.owner.read().unwrap();
@@ -131,6 +130,21 @@ fn admitted_cached_ai_rappel_entry_resets_physics_without_reentering_owner() {
     };
     physics.set_velocity(&Coord3D::new(3.0, 4.0, -5.0));
     fixture.command(12.0);
+    let (owner_id, updates) = {
+        let owner = fixture.owner.read().unwrap();
+        (
+            owner.get_id(),
+            owner.named_update_registrations("PhysicsBehavior"),
+        )
+    };
+    assert_eq!(updates.len(), 1, "use the installed Physics update proxy");
+    let driving_logic = crate::system::game_logic::get_game_logic();
+    let logic = driving_logic.lock().unwrap();
+    assert_eq!(
+        logic.sleepy_entry_for(&updates[0]),
+        Some((owner_id, logic.get_frame().saturating_add(1)))
+    );
+    drop(logic);
     // C++ AIStates.cpp:481-514: entry sets RAPPELLING and resets dynamic
     // physics before returning; it does not teleport or consume desired speed.
     assert_eq!(physics.get_velocity(), Coord3D::ZERO);
@@ -155,7 +169,6 @@ fn admitted_cached_ai_airborne_rappel_update_keeps_state_and_scrubs_velocity() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = Fixture::new();
     fixture.command(12.0);
     let (transform, physics) = {
@@ -182,7 +195,6 @@ fn admitted_cached_ai_ground_rappel_finishes_and_clears_exact_owner_condition() 
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = Fixture::new();
     fixture.command(12.0);
     fixture
@@ -219,7 +231,6 @@ fn admitted_cached_ai_self_target_rappel_uses_same_owner_without_nested_lock() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = Fixture::new();
     let id = fixture.owner.read().unwrap().get_id();
     // C++ AIStates.cpp:496-500 rejects a non-structure goal for building

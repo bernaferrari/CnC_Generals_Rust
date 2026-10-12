@@ -1068,7 +1068,12 @@ impl GameLogic {
             );
             // CPP doDamageLine407-429: even an empty/no-damage weapon shot is
             // followed by its CrushingFX at this exact terrain point.
-            if !crushing_fx.is_empty() {
+            if !crushing_fx.is_empty()
+                && self
+                    .objects
+                    .get(&building_id)
+                    .is_some_and(|source| source.structure_topple_fx_is_allowed())
+            {
                 self.dispatch_fx_list_at_host_position(&crushing_fx, impact);
             }
         }
@@ -1276,11 +1281,17 @@ impl GameLogic {
         if !obj.thing().template.authored_structure_topple {
             return false;
         }
+        // Original StructureToppleUpdate::onDie gates before AI/deselect,
+        // direction/delay selection, Start effects or runtime installation.
+        if !obj.structure_topple_die_is_applicable() {
+            return false;
+        }
         let delay = obj
             .thing()
             .template
             .structure_topple_definition
             .as_ref()
+            .and_then(|definition| definition.as_ref().ok())
             .map(|definition| {
                 let hi = definition.max_delay.max(definition.min_delay);
                 let span = hi.wrapping_sub(definition.min_delay).wrapping_add(1);
