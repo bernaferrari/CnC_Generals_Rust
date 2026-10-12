@@ -26,6 +26,8 @@ mod build;
 mod events;
 mod floating_text;
 mod frame;
+#[cfg(feature = "game_client")]
+mod ghosts;
 mod honesty;
 mod lasers;
 mod overlay;

@@ -95,6 +95,14 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     ) -> Result<(), String> {
         Err("contain module does not support supplied world boarding".into())
     }
+    fn remove_from_contain_with_world(
+        &mut self,
+        _object_id: ObjectID,
+        _expose: bool,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("contain module has no supplied removal callback".into())
+    }
     fn can_contain(&self, object_id: ObjectID) -> bool;
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String>;
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String>;
@@ -144,6 +152,16 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
 
     fn snapshot_load_post_process(&mut self) -> Result<(), String> {
         Ok(())
+    }
+
+    fn snapshot_load_post_process_with_world(
+        &mut self,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("contain postload has no supplied owner adapter".into())
+    }
+    fn exit_busy_with_observations(&self, _frame: u32, _above_terrain: bool) -> bool {
+        false
     }
 
     /// Per-frame containment update.

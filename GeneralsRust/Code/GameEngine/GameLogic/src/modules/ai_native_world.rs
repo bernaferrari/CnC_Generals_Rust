@@ -440,6 +440,151 @@ impl AiWorld for BorrowedAiWorld<'_> {
         drop(source);
         complete_enter(self, passenger, target)
     }
+    fn remove_contained(
+        &mut self,
+        passenger: ObjectID,
+        owner: ObjectID,
+        expose: bool,
+    ) -> Result<(), String> {
+        if passenger == owner {
+            return Err("self containment removal".into());
+        }
+        let owner_object = self.object(owner).ok_or("native remove owner missing")?;
+        let passenger_object = self
+            .object(passenger)
+            .ok_or("native remove passenger missing")?;
+        self.validate_remove_operation(&passenger_object, &owner_object, expose)?;
+        let contain = owner_object
+            .read()
+            .map_err(|_| "native remove owner poisoned")?
+            .get_contain()
+            .ok_or("native remove physical contain missing")?;
+        let result = contain
+            .lock()
+            .map_err(|_| "native remove contain poisoned")?
+            .remove_from_contain_with_world(passenger, expose, self);
+        result
+    }
+    fn contain_exit_busy(&self, owner: ObjectID) -> Result<bool, String> {
+        let object = self.object(owner).ok_or("exit busy owner missing")?;
+        let object = object.read().map_err(|_| "exit busy owner poisoned")?;
+        let above = self.above_terrain(&object)?;
+        let contain = object.get_contain().ok_or("exit busy contain missing")?;
+        drop(object);
+        let busy = contain
+            .lock()
+            .map_err(|_| "exit busy module poisoned")?
+            .exit_busy_with_observations(self.frame(), above);
+        Ok(busy)
+    }
+    fn validate_remove_operation(
+        &self,
+        passenger: &Arc<RwLock<Object>>,
+        owner: &Arc<RwLock<Object>>,
+        expose: bool,
+    ) -> Result<(), String> {
+        self.validate_containment_services()?;
+        let rider = passenger
+            .read()
+            .map_err(|_| "native remove passenger poisoned")?;
+        let owner_guard = owner.read().map_err(|_| "native remove owner poisoned")?;
+        let actual_rider = self
+            .object(rider.get_id())
+            .ok_or("native remove passenger absent")?;
+        let actual_owner = self
+            .object(owner_guard.get_id())
+            .ok_or("native remove owner absent")?;
+        if !Arc::ptr_eq(&actual_rider, passenger) || !Arc::ptr_eq(&actual_owner, owner) {
+            return Err("native remove participant belongs to another factory".into());
+        }
+        rider.controlling_player_id_from_pin()?;
+        owner_guard.controlling_player_id_from_pin()?;
+        rider.validate_native_leaf_enter_effects()?;
+        if owner_guard.get_contained_by().is_some() {
+            return Err("native nested removal services not admitted".into());
+        }
+        if let Some(body) = owner_guard.get_body_module() {
+            drop(
+                body.lock()
+                    .map_err(|_| "native remove owner body poisoned")?,
+            );
+        }
+        if owner_guard.is_effectively_dead() {
+            return Err("native dead-container scatter not admitted".into());
+        }
+        if rider.get_layer() != owner_guard.get_layer() {
+            return Err("native removal layer-change cells not admitted".into());
+        }
+        if expose && rider.is_kind_of(KindOf::StealthGarrison) && rider.get_stealth().is_some() {
+            return Err("native removal detection callback not admitted".into());
+        }
+        if let Some(drawable) = owner_guard.get_drawable() {
+            drop(
+                drawable
+                    .write()
+                    .map_err(|_| "native remove owner drawable poisoned")?,
+            );
+        }
+        if let Some(ai) = rider.get_ai_update_interface() {
+            ai.lock()
+                .map_err(|_| "native removal AI poisoned")?
+                .validate_owned_removal_callbacks(passenger)?;
+        }
+        Ok(())
+    }
+    fn add_to_world(&mut self, passenger: &mut Object) {
+        let position = passenger.get_position();
+        let geometry = Object::collision_geometry_from_bounds(
+            passenger.get_geometry_info(),
+            passenger.get_template().get_template_geometry_type(),
+        );
+        self.services
+            .collision
+            .register_object(
+                passenger.get_id(),
+                crate::object::collide::Coord3D::new(position.x, position.y, position.z),
+                geometry,
+                None,
+            )
+            .expect("admitted native collision registration");
+        self.services
+            .collision
+            .update_object_pose(
+                passenger.get_id(),
+                crate::object::collide::Coord3D::new(position.x, position.y, position.z),
+                passenger.get_orientation(),
+            )
+            .expect("admitted native collision pose");
+        self.services
+            .spatial_objects
+            .update_object_position(passenger.get_id(), *position);
+        if let Some(drawable) = passenger.get_drawable() {
+            drawable
+                .write()
+                .expect("admitted native removed drawable poisoned")
+                .set_drawable_hidden(false)
+                .expect("native drawable show");
+        }
+        let footprint = crate::ai::object_footprint_positions_with_height(passenger, |x, y| {
+            self.services.terrain.get_layer_height(
+                x,
+                y,
+                crate::path::PathfindLayerEnum::Ground,
+                None,
+                false,
+            )
+        })
+        .unwrap_or_else(|| vec![*passenger.get_position()]);
+        self.services
+            .pathfinder
+            .add_object_to_map_at_positions(&footprint);
+    }
+    fn clear_contained_held(&mut self, passenger: &mut Object) {
+        passenger.clear_held_for_owned_leaf();
+    }
+    fn finish_removed_partition(&mut self, passenger: &mut Object) {
+        self.maintain_partition(passenger, false);
+    }
     fn passenger_player_mask(&self, object: &Object) -> Option<PlayerMaskType> {
         Some(self.controller(object)?.read().ok()?.get_player_mask())
     }

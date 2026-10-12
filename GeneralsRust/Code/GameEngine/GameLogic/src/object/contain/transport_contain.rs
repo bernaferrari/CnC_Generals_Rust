@@ -5,6 +5,8 @@
 
 #[path = "transport_owned_enter.rs"]
 mod owned_enter;
+#[path = "transport_owned_remove.rs"]
+mod owned_remove;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -1681,6 +1683,14 @@ impl ContainModuleInterface for TransportContain {
     fn requires_owned_weapon_refresh(&self) -> bool {
         self.module_data.armed_riders_upgrade_weapon_set
     }
+    fn remove_from_contain_with_world(
+        &mut self,
+        id: ObjectID,
+        expose: bool,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.remove_with_world(id, expose, world)
+    }
     fn add_to_contain_with_world(
         &mut self,
         id: ObjectID,
@@ -1788,6 +1798,15 @@ impl ContainModuleInterface for TransportContain {
         Snapshotable::xfer(self, xfer)
     }
 
+    fn snapshot_load_post_process_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.base.load_post_process_with_world(world)
+    }
+    fn exit_busy_with_observations(&self, frame: u32, above_terrain: bool) -> bool {
+        self.module_data.is_delay_exit_in_air && above_terrain || frame < self.frame_exit_not_busy
+    }
     fn snapshot_load_post_process(&mut self) -> Result<(), String> {
         Snapshotable::load_post_process(self)
     }

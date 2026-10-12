@@ -38,6 +38,8 @@ use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 mod admission;
 #[path = "open_owned_enter.rs"]
 pub(in crate::object::contain) mod owned_enter;
+#[path = "open_owned_remove.rs"]
+pub(in crate::object::contain) mod owned_remove;
 
 type ObjectId = ObjectID;
 type FirePointMatrix = [[f32; 4]; 3];
@@ -2660,6 +2662,14 @@ impl ContainModuleInterface for OpenContain {
     fn supports_owned_enter(&self) -> bool {
         true
     }
+    fn remove_from_contain_with_world(
+        &mut self,
+        id: ObjectID,
+        expose: bool,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.remove_with_world(id, expose, world)
+    }
     fn add_to_contain_with_world(
         &mut self,
         passenger: ObjectID,
@@ -2676,6 +2686,12 @@ impl ContainModuleInterface for OpenContain {
         Snapshotable::xfer(self, xfer)
     }
 
+    fn snapshot_load_post_process_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.load_post_process_with_world(world)
+    }
     fn snapshot_load_post_process(&mut self) -> Result<(), String> {
         Snapshotable::load_post_process(self)
     }

@@ -29,7 +29,7 @@ fn armed_transport_template() -> Arc<dyn ThingTemplate> {
     })
 }
 
-fn weapon_set(name: &str, damage: f32, range: f32, upgraded: bool) -> WeaponTemplateSet {
+pub(super) fn weapon_set(name: &str, damage: f32, range: f32, upgraded: bool) -> WeaponTemplateSet {
     let mut set = WeaponTemplateSet::new();
     if upgraded {
         set.conditions.set(WeaponSetType::PlayerUpgrade);
@@ -42,7 +42,7 @@ fn weapon_set(name: &str, damage: f32, range: f32, upgraded: bool) -> WeaponTemp
     set
 }
 
-fn install_weapon_sets(game: &mut NativeMatch, ranged_rider: bool, frame: u32) {
+pub(super) fn install_weapon_sets(game: &mut NativeMatch, ranged_rider: bool, frame: u32) {
     let mut rider = game.source.write().unwrap();
     rider.weapon_set.add_weapon_template_set(weapon_set(
         "NativeRiderWeapon",
@@ -82,7 +82,7 @@ fn install_weapon_sets(game: &mut NativeMatch, ranged_rider: bool, frame: u32) {
         .unwrap();
 }
 
-fn board_cached_source(game: &mut NativeMatch, frame: u32) -> u32 {
+pub(super) fn board_cached_source(game: &mut NativeMatch, frame: u32) -> u32 {
     game.issue_enter(frame);
     let ai = game
         .source

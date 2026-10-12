@@ -457,3 +457,96 @@ fn supplied_transport_weapon_flag_rebuilds_and_updates_actual_drawable() {
     assert!(!flags.contains(ModelConditionFlags::WEAPONSET_PLAYER_UPGRADE));
     assert!(flags.contains(ModelConditionFlags::LOADED));
 }
+
+/// CPP TransportContain311 clears only HELD. Object690-694 clears visibility
+/// and containment only after the full derived callback has returned.
+#[test]
+fn supplied_removal_held_clear_preserves_status_until_on_removed_from() {
+    let mut object = Object::new_raw(
+        Arc::new(crate::common::DefaultThingTemplate::new(
+            "OwnedRemovedLeaf".into(),
+        )),
+        7201,
+        ObjectStatusMaskType::empty(),
+        None,
+    );
+    object.ambient_lifecycle_admitted = false;
+    object.admit_contained_by_at(7202, true, 127);
+    object
+        .disabled_mask
+        .set_disabled(crate::common::DisabledType::Held);
+    object.clear_held_for_owned_leaf();
+    assert!(!object.is_disabled_by_type(crate::common::DisabledType::Held));
+    assert!(object.test_status(ObjectStatusTypes::Unselectable));
+    assert!(object.test_status(ObjectStatusTypes::Masked));
+    assert_eq!(object.get_contained_by(), Some(7202));
+    assert_eq!(object.get_contained_by_frame(), 127);
+    object.finish_removed_from_local();
+    assert!(!object.test_status(ObjectStatusTypes::Unselectable));
+    assert!(!object.test_status(ObjectStatusTypes::Masked));
+    assert_eq!(object.get_contained_by(), None);
+    assert_eq!(object.get_contained_by_frame(), 0);
+}
+
+// Component-Xfer fixture support: construct/load a fresh authored module before
+// replacing the installed entry and cache. Passenger state remains the product
+// of the real paired gameplay; this does not claim full-world Object Xfer.
+impl Object {
+    pub(crate) fn install_fresh_contain_snapshot_for_test(
+        owner: &Arc<RwLock<Object>>,
+        bytes: Vec<u8>,
+    ) -> Arc<std::sync::Mutex<dyn crate::modules::ContainModuleInterface>> {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::thing::module::{ModuleInterfaceType, ModuleType};
+        use game_engine::common::thing::module_factory::ModuleFactory;
+        use std::io::Cursor;
+
+        let template = Arc::clone(owner.read().unwrap().get_template());
+        let info = template
+            .get_behavior_module_info()
+            .iter()
+            .find(|info| info.interface_flags().0 & ModuleInterfaceType::CONTAIN.0 != 0)
+            .unwrap();
+        let mut factory = ModuleFactory::new();
+        crate::contain_module_overrides::register_module_overrides(&mut factory).unwrap();
+        factory.add_module_internal(
+            None,
+            None,
+            ModuleType::Behavior,
+            &info.name,
+            info.interface_flags(),
+        );
+        let module = factory
+            .new_module(
+                Arc::new(super::ObjectThingHandle::new(owner)),
+                &info.name,
+                Arc::clone(&info.data),
+                ModuleType::Behavior,
+            )
+            .unwrap();
+        let contain =
+            crate::contain_module_overrides::contain_handle_for_module(module.as_ref()).unwrap();
+        contain
+            .lock()
+            .unwrap()
+            .snapshot_xfer(&mut XferLoad::new(Cursor::new(bytes), 1))
+            .unwrap();
+        let entry = Arc::new(super::ModuleEntry::new(
+            info.name.clone(),
+            info.module_tag.clone(),
+            info.interface_flags(),
+            Arc::clone(&info.data),
+            module,
+        ));
+        let mut object = owner.write().unwrap();
+        let index = *object
+            .contain_module_handles
+            .iter()
+            .find(|&&index| object.modules[index].tag() == &info.module_tag)
+            .unwrap();
+        object.modules[index] = entry;
+        object.set_contain(Some(Arc::clone(&contain)));
+        object.rebuild_behavior_list();
+        contain
+    }
+}

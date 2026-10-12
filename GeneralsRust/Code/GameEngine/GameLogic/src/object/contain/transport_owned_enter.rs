@@ -70,21 +70,7 @@ impl TransportContain {
                     .set_model_condition_state(ModelConditionState::Loaded);
             }
         }
-        if self.module_data.armed_riders_upgrade_weapon_set {
-            let mut armed = false;
-            // Prepared identities preserve the post-push physical roster order.
-            // No member can be replaced/removed during this admitted callback.
-            for rider in &prepared.members {
-                let rider = rider.read().expect("admitted transport rider poisoned");
-                armed |= transport_rider_has_viable_weapon(&rider);
-                if armed {
-                    break;
-                }
-            }
-            let owner = &prepared.owner;
-            let mut owner = owner.write().expect("admitted transport owner poisoned");
-            world.set_transport_weapon_upgrade(&mut owner, armed);
-        }
+        self.refresh_armed_riders_with_world(&prepared.owner, &prepared.members, world);
         {
             let owner = &prepared.owner;
             let mut owner = owner.write().expect("admitted transport owner poisoned");
@@ -100,5 +86,27 @@ impl TransportContain {
                 }
             }
         }
+    }
+    pub(in crate::object::contain) fn refresh_armed_riders_with_world(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        members: &[Arc<RwLock<Object>>],
+        world: &mut dyn AiWorld,
+    ) {
+        if !self.module_data.armed_riders_upgrade_weapon_set {
+            return;
+        }
+        let mut armed = false;
+        // Retained identities preserve physical roster order, with one read
+        // per examined rider. The admitted operation forbids replacement.
+        for rider in members {
+            let rider = rider.read().expect("admitted transport rider poisoned");
+            armed |= transport_rider_has_viable_weapon(&rider);
+            if armed {
+                break;
+            }
+        }
+        let mut owner = owner.write().expect("admitted transport owner poisoned");
+        world.set_transport_weapon_upgrade(&mut owner, armed);
     }
 }

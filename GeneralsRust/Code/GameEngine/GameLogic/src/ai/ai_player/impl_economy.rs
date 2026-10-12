@@ -733,9 +733,6 @@ impl AIPlayer {
             .ok()
             .and_then(|ai| Some(&*ai.get_ai_data()).map(|d| d.structure_seconds))
             .unwrap_or(self.structure_seconds);
-        self.structure_seconds = structure_seconds;
-        let mut timer = (structure_seconds.max(0.0) * LOGICFRAMES_PER_SECOND as f32) as u32;
-
         let money = player_list()
             .read()
             .ok()
@@ -745,6 +742,36 @@ impl AIPlayer {
 
         let (poor, wealthy, poor_mod, wealthy_mod) = Self::structure_wealth_params();
 
+        self.arm_structure_timer_with_inputs(
+            structure_seconds,
+            money,
+            (poor, wealthy, poor_mod, wealthy_mod),
+        )
+    }
+
+    /// Arm using the definitions and money admitted by the driving session.
+    /// AIPlayer.cpp:779-788 / 814-823 observes these at the build completion.
+    pub(crate) fn arm_structure_timer_after_build_with_data(
+        &mut self,
+        data: &crate::ai::AiData,
+        money: i32,
+    ) -> Result<(), AiError> {
+        self.arm_structure_timer_with_inputs(
+            data.structure_seconds,
+            money,
+            Self::structure_wealth_params_from_data(data),
+        )
+    }
+
+    fn arm_structure_timer_with_inputs(
+        &mut self,
+        structure_seconds: f32,
+        money: i32,
+        (poor, wealthy, poor_mod, wealthy_mod): (i32, i32, f32, f32),
+    ) -> Result<(), AiError> {
+        self.ready_to_build_structure = false;
+        self.structure_seconds = structure_seconds;
+        let mut timer = (structure_seconds.max(0.0) * LOGICFRAMES_PER_SECOND as f32) as u32;
         // C++: timer = timer / mod when mod applies (mod 0 → skip).
         // Integer divide of 0 stays 0 (immediate re-ready).
         if money < poor && poor_mod > 0.0 {
@@ -762,38 +789,38 @@ impl AIPlayer {
         the_ai()
             .read()
             .ok()
-            .and_then(|ai| {
-                Some(&*ai.get_ai_data()).map(|data| {
-                    (
-                        if data.resources_poor > 0 {
-                            data.resources_poor
-                        } else {
-                            RESOURCES_POOR
-                        },
-                        if data.resources_wealthy > 0 {
-                            data.resources_wealthy
-                        } else {
-                            RESOURCES_WEALTHY
-                        },
-                        if data.structures_poor_mod > 0.0 {
-                            data.structures_poor_mod
-                        } else {
-                            STRUCTURES_POOR_MODIFIER
-                        },
-                        if data.structures_wealthy_mod > 0.0 {
-                            data.structures_wealthy_mod
-                        } else {
-                            STRUCTURES_WEALTHY_MODIFIER
-                        },
-                    )
-                })
-            })
+            .map(|ai| Self::structure_wealth_params_from_data(&*ai.get_ai_data()))
             .unwrap_or((
                 RESOURCES_POOR,
                 RESOURCES_WEALTHY,
                 STRUCTURES_POOR_MODIFIER,
                 STRUCTURES_WEALTHY_MODIFIER,
             ))
+    }
+
+    fn structure_wealth_params_from_data(data: &crate::ai::AiData) -> (i32, i32, f32, f32) {
+        (
+            if data.resources_poor > 0 {
+                data.resources_poor
+            } else {
+                RESOURCES_POOR
+            },
+            if data.resources_wealthy > 0 {
+                data.resources_wealthy
+            } else {
+                RESOURCES_WEALTHY
+            },
+            if data.structures_poor_mod > 0.0 {
+                data.structures_poor_mod
+            } else {
+                STRUCTURES_POOR_MODIFIER
+            },
+            if data.structures_wealthy_mod > 0.0 {
+                data.structures_wealthy_mod
+            } else {
+                STRUCTURES_WEALTHY_MODIFIER
+            },
+        )
     }
 
     /// Retail AIData team wealth params; zero AIData fields → Default/AIData.ini fallbacks.

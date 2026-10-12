@@ -18,6 +18,10 @@ pub(crate) struct CompletionFixture {
 
 impl CompletionFixture {
     pub(crate) fn new(power: i32) -> Self {
+        Self::with_initial_disabled(power, false)
+    }
+
+    fn with_initial_disabled(power: i32, disabled: bool) -> Self {
         // Never replace an unrelated object or team admission in the adapter.
         let mut team_id = 0xBA_0300;
         loop {
@@ -94,6 +98,25 @@ impl CompletionFixture {
             builder,
             structure,
         };
+        // This control starts disabled before any controller is assigned.
+        // CPP Object::onDisabledEdge intentionally has no construction guard;
+        // disabling an already admitted unfinished producer is another effect,
+        // not this initial-state/completion test.
+        if disabled {
+            fixture
+                .structure
+                .write()
+                .unwrap()
+                .set_disabled(crate::common::DisabledType::Held);
+        }
+        // C++ admits construction status before the first team membership:
+        // unfinished producers/consumers have no energy influence yet.
+        fixture.structure.write().unwrap().set_status(
+            crate::common::ObjectStatusMaskType::from_status(
+                crate::common::ObjectStatusTypes::UnderConstruction,
+            ),
+            true,
+        );
         for object in [fixture.builder.clone(), fixture.structure.clone()] {
             fixture.owner.register_object(object.clone()).unwrap();
             let assigned = object.write().unwrap().set_team(Some(team.clone()));
@@ -110,12 +133,6 @@ impl CompletionFixture {
                 .get_object_id("CompletionScriptName")
                 .unwrap(),
             None
-        );
-        fixture.structure.write().unwrap().set_status(
-            crate::common::ObjectStatusMaskType::from_status(
-                crate::common::ObjectStatusTypes::UnderConstruction,
-            ),
-            true,
         );
         fixture
     }
@@ -441,14 +458,7 @@ fn construction_influence_preserves_consumers_and_disabled_producers() {
         .lock()
         .unwrap();
     for (power, disabled) in [(10, false), (10, true), (-10, false), (-10, true)] {
-        let fixture = CompletionFixture::new(power);
-        if disabled {
-            fixture
-                .structure
-                .write()
-                .unwrap()
-                .set_disabled(crate::common::DisabledType::Held);
-        }
+        let fixture = CompletionFixture::with_initial_disabled(power, disabled);
         let (production, consumption) = {
             let player = fixture.player.read().unwrap();
             (

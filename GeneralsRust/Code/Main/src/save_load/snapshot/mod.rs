@@ -191,8 +191,7 @@ pub use terrain_visual_save::{
 };
 pub use types::*;
 pub use w3d_ghost_save::{
-    CHUNK_GHOST_OBJECT, capture_w3d_ghost_xfer_bytes, restore_w3d_ghost_manager_from_xfer_bytes,
-    save_lock_live_w3d_ghosts, stash_loaded_w3d_ghost_xfer, take_loaded_w3d_ghost_xfer,
+    CHUNK_GHOST_OBJECT, capture_w3d_ghost_xfer_bytes, decode_w3d_ghost_xfer_bytes,
 };
 pub(crate) use world_codec::decode_bincode_world_snapshot;
 

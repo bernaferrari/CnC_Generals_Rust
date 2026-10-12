@@ -2454,3 +2454,9 @@ mod enter_border_tests;
 
 #[cfg(test)]
 mod unmanned_enter_admission_tests;
+
+#[cfg(test)]
+mod factory_inactive_body_tests;
+
+#[cfg(test)]
+mod team_power_owner_tests;

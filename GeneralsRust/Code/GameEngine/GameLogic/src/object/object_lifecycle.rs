@@ -1001,14 +1001,23 @@ impl Object {
             .as_ref()
             .and_then(|team_ref| team_ref.read().ok())
             .and_then(|team_guard| team_guard.get_controlling_player_id());
+        // CPP Object.cpp:827-854 removes the old player's membership before
+        // binding the new team. Player's borrowed-object callback is the one
+        // energy admission path and already excludes UnderConstruction.
         if old_player_id != incoming_player_id {
-            if let Some(players) = players {
-                self.adjust_power_for_supplied_player(
-                    false,
-                    old_player_id.and_then(|id| players.get_player(id as PlayerIndex)),
-                );
+            let old_player = if let Some(players) = players {
+                old_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned())
             } else {
-                self.adjust_power_for_player(false);
+                player_list().read().ok().and_then(|players| {
+                    old_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned())
+                })
+            };
+            if let Some(player) = old_player {
+                let mut player = player.write().expect("capture old player poisoned");
+                if self.modules_ready && player.get_num_battle_plans_active() > 0 {
+                    player.remove_battle_plan_bonuses_for_object(self);
+                }
+                player.remove_owned_object_for_object(self);
             }
         }
 
@@ -1028,41 +1037,20 @@ impl Object {
             .and_then(|team_guard| team_guard.get_controlling_player_id());
 
         if old_player_id != new_player_id {
-            let (old_player, new_player) = if let Some(players) = players {
-                (
-                    old_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned()),
-                    new_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned()),
-                )
+            let new_player = if let Some(players) = players {
+                new_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned())
             } else {
                 let Ok(players) = player_list().read() else {
                     return Ok(());
                 };
-                (
-                    old_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned()),
-                    new_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned()),
-                )
+                new_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned())
             };
-            if let Some(player) = old_player {
-                let mut player = player.write().expect("capture old player poisoned");
-                if self.modules_ready && player.get_num_battle_plans_active() > 0 {
-                    player.remove_battle_plan_bonuses_for_object(self);
-                }
-                player.remove_owned_object_for_object(self);
-            }
             if let Some(player) = new_player {
                 let mut player = player.write().expect("capture new player poisoned");
                 player.add_owned_object_for_object(self);
                 if self.modules_ready && player.get_num_battle_plans_active() > 0 {
                     player.apply_battle_plan_bonuses_for_object(self);
                 }
-            }
-            if let Some(players) = players {
-                self.adjust_power_for_supplied_player(
-                    true,
-                    new_player_id.and_then(|id| players.get_player(id as PlayerIndex)),
-                );
-            } else {
-                self.adjust_power_for_player(true);
             }
             self.notify_team_switch_side_effects(
                 old_player_id.map(|id| id as i32),

@@ -1472,13 +1472,12 @@ impl RenderPipeline {
     ) {
         use game_client::render_bridge::get_render_bridge;
 
-        // Freeze logic-owned W3D ghost mutations before taking the client
-        // bridge lock. This retains the exact snapshot payload and stable
-        // pooled-module identity without a live cross-subsystem borrow.
-        let ghost_events = gamelogic::object::THE_W3D_GHOST_OBJECT_MANAGER
-            .write()
-            .map(|mut manager| manager.drain_scene_events())
-            .unwrap_or_default();
+        // Replace the scene from this exact immutable presentation boundary.
+        // Session changes cannot retain another world's pooled ghost IDs.
+        self.frozen_ghost_scene = self
+            .presentation_frame
+            .as_ref()
+            .and_then(|frame| frame.w3d_ghost_scene.clone());
 
         let mut bridge_guard = match get_render_bridge().lock() {
             Ok(g) => g,
@@ -1488,9 +1487,6 @@ impl RenderPipeline {
             Some(b) => b,
             None => return,
         };
-
-        bridge.apply_ghost_scene_events(ghost_events);
-        self.frozen_ghost_scene = Some(bridge.freeze_ghost_scene());
 
         // Live host never calls RenderBridge::begin_frame, so flush() has no
         // camera and would drain+drop pending. Pull them first so placement

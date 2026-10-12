@@ -10,6 +10,9 @@ use super::script_camera::*;
 use super::*;
 
 pub struct GameLogic {
+    /// Saved/frozen W3D ghost state belongs to this session. Native Core
+    /// compatibility ghost hooks are a separate, unfinished ingress migration.
+    pub(crate) w3d_ghosts: gamelogic::object::w3d_ghost_object::W3DGhostObjectManager,
     /// Canonical C++ Radar state for this match; construction publishes nothing.
     pub(crate) radar: game_engine::common::system::radar::RadarSystem,
     pub(crate) radar_map:

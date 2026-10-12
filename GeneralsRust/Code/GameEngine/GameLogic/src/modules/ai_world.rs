@@ -127,6 +127,24 @@ pub trait AiWorld {
     /// Implementations must resolve both identities through this same store.
     fn enter(&mut self, passenger: ObjectID, target: ObjectID) -> Result<(), String>;
 
+    /// Physical removal at the original Open/Transport callback point.
+    fn remove_contained(
+        &mut self,
+        passenger: ObjectID,
+        owner: ObjectID,
+        expose: bool,
+    ) -> Result<(), String>;
+    fn contain_exit_busy(&self, owner: ObjectID) -> Result<bool, String>;
+    fn validate_remove_operation(
+        &self,
+        passenger: &Arc<RwLock<Object>>,
+        owner: &Arc<RwLock<Object>>,
+        expose: bool,
+    ) -> Result<(), String>;
+    fn add_to_world(&mut self, passenger: &mut Object);
+    fn clear_contained_held(&mut self, passenger: &mut Object);
+    fn finish_removed_partition(&mut self, passenger: &mut Object);
+
     /// Native services are supplied by the same owner as the object store.
     /// Unsupported services fail explicitly; they never discover a global world.
     fn validate_containment_services(&self) -> Result<(), String> {

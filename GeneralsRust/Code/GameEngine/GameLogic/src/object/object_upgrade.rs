@@ -380,6 +380,18 @@ impl Object {
         }
     }
 
+    /// CPP TransportContain::onRemoving clears DISABLED_HELD alone; status
+    /// visibility remains unchanged until Object::onRemovedFrom afterward.
+    pub(crate) fn clear_held_for_owned_leaf(&mut self) {
+        self.validate_owned_leaf_held()
+            .expect("admitted leaf HELD callbacks");
+        let was_disabled = self.is_disabled();
+        self.disabled_mask.clear(DisabledType::Held);
+        if was_disabled && !self.is_disabled() {
+            self.dispatch_disabled_behavior_callbacks(false);
+        }
+    }
+
     fn dispatch_disabled_behavior_callbacks(&mut self, becoming_disabled: bool) {
         for behavior in &mut self.behaviors {
             if let Ok(mut guard) = behavior.access() {

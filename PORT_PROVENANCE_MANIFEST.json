@@ -20851,6 +20851,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_owned_remove.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -25047,6 +25054,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_owned_enter.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_owned_remove.rs"
           }
         ],
         "mode": "split_inferred",
@@ -27033,6 +27047,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_owned_remove.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/overlord_contain.rs"
           },
           {
@@ -27090,6 +27111,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_owned_enter.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_owned_remove.rs"
           },
           {
             "cargo_reachable": true,
@@ -27842,6 +27870,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/factory_inactive_body_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -28483,6 +28518,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/structure.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/team_power_owner_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -55890,7 +55932,8 @@
         "unreviewed_source_range_ownership",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_admission.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_contain.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_owned_enter.rs"
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_owned_enter.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_owned_remove.rs"
       ],
       "id": "game_engine:Source/GameLogic/Object/Contain/OpenContain.cpp",
       "inventory_class": "required_runtime",
@@ -55931,6 +55974,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_owned_enter.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_owned_remove.rs"
           },
           {
             "cargo_reachable": true,
@@ -56172,7 +56222,8 @@
         "unreviewed_symbol_ownership",
         "unreviewed_source_range_ownership",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_contain.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_owned_enter.rs"
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_owned_enter.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_owned_remove.rs"
       ],
       "id": "game_engine:Source/GameLogic/Object/Contain/TransportContain.cpp",
       "inventory_class": "required_runtime",
@@ -56206,6 +56257,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_owned_enter.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_owned_remove.rs"
           }
         ],
         "mode": "split_inferred",
@@ -58306,12 +58364,14 @@
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_admission.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_contain.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_owned_enter.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_owned_remove.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/overlord_contain.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/parachute_contain.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/railed_transport_contain.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/rider_change_contain.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_contain.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_owned_enter.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_owned_remove.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/tunnel_contain.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/crate_system.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/create/create_module.rs",
@@ -59684,6 +59744,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_owned_remove.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/overlord_contain.rs"
           },
           {
@@ -59741,6 +59808,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_owned_enter.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_owned_remove.rs"
           },
           {
             "cargo_reachable": true,
@@ -60493,6 +60567,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/factory_inactive_body_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -61134,6 +61215,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/structure.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/team_power_owner_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -157985,7 +158073,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "1baff06549e3f5dc6b3a65a75e36fa6420983fac628aa58f902b5d3f67dd760e",
+  "input_digest": "62c24227b155084e3b8ec45d9b9e87651864b73ca45e24e57a9ccf4433d81b95",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -173794,11 +173882,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 871,
+        "end_line": 898,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/impl_economy.rs",
-      "sha256": "59917cfd5e77461d7186b02936e978c680373d71508b38f993f320b29193f177",
+      "sha256": "b54036966b86e720df505b1931cb77e362965aec9b982e46308aad4b625b7a74",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -173858,17 +173946,32 @@
         },
         {
           "kind": "fn",
-          "line": 761,
+          "line": 754,
+          "name": "arm_structure_timer_after_build_with_data"
+        },
+        {
+          "kind": "fn",
+          "line": 765,
+          "name": "arm_structure_timer_with_inputs"
+        },
+        {
+          "kind": "fn",
+          "line": 788,
           "name": "structure_wealth_params"
         },
         {
           "kind": "fn",
           "line": 800,
+          "name": "structure_wealth_params_from_data"
+        },
+        {
+          "kind": "fn",
+          "line": 827,
           "name": "team_wealth_params"
         },
         {
           "kind": "fn",
-          "line": 839,
+          "line": 866,
           "name": "analyze_building_needs"
         }
       ]
@@ -174820,11 +174923,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 1892,
+        "end_line": 1904,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/tests.rs",
-      "sha256": "4bd491c1a08e63817474b976c1a5a3121cbc1a8c0a5c1b58a1af50744fea5a63",
+      "sha256": "1dc82c3bcb5966220bc99fda23c2661d84ca772f70566ac194729d7ab46bf542",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -174964,372 +175067,372 @@
         },
         {
           "kind": "fn",
-          "line": 469,
+          "line": 472,
           "name": "do_base_building_sets_2s_build_delay_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 481,
+          "line": 484,
           "name": "do_team_building_sets_5s_team_delay_and_queues_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 493,
+          "line": 496,
           "name": "solo_do_base_building_does_not_clamp_structure_timer_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 506,
+          "line": 509,
           "name": "solo_do_team_building_does_not_clamp_team_timer_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 517,
+          "line": 520,
           "name": "do_base_building_decrements_structure_timer_until_ready"
         },
         {
           "kind": "fn",
-          "line": 540,
+          "line": 543,
           "name": "update_with_frame_source_order_matches_cpp_do_methods"
         },
         {
           "kind": "fn",
-          "line": 564,
+          "line": 567,
           "name": "host_attack_disabled_by_default_like_cpp_update"
         },
         {
           "kind": "const",
-          "line": 567,
+          "line": 570,
           "name": "CHILD"
         },
         {
           "kind": "fn",
-          "line": 587,
+          "line": 594,
           "name": "arm_structure_timer_applies_wealth_mods_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 619,
+          "line": 630,
           "name": "arm_structure_timer_reads_live_aidata_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 632,
+          "line": 643,
           "name": "process_base_building_honors_rebuild_delay_timestamp"
         },
         {
           "kind": "fn",
-          "line": 643,
+          "line": 654,
           "name": "process_base_building_source_has_cpp_rebuild_and_timer_arm"
         },
         {
           "kind": "fn",
-          "line": 661,
+          "line": 672,
           "name": "select_team_uses_player_team_list_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 686,
+          "line": 697,
           "name": "select_team_to_build_random_hi_pri_surface"
         },
         {
           "kind": "fn",
-          "line": 704,
+          "line": 715,
           "name": "arm_team_timer_after_build_sets_ready_false"
         },
         {
           "kind": "fn",
-          "line": 716,
+          "line": 727,
           "name": "arm_team_timer_zero_seconds_stays_zero_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 731,
+          "line": 742,
           "name": "is_a_good_idea_requires_idle_factory_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 743,
+          "line": 754,
           "name": "is_a_good_idea_calls_evaluate_production_condition"
         },
         {
           "kind": "fn",
-          "line": 754,
+          "line": 765,
           "name": "queue_units_prefers_m_team_handle"
         },
         {
           "kind": "fn",
-          "line": 770,
+          "line": 781,
           "name": "queue_units_try_to_recruit_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 790,
+          "line": 801,
           "name": "queue_units_empty_queue_ok"
         },
         {
           "kind": "fn",
-          "line": 797,
+          "line": 808,
           "name": "is_a_good_idea_drops_factory_lock_before_possible"
         },
         {
           "kind": "fn",
-          "line": 830,
+          "line": 841,
           "name": "is_possible_to_build_team_avg_cost_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 855,
+          "line": 866,
           "name": "start_training_queues_create_unit_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 871,
+          "line": 882,
           "name": "find_factory_prefers_build_list_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 888,
+          "line": 899,
           "name": "on_unit_produced_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 921,
+          "line": 932,
           "name": "on_unit_produced_shortcuts_team_delay"
         },
         {
           "kind": "fn",
-          "line": 937,
+          "line": 948,
           "name": "build_structure_with_dozer_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 965,
+          "line": 976,
           "name": "calc_closest_construction_zone_location_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 983,
+          "line": 994,
           "name": "find_valid_build_location_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1001,
+          "line": 1012,
           "name": "process_base_building_resumes_dozer_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 1016,
+          "line": 1027,
           "name": "process_base_building_rebuild_delay_requires_invalid_id"
         },
         {
           "kind": "fn",
-          "line": 1030,
+          "line": 1041,
           "name": "process_base_building_calls_build_structure_with_dozer"
         },
         {
           "kind": "fn",
-          "line": 1043,
+          "line": 1055,
           "name": "compute_center_uses_build_list_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 1067,
+          "line": 1079,
           "name": "on_structure_produced_applies_map_props_and_script"
         },
         {
           "kind": "fn",
-          "line": 1089,
+          "line": 1101,
           "name": "new_map_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1113,
+          "line": 1125,
           "name": "join_team_reinforcement_calls_join_team_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 1150,
+          "line": 1162,
           "name": "build_structure_now_at_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1170,
+          "line": 1182,
           "name": "check_for_supply_center_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1186,
+          "line": 1198,
           "name": "queue_supply_truck_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1217,
+          "line": 1229,
           "name": "find_dozer_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1233,
+          "line": 1245,
           "name": "compute_superweapon_target_uses_get_extent_and_int_cash"
         },
         {
           "kind": "fn",
-          "line": 1265,
+          "line": 1277,
           "name": "ai_player_crc_is_empty_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 1281,
+          "line": 1293,
           "name": "check_for_supply_center_module_only_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 1297,
+          "line": 1309,
           "name": "get_player_structure_bounds_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1315,
+          "line": 1327,
           "name": "calc_closest_construction_zone_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1331,
+          "line": 1343,
           "name": "compute_superweapon_target_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1354,
+          "line": 1366,
           "name": "build_upgrade_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1372,
+          "line": 1384,
           "name": "find_supply_center_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1397,
+          "line": 1409,
           "name": "build_specific_ai_team_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1434,
+          "line": 1446,
           "name": "recruit_specific_ai_team_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1455,
+          "line": 1467,
           "name": "build_specific_ai_team_respects_can_build_units_surface"
         },
         {
           "kind": "fn",
-          "line": 1463,
+          "line": 1475,
           "name": "build_nearest_team_and_calc_closest_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1488,
+          "line": 1500,
           "name": "solo_base_defense_and_on_structure_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1513,
+          "line": 1525,
           "name": "build_paths_use_placement_view_angle_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 1528,
+          "line": 1540,
           "name": "get_skirmish_enemy_player_index_prefers_current_enemy_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 1543,
+          "line": 1555,
           "name": "guard_supply_center_uses_script_cmd_source_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 1560,
+          "line": 1572,
           "name": "build_by_supplies_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1583,
+          "line": 1595,
           "name": "repair_structure_and_bridge_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1627,
+          "line": 1639,
           "name": "repair_structure_skips_pristine_and_duplicates"
         },
         {
           "kind": "fn",
-          "line": 1635,
+          "line": 1647,
           "name": "build_specific_ai_building_solo_is_noop_surface"
         },
         {
           "kind": "fn",
-          "line": 1648,
+          "line": 1660,
           "name": "get_player_superweapon_value_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1666,
+          "line": 1678,
           "name": "queue_dozer_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1684,
+          "line": 1696,
           "name": "is_supply_source_attacked_scan_rate_is_10_frames_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 1700,
+          "line": 1712,
           "name": "supply_source_attacked_safe_guard_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1736,
+          "line": 1748,
           "name": "dozer_in_queue_uses_includes_a_dozer_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 1759,
+          "line": 1771,
           "name": "queue_dozer_does_not_set_repair_flag_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 1776,
+          "line": 1788,
           "name": "queue_dozer_skips_when_already_queued"
         },
         {
           "kind": "fn",
-          "line": 1792,
+          "line": 1804,
           "name": "queue_one_harvester_walks_thing_factory_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 1810,
+          "line": 1822,
           "name": "queue_supply_truck_skips_when_already_queued"
         },
         {
           "kind": "fn",
-          "line": 1827,
+          "line": 1839,
           "name": "select_team_to_reinforce_auto_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 1850,
+          "line": 1862,
           "name": "select_team_to_reinforce_no_auto_returns_false"
         },
         {
           "kind": "fn",
-          "line": 1858,
+          "line": 1870,
           "name": "test_strategy_state"
         },
         {
           "kind": "fn",
-          "line": 1865,
+          "line": 1877,
           "name": "ai_player_xfer_writes_team_seconds_as_cpp_int"
         }
       ]
@@ -199232,11 +199335,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 482,
+        "end_line": 485,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/body/inactive_body.rs",
-      "sha256": "0d98a41ea45d0292232594b294044d82194d7477e661c3780d4fb8a729643842",
+      "sha256": "6efaa51ca66e20305333423a546d3e7f16a2a7a31b4cc15ce9f7ebf67c60c2a8",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -199868,11 +199971,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3692,
+        "end_line": 3708,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_contain.rs",
-      "sha256": "c7c7013ef23a0d1397dd7b6d0a402b9c7c03d618d1aca83eb04b7e904070aefe",
+      "sha256": "d628694d9f273311d6b3475c48fa50d484c67acd7e62d2ada472c7fad7a80bf3",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -199885,6 +199988,18 @@
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_owned_enter.rs",
       "sha256": "afebc9b6c6cad65128c35b6a046759994e3a1ed0baf2d12a744a64c950e15012",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 218,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_owned_remove.rs",
+      "sha256": "5d27c53fb8fd8e30da81157052e6e8de5af50db29b793c266b244382c9b88810",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -199964,11 +200079,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2492,
+        "end_line": 2511,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_contain.rs",
-      "sha256": "7d6fdb1b378685aa368be6c1b057bd33be19fde4476dc3b67a437d2cc46001fa",
+      "sha256": "db74334ed2c5722fad621511327d9fa042a540e4d4d0c69dfbc92ed3626cf5d1",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -199988,11 +200103,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 105,
+        "end_line": 113,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_owned_enter.rs",
-      "sha256": "853b17c3c5430da4850f7dabf6329ed1c7f60c00ce9e9721c089890f9a00530c",
+      "sha256": "bd8afe36807b8c01fdf115cfd7637538468fce7aa0bfd78c8a25b8d23183b625",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 120,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_owned_remove.rs",
+      "sha256": "bd1c8a57217caac0c811a53bcb2828afb13f1e330fbdfbcce396c2e6eb429169",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -201294,6 +201421,18 @@
     },
     {
       "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 131,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/factory_inactive_body_tests.rs",
+      "sha256": "4efe084c810bb0fbd26b38fb7cc189eb1b1e7ee1eb81c0cd71ad3bf94d96182a",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
         "end_line": 64,
@@ -201464,11 +201603,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2457,
+        "end_line": 2463,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/mod.rs",
-      "sha256": "5fe725dd07f17f95fba638ea30f865baaec43d88e3331034e68d6bf081180337",
+      "sha256": "681eb5f35cce165bdc1a3894c4239c8f8de057c7cc2102d47e7a213395a8745c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -201548,11 +201687,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1646,
+        "end_line": 1634,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_lifecycle.rs",
-      "sha256": "4cbf0cdc8d6d8511f0d5d32be334ff01417876d8c0ae12190b9a6ff61e6211ea",
+      "sha256": "e716631faaa16b44f73bf1ab22dab0f8187d2265489130418ffea57120530f74",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -201668,11 +201807,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1231,
+        "end_line": 1235,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_queries.rs",
-      "sha256": "56a07147f2ad9d3575a8e6c4e16c2a47ae5b1f393a4dd944115ca6ae9a1b17d1",
+      "sha256": "cde7529d7c60506353ec46e59f76d2e4713362a3f22b9f7e629e53b0ad360836",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -201764,11 +201903,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1320,
+        "end_line": 1332,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_upgrade.rs",
-      "sha256": "0e8371ff0debd9e5413ced27df42c20aeee658022cc409e70009230b102c302a",
+      "sha256": "ccd1a20e5860d229bf3f1ff1336350ffaa33f742e0b3c5b30e214794bfd7cd5d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -201812,11 +201951,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 460,
+        "end_line": 553,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/owned_prefire_tests.rs",
-      "sha256": "9f94699d2fdd86c6eb6e7b8f52f082f2827997345419e4765508ecbffdc42d0e",
+      "sha256": "fc7eb092e6a0548598d724d12757267477ae1464b93b3aa4a5eddf3a27b7dc60",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -202398,6 +202537,18 @@
     },
     {
       "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 160,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/team_power_owner_tests.rs",
+      "sha256": "e5e4c5831130a73eaff7ad021816d6ece4bfffbd78d22da2041d7cfeb1282fb4",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
         "end_line": 197,
@@ -202544,11 +202695,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 943,
+        "end_line": 957,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_interface.rs",
-      "sha256": "d136ebac9642a6a9705d767796d8282adc9057d0800ff967502e58b954b08381",
+      "sha256": "52e410d6bceded671bb99c69deb2310a3a1e713c846985ad6ce95816b306da80",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -202556,11 +202707,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1717,
+        "end_line": 1723,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_interface_update.rs",
-      "sha256": "334279341f6330577cbe5b5f73acd9789e3861dc0a5791575f0551cd7c8ab673",
+      "sha256": "9d8ae23a6a2256f4ec05f577c83b78f65f78891006a3640a0a4aeacc9f9072c7",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203216,11 +203367,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 570,
+        "end_line": 580,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/construction_callback_tests.rs",
-      "sha256": "02093cac72f70f93c903651b4541e37ddadd27acf5800231ca6fce95f291858e",
+      "sha256": "c476f298bf6d614dd3c8d9995060f1eb9df04c23c2c8313e71c894e73289bd87",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204812,11 +204963,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 279,
+        "end_line": 278,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/w3d_ghost_object_xfer.rs",
-      "sha256": "ec3359bb763f7f958c07d1a896120b660c42f29617a25df3c1a4cad9ac01c229",
+      "sha256": "bf0a590bb0ac9db55ca2eb6079132971e8c5ebe36b466496bd06a699592a6f7f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -219357,7 +219508,7 @@
     },
     "behavior_verified": 1,
     "blockers_by_kind": {
-      "duplicate_implementation_destination": 662,
+      "duplicate_implementation_destination": 666,
       "missing_mapping": 23,
       "no_reachable_implementation": 686,
       "ownership_symbol": 6,
@@ -219423,13 +219574,13 @@
       }
     },
     "deferred_network_translation_units": 47,
-    "duplicate_implementation_destinations": 311,
+    "duplicate_implementation_destinations": 313,
     "orphan_ownership_records": 0,
     "reachable_implementation_candidates": 703,
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 4192,
+    "strict_blockers": 4196,
     "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }

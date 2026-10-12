@@ -11,7 +11,6 @@ use super::body_module::{
     VeterancyLevel,
 };
 use crate::common::INVALID_ID;
-use crate::helpers::TheGameLogic;
 use game_engine::common::system::{Snapshotable, Xfer};
 
 /// Inactive body implementation - indestructible objects with no health
@@ -59,6 +58,10 @@ impl Snapshotable for InactiveBody {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // InactiveBody.cpp:155-176 owns a version before the base body chain.
+        let mut version = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|err| err.to_string())?;
         self.base.xfer(xfer)
     }
 

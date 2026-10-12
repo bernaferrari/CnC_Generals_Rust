@@ -229,6 +229,11 @@ pub struct WorldSnapshot {
     /// Exact accepted shots and absolute delayed-damage deadlines of this world.
     /// Required by schema 23; a missing payload must never default to an empty queue.
     pub pending_combat: crate::game_logic::combat::PendingCombatSnapshot,
+
+    /// Named GhostObject block travels with this decoded save. It is outside
+    /// the unchanged v23-27 GameLogic positional body and direct Xfer stream.
+    #[serde(skip)]
+    pub(crate) w3d_ghost_companion: Option<Vec<u8>>,
 }
 
 /// C++ `ExperienceTracker::xfer` `m_experienceSink` + `m_experienceScalar`.
@@ -508,6 +513,7 @@ impl Default for WorldSnapshot {
             logic_rng_seed_words: [0; 6],
             next_object_id: 0,
             pending_combat: Default::default(),
+            w3d_ghost_companion: None,
         };
         // A current empty snapshot is still a valid session value. Encode its
         // known default admission input without constructing/publishing a world.

@@ -4,6 +4,32 @@
 use super::*;
 
 impl Player {
+    /// The synchronous energy phase of CPP Player.cpp:1681. The driving
+    /// completion releases this player loan before applying brownout to objects.
+    /// Rebuilds execute the same phase; ownership membership excludes unfinished
+    /// structures and does not synthesize this completion notification.
+    pub(crate) fn apply_construction_power_influence(
+        &mut self,
+        power: Int,
+        disabled: bool,
+    ) -> Option<(PlayerIndex, bool)> {
+        if power == 0 || (power > 0 && disabled) {
+            return None;
+        }
+        if power > 0 {
+            self.energy.add_power_production(power);
+        } else {
+            self.energy.add_power_consumption(-power);
+        }
+        let brownout = !self.energy.has_sufficient_power();
+        if brownout {
+            self.disable_radar();
+        } else {
+            self.enable_radar();
+        }
+        Some((self.player_index, brownout))
+    }
+
     /// Synchronously complete the player's notification phases.
     /// Call with handles after releasing player and object guards.
     /// Matches C++ Player::onStructureConstructionComplete.
@@ -70,19 +96,8 @@ impl Player {
         });
         if let Some((Some(owner), power, disabled)) = influence {
             if power < 0 || (power > 0 && !disabled) {
-                let brownout = owner.write().ok().map(|mut owner| {
-                    if power > 0 {
-                        owner.energy.add_power_production(power);
-                    } else {
-                        owner.energy.add_power_consumption(-power);
-                    }
-                    let brownout = !owner.energy.has_sufficient_power();
-                    if brownout {
-                        owner.disable_radar();
-                    } else {
-                        owner.enable_radar();
-                    }
-                    (owner.player_index, brownout)
+                let brownout = owner.write().ok().and_then(|mut owner| {
+                    owner.apply_construction_power_influence(power, disabled)
                 });
                 if let Some((owner_index, brownout)) = brownout {
                     Self::apply_power_brownout_to_owned_objects(owner_index, brownout);

@@ -37,6 +37,9 @@ impl Snapshot for WorldSnapshot {
         self.version.xfer(xfer)?;
         if xfer.get_mode() == XferMode::Load {
             validate_direct_world_snapshot_version(self.version)?;
+            // The separate named GhostObject block is never part of this
+            // direct GameLogic stream; retain no companion from a prior load.
+            self.w3d_ghost_companion = None;
         }
 
         xfer.xfer_marker_label("Timestamp")?;

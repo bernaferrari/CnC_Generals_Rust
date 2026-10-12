@@ -161,12 +161,13 @@ fn companion_save_round_trips_w3d_ghost_snapshots() {
     use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
     use gamelogic::object::w3d_ghost_object::{
         Matrix3x4, OBJECTSHROUD_FOGGED, ParentGeometrySnapshot, RenderObjectClass,
-        RenderObjectState, RenderSubObjectSnapshot, THE_W3D_GHOST_OBJECT_MANAGER, W3DDrawableInfo,
+        RenderObjectState, RenderSubObjectSnapshot, W3DDrawableInfo,
     };
     use std::time::{Duration, SystemTime};
 
+    let mut source = GameLogic::new();
     {
-        let mut live = THE_W3D_GHOST_OBJECT_MANAGER.write().expect("ghost lock");
+        let live = &mut source.w3d_ghosts;
         *live = gamelogic::object::w3d_ghost_object::W3DGhostObjectManager::new();
         live.add_ghost_object(Some(42), true).unwrap();
         live.used_mut()[0].set_drawable_info(W3DDrawableInfo {
@@ -222,22 +223,20 @@ fn companion_save_round_trips_w3d_ghost_snapshots() {
     manager
         .save_game_with_client_drawable_snapshot(
             "ghosts",
-            &GameLogic::new(),
+            &source,
             ClientDrawableWorldSnapshot::default(),
             &save_info,
         )
         .expect("save ghosts");
 
-    {
-        let mut live = THE_W3D_GHOST_OBJECT_MANAGER.write().expect("ghost lock");
-        *live = gamelogic::object::w3d_ghost_object::W3DGhostObjectManager::new();
-    }
+    source.w3d_ghosts = Default::default();
 
     let (snapshot, _) = manager.load_game_snapshot("ghosts").expect("decode ghosts");
+    let mut restored = GameLogic::new();
     SnapshotBuilder::new()
-        .restore_from_snapshot(&snapshot, &mut GameLogic::new())
+        .restore_from_snapshot(&snapshot, &mut restored)
         .expect("restore ghosts");
-    let live = THE_W3D_GHOST_OBJECT_MANAGER.read().expect("ghost lock");
+    let live = &restored.w3d_ghosts;
     assert_eq!(live.used_count(), 1);
     let ghost = &live.used()[0];
     assert_eq!(ghost.parent_object_id(), Some(42));

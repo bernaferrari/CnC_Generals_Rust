@@ -4,6 +4,11 @@ use crate::fow_rendering::ProjectedShroudSnapshot;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
     pub frame: LogicFrame,
+    /// Exact session-owned ghost scene; render collection never selects an
+    /// ambient ghost manager. This native sidecar is not serialized.
+    #[cfg(feature = "game_client")]
+    #[serde(skip)]
+    pub(crate) w3d_ghost_scene: Option<game_client::render_bridge::FrozenGhostSceneFrame>,
     /// Host sim clock residual (seconds) for UI time readout.
     pub total_play_time_seconds: f32,
     /// Host AI difficulty residual (save metadata).

@@ -671,6 +671,13 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn reset_next_mood_check_time(&mut self) {}
     /// C++ AIUpdateInterface::wakeUpAndAttemptToTarget. Idle only; check this frame.
     fn wake_up_and_attempt_to_target(&mut self) {}
+    /// Actual cached AI removal callbacks, validated against the retained owner.
+    fn validate_owned_removal_callbacks(&self, _owner: &Arc<RwLock<Object>>) -> Result<(), String> {
+        Err("AI removal callbacks have no supplied owner adapter".into())
+    }
+    fn wake_up_and_attempt_to_target_at(&mut self, _frame: u32) -> Result<(), String> {
+        Err("AI wake has no supplied frame adapter".into())
+    }
     fn take_random_mood_offset(&mut self) -> bool {
         false
     }

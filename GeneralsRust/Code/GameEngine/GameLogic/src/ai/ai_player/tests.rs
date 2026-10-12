@@ -459,7 +459,10 @@ fn arm_structure_timer_zero_seconds_stays_zero_like_cpp() {
     let mut ai = AIPlayer::new(1);
     ai.structure_seconds = 0.0;
     ai.ready_to_build_structure = true;
-    ai.arm_structure_timer_after_build().expect("arm");
+    let mut data = crate::ai::AiData::default();
+    data.structure_seconds = 0.0;
+    ai.arm_structure_timer_after_build_with_data(&data, 0)
+        .expect("arm");
     assert!(!ai.ready_to_build_structure);
     // C++: m_structureSeconds*LOGICFRAMES with 0 → timer 0 (immediate next ready path).
     assert_eq!(ai.structure_timer, 0);
@@ -580,38 +583,46 @@ fn host_attack_disabled_by_default_like_cpp_update() {
         .env_remove("GENERALS_AI_HOST_ANALYSIS")
         .output()
         .expect("isolated default-flag test");
-    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
 }
 
 #[test]
 fn arm_structure_timer_applies_wealth_mods_like_cpp() {
-    // C++: m_structureTimer = TheAI->getAiData()->m_structureSeconds * FPS
-    // (live AIData, not a per-player field). Snapshot and restore AIData.
-    let prev_seconds = {
-        let ai_store = the_ai();
-        let mut ai_g = ai_store.write().expect("ai");
-        let mut prev = 0.0;
-        ai_g.update_ai_data(|data| {
-            prev = data.structure_seconds;
-            data.structure_seconds = 10.0; // 300 frames base
-        });
-        prev
-    };
+    let mut data = crate::ai::AiData::default();
+    data.structure_seconds = 10.0;
     let mut player_ai = AIPlayer::new(1);
     player_ai.ready_to_build_structure = true;
-    player_ai.arm_structure_timer_after_build().expect("arm");
+    player_ai
+        .arm_structure_timer_after_build_with_data(&data, 0)
+        .expect("arm");
     assert!(!player_ai.ready_to_build_structure);
-    // No player money → 0 < Poor(2000) → divide by StructuresPoorRate 0.6.
-    // C++ Real (f32) truncation: (300f32 / 0.6) as u32 == 499.
+    // Preserve C++ Real (f32) truncation at the actual arm phase.
     assert_eq!(
         player_ai.structure_timer,
         (300f32 / STRUCTURES_POOR_MODIFIER) as u32
     );
     assert_eq!(player_ai.structure_timer, 499);
-    {
-        let ai_store = the_ai();
-        let mut ai_g = ai_store.write().expect("ai restore");
-        ai_g.update_ai_data(|data| data.structure_seconds = prev_seconds);
+    let mut peer = AIPlayer::new(1);
+    let mut zero = crate::ai::AiData::default();
+    zero.structure_seconds = 0.0;
+    peer.arm_structure_timer_after_build_with_data(&zero, 0)
+        .unwrap();
+    assert_eq!(peer.structure_timer, 0);
+    assert_eq!(player_ai.structure_timer, 499);
+    data.resources_poor = 100;
+    data.resources_wealthy = 1000;
+    data.structures_poor_mod = 0.6;
+    data.structures_wealthy_mod = 2.0;
+    for (money, expected) in [(99, 499), (100, 300), (1000, 300), (1001, 150)] {
+        player_ai
+            .arm_structure_timer_after_build_with_data(&data, money)
+            .unwrap();
+        assert_eq!(player_ai.structure_timer, expected);
+        assert_eq!(peer.structure_timer, 0);
     }
 }
 
@@ -1028,9 +1039,10 @@ fn process_base_building_rebuild_delay_requires_invalid_id() {
 
 #[test]
 fn process_base_building_calls_build_structure_with_dozer() {
-    let src = crate::ai::ai_player::AI_PLAYER_SRC;
-    let i = src.find("fn process_base_building").expect("pbb");
-    let window = &src[i..src.len().min(i + 12000)];
+    let window = production_method(
+        include_str!("impl_economy.rs"),
+        "pub(super) fn process_base_building(&mut self)",
+    );
     assert!(
         window.contains("build_structure_with_dozer")
             && window.contains("get_spawner_id()")

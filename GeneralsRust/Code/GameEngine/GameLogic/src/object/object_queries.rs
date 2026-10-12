@@ -1012,22 +1012,26 @@ impl Object {
     /// * `Ok(())` - Removal handled successfully
     /// * `Err(ObjectError)` - Failed to handle removal
     pub fn on_removed_from(&mut self, _container_id: ObjectID) -> Result<(), ObjectError> {
-        use crate::common::types::ObjectStatusMaskType;
-
-        // Clear MASKED and UNSELECTABLE status (C++ line 690)
-        self.clear_status(ObjectStatusMaskType::MASKED | ObjectStatusMaskType::UNSELECTABLE);
-
-        // Clear contained_by reference (C++ line 691)
-        self.contained_by_id = INVALID_ID;
-
-        // Clear contained_by_frame (C++ line 692)
-        self.contained_by_frame = 0;
+        self.finish_removed_from_local();
 
         // Handle partition cell maintenance (C++ line 694)
         // Get a clean look, now that we're outdoors again
         self.handle_partition_cell_maintenance();
 
         Ok(())
+    }
+
+    /// CPP OpenContain loadPostProcess friend_setContainedBy repairs only the
+    /// owner reference; saved status and contained-by frame remain unchanged.
+    pub(crate) fn restore_contained_owner(&mut self, owner: ObjectID) {
+        self.contained_by_id = owner;
+    }
+
+    /// Local portion shared by compatibility and supplied Object::onRemovedFrom.
+    pub(crate) fn finish_removed_from_local(&mut self) {
+        self.clear_status(ObjectStatusMaskType::MASKED | ObjectStatusMaskType::UNSELECTABLE);
+        self.contained_by_id = INVALID_ID;
+        self.contained_by_frame = 0;
     }
 
     /// Get the number of transport slots this object has

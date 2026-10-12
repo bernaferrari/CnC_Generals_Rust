@@ -50,9 +50,8 @@ impl Snapshotable for W3DRenderObjectSnapshot {
         xfer.xfer_int(&mut sub_object_count).map_err(xfer_err)?;
         if xfer.get_xfer_mode() == XferMode::Load {
             self.render_object.sub_objects.clear();
-            self.render_object
-                .sub_objects
-                .reserve(sub_object_count.max(0) as usize);
+            // Read each child before growing to the next. A truncated stream
+            // with an untrusted count must fail without reserving that count.
         }
         for index in 0..sub_object_count.max(0) as usize {
             if xfer.get_xfer_mode() == XferMode::Load {

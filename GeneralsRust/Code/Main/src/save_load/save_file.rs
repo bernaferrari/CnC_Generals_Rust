@@ -1231,7 +1231,10 @@ impl SaveFileManager {
         if save_info.save_type != SaveFileType::Mission {
             validate_host_alliances(world_snapshot, &player_team_chunks)?;
         }
-        let ghost_bytes = capture_w3d_ghost_xfer_bytes().unwrap_or_default();
+        let ghost_bytes = match world_snapshot.w3d_ghost_companion.as_deref() {
+            Some(bytes) => bytes.to_vec(),
+            None => capture_w3d_ghost_xfer_bytes(&Default::default())?,
+        };
         let particle_system_bytes = capture_particle_system_xfer_bytes().unwrap_or_default();
         let terrain_visual_bytes = capture_terrain_visual_xfer_bytes().unwrap_or_default();
         let block_names: &[&str] = if save_info.save_type == SaveFileType::Mission {
@@ -1421,6 +1424,7 @@ impl SaveFileManager {
         let mut radar_payload: Option<Vec<u8>> = None;
         let mut players_payload: Option<Vec<u8>> = None;
         let mut team_factory_payload: Option<Vec<u8>> = None;
+        let mut ghost_companion: Option<Vec<u8>> = None;
 
         for (token, payload) in blocks {
             if token.eq_ignore_ascii_case(CHUNK_GAME_STATE) {
@@ -1437,14 +1441,23 @@ impl SaveFileManager {
                     stash_loaded_campaign_state(state);
                 }
             } else if token.eq_ignore_ascii_case(CHUNK_GHOST_OBJECT) {
-                if payload.first().copied() == Some(1) && payload.len() > 1 {
-                    stash_loaded_w3d_ghost_xfer(payload[1..].to_vec());
+                let bytes = if payload.first().copied() == Some(1) {
+                    if payload.len() == 1 {
+                        None // Historical empty Snapshotable placeholder.
+                    } else {
+                        Some(payload[1..].to_vec())
+                    }
                 } else {
                     let mut block = CommonGameState::default();
                     let mut xfer = CommonXferLoad::new(Cursor::new(&payload), SAVE_FILE_VERSION);
-                    if block.xfer(&mut xfer).is_ok() {
-                        stash_loaded_w3d_ghost_xfer(block.data);
-                    }
+                    block
+                        .xfer(&mut xfer)
+                        .map_err(|error| SaveLoadError::Serialization(error.to_string()))?;
+                    Some(block.data)
+                };
+                if let Some(bytes) = bytes {
+                    decode_w3d_ghost_xfer_bytes(&bytes)?;
+                    ghost_companion = Some(bytes);
                 }
             } else if token.eq_ignore_ascii_case(CHUNK_GAME_CLIENT) {
                 // NullSnapshot is a lone version-1 byte. Leftover GameClient::xfer
@@ -1517,6 +1530,7 @@ impl SaveFileManager {
             validate_host_alliances(&world_snapshot, &player_team_chunks)?;
         }
         bind_player_team_chunks(&mut world_snapshot, &player_team_chunks)?;
+        world_snapshot.w3d_ghost_companion = ghost_companion;
         apply_persist_chunks(
             &mut world_snapshot,
             ingame_ui_payload.as_deref(),

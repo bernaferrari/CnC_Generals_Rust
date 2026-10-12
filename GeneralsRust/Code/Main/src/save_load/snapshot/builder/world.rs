@@ -81,6 +81,7 @@ impl SnapshotBuilder {
             // this default. CnCGameEngine captures the renderer-owned DTO and
             // attaches it through the explicit companion-aware save API.
             client_drawables: ClientDrawableWorldSnapshot::default(),
+            w3d_ghost_companion: Some(capture_w3d_ghost_xfer_bytes(&game_logic.w3d_ghosts)?),
             player_template_bindings: self.snapshot_player_template_bindings(game_logic)?,
             shroud: self.snapshot_shroud_state(game_logic)?,
             lifecycle_tail: {
@@ -285,6 +286,14 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        // Reject malformed companion bytes before this API mutates its receiver.
+        // Production map loading then restores this candidate world atomically.
+        let ghosts = snapshot
+            .w3d_ghost_companion
+            .as_deref()
+            .map(decode_w3d_ghost_xfer_bytes)
+            .transpose()?
+            .unwrap_or_default();
         let player_team_chunks = super::super::player_team_chunks::chunks_from_world(snapshot)?;
         super::super::player_team_chunks::validate_roster(snapshot, &player_team_chunks)?;
         super::super::player_team_chunks::validate_definitions(game_logic, &player_team_chunks)?;
@@ -355,11 +364,9 @@ impl SnapshotBuilder {
 
         // C++ `GameState.cpp:661,683` saveLock around load. Manager xfer
         // unlocks internally to recreate saved modules.
-        save_lock_live_w3d_ghosts(true)?;
-        if let Some(ghost_bytes) = take_loaded_w3d_ghost_xfer() {
-            restore_w3d_ghost_manager_from_xfer_bytes(&ghost_bytes)?;
-        }
-        save_lock_live_w3d_ghosts(false)?;
+        // The already decoded manager is private to this load candidate.
+        // Commit at the original GhostObject phase; no shared pending slot.
+        game_logic.w3d_ghosts = ghosts;
         // CHUNK_GameClient belongs to the presentation client. The host keeps
         // its bytes staged until the candidate GameLogic commits; applying
         // them here would mutate the still-playable client's drawables.

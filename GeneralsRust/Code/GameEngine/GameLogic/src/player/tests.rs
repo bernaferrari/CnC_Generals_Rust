@@ -168,13 +168,15 @@ fn legacy_player_xfer_version_clears_owned_special_power_timers() {
 #[test]
 fn score_keeper_tracks_destroyed_objects_by_victim_player() {
     let mut keeper = ScoreKeeper::new_for_player(2);
-    keeper.add_unit_built();
-    keeper.add_building_built();
-    keeper.add_money_earned(75);
-
-    keeper.add_object_destroyed_obj(&TestScoreObject::unit("EnemyTank", 1));
-    keeper.add_object_destroyed_obj(&TestScoreObject::unit("OwnTruck", 2));
-    keeper.add_object_destroyed_obj(&TestScoreObject::structure("EnemyBarracks", 3));
+    {
+        let mut scoring = keeper.scoring_operation(true);
+        scoring.add_unit_built();
+        scoring.add_building_built();
+        scoring.add_money_earned(75);
+        scoring.add_object_destroyed_obj(&TestScoreObject::unit("EnemyTank", 1));
+        scoring.add_object_destroyed_obj(&TestScoreObject::unit("OwnTruck", 2));
+        scoring.add_object_destroyed_obj(&TestScoreObject::structure("EnemyBarracks", 3));
+    }
 
     assert_eq!(keeper.units_destroyed_by_player[1], 1);
     assert_eq!(keeper.units_destroyed_by_player[2], 1);
@@ -475,29 +477,60 @@ fn honor_kindof_filter_uses_retail_vehicle_and_aircraft_bits() {
 
 #[test]
 fn score_keeper_mutators_respect_game_logic_scoring_enabled() {
-    TheGameLogic::set_scoring_enabled(false);
     let mut keeper = ScoreKeeper::new_for_player(0);
-    keeper.add_unit_built();
-    keeper.add_building_built();
-    keeper.add_object_built_obj(&TestScoreObject::unit("Humvee", 0));
-    keeper.add_object_lost_obj(&TestScoreObject::unit("Humvee", 0));
-    keeper.add_object_destroyed_obj(&TestScoreObject::unit("Enemy", 1));
-    keeper.add_object_captured_obj(&TestScoreObject::structure("Oil", 2));
-    keeper.add_money_earned(50);
-    keeper.add_money_spent(25);
+    let mut peer = ScoreKeeper::new_for_player(0);
+    {
+        let mut scoring = keeper.scoring_operation(false);
+        scoring.add_unit_built();
+        scoring.add_unit_killed();
+        scoring.add_unit_lost();
+        scoring.add_building_built();
+        scoring.add_building_destroyed();
+        let unit_bits = (1u64 << 9) | (1u64 << 35);
+        scoring.add_object_built_template("TemplateUnit", unit_bits);
+        scoring.add_object_destroyed_template("TemplateUnit", unit_bits, 1, false);
+        scoring.add_object_lost_template("TemplateUnit", unit_bits, false);
+        scoring.add_object_built_obj(&TestScoreObject::unit("Humvee", 0));
+        scoring.remove_object_built_obj(&TestScoreObject::unit("Humvee", 0));
+        scoring.add_object_lost_obj(&TestScoreObject::unit("Humvee", 0));
+        scoring.add_object_destroyed_obj(&TestScoreObject::unit("Enemy", 1));
+        scoring.add_object_captured_obj(&TestScoreObject::structure("Oil", 2));
+        scoring.add_money_earned(50);
+        scoring.add_money_spent(25);
+        // Another operation's policy cannot overwrite this borrowed admission.
+        peer.scoring_operation(true).add_unit_built();
+    }
     assert_eq!(keeper.get_total_units_built(), 0);
     assert_eq!(keeper.get_total_buildings_built(), 0);
     assert_eq!(keeper.get_total_units_lost(), 0);
     assert_eq!(keeper.get_total_units_destroyed(), 0);
+    assert_eq!(keeper.get_total_buildings_destroyed(), 0);
+    assert_eq!(keeper.get_buildings_lost(), 0);
     assert_eq!(keeper.faction_buildings_captured, 0);
+    assert_eq!(keeper.tech_buildings_captured, 0);
+    assert!(
+        keeper
+            .units_destroyed_by_player
+            .iter()
+            .all(|count| *count == 0)
+    );
+    assert!(
+        keeper
+            .buildings_destroyed_by_player
+            .iter()
+            .all(|count| *count == 0)
+    );
+    assert!(keeper.objects_destroyed.iter().all(|map| map.is_empty()));
+    assert!(keeper.objects_built.is_empty());
+    assert!(keeper.objects_lost.is_empty());
+    assert!(keeper.objects_captured.is_empty());
     assert_eq!(keeper.get_total_money_earned(), 50);
     assert_eq!(keeper.get_total_money_spent(), 25);
-    TheGameLogic::set_scoring_enabled(true);
+    assert_eq!(peer.get_total_units_built(), 1);
 }
 
 #[test]
 fn add_object_built_template_counts_score_vehicle_into_objects_built() {
-    TheGameLogic::set_scoring_enabled(true);
     let mut keeper = ScoreKeeper::new_for_player(0);
     let vehicle_score = (1u64 << 9) | (1u64 << 35);
     keeper.add_object_built_template("AmericaVehicleDozer", vehicle_score);

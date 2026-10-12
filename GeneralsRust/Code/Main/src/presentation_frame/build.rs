@@ -381,6 +381,8 @@ impl PresentationFrame {
         freeze_tints: bool,
         discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
     ) -> Self {
+        #[cfg(feature = "game_client")]
+        let w3d_ghost_scene = Some(super::ghosts::freeze_owned_scene(logic, local_player_id));
         // Shell maps render fully visible background scenes (C++ parity).
         let fow_shell_bypass = logic.isInShellGame();
         // Local force residual: always present own-team objects fully visible.
@@ -2043,6 +2045,8 @@ impl PresentationFrame {
 
         let mut frame = Self {
             frame: LogicFrame(logic.get_frame()),
+            #[cfg(feature = "game_client")]
+            w3d_ghost_scene,
             total_play_time_seconds: logic.get_total_play_time(),
             ai_difficulty: logic.get_difficulty(),
             game_mode: logic.game_mode(),

@@ -1641,7 +1641,13 @@ impl UnitAIUpdate {
         if !self.is_idle() {
             return;
         }
-        self.set_next_mood_check_time(crate::helpers::TheGameLogic::get_frame());
+        self.wake_up_and_attempt_to_target_at(crate::helpers::TheGameLogic::get_frame());
+    }
+    pub(super) fn wake_up_and_attempt_to_target_at(&mut self, frame: u32) {
+        if !self.is_idle() {
+            return;
+        }
+        self.set_next_mood_check_time(frame);
         self.runtime.data.randomly_offset_mood_check = true;
     }
     pub(super) fn take_random_mood_offset(&mut self) -> bool {

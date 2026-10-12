@@ -384,9 +384,6 @@ impl Player {
     fn add_owned_object_for_object_inner(&mut self, object_id: ObjectID, object: &Object) {
         self.add_owned_object_id(object_id);
 
-        let under_construction = object.test_status(ObjectStatusTypes::UnderConstruction);
-        let power = object.get_template().get_energy_production();
-        let disabled = object.is_disabled();
         let is_dozer = object.is_kind_of(crate::common::KindOf::Dozer);
         let idle_dozer = if is_dozer {
             object
@@ -397,14 +394,8 @@ impl Player {
             false
         };
 
-        if !under_construction {
-            if power > 0 {
-                if !disabled {
-                    self.add_power_production(power);
-                }
-            } else if power < 0 {
-                self.add_power_consumption(-power);
-            }
+        if let Some(brownout) = self.apply_membership_power_influence(object, true) {
+            let _ = self.on_power_brown_out_change(brownout);
         }
 
         if is_dozer && idle_dozer {
@@ -466,9 +457,8 @@ impl Player {
 
     /// Remove an object whose caller already owns or borrowed its Object value.
     pub(crate) fn remove_owned_object_for_object(&mut self, object: &Object) {
-        if dual_world_registry_unavailable() {
-            return;
-        }
+        // The driving operation already supplies this object. An unrelated
+        // registry's emptiness cannot cancel its membership/energy removal.
         self.remove_owned_object_for_object_inner(object.get_id(), object);
     }
 
@@ -479,9 +469,6 @@ impl Player {
     fn remove_owned_object_for_object_inner(&mut self, object_id: ObjectID, object: &Object) {
         self.remove_owned_object_id(object_id);
 
-        let under_construction = object.test_status(ObjectStatusTypes::UnderConstruction);
-        let power = object.get_template().get_energy_production();
-        let disabled = object.is_disabled();
         let is_dozer = object.is_kind_of(crate::common::KindOf::Dozer);
         let idle_dozer = if is_dozer {
             object
@@ -492,19 +479,37 @@ impl Player {
             false
         };
 
-        if !under_construction {
-            if power > 0 {
-                if !disabled {
-                    self.add_power_production(-power);
-                }
-            } else if power < 0 {
-                self.add_power_consumption(power);
-            }
+        if let Some(brownout) = self.apply_membership_power_influence(object, false) {
+            let _ = self.on_power_brown_out_change(brownout);
         }
 
         if is_dozer && idle_dozer {
             crate::helpers::TheInGameUI::remove_idle_worker(object, self.player_index);
         }
+    }
+
+    /// CPP Player.cpp:1028-1037 / Object.cpp:3770-3784. Membership
+    /// excludes construction and disabled producers, never disabled consumers.
+    /// Return the next synchronous brownout phase without discovering objects
+    /// while the supplied object and player are borrowed.
+    pub(crate) fn apply_membership_power_influence(
+        &mut self,
+        object: &Object,
+        adding: bool,
+    ) -> Option<bool> {
+        let power = object.get_template().get_energy_production();
+        if object.test_status(ObjectStatusTypes::UnderConstruction)
+            || power == 0
+            || (power > 0 && object.is_disabled())
+        {
+            return None;
+        }
+        if adding {
+            self.energy.object_entering_influence(object);
+        } else {
+            self.energy.object_leaving_influence(object);
+        }
+        Some(!self.energy.has_sufficient_power())
     }
 
     /// Get the number of objects owned by this player

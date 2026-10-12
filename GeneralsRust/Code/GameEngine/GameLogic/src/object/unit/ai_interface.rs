@@ -802,6 +802,20 @@ impl AIUpdateInterface for UnitAIUpdate {
     fn wake_up_and_attempt_to_target(&mut self) {
         UnitAIUpdate::wake_up_and_attempt_to_target(self)
     }
+    fn validate_owned_removal_callbacks(&self, owner: &Arc<RwLock<Object>>) -> Result<(), String> {
+        let actual = self
+            .runtime
+            .native_owner()
+            .ok_or("removal AI owner missing")?;
+        if !Arc::ptr_eq(&actual, owner) || self.ai_state_machine.is_none() {
+            return Err("removal AI does not belong to this installed owner".into());
+        }
+        Ok(())
+    }
+    fn wake_up_and_attempt_to_target_at(&mut self, frame: u32) -> Result<(), String> {
+        UnitAIUpdate::wake_up_and_attempt_to_target_at(self, frame);
+        Ok(())
+    }
     fn take_random_mood_offset(&mut self) -> bool {
         UnitAIUpdate::take_random_mood_offset(self)
     }

@@ -53,6 +53,7 @@ impl GameLogic {
         let ai_definitions =
             crate::game_logic::ai_definitions::AiDefinitions::from_engine_baseline();
         let mut instance = Self {
+            w3d_ghosts: Default::default(),
             radar: game_engine::common::system::radar::RadarSystem::new(),
             radar_map: Default::default(),
             production_energy: Default::default(),
@@ -760,6 +761,7 @@ impl GameLogic {
     pub fn reset(&mut self) {
         log::debug!("GameLogic::reset() - resetting game state");
         self.map_definition_source = None;
+        self.w3d_ghosts = Default::default();
         self.ai_definitions.reset();
         self.production_energy.effective = self.production_energy.base;
         self.apply_aidata_enable_repulsors();

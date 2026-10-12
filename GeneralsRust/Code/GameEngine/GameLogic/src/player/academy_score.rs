@@ -423,21 +423,33 @@ impl ScoreKeeper {
     }
 
     pub fn add_unit_built(&mut self) {
-        if !Self::scoring_enabled() {
+        self.add_unit_built_with_policy(Self::scoring_enabled());
+    }
+
+    fn add_unit_built_with_policy(&mut self, scoring_enabled: bool) {
+        if !scoring_enabled {
             return;
         }
         self.units_built += 1;
     }
 
     pub fn add_unit_killed(&mut self) {
-        if !Self::scoring_enabled() {
+        self.add_unit_killed_with_policy(Self::scoring_enabled());
+    }
+
+    fn add_unit_killed_with_policy(&mut self, scoring_enabled: bool) {
+        if !scoring_enabled {
             return;
         }
         self.add_unit_destroyed_for_player(Some(self.my_player_idx));
     }
 
     pub fn add_unit_lost(&mut self) {
-        if !Self::scoring_enabled() {
+        self.add_unit_lost_with_policy(Self::scoring_enabled());
+    }
+
+    fn add_unit_lost_with_policy(&mut self, scoring_enabled: bool) {
+        if !scoring_enabled {
             return;
         }
         self.units_lost += 1;
@@ -571,7 +583,20 @@ impl ScoreKeeper {
 
     /// C++ addObjectBuilt when only a ThingTemplate name is available.
     pub fn add_object_built_template(&mut self, template_name: &str, retail_kindof_bits: u64) {
-        if !Self::scoring_enabled() {
+        self.add_object_built_template_with_policy(
+            template_name,
+            retail_kindof_bits,
+            Self::scoring_enabled(),
+        );
+    }
+
+    fn add_object_built_template_with_policy(
+        &mut self,
+        template_name: &str,
+        retail_kindof_bits: u64,
+        scoring_enabled: bool,
+    ) {
+        if !scoring_enabled {
             return;
         }
         let mask = Self::score_mask_from_retail_bits(retail_kindof_bits);
@@ -592,7 +617,24 @@ impl ScoreKeeper {
         owner_player_index: Int,
         under_construction: bool,
     ) {
-        if !Self::scoring_enabled() || under_construction {
+        self.add_object_destroyed_template_with_policy(
+            template_name,
+            retail_kindof_bits,
+            owner_player_index,
+            under_construction,
+            Self::scoring_enabled(),
+        );
+    }
+
+    fn add_object_destroyed_template_with_policy(
+        &mut self,
+        template_name: &str,
+        retail_kindof_bits: u64,
+        owner_player_index: Int,
+        under_construction: bool,
+        scoring_enabled: bool,
+    ) {
+        if !scoring_enabled || under_construction {
             return;
         }
         let mask = Self::score_mask_from_retail_bits(retail_kindof_bits);
@@ -613,7 +655,22 @@ impl ScoreKeeper {
         retail_kindof_bits: u64,
         under_construction: bool,
     ) {
-        if !Self::scoring_enabled() || under_construction {
+        self.add_object_lost_template_with_policy(
+            template_name,
+            retail_kindof_bits,
+            under_construction,
+            Self::scoring_enabled(),
+        );
+    }
+
+    fn add_object_lost_template_with_policy(
+        &mut self,
+        template_name: &str,
+        retail_kindof_bits: u64,
+        under_construction: bool,
+        scoring_enabled: bool,
+    ) {
+        if !scoring_enabled || under_construction {
             return;
         }
         let mask = Self::score_mask_from_retail_bits(retail_kindof_bits);
@@ -647,14 +704,22 @@ impl ScoreKeeper {
     }
 
     pub fn add_building_destroyed(&mut self) {
-        if !Self::scoring_enabled() {
+        self.add_building_destroyed_with_policy(Self::scoring_enabled());
+    }
+
+    fn add_building_destroyed_with_policy(&mut self, scoring_enabled: bool) {
+        if !scoring_enabled {
             return;
         }
         self.add_building_destroyed_for_player(Some(self.my_player_idx));
     }
 
     pub fn add_building_built(&mut self) {
-        if !Self::scoring_enabled() {
+        self.add_building_built_with_policy(Self::scoring_enabled());
+    }
+
+    fn add_building_built_with_policy(&mut self, scoring_enabled: bool) {
+        if !scoring_enabled {
             return;
         }
         self.buildings_built += 1;
@@ -690,7 +755,15 @@ impl ScoreKeeper {
         &mut self,
         object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
     ) {
-        if !Self::scoring_enabled() {
+        self.add_object_lost_obj_with_policy(object, Self::scoring_enabled());
+    }
+
+    fn add_object_lost_obj_with_policy(
+        &mut self,
+        object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
+        scoring_enabled: bool,
+    ) {
+        if !scoring_enabled {
             return;
         }
         // Check if under construction - under construction objects don't count
@@ -718,7 +791,15 @@ impl ScoreKeeper {
         &mut self,
         object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
     ) {
-        if !Self::scoring_enabled() {
+        self.add_object_destroyed_obj_with_policy(object, Self::scoring_enabled());
+    }
+
+    fn add_object_destroyed_obj_with_policy(
+        &mut self,
+        object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
+        scoring_enabled: bool,
+    ) {
+        if !scoring_enabled {
             return;
         }
         // Check if under construction - under construction objects don't count
@@ -746,7 +827,15 @@ impl ScoreKeeper {
         &mut self,
         object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
     ) {
-        if !Self::scoring_enabled() {
+        self.add_object_built_obj_with_policy(object, Self::scoring_enabled());
+    }
+
+    fn add_object_built_obj_with_policy(
+        &mut self,
+        object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
+        scoring_enabled: bool,
+    ) {
+        if !scoring_enabled {
             return;
         }
         let mask = object.get_score_kindof_mask();
@@ -766,7 +855,15 @@ impl ScoreKeeper {
         &mut self,
         object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
     ) {
-        if !Self::scoring_enabled() {
+        self.remove_object_built_obj_with_policy(object, Self::scoring_enabled());
+    }
+
+    fn remove_object_built_obj_with_policy(
+        &mut self,
+        object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
+        scoring_enabled: bool,
+    ) {
+        if !scoring_enabled {
             return;
         }
         let mask = object.get_score_kindof_mask();
@@ -786,7 +883,15 @@ impl ScoreKeeper {
         &mut self,
         object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
     ) {
-        if !Self::scoring_enabled() {
+        self.add_object_captured_obj_with_policy(object, Self::scoring_enabled());
+    }
+
+    fn add_object_captured_obj_with_policy(
+        &mut self,
+        object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
+        scoring_enabled: bool,
+    ) {
+        if !scoring_enabled {
             return;
         }
         let mask = object.get_score_kindof_mask();
@@ -801,5 +906,17 @@ impl ScoreKeeper {
                 object.get_score_template_name(),
             );
         }
+    }
+}
+
+#[path = "score_operation.rs"]
+mod score_operation;
+pub use score_operation::ScoreOperation;
+
+impl ScoreKeeper {
+    /// Borrow this keeper for one driving operation's scoring policy. The
+    /// policy is neither persisted nor selected by an ambient slot.
+    pub fn scoring_operation(&mut self, scoring_enabled: bool) -> ScoreOperation<'_> {
+        ScoreOperation::new(self, scoring_enabled)
     }
 }
