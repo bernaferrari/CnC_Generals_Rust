@@ -31,17 +31,10 @@ fn assert_runtime_path_endpoints(
     assert_eq!(ai.runtime.data.locomotor_goal_type, 1);
 }
 
-/// Exercise a loaded flat map through the production terrain/pathfinder setup.
-/// Legacy terrain is restored even when a fixture assertion unwinds. These tests
-/// still depend on that process-wide terrain slot and run serially with the
-/// other legacy-registry fixtures until terrain ownership is migrated.
+/// Load terrain and pathfinding into the exact receiving fixture stores.
+/// The bounded compatibility child still publishes these stores while running
+/// the case; preparing its map never mutates a different active world.
 fn with_flat_pathfind_map(test: impl FnOnce()) {
-    struct RestoreTerrain(Option<crate::terrain::TerrainLogic>);
-    impl Drop for RestoreTerrain {
-        fn drop(&mut self) {
-            *crate::terrain::get_terrain_logic().write().unwrap() = self.0.take().unwrap();
-        }
-    }
     let mut map = crate::system::map_loader::MapData::new();
     map.width = 32;
     map.height = 32;
@@ -59,11 +52,12 @@ fn with_flat_pathfind_map(test: impl FnOnce()) {
         .write()
         .unwrap()
         .rebuild_from_terrain(&terrain);
-    let previous = std::mem::replace(
-        &mut *crate::terrain::get_terrain_logic().write().unwrap(),
-        terrain,
+    assert!(
+        terrain
+            .get_maximum_pathfind_extent()
+            .is_in_region_no_z(&Coord3D::new(10.0, 10.0, 0.0),)
     );
-    let _restore = RestoreTerrain(Some(previous));
+    *stores.services().terrain().write().unwrap() = terrain;
     crate::system::engine_stores::with_active_stores(&stores, test);
 }
 
@@ -1438,7 +1432,10 @@ fn request_approach_path_defers_closest_path_until_queued_update_like_cpp() {
         assert!(ai.do_queued_pathfind_now().unwrap());
 
         assert!(!ai.runtime.data.waiting_for_path);
-        assert_runtime_path_endpoints(&ai, None, approach_destination);
+        // C++ AIPathfind.cpp:8906-8910,8936-8946,9008-9020: the
+        // returned closest path ends at the ten-unit cell center, not rawTo.
+        // Radius-zero geometry selects centerInCell (getRadiusAndCenter).
+        assert_runtime_path_endpoints(&ai, None, Coord3D::new(25.0, 5.0, 0.0));
     });
 }
 

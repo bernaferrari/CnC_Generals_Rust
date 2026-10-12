@@ -158593,7 +158593,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "862d81b34ae6caedeb0a5fc7e926e759b48bd0e5ba6570b0e42b7c0bfc03a472",
+  "input_digest": "d0d7a3208c2709a1b35591edacb2f4dfe06c43fa7d4b4f486393a232d9e0d3aa",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -198864,11 +198864,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 831,
+        "end_line": 846,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/demo_trap_update.rs",
-      "sha256": "fbde5db28e1aa69dfb03d4b6fc81cbdd09cec1036d29111a343cf618efcbf793",
+      "sha256": "0efc1520d647bbf83fb5b15cc433434fa2dac8e0bb42280c82d159744b0adfa1",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -199812,11 +199812,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 586,
+        "end_line": 620,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/stealth_detector_update_tests.rs",
-      "sha256": "3bc709f9cefbe4db416bb0fda46d83dd7c11ff0825f4c3aae599fe1e9f2592dc",
+      "sha256": "bb16ddfa98294ca0031f1d534f191d5865c0c9ca2c66a51ee3fbcce8bdffc703",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200424,11 +200424,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 847,
+        "end_line": 845,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/crate_collide/veterancy_crate_collide.rs",
-      "sha256": "c1e4c2683941545ea41f53bcfb49c59e34416441cca6ae082164231f8a84fccb",
+      "sha256": "4f6db05330501075a9f62e8a51c20310bcaf1b139b7e6374c828fb2dd14afb24",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204084,11 +204084,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 2093,
+        "end_line": 2090,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/tests.rs",
-      "sha256": "eded9c2dc74ba5e55f8bfb874b30d969a9496697395358d3fe9f5fe65dc5a4f2",
+      "sha256": "16e6e544a43e538d0ed5e9e0d99fac0de455d4f623f50196018593937a829f10",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204312,11 +204312,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 541,
+        "end_line": 544,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deliver_payload_physics_tests.rs",
-      "sha256": "64ed896f35dc5409896fa3d67fe3ca497c5d63b1fcc708544b83c157ca72aaad",
+      "sha256": "2a0a3c103ded702f03d396427f2cceb08908823dd61f09ef4c4cfc1ef0de5cec",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204516,11 +204516,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3932,
+        "end_line": 3970,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update_interface.rs",
-      "sha256": "d7f652a1a8c0aec3f7028cf58b4c797a267de1e5a9c3137c74c245f3bcc021be",
+      "sha256": "6c65de7613db58a9a7b39e9012592fbc7fc642618dc1717944c71f2fc3c1bf6f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205588,7 +205588,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/owner_callback_tests.rs",
-      "sha256": "d02719f9d42cfa8049729d6a4f6729397635f2be5eaf5414d29ce88b2c3c510a",
+      "sha256": "20661cffdecb9a5d25a3f8e76f48ad83375730b149091288650fd62dbccd4ec6",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

@@ -264,6 +264,9 @@ fn delivery_strafe_releases_physics_before_real_firing_tracker_scan() {
     delivery.data.dive_start_distance = 100.0;
     delivery.data.dive_end_distance = 10.0;
     delivery.data.strafing_weapon_slot = Some(crate::common::WeaponSlotType::Primary);
+    // Earlier setup legitimately probes modules through `as_any`; count only
+    // the actual firing dispatch triggered by this update.
+    *visits.lock().unwrap() = 0;
     delivery.update(&mut IdleAi).unwrap();
 
     assert!(

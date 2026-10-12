@@ -790,7 +790,22 @@ mod tests {
 
     #[test]
     fn installed_demo_trap_creation_selects_authored_mode_and_veteran_set() {
-        let _lock = crate::test_sync::lock();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let name = concat!(
+                module_path!(),
+                "::installed_demo_trap_creation_selects_authored_mode_and_veteran_set"
+            );
+            if !matches!(
+                crate::test_process::run_bounded(
+                    name.strip_prefix("gamelogic::").unwrap_or(name),
+                    "GENERALS_DEMO_TRAP_CREATION_CHILD",
+                ),
+                crate::test_process::TestProcess::Child
+            ) {
+                return;
+            }
+        }
         for (id, proximity, expected_slot) in [
             (9405, false, WeaponSlotType::Primary),
             (9406, true, WeaponSlotType::Tertiary),

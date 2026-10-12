@@ -240,7 +240,7 @@ fn admitted_structure_max_health_cap_applies_rubble_pose_before_visuals() {
     }
     let name = "MaxHealthStructureRubble";
     let authored = format!(
-        "Object {name}\nKindOf = STRUCTURE IMMOBILE\nGeometry = SPHERE\nGeometryMajorRadius = 5\nGeometryMinorRadius = 5\nGeometryHeight = 20\nGeometryIsSmall = No\nStructureRubbleHeight = 3\nBody = StructureBody ActualBody\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = MaxHealthUpgrade ActualUpgrade\nTriggeredBy = {TRIGGER}\nAddMaxHealth = -100\nChangeType = SAME_CURRENTHEALTH\nEnd\nEnd\n"
+        "Object {name}\nKindOf = STRUCTURE IMMOBILE\nGeometry = CYLINDER\nGeometryMajorRadius = 5\nGeometryMinorRadius = 5\nGeometryHeight = 20\nGeometryIsSmall = No\nStructureRubbleHeight = 3\nBody = StructureBody ActualBody\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = MaxHealthUpgrade ActualUpgrade\nTriggeredBy = {TRIGGER}\nAddMaxHealth = -100\nChangeType = SAME_CURRENTHEALTH\nEnd\nEnd\n"
     );
     let (_admission, owner, _) = admitted_from_ini(name, &authored);
     let pos = Coord3D::new(35.0, 35.0, 0.0);

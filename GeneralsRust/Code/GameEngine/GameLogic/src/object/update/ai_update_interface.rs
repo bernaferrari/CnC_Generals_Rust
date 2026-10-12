@@ -3568,7 +3568,9 @@ mod tests {
         assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::PositionOnPath);
         let path = ai.get_path().as_ref().unwrap();
         assert_eq!(path.first().copied(), Some(Coord3D::new(3.0, 4.0, 0.0)));
-        assert_eq!(path.last().copied(), Some(Coord3D::new(12.0, 16.0, 0.0)));
+        // C++ findClosestPath/buildActualPath ends at the ten-unit goal
+        // cell center; radius-zero geometry selects centerInCell.
+        assert_eq!(path.last().copied(), Some(Coord3D::new(15.0, 15.0, 0.0)));
     }
 
     #[test]
@@ -3593,8 +3595,32 @@ mod tests {
         assert_eq!(path.last().copied(), Some(Coord3D::new(18.0, 21.0, 0.0)));
     }
 
+    fn legacy_ai_fixture_child(name: &str) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            matches!(
+                crate::test_process::run_bounded(
+                    name.strip_prefix("gamelogic::").unwrap_or(name),
+                    "GENERALS_LEGACY_AI_FRAME_CHILD",
+                ),
+                crate::test_process::TestProcess::Child
+            )
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = name;
+            true
+        }
+    }
+
     #[test]
     fn do_pathfind_attack_in_range_finishes_without_move_path_like_cpp() {
+        if !legacy_ai_fixture_child(concat!(
+            module_path!(),
+            "::do_pathfind_attack_in_range_finishes_without_move_path_like_cpp"
+        )) {
+            return;
+        }
         let owner_id = 7_401;
         let victim_id = 7_402;
         let (owner, _owner_cleanup) = register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
@@ -3626,6 +3652,12 @@ mod tests {
 
     #[test]
     fn do_pathfind_attack_reuses_recent_stuck_path_like_cpp() {
+        if !legacy_ai_fixture_child(concat!(
+            module_path!(),
+            "::do_pathfind_attack_reuses_recent_stuck_path_like_cpp"
+        )) {
+            return;
+        }
         let owner_id = 7_403;
         let victim_id = 7_404;
         let (owner, _owner_cleanup) = register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
@@ -3713,6 +3745,12 @@ mod tests {
 
     #[test]
     fn ignore_collision_time_uses_absolute_expiry_frame_like_cpp() {
+        if !legacy_ai_fixture_child(concat!(
+            module_path!(),
+            "::ignore_collision_time_uses_absolute_expiry_frame_like_cpp"
+        )) {
+            return;
+        }
         let mut logic = crate::system::game_logic::lock_game_logic().unwrap();
         logic.set_current_frame(100);
         drop(logic);

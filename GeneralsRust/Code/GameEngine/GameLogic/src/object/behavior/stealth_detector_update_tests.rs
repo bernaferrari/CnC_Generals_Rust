@@ -13,6 +13,24 @@ use game_engine::common::thing::update_module::UpdateModulePtr;
 use std::io::Cursor;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
+fn isolated_detector_case(name: &str) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        matches!(
+            crate::test_process::run_bounded(
+                name.strip_prefix("gamelogic::").unwrap_or(name),
+                "GENERALS_DETECTOR_RETIREMENT_CHILD",
+            ),
+            crate::test_process::TestProcess::Child
+        )
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = name;
+        true
+    }
+}
+
 /// Exactly one admitted owner; neither an Object guard nor a Module guard
 /// spans destroy/onDelete. Different fixtures own different GameLogic values.
 pub(crate) struct DetectorFixture {
@@ -144,7 +162,6 @@ impl Drop for DetectorFixture {
 }
 
 fn exercise_retirement(unwind: bool) {
-    let _guard = crate::test_sync::lock();
     let unrelated = DetectorFixture::new(Default::default(), 0x5D37_0003);
     let id = 0x5D37_0004;
     let mut pin = None;
@@ -171,11 +188,23 @@ fn exercise_retirement(unwind: bool) {
 
 #[test]
 fn installed_detector_normal_retirement_preserves_other_owner() {
+    if !isolated_detector_case(concat!(
+        module_path!(),
+        "::installed_detector_normal_retirement_preserves_other_owner"
+    )) {
+        return;
+    }
     exercise_retirement(false);
 }
 
 #[test]
 fn installed_detector_unwind_retires_exact_owner() {
+    if !isolated_detector_case(concat!(
+        module_path!(),
+        "::installed_detector_unwind_retires_exact_owner"
+    )) {
+        return;
+    }
     exercise_retirement(true);
 }
 
@@ -513,7 +542,12 @@ fn pure_detector_owner_and_real_schedule_isolate_same_id_at_different_frames() {
 
 #[test]
 fn detector_control_wakes_only_first_selected_authored_tag() {
-    let _guard = crate::test_sync::lock();
+    if !isolated_detector_case(concat!(
+        module_path!(),
+        "::detector_control_wakes_only_first_selected_authored_tag"
+    )) {
+        return;
+    }
     let mut fixture = DetectorFixture::new(Default::default(), 0x5D37_0030);
     let first = fixture
         .object
