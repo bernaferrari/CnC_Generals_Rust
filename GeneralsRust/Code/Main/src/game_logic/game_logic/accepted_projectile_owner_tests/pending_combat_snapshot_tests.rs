@@ -2,7 +2,10 @@
 //! The parent fixture binds parsed named weapons through actual world admission.
 use super::*;
 use crate::game_logic::combat::{WeaponFireOcl, live_projectileless_delayed_count_for_test};
-use crate::save_load::snapshot::{SnapshotBuilder, WorldSnapshot};
+use crate::save_load::snapshot::{
+    SnapshotBuilder, WORLD_SNAPSHOT_BINCODE_VERSION, WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
+    WorldSnapshot,
+};
 
 fn encoded_snapshot(world: &GameLogic) -> WorldSnapshot {
     let captured = SnapshotBuilder::new()
@@ -298,7 +301,7 @@ fn pending_combat_snapshot_rejects_old_schema_before_mutating_live_owner() {
     assert!(matches!(
         result,
         Err(crate::save_load::SaveLoadError::VersionMismatch {
-            expected: 24,
+            expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
             actual: 22
         })
     ));
@@ -433,13 +436,15 @@ fn pending_combat_snapshot_current_wire_has_exact_schema_and_end_boundary() {
         .create_world_snapshot(&source)
         .unwrap();
     assert_eq!(
-        snapshot.version, 24,
-        "current Rust envelope requires the alliance capability; body schema stays 23"
+        snapshot.version, WORLD_SNAPSHOT_BINCODE_VERSION,
+        "current Rust envelope advertises Players admission capabilities; body schema stays 23"
     );
     let wire = bincode_legacy::serialize(&snapshot).unwrap();
-    // The previous envelope remains readable with the identical typed body.
-    // Pin its admission independently of the current writer version.
-    for version in [23u32, 24] {
+    // types.rs and world_codec.rs explicitly define an identical positional
+    // body for envelopes 23 through 27. Their differing Players named-chunk
+    // capabilities belong to the complete save bundle, not this typed world
+    // body. Pin body admission only; this is not an old-bundle restore claim.
+    for version in [23u32, 24, 25, 26, 27] {
         let mut supported = wire.clone();
         supported[..4].copy_from_slice(&version.to_le_bytes());
         let decoded =
@@ -460,10 +465,16 @@ fn pending_combat_snapshot_current_wire_has_exact_schema_and_end_boundary() {
         supported.extend_from_slice(b"unframed data");
         assert!(crate::save_load::snapshot::decode_bincode_world_snapshot(&supported).is_err());
     }
-    for version in [0u32, 1, 22, 25, u32::MAX] {
+    for version in [0u32, 1, 22, 28, u32::MAX] {
         let mut incompatible = wire.clone();
         incompatible[..4].copy_from_slice(&version.to_le_bytes());
-        assert!(crate::save_load::snapshot::decode_bincode_world_snapshot(&incompatible).is_err());
+        assert!(matches!(
+            crate::save_load::snapshot::decode_bincode_world_snapshot(&incompatible),
+            Err(crate::save_load::SaveLoadError::VersionMismatch {
+                expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
+                actual
+            }) if actual == version
+        ));
     }
     assert_eq!(source.objects[&target].health.current, 100.0);
     source.drain_pending_projectiles_into_combat();
@@ -482,7 +493,7 @@ fn pending_combat_snapshot_old_direct_reader_and_writer_stop_before_body() {
         assert!(matches!(
             old.xfer(&mut writer),
             Err(SaveLoadError::VersionMismatch {
-                expected: 24,
+                expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
                 actual: 22
             })
         ));
@@ -501,7 +512,7 @@ fn pending_combat_snapshot_old_direct_reader_and_writer_stop_before_body() {
     assert!(matches!(
         target.xfer(&mut reader),
         Err(SaveLoadError::VersionMismatch {
-            expected: 24,
+            expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
             actual: 22
         })
     ));
