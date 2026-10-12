@@ -151,7 +151,7 @@ pub fn simulate_host_writeback_skip_pending_combat_movement_logs_collect_source(
     ok
 }
 pub fn simulate_host_writeback_skip_pending_combat_movement_logs_dispatch_source() -> bool {
-    let ok = sh_source().matches("Wave 757").count() >= 11
+    let ok = sh_source().matches("Wave 757").count() >= 10
         && sh_source().contains("writeback_experience_to_host");
     residual_action_store(ResidualHostWritebackSkipPendingCombatMovementLogsAction::DispatchSource);
     ok

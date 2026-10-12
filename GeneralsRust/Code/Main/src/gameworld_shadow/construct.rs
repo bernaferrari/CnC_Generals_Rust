@@ -301,6 +301,12 @@ impl GameWorldShadow {
 
             if let Some(&eid) = self.host_to_entity.get(&oid.0) {
                 if let Some(e) = self.world.world_mut().entity_mut(eid) {
+                    // Mood is canonical Main state, including initial admission;
+                    // observe it directly rather than replaying a mutation log.
+                    e.idle_since_frame = obj.idle_since_frame;
+                    e.mood_attack_check_rate = obj.mood_attack_check_rate;
+                    e.auto_acquire_when_idle = obj.auto_acquire_when_idle;
+                    e.attack_priority_set = obj.attack_priority_set.clone().unwrap_or_default();
                     let skip_sole_channels =
                         crate::gameworld_shadow::gameworld_production_sole_tick_enabled()
                             || crate::gameworld_shadow::gameworld_damage_authority_live();
@@ -1787,10 +1793,6 @@ impl GameWorldShadow {
                     e.turret_idle_scan_index = obj.turret_idle_scan_index;
                     e.turret_substate = obj.turret_substate.ordinal();
                     e.ai_attitude = obj.ai_attitude;
-                    e.idle_since_frame = obj.idle_since_frame;
-                    e.mood_attack_check_rate = obj.mood_attack_check_rate;
-                    e.auto_acquire_when_idle = obj.auto_acquire_when_idle;
-                    e.attack_priority_set = obj.attack_priority_set.clone().unwrap_or_default();
                     e.last_damage_source_host = obj.last_damage_source.map(|id| id.0).unwrap_or(0);
                     e.sole_healing_benefactor_id = obj.sole_healing_benefactor.map(|id| id.0);
                     e.sole_healing_benefactor_expiration_frame =
@@ -1851,6 +1853,12 @@ impl GameWorldShadow {
                 .target
                 .and_then(|tid| self.host_to_entity.get(&tid.0).copied());
             if let Some(e) = self.world.world_mut().entity_mut(eid) {
+                // Mood is canonical Main state, including initial admission;
+                // observe it directly rather than replaying a mutation log.
+                e.idle_since_frame = obj.idle_since_frame;
+                e.mood_attack_check_rate = obj.mood_attack_check_rate;
+                e.auto_acquire_when_idle = obj.auto_acquire_when_idle;
+                e.attack_priority_set = obj.attack_priority_set.clone().unwrap_or_default();
                 let skip_production =
                     crate::gameworld_shadow::gameworld_production_sole_tick_enabled();
                 e.attack_target = at;

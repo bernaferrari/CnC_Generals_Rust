@@ -219,12 +219,11 @@ fn cancel_production_refund_economy_authority_source() {
 }
 
 #[test]
-fn cancel_production_refund_economy_authority_writeback() {
+fn cancel_production_refund_commits_to_owner_without_shadow_writeback() {
     use crate::game_logic::host_economy_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     host_economy_log::clear();
     let mut logic = GameLogic::new();
-    logic.set_economy_authority(true);
     let cfg = golden_skirmish_config("EconRef");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     // Seed a local player with known cash.
@@ -239,7 +238,6 @@ fn cancel_production_refund_economy_authority_writeback() {
         p.resources.supplies = 1000;
         p.pending_supply_delta = 0;
     }
-    begin_shadow_coupled_tick();
     if !logic.templates.contains_key("EconFac") {
         let mut t = ThingTemplate::new("EconFac");
         t.add_kind_of(KindOf::Structure);
@@ -282,11 +280,31 @@ fn cancel_production_refund_economy_authority_writeback() {
     }
     assert!(logic.cancel_production(fac, "EconUnit".into()));
     let p = logic.get_player(pid).expect("p");
-    // Under economy authority host absolute supplies stay 1000; pending delta +250.
-    assert_eq!(p.resources.supplies, 1000);
-    assert_eq!(p.pending_supply_delta, 250);
+    // CPP ProductionUpdate.cpp:456–464 deposits immediately to the
+    // controlling player before removing the production queue entry.
+    assert_eq!(p.resources.supplies, 1250);
+    assert_eq!(p.pending_supply_delta, 0);
     assert_eq!(p.effective_supplies(), 1250);
+    assert!(
+        logic
+            .host_object(fac)
+            .unwrap()
+            .building_data
+            .as_ref()
+            .unwrap()
+            .production_queue
+            .is_empty()
+    );
     let evs = host_economy_log::drain();
+    assert!(
+        evs.iter()
+            .any(|event| event.player_id == pid && event.supplies == 1250)
+    );
+    assert!(
+        !logic.cancel_production(fac, "EconUnit".into()),
+        "already cancelled queue cannot refund twice"
+    );
+    assert_eq!(logic.get_player(pid).unwrap().resources.supplies, 1250);
 }
 
 #[test]

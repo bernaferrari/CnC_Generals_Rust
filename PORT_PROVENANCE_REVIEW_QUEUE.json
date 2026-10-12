@@ -50724,6 +50724,7 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_bounce.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_collide.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_crush.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_owned_shock.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_owned_tick.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_reset.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_update.rs",
@@ -51307,6 +51308,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_crush.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_owned_shock.rs"
             },
             {
               "cargo_reachable": true,
@@ -67031,6 +67037,7 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_bounce.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_collide.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_crush.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_owned_shock.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_owned_tick.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_reset.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_update.rs"
@@ -67050,6 +67057,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_crush.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_owned_shock.rs"
             },
             {
               "cargo_reachable": true,
@@ -189343,7 +189355,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "7f5c5130a9791de1441c1b25d6d42f13d0706f3bb0175cd152e677a89843aeb7",
+  "provenance_input_digest": "2c4b2522732afbcc3ad01c7da3defb07ada1936a7b2543d4a89bdeb7ec556334",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

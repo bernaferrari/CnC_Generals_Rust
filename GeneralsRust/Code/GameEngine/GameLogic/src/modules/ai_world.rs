@@ -43,7 +43,7 @@ pub trait AiWorld {
         _group_id: u32,
         _borrowed_owner: ObjectID,
         _borrowed_speed: Real,
-    ) -> Result<Option<(Real, Coord3D)>, String> {
+    ) -> Result<Option<(Real, Option<Coord3D>)>, String> {
         Err("supplied AI world has no group motion owner".into())
     }
 

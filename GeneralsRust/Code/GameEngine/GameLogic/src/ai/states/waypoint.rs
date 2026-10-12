@@ -94,7 +94,9 @@ fn supplied_group_motion(
     };
     Ok((
         speed,
-        Coord2D::new(position.x - center.x, position.y - center.y),
+        center
+            .map(|center| Coord2D::new(position.x - center.x, position.y - center.y))
+            .unwrap_or(Coord2D::new(0.0, 0.0)),
     ))
 }
 

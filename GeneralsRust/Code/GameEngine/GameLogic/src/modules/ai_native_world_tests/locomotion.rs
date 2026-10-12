@@ -566,7 +566,7 @@ pub(crate) fn explicit_goal_moves_canonical_owner_without_path_or_foreign_writes
             .unwrap();
     });
     let physics = physics_handle(&owner);
-    assert!(physics.access().unwrap().get_acceleration().x > 0.0);
+    assert!(physics.accumulated_force_acceleration().x > 0.0);
     let proxy = owner
         .read()
         .unwrap()
@@ -576,7 +576,42 @@ pub(crate) fn explicit_goal_moves_canonical_owner_without_path_or_foreign_writes
     game.operate_with_current(40, Some(proxy), |world| {
         world.update_physics_phase(&owner).unwrap();
     });
+    // Explicit zero on-path distance enters braking now (CPP Locomotor987–995).
+    // Physics649–661 integrates velocity but suppresses XY pose this frame;
+    // the direct locomotor correction begins when wasBraking was already true.
+    assert!(
+        owner
+            .read()
+            .unwrap()
+            .test_status(crate::common::ObjectStatusTypes::Braking)
+    );
+    assert_eq!(*owner.read().unwrap().get_position(), before);
+    assert!(physics.access().unwrap().get_velocity().x > 0.0);
+    game.operate_with_current(41, Some(ai_proxy(&owner)), |world| {
+        ai.lock()
+            .unwrap()
+            .update_locomotor_phase_with_world(world)
+            .unwrap();
+    });
+    let after_locomotor = *owner.read().unwrap().get_position();
+    assert!(
+        after_locomotor.x > before.x,
+        "CPP braking correction commits before Physics"
+    );
+    let physics_proxy = owner
+        .read()
+        .unwrap()
+        .named_update_registrations("PhysicsBehavior")
+        .pop()
+        .unwrap();
+    game.operate_with_current(41, Some(physics_proxy), |world| {
+        world.update_physics_phase(&owner).unwrap();
+    });
     let position = *owner.read().unwrap().get_position();
+    assert_eq!(
+        position, after_locomotor,
+        "Physics must not apply a second XY integration while braking"
+    );
     assert!(position.x > before.x);
     assert!((position.y - before.y).abs() < 0.01);
     assert!(

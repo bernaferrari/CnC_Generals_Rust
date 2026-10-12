@@ -99,6 +99,23 @@ mod tests {
         assert_eq!(group.speed, 1.0);
     }
     #[test]
+    fn held_members_keep_group_speed_but_have_no_center() {
+        let mut group = AiGroup::new(13);
+        group.add(1);
+        let (speed, center) = group
+            .motion_with_members(|_, _| {
+                Ok(Some(GroupMotionMember {
+                    position: Coord3D::new(100.0, 200.0, 0.0),
+                    held: true,
+                    has_ai: true,
+                    speed: Some(2.0),
+                }))
+            })
+            .unwrap();
+        assert_eq!(speed, 2.0);
+        assert_eq!(center, None);
+    }
+    #[test]
     fn failed_owned_member_observation_does_not_publish_speed_cache() {
         let mut group = AiGroup::new(12);
         group.member_list = vec![1];

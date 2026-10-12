@@ -292,7 +292,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
         group_id: u32,
         borrowed_owner: ObjectID,
         borrowed_speed: Real,
-    ) -> Result<Option<(Real, Coord3D)>, String> {
+    ) -> Result<Option<(Real, Option<Coord3D>)>, String> {
         for group in self.services.groups {
             let mut group = group
                 .try_write()
@@ -331,7 +331,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
                     speed,
                 }))
             })?;
-            return Ok(Some((speed, center.unwrap_or(Coord3D::ZERO))));
+            return Ok(Some((speed, center)));
         }
         Ok(None)
     }

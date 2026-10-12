@@ -2025,8 +2025,8 @@ impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
         };
         let condition = match owner.get_body_module() {
             Some(body) => to_locomotor_body_damage_type(
-                body.lock()
-                    .map_err(|_| "owner body poisoned")?
+                body.try_lock()
+                    .map_err(|_| "owner body unavailable")?
                     .get_damage_state(),
             ),
             None => BodyDamageType::Pristine,
