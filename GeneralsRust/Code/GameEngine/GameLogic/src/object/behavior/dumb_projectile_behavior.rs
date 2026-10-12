@@ -7,7 +7,7 @@
 //! machine scaffold. Remaining engine hooks are wired as dependent systems land.
 
 use std::any::Any;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use crate::common::xfer::XferExt;
 use crate::common::{
@@ -480,6 +480,7 @@ impl Snapshotable for DumbProjectileBehaviorModuleData {
 pub struct DumbProjectileBehavior {
     module_data: Arc<DumbProjectileBehaviorModuleData>,
     object_id: ObjectID,
+    owner: Weak<RwLock<GameObject>>,
     next_call_frame_and_phase: UnsignedInt,
     launcher_id: ObjectID,
     victim_id: ObjectID,
@@ -543,6 +544,7 @@ impl DumbProjectileBehavior {
         Self {
             module_data,
             object_id,
+            owner: object.as_ref().map(Arc::downgrade).unwrap_or_default(),
             next_call_frame_and_phase: 0,
             launcher_id: OBJECT_INVALID_ID,
             victim_id: OBJECT_INVALID_ID,
@@ -575,20 +577,7 @@ impl DumbProjectileBehavior {
         thing: Arc<dyn ModuleThing>,
         module_data: Arc<DumbProjectileBehaviorModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 286: empty dual-world → missing object.
-        if dual_world_registry_unavailable() {
-            return Err("dual-world registry unavailable".into());
-        }
-
-        let module_object = thing
-            .as_object()
-            .ok_or_else(|| "DumbProjectileBehavior requires an owning object".to_string())?;
-
-        let object_id = module_object.get_object_id();
-        let object = OBJECT_REGISTRY
-            .get_object(object_id)
-            .ok_or_else(|| format!("DumbProjectileBehavior missing object {}", object_id))?;
-
+        let object = crate::object::object_thing::supplied_module_owner(thing.as_ref())?;
         Ok(Self::new_from_object(object, module_data))
     }
 
@@ -600,43 +589,30 @@ impl DumbProjectileBehavior {
         &self,
         f: impl FnOnce(&GameObject) -> R,
     ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
-        let id = self.owner_object_id();
-        if id == OBJECT_INVALID_ID {
-            return Err("DumbProjectileBehavior missing owning object id".into());
-        }
-        OBJECT_REGISTRY
-            .with_object(id, f)
-            .ok_or_else(|| "DumbProjectileBehavior owning object not found".into())
+        let owner = self.get_object()?;
+        let object = owner
+            .read()
+            .map_err(|_| "DumbProjectileBehavior owner poisoned")?;
+        Ok(f(&object))
     }
 
     fn with_object_mut<R>(
         &self,
         f: impl FnOnce(&mut GameObject) -> R,
     ) -> Result<R, Box<dyn std::error::Error + Send + Sync>> {
-        let id = self.owner_object_id();
-        if id == OBJECT_INVALID_ID {
-            return Err("DumbProjectileBehavior missing owning object id".into());
-        }
-        OBJECT_REGISTRY
-            .with_object_mut(id, f)
-            .ok_or_else(|| "DumbProjectileBehavior owning object not found".into())
+        let owner = self.get_object()?;
+        let mut object = owner
+            .write()
+            .map_err(|_| "DumbProjectileBehavior owner poisoned")?;
+        Ok(f(&mut object))
     }
 
     fn get_object(
         &self,
     ) -> Result<Arc<RwLock<GameObject>>, Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 286: empty dual-world → missing object.
-        if dual_world_registry_unavailable() {
-            return Err("dual-world registry unavailable".into());
-        }
-
-        let id = self.owner_object_id();
-        if id == OBJECT_INVALID_ID {
-            return Err("DumbProjectileBehavior missing owning object id".into());
-        }
-        OBJECT_REGISTRY
-            .get_object(id)
-            .ok_or_else(|| "DumbProjectileBehavior owning object not found".into())
+        self.owner
+            .upgrade()
+            .ok_or_else(|| "DumbProjectileBehavior owning object has retired".into())
     }
 
     fn get_current_frame(&self) -> UnsignedInt {
@@ -1498,31 +1474,6 @@ mod tests {
     use super::*;
     use game_engine::common::thing::module::ModuleData as ThingModuleDataTrait;
 
-    #[derive(Debug, Clone)]
-    struct StubThing {
-        object_id: ObjectID,
-    }
-
-    impl ModuleObject for StubThing {
-        fn get_object_id(&self) -> ObjectID {
-            self.object_id
-        }
-
-        fn upgrade_handle(&self) -> Option<Arc<RwLock<dyn ModuleObject>>> {
-            None
-        }
-    }
-
-    impl ModuleThing for StubThing {
-        fn as_object(&self) -> Option<&dyn ModuleObject> {
-            Some(self)
-        }
-
-        fn as_drawable(&self) -> Option<&dyn game_engine::common::thing::module::Drawable> {
-            None
-        }
-    }
-
     #[test]
     fn data_factory_sets_defaults() {
         let data_box = dumb_projectile_behavior_module_data_factory(None);
@@ -1539,60 +1490,64 @@ mod tests {
 
     #[test]
     fn module_factory_downcasts() {
-        use crate::object::Object;
-        use crate::object::registry::OBJECT_REGISTRY;
+        use game_engine::common::thing::module::{ModuleInterfaceType, ModuleType};
+        use game_engine::common::thing::module_factory::ModuleFactory;
 
-        let _test_lock = crate::test_sync::lock();
-        // C++ DumbProjectileBehavior.cpp:90-108 borrows the existing owning
-        // Object; GameLogic.cpp:3935-3980,2449-2510 controls its retirement.
-        // The fixture's owner is inert until explicit admission, and its pin
-        // keeps the final Arc drop outside owner-directed deletion callbacks.
-        struct FactoryOwner {
-            logic: crate::system::game_logic::GameLogic,
-            object: Arc<RwLock<Object>>,
-            id: ObjectID,
-        }
-        impl Drop for FactoryOwner {
-            fn drop(&mut self) {
-                let unwinding = std::thread::panicking();
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let admitted = self.logic.find_object_by_id(self.id).unwrap();
-                    assert!(Arc::ptr_eq(&admitted, &self.object));
-                    self.logic.destroy_object(self.id);
-                    self.logic.cleanup_dead_objects().unwrap();
-                    assert!(self.logic.find_object_by_id(self.id).is_none());
-                    assert!(OBJECT_REGISTRY.get_object(self.id).is_none());
-                }));
-                if let Err(error) = result {
-                    if unwinding {
-                        eprintln!("dumb projectile fixture retirement failed during unwind");
-                    } else {
-                        std::panic::resume_unwind(error);
-                    }
-                }
-            }
-        }
-
-        let object_id = 0xD00B_0001;
-        assert!(OBJECT_REGISTRY.get_object(object_id).is_none());
-        let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
-        let mut owner = FactoryOwner {
-            logic: crate::system::game_logic::GameLogic::new(),
-            object: Arc::clone(&object),
-            id: object_id,
-        };
-        owner.logic.register_object(Arc::clone(&object)).unwrap();
-        assert!(Arc::ptr_eq(
-            &owner.logic.find_object_by_id(object_id).unwrap(),
-            &object,
-        ));
-
-        let data =
-            Arc::new(DumbProjectileBehaviorModuleData::default()) as Arc<dyn ThingModuleData>;
-        // Declared after the owner: both normal exit and assertion unwind drop
-        // the module before retiring the object it refers to.
-        let module =
-            dumb_projectile_behavior_module_factory(Arc::new(StubThing { object_id }), data);
+        // Exercise the real data and module factories on the supplied owner,
+        // without publishing a registry or selecting an object by numeric ID.
+        let mut factory = ModuleFactory::new();
+        factory.add_module_internal(
+            Some(dumb_projectile_behavior_module_factory),
+            Some(dumb_projectile_behavior_module_data_factory),
+            ModuleType::Behavior,
+            "DumbProjectileBehavior",
+            ModuleInterfaceType::UPDATE,
+        );
+        let data = factory
+            .new_module_data_from_ini(
+                None,
+                "DumbProjectileBehavior",
+                ModuleType::Behavior,
+                "ModuleTag_Projectile",
+            )
+            .unwrap();
+        let typed = data
+            .as_ref()
+            .as_any()
+            .downcast_ref::<DumbProjectileBehaviorModuleData>()
+            .expect("real factory retains DumbProjectileBehavior data");
+        assert_eq!(
+            typed.max_lifespan,
+            (10 * LOGICFRAMES_PER_SECOND) as UnsignedInt
+        );
+        let owner = Arc::new(RwLock::new(GameObject::new_test(0xD00B_0001, 100.0)));
+        let thing: Arc<dyn ModuleThing> =
+            Arc::new(crate::object::object_thing::ObjectThingHandle::new(&owner));
+        let mut module = factory
+            .new_module(
+                thing.clone(),
+                "DumbProjectileBehavior",
+                data.clone(),
+                ModuleType::Behavior,
+            )
+            .unwrap();
+        assert_eq!(
+            module
+                .as_ref()
+                .as_any()
+                .downcast_ref::<DumbProjectileBehaviorModule>()
+                .unwrap()
+                .behavior
+                .owner_object_id(),
+            owner.read().unwrap().get_id()
+        );
+        assert!(
+            module
+                .as_ref()
+                .as_any()
+                .downcast_ref::<DumbProjectileBehaviorModule>()
+                .is_some()
+        );
         assert!(
             module
                 .get_module_data()
@@ -1600,10 +1555,87 @@ mod tests {
                 .downcast_ref::<DumbProjectileBehaviorModuleData>()
                 .is_some()
         );
+        assert!(module.get_update_module_interface().is_some());
+        assert!(module.get_sleepy_update_interface().is_some());
         drop(module);
+        assert_eq!(owner.read().unwrap().get_id(), 0xD00B_0001);
+        let peer = Arc::new(RwLock::new(GameObject::new_test(0xD00B_0001, 250.0)));
+        let supplied = crate::object::object_thing::supplied_module_owner(thing.as_ref()).unwrap();
+        assert!(Arc::ptr_eq(&supplied, &owner));
+        assert!(!Arc::ptr_eq(&supplied, &peer));
+        drop(supplied);
+        let behavior = DumbProjectileBehavior::from_module_thing(
+            thing.clone(),
+            Arc::new(DumbProjectileBehaviorModuleData::default()),
+        )
+        .unwrap();
+        behavior
+            .with_object_mut(|object| object.set_producer_id(77))
+            .unwrap();
+        assert_eq!(
+            behavior
+                .with_object(|object| object.get_producer_id())
+                .unwrap(),
+            77
+        );
+        assert_eq!(peer.read().unwrap().get_producer_id(), OBJECT_INVALID_ID);
         drop(owner);
-        assert!(OBJECT_REGISTRY.get_object(object_id).is_none());
-        assert_eq!(object.read().unwrap().get_id(), OBJECT_INVALID_ID);
+        assert!(behavior.get_object().is_err());
+        assert!(
+            behavior
+                .with_object_mut(|object| object.set_producer_id(88))
+                .is_err()
+        );
+        assert!(
+            DumbProjectileBehavior::from_module_thing(
+                thing,
+                Arc::new(DumbProjectileBehaviorModuleData::default())
+            )
+            .is_err()
+        );
+        assert_eq!(peer.read().unwrap().get_producer_id(), OBJECT_INVALID_ID);
+    }
+
+    #[test]
+    fn snapshot_load_keeps_the_receiving_projectile_owner() {
+        use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+        use std::io::Cursor;
+        let first = Arc::new(RwLock::new(GameObject::new_test(0xD00B_0002, 100.0)));
+        let second = Arc::new(RwLock::new(GameObject::new_test(0xD00B_0002, 250.0)));
+        let data = Arc::new(DumbProjectileBehaviorModuleData::default());
+        let mut saved = DumbProjectileBehaviorModule::new(
+            DumbProjectileBehavior::new_from_object(first.clone(), data.clone()),
+            &AsciiString::from("DumbProjectileBehavior"),
+            data.clone(),
+        );
+        saved.behavior.launcher_id = 17;
+        let mut bytes = Vec::new();
+        saved
+            .xfer(&mut XferSave::new(Cursor::new(&mut bytes), 1))
+            .unwrap();
+        let mut loaded = DumbProjectileBehaviorModule::new(
+            DumbProjectileBehavior::new_from_object(second.clone(), data.clone()),
+            &AsciiString::from("DumbProjectileBehavior"),
+            data,
+        );
+        loaded
+            .xfer(&mut XferLoad::new(Cursor::new(&bytes), 1))
+            .unwrap();
+        let mut resaved = Vec::new();
+        loaded
+            .xfer(&mut XferSave::new(Cursor::new(&mut resaved), 1))
+            .unwrap();
+        assert_eq!(bytes, resaved);
+        assert!(Arc::ptr_eq(&loaded.behavior.get_object().unwrap(), &second));
+        loaded
+            .behavior
+            .with_object_mut(|object| object.set_producer_id(99))
+            .unwrap();
+        assert_eq!(second.read().unwrap().get_producer_id(), 99);
+        assert_eq!(first.read().unwrap().get_producer_id(), OBJECT_INVALID_ID);
+        drop(first);
+        assert!(saved.behavior.get_object().is_err());
+        assert!(loaded.behavior.get_object().is_ok());
     }
 
     #[test]

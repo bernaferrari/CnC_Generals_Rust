@@ -8,6 +8,8 @@ mod physics_bounce;
 mod physics_collide;
 #[path = "physics_crush.rs"]
 mod physics_crush;
+#[path = "physics_owned_shock.rs"]
+mod physics_owned_shock;
 #[path = "physics_owned_tick.rs"]
 mod physics_owned_tick;
 #[path = "physics_reset.rs"]

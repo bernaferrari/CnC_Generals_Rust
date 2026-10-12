@@ -539,49 +539,6 @@ impl GameWorldShadow {
         updated
     }
 
-    pub fn writeback_ai_mood_to_host(&self, logic: &mut GameLogic) -> usize {
-        let mut updated = 0usize;
-        let mut ready: Vec<ObjectId> = Vec::new();
-        for (&hid, &eid) in &self.host_to_entity {
-            let Some(ent) = self.world.entity(eid) else {
-                continue;
-            };
-            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
-                continue;
-            };
-            // Wave 757: under coupled tick, host log pending = mid-frame authority.
-            if shadow_coupled_tick_active()
-                && crate::game_logic::host_ai_mood_log::has_pending(ObjectId(hid))
-            {
-                continue;
-            }
-            let host_prio = obj.attack_priority_set.clone().unwrap_or_default();
-            let changed = obj.idle_since_frame != ent.idle_since_frame
-                || obj.mood_attack_check_rate != ent.mood_attack_check_rate
-                || obj.auto_acquire_when_idle != ent.auto_acquire_when_idle
-                || host_prio != ent.attack_priority_set;
-            if !changed {
-                continue;
-            }
-            obj.idle_since_frame = ent.idle_since_frame;
-            obj.mood_attack_check_rate = ent.mood_attack_check_rate;
-            obj.auto_acquire_when_idle = ent.auto_acquire_when_idle;
-            obj.attack_priority_set = if ent.attack_priority_set.is_empty() {
-                None
-            } else {
-                Some(ent.attack_priority_set.clone())
-            };
-            // Wave 645: GameWorld AI-mood last-write residual —
-            // host applies presentation bookkeeping from ready log.
-            ready.push(ObjectId(hid));
-            updated += 1;
-        }
-        for oid in ready {
-            crate::game_logic::host_ai_mood_ready_log::record(oid);
-        }
-        updated
-    }
-
     pub fn writeback_ai_request_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         let mut ready: Vec<ObjectId> = Vec::new();

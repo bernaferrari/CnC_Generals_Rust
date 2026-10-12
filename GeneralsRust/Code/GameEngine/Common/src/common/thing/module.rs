@@ -851,7 +851,7 @@ pub trait Drawable: Send + Sync {
     }
 }
 
-pub trait Thing: std::fmt::Debug + Send + Sync {
+pub trait Thing: std::fmt::Debug + Send + Sync + Any {
     fn as_object(&self) -> Option<&dyn Object> {
         None
     }

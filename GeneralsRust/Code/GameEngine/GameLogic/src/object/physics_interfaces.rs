@@ -218,7 +218,62 @@ impl PhysicsInterfaceHandle {
         result
     }
 
-    pub(crate) fn integrate_ground_at(
+    pub(crate) fn validate_shock_at(&self, owner: &super::Object) -> Result<(), String> {
+        self.installed_update_proxy(owner)?;
+        self.with_installed_update(|physics| physics.validate_shock_at(owner))
+    }
+
+    pub(crate) fn prepare_shock_at(
+        &self,
+        force: &super::Coord3D,
+        owner: &super::Object,
+        frame: u32,
+    ) -> Result<bool, String> {
+        self.installed_update_proxy(owner)?;
+        self.with_installed_update(|physics| physics.prepare_shock_at(force, owner, frame))
+    }
+
+    pub(crate) fn prepare_random_rotation_at(
+        &self,
+        owner: &super::Object,
+        random: &mut game_engine::common::random_value::RandomState,
+    ) -> Result<bool, String> {
+        self.installed_update_proxy(owner)?;
+        self.with_installed_update(|physics| physics.prepare_random_rotation_at(owner, random))
+    }
+
+    pub(crate) fn finish_stunned_at(&self, owner: &mut super::Object) -> Result<(), String> {
+        self.installed_update_proxy(owner)?;
+        self.with_installed_update(|physics| physics.finish_stunned_at(owner))
+    }
+
+    /// The descriptor validates owner identity before this bounded module loan;
+    /// wake callbacks execute only after the returned value releases that loan.
+    fn with_installed_update<R>(
+        &self,
+        operation: impl FnOnce(&mut PhysicsBehaviorUpdate) -> Result<R, String>,
+    ) -> Result<R, String> {
+        let PhysicsInterfaceKind::Module(handle) = &self.kind else {
+            return Err("operation requires installed PhysicsBehavior storage".into());
+        };
+        handle.try_with_module(|module| {
+            let module = module.as_any_mut()
+                .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<PhysicsBehaviorUpdate>>()
+                .ok_or("installed Physics module absent")?;
+            operation(module.behavior_mut())
+        }).ok_or("installed Physics module unavailable")?
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_immune_freefall_for_test(&self, owner: &super::Object) -> Result<(), String> {
+        self.installed_update_proxy(owner)?;
+        self.with_installed_update(|physics| {
+            physics.set_immune_freefall_for_test();
+            Ok(())
+        })
+    }
+
+    pub(crate) fn integrate_owned_at(
         &self,
         owner: &mut super::Object,
         frame: u32,
@@ -233,13 +288,22 @@ impl PhysicsInterfaceHandle {
         handle.with_module(|module| module.as_any_mut()
             .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<PhysicsBehaviorUpdate>>()
             .ok_or("installed Physics module absent")?.behavior_mut()
-            .integrate_ground_at(owner, frame, gravity, start_ground, ground_height))
+            .integrate_owned_at(owner, frame, gravity, start_ground, ground_height))
     }
 
-    pub(crate) fn finish_ground_at(
+    pub(crate) fn prepare_freefall_cleanup_at(&self, owner: &super::Object) -> Result<(), String> {
+        self.installed_update_proxy(owner)?;
+        self.with_installed_update(|physics| {
+            physics.prepare_freefall_cleanup_at();
+            Ok(())
+        })
+    }
+
+    pub(crate) fn finish_owned_at(
         &self,
         owner: &mut super::Object,
         frame: u32,
+        airborne_at_end: bool,
     ) -> Result<crate::modules::UpdateSleepTime, String> {
         self.installed_update_proxy(owner)?;
         let PhysicsInterfaceKind::Module(handle) = &self.kind else {
@@ -247,7 +311,7 @@ impl PhysicsInterfaceHandle {
         };
         handle.with_module(|module| Ok(module.as_any_mut()
             .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<PhysicsBehaviorUpdate>>()
-            .ok_or("installed Physics module absent")?.behavior_mut().finish_ground_at(owner, frame)))
+            .ok_or("installed Physics module absent")?.behavior_mut().finish_owned_at(owner, frame, airborne_at_end)))
     }
 
     pub(crate) fn installed_is_stunned(&self) -> Result<bool, String> {
@@ -393,7 +457,6 @@ mod tests {
 
     #[test]
     fn interface_borrows_the_same_owned_state_as_module_xfer() {
-        let _lock = crate::test_sync::lock();
         let owner = Arc::new(RwLock::new(Object::new_test(93_520, 100.0)));
         let (physics, module) = installed_physics(&owner);
         let clone = owner.read().unwrap().get_physics().unwrap();
@@ -432,7 +495,6 @@ mod tests {
 
     #[test]
     fn equal_owner_ids_and_retired_descriptors_preserve_module_identity() {
-        let _lock = crate::test_sync::lock();
         let first_owner = Arc::new(RwLock::new(Object::new_test(93_521, 100.0)));
         let (first, _) = installed_physics(&first_owner);
         first

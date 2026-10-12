@@ -707,8 +707,8 @@ fn host_contain_log_drives_set_contain_channel() {
 
 #[test]
 // Wave 947: channel-drive tests mutate host via host_object_mut authority.
-fn host_ai_state_log_drives_set_ai_state_channel() {
-    use crate::game_logic::{AIState, KindOf, Team, ThingTemplate, host_ai_state_log};
+fn host_ai_state_is_canonical_and_shadow_only_observes() {
+    use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AiStateCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -721,42 +721,35 @@ fn host_ai_state_log_drives_set_ai_state_channel() {
     let id = logic
         .create_object("AiU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
         .expect("id");
-    host_ai_state_log::clear();
-    {
-        let o = logic.host_object_mut(id).expect("o");
-        o.set_ai_state(AIState::GuardingObject);
-    }
-    let events = host_ai_state_log::drain();
-    assert!(
-        events.iter().any(|e| e.object == id && e.ordinal == 10),
-        "expected GuardingObject ordinal 10, got {:?}",
-        events
+    logic
+        .host_object_mut(id)
+        .expect("o")
+        .set_ai_state(AIState::GuardingObject);
+    assert_eq!(
+        logic.host_object(id).expect("o").ai_state,
+        AIState::GuardingObject
     );
-    {
-        let o = logic.host_object_mut(id).expect("o");
-        o.set_ai_state(AIState::GuardingObject);
-    }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
-    if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
-        e.ai_state_ordinal = 0;
-    }
-    let n = shadow.apply_host_ai_state_events(&host_ai_state_log::drain());
-    assert!(n >= 1);
     assert_eq!(shadow.world().entity(eid).expect("e").ai_state_ordinal, 10);
-    {
-        let o = logic.host_object_mut(id).expect("o");
-        o.ai_state = AIState::Idle;
-    }
-    if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
-        e.ai_state_ordinal = 10; // GuardingObject
-    }
-    let _ = shadow.writeback_ai_state_to_host(&mut logic);
+    shadow
+        .world_mut()
+        .world_mut()
+        .entity_mut(eid)
+        .expect("e")
+        .ai_state_ordinal = 0;
     assert_eq!(
-        logic.host_objects().get(&id).expect("o").ai_state,
+        logic.host_object(id).expect("o").ai_state,
         AIState::GuardingObject
     );
+    logic
+        .host_object_mut(id)
+        .expect("o")
+        .set_ai_state(AIState::Idle);
+    assert_eq!(logic.host_object(id).expect("o").ai_state, AIState::Idle);
+    shadow.sync_from_host(&logic);
+    assert_eq!(shadow.world().entity(eid).expect("e").ai_state_ordinal, 0);
 }
 
 #[test]
@@ -1155,8 +1148,6 @@ fn host_production_log_drives_set_production_queue_channel() {
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
     let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_ai_mood_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_mood_ready_log::drain();
     let _ = shadow.writeback_ai_request_to_host(&mut logic);
     let _ = crate::game_logic::host_ai_request_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);

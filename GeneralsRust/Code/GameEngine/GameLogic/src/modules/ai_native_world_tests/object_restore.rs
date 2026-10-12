@@ -236,6 +236,7 @@ fn fresh_with_templates(
         )
         .unwrap();
     let mut game = NativeMatch {
+        groups: Vec::new(),
         disposal: crate::modules::ai_native_world::owned_disposal::NativeDisposalState::new()
             .unwrap(),
         scheduler: crate::system::game_logic::GameLogic::new(),

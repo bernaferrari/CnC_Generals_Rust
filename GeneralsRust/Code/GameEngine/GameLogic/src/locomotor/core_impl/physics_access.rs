@@ -57,6 +57,7 @@ impl LocomotorPhysicsAccess<'_, '_> {
 pub(crate) enum LocomotorPoseChange {
     Position(Coord3D),
     Orientation(Real),
+    Transform(glam::Mat4),
 }
 
 pub(crate) struct LocomotorMovementObservations<'a> {

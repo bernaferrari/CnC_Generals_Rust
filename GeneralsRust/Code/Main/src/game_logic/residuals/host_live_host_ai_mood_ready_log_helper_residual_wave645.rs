@@ -94,10 +94,6 @@ fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 
-fn ready_log_source() -> &'static str {
-    include_str!("../host_ai_mood_ready_log.rs")
-}
-
 fn last_sig_index(src: &str, sig: &str) -> Option<usize> {
     let mut at = None;
     let mut from = 0usize;
@@ -139,30 +135,13 @@ pub fn honesty_host_ai_mood_ready_log_helper_method_names_residual_wave645() -> 
 }
 
 pub fn honesty_host_ai_mood_ready_log_helper_source_markers_residual_wave645() -> bool {
-    let gl = gl_source();
     let sh = shadow_source();
-    let ready = ready_log_source();
-    let log_ok = ready.contains("Wave 645")
-        && ready.contains("pub fn record(")
-        && ready.contains("pub fn drain(")
-        && ready.contains("HostAiMoodReadyEvent");
-    let Some(wb) = fn_body(sh, "pub fn writeback_ai_mood_to_host(") else {
-        residual_action_store(ResidualHostAiMoodReadyLogHelperAction::SourceMarkers);
-        return false;
-    };
-    let wb_ok = wb.contains("Wave 645") && wb.contains("host_ai_mood_ready_log::record");
-    let Some(apply) = fn_body(gl, "pub fn host_apply_ai_mood_ready_completions(") else {
-        residual_action_store(ResidualHostAiMoodReadyLogHelperAction::SourceMarkers);
-        return false;
-    };
-    let apply_ok = apply.contains("Wave 645")
-        && apply.contains("host_ai_mood_ready_log::drain")
-        && apply.contains("record_host_ai_mood");
-    let drain_call = (sh.contains("host_apply_ai_mood_ready_completions")
-        || sh.contains("apply_ready_log_drain_op")
-        || sh.contains("ReadyLogDrainOp::AiMood"))
-        && sh.contains("Wave 645: drain AI-mood ready log after GW writeback");
-    let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
+    let obj = crate::game_logic::object::OBJECT_SRC;
+    // The host owns this field. This diagnostic now verifies retirement of
+    // the alternate writer rather than demanding its obsolete transport.
+    let ok = !sh.contains("pub fn writeback_ai_mood_to_host(")
+        && !sh.contains("pub fn apply_host_ai_mood_events(")
+        && obj.contains("set_ai_state");
     residual_action_store(ResidualHostAiMoodReadyLogHelperAction::SourceMarkers);
     ok
 }
@@ -186,19 +165,23 @@ pub fn honesty_host_ai_mood_ready_log_helper_nav_commands_residual_wave645() -> 
 }
 
 pub fn simulate_host_ai_mood_ready_log_helper_collect_source() -> bool {
-    let ok = ready_log_source().contains("Wave 645")
-        && shadow_source().contains("host_ai_mood_ready_log::record")
-        && gl_source().contains("host_ai_mood_ready_log::drain");
+    let sh = shadow_source();
+    let gl = gl_source();
+    // Verify retired mutation transport remains absent from the live owners.
+    let ok = !sh.contains("host_ai_mood_ready_log::record")
+        && !gl.contains("host_ai_mood_ready_log::drain")
+        && crate::game_logic::object::OBJECT_SRC.contains("set_ai_state");
     residual_action_store(ResidualHostAiMoodReadyLogHelperAction::CollectSource);
     ok
 }
 
 pub fn simulate_host_ai_mood_ready_log_helper_dispatch_source() -> bool {
-    let gl = gl_source();
     let sh = shadow_source();
-    let ok = sh.contains("Wave 645: GameWorld AI-mood last-write residual")
-        && gl.contains("Wave 645: GameWorld AI-mood writeback records dirty objects")
-        && sh.contains("Wave 645: drain AI-mood ready log after GW writeback");
+    let gl = gl_source();
+    // Verify retired mutation transport remains absent from the live owners.
+    let ok = !sh.contains("host_ai_mood_ready_log::record")
+        && !gl.contains("host_ai_mood_ready_log::drain")
+        && crate::game_logic::object::OBJECT_SRC.contains("set_ai_state");
     residual_action_store(ResidualHostAiMoodReadyLogHelperAction::DispatchSource);
     ok
 }

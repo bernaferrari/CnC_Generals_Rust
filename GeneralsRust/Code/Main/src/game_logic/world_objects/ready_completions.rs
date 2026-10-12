@@ -670,21 +670,6 @@ impl GameLogic {
         n
     }
 
-    pub fn host_apply_ai_mood_ready_completions(&mut self) -> usize {
-        // Wave 645: GameWorld AI-mood writeback records dirty objects; host
-        // applies presentation bookkeeping residual via record_host_ai_mood.
-        let events = crate::game_logic::host_ai_mood_ready_log::drain();
-        let mut n = 0usize;
-        for ev in events {
-            let Some(obj) = self.objects.get(&ev.object) else {
-                continue;
-            };
-            obj.record_host_ai_mood();
-            n = n.saturating_add(1);
-        }
-        n
-    }
-
     pub fn host_apply_command_set_ready_completions(&mut self) -> usize {
         // Wave 644: GameWorld command-set writeback records dirty objects; host
         // applies presentation bookkeeping residual via record_host_command_set.
@@ -808,7 +793,6 @@ impl GameLogic {
                 obj.target_location = None;
                 obj.record_host_target_location();
                 // Prefer combat status bits over full set_ai_state to avoid
-                // host_ai_state_log re-entry fighting GW AI-state writeback.
                 obj.set_status_attacking(true);
             } else {
                 obj.target_location = None;
@@ -976,25 +960,6 @@ impl GameLogic {
                 ev.previous_radar_count,
                 ev.previous_radar_disabled,
             );
-        }
-        n
-    }
-
-    pub fn host_apply_ai_state_ready_completions(&mut self) -> usize {
-        // Wave 630: GameWorld AI-state writeback records ordinal changes; host
-        // applies moving/attacking combat-status residual for the new state.
-        let events = crate::game_logic::host_ai_state_ready_log::drain();
-        let mut n = 0usize;
-        for ev in events {
-            let Some(obj) = self.objects.get_mut(&ev.object) else {
-                continue;
-            };
-            if ev.previous_ordinal == ev.new_ordinal {
-                continue;
-            }
-            // State already writeback-synced; apply status residual only.
-            obj.apply_ai_state_combat_status_residual(ev.new_ordinal);
-            n = n.saturating_add(1);
         }
         n
     }

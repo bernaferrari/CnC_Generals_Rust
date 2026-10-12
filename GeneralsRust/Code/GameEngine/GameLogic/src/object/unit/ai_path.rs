@@ -459,7 +459,7 @@ impl UnitAIUpdate {
             return Err("queued Enter belongs to another factory".into());
         }
         let state = self.get_current_state_id();
-        let movement = matches!(state, Some(id) if id == AIStateType::FollowWaypointPathAsIndividuals as u32 || id == AIStateType::MoveTo as u32);
+        let movement = matches!(state, Some(id) if id == AIStateType::FollowWaypointPathAsIndividuals as u32 || id == AIStateType::FollowWaypointPathAsIndividualsExact as u32 || id == AIStateType::FollowWaypointPathAsTeam as u32 || id == AIStateType::FollowWaypointPathAsTeamExact as u32 || id == AIStateType::MoveTo as u32);
         if movement {
             self.validate_owned_components(true, false)
                 .map_err(|error| error.to_string())?;

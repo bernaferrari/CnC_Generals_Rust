@@ -38,6 +38,15 @@ fn source_template_with_appearance(
     acceleration: f32,
     appearance: LocomotorAppearance,
 ) -> Arc<dyn ThingTemplate> {
+    source_template_with_motion(name, acceleration, appearance, 0.0, 0.0)
+}
+fn source_template_with_motion(
+    name: &str,
+    acceleration: f32,
+    appearance: LocomotorAppearance,
+    pivot: f32,
+    wander: f32,
+) -> Arc<dyn ThingTemplate> {
     let mut base = DefaultThingTemplate::new(name.into());
     base.add_kind_of(KindOf::Infantry);
     let mut locomotor = if appearance == LocomotorAppearance::TwoLegs {
@@ -46,6 +55,8 @@ fn source_template_with_appearance(
         LocomotorTemplate::new(format!("{name}Loco"))
     };
     locomotor.appearance = appearance;
+    locomotor.turn_pivot_offset = pivot;
+    locomotor.wander_width_factor = wander;
     locomotor.surfaces = crate::locomotor::SURFACE_GROUND;
     locomotor.behavior_z = LocomotorBehaviorZ::NoZMotiveForce;
     locomotor.acceleration = acceleration;
@@ -137,9 +148,7 @@ fn move_step(game: &mut NativeMatch, frame: u32, target: Coord3D) -> Result<(), 
     let current = ai_proxy(&owner);
     prepare_ai_path(&ai, target);
     game.operate_with_current(frame, Some(current), |world| {
-        ai.lock()
-            .unwrap()
-            .update_locomotor_path_phase_with_world(world)
+        ai.lock().unwrap().update_locomotor_phase_with_world(world)
     })
 }
 
@@ -273,7 +282,7 @@ fn native_two_legs_rejects_foreign_owner_and_keeps_same_id_world_clocks_separate
         peer_ai
             .lock()
             .unwrap()
-            .update_locomotor_path_phase_with_world(world)
+            .update_locomotor_phase_with_world(world)
     });
     assert!(
         result.is_err(),
@@ -290,7 +299,7 @@ fn native_two_legs_rejects_foreign_owner_and_keeps_same_id_world_clocks_separate
         first_ai
             .lock()
             .unwrap()
-            .update_locomotor_path_phase_with_world(world)
+            .update_locomotor_phase_with_world(world)
     });
     assert!(
         wrong_current_result.is_err(),
@@ -462,4 +471,138 @@ fn installed_physics_stunned_flag_prevents_native_force_and_turn() {
     assert_eq!(owner.read().unwrap().get_orientation(), orientation);
     assert_eq!(physics.accumulated_force_acceleration(), Coord3D::ZERO);
     assert_eq!(physics.access().unwrap().get_turning(), 0.0);
+}
+
+#[test]
+fn authored_pivot_and_wander_move_only_the_exact_factory_owner() {
+    for (name, appearance, pivot, wander) in [
+        ("OwnedPivot", LocomotorAppearance::Other, 0.5, 0.0),
+        ("OwnedWander", LocomotorAppearance::TwoLegs, 0.0, 0.3),
+    ] {
+        let template = source_template_with_motion(name, 0.1, appearance, pivot, wander);
+        let mut game = NativeMatch::with_source_template(
+            150.0,
+            container_template(),
+            false,
+            Arc::clone(&template),
+        );
+        let peer = NativeMatch::with_source_template(150.0, container_template(), false, template);
+        let owner = Arc::clone(&game.source);
+        Object::admit_update_schedule_from_handle(&owner, &mut game.scheduler).unwrap();
+        let before = owner.read().unwrap().get_transform_matrix();
+        let peer_before = peer.source.read().unwrap().get_transform_matrix();
+        move_step(&mut game, 41, Coord3D::new(50.0, 150.0, 0.0)).unwrap();
+        let after = owner.read().unwrap().get_transform_matrix();
+        assert_ne!(after, before);
+        assert!(after.is_finite());
+        assert_eq!(
+            peer.source.read().unwrap().get_transform_matrix(),
+            peer_before
+        );
+        assert_eq!(
+            physics_handle(&peer.source).accumulated_force_acceleration(),
+            Coord3D::ZERO
+        );
+        // OTHER may turn in place before accepting motive force. Follow the
+        // actual post-pivot heading on the next frame, as C++ does.
+        let (position, angle) = {
+            let object = owner.read().unwrap();
+            (*object.get_position(), object.get_orientation())
+        };
+        move_step(
+            &mut game,
+            42,
+            Coord3D::new(
+                position.x + 100.0 * angle.cos(),
+                position.y + 100.0 * angle.sin(),
+                position.z,
+            ),
+        )
+        .unwrap();
+        assert!(
+            physics_handle(&owner)
+                .accumulated_force_acceleration()
+                .length()
+                > 0.0
+        );
+    }
+}
+
+/// The original explicit-goal fixture, exercised through actual admitted AI,
+/// Body, Physics and driving terrain instead of the auxiliary registry model.
+pub(crate) fn explicit_goal_moves_canonical_owner_without_path_or_foreign_writes() {
+    let make = |name: &str| {
+        let mut game = NativeMatch::with_source_template(
+            150.0,
+            container_template(),
+            false,
+            source_template_with_appearance(name, 0.1, LocomotorAppearance::Other),
+        );
+        Object::admit_update_schedule_from_handle(&game.source, &mut game.scheduler).unwrap();
+        game
+    };
+    let mut game = make("OwnedExplicitGoal");
+    let peer = make("OwnedExplicitGoalPeer");
+    let owner = Arc::clone(&game.source);
+    assert_eq!(
+        owner.read().unwrap().get_id(),
+        peer.source.read().unwrap().get_id()
+    );
+    let peer_position = *peer.source.read().unwrap().get_position();
+    let peer_velocity = physics_handle(&peer.source)
+        .access()
+        .unwrap()
+        .get_velocity();
+    let before = *owner.read().unwrap().get_position();
+    let goal = Coord3D::new(before.x + 40.0, before.y, before.z);
+    let ai = owner.read().unwrap().get_ai_update_interface().unwrap();
+    ai.lock()
+        .unwrap()
+        .set_locomotor_goal_position_explicit(goal);
+    game.operate_with_current(40, Some(ai_proxy(&owner)), |world| {
+        ai.lock()
+            .unwrap()
+            .update_locomotor_phase_with_world(world)
+            .unwrap();
+    });
+    let physics = physics_handle(&owner);
+    assert!(physics.access().unwrap().get_acceleration().x > 0.0);
+    let proxy = owner
+        .read()
+        .unwrap()
+        .named_update_registrations("PhysicsBehavior")
+        .pop()
+        .unwrap();
+    game.operate_with_current(40, Some(proxy), |world| {
+        world.update_physics_phase(&owner).unwrap();
+    });
+    let position = *owner.read().unwrap().get_position();
+    assert!(position.x > before.x);
+    assert!((position.y - before.y).abs() < 0.01);
+    assert!(
+        physics
+            .access()
+            .unwrap()
+            .get_forward_speed_2d_with_object(&owner.read().unwrap())
+            > 0.0
+    );
+    let observation = ai
+        .lock()
+        .unwrap()
+        .unit_ai_for_test()
+        .unwrap()
+        .native_waypoint_observation_for_test();
+    assert!(!observation.do_final_position);
+    assert!(
+        !observation.has_path,
+        "explicit movement does not invent a path"
+    );
+    assert_eq!(*peer.source.read().unwrap().get_position(), peer_position);
+    assert_eq!(
+        physics_handle(&peer.source)
+            .access()
+            .unwrap()
+            .get_velocity(),
+        peer_velocity
+    );
 }

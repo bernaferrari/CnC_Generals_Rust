@@ -799,60 +799,6 @@ impl GameWorldShadow {
         updated
     }
 
-    pub fn apply_host_ai_state_events(
-        &mut self,
-        events: &[crate::game_logic::host_ai_state_log::HostAiStateEvent],
-    ) -> usize {
-        let mut n = 0usize;
-        for ev in events {
-            if self.queue_set_ai_state_for_host(ev.object, ev.ordinal) {
-                n += 1;
-            }
-        }
-        if n > 0 {
-            let _ = self.apply_pending();
-        }
-        n
-    }
-
-    pub fn writeback_ai_state_to_host(&self, logic: &mut GameLogic) -> usize {
-        let mut updated = 0usize;
-        let mut ready: Vec<(ObjectId, u8, u8)> = Vec::new();
-        for (&hid, &eid) in &self.host_to_entity {
-            let Some(ent) = self.world.entity(eid) else {
-                continue;
-            };
-            // Host AI-state log is an *input* to GameWorld (applied earlier in
-            // the session). Pending leftovers must not block last-write —
-            // C++ Object AI state is whatever the last update wrote
-            // (AIUpdate.cpp state machine; no dual-world veto).
-            let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
-                continue;
-            };
-            let host_ord = Self::host_ai_state_ordinal(&obj.ai_state);
-            if host_ord == ent.ai_state_ordinal {
-                continue;
-            }
-            let prev = host_ord;
-            let next = ent.ai_state_ordinal;
-            // Wave 945: AI-state writeback via host writeback authority.
-            if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::AiState {
-                id: ObjectId(hid),
-                ordinal: next,
-            }) {
-                continue;
-            }
-            // Wave 630: GameWorld AI-state last-write residual —
-            // host applies combat-status flags from ready log.
-            ready.push((ObjectId(hid), prev, next));
-            updated += 1;
-        }
-        for (oid, prev, next) in ready {
-            crate::game_logic::host_ai_state_ready_log::record(oid, prev, next);
-        }
-        updated
-    }
-
     pub fn queue_set_stored_supplies_for_host(&mut self, host: ObjectId, supplies: u32) -> bool {
         let Some(target) = self.entity_for_host(host) else {
             return false;

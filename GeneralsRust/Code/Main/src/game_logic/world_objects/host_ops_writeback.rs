@@ -464,7 +464,6 @@ impl GameLogic {
             ReadyLogDrainOp::Contain => self.host_apply_contain_ready_completions(),
             ReadyLogDrainOp::Projectiles => self.host_apply_projectiles_ready_completions(),
             ReadyLogDrainOp::AttackTarget => self.host_apply_attack_target_ready_completions(),
-            ReadyLogDrainOp::AiState => self.host_apply_ai_state_ready_completions(),
             ReadyLogDrainOp::Movement => self.host_apply_movement_ready_completions(),
             ReadyLogDrainOp::FireIntent => self.host_apply_fire_intent_ready_completions(),
             ReadyLogDrainOp::MoveTarget => self.host_apply_move_target_ready_completions(),
@@ -481,7 +480,6 @@ impl GameLogic {
             ReadyLogDrainOp::ShockStun => self.host_apply_shock_stun_ready_completions(),
 
             ReadyLogDrainOp::SoleHealing => self.host_apply_sole_healing_ready_completions(),
-            ReadyLogDrainOp::AiMood => self.host_apply_ai_mood_ready_completions(),
             ReadyLogDrainOp::Owner => self.host_apply_owner_ready_completions(),
             ReadyLogDrainOp::Veterancy => self.host_apply_veterancy_ready_completions(),
             ReadyLogDrainOp::WeaponBonus => self.host_apply_weapon_bonus_ready_completions(),
@@ -1000,14 +998,6 @@ impl GameLogic {
                     return false;
                 };
                 obj.movement.target_position = destination;
-                true
-            }
-            HostWritebackOp::AiState { id, ordinal } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.ai_state =
-                    crate::gameworld_shadow::GameWorldShadow::ai_state_from_ordinal(ordinal);
                 true
             }
             HostWritebackOp::AiAttitude { id, attitude } => {

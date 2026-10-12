@@ -153,7 +153,6 @@ fn assign_unit_path_decision_authority() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-    let _ = shadow.writeback_ai_state_to_host(&mut logic);
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Moving
@@ -217,7 +216,6 @@ fn private_idle_decision_authority() {
     assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
     // Perturb the diagnostic input only after validating the host result.
     logic.host_object_mut(oid).unwrap().target = Some(vid);
-    let _ = shadow.writeback_ai_state_to_host(&mut logic);
     assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     // set_target(None) residual also idles host; either writeback path is enough.
@@ -340,7 +338,6 @@ fn append_unit_waypoint_decision_authority() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-    let _ = shadow.writeback_ai_state_to_host(&mut logic);
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Moving
@@ -387,7 +384,6 @@ fn set_ai_state_decision_aware_writeback() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-    let _ = shadow.writeback_ai_state_to_host(&mut logic);
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Gathering
@@ -439,8 +435,6 @@ fn death_type_channel_via_set_death_type() {
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
     let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_ai_mood_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_mood_ready_log::drain();
     let _ = shadow.writeback_ai_request_to_host(&mut logic);
     let _ = crate::game_logic::host_ai_request_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -495,8 +489,6 @@ fn radar_extend_channel_via_set_radar_extend() {
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
     let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_ai_mood_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_mood_ready_log::drain();
     let _ = shadow.writeback_ai_request_to_host(&mut logic);
     let _ = crate::game_logic::host_ai_request_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -887,7 +879,6 @@ fn dozer_bored_repair_state_decision_authority() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-    let _ = shadow.writeback_ai_state_to_host(&mut logic);
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Repairing
@@ -977,7 +968,6 @@ fn hijacker_docked_state_decision_authority() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-    let _ = shadow.writeback_ai_state_to_host(&mut logic);
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Docked

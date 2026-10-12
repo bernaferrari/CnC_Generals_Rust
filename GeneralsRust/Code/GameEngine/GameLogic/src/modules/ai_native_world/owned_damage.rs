@@ -121,6 +121,7 @@ impl BorrowedAiWorld<'_> {
                 ),
             )
         };
+        self.validate_damage_shock(owner, damage)?;
         let mut auto_heals = Vec::new();
         for handle in handles {
             let admission = handle
@@ -204,6 +205,7 @@ impl BorrowedAiWorld<'_> {
                 .set_effectively_dead(true);
         }
         if !outcome.processed {
+            self.finish_damage_shock(owner, &candidate)?;
             *damage = candidate;
             return Ok(damage.output.actual_damage_dealt);
         }
@@ -282,6 +284,7 @@ impl BorrowedAiWorld<'_> {
                 .map_err(|_| "damage owner poisoned")?
                 .set_status(ObjectStatusTypes::Repulsor.into(), true);
         }
+        self.finish_damage_shock(owner, &candidate)?;
         *damage = candidate;
         Ok(damage.output.actual_damage_dealt)
     }

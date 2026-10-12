@@ -393,6 +393,7 @@ pub trait AiCommandInterface {
 }
 
 // AI Group runtime values retain the same fields and public type path.
+pub(crate) mod group_owned_motion;
 mod group_runtime;
 pub use group_runtime::AiGroup;
 
@@ -1259,6 +1260,10 @@ impl AI {
             }
         });
         Ok(())
+    }
+
+    pub fn groups(&self) -> &[Arc<RwLock<AiGroup>>] {
+        &self.group_list
     }
 
     pub fn find_group(&self, id: u32) -> Option<Arc<RwLock<AiGroup>>> {

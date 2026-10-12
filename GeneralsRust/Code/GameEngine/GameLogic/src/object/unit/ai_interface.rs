@@ -3,6 +3,7 @@
 #![allow(unused_imports)]
 
 use super::ai_core::UnitAIUpdate;
+use super::ai_helpers::to_locomotor_body_damage_type;
 use super::imports::*;
 use super::registry::get_unit_arc;
 
@@ -80,11 +81,11 @@ impl AIUpdateInterface for UnitAIUpdate {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         UnitAIUpdate::update_waypoint_phase_with_world(self, world)
     }
-    fn update_locomotor_path_phase_with_world(
+    fn update_locomotor_phase_with_world(
         &mut self,
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<(), String> {
-        UnitAIUpdate::update_locomotor_path_phase_with_world(self, world)
+        UnitAIUpdate::update_locomotor_phase_with_world(self, world)
     }
     fn update_exit_phase_with_world(
         &mut self,
@@ -570,6 +571,24 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::get_locomotor_distance_to_goal(self)
     }
 
+    fn get_speed_for_owner_with_penalty(
+        &self,
+        owner: &Object,
+        penalty: crate::locomotor::BodyDamageType,
+    ) -> Result<Real, String> {
+        let Some(loco) = self.runtime.data.locomotor_set.get_active() else {
+            return Ok(0.0);
+        };
+        let condition = match owner.get_body_module() {
+            Some(body) => to_locomotor_body_damage_type(
+                body.try_lock()
+                    .map_err(|_| "speed owner body unavailable")?
+                    .get_damage_state(),
+            ),
+            None => crate::locomotor::BodyDamageType::Pristine,
+        };
+        Ok(loco.get_max_speed_with_penalty(condition, penalty))
+    }
     fn get_speed(&self) -> f32 {
         UnitAIUpdate::get_speed(self)
     }

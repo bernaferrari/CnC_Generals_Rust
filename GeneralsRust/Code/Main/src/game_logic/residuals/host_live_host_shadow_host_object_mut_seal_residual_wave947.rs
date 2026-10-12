@@ -18,7 +18,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const LIVE_HOST_SHADOW_HOST_OBJECT_MUT_SEAL_METHOD_NAMES_WAVE947: &[&str] = &[
     "host_object_mut",
     "with_host_object_mut",
-    "host_ai_state_log_drives_set_ai_state_channel",
+    "host_ai_state_is_canonical_and_shadow_only_observes",
     "Wave 947",
     "playable_claim = false",
 ];
@@ -72,7 +72,8 @@ pub fn honesty_host_shadow_host_object_mut_seal_method_names_residual_wave947() 
     let names = LIVE_HOST_SHADOW_HOST_OBJECT_MUT_SEAL_METHOD_NAMES_WAVE947;
     let ok = residual_name_index(names, "host_object_mut").is_some()
         && residual_name_index(names, "Wave 947").is_some()
-        && residual_name_index(names, "host_ai_state_log_drives_set_ai_state_channel").is_some();
+        && residual_name_index(names, "host_ai_state_is_canonical_and_shadow_only_observes")
+            .is_some();
     residual_action_store(ResidualHostShadowHostObjectMutSealAction::MethodNames);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

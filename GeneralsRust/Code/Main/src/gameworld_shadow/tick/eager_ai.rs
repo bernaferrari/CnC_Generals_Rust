@@ -5,10 +5,6 @@ use crate::game_logic::GameLogic;
 use crate::gameworld_shadow::GameWorldShadow;
 
 // Wave 687: post-logic AI-state / fire-intent batch handoff (avoid double-apply).
-thread_local! {
-    static EARLY_AI_STATE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_ai_state_log::HostAiStateEvent>, bool)>> =
-        std::cell::RefCell::new(None);
-}
 
 // Wave 687: post-logic AI-state / fire-intent batch handoff (avoid double-apply).
 thread_local! {
@@ -16,37 +12,11 @@ thread_local! {
         std::cell::RefCell::new(None);
 }
 
-pub fn take_early_ai_state_batch() -> Option<(
-    Vec<crate::game_logic::host_ai_state_log::HostAiStateEvent>,
-    bool,
-)> {
-    EARLY_AI_STATE_BATCH.with(|c| c.borrow_mut().take())
-}
-
 pub fn take_early_fire_intent_batch() -> Option<(
     Vec<crate::game_logic::host_fire_intent_log::HostFireIntentEvent>,
     bool,
 )> {
     EARLY_FIRE_INTENT_BATCH.with(|c| c.borrow_mut().take())
-}
-
-/// Wave 687: post-logic drain `host_ai_state_log` into GameWorld SetAiState.
-pub fn eager_apply_host_ai_state_after_logic(
-    shadow: &mut GameWorldShadow,
-    _logic: &GameLogic,
-) -> usize {
-    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
-        return 0;
-    }
-    // Wave 687: post-logic AI-state materialize (exclusive shadow borrow).
-    let events = crate::game_logic::host_ai_state_log::drain();
-    if events.is_empty() {
-        EARLY_AI_STATE_BATCH.with(|c| *c.borrow_mut() = None);
-        return 0;
-    }
-    let n = shadow.apply_host_ai_state_events(&events);
-    EARLY_AI_STATE_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
-    n
 }
 
 /// Wave 687: post-logic drain `host_fire_intent_log` into GameWorld SetFireIntent.
@@ -101,10 +71,6 @@ pub fn eager_apply_host_ai_attitude_after_logic(
 }
 
 // Wave 704: post-logic AI-mood / AI-request / shock-stun batch handoff.
-thread_local! {
-    static EARLY_AI_MOOD_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_ai_mood_log::HostAiMoodEvent>, bool)>> =
-        std::cell::RefCell::new(None);
-}
 
 // Wave 704: post-logic AI-mood / AI-request / shock-stun batch handoff.
 thread_local! {
@@ -116,13 +82,6 @@ thread_local! {
 thread_local! {
     static EARLY_SHOCK_STUN_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_shock_stun_log::HostShockStunEvent>, bool)>> =
         std::cell::RefCell::new(None);
-}
-
-pub fn take_early_ai_mood_batch() -> Option<(
-    Vec<crate::game_logic::host_ai_mood_log::HostAiMoodEvent>,
-    bool,
-)> {
-    EARLY_AI_MOOD_BATCH.with(|c| c.borrow_mut().take())
 }
 
 pub fn take_early_ai_request_batch() -> Option<(
@@ -137,25 +96,6 @@ pub fn take_early_shock_stun_batch() -> Option<(
     bool,
 )> {
     EARLY_SHOCK_STUN_BATCH.with(|c| c.borrow_mut().take())
-}
-
-/// Wave 704: post-logic drain `host_ai_mood_log` into GameWorld SetAiMood.
-pub fn eager_apply_host_ai_mood_after_logic(
-    shadow: &mut GameWorldShadow,
-    _logic: &GameLogic,
-) -> usize {
-    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
-        return 0;
-    }
-    // Wave 704: post-logic AI-mood materialize (exclusive shadow borrow).
-    let events = crate::game_logic::host_ai_mood_log::drain();
-    if events.is_empty() {
-        EARLY_AI_MOOD_BATCH.with(|c| *c.borrow_mut() = None);
-        return 0;
-    }
-    let n = shadow.apply_host_ai_mood_events(&events);
-    EARLY_AI_MOOD_BATCH.with(|c| *c.borrow_mut() = Some((events, true)));
-    n
 }
 
 /// Wave 704: post-logic drain `host_ai_request_log` into GameWorld SetAiRequest.
@@ -233,10 +173,8 @@ pub fn eager_apply_host_ai_decision_after_logic(
 
 /// Drop unused post-logic handoff batches when the outermost couple ends.
 pub(super) fn clear_early_ai_batches() {
-    EARLY_AI_STATE_BATCH.with(|c| *c.borrow_mut() = None);
     EARLY_FIRE_INTENT_BATCH.with(|c| *c.borrow_mut() = None);
     EARLY_AI_ATTITUDE_BATCH.with(|c| *c.borrow_mut() = None);
-    EARLY_AI_MOOD_BATCH.with(|c| *c.borrow_mut() = None);
     EARLY_AI_REQUEST_BATCH.with(|c| *c.borrow_mut() = None);
     EARLY_SHOCK_STUN_BATCH.with(|c| *c.borrow_mut() = None);
     EARLY_AI_DECISION_BATCH.with(|c| *c.borrow_mut() = None);

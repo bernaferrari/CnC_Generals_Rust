@@ -196,6 +196,25 @@ impl ModuleThing for ObjectDrawableThingHandle {
     }
 }
 
+/// Pin the exact owner carried by a factory Thing. Numeric IDs never select
+/// a replacement object, including after this handle's owner is retired.
+pub(crate) fn supplied_module_owner(
+    thing: &dyn ModuleThing,
+) -> Result<Arc<RwLock<Object>>, String> {
+    let thing: &dyn std::any::Any = thing;
+    let handle = if let Some(handle) = thing.downcast_ref::<ObjectThingHandle>() {
+        handle
+    } else if let Some(handle) = thing.downcast_ref::<ObjectDrawableThingHandle>() {
+        &handle.object
+    } else {
+        return Err("module Thing does not carry an exact Object owner".into());
+    };
+    handle
+        .object
+        .upgrade()
+        .ok_or("module Thing owner has retired".into())
+}
+
 pub(crate) fn make_drawable_module_thing_handle(
     object: &Arc<RwLock<Object>>,
     drawable: &Arc<RwLock<Drawable>>,

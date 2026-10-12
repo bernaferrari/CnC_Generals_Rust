@@ -1,5 +1,4 @@
 //! Wave 687 residual peels: post-logic AI-state + fire-intent apply on coupled tick.
-//! Host records `host_ai_state_log` / `host_fire_intent_log` mid-frame; engine drains
 //! into GameWorld immediately after the host frame. Session reuses batches without
 //! double-apply. Never flips `playable_claim`.
 
@@ -10,9 +9,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
     table.iter().position(|n| *n == name)
 }
 pub const LIVE_HOST_EAGER_AI_FIRE_INTENT_HELPER_METHOD_NAMES_WAVE687: &[&str] = &[
-    "eager_apply_host_ai_state_after_logic",
     "eager_apply_host_fire_intent_after_logic",
-    "host_ai_state_log",
     "host_fire_intent_log",
     "Wave 687",
     "playable_claim = false",
@@ -76,9 +73,7 @@ fn shadow_source() -> &'static str {
 // (Wave 682/925); per-channel eager_apply_* stays on GAMEWORLD_SHADOW_SRC.
 pub fn honesty_host_eager_ai_fire_intent_helper_method_names_residual_wave687() -> bool {
     let names = LIVE_HOST_EAGER_AI_FIRE_INTENT_HELPER_METHOD_NAMES_WAVE687;
-    let ok = residual_name_index(names, "eager_apply_host_ai_state_after_logic").is_some()
-        && residual_name_index(names, "eager_apply_host_fire_intent_after_logic").is_some()
-        && residual_name_index(names, "host_ai_state_log").is_some()
+    let ok = residual_name_index(names, "eager_apply_host_fire_intent_after_logic").is_some()
         && residual_name_index(names, "host_fire_intent_log").is_some()
         && residual_name_index(names, "Wave 687").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
@@ -88,12 +83,9 @@ pub fn honesty_host_eager_ai_fire_intent_helper_method_names_residual_wave687() 
 pub fn honesty_host_eager_ai_fire_intent_helper_source_markers_residual_wave687() -> bool {
     let eng = eng_source();
     let sh = shadow_source();
-    let api_ok = sh.contains("pub fn eager_apply_host_ai_state_after_logic")
-        && sh.contains("pub fn eager_apply_host_fire_intent_after_logic")
+    let api_ok = sh.contains("pub fn eager_apply_host_fire_intent_after_logic")
         && sh.contains("Wave 687")
-        && sh.contains("take_early_ai_state_batch")
         && sh.contains("take_early_fire_intent_batch")
-        && sh.contains("early_ai_state_applied")
         && sh.contains("early_fire_intent_applied");
     let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
         && eng.contains("eager_apply_all_host_residuals_after_logic")
@@ -120,8 +112,7 @@ pub fn honesty_host_eager_ai_fire_intent_helper_nav_commands_residual_wave687() 
     ok
 }
 pub fn simulate_host_eager_ai_fire_intent_helper_collect_source() -> bool {
-    let ok = shadow_source().contains("eager_apply_host_ai_state_after_logic")
-        && shadow_source().contains("eager_apply_host_fire_intent_after_logic")
+    let ok = shadow_source().contains("eager_apply_host_fire_intent_after_logic")
         && eng_source().contains("eager_apply_all_host_residuals_after_logic");
     residual_action_store(ResidualHostEagerAiFireIntentHelperAction::CollectSource);
     ok
@@ -150,11 +141,10 @@ pub fn simulate_live_host_eager_ai_fire_intent_helper_honesty() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_ai_state_log;
     use crate::game_logic::host_fire_intent_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
+    use crate::gameworld_shadow::{GameWorldShadow, begin_shadow_coupled_tick};
     use crate::gameworld_shadow::{
-        GameWorldShadow, begin_shadow_coupled_tick, eager_apply_host_ai_state_after_logic,
         eager_apply_host_fire_intent_after_logic, eager_map_host_spawn_if_coupled,
         end_shadow_coupled_tick, shadow_session_after_host_tick, with_coupled_shadow,
     };
@@ -199,7 +189,6 @@ mod tests {
         let _guard = crate::gameworld_shadow::authority_env_lock();
         let prev = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        host_ai_state_log::clear();
         host_fire_intent_log::clear();
 
         let mut logic = GameLogic::new();
@@ -208,9 +197,7 @@ mod tests {
             .create_object("EagerAiUnit", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("spawn");
         // ordinal 1 = Attack residual (matches host_ai_state_ordinal convention).
-        host_ai_state_log::record(id, 1);
         host_fire_intent_log::record(id, 2, 0, 10.0, 100.0, 1.0, 5, 1);
-        assert_eq!(host_ai_state_log::len(), 1);
         assert_eq!(host_fire_intent_log::len(), 1);
 
         let mut shadow = GameWorldShadow::new(64);
@@ -226,9 +213,7 @@ mod tests {
                 },
             ));
         });
-        assert!(eager_apply_host_ai_state_after_logic(&mut shadow, &logic) >= 1);
         assert!(eager_apply_host_fire_intent_after_logic(&mut shadow, &logic) >= 1);
-        assert!(host_ai_state_log::drain().is_empty());
         assert!(host_fire_intent_log::drain().is_empty());
         let _probe = shadow_session_after_host_tick(&mut shadow, &mut logic);
         end_shadow_coupled_tick();

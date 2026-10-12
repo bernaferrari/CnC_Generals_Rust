@@ -449,7 +449,6 @@ pub enum ReadyLogDrainOp {
     Contain,
     Projectiles,
     AttackTarget,
-    AiState,
     Movement,
     FireIntent,
     MoveTarget,
@@ -465,7 +464,6 @@ pub enum ReadyLogDrainOp {
     RadarExtend,
     ShockStun,
     SoleHealing,
-    AiMood,
     Owner,
     Veterancy,
     WeaponBonus,
@@ -677,8 +675,6 @@ pub enum HostWritebackOp {
         id: ObjectId,
         destination: Option<glam::Vec3>,
     },
-    /// Wave 945: AI state ordinal last-write.
-    AiState { id: ObjectId, ordinal: u8 },
     /// Wave 945: AI attitude last-write.
     AiAttitude { id: ObjectId, attitude: i8 },
     /// Wave 945: owner last-write. `team` remains faction/presentation state;

@@ -7,15 +7,15 @@
 //! rollback, and clear the old world's events only once commit is certain.
 
 use super::{
-    host_ai_attitude_log, host_ai_decision_log, host_ai_mood_log, host_ai_state_log,
-    host_attack_log, host_building_type_log, host_combat_attack_log, host_command_set_log,
-    host_contain_capacity_log, host_contain_log, host_continuous_fire_log,
-    host_demo_mine_cheer_log, host_detector_log, host_experience_log, host_ground_height_log,
-    host_hive_log, host_identity_log, host_kind_of_log, host_locomotor_log, host_max_health_log,
-    host_model_mesh_log, host_movement_log, host_overlord_log, host_physics_motive_log,
-    host_player_cooldown_log, host_player_meta_log, host_player_progress_log, host_spawn_log,
-    host_special_power_log, host_status_log, host_stealth_flags_log, host_stored_supplies_log,
-    host_target_location_log, host_veterancy_log, host_weapon_set_log,
+    host_ai_attitude_log, host_ai_decision_log, host_attack_log, host_building_type_log,
+    host_combat_attack_log, host_command_set_log, host_contain_capacity_log, host_contain_log,
+    host_continuous_fire_log, host_demo_mine_cheer_log, host_detector_log, host_experience_log,
+    host_ground_height_log, host_hive_log, host_identity_log, host_kind_of_log, host_locomotor_log,
+    host_max_health_log, host_model_mesh_log, host_movement_log, host_overlord_log,
+    host_physics_motive_log, host_player_cooldown_log, host_player_meta_log,
+    host_player_progress_log, host_spawn_log, host_special_power_log, host_status_log,
+    host_stealth_flags_log, host_stored_supplies_log, host_target_location_log, host_veterancy_log,
+    host_weapon_set_log,
 };
 use std::cell::Cell;
 
@@ -52,8 +52,6 @@ pub(crate) struct WorldStageEffectsState {
     player_cooldown: Vec<host_player_cooldown_log::HostPlayerCooldownEvent>,
     stored_supplies: Vec<host_stored_supplies_log::HostStoredSuppliesEvent>,
     contain: Vec<host_contain_log::HostContainEvent>,
-    ai_state: Vec<host_ai_state_log::HostAiStateEvent>,
-    ai_mood: Vec<host_ai_mood_log::HostAiMoodEvent>,
     locomotor: Vec<host_locomotor_log::HostLocomotorEvent>,
     combat_attack: Vec<host_combat_attack_log::HostCombatAttackEvent>,
     attack: host_attack_log::HostAttackLogWorldStageState,
@@ -92,8 +90,6 @@ impl WorldStageEffectsState {
             player_cooldown: host_player_cooldown_log::take_for_world_stage(),
             stored_supplies: host_stored_supplies_log::take_for_world_stage(),
             contain: host_contain_log::take_for_world_stage(),
-            ai_state: host_ai_state_log::take_for_world_stage(),
-            ai_mood: host_ai_mood_log::take_for_world_stage(),
             locomotor: host_locomotor_log::take_for_world_stage(),
             combat_attack: host_combat_attack_log::take_for_world_stage(),
             attack: host_attack_log::take_for_world_stage(),
@@ -140,8 +136,6 @@ impl WorldStageEffectsState {
                 next.stored_supplies,
             ),
             contain: host_contain_log::replace_for_world_stage(next.contain),
-            ai_state: host_ai_state_log::replace_for_world_stage(next.ai_state),
-            ai_mood: host_ai_mood_log::replace_for_world_stage(next.ai_mood),
             locomotor: host_locomotor_log::replace_for_world_stage(next.locomotor),
             combat_attack: host_combat_attack_log::replace_for_world_stage(next.combat_attack),
             attack: host_attack_log::replace_for_world_stage(next.attack),
@@ -185,8 +179,6 @@ impl WorldStageEffectsState {
         host_player_cooldown_log::clear();
         host_stored_supplies_log::clear();
         host_contain_log::clear();
-        host_ai_state_log::clear();
-        host_ai_mood_log::clear();
         host_locomotor_log::clear();
         host_combat_attack_log::clear();
         host_attack_log::clear();

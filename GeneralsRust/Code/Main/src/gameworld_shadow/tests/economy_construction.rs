@@ -607,8 +607,6 @@ fn exit_delay_remaining_channel_via_production_progress() {
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
     let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_ai_mood_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_mood_ready_log::drain();
     let _ = shadow.writeback_ai_request_to_host(&mut logic);
     let _ = crate::game_logic::host_ai_request_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -670,8 +668,6 @@ fn body_damage_state_channel_via_set_body_damage() {
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
     let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_ai_mood_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_mood_ready_log::drain();
     let _ = shadow.writeback_ai_request_to_host(&mut logic);
     let _ = crate::game_logic::host_ai_request_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -1069,8 +1065,6 @@ fn shock_stun_channel_via_set_shock_stun() {
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
     let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_ai_mood_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_mood_ready_log::drain();
     let _ = shadow.writeback_ai_request_to_host(&mut logic);
     let _ = crate::game_logic::host_ai_request_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -1251,8 +1245,6 @@ fn rebuild_producer_channel_via_set_rebuild_producer() {
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
     let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_ai_mood_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_mood_ready_log::drain();
     let _ = shadow.writeback_ai_request_to_host(&mut logic);
     let _ = crate::game_logic::host_ai_request_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);

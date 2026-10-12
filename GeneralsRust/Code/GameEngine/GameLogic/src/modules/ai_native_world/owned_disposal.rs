@@ -20,6 +20,7 @@ impl NativeDisposalState {
 impl AiNativeServices<'_> {
     fn reborrow(&mut self) -> AiNativeServices<'_> {
         AiNativeServices {
+            groups: self.groups,
             disposal: self.disposal.as_deref_mut(),
             teams: self.teams,
             client_random: self.client_random,

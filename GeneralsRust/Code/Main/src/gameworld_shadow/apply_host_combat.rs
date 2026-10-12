@@ -591,31 +591,6 @@ impl GameWorldShadow {
         n
     }
 
-    pub fn apply_host_ai_mood_events(
-        &mut self,
-        events: &[crate::game_logic::host_ai_mood_log::HostAiMoodEvent],
-    ) -> usize {
-        let mut n = 0usize;
-        for ev in events {
-            let Some(&eid) = self.host_to_entity.get(&ev.object.0) else {
-                continue;
-            };
-            self.world
-                .queue_mutation(gamelogic::world::WorldMutation::SetAiMood {
-                    target: eid,
-                    idle_since_frame: ev.idle_since_frame,
-                    mood_attack_check_rate: ev.mood_attack_check_rate,
-                    auto_acquire_when_idle: ev.auto_acquire_when_idle,
-                    attack_priority_set: ev.attack_priority_set.clone(),
-                });
-            n += 1;
-        }
-        if n > 0 {
-            let _ = self.apply_pending();
-        }
-        n
-    }
-
     pub fn apply_host_ai_request_events(
         &mut self,
         events: &[crate::game_logic::host_ai_request_log::HostAiRequestEvent],

@@ -2031,7 +2031,12 @@ impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
             ),
             None => BodyDamageType::Pristine,
         };
-        Ok(loco.get_max_speed_for_condition(condition))
+        match self.world.as_deref() {
+            Some(world) => {
+                Ok(loco.get_max_speed_with_penalty(condition, world.locomotor_movement_penalty()?))
+            }
+            None => Ok(loco.get_max_speed_for_condition(condition)),
+        }
     }
     fn is_doing_ground_movement_for_owner(&self, owner: &Object) -> Result<bool, String> {
         self.runtime

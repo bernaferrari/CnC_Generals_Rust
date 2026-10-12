@@ -2038,8 +2038,6 @@ mod staged_restore_tests {
             object,
             Some(crate::game_logic::ObjectId(0x00ff_ee13)),
         );
-        crate::game_logic::host_ai_state_log::record(object, 12);
-        crate::game_logic::host_ai_mood_log::record(object, 27, 28, true, label.to_string());
         crate::game_logic::host_locomotor_log::record(
             object, false, false, true, false, true, false, 29.0, 30.0, true, false, 31.0, 32.0,
             33.0, 34, 35, 36.0, -1,

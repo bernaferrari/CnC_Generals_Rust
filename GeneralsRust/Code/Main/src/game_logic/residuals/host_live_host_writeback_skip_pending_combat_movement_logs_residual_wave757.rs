@@ -85,11 +85,7 @@ pub fn honesty_host_writeback_skip_pending_combat_movement_logs_method_names_res
 pub fn honesty_host_writeback_skip_pending_combat_movement_logs_source_markers_residual_wave757()
 -> bool {
     let sh = sh_source();
-    // 2026-08-14 last-writer correction: `host_ai_state_log` no longer skips
-    // host writeback while pending — the GameWorld SetAiState channel is the
-    // last-writer (mirrors C++ Object::setAIState applying immediately; the
-    // pending-skip starved GW and host logs replayed stale state). The other
-    // eleven channels keep the Wave 757 pending-skip.
+    // AI-state and mood mirror writers are retired; audit surviving channels.
     let logs = [
         "host_body_damage_log",
         "host_movement_log",
@@ -98,7 +94,6 @@ pub fn honesty_host_writeback_skip_pending_combat_movement_logs_source_markers_r
         "host_physics_motive_log",
         "host_weapon_set_log",
         "host_weapon_stats_log",
-        "host_ai_mood_log",
         "host_stealth_flags_log",
         "host_model_condition_log",
         "host_experience_log",
@@ -111,8 +106,6 @@ pub fn honesty_host_writeback_skip_pending_combat_movement_logs_source_markers_r
         "writeback_physics_motive_to_host",
         "writeback_weapon_set_to_host",
         "writeback_weapon_stats_to_host",
-        "writeback_ai_state_to_host",
-        "writeback_ai_mood_to_host",
         "writeback_stealth_flags_to_host",
         "writeback_model_condition_to_host",
         "writeback_experience_to_host",
@@ -126,7 +119,7 @@ pub fn honesty_host_writeback_skip_pending_combat_movement_logs_source_markers_r
         && sh.contains("shadow_coupled_tick_active()")
         && logs_ok
         && wbs_ok
-        && wave_hits >= 11
+        && wave_hits >= 10
         && !sh.contains("playable_claim = true");
     residual_action_store(ResidualHostWritebackSkipPendingCombatMovementLogsAction::SourceMarkers);
     ok

@@ -17,6 +17,7 @@ use std::sync::{Arc, RwLock};
 /// trigger notifications and semantic presentation messages, not queued game
 /// mutations; Object trigger flags change synchronously during the operation.
 pub struct AiNativeServices<'a> {
+    pub groups: &'a [Arc<RwLock<crate::ai::AiGroup>>],
     pub(crate) disposal: Option<&'a mut owned_disposal::NativeDisposalState>,
     pub teams: &'a crate::team::TeamFactory,
     pub client_random: &'a mut game_engine::common::random_value::RandomState,
@@ -286,6 +287,55 @@ impl<'a> BorrowedAiWorld<'a> {
     }
 }
 impl AiWorld for BorrowedAiWorld<'_> {
+    fn waypoint_group_motion(
+        &self,
+        group_id: u32,
+        borrowed_owner: ObjectID,
+        borrowed_speed: Real,
+    ) -> Result<Option<(Real, Coord3D)>, String> {
+        for group in self.services.groups {
+            let mut group = group
+                .try_write()
+                .map_err(|_| "waypoint group unavailable")?;
+            if group.get_id() != group_id {
+                continue;
+            }
+            let (speed, center) = group.motion_with_members(|id, needs_speed| {
+                let Some(owner) = self.object(id) else {
+                    return Ok(None);
+                };
+                let owner = owner
+                    .try_read()
+                    .map_err(|_| "waypoint group member unavailable")?;
+                let ai = owner.get_ai_update_interface();
+                let speed = if !needs_speed {
+                    None
+                } else if id == borrowed_owner {
+                    Some(borrowed_speed)
+                } else if let Some(ai) = &ai {
+                    Some(
+                        ai.try_lock()
+                            .map_err(|_| "waypoint member AI unavailable")?
+                            .get_speed_for_owner_with_penalty(
+                                &owner,
+                                self.services.movement_penalty,
+                            )?,
+                    )
+                } else {
+                    None
+                };
+                Ok(Some(crate::ai::group_owned_motion::GroupMotionMember {
+                    position: *owner.get_position(),
+                    held: owner.is_disabled_by_type(crate::common::DisabledType::Held),
+                    has_ai: ai.is_some(),
+                    speed,
+                }))
+            })?;
+            return Ok(Some((speed, center.unwrap_or(Coord3D::ZERO))));
+        }
+        Ok(None)
+    }
+
     fn waypoint_pathfind_extent(&self) -> Result<crate::common::Region3D, String> {
         Ok(self.services.terrain.get_maximum_pathfind_extent())
     }
@@ -451,6 +501,9 @@ impl AiWorld for BorrowedAiWorld<'_> {
                 | crate::ai::AiCommandType::Busy
                 | crate::ai::AiCommandType::MoveToPosition
                 | crate::ai::AiCommandType::FollowWaypointPath
+                | crate::ai::AiCommandType::FollowWaypointPathExact
+                | crate::ai::AiCommandType::FollowWaypointPathAsTeam
+                | crate::ai::AiCommandType::FollowWaypointPathAsTeamExact
         ) {
             return Err("native friendly Enter does not admit attack commands".into());
         }
@@ -1081,14 +1134,14 @@ impl AiWorld for BorrowedAiWorld<'_> {
     fn locomotor_movement_penalty(&self) -> Result<crate::locomotor::BodyDamageType, String> {
         Ok(self.services.movement_penalty)
     }
-    fn validate_owned_locomotor_path_step(
+    fn validate_owned_locomotor_step(
         &self,
         owner: &Arc<RwLock<Object>>,
         locomotor: &crate::locomotor::Locomotor,
     ) -> Result<(), String> {
         self.validate_ground_path_step(owner, locomotor)
     }
-    fn move_owned_locomotor_path_step(
+    fn move_owned_locomotor_step(
         &mut self,
         owner: &Arc<RwLock<Object>>,
         locomotor: &mut crate::locomotor::Locomotor,
@@ -1099,7 +1152,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
         condition: crate::locomotor::BodyDamageType,
         penalty: crate::locomotor::BodyDamageType,
     ) -> Result<(Coord3D, Real, Real), String> {
-        self.move_ground_path_step(
+        self.move_ground_step(
             owner,
             locomotor,
             target,
@@ -1409,3 +1462,6 @@ mod owned_locomotion;
 mod owned_physics;
 
 pub(crate) mod owned_disposal;
+
+#[path = "ai_native_world/owned_shock.rs"]
+mod owned_shock;

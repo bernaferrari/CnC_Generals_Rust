@@ -47,6 +47,19 @@ impl Object {
         self.group_id = Some(group.get_id());
     }
 
+    /// Admit a member already inserted into this session's runtime group.
+    /// Transfers require the previous group owner to remove membership first.
+    pub(crate) fn enter_runtime_group(&mut self, group: &crate::ai::AiGroup) -> Result<(), String> {
+        if self.group_id.is_some() {
+            return Err("runtime group transfer requires explicit previous owner".into());
+        }
+        if !group.is_member(self.get_id()) {
+            return Err("runtime group has not admitted this member".into());
+        }
+        self.group_id = Some(group.get_id());
+        Ok(())
+    }
+
     pub fn leave_group(&mut self) {
         self.group_id = None;
     }
@@ -576,11 +589,7 @@ impl Object {
         let ai = self.ai.as_ref()?;
         let guard = ai.lock().ok()?;
         let id = guard.get_goal_object_id();
-        if id != INVALID_ID {
-            Some(id)
-        } else {
-            None
-        }
+        if id != INVALID_ID { Some(id) } else { None }
     }
 
     pub fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {

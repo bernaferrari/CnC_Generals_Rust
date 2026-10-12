@@ -3796,21 +3796,7 @@ mod tests {
 
     #[test]
     fn do_locomotor_explicit_goal_moves_owner_with_locomotor_like_cpp() {
-        let owner_id = 7_501;
-        let (owner, _owner_cleanup) = register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
-        let mut data = AIUpdateModuleData::default();
-        data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
-        let mut ai = AIUpdateInterface::new_for_object(Arc::new(data), owner_id);
-        assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
-
-        ai.set_locomotor_goal_position_explicit(Coord3D::new(40.0, 0.0, 0.0));
-        assert_eq!(ai.do_locomotor(), 0);
-
-        let position = *owner.read().unwrap().get_position();
-        assert!(position.x > 0.0);
-        assert!(position.y.abs() < 0.01);
-        assert!(ai.cur_locomotor_speed > 0.0);
-        assert!(!ai.do_final_position);
+        crate::modules::owned_native_explicit_goal_control();
     }
 
     #[test]

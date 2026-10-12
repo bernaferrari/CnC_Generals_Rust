@@ -1,4 +1,4 @@
-//! One native UnitAI POSITION_ON_PATH movement phase.
+//! Native UnitAI path and explicit-position movement phases.
 //!
 //! This adapter loans the AI's real path and active locomotor, and asks its
 //! supplied AiWorld to update the exact owner through admitted Physics.
@@ -8,14 +8,16 @@ use super::ai_loco::NativePathMovementContext;
 use super::imports::*;
 
 impl UnitAIUpdate {
-    pub(super) fn update_locomotor_path_phase_with_world(
+    pub(super) fn update_locomotor_phase_with_world(
         &mut self,
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<(), String> {
         self.validate_owned_components(false, false)
             .map_err(|error| error.to_string())?;
-        if self.runtime.data.locomotor_goal_type != 1 {
-            return Err("native locomotion phase requires POSITION_ON_PATH".into());
+        if !matches!(self.runtime.data.locomotor_goal_type, 1 | 2) {
+            return Err(
+                "native locomotion phase requires POSITION_ON_PATH or POSITION_EXPLICIT".into(),
+            );
         }
         let owner = self
             .runtime
@@ -33,7 +35,7 @@ impl UnitAIUpdate {
         {
             return Err("native path phase admits ordinary ground surfaces only".into());
         }
-        world.validate_owned_locomotor_path_step(&owner, active)?;
+        world.validate_owned_locomotor_step(&owner, active)?;
         let penalty = world.locomotor_movement_penalty()?;
         let ignore_obstacle_id = self.runtime.data.ignore_obstacle_id;
         if ignore_obstacle_id != crate::common::INVALID_ID {
@@ -66,24 +68,38 @@ impl UnitAIUpdate {
         if self.runtime.data.is_ai_in_dead_state() && !active.template.locomotor_works_when_dead {
             return Ok(());
         }
-        let path = match self.runtime.data.current_path_snapshot.as_mut() {
-            Some(path) => path,
-            None if self.runtime.data.waiting_for_path => return Ok(()),
-            None => return Err("native POSITION_ON_PATH has no installed path".into()),
+        let (goal, distance) = if self.runtime.data.locomotor_goal_type == 2 {
+            // CPP AIUpdate.cpp:2143–2153 passes an explicit goal directly,
+            // with zero on-path distance; no path queue or CPOP is involved.
+            let goal = self.runtime.data.locomotor_goal_data;
+            if !goal.is_finite() {
+                return Err("native explicit goal must be finite".into());
+            }
+            (goal, 0.0)
+        } else {
+            let path = match self.runtime.data.current_path_snapshot.as_mut() {
+                Some(path) => path,
+                None if self.runtime.data.waiting_for_path => return Ok(()),
+                None => return Err("native POSITION_ON_PATH has no installed path".into()),
+            };
+            if !path.is_finite_single_layer(crate::ai::pathfind::PathfindLayerEnum::Ground) {
+                return Err("native path phase requires finite ground-layer nodes".into());
+            }
+            let pathfinder = world
+                .pathfinder()
+                .ok_or("native path phase requires its supplied Pathfinder")?;
+            let mut context =
+                NativePathMovementContext::borrowed(pathfinder, surfaces, None, layer, None);
+            let point = path.compute_point_on_path(&current, &mut context);
+            drop(context);
+            if point.layer != crate::ai::pathfind::PathfindLayerEnum::Ground {
+                return Err("native path phase encountered an unsupported path layer".into());
+            }
+            (
+                point.pos_on_path,
+                point.dist_along_path + self.runtime.data.path_extra_distance,
+            )
         };
-        if !path.is_finite_single_layer(crate::ai::pathfind::PathfindLayerEnum::Ground) {
-            return Err("native path phase requires finite ground-layer nodes".into());
-        }
-        let pathfinder = world
-            .pathfinder()
-            .ok_or("native path phase requires its supplied Pathfinder")?;
-        let mut context =
-            NativePathMovementContext::borrowed(pathfinder, surfaces, None, layer, None);
-        let point = path.compute_point_on_path(&current, &mut context);
-        drop(context);
-        if point.layer != crate::ai::pathfind::PathfindLayerEnum::Ground {
-            return Err("native path phase encountered an unsupported path layer".into());
-        }
 
         let max_speed = active.get_max_speed_with_penalty(condition, penalty);
         let mut speed = self.runtime.data.desired_speed;
@@ -91,25 +107,21 @@ impl UnitAIUpdate {
             speed = max_speed;
         }
         let blocked = self.runtime.data.blocked_frames > 0;
-        let (speed, blocked) = self
-            .runtime
-            .data
-            .apply_bump_speed_limit_with_blocked(speed, blocked);
+        let (speed, blocked) = if self.runtime.data.locomotor_goal_type == 1 {
+            self.runtime
+                .data
+                .apply_bump_speed_limit_with_blocked(speed, blocked)
+        } else {
+            (speed, blocked)
+        };
         let active = self
             .runtime
             .data
             .locomotor_set
             .get_active_mut()
             .ok_or("native locomotion member disappeared")?;
-        world.move_owned_locomotor_path_step(
-            &owner,
-            active,
-            point.pos_on_path,
-            point.dist_along_path + self.runtime.data.path_extra_distance,
-            speed,
-            blocked,
-            condition,
-            penalty,
+        world.move_owned_locomotor_step(
+            &owner, active, goal, distance, speed, blocked, condition, penalty,
         )?;
         self.runtime.data.do_final_position = false;
         Ok(())
@@ -128,6 +140,7 @@ pub(crate) struct NativeWaypointObservation {
     pub(crate) requested_destination: Coord3D,
     pub(crate) waiting_for_path: bool,
     pub(crate) has_path: bool,
+    pub(crate) do_final_position: bool,
     pub(crate) current_waypoint: Option<crate::waypoint::WaypointId>,
     pub(crate) completed_waypoint: Option<crate::waypoint::WaypointId>,
     pub(crate) parent_goal: Option<Coord3D>,
@@ -158,6 +171,7 @@ impl UnitAIUpdate {
             requested_destination: self.runtime.data.requested_destination,
             waiting_for_path: self.runtime.data.waiting_for_path,
             has_path: self.runtime.data.current_path_snapshot.is_some(),
+            do_final_position: self.runtime.data.do_final_position,
             current_waypoint: self.runtime.data.current_waypoint_id,
             completed_waypoint: self.runtime.data.completed_waypoint_id,
             parent_goal: self

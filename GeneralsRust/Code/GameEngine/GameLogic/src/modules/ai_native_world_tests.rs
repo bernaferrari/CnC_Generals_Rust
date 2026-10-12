@@ -177,6 +177,7 @@ impl AudioLocalityResolver for LocalPlayers<'_> {
     }
 }
 struct NativeMatch {
+    groups: Vec<Arc<RwLock<crate::ai::AiGroup>>>,
     scheduler: crate::system::game_logic::GameLogic,
     disposal: super::ai_native_world::owned_disposal::NativeDisposalState,
     teams: crate::team::TeamFactory,
@@ -353,6 +354,7 @@ impl NativeMatch {
             )
             .unwrap();
         Self {
+            groups: Vec::new(),
             scheduler,
             disposal: super::ai_native_world::owned_disposal::NativeDisposalState::new().unwrap(),
             teams,
@@ -406,6 +408,7 @@ impl NativeMatch {
     ) -> R {
         let locality = LocalPlayers(&self.players);
         let services = AiNativeServices {
+            groups: &self.groups,
             disposal: Some(&mut self.disposal),
             current_update,
             update_scheduler: &mut self.scheduler,
@@ -971,3 +974,5 @@ pub(crate) use waypoint_motion::{
     other_path_moves_its_real_owner_and_continues_after_canonical_ai_xfer as owned_native_path_save_control,
     other_turn_is_not_repeated_by_actual_physics_integration as owned_native_turn_control,
 };
+
+pub(crate) use locomotion::explicit_goal_moves_canonical_owner_without_path_or_foreign_writes as owned_native_explicit_goal_control;

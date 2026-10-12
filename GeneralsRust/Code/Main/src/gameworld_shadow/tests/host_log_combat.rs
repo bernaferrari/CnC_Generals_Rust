@@ -816,7 +816,6 @@ fn host_ai_attitude_log_drives_set_ai_attitude_channel() {
         .create_object("AU", Team::USA, glam::Vec3::new(15.0, 0.0, 15.0))
         .expect("id");
     host_ai_attitude_log::clear();
-    crate::game_logic::host_ai_mood_log::clear();
     crate::game_logic::host_ai_request_log::clear();
     crate::game_logic::host_ai_decision_log::clear();
     {

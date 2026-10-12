@@ -38,6 +38,15 @@ pub trait AiWorld {
         Err("supplied AI world has no idle-worker presentation owner".into())
     }
 
+    fn waypoint_group_motion(
+        &self,
+        _group_id: u32,
+        _borrowed_owner: ObjectID,
+        _borrowed_speed: Real,
+    ) -> Result<Option<(Real, Coord3D)>, String> {
+        Err("supplied AI world has no group motion owner".into())
+    }
+
     fn object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>>;
     fn frame(&self) -> UnsignedInt;
     fn terrain_layer_height(&self, x: f32, y: f32, layer: crate::common::PathfindLayerEnum) -> f32;
@@ -137,14 +146,14 @@ pub trait AiWorld {
     fn locomotor_movement_penalty(&self) -> Result<crate::locomotor::BodyDamageType, String> {
         Err("supplied movement damage penalty unavailable".into())
     }
-    fn validate_owned_locomotor_path_step(
+    fn validate_owned_locomotor_step(
         &self,
         _owner: &Arc<RwLock<Object>>,
         _locomotor: &crate::locomotor::Locomotor,
     ) -> Result<(), String> {
         Err("supplied owner does not admit native locomotion".into())
     }
-    fn move_owned_locomotor_path_step(
+    fn move_owned_locomotor_step(
         &mut self,
         _owner: &Arc<RwLock<Object>>,
         _locomotor: &mut crate::locomotor::Locomotor,

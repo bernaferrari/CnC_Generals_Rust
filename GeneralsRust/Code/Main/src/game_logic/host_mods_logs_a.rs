@@ -20,9 +20,6 @@ pub mod host_a10_strike_drop_log;
 #[path = "host_ai_decision_log.rs"]
 pub mod host_ai_decision_log;
 
-#[path = "host_ai_mood_log.rs"]
-pub mod host_ai_mood_log;
-
 #[path = "host_ai_request_log.rs"]
 pub mod host_ai_request_log;
 
@@ -69,17 +66,8 @@ pub mod host_ai_attitude_log;
 #[path = "host_ai_attitude_ready_log.rs"]
 pub mod host_ai_attitude_ready_log;
 
-#[path = "host_ai_mood_ready_log.rs"]
-pub mod host_ai_mood_ready_log;
-
 #[path = "host_ai_request_ready_log.rs"]
 pub mod host_ai_request_ready_log;
-
-#[path = "host_ai_state_log.rs"]
-pub mod host_ai_state_log;
-
-#[path = "host_ai_state_ready_log.rs"]
-pub mod host_ai_state_ready_log;
 
 #[path = "host_attack_log.rs"]
 pub mod host_attack_log;

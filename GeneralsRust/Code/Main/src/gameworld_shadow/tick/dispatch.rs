@@ -30,7 +30,6 @@ pub fn eager_apply_all_host_residuals_after_logic(
         let _ = eager_apply_host_health_after_logic(shadow, logic);
         let _ = eager_apply_host_max_health_after_logic(shadow, logic);
         let _ = eager_apply_host_experience_after_logic(shadow, logic);
-        let _ = eager_apply_host_ai_state_after_logic(shadow, logic);
         let _ = eager_apply_host_fire_intent_after_logic(shadow, logic);
         let _ = eager_apply_host_owner_after_logic(shadow, logic);
         let _ = eager_apply_host_movement_after_logic(shadow, logic);
@@ -75,7 +74,6 @@ pub fn eager_apply_all_host_residuals_after_logic(
         let _ = eager_apply_host_physics_motive_after_logic(shadow, logic);
         let _ = eager_apply_host_locomotor_after_logic(shadow, logic);
         let _ = eager_apply_host_bounce_land_after_logic(shadow, logic);
-        let _ = eager_apply_host_ai_mood_after_logic(shadow, logic);
         let _ = eager_apply_host_ai_request_after_logic(shadow, logic);
         let _ = eager_apply_host_shock_stun_after_logic(shadow, logic);
         let _ = eager_apply_host_stealth_delay_after_logic(shadow, logic);

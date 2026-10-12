@@ -45,8 +45,6 @@ fn sole_healing_channel_via_set_sole_healing() {
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
     let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_ai_mood_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_mood_ready_log::drain();
     let _ = shadow.writeback_ai_request_to_host(&mut logic);
     let _ = crate::game_logic::host_ai_request_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -57,10 +55,8 @@ fn sole_healing_channel_via_set_sole_healing() {
 }
 
 #[test]
-fn ai_mood_channel_via_set_ai_mood() {
-    use crate::game_logic::host_ai_mood_log;
+fn ai_mood_is_canonical_and_shadow_only_observes() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_ai_mood_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AiMood");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -79,34 +75,30 @@ fn ai_mood_channel_via_set_ai_mood() {
         o.auto_acquire_when_idle = false;
         o.attack_priority_set = Some("Soldier".into());
     }
-    host_ai_mood_log::record(oid, 120, 45, false, "Soldier".into());
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    assert!(shadow.apply_host_ai_mood_events(&host_ai_mood_log::drain()) >= 1);
     let e = shadow.world().entity(eid).unwrap();
     assert_eq!(e.idle_since_frame, 120);
     assert_eq!(e.mood_attack_check_rate, 45);
     assert!(!e.auto_acquire_when_idle);
     assert_eq!(e.attack_priority_set, "Soldier");
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.idle_since_frame = 0;
-        o.mood_attack_check_rate = 30;
-        o.auto_acquire_when_idle = true;
-        o.attack_priority_set = None;
-    }
-    assert!(shadow.writeback_ai_mood_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_ai_mood_ready_log::drain();
-    let _ = shadow.writeback_ai_request_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_request_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
+    let e = shadow.world_mut().world_mut().entity_mut(eid).expect("e");
+    e.idle_since_frame = 0;
+    e.mood_attack_check_rate = 30;
+    e.auto_acquire_when_idle = true;
+    e.attack_priority_set.clear();
     let o = logic.host_objects().get(&oid).unwrap();
     assert_eq!(o.idle_since_frame, 120);
     assert_eq!(o.mood_attack_check_rate, 45);
     assert!(!o.auto_acquire_when_idle);
     assert_eq!(o.attack_priority_set.as_deref(), Some("Soldier"));
+    shadow.sync_from_host(&logic);
+    let e = shadow.world().entity(eid).expect("e");
+    assert_eq!(e.idle_since_frame, 120);
+    assert_eq!(e.mood_attack_check_rate, 45);
+    assert!(!e.auto_acquire_when_idle);
+    assert_eq!(e.attack_priority_set, "Soldier");
 }
 
 #[test]

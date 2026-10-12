@@ -25,12 +25,12 @@ impl BorrowedAiWorld<'_> {
                 "native path locomotion admits only ordinary ground TWO_LEGS / OTHER".into(),
             );
         }
-        if locomotor.template.turn_pivot_offset != 0.0
-            || (locomotor.get_appearance() == LocomotorAppearance::TwoLegs
-                && locomotor.template.min_speed > 0.0)
-            || locomotor.template.wander_width_factor != 0.0
+        if (locomotor.get_appearance() == LocomotorAppearance::TwoLegs
+            && locomotor.template.min_speed > 0.0)
+            || (locomotor.get_appearance() != LocomotorAppearance::TwoLegs
+                && locomotor.template.wander_width_factor != 0.0)
         {
-            return Err("native ground path requires zero pivot, zero infantry minimum speed and no wandering".into());
+            return Err("native ground path requires zero infantry minimum speed and infantry-only wandering".into());
         }
         let actual_owner = self
             .factory
@@ -98,7 +98,7 @@ impl BorrowedAiWorld<'_> {
     /// Object. Each motive force updates canonical Physics through a short
     /// lease, then admits its actual installed Physics proxy before the next
     /// Physics observation.
-    pub(crate) fn move_ground_path_step(
+    pub(crate) fn move_ground_step(
         &mut self,
         owner: &Arc<RwLock<Object>>,
         locomotor: &mut Locomotor,
@@ -160,6 +160,15 @@ impl BorrowedAiWorld<'_> {
             wake: &mut wake,
         };
         let mut change_pose = |object: &mut Object, change| match change {
+            crate::locomotor::LocomotorPoseChange::Transform(transform) => object
+                .set_transform_matrix_with_services(
+                    &transform,
+                    terrain,
+                    &mut self.services.collision,
+                    frame,
+                    &mut |id| self.services.changed_trigger_objects.push(id),
+                    &mut |owner| self.services.terrain_moved_objects.push(owner.get_id()),
+                ),
             crate::locomotor::LocomotorPoseChange::Position(position) => apply_native_position(
                 object,
                 &position,

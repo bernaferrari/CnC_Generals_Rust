@@ -71,6 +71,33 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+fn supplied_group_motion(
+    ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    owner: &Arc<RwLock<Object>>,
+) -> Result<(Real, Coord2D), String> {
+    let (id, group, position) = {
+        let owner = owner.read().map_err(|_| "waypoint group owner poisoned")?;
+        (owner.get_id(), owner.get_group_id(), *owner.get_position())
+    };
+    let Some(group) = group else {
+        return Ok((FAST_AS_POSSIBLE, Coord2D::new(0.0, 0.0)));
+    };
+    let speed = {
+        let owner = owner
+            .try_read()
+            .map_err(|_| "waypoint speed owner unavailable")?;
+        ai.get_cur_locomotor_speed_for_owner(&owner)?
+    };
+    let world = ai.world().ok_or("waypoint group has no supplied world")?;
+    let Some((speed, center)) = world.waypoint_group_motion(group, id, speed)? else {
+        return Ok((FAST_AS_POSSIBLE, Coord2D::new(0.0, 0.0)));
+    };
+    Ok((
+        speed,
+        Coord2D::new(position.x - center.x, position.y - center.y),
+    ))
+}
+
 /// Follow waypoint path as team
 #[derive(Debug)]
 pub struct AIFollowWaypointPathAsTeamState {
@@ -122,7 +149,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
                     if let Ok(team) = team_arc.read() {
                         self.core.current_waypoint = team
                             .get_current_waypoint_id()
-                            .and_then(resolve_waypoint_by_id);
+                            .and_then(|id| ai.waypoint_by_id(id));
                     }
                 }
             }
@@ -133,21 +160,39 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
                     }
                 }
             }
-            if let Some(group_id) = owner_guard.get_group_id() {
-                if let Ok(ai_lock) = the_ai().read() {
-                    if let Some(group) = ai_lock.find_group(group_id) {
-                        if let Ok(mut group_guard) = group.write() {
-                            speed = group_guard.get_speed();
-                            if let Some(center) = group_guard.get_center() {
-                                let pos = owner_guard.get_position();
-                                self.core.group_offset.x = pos.x - center.x;
-                                self.core.group_offset.y = pos.y - center.y;
+        }
+        drop(owner_guard);
+        if self.core.move_as_group {
+            if ai.world().is_some() {
+                let motion = match supplied_group_motion(ai, &owner) {
+                    Ok(motion) => motion,
+                    Err(_) => return StateReturnType::Failure,
+                };
+                speed = motion.0;
+                self.core.group_offset = motion.1;
+            } else {
+                let Ok(owner_guard) = owner.read() else {
+                    return StateReturnType::Failure;
+                };
+                if let Some(group_id) = owner_guard.get_group_id() {
+                    if let Ok(ai_lock) = the_ai().read() {
+                        if let Some(group) = ai_lock.find_group(group_id) {
+                            if let Ok(mut group_guard) = group.write() {
+                                speed = group_guard.get_speed();
+                                if let Some(center) = group_guard.get_center() {
+                                    let pos = owner_guard.get_position();
+                                    self.core.group_offset.x = pos.x - center.x;
+                                    self.core.group_offset.y = pos.y - center.y;
+                                }
                             }
                         }
                     }
                 }
             }
         }
+        let Ok(owner_guard) = owner.read() else {
+            return StateReturnType::Failure;
+        };
         if self
             .core
             .compute_goal(&self.base, &owner_guard, ai, self.core.move_as_group)
@@ -463,7 +508,7 @@ impl AIFollowWaypointPathAsTeamState {
                     if let Ok(team) = team_arc.read() {
                         self.core.current_waypoint = team
                             .get_current_waypoint_id()
-                            .and_then(resolve_waypoint_by_id);
+                            .and_then(|id| ai_guard.waypoint_by_id(id));
                     }
                 }
             }
@@ -474,24 +519,34 @@ impl AIFollowWaypointPathAsTeamState {
                     }
                 }
             }
-            if let Some(group_id) = owner_guard.get_group_id() {
-                let ai_store = the_ai();
-                if let Ok(ai_lock) = ai_store.read() {
-                    if let Some(group) = ai_lock.find_group(group_id) {
-                        if let Ok(mut group_guard) = group.write() {
-                            speed = group_guard.get_speed();
-                            if let Some(center) = group_guard.get_center() {
-                                let pos = owner_guard.get_position();
-                                self.core.group_offset.x = pos.x - center.x;
-                                self.core.group_offset.y = pos.y - center.y;
+        }
+        let owner_is_projectile = owner_guard.is_kind_of(KindOf::Projectile);
+        drop(owner_guard);
+        if self.core.move_as_group {
+            if ai_guard.world().is_some() {
+                let motion = supplied_group_motion(ai_guard, &owner)?;
+                speed = motion.0;
+                self.core.group_offset = motion.1;
+            } else {
+                let owner_guard = owner.read().map_err(|_| "waypoint group owner poisoned")?;
+                if let Some(group_id) = owner_guard.get_group_id() {
+                    let ai_store = the_ai();
+                    if let Ok(ai_lock) = ai_store.read() {
+                        if let Some(group) = ai_lock.find_group(group_id) {
+                            if let Ok(mut group_guard) = group.write() {
+                                speed = group_guard.get_speed();
+                                if let Some(center) = group_guard.get_center() {
+                                    let pos = owner_guard.get_position();
+                                    self.core.group_offset.x = pos.x - center.x;
+                                    self.core.group_offset.y = pos.y - center.y;
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        let owner_is_projectile = owner_guard.is_kind_of(KindOf::Projectile);
-        drop(owner_guard);
+
         self.core.compute_goal_with_control(
             &self.base,
             &mut *ai_guard,
@@ -745,14 +800,51 @@ pub struct AIFollowWaypointPathAsTeamExactState {
     pub(crate) base: State,
     pub(crate) move_as_group: bool,
     pub(crate) last_waypoint: Option<Arc<Waypoint>>,
+    movement: AIMoveToState,
+    pending_last_waypoint: Option<WaypointId>,
 }
 
 impl AIFollowWaypointPathAsTeamExactState {
+    pub(crate) fn resolve_last_waypoint(
+        &mut self,
+        ai: Option<&dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) -> Result<(), String> {
+        if let Some(id) = self.pending_last_waypoint {
+            let waypoint = resolve_waypoint_for_runtime(id, ai).ok_or_else(|| {
+                format!("saved exact waypoint {id} is missing from the driving terrain")
+            })?;
+            self.last_waypoint = Some(waypoint);
+            self.pending_last_waypoint = None;
+        }
+        Ok(())
+    }
+
+    fn exact_update(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        self.resolve_last_waypoint(Some(ai))?;
+        ai.set_can_path_through_units(true)
+            .map_err(|error| error.to_string())?;
+        if let Some(owner) = self.base.get_machine_owner() {
+            self.movement.base.bind_owner(&owner);
+        }
+        self.movement.base.goal_position_copied = self.base.goal_position_copied;
+        self.movement.base.goal_object_id = self.base.goal_object_id;
+        self.movement.cpp_on_update_with_ai(ai)
+    }
+
     pub fn new(machine: &StateMachine) -> Self {
         Self {
             base: State::new(machine, "AIFollowWaypointPathAsTeamExact"),
             move_as_group: true,
             last_waypoint: None,
+            movement: {
+                let mut movement = AIMoveToState::new(machine);
+                movement.is_move_to = false;
+                movement
+            },
+            pending_last_waypoint: None,
         }
     }
 }
@@ -780,31 +872,56 @@ impl StateImplementation for AIFollowWaypointPathAsTeamExactState {
         };
         let mut speed = FAST_AS_POSSIBLE;
         let mut group_offset = Coord2D::new(0.0, 0.0);
+        if self.move_as_group {}
+        drop(owner_guard);
         if self.move_as_group {
-            if let Some(group_id) = owner_guard.get_group_id() {
-                if let Ok(ai_lock) = the_ai().read() {
-                    if let Some(group) = ai_lock.find_group(group_id) {
-                        if let Ok(mut group_guard) = group.write() {
-                            speed = group_guard.get_speed();
-                            if let Some(center) = group_guard.get_center() {
-                                let pos = owner_guard.get_position();
-                                group_offset.x = pos.x - center.x;
-                                group_offset.y = pos.y - center.y;
+            if ai.world().is_some() {
+                let motion = match supplied_group_motion(ai, &owner) {
+                    Ok(motion) => motion,
+                    Err(_) => return StateReturnType::Failure,
+                };
+                speed = motion.0;
+                group_offset = motion.1;
+            } else {
+                let Ok(owner_guard) = owner.read() else {
+                    return StateReturnType::Failure;
+                };
+                if let Some(group_id) = owner_guard.get_group_id() {
+                    if let Ok(ai_lock) = the_ai().read() {
+                        if let Some(group) = ai_lock.find_group(group_id) {
+                            if let Ok(mut group_guard) = group.write() {
+                                speed = group_guard.get_speed();
+                                if let Some(center) = group_guard.get_center() {
+                                    let pos = owner_guard.get_position();
+                                    group_offset.x = pos.x - center.x;
+                                    group_offset.y = pos.y - center.y;
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        drop(owner_guard);
+
         let _ = ai.set_can_path_through_units(true);
+        if let Some(owner) = self.base.get_machine_owner() {
+            self.movement.base.bind_owner(&owner);
+        }
+        self.movement.base.goal_position_copied = self.base.goal_position_copied;
+        self.movement.base.goal_object_id = self.base.goal_object_id;
+        self.movement.set_adjusts_destination(false);
+        let status = match self.movement.enter_authored_segment(ai, current.position) {
+            Ok(status) => status,
+            Err(_) => return StateReturnType::Failure,
+        };
         if ai.set_path_from_waypoint(&current, &group_offset).is_err() {
             return StateReturnType::Failure;
         }
         let _ = ai.set_allow_invalid_position(true);
         ai.set_desired_speed(speed);
         self.last_waypoint = Some(current);
-        StateReturnType::Continue
+        self.pending_last_waypoint = None;
+        status
     }
 
     fn update(&mut self) -> StateReturnType {
@@ -813,19 +930,9 @@ impl StateImplementation for AIFollowWaypointPathAsTeamExactState {
 
     fn update_with_ai(
         &mut self,
-        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
-        let Some(owner) = self.base.get_machine_owner() else {
-            return StateReturnType::Failure;
-        };
-        let Ok(mut owner_guard) = owner.write() else {
-            return StateReturnType::Failure;
-        };
-        owner_guard.ai_pending_path_through_units = Some(true);
-        if !owner_guard.ai_fire_is_moving && owner_guard.ai_fire_waypoint_queue_empty {
-            return StateReturnType::Success;
-        }
-        StateReturnType::Continue
+        self.exact_update(ai).unwrap_or(StateReturnType::Failure)
     }
 
     fn on_exit(&mut self, status: StateExitType) {
@@ -870,10 +977,33 @@ impl CppState for AIFollowWaypointPathAsTeamExactState {
     fn cpp_on_update_with_control(
         &mut self,
         _control: &mut crate::state_machine::StateMachineControl,
-        _ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         _machine_locked: bool,
     ) -> Result<StateReturnType, String> {
-        self.cpp_on_update()
+        match ai {
+            Some(ai) => self.exact_update(ai),
+            None => self.cpp_on_update(),
+        }
+    }
+
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<(), String> {
+        self.resolve_last_waypoint(Some(ai))?;
+        if let Some(owner) = self.base.get_machine_owner() {
+            self.movement.base.bind_owner(&owner);
+        }
+        self.movement.base.goal_position_copied = self.base.goal_position_copied;
+        self.movement.base.goal_object_id = self.base.goal_object_id;
+        self.movement.cpp_on_exit_with_ai(exit, ai)?;
+        ai.set_completed_waypoint_id(self.last_waypoint.as_ref().map(|waypoint| waypoint.id));
+        ai.set_can_path_through_units(false)
+            .map_err(|error| error.to_string())?;
+        ai.set_allow_invalid_position(false)
+            .map_err(|error| error.to_string())?;
+        Ok(())
     }
 
     fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
@@ -961,30 +1091,49 @@ impl AIFollowWaypointPathAsTeamExactState {
             };
         let mut speed = FAST_AS_POSSIBLE;
         let mut group_offset = Coord2D::new(0.0, 0.0);
+        if self.move_as_group {}
+        drop(owner_guard);
         if self.move_as_group {
-            if let Some(group_id) = owner_guard.get_group_id() {
-                let ai_store = the_ai();
-                if let Ok(ai_lock) = ai_store.read() {
-                    if let Some(group) = ai_lock.find_group(group_id) {
-                        if let Ok(mut group_guard) = group.write() {
-                            speed = group_guard.get_speed();
-                            if let Some(center) = group_guard.get_center() {
-                                let pos = owner_guard.get_position();
-                                group_offset.x = pos.x - center.x;
-                                group_offset.y = pos.y - center.y;
+            if ai_guard.world().is_some() {
+                let motion = supplied_group_motion(ai_guard, &owner)?;
+                speed = motion.0;
+                group_offset = motion.1;
+            } else {
+                let owner_guard = owner.read().map_err(|_| "waypoint group owner poisoned")?;
+                if let Some(group_id) = owner_guard.get_group_id() {
+                    let ai_store = the_ai();
+                    if let Ok(ai_lock) = ai_store.read() {
+                        if let Some(group) = ai_lock.find_group(group_id) {
+                            if let Ok(mut group_guard) = group.write() {
+                                speed = group_guard.get_speed();
+                                if let Some(center) = group_guard.get_center() {
+                                    let pos = owner_guard.get_position();
+                                    group_offset.x = pos.x - center.x;
+                                    group_offset.y = pos.y - center.y;
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        drop(owner_guard);
+
         let _ = ai_guard.set_can_path_through_units(true);
+        if let Some(owner) = self.base.get_machine_owner() {
+            self.movement.base.bind_owner(&owner);
+        }
+        self.movement.base.goal_position_copied = self.base.goal_position_copied;
+        self.movement.base.goal_object_id = self.base.goal_object_id;
+        self.movement.set_adjusts_destination(false);
+        let status = self
+            .movement
+            .enter_authored_segment(ai_guard, current.position)?;
         ai_guard.set_path_from_waypoint(&current, &group_offset)?;
         let _ = ai_guard.set_allow_invalid_position(true);
         ai_guard.set_desired_speed(speed);
         self.last_waypoint = Some(current);
-        Ok(StateReturnType::Continue)
+        self.pending_last_waypoint = None;
+        Ok(status)
     }
 }
 
@@ -1463,14 +1612,51 @@ pub struct AIFollowWaypointPathAsIndividualsExactState {
     pub(crate) base: State,
     pub(crate) move_as_group: bool,
     pub(crate) last_waypoint: Option<Arc<Waypoint>>,
+    movement: AIMoveToState,
+    pending_last_waypoint: Option<WaypointId>,
 }
 
 impl AIFollowWaypointPathAsIndividualsExactState {
+    pub(crate) fn resolve_last_waypoint(
+        &mut self,
+        ai: Option<&dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) -> Result<(), String> {
+        if let Some(id) = self.pending_last_waypoint {
+            let waypoint = resolve_waypoint_for_runtime(id, ai).ok_or_else(|| {
+                format!("saved exact waypoint {id} is missing from the driving terrain")
+            })?;
+            self.last_waypoint = Some(waypoint);
+            self.pending_last_waypoint = None;
+        }
+        Ok(())
+    }
+
+    fn exact_update(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        self.resolve_last_waypoint(Some(ai))?;
+        ai.set_can_path_through_units(true)
+            .map_err(|error| error.to_string())?;
+        if let Some(owner) = self.base.get_machine_owner() {
+            self.movement.base.bind_owner(&owner);
+        }
+        self.movement.base.goal_position_copied = self.base.goal_position_copied;
+        self.movement.base.goal_object_id = self.base.goal_object_id;
+        self.movement.cpp_on_update_with_ai(ai)
+    }
+
     pub fn new(machine: &StateMachine) -> Self {
         Self {
             base: State::new(machine, "AIFollowWaypointPathAsIndividualsExact"),
             move_as_group: false,
             last_waypoint: None,
+            movement: {
+                let mut movement = AIMoveToState::new(machine);
+                movement.is_move_to = false;
+                movement
+            },
+            pending_last_waypoint: None,
         }
     }
 }
@@ -1491,6 +1677,16 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsExactState {
             return StateReturnType::Failure;
         };
         let _ = ai.set_can_path_through_units(true);
+        if let Some(owner) = self.base.get_machine_owner() {
+            self.movement.base.bind_owner(&owner);
+        }
+        self.movement.base.goal_position_copied = self.base.goal_position_copied;
+        self.movement.base.goal_object_id = self.base.goal_object_id;
+        self.movement.set_adjusts_destination(false);
+        let status = match self.movement.enter_authored_segment(ai, current.position) {
+            Ok(status) => status,
+            Err(_) => return StateReturnType::Failure,
+        };
         if ai
             .set_path_from_waypoint(&current, &Coord2D::new(0.0, 0.0))
             .is_err()
@@ -1500,7 +1696,8 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsExactState {
         let _ = ai.set_allow_invalid_position(true);
         ai.set_desired_speed(FAST_AS_POSSIBLE);
         self.last_waypoint = Some(current);
-        StateReturnType::Continue
+        self.pending_last_waypoint = None;
+        status
     }
 
     fn update(&mut self) -> StateReturnType {
@@ -1509,19 +1706,9 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsExactState {
 
     fn update_with_ai(
         &mut self,
-        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
-        let Some(owner) = self.base.get_machine_owner() else {
-            return StateReturnType::Failure;
-        };
-        let Ok(mut owner_guard) = owner.write() else {
-            return StateReturnType::Failure;
-        };
-        owner_guard.ai_pending_path_through_units = Some(true);
-        if !owner_guard.ai_fire_is_moving && owner_guard.ai_fire_waypoint_queue_empty {
-            return StateReturnType::Success;
-        }
-        StateReturnType::Continue
+        self.exact_update(ai).unwrap_or(StateReturnType::Failure)
     }
 
     fn on_exit(&mut self, status: StateExitType) {
@@ -1566,10 +1753,33 @@ impl CppState for AIFollowWaypointPathAsIndividualsExactState {
     fn cpp_on_update_with_control(
         &mut self,
         _control: &mut crate::state_machine::StateMachineControl,
-        _ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         _machine_locked: bool,
     ) -> Result<StateReturnType, String> {
-        self.cpp_on_update()
+        match ai {
+            Some(ai) => self.exact_update(ai),
+            None => self.cpp_on_update(),
+        }
+    }
+
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<(), String> {
+        self.resolve_last_waypoint(Some(ai))?;
+        if let Some(owner) = self.base.get_machine_owner() {
+            self.movement.base.bind_owner(&owner);
+        }
+        self.movement.base.goal_position_copied = self.base.goal_position_copied;
+        self.movement.base.goal_object_id = self.base.goal_object_id;
+        self.movement.cpp_on_exit_with_ai(exit, ai)?;
+        ai.set_completed_waypoint_id(self.last_waypoint.as_ref().map(|waypoint| waypoint.id));
+        ai.set_can_path_through_units(false)
+            .map_err(|error| error.to_string())?;
+        ai.set_allow_invalid_position(false)
+            .map_err(|error| error.to_string())?;
+        Ok(())
     }
 
     fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
@@ -1658,11 +1868,21 @@ impl AIFollowWaypointPathAsIndividualsExactState {
         let group_offset = Coord2D::new(0.0, 0.0);
         drop(owner_guard);
         let _ = ai_guard.set_can_path_through_units(true);
+        if let Some(owner) = self.base.get_machine_owner() {
+            self.movement.base.bind_owner(&owner);
+        }
+        self.movement.base.goal_position_copied = self.base.goal_position_copied;
+        self.movement.base.goal_object_id = self.base.goal_object_id;
+        self.movement.set_adjusts_destination(false);
+        let status = self
+            .movement
+            .enter_authored_segment(ai_guard, current.position)?;
         ai_guard.set_path_from_waypoint(&current, &group_offset)?;
         let _ = ai_guard.set_allow_invalid_position(true);
         ai_guard.set_desired_speed(FAST_AS_POSSIBLE);
         self.last_waypoint = Some(current);
-        Ok(StateReturnType::Continue)
+        self.pending_last_waypoint = None;
+        Ok(status)
     }
 }
 
@@ -1716,10 +1936,10 @@ impl Snapshotable for AIFollowWaypointPathAsTeamExactState {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to crc version: {:?}", e))?;
 
+        self.movement.crc(xfer)?;
         let mut id: WaypointId = self
-            .last_waypoint
-            .as_ref()
-            .map(|w| w.id)
+            .pending_last_waypoint
+            .or_else(|| self.last_waypoint.as_ref().map(|w| w.id))
             .unwrap_or(INVALID_ID);
         xfer.xfer_unsigned_int(&mut id)
             .map_err(|e| format!("Failed to crc team waypoint id: {:?}", e))?;
@@ -1732,19 +1952,16 @@ impl Snapshotable for AIFollowWaypointPathAsTeamExactState {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
+        self.movement.xfer(xfer)?;
         let mut id: WaypointId = self
-            .last_waypoint
-            .as_ref()
-            .map(|w| w.id)
+            .pending_last_waypoint
+            .or_else(|| self.last_waypoint.as_ref().map(|w| w.id))
             .unwrap_or(INVALID_ID);
         xfer.xfer_unsigned_int(&mut id)
             .map_err(|e| format!("Failed to xfer team waypoint id: {:?}", e))?;
         if xfer.is_loading() {
-            self.last_waypoint = if id == INVALID_ID {
-                None
-            } else {
-                resolve_waypoint_by_id(id)
-            };
+            self.last_waypoint = None;
+            self.pending_last_waypoint = (id != INVALID_ID).then_some(id);
         }
 
         Ok(())
@@ -1761,10 +1978,10 @@ impl Snapshotable for AIFollowWaypointPathAsIndividualsExactState {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to crc version: {:?}", e))?;
 
+        self.movement.crc(xfer)?;
         let mut id: WaypointId = self
-            .last_waypoint
-            .as_ref()
-            .map(|w| w.id)
+            .pending_last_waypoint
+            .or_else(|| self.last_waypoint.as_ref().map(|w| w.id))
             .unwrap_or(INVALID_ID);
         xfer.xfer_unsigned_int(&mut id)
             .map_err(|e| format!("Failed to crc individual waypoint id: {:?}", e))?;
@@ -1777,19 +1994,16 @@ impl Snapshotable for AIFollowWaypointPathAsIndividualsExactState {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
+        self.movement.xfer(xfer)?;
         let mut id: WaypointId = self
-            .last_waypoint
-            .as_ref()
-            .map(|w| w.id)
+            .pending_last_waypoint
+            .or_else(|| self.last_waypoint.as_ref().map(|w| w.id))
             .unwrap_or(INVALID_ID);
         xfer.xfer_unsigned_int(&mut id)
             .map_err(|e| format!("Failed to xfer individual waypoint id: {:?}", e))?;
         if xfer.is_loading() {
-            self.last_waypoint = if id == INVALID_ID {
-                None
-            } else {
-                resolve_waypoint_by_id(id)
-            };
+            self.last_waypoint = None;
+            self.pending_last_waypoint = (id != INVALID_ID).then_some(id);
         }
 
         Ok(())
@@ -1797,5 +2011,69 @@ impl Snapshotable for AIFollowWaypointPathAsIndividualsExactState {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod exact_snapshot_tests {
+    use super::*;
+    use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
+
+    fn save(value: &mut impl Snapshotable) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        value
+            .xfer(&mut XferSave::new(Cursor::new(&mut bytes), 1))
+            .unwrap();
+        bytes
+    }
+
+    #[test]
+    fn exact_individual_snapshot_preserves_movement_and_unresolved_waypoint() {
+        let machine = StateMachine::new(None, "exact save control");
+        let mut source = AIFollowWaypointPathAsIndividualsExactState::new(&machine);
+        source.pending_last_waypoint = Some(0x7e0101);
+        source.movement.goal_position = Coord3D::new(11.0, 22.0, 33.0);
+        source.movement.goal_layer = 1;
+        source.movement.waiting_for_path = true;
+        source.movement.path_timestamp = 917;
+        source.movement.blocked_repath_timestamp = 811;
+        source.movement.adjust_destinations = false;
+        let bytes = save(&mut source);
+        let mut restored = AIFollowWaypointPathAsIndividualsExactState::new(&machine);
+        restored
+            .xfer(&mut XferLoad::new(&mut Cursor::new(bytes.clone()), 1))
+            .unwrap();
+        assert_eq!(restored.pending_last_waypoint, Some(0x7e0101));
+        assert!(restored.last_waypoint.is_none());
+        assert_eq!(
+            restored.movement.goal_position,
+            source.movement.goal_position
+        );
+        assert_eq!(restored.movement.path_timestamp, 917);
+        assert_eq!(restored.movement.blocked_repath_timestamp, 811);
+        assert!(restored.movement.waiting_for_path);
+        assert!(!restored.movement.adjust_destinations);
+        assert_eq!(save(&mut restored), bytes);
+    }
+
+    #[test]
+    fn exact_team_snapshot_retains_id_without_terrain_publication() {
+        let machine = StateMachine::new(None, "exact team save control");
+        let mut source = AIFollowWaypointPathAsTeamExactState::new(&machine);
+        source.pending_last_waypoint = Some(0x7e0102);
+        source.movement.goal_position = Coord3D::new(41.0, 52.0, 63.0);
+        let bytes = save(&mut source);
+        let mut restored = AIFollowWaypointPathAsTeamExactState::new(&machine);
+        restored
+            .xfer(&mut XferLoad::new(&mut Cursor::new(bytes.clone()), 1))
+            .unwrap();
+        assert_eq!(restored.pending_last_waypoint, Some(0x7e0102));
+        assert!(restored.last_waypoint.is_none());
+        assert_eq!(
+            restored.movement.goal_position,
+            source.movement.goal_position
+        );
+        assert_eq!(save(&mut restored), bytes);
     }
 }

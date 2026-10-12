@@ -222,6 +222,27 @@ impl Locomotor {
                 if observations.is_some() {
                     if let Some(owner) = object.as_deref_mut() {
                         if let Some(observations) = observations.as_deref_mut() {
+                            if self.template.turn_pivot_offset != 0.0 && !self.is_braking() {
+                                let (matrix, turning) = self.owned_pivot_rotation(
+                                    owner.get_transform_matrix(),
+                                    owner.get_geometry_info().get_bounding_circle_radius(),
+                                    current_angle,
+                                    target,
+                                    turn,
+                                );
+                                (observations.change_pose)(
+                                    owner,
+                                    LocomotorPoseChange::Transform(matrix),
+                                )?;
+                                if let Some(physics) = physics.as_mut() {
+                                    physics.with(|p| p.set_turning(turning))?;
+                                }
+                                return Ok((
+                                    *owner.get_position(),
+                                    owner.get_orientation(),
+                                    desired_speed.min(current_speed),
+                                ));
+                            }
                             (observations.change_pose)(
                                 owner,
                                 LocomotorPoseChange::Orientation(current_angle + rotation),
@@ -325,24 +346,81 @@ impl Locomotor {
         if let (Some(owner), Some(observations)) =
             (object.as_deref_mut(), observations.as_deref_mut())
         {
-            (observations.change_pose)(owner, LocomotorPoseChange::Orientation(angle))?;
+            let pivot_turning = if allow_2d
+                && !self.get_flag(FLAG_SLIDING_INTO_PLACE)
+                && self.template.turn_pivot_offset != 0.0
+                && !self.is_braking()
+            {
+                let pivot_goal = if self.template.appearance == LocomotorAppearance::TwoLegs {
+                    let desired = Self::normalize_angle(
+                        (target.y - current.y).atan2(target.x - current.x)
+                            + if self.template.wander_width_factor != 0.0 {
+                                self.angle_offset
+                            } else {
+                                0.0
+                            },
+                    );
+                    Coord3D::new(
+                        current.x + desired.cos() * 1000.0,
+                        current.y + desired.sin() * 1000.0,
+                        current.z,
+                    )
+                } else {
+                    target
+                };
+                let limit = self.get_max_turn_rate_with_penalty(condition, observations.penalty)
+                    * delta_time.max(0.0);
+                let (matrix, turning) = self.owned_pivot_rotation(
+                    owner.get_transform_matrix(),
+                    pivot_radius,
+                    current_angle,
+                    pivot_goal,
+                    limit,
+                );
+                (observations.change_pose)(owner, LocomotorPoseChange::Transform(matrix))?;
+                pos = *owner.get_position();
+                if self.template.appearance == LocomotorAppearance::TwoLegs {
+                    // CPP applies infantry force along the direction reread
+                    // after rotateObjAroundLocoPivot changed the full pose.
+                    let accel = self.last_motive_accel.x * angle.cos()
+                        + self.last_motive_accel.y * angle.sin();
+                    let (x, y) = owner.get_unit_direction_vector_2d();
+                    self.last_motive_accel.x = accel * x;
+                    self.last_motive_accel.y = accel * y;
+                }
+                angle = owner.get_orientation();
+                Some(turning)
+            } else {
+                (observations.change_pose)(owner, LocomotorPoseChange::Orientation(angle))?;
+                None
+            };
             // CPP reports TURN_NONE when the complete requested rotation fits
             // this frame's turn limit, even though orientation changed.
-            let requested = Self::std_angle_diff(
-                (target.y - current.y).atan2(target.x - current.x),
-                current_angle,
-            );
+            let requested_angle = (target.y - current.y).atan2(target.x - current.x);
+            // Infantry's actual rotation target includes its canonical wander
+            // offset (C++ Locomotor.cpp:1633,1637). Turning classification must
+            // observe the same target as the pose, including overshoot frames.
+            let requested_angle = if self.template.appearance == LocomotorAppearance::TwoLegs
+                && self.template.wander_width_factor != 0.0
+            {
+                Self::normalize_angle(requested_angle + self.angle_offset)
+            } else {
+                requested_angle
+            };
+            let requested = Self::std_angle_diff(requested_angle, current_angle);
             let limit = self.get_max_turn_rate_with_penalty(condition, observations.penalty)
                 * delta_time.max(0.0);
-            let turning = if !allow_2d || self.get_flag(FLAG_SLIDING_INTO_PLACE) {
-                0
-            } else if requested > limit {
-                1
-            } else if requested < -limit {
-                -1
-            } else {
-                0
-            };
+            let turning = pivot_turning.unwrap_or_else(|| {
+                if !allow_2d || self.get_flag(FLAG_SLIDING_INTO_PLACE) {
+                    0
+                } else if requested > limit {
+                    1
+                } else if requested < -limit {
+                    -1
+                } else {
+                    0
+                }
+            });
             if let Some(physics) = physics.as_mut() {
                 physics.with(|p| p.set_turning(turning))?;
             }
@@ -496,6 +574,45 @@ impl Locomotor {
         }
 
         Ok((pos, angle, speed))
+    }
+
+    /// C++ Locomotor.cpp:2113–2189: rotate the complete real transform
+    /// about the geometry-derived pivot; retain tilt, scale and translation.
+    fn owned_pivot_rotation(
+        &self,
+        transform: glam::Mat4,
+        radius: Real,
+        angle: Real,
+        goal: Coord3D,
+        turn_limit: Real,
+    ) -> (glam::Mat4, i32) {
+        let center = transform.w_axis.truncate();
+        let arm = self.template.turn_pivot_offset * radius;
+        let pivot = glam::Vec3::new(
+            center.x + angle.cos() * arm,
+            center.y + angle.sin() * arm,
+            0.0,
+        );
+        let dx = goal.x - pivot.x;
+        let dy = goal.y - pivot.y;
+        if dx.abs() < 0.1 && dy.abs() < 0.1 {
+            return (transform, 0);
+        }
+        let requested = Self::std_angle_diff(dy.atan2(dx), angle);
+        let (amount, turning) = if requested > turn_limit {
+            (turn_limit, 1)
+        } else if requested < -turn_limit {
+            (-turn_limit, -1)
+        } else {
+            (requested, 0)
+        };
+        (
+            glam::Mat4::from_translation(pivot)
+                * glam::Mat4::from_rotation_z(amount)
+                * glam::Mat4::from_translation(-pivot)
+                * transform,
+            turning,
+        )
     }
 
     fn dispatch_appearance_move(

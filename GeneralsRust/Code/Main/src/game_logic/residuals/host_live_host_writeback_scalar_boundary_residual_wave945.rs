@@ -117,7 +117,6 @@ fn fn_window<'a>(src: &'a str, marker: &str) -> &'a str {
 }
 
 const WRITEBACKS: &[(&str, &str)] = &[
-    ("pub fn writeback_ai_state_to_host", "AiState"),
     ("pub fn writeback_ai_attitude_to_host", "AiAttitude"),
     ("pub fn writeback_owner_to_host", "Owner"),
     ("pub fn writeback_special_power_to_host", "SpecialPower"),

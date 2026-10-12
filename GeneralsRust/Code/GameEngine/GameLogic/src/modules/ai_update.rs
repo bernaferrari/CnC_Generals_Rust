@@ -42,7 +42,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         Err("AI implementation does not support supplied waypoint updates".into())
     }
     /// Execute one installed UnitAI POSITION_ON_PATH phase against its supplied world.
-    fn update_locomotor_path_phase_with_world(
+    fn update_locomotor_phase_with_world(
         &mut self,
         _world: &mut dyn ai_world::AiWorld,
     ) -> Result<(), String> {
@@ -957,6 +957,15 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Check if allow passthrough type
     fn is_allow_passthrough_type(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         Ok(false)
+    }
+
+    /// Observe the supplied owner's speed with this session's movement rules.
+    fn get_speed_for_owner_with_penalty(
+        &self,
+        _owner: &Object,
+        _penalty: crate::locomotor::BodyDamageType,
+    ) -> Result<Real, String> {
+        Err("installed AI does not support supplied speed observation".into())
     }
 
     /// Get speed

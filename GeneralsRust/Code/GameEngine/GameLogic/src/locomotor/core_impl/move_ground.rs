@@ -418,7 +418,7 @@ impl Locomotor {
         desired_speed: Real,
         current_speed: Real,
         condition: BodyDamageType,
-        pivot_radius: Real,
+        _pivot_radius: Real,
         penalty: BodyDamageType,
     ) -> (Coord3D, Real, Real) {
         // C++ Locomotor.cpp:1596-1598 - downhill only check for legs
@@ -430,13 +430,9 @@ impl Locomotor {
         let mut desired_speed = desired_speed.min(max_speed);
         let max_acceleration = self.get_max_acceleration_with_penalty(condition, penalty);
 
-        let mut desired_angle = self.desired_angle_with_pivot(
-            current_pos,
-            current_angle,
-            goal_pos,
-            self.is_braking(),
-            pivot_radius,
-        );
+        // C++ Locomotor.cpp:1616: infantry aims from its actual center,
+        // independently of the turning pivot used by object rotation.
+        let mut desired_angle = (goal_pos.y - current_pos.y).atan2(goal_pos.x - current_pos.x);
 
         // Wander logic for infantry - C++ Locomotor.cpp:1618-1633
         if self.template.wander_width_factor != 0.0 {
@@ -676,5 +672,131 @@ impl Locomotor {
         };
 
         (current_pos, desired_angle, acceleration)
+    }
+}
+
+#[cfg(test)]
+mod owned_infantry_wander_tests {
+    use super::*;
+
+    fn locomotor(offset: Real, increasing: bool) -> Locomotor {
+        let mut template = LocomotorTemplate::new_infantry("OwnedWander".into());
+        template.max_speed = 3.0;
+        template.acceleration = 0.1;
+        template.wander_width_factor = 1.0;
+        // No constructor RNG/clock publication: these are decoded state fields.
+        Locomotor::new_with_initial_conditions(Arc::new(template), offset, 0.1, increasing, 0)
+    }
+
+    fn step(loco: &mut Locomotor, speed: Real) -> (Coord3D, Real, Real) {
+        loco.move_towards_position_legs_with_penalty(
+            Coord3D::ZERO,
+            0.0,
+            Coord3D::new(100.0, 0.0, 0.0),
+            100.0,
+            3.0,
+            speed,
+            BodyDamageType::Pristine,
+            99.0,
+            BodyDamageType::ReallyDamaged,
+        )
+    }
+
+    #[test]
+    fn wander_reverses_after_crossing_limit_without_clamping_offset() {
+        let limit = std::f32::consts::PI / 8.0;
+        let mut loco = locomotor(limit - 0.01, true);
+        let (_, angle, _) = step(&mut loco, 1.0);
+        assert!((angle - (limit + 0.09)).abs() < 0.00001);
+        assert!(!loco.is_offset_increasing());
+        let (_, angle, _) = step(&mut loco, 1.0);
+        assert!((angle - (limit - 0.01)).abs() < 0.00001);
+        assert!(!loco.is_offset_increasing());
+        // The negative boundary also flips only after exceeding the limit.
+        loco.angle_offset = -limit + 0.01;
+        let (_, angle, _) = step(&mut loco, 1.0);
+        assert!((angle - (-limit - 0.09)).abs() < 0.00001);
+        assert!(loco.is_offset_increasing());
+    }
+
+    #[test]
+    fn decoded_wander_continues_independently_and_does_not_advance_at_rest() {
+        let mut a = locomotor(0.2, true);
+        let mut b = locomotor(-0.3, false);
+        let mut expected = a.clone();
+        step(&mut b, 2.0);
+        assert_eq!(step(&mut a, 1.0), step(&mut expected, 1.0));
+        let before = a.angle_offset;
+        let direction = a.is_offset_increasing();
+        step(&mut a, 0.0);
+        assert_eq!(a.angle_offset, before);
+        assert_eq!(a.is_offset_increasing(), direction);
+    }
+
+    #[test]
+    fn infantry_aims_from_center_even_with_authored_pivot() {
+        let mut loco = locomotor(0.0, true);
+        Arc::make_mut(&mut loco.template).wander_width_factor = 0.0;
+        Arc::make_mut(&mut loco.template).turn_pivot_offset = 1.0;
+        let (_, angle, _) = loco.move_towards_position_legs_with_penalty(
+            Coord3D::ZERO,
+            0.0,
+            Coord3D::new(100.0, 100.0, 0.0),
+            100.0,
+            3.0,
+            0.0,
+            BodyDamageType::Pristine,
+            99.0,
+            BodyDamageType::ReallyDamaged,
+        );
+        assert!((angle - std::f32::consts::FRAC_PI_4).abs() < 0.00001);
+    }
+    #[test]
+    fn pivot_rotates_complete_transform_about_geometry_radius() {
+        let mut loco = locomotor(0.0, false);
+        Arc::make_mut(&mut loco.template).turn_pivot_offset = 0.5;
+        let matrix = glam::Mat4::from_translation(glam::Vec3::new(10.0, 20.0, 3.0))
+            * glam::Mat4::from_rotation_x(0.3)
+            * glam::Mat4::from_scale(glam::Vec3::new(2.0, 3.0, 4.0));
+        let (actual, turning) =
+            loco.owned_pivot_rotation(matrix, 8.0, 0.0, Coord3D::new(14.0, 100.0, 3.0), 0.1);
+        let pivot = glam::Vec3::new(14.0, 20.0, 0.0);
+        let expected = glam::Mat4::from_translation(pivot)
+            * glam::Mat4::from_rotation_z(0.1)
+            * glam::Mat4::from_translation(-pivot)
+            * matrix;
+        assert!(actual.abs_diff_eq(expected, 0.00001));
+        assert_eq!(turning, 1);
+        assert_ne!(actual.w_axis.x, matrix.w_axis.x);
+        assert_ne!(actual.w_axis.y, matrix.w_axis.y);
+        assert_eq!(actual.w_axis.z, 3.0);
+        assert!((actual.x_axis.length() - 2.0).abs() < 0.00001);
+        assert!((actual.y_axis.length() - 3.0).abs() < 0.00001);
+        assert!((actual.z_axis.length() - 4.0).abs() < 0.00001);
+    }
+
+    #[test]
+    fn pivot_twitch_threshold_keeps_transform_and_small_turn_reports_none() {
+        let mut loco = locomotor(0.0, false);
+        Arc::make_mut(&mut loco.template).turn_pivot_offset = -0.5;
+        let matrix = glam::Mat4::from_translation(glam::Vec3::new(10.0, 20.0, 3.0));
+        assert_eq!(
+            loco.owned_pivot_rotation(matrix, 8.0, 0.0, Coord3D::new(6.05, 20.05, 3.0), 0.1),
+            (matrix, 0)
+        );
+        let goal = Coord3D::new(
+            6.0 + 100.0 * 0.05_f32.cos(),
+            20.0 + 100.0 * 0.05_f32.sin(),
+            3.0,
+        );
+        let (actual, turning) = loco.owned_pivot_rotation(matrix, 8.0, 0.0, goal, 0.1);
+        assert_eq!(turning, 0);
+        assert!(actual.abs_diff_eq(
+            glam::Mat4::from_translation(glam::Vec3::new(6.0, 20.0, 0.0))
+                * glam::Mat4::from_rotation_z(0.05)
+                * glam::Mat4::from_translation(glam::Vec3::new(-6.0, -20.0, 0.0))
+                * matrix,
+            0.00001
+        ));
     }
 }

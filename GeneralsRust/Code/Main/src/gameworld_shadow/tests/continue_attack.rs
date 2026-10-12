@@ -340,7 +340,6 @@ fn path_approach_with_state_decision_authority() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-    let _ = shadow.writeback_ai_state_to_host(&mut logic);
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Gathering

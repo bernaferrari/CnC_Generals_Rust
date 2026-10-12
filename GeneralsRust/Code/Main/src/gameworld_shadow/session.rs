@@ -454,10 +454,6 @@ pub fn shadow_session_after_host_tick(
             None => (crate::game_logic::host_stored_supplies_log::drain(), false),
         };
     // Wave 687: prefer post-logic AI-state batch.
-    let (ai_state_events, early_ai_state_applied) = match take_early_ai_state_batch() {
-        Some((ev, applied)) => (ev, applied),
-        None => (crate::game_logic::host_ai_state_log::drain(), false),
-    };
     // Wave 711: prefer post-logic contain batch.
     let (contain_events, early_contain_applied) = match take_early_contain_batch() {
         Some((ev, applied)) => (ev, applied),
@@ -560,11 +556,6 @@ pub fn shadow_session_after_host_tick(
         shadow.apply_host_stored_supplies_events(&stored_supplies_events)
     };
     // Wave 687: skip GW re-apply when post-logic eager path already ran.
-    let _ai_applied = if !early_ai_state_applied {
-        shadow.apply_host_ai_state_events(&ai_state_events)
-    } else {
-        ai_state_events.len()
-    };
     // Wave 711: skip GW re-apply when post-logic eager path already ran.
     let _contain_applied = if early_contain_applied {
         0
@@ -785,15 +776,6 @@ pub fn shadow_session_after_host_tick(
         shadow.apply_host_ai_attitude_events(&ai_attitude_events)
     };
     // Wave 704: prefer post-logic AI-mood batch.
-    let (ai_mood_events, early_ai_mood_applied) = match take_early_ai_mood_batch() {
-        Some((ev, applied)) => (ev, applied),
-        None => (crate::game_logic::host_ai_mood_log::drain(), false),
-    };
-    let _mood_applied = if early_ai_mood_applied {
-        0
-    } else {
-        shadow.apply_host_ai_mood_events(&ai_mood_events)
-    };
     // Wave 704: prefer post-logic AI-request batch.
     let (ai_req_events, early_ai_request_applied) = match take_early_ai_request_batch() {
         Some((ev, applied)) => (ev, applied),
@@ -820,10 +802,6 @@ pub fn shadow_session_after_host_tick(
         // Wave 638: drain attack-target ready log after GW writeback.
         let _atk_ready =
             logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AttackTarget);
-        let _ = shadow.writeback_ai_state_to_host(logic);
-        // Wave 630: drain AI-state ready log after GW writeback.
-        let _ai_st_ready =
-            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiState);
         let _ = shadow.writeback_movement_to_host(logic);
         // Wave 637: drain movement ready log after GW writeback.
         let _mv_ready =
@@ -2193,9 +2171,6 @@ pub fn shadow_session_after_host_tick(
     let _ = shadow.writeback_hijacker_to_host(logic);
     // Wave 647: drain hijacker ready log after GW writeback.
     let _hj_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Hijacker);
-    let _ = shadow.writeback_ai_mood_to_host(logic);
-    // Wave 645: drain AI-mood ready log after GW writeback.
-    let _mood_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiMood);
     let _ = shadow.writeback_ai_request_to_host(logic);
     // Wave 648: drain AI-request ready log after GW writeback.
     let _air_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiRequest);
@@ -2332,10 +2307,6 @@ pub fn shadow_session_after_host_tick(
         // Wave 647: drain hijacker ready log after GW writeback.
         let _hj_ready =
             logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Hijacker);
-        let _ai_st_wb = shadow.writeback_ai_state_to_host(logic);
-        // Wave 630: drain AI-state ready log after GW writeback.
-        let _ai_st_ready =
-            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::AiState);
         let _att_wb = shadow.writeback_ai_attitude_to_host(logic);
         // Wave 659: drain AI-attitude ready log after GW writeback.
         let _w659_ready =

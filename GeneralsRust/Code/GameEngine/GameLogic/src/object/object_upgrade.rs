@@ -382,10 +382,16 @@ impl Object {
     }
 
     pub(crate) fn set_held_for_owned_leaf(&mut self) {
+        self.set_disabled_for_owned_leaf(DisabledType::Held);
+    }
+    pub(crate) fn set_freefall_for_owned_leaf(&mut self) {
+        self.set_disabled_for_owned_leaf(DisabledType::DisabledFreefall);
+    }
+    fn set_disabled_for_owned_leaf(&mut self, disabled: DisabledType) {
         self.validate_owned_leaf_held()
             .expect("admitted leaf HELD callbacks");
         let was_disabled = self.is_disabled();
-        self.disabled_mask.set_disabled(DisabledType::Held);
+        self.disabled_mask.set_disabled(disabled);
         if !was_disabled && self.is_disabled() {
             self.dispatch_disabled_behavior_callbacks(true);
         }
@@ -394,10 +400,16 @@ impl Object {
     /// CPP TransportContain::onRemoving clears DISABLED_HELD alone; status
     /// visibility remains unchanged until Object::onRemovedFrom afterward.
     pub(crate) fn clear_held_for_owned_leaf(&mut self) {
+        self.clear_disabled_for_owned_leaf(DisabledType::Held);
+    }
+    pub(crate) fn clear_freefall_for_owned_leaf(&mut self) {
+        self.clear_disabled_for_owned_leaf(DisabledType::DisabledFreefall);
+    }
+    fn clear_disabled_for_owned_leaf(&mut self, disabled: DisabledType) {
         self.validate_owned_leaf_held()
             .expect("admitted leaf HELD callbacks");
         let was_disabled = self.is_disabled();
-        self.disabled_mask.clear(DisabledType::Held);
+        self.disabled_mask.clear(disabled);
         if was_disabled && !self.is_disabled() {
             self.dispatch_disabled_behavior_callbacks(false);
         }

@@ -1008,20 +1008,6 @@ impl Object {
     ///
     /// Does not re-log host_ai_state (state already last-written). Syncs
     /// moving/attacking status bits from the authoritative ordinal.
-    pub(crate) fn apply_ai_state_combat_status_residual(&mut self, ordinal: u8) {
-        let moving = matches!(ordinal, 1 | 3); // Moving | AttackMoving
-        let attacking = matches!(ordinal, 2 | 3 | 4 | 20); // Attacking | AttackMoving | AttackingGround | GuardRetaliating
-        self.set_status_moving(moving);
-        self.set_status_attacking(attacking);
-        if !moving {
-            // Clear residual velocity when leaving march states.
-            if matches!(ordinal, 0 | 12 | 13) {
-                // Idle | Docked | Garrisoned
-                self.movement.velocity = glam::Vec3::ZERO;
-            }
-        }
-        self.record_host_movement();
-    }
 
     pub fn set_ai_state(&mut self, state: AIState) {
         if !matches!(state, AIState::Moving) && self.temporary_move_frames == 0 {
@@ -1055,33 +1041,6 @@ impl Object {
             state,
             AIState::Moving | AIState::AttackMoving | AIState::Panic
         ) && self.ai_state != state;
-        let ordinal = match state {
-            AIState::Idle => 0u8,
-            AIState::Moving => 1,
-            AIState::Attacking => 2,
-            AIState::AttackMoving => 3,
-            AIState::AttackingGround => 4,
-            AIState::Gathering => 5,
-            AIState::ReturningResources => 6,
-            AIState::Constructing => 7,
-            AIState::Repairing => 8,
-            AIState::GuardingArea => 9,
-            AIState::GuardingObject => 10,
-            AIState::Patrolling => 11,
-            AIState::Docked => 12,
-            AIState::Garrisoned => 13,
-            AIState::SpecialAbility => 14,
-            AIState::SeekingRepair => 15,
-            AIState::SeekingHealing => 16,
-            AIState::Entering => 17,
-            AIState::Docking => 18,
-            AIState::Capturing => 19,
-            AIState::GuardRetaliating => 20,
-            AIState::FacingObject => 21,
-            AIState::FacingPosition => 22,
-            AIState::Panic => 23,
-            AIState::Exiting => 24,
-        };
         if !matches!(
             state,
             AIState::FacingObject | AIState::FacingPosition | AIState::SpecialAbility
@@ -1174,7 +1133,5 @@ impl Object {
             // C++ AIEnterState::onExit clears ignoreObstacle.
             self.ignored_obstacle_id = None;
         }
-        crate::game_logic::host_ai_state_log::record(self.id, ordinal);
-        self.record_host_ai_mood();
     }
 }

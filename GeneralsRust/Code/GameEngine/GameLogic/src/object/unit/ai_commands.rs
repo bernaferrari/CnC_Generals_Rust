@@ -109,7 +109,13 @@ impl UnitAIUpdate {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.validate_world_owner(world)?;
         let idle = command.cmd == crate::ai::AiCommandType::Idle;
-        let waypoint = command.cmd == crate::ai::AiCommandType::FollowWaypointPath;
+        let waypoint = matches!(
+            command.cmd,
+            crate::ai::AiCommandType::FollowWaypointPath
+                | crate::ai::AiCommandType::FollowWaypointPathExact
+                | crate::ai::AiCommandType::FollowWaypointPathAsTeam
+                | crate::ai::AiCommandType::FollowWaypointPathAsTeamExact
+        );
         if waypoint {
             let id = command
                 .waypoint
@@ -170,7 +176,10 @@ impl UnitAIUpdate {
                     || id == AIStateType::Busy as u32
                     || (idle && id == AIStateType::MoveTo as u32)
                     || id == AIStateType::Exit as u32 || id == AIStateType::ExitInstantly as u32
-                    || id == AIStateType::FollowWaypointPathAsIndividuals as u32))
+                    || id == AIStateType::FollowWaypointPathAsIndividuals as u32
+                    || id == AIStateType::FollowWaypointPathAsIndividualsExact as u32
+                    || id == AIStateType::FollowWaypointPathAsTeam as u32
+                    || id == AIStateType::FollowWaypointPathAsTeamExact as u32))
         {
             return Err(
                 "supplied AIEnter does not admit this previous state or temporary state".into(),
@@ -184,6 +193,9 @@ impl UnitAIUpdate {
                 | crate::ai::AiCommandType::Busy
                 | crate::ai::AiCommandType::MoveToPosition
                 | crate::ai::AiCommandType::FollowWaypointPath
+                | crate::ai::AiCommandType::FollowWaypointPathExact
+                | crate::ai::AiCommandType::FollowWaypointPathAsTeam
+                | crate::ai::AiCommandType::FollowWaypointPathAsTeamExact
                 | crate::ai::AiCommandType::Exit
                 | crate::ai::AiCommandType::ExitInstantly
         ) {

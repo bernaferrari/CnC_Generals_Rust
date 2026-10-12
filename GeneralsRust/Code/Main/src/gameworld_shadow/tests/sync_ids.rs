@@ -1021,8 +1021,6 @@ fn writeback_production_and_rally_to_host() {
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
     let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_ai_mood_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_mood_ready_log::drain();
     let _ = shadow.writeback_ai_request_to_host(&mut logic);
     let _ = crate::game_logic::host_ai_request_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);

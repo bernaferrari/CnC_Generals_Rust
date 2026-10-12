@@ -250,6 +250,7 @@ impl AdmissionMatch {
             &self.factory,
             &self.players,
             AiNativeServices {
+                groups: &[],
                 disposal: None,
                 current_update: None,
                 update_scheduler: &mut scheduler,

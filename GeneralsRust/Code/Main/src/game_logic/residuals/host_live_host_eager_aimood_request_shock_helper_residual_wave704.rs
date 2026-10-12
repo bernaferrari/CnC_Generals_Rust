@@ -9,10 +9,8 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
     table.iter().position(|n| *n == name)
 }
 pub const LIVE_HOST_EAGER_AIMOOD_REQUEST_SHOCK_HELPER_METHOD_NAMES_WAVE704: &[&str] = &[
-    "eager_apply_host_ai_mood_after_logic",
     "eager_apply_host_ai_request_after_logic",
     "eager_apply_host_shock_stun_after_logic",
-    "host_ai_mood_log",
     "host_ai_request_log",
     "host_shock_stun_log",
     "Wave 704",
@@ -77,10 +75,8 @@ fn shadow_source() -> &'static str {
 // (Wave 682/925); per-channel eager_apply_* stays on GAMEWORLD_SHADOW_SRC.
 pub fn honesty_host_eager_aimood_request_shock_helper_method_names_residual_wave704() -> bool {
     let names = LIVE_HOST_EAGER_AIMOOD_REQUEST_SHOCK_HELPER_METHOD_NAMES_WAVE704;
-    let ok = residual_name_index(names, "eager_apply_host_ai_mood_after_logic").is_some()
-        && residual_name_index(names, "eager_apply_host_ai_request_after_logic").is_some()
+    let ok = residual_name_index(names, "eager_apply_host_ai_request_after_logic").is_some()
         && residual_name_index(names, "eager_apply_host_shock_stun_after_logic").is_some()
-        && residual_name_index(names, "host_ai_mood_log").is_some()
         && residual_name_index(names, "host_ai_request_log").is_some()
         && residual_name_index(names, "host_shock_stun_log").is_some()
         && residual_name_index(names, "Wave 704").is_some()
@@ -91,14 +87,11 @@ pub fn honesty_host_eager_aimood_request_shock_helper_method_names_residual_wave
 pub fn honesty_host_eager_aimood_request_shock_helper_source_markers_residual_wave704() -> bool {
     let eng = eng_source();
     let sh = shadow_source();
-    let api_ok = sh.contains("pub fn eager_apply_host_ai_mood_after_logic")
-        && sh.contains("pub fn eager_apply_host_ai_request_after_logic")
+    let api_ok = sh.contains("pub fn eager_apply_host_ai_request_after_logic")
         && sh.contains("pub fn eager_apply_host_shock_stun_after_logic")
         && sh.contains("Wave 704")
-        && sh.contains("take_early_ai_mood_batch")
         && sh.contains("take_early_ai_request_batch")
         && sh.contains("take_early_shock_stun_batch")
-        && sh.contains("early_ai_mood_applied")
         && sh.contains("early_ai_request_applied")
         && sh.contains("early_shock_stun_applied");
     let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
@@ -127,8 +120,7 @@ pub fn honesty_host_eager_aimood_request_shock_helper_nav_commands_residual_wave
     ok
 }
 pub fn simulate_host_eager_aimood_request_shock_helper_collect_source() -> bool {
-    let ok = shadow_source().contains("eager_apply_host_ai_mood_after_logic")
-        && shadow_source().contains("eager_apply_host_ai_request_after_logic")
+    let ok = shadow_source().contains("eager_apply_host_ai_request_after_logic")
         && shadow_source().contains("eager_apply_host_shock_stun_after_logic")
         && eng_source().contains("eager_apply_all_host_residuals_after_logic");
     residual_action_store(ResidualHostEagerAimoodRequestShockHelperAction::CollectSource);
@@ -158,12 +150,11 @@ pub fn simulate_live_host_eager_aimood_request_shock_helper_honesty() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_ai_mood_log;
     use crate::game_logic::host_ai_request_log;
     use crate::game_logic::host_shock_stun_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
+    use crate::gameworld_shadow::{GameWorldShadow, begin_shadow_coupled_tick};
     use crate::gameworld_shadow::{
-        GameWorldShadow, begin_shadow_coupled_tick, eager_apply_host_ai_mood_after_logic,
         eager_apply_host_ai_request_after_logic, eager_apply_host_shock_stun_after_logic,
         eager_map_host_spawn_if_coupled, end_shadow_coupled_tick, shadow_session_after_host_tick,
         with_coupled_shadow,
@@ -209,7 +200,6 @@ mod tests {
         let _guard = crate::gameworld_shadow::authority_env_lock();
         let prev = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        host_ai_mood_log::clear();
         host_ai_request_log::clear();
         host_shock_stun_log::clear();
 
@@ -218,10 +208,8 @@ mod tests {
         let id = logic
             .create_object("EagerArsUnit", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("spawn");
-        host_ai_mood_log::clear();
         host_ai_request_log::clear();
         host_shock_stun_log::clear();
-        host_ai_mood_log::record(id, 10, 30, true, "Default".into());
         host_ai_request_log::record(
             id,
             0,
@@ -238,7 +226,6 @@ mod tests {
             0,
         );
         host_shock_stun_log::record(id, 5, 0.1, 0.0, 0.0, 0.0, false, false, false, false, false);
-        assert_eq!(host_ai_mood_log::len(), 1);
         assert_eq!(host_ai_request_log::len(), 1);
         assert_eq!(host_shock_stun_log::len(), 1);
 
@@ -255,10 +242,8 @@ mod tests {
                 },
             ));
         });
-        assert!(eager_apply_host_ai_mood_after_logic(&mut shadow, &logic) >= 1);
         assert!(eager_apply_host_ai_request_after_logic(&mut shadow, &logic) >= 1);
         assert!(eager_apply_host_shock_stun_after_logic(&mut shadow, &logic) >= 1);
-        assert!(host_ai_mood_log::drain().is_empty());
         assert!(host_ai_request_log::drain().is_empty());
         assert!(host_shock_stun_log::drain().is_empty());
         let _probe = shadow_session_after_host_tick(&mut shadow, &mut logic);

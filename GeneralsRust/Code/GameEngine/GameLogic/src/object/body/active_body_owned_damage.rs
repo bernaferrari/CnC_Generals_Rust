@@ -53,7 +53,6 @@ impl ActiveBody {
     ) -> BodyResult<bool> {
         if self.definitions.is_none()
             || !damage.input.amount.is_finite()
-            || damage.input.shock_wave_amount != 0.0
             || matches!(
                 damage.input.damage_type,
                 DamageType::Healing

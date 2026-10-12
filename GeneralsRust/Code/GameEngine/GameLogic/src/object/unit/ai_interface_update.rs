@@ -440,13 +440,14 @@ impl UnitAIUpdate {
             .ai_state_machine
             .as_mut()
             .ok_or("installed AI has no machine")?;
-        if machine.get_current_state_id()
-            != Some(AIStateType::FollowWaypointPathAsIndividuals as u32)
-            || machine.get_temporary_state().is_some()
+        let state_id = machine.get_current_state_id();
+        let ordinary = state_id == Some(AIStateType::FollowWaypointPathAsIndividuals as u32);
+        let exact = state_id == Some(AIStateType::FollowWaypointPathAsIndividualsExact as u32);
+        let team = state_id == Some(AIStateType::FollowWaypointPathAsTeam as u32);
+        let team_exact = state_id == Some(AIStateType::FollowWaypointPathAsTeamExact as u32);
+        if (!ordinary && !exact && !team && !team_exact) || machine.get_temporary_state().is_some()
         {
-            return Err(
-                "owned waypoint phase requires the ordinary individual waypoint state".into(),
-            );
+            return Err("owned waypoint phase requires a waypoint state".into());
         }
         if !world.has_pathfinder() {
             return Err("owned waypoint phase has no pathfinder".into());
@@ -460,19 +461,51 @@ impl UnitAIUpdate {
         };
         let state = machine
             .base
-            .get_state_mut(AIStateType::FollowWaypointPathAsIndividuals as u32)
+            .get_state_mut(state_id.ok_or("owned waypoint state absent")?)
             .ok_or("owned waypoint state missing")?;
-        let state = state
-            .as_mut()
-            .as_any_mut()
-            .downcast_mut::<crate::state_machine::cpp_state::CppStateAdapter<
-                crate::ai::states::AIFollowWaypointPathAsIndividualsState,
-            >>()
-            .ok_or("owned waypoint state has an unexpected implementation")?;
-        state
-            .inner_mut()
-            .core
-            .resolve_loaded_waypoints(Some(&runtime))?;
+        if ordinary {
+            let state = state
+                .as_mut()
+                .as_any_mut()
+                .downcast_mut::<crate::state_machine::cpp_state::CppStateAdapter<
+                    crate::ai::states::AIFollowWaypointPathAsIndividualsState,
+                >>()
+                .ok_or("owned waypoint state has an unexpected implementation")?;
+            state
+                .inner_mut()
+                .core
+                .resolve_loaded_waypoints(Some(&runtime))?;
+        } else if exact {
+            let state = state
+                .as_mut()
+                .as_any_mut()
+                .downcast_mut::<crate::state_machine::cpp_state::CppStateAdapter<
+                    crate::ai::states::AIFollowWaypointPathAsIndividualsExactState,
+                >>()
+                .ok_or("owned exact waypoint state has an unexpected implementation")?;
+            state.inner_mut().resolve_last_waypoint(Some(&runtime))?;
+        } else if team {
+            let state = state
+                .as_mut()
+                .as_any_mut()
+                .downcast_mut::<crate::state_machine::cpp_state::CppStateAdapter<
+                    crate::ai::states::AIFollowWaypointPathAsTeamState,
+                >>()
+                .ok_or("owned team waypoint state has an unexpected implementation")?;
+            state
+                .inner_mut()
+                .core
+                .resolve_loaded_waypoints(Some(&runtime))?;
+        } else {
+            let state = state
+                .as_mut()
+                .as_any_mut()
+                .downcast_mut::<crate::state_machine::cpp_state::CppStateAdapter<
+                    crate::ai::states::AIFollowWaypointPathAsTeamExactState,
+                >>()
+                .ok_or("owned exact team waypoint state has an unexpected implementation")?;
+            state.inner_mut().resolve_last_waypoint(Some(&runtime))?;
+        }
         machine.commit_loaded_goal_waypoint(staged_goal);
         machine.update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
             ai.execute_command_native(terminal.params(), driver)

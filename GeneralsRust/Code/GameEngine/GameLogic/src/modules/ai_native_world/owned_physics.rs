@@ -37,13 +37,17 @@ impl BorrowedAiWorld<'_> {
         let layer = crate::path::PathfindLayerEnum::from_u32(object.get_layer() as u32);
         let position = object.get_position();
         let ground = terrain.get_layer_height(position.x, position.y, layer, None, false);
-        let step = physics.integrate_ground_at(
+        let step = physics.integrate_owned_at(
             &mut object,
             frame,
             self.services.gravity,
             ground,
             |x, y| terrain.get_layer_height(x, y, layer, None, false),
         )?;
+        if step.enable_freefall {
+            object.set_freefall_for_owned_leaf();
+            object.set_model_condition_state(crate::common::MODELCONDITION_FREEFALL);
+        }
         let pose_result = if let Some(transform) = step.transform {
             object.set_transform_matrix_with_services(
                 &transform,
@@ -61,7 +65,15 @@ impl BorrowedAiWorld<'_> {
         }
         // The canonical module loan ended before pose notifications. Finish it
         // even if pose admission reports an error, so IS_IN_UPDATE never leaks.
-        let sleep = physics.finish_ground_at(&mut object, frame)?;
+        let airborne_at_end = self.above_terrain(&object)?;
+        if !airborne_at_end {
+            physics.prepare_freefall_cleanup_at(&object)?;
+            if object.is_disabled_by_type(crate::common::DisabledType::DisabledFreefall) {
+                object.clear_freefall_for_owned_leaf();
+            }
+            object.clear_model_condition_state(crate::common::MODELCONDITION_FREEFALL);
+        }
+        let sleep = physics.finish_owned_at(&mut object, frame, airborne_at_end)?;
         pose_result?;
         Ok(sleep)
     }

@@ -114,7 +114,7 @@ fn path_phase(game: &mut NativeMatch, frame: u32) {
         interface
             .lock()
             .unwrap()
-            .update_locomotor_path_phase_with_world(world)
+            .update_locomotor_phase_with_world(world)
             .unwrap();
     });
 }
@@ -152,10 +152,33 @@ fn install_waypoints(game: &mut NativeMatch) {
 }
 
 pub(crate) fn individual_waypoints_use_real_queue_physics_and_inline_second_goal() {
+    waypoint_chain_control(false);
+}
+
+#[test]
+fn team_waypoints_use_supplied_group_real_queue_and_physics() {
+    waypoint_chain_control(true);
+}
+
+fn admit_source_group(game: &mut NativeMatch) {
+    let mut group = crate::ai::AiGroup::new(71);
+    group.add(game.source.read().unwrap().get_id());
+    game.source
+        .write()
+        .unwrap()
+        .enter_runtime_group(&group)
+        .unwrap();
+    game.groups.push(Arc::new(RwLock::new(group)));
+}
+
+fn waypoint_chain_control(as_team: bool) {
     use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
     use std::io::Cursor;
     let mut game = new_game("OwnedWaypointChain");
     install_waypoints(&mut game);
+    if as_team {
+        admit_source_group(&mut game);
+    }
     let peer = new_game("OwnedWaypointChainPeer");
     assert_eq!(
         game.source.read().unwrap().get_id(),
@@ -165,7 +188,11 @@ pub(crate) fn individual_waypoints_use_real_queue_physics_and_inline_second_goal
     let peer_ai_before = ai_snapshot(&peer, "OwnedWaypointChainPeerLoco");
     let interface = ai(&game.source);
     let mut command = AiCommandParams::new(
-        AiCommandType::FollowWaypointPath,
+        if as_team {
+            AiCommandType::FollowWaypointPathAsTeam
+        } else {
+            AiCommandType::FollowWaypointPath
+        },
         CommandSourceType::FromPlayer,
     );
     command.waypoint = Some(9_801);
@@ -470,7 +497,7 @@ pub(crate) fn other_turn_is_not_repeated_by_actual_physics_integration() {
         interface
             .lock()
             .unwrap()
-            .update_locomotor_path_phase_with_world(world)
+            .update_locomotor_phase_with_world(world)
             .unwrap();
     });
     // This bounded active-path body stays awake. It is not a complete AI tick.
@@ -503,4 +530,202 @@ pub(crate) fn other_turn_is_not_repeated_by_actual_physics_integration() {
         Some((1, 2))
     );
     assert!((game.source.read().unwrap().get_orientation() - angle).abs() < 1.0e-5);
+}
+
+#[test]
+fn individual_exact_waypoints_move_through_owned_internal_move_and_physics() {
+    exact_waypoint_control(false);
+}
+
+#[test]
+fn team_exact_waypoints_move_through_supplied_group_internal_move_and_physics() {
+    exact_waypoint_control(true);
+}
+
+fn exact_waypoint_control(as_team: bool) {
+    use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
+    let mut game = new_game("OwnedExactWaypoint");
+    install_waypoints(&mut game);
+    if as_team {
+        admit_source_group(&mut game);
+    }
+    let mut peer = new_game("OwnedExactWaypointPeer");
+    if as_team {
+        admit_source_group(&mut peer);
+    }
+    let peer_before = ai_snapshot(&peer, "OwnedExactWaypointPeerLoco");
+    let interface = ai(&game.source);
+    let mut command = AiCommandParams::new(
+        if as_team {
+            AiCommandType::FollowWaypointPathAsTeamExact
+        } else {
+            AiCommandType::FollowWaypointPathExact
+        },
+        CommandSourceType::FromPlayer,
+    );
+    command.waypoint = Some(9_801);
+    game.operate(0, |world| {
+        interface
+            .lock()
+            .unwrap()
+            .execute_command_with_world(&command, world)
+            .unwrap()
+    });
+    assert_eq!(
+        interface.lock().unwrap().get_current_state_id(),
+        Some(if as_team {
+            crate::modules::AIStateType::FollowWaypointPathAsTeamExact
+        } else {
+            crate::modules::AIStateType::FollowWaypointPathAsIndividualsExact
+        } as u32)
+    );
+    let locomotor = LOCOMOTOR_STORE
+        .get_template("OwnedExactWaypointLoco")
+        .unwrap();
+    let mut lookup =
+        |name: &str| Ok((name == "OwnedExactWaypointLoco").then(|| Arc::clone(&locomotor)));
+    let mut restored_moving_exact = false;
+    let mut completed = false;
+    for frame in 1..=2_000 {
+        let owner = Arc::clone(&game.source);
+        game.operate_with_current(frame, Some(proxy(&owner, "AIUpdateInterface")), |world| {
+            interface
+                .lock()
+                .unwrap()
+                .update_waypoint_phase_with_world(world)
+                .unwrap();
+        });
+        {
+            let mut interface = interface.lock().unwrap();
+            let observation = interface
+                .unit_ai_for_test()
+                .unwrap()
+                .native_waypoint_observation_for_test();
+            completed = observation.completed_waypoint == Some(9_801);
+        }
+        if completed {
+            break;
+        }
+        path_phase(&mut game, frame);
+        physics_phase(&mut game, frame);
+        if !restored_moving_exact && game.source.read().unwrap().get_position().x > 30.0 {
+            let mut interface = interface.lock().unwrap();
+            let mut saved = Cursor::new(Vec::new());
+            interface
+                .xfer_ai_update_state_with_locomotors(
+                    &mut XferSave::new(&mut saved, 1),
+                    &mut lookup,
+                )
+                .unwrap();
+            let saved = saved.into_inner();
+            interface
+                .xfer_ai_update_state_with_locomotors(
+                    &mut XferLoad::new(Cursor::new(saved.clone()), 1),
+                    &mut lookup,
+                )
+                .unwrap();
+            let mut resaved = Cursor::new(Vec::new());
+            interface
+                .xfer_ai_update_state_with_locomotors(
+                    &mut XferSave::new(&mut resaved, 1),
+                    &mut lookup,
+                )
+                .unwrap();
+            assert_eq!(
+                saved,
+                resaved.into_inner(),
+                "exact AI/FSM continuation retains movement and unresolved waypoint before supplied resolution"
+            );
+            restored_moving_exact = true;
+        }
+    }
+    assert!(
+        restored_moving_exact,
+        "exact save/load interrupts real movement"
+    );
+    if as_team {
+        assert!(!game.groups[0].read().unwrap().speed_dirty_for_test());
+        assert!(
+            peer.groups[0].read().unwrap().speed_dirty_for_test(),
+            "same-ID peer group cache remains untouched"
+        );
+    }
+    assert!(
+        completed,
+        "CPP exact route must complete the authored chain and report its entry waypoint"
+    );
+    assert!(game.source.read().unwrap().get_position().x >= 235.0);
+    assert_eq!(
+        ai_snapshot(&peer, "OwnedExactWaypointPeerLoco"),
+        peer_before
+    );
+}
+
+#[test]
+fn installed_immune_flight_preserves_receiving_owner_and_saved_future() {
+    use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
+    let mut game = new_game("OwnedFlight");
+    let mut peer = new_game("OwnedFlightPeer");
+    let owner = Arc::clone(&game.source);
+    let receiver = Arc::clone(&peer.source);
+    for (session, object) in [(&mut game, &owner), (&mut peer, &receiver)] {
+        session.operate(0, |world| {
+            world
+                .set_object_position(
+                    &mut object.write().unwrap(),
+                    &Coord3D::new(30.0, 30.0, 20.0),
+                )
+                .unwrap()
+        });
+        let physics = object.read().unwrap().get_physics().unwrap();
+        let mut state = physics.access().unwrap();
+        state.set_velocity(&Coord3D::new(1.0, 0.0, -1.0));
+        drop(state);
+        physics
+            .set_immune_freefall_for_test(&object.read().unwrap())
+            .unwrap();
+    }
+    let peer_before = receiver.read().unwrap().get_transform_matrix();
+    physics_phase(&mut game, 1);
+    let at_save = owner.read().unwrap().get_transform_matrix();
+    assert!(at_save.w_axis.z < 20.0);
+    assert_eq!(receiver.read().unwrap().get_transform_matrix(), peer_before);
+    let source_module = owner
+        .read()
+        .unwrap()
+        .module_by_name(&"PhysicsBehavior".into())
+        .unwrap();
+    let receiving_module = receiver
+        .read()
+        .unwrap()
+        .module_by_name(&"PhysicsBehavior".into())
+        .unwrap();
+    let mut saved = Cursor::new(Vec::new());
+    source_module.with_module(|module| module.xfer(&mut XferSave::new(&mut saved, 1)).unwrap());
+    let saved = saved.into_inner();
+    receiving_module.with_module(|module| {
+        module
+            .xfer(&mut XferLoad::new(Cursor::new(saved.clone()), 1))
+            .unwrap()
+    });
+    peer.operate(1, |world| {
+        world
+            .set_object_position(&mut receiver.write().unwrap(), &at_save.w_axis.truncate())
+            .unwrap()
+    });
+    for frame in 2..=40 {
+        physics_phase(&mut game, frame);
+        physics_phase(&mut peer, frame);
+        assert_eq!(
+            owner.read().unwrap().get_transform_matrix(),
+            receiver.read().unwrap().get_transform_matrix()
+        );
+    }
+    assert_eq!(owner.read().unwrap().get_position().z, 0.0);
+    assert_eq!(
+        owner.read().unwrap().get_health(),
+        receiver.read().unwrap().get_health()
+    );
 }
