@@ -5,10 +5,12 @@ use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
 
 fn prepared_pair() -> (ObjectFactory, Arc<RwLock<Object>>, Arc<RwLock<Object>>) {
     let mut factory = ObjectFactory::new();
+    let mut identity_owner = crate::system::game_logic::GameLogic::new();
     let mut objects = Vec::new();
     for name in ["AttackOrderSource", "AttackOrderTarget"] {
         let id = factory
             .prepare_object(
+                &mut identity_owner,
                 Arc::new(crate::common::DefaultThingTemplate::new(name.into())),
                 Coord3D::ZERO,
                 None,

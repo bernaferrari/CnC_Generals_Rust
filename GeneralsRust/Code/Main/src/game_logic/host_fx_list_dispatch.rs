@@ -246,6 +246,41 @@ fn host_object_fx_radius(obj: &crate::game_logic::Object) -> f32 {
 }
 
 impl crate::game_logic::GameLogic {
+    /// CPP doFXPos samples a positional cell, separately from an object's
+    /// attached-FX status. Both viewer and shroud belong to this match.
+    pub(crate) fn dispatch_fx_list_at_host_position(&self, name: &str, position: Vec3) -> bool {
+        let name = strip_fx_list_prefix(name);
+        if is_none_fx_list(name) {
+            return false;
+        }
+        #[cfg(feature = "game_client")]
+        {
+            let Some(player) = self.local_player_id() else {
+                return false;
+            };
+            let position = host_to_leftover_coord(position);
+            let cell_is_clear = {
+                let Ok(shroud) = self.world_services.shroud().lock() else {
+                    return false;
+                };
+                matches!(
+                    shroud.get_shroud_state(player, &position),
+                    gamelogic::system::shroud_manager::ShroudState::Visible
+                )
+            };
+            let fx = game_client::fx_list::get_fx_list_store().find_fx_list(name);
+            let Some(fx) = fx else {
+                return false;
+            };
+            fx.do_fx_pos_with_cell_visibility(Some(&position), None, 0.0, None, 0.0, cell_is_clear);
+            true
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            dispatch_fx_list_at_pos(name, position)
+        }
+    }
+
     fn host_object_fx_is_shrouded(&self, id: crate::game_logic::ObjectId) -> bool {
         use gamelogic::common::types::ObjectShroudStatus;
         let Some(player) = self.local_player_id() else {
@@ -270,25 +305,29 @@ impl crate::game_logic::GameLogic {
         secondary_id: Option<crate::game_logic::ObjectId>,
     ) -> bool {
         let primary = self.host_object(primary_id).map(|obj| {
-            host_fx_object_pose(
+            let mut pose = host_fx_object_pose(
                 obj.id.0,
                 obj.get_position(),
                 obj.get_orientation(),
                 obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
                 host_object_fx_radius(obj),
                 self.host_object_fx_is_shrouded(primary_id),
-            )
+            );
+            pose.transform = host_to_leftover_mat4(obj.get_transform_matrix());
+            pose
         });
         let secondary = secondary_id.and_then(|sid| {
             self.host_object(sid).map(|obj| {
-                host_fx_object_pose(
+                let mut pose = host_fx_object_pose(
                     obj.id.0,
                     obj.get_position(),
                     obj.get_orientation(),
                     obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
                     host_object_fx_radius(obj),
                     self.host_object_fx_is_shrouded(sid),
-                )
+                );
+                pose.transform = host_to_leftover_mat4(obj.get_transform_matrix());
+                pose
             })
         });
         // Attached systems still use the published scene poses between logic
@@ -306,11 +345,23 @@ impl crate::game_logic::GameLogic {
         if is_none_fx_list(name) {
             return false;
         }
-        let Some(fx) = gamelogic::helpers::TheFXList::get() else {
-            return false;
-        };
-        fx.do_fx_for_host_objects(name, &primary, secondary.as_ref());
-        gamelogic::helpers::get_fx_list_manager().is_some()
+        #[cfg(feature = "game_client")]
+        {
+            let fx = game_client::fx_list::get_fx_list_store().find_fx_list(name);
+            let Some(fx) = fx else {
+                return false;
+            };
+            fx.do_fx_obj_host(&primary, secondary.as_ref());
+            return true;
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let Some(fx) = gamelogic::helpers::TheFXList::get() else {
+                return false;
+            };
+            fx.do_fx_for_host_objects(name, &primary, secondary.as_ref());
+            gamelogic::helpers::get_fx_list_manager().is_some()
+        }
     }
 }
 
@@ -510,12 +561,18 @@ mod tests {
     #[test]
     fn crushing_fx_uses_terrain_height() {
         let src = include_str!("world_objects/create_destroy_die/death.rs");
-        let start = src
+        let wrapper = src
             .find("pub(crate) fn apply_structure_topple_crush_samples")
-            .expect("crush samples");
-        let body = &src[start..start + 1800];
+            .expect("crush entry");
         assert!(
-            body.contains("terrain_height_at"),
+            src[wrapper..wrapper + 700].contains("apply_prepared_structure_topple_crush_samples")
+        );
+        let start = src
+            .find("pub(super) fn apply_prepared_structure_topple_crush_samples")
+            .expect("actual shared crush body");
+        let body = &src[start..start + 2700];
+        assert!(
+            body.contains("terrain_ground_height_at"),
             "CrushingFX must sit on terrain, not height 0"
         );
         assert!(

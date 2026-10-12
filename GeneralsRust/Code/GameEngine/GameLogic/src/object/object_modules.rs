@@ -882,6 +882,7 @@ impl Object {
             prepare_unit_ai,
             None,
             None,
+            None,
         )
     }
 
@@ -891,32 +892,18 @@ impl Object {
         prepare_unit_ai: bool,
         lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
         body_definitions: Option<&Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
+        module_factory: Option<&ModuleFactory>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Unpublished owners install the same constructors from an independent
-        // catalog. A peer's startup or thread-local override staging cannot
-        // replace the definitions halfway through this object's assembly.
         let unpublished = !object
             .read()
             .map_err(|_| "object poisoned before module admission")?
             .ambient_lifecycle_admitted;
-        let owned_factory = if unpublished {
-            let mut factory = ModuleFactory::new();
-            crate::contain_module_overrides::register_module_overrides(&mut factory)?;
-            crate::contain_module_overrides::register_inert_auto_heal(&mut factory)?;
-            if body_definitions.is_some() {
-                crate::contain_module_overrides::register_inert_active_body(&mut factory)?;
-            }
-            for entry in thing_template.get_behavior_module_info() {
-                factory.add_module_internal(
-                    None,
-                    None,
-                    ModuleType::Behavior,
-                    &entry.name,
-                    entry.interface_flags(),
-                );
-            }
-            Some(factory)
-        } else {
+        // The receiving owner chooses constructors before assembly. No catalog
+        // reconstruction or ambient descriptor publication can replace them here.
+        if unpublished && module_factory.is_none() {
+            return Err("unpublished module assembly requires its receiving catalog".into());
+        }
+        if module_factory.is_none() {
             if let Err(err) = crate::contain_module_overrides::ensure_module_overrides_installed() {
                 warn!(
                     "Failed to install module overrides before module init: {}",
@@ -924,8 +911,7 @@ impl Object {
                 );
             }
             let _ = thing_template.module_descriptors();
-            None
-        };
+        }
 
         let thing_handle: Arc<ObjectThingHandle> = Arc::new(ObjectThingHandle::new(object));
         let module_handle: Arc<dyn ModuleThing> = thing_handle.clone();
@@ -987,7 +973,7 @@ impl Object {
             Ok(())
         };
 
-        if let Some(factory) = owned_factory.as_ref() {
+        if let Some(factory) = module_factory {
             install_behavior_modules(factory)?;
         } else {
             let mut installed = false;

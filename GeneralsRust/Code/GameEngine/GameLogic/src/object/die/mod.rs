@@ -487,6 +487,9 @@ impl<T: EngineModuleData> DieModule<T> {
             .ok()
             .map(|g| g.get_id())
             .unwrap_or(crate::common::INVALID_ID);
+        Self::new_for_object_id(object_id, module_data)
+    }
+    pub(crate) fn new_for_object_id(object_id: ObjectID, module_data: Arc<T>) -> Self {
         Self {
             module_data,
             object_id,
@@ -561,20 +564,31 @@ impl DieModuleWrapper {
         object: Arc<RwLock<Object>>,
         die_module: Box<dyn DieModuleInterface>,
     ) -> Self {
-        let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
-        let module_tag_name_key = module_data.get_module_tag_name_key();
         let object_id = object
             .read()
             .ok()
             .map(|g| g.get_id())
             .unwrap_or(crate::common::INVALID_ID);
+        Self::new_for_object_id(module_name, module_data, object_id, die_module)
+    }
+    pub(crate) fn new_for_object_id(
+        module_name: &AsciiString,
+        module_data: Arc<dyn EngineModuleData>,
+        object_id: ObjectID,
+        die_module: Box<dyn DieModuleInterface>,
+    ) -> Self {
         Self {
-            module_name_key,
-            module_tag_name_key,
+            module_name_key: NameKeyGenerator::name_to_key(module_name.as_str()),
+            module_tag_name_key: module_data.get_module_tag_name_key(),
             module_data,
             object_id,
             die_module,
         }
+    }
+    pub(crate) fn owned_instant_death(
+        &mut self,
+    ) -> Option<&mut crate::object::behavior::instant_death_behavior::InstantDeathBehavior> {
+        self.die_module.as_mut().as_any_mut().downcast_mut()
     }
 
     fn get_object_id(&self) -> ObjectID {

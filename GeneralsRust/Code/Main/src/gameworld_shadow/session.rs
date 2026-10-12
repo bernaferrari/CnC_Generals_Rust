@@ -1305,7 +1305,9 @@ pub fn shadow_session_after_host_tick(
         // C++ sleeps forever here; only explicit or separately authored deletion runs.
         // Wave 777: StructureTopple crush sweep → host apply (no dual last_crushed).
         for (id, samples) in crate::game_logic::host_structure_topple_crush_log::drain() {
-            logic.apply_structure_topple_crush_samples(id, samples);
+            if let Err(error) = logic.apply_structure_topple_crush_samples(id, samples) {
+                log::error!("Optional shadow StructureTopple crushing rejected: {error}");
+            }
         }
         // Wave 778: FWWDB continuous → host pending fire (no dual continuous timer).
         for (id, weapon) in crate::game_logic::host_fwwd_continuous_log::drain() {

@@ -437,11 +437,10 @@ fn presentation_build_includes_unit_render_fields_and_positions() {
     let inputs = snap.unit_render_inputs();
     assert_eq!(inputs.len(), 1);
     assert_eq!(inputs[0].id, id);
-    // Draw-model catalog: for a logic-local synthetic template (no authored
-    // ConditionState INI / global factory entry) the frozen key derives from
-    // the template name; authored template models flow through
-    // resolve_presentation_draw_models_* in build.rs.
-    assert_eq!(inputs[0].model_key, "MeshUnit");
+    // A normal, unchanged visual template retains the resident authored
+    // model. The gameplay template name is not a replacement model key.
+    assert_eq!(inputs[0].model_key, "AVTank");
+    assert_eq!(inputs[0].template_name, "MeshUnit");
     assert!((inputs[0].position.x - 3.0).abs() < 0.01);
     assert!(inputs[0].selected);
     assert!(!inputs[0].engine_bridged);

@@ -695,7 +695,28 @@ impl FXList {
         secondary: Option<&Coord3D>,
         override_radius: f32,
     ) {
-        if !fx_pos_cell_is_clear(primary) {
+        self.do_fx_pos_with_cell_visibility(
+            primary,
+            primary_mtx,
+            primary_speed,
+            secondary,
+            override_radius,
+            fx_pos_cell_is_clear(primary),
+        );
+    }
+
+    /// The same CPP doFXPos loop, with positional visibility observed by the
+    /// driving world before the client receives its immutable effect inputs.
+    pub fn do_fx_pos_with_cell_visibility(
+        &self,
+        primary: Option<&Coord3D>,
+        primary_mtx: Option<&Matrix3D>,
+        primary_speed: f32,
+        secondary: Option<&Coord3D>,
+        override_radius: f32,
+        cell_is_clear: bool,
+    ) {
+        if !cell_is_clear {
             return;
         }
         for nugget in &self.nuggets {
@@ -718,11 +739,14 @@ impl FXList {
         }
     }
 
-    fn do_fx_obj_host(
+    pub fn do_fx_obj_host(
         &self,
         primary: &gamelogic::helpers::HostFxObjectPose,
         secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
     ) {
+        if primary.is_shrouded {
+            return;
+        }
         for nugget in &self.nuggets {
             nugget.do_fx_obj_host(primary, secondary);
         }

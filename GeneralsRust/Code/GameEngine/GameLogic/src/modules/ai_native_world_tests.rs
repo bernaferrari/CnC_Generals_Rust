@@ -178,6 +178,7 @@ impl AudioLocalityResolver for LocalPlayers<'_> {
 }
 struct NativeMatch {
     scheduler: crate::system::game_logic::GameLogic,
+    disposal: super::ai_native_world::owned_disposal::NativeDisposalState,
     teams: crate::team::TeamFactory,
     client_random: game_engine::common::random_value::RandomState,
     dirty_ui: Vec<u32>,
@@ -228,6 +229,7 @@ impl NativeMatch {
         source_template: Arc<dyn ThingTemplate>,
     ) -> Self {
         let mut factory = ObjectFactory::new();
+        let mut scheduler = crate::system::game_logic::GameLogic::new();
         let mut players = PlayerList::new();
         players.add_player(Arc::new(RwLock::new(Player::new(0))));
         players.set_local_player_index(0);
@@ -285,6 +287,7 @@ impl NativeMatch {
         };
         let source_id = factory
             .prepare_object(
+                &mut scheduler,
                 source_template,
                 Coord3D::new(50.0, 50.0, 0.0),
                 Some(team.clone()),
@@ -293,6 +296,7 @@ impl NativeMatch {
             .unwrap();
         let target_id = factory
             .prepare_object(
+                &mut scheduler,
                 template,
                 target_position,
                 Some(Arc::clone(&target_team)),
@@ -349,7 +353,8 @@ impl NativeMatch {
             )
             .unwrap();
         Self {
-            scheduler: crate::system::game_logic::GameLogic::new(),
+            scheduler,
+            disposal: super::ai_native_world::owned_disposal::NativeDisposalState::new().unwrap(),
             teams,
             client_random: Default::default(),
             dirty_ui: Vec::new(),
@@ -380,8 +385,28 @@ impl NativeMatch {
         current_update: Option<game_engine::common::thing::update_module::UpdateModulePtr>,
         f: impl FnOnce(&mut BorrowedAiWorld<'_>) -> R,
     ) -> R {
+        self.with_native_services(frame, current_update, |factory, players, services| {
+            f(&mut BorrowedAiWorld::new(factory, players, services).unwrap())
+        })
+    }
+
+    fn dispose_destroyed(&mut self, frame: u32) -> Result<usize, String> {
+        self.with_native_services(frame, None, |factory, players, services| {
+            super::ai_native_world::owned_disposal::finish_native_destroyed_objects(
+                factory, players, services,
+            )
+        })
+    }
+
+    fn with_native_services<R>(
+        &mut self,
+        frame: u32,
+        current_update: Option<game_engine::common::thing::update_module::UpdateModulePtr>,
+        f: impl FnOnce(&mut ObjectFactory, &crate::player::PlayerList, AiNativeServices<'_>) -> R,
+    ) -> R {
         let locality = LocalPlayers(&self.players);
         let services = AiNativeServices {
+            disposal: Some(&mut self.disposal),
             current_update,
             update_scheduler: &mut self.scheduler,
             teams: &self.teams,
@@ -402,9 +427,10 @@ impl NativeMatch {
             terrain_moved_objects: &mut self.terrain_moves,
             frame,
             unlook_persist_frames: 0,
+            slow_death_scale: 1.0,
             gravity: crate::physics::GRAVITY,
         };
-        f(&mut BorrowedAiWorld::new(&self.factory, &self.players, services).unwrap())
+        f(&mut self.factory, &self.players, services)
     }
     fn issue_enter(&mut self, frame: u32) {
         let ai = self
@@ -926,3 +952,9 @@ mod ordinary_damage;
 
 #[path = "ai_native_world_tests/spy_power.rs"]
 mod spy_power_tests;
+
+#[path = "ai_native_world_tests/lethal_damage.rs"]
+mod lethal_damage;
+
+#[path = "ai_native_world_tests/disposal.rs"]
+mod disposal;

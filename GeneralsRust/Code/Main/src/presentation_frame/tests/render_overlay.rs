@@ -7,6 +7,7 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         template_name: "T".into(),
         model_key: "M".into(),
         physics_visual_local: None,
+        structure_topple_matrix: None,
         #[cfg(feature = "game_client")]
         specialized_draw: None,
         draw_models: Vec::new(),
@@ -203,6 +204,7 @@ fn unit_render_input_fixture() -> UnitRenderInput {
         template_name: "T".into(),
         model_key: "M".into(),
         physics_visual_local: None,
+        structure_topple_matrix: None,
         #[cfg(feature = "game_client")]
         specialized_draw: None,
         draw_models: Vec::new(),

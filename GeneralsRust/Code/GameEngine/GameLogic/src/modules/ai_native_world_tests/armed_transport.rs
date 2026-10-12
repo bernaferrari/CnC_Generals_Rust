@@ -225,6 +225,7 @@ fn contact_only_rider_does_not_grant_upgrade_and_replacement_is_rechecked() {
     let second = game
         .factory
         .prepare_object(
+            &mut game.scheduler,
             infantry_template(),
             Coord3D::new(50.0, 50.0, 0.0),
             team,

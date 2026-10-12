@@ -1061,6 +1061,11 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         // Default implementation does nothing - subclasses should track this state
     }
 
+    /// Native die callbacks set the same latch; their driving scheduler owns wake admission.
+    fn mark_dead_owned(&mut self) -> Result<(), String> {
+        Err("native AI death latch is not admitted".into())
+    }
+
     /// Get which turret is used for current weapon
     /// Matches C++ AIUpdateInterface::GetWhichTurretForCurWeapon
     fn get_which_turret_for_cur_weapon(&self) -> TurretType {

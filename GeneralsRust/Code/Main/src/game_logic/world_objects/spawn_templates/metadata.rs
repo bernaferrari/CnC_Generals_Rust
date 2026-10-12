@@ -1118,6 +1118,18 @@ impl GameLogic {
                 .class_name
                 .eq_ignore_ascii_case("StructureToppleUpdate")
         });
+        template.structure_topple_definition = definition
+            .behavior_modules
+            .iter()
+            .find(|module| {
+                module
+                    .class_name
+                    .eq_ignore_ascii_case("StructureToppleUpdate")
+            })
+            .and_then(
+                crate::game_logic::host_structure_topple::definition::StructureToppleDefinition::from_module,
+            )
+            .map(std::sync::Arc::new);
         template.authored_structure_collapse = definition.behavior_modules.iter().any(|module| {
             module
                 .class_name

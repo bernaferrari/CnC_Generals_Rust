@@ -363,3 +363,48 @@ body_factories!(
 mod armor_binding_probe;
 #[cfg(test)]
 pub(crate) use armor_binding_probe::with_active;
+#[cfg(test)]
+pub(crate) use armor_binding_probe::with_active_mut;
+
+/// These actual bindings inherit Module's empty onDelete implementation.
+/// Classification uses concrete types, not authored display names.
+pub(crate) fn has_owned_empty_body_delete(module: &dyn Module) -> bool {
+    module
+        .as_any()
+        .is::<BodyBindingModule<ActiveBodyModuleData, ActiveBody>>()
+        || module
+            .as_any()
+            .is::<BodyBindingModule<BodyModuleData, InactiveBody>>()
+}
+
+/// Receiving catalog selection for the actual Body binding; the original full
+/// ActiveBody serializer remains shared with the compatibility adapter.
+pub(crate) fn xfer_active_body_with_templates(
+    module: &mut dyn Module,
+    xfer: &mut dyn game_engine::common::system::Xfer,
+    lookup: &mut crate::object::body::active_body::DamageTemplateLookup<'_>,
+) -> Option<Result<(), String>> {
+    let binding = module
+        .as_any_mut()
+        .downcast_mut::<BodyBindingModule<ActiveBodyModuleData, ActiveBody>>()?;
+    Some(
+        binding
+            .snapshot_body()
+            .and_then(|mut body| body.xfer_with_template_lookup(xfer, Some(lookup))),
+    )
+}
+
+/// Native Object restore has no receiving particle manager yet, so decoded
+/// process-local particle IDs must be rejected before candidate admission.
+pub(crate) fn validate_native_active_body_restore_particles(
+    module: &dyn Module,
+) -> Option<Result<(), String>> {
+    let binding = module
+        .as_any()
+        .downcast_ref::<BodyBindingModule<ActiveBodyModuleData, ActiveBody>>()?;
+    Some(
+        binding
+            .snapshot_body()
+            .and_then(|body| body.validate_native_restore_particles()),
+    )
+}

@@ -17,6 +17,7 @@ use std::sync::{Arc, RwLock};
 /// trigger notifications and semantic presentation messages, not queued game
 /// mutations; Object trigger flags change synchronously during the operation.
 pub struct AiNativeServices<'a> {
+    pub(crate) disposal: Option<&'a mut owned_disposal::NativeDisposalState>,
     pub teams: &'a crate::team::TeamFactory,
     pub client_random: &'a mut game_engine::common::random_value::RandomState,
     pub idle_worker_events: &'a mut crate::helpers::IdleWorkerEvents,
@@ -38,6 +39,7 @@ pub struct AiNativeServices<'a> {
     pub frame: u32,
     pub unlook_persist_frames: u32,
     pub gravity: f32,
+    pub slow_death_scale: f32,
 }
 
 pub struct BorrowedAiWorld<'a> {
@@ -1330,3 +1332,10 @@ mod owned_exit;
 mod spy_power;
 
 mod owned_damage;
+mod owned_death;
+
+mod owned_destroy;
+
+mod owned_updates;
+
+pub(crate) mod owned_disposal;

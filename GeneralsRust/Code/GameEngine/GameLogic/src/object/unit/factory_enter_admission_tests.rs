@@ -48,6 +48,7 @@ fn team(id: u32, player: u32) -> Arc<RwLock<Team>> {
 
 struct EntryRuntime {
     _factory: ObjectFactory,
+    _logic: Option<GameLogic>,
     owner: Arc<RwLock<Object>>,
     target: Arc<RwLock<Object>>,
     ai: Arc<Mutex<dyn AIUpdateInterface>>,
@@ -56,30 +57,35 @@ struct EntryRuntime {
 
 impl EntryRuntime {
     fn new(target_template: &str) -> Self {
+        Self::with_logic(target_template, None)
+    }
+    fn new_owned(target_template: &str) -> Self {
+        Self::with_logic(target_template, Some(GameLogic::new()))
+    }
+    fn with_logic(target_template: &str, mut logic: Option<GameLogic>) -> Self {
         let mut factory = ObjectFactory::new();
-        let id = factory
-            .create_object(
-                "BorrowedEnterInfantry",
-                Coord3D::ZERO,
-                Some(team(9401, 0)),
-                ObjectCreationFlags::empty(),
-            )
-            .unwrap();
-        let target_id = factory
-            .create_object(
-                target_template,
-                Coord3D::new(250.0, 0.0, 0.0),
-                Some(team(9402, 1)),
-                ObjectCreationFlags::NO_AI,
-            )
-            .unwrap();
+        let id = create_fixture_actor(
+            &mut factory,
+            &mut logic,
+            "BorrowedEnterInfantry",
+            Coord3D::ZERO,
+            Some(team(9401, 0)),
+            ObjectCreationFlags::empty(),
+        )
+        .unwrap();
+        let target_id = create_fixture_actor(
+            &mut factory,
+            &mut logic,
+            target_template,
+            Coord3D::new(250.0, 0.0, 0.0),
+            Some(team(9402, 1)),
+            ObjectCreationFlags::NO_AI,
+        )
+        .unwrap();
         let unit = factory.get_object(id).unwrap();
         assert!(unit.is_unit());
         let owner = unit.get_base_object().unwrap();
-        assert!(Arc::ptr_eq(
-            &owner,
-            &TheGameLogic::find_object_by_id(id).unwrap()
-        ));
+        assert!(Arc::ptr_eq(&owner, &fixture_actor(&logic, id)));
         assert!(super::super::registry::get_unit_arc(id).is_none());
         let ai = owner.read().unwrap().get_ai_update_interface().unwrap();
         let target = factory
@@ -89,6 +95,7 @@ impl EntryRuntime {
             .unwrap();
         Self {
             _factory: factory,
+            _logic: logic,
             owner,
             target,
             ai,
@@ -206,10 +213,9 @@ fn factory_enter_admission_same_id_owners_keep_distinct_authored_rules() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     definitions();
-    let first = EntryRuntime::new("BorrowedOpenAllowed");
-    let second = EntryRuntime::new("BorrowedOpenDenied");
+    let first = EntryRuntime::new_owned("BorrowedOpenAllowed");
+    let second = EntryRuntime::new_owned("BorrowedOpenDenied");
     assert_eq!(first.target_id, second.target_id);
     assert_eq!(
         first.owner.read().unwrap().get_id(),

@@ -183,10 +183,35 @@ fn register_creation_probe() {
 fn factory_authored_body_creates_once_and_restores_live_health() {
     let _lock = crate::test_sync::lock();
     register_creation_probe();
+    // Full Object wire requires its saved team to exist in the receiving
+    // TeamFactory (CPP Object.cpp4104). Keep the actual compatibility owner
+    // alive through creation, transfer, callbacks and canonical retirement.
+    struct ReceivingTeams(Option<crate::team::TeamFactory>);
+    impl Drop for ReceivingTeams {
+        fn drop(&mut self) {
+            *crate::team::get_team_factory().lock().unwrap() = self.0.take().unwrap();
+        }
+    }
+    let _receiving_teams = ReceivingTeams(Some(std::mem::replace(
+        &mut *crate::team::get_team_factory().lock().unwrap(),
+        crate::team::TeamFactory::new(),
+    )));
+    let team = {
+        let mut teams = crate::team::get_team_factory().lock().unwrap();
+        let prototype = teams
+            .init_team_owned("AuthoredBodyProbeTeam".into(), "".into(), false, None, None)
+            .unwrap();
+        teams
+            .create_team_on_prototype_with_id(&prototype, 91_301)
+            .unwrap()
+    };
     let mut factory = ObjectFactory::new();
     // Avoid retail database startup while still taking the complete production
     // factory -> constructor -> module override -> Object Xfer route.
-    factory.next_object_id = 91_301;
+    crate::system::game_logic::get_game_logic()
+        .lock()
+        .unwrap()
+        .set_object_id_counter(91_301);
     factory.template_cache.insert(
         "AuthoredBodyProbe".into(),
         Arc::new(AuthoredBodyTemplate::new("AuthoredBodyProbe", true)),
@@ -195,7 +220,7 @@ fn factory_authored_body_creates_once_and_restores_live_health() {
         .create_object(
             "AuthoredBodyProbe",
             Coord3D::new(20.0, 3.0, 45.0),
-            None,
+            Some(team.clone()),
             ObjectCreationFlags::NO_DRAWABLE,
         )
         .expect("factory object");
@@ -207,6 +232,7 @@ fn factory_authored_body_creates_once_and_restores_live_health() {
     let mut bytes = Vec::new();
     {
         let mut object = saved.write().unwrap();
+        assert!(Arc::ptr_eq(&object.get_team().unwrap(), &team));
         assert_eq!(object.modules.len(), 2);
         assert_eq!(
             object.body_module_handles.len(),
@@ -222,14 +248,16 @@ fn factory_authored_body_creates_once_and_restores_live_health() {
             .status_damage_helper()
             .unwrap()
             .set_status_to_heal_for_test(ObjectStatusTypes::Stealthed);
-        object.xfer(&mut XferSave::new(Cursor::new(&mut bytes), 1));
+        object
+            .xfer_checked(&mut XferSave::new(Cursor::new(&mut bytes), 1))
+            .expect("complete authored object save");
     }
     assert_eq!(bytes[0], 9, "Object Xfer framing stays version9");
     let loaded_id = factory
         .create_object(
             "AuthoredBodyProbe",
             Coord3D::default(),
-            None,
+            Some(team.clone()),
             ObjectCreationFlags::NO_DRAWABLE,
         )
         .expect("restore object");
@@ -240,8 +268,14 @@ fn factory_authored_body_creates_once_and_restores_live_health() {
         .unwrap();
     {
         let mut object = loaded.write().unwrap();
-        object.xfer(&mut XferLoad::new(Cursor::new(&bytes), 1));
+        object
+            .xfer_checked(&mut XferLoad::new(Cursor::new(&bytes), 1))
+            .expect("complete authored object load");
         object.load_post_process();
+        assert!(
+            Arc::ptr_eq(&object.get_team().unwrap(), &team),
+            "full transfer retains the actually admitted receiving team"
+        );
         let drawable = object.get_drawable().expect("created drawable");
         let drawable = drawable.read().unwrap();
         assert_eq!(drawable.get_object_id(), object.get_id());
@@ -272,7 +306,10 @@ fn factory_behavior_views_keep_identity_and_release_owner_before_callbacks() {
     let _lock = crate::test_sync::lock();
     register_creation_probe();
     let mut factory = ObjectFactory::new();
-    factory.next_object_id = 91_411;
+    crate::system::game_logic::get_game_logic()
+        .lock()
+        .unwrap()
+        .set_object_id_counter(91_411);
     let mut template = AuthoredBodyTemplate::new("DetachedBehaviorProbe", true);
     template.modules[0].interface_mask = ModuleInterfaceType::DESTROY;
     factory
@@ -533,7 +570,10 @@ fn factory_destruction_preserves_canonical_callback_and_retirement_order() {
     let _lock = crate::test_sync::lock();
     register_creation_probe();
     let mut factory = ObjectFactory::new();
-    factory.next_object_id = 91_501;
+    crate::system::game_logic::get_game_logic()
+        .lock()
+        .unwrap()
+        .set_object_id_counter(91_501);
     let mut template = AuthoredBodyTemplate::new("FactoryDestroyProbe", true);
     template.modules[0].interface_mask = ModuleInterfaceType::DESTROY;
     factory
@@ -635,7 +675,10 @@ fn factory_reset_retires_owned_objects_and_preserves_a_live_id_namespace() {
     let _lock = crate::test_sync::lock();
     register_creation_probe();
     let mut factory = ObjectFactory::new();
-    factory.next_object_id = 91_601;
+    crate::system::game_logic::get_game_logic()
+        .lock()
+        .unwrap()
+        .set_object_id_counter(91_601);
     let mut template = AuthoredBodyTemplate::new("FactoryResetProbe", true);
     template.modules[0].interface_mask = ModuleInterfaceType::DESTROY;
     factory
@@ -651,7 +694,6 @@ fn factory_reset_retires_owned_objects_and_preserves_a_live_id_namespace() {
         .unwrap();
     let retained = factory.get_object(id).unwrap().get_base_object().unwrap();
     let entry = retained.read().unwrap().modules[0].clone();
-    let next_id = factory.next_object_id;
     let unrelated_id = 91_610;
     let unrelated = Arc::new(RwLock::new(Object::new_test(unrelated_id, 100.0)));
     let mut logic = crate::system::game_logic::get_game_logic().lock().unwrap();
@@ -662,7 +704,8 @@ fn factory_reset_retires_owned_objects_and_preserves_a_live_id_namespace() {
     assert!(logic.find_object_by_id(unrelated_id).is_some());
     assert!(!unrelated.read().unwrap().is_destroyed());
     assert_eq!(
-        factory.next_object_id, next_id,
+        logic.get_object_id_counter(),
+        unrelated_id + 1,
         "factory reset must not reuse a live world namespace"
     );
     entry.with_module(|module| {
@@ -866,7 +909,10 @@ fn real_factory_structure_and_simple_wrappers_survive_until_retirement_only() {
 
     fn one(kind: KindOf, name: &str, id: ObjectID) -> bool {
         let mut factory = ObjectFactory::new();
-        factory.next_object_id = id;
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .unwrap()
+            .set_object_id_counter(id);
         let mut template = AuthoredBodyTemplate::new(name, false);
         template.inner.add_kind_of(kind);
         factory

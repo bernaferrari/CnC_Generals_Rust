@@ -126,6 +126,7 @@ pub struct UnitRenderInput {
     /// Local transform completed once by the driving visual owner. Matrix
     /// reads never advance locomotor state or consume client randomness.
     pub physics_visual_local: Option<glam::Mat4>,
+    pub(crate) structure_topple_matrix: Option<glam::Mat4>,
     #[cfg(feature = "game_client")]
     pub specialized_draw:
         Option<std::rc::Rc<game_client::core::PresentationSpecializedDrawSnapshot>>,
@@ -365,6 +366,7 @@ impl UnitRenderInput {
             draw_playback_identity: ro.draw_playback_identity.clone(),
             draw_animation_completion_targets: Vec::new(),
             physics_visual_local: None,
+            structure_topple_matrix: None,
             #[cfg(feature = "game_client")]
             specialized_draw: None,
             projectile_clip_statuses: ro.projectile_clip_statuses,
@@ -681,6 +683,12 @@ impl UnitRenderInput {
             * sway
             * fall
             * glam::Mat4::from_scale(glam::Vec3::splat(scale));
+        if let Some(matrix) = self.structure_topple_matrix {
+            // The authoritative original incremental transform already carries
+            // the fall. Do not rotate the aggregate lean a second time.
+            base = matrix * glam::Mat4::from_scale(glam::Vec3::splat(scale));
+            base.w_axis = self.position.extend(1.0);
+        }
         // C++ W3DModelDraw.cpp:2000-2012 Translate_Z after instance scale.
         // Host Y-up: local Y is object up after heading.
         if crate::assets::authored_draw_adjusts_height_by_construction(&self.draw_models) {
@@ -1155,8 +1163,15 @@ impl UnitRenderInput {
             if self.second_life {
                 bits |= 1u128 << life_b;
             }
-            // Structure rubble after destroy residual.
-            if self.is_structure && self.destroyed && self.body_damage_state >= 3 {
+            // A real StructureTopple update sets POST_COLLAPSE only in its
+            // completion phase and clears RUBBLE while Body remains dead.
+            if self.structure_topple_matrix.is_some() {
+                if self.model_condition_bits & (1u128 << post_b) != 0 {
+                    bits |= 1u128 << post_b;
+                    bits &=
+                        !(1u128 << crate::game_logic::host_enum_table_residual::rubble_model_bit());
+                }
+            } else if self.is_structure && self.destroyed && self.body_damage_state >= 3 {
                 bits |= 1u128 << post_b;
             }
             // Special damaged: really-damaged structures still standing.

@@ -915,10 +915,31 @@ impl AutoHealBehavior {
     }
 
     /// Stop healing behavior
-    pub fn stop_healing(&mut self) {
+    fn stop_healing_state(&mut self) {
         self.stopped = true;
         self.soonest_heal_frame = NEVER;
+    }
+
+    pub fn stop_healing(&mut self) {
+        self.stop_healing_state();
         self.set_wake_frame(UPDATE_SLEEP_FOREVER);
+    }
+
+    pub(crate) fn validate_delete_owned(&self) -> Result<(), String> {
+        self.validate_owned_damage_callback()?;
+        if self.radius_particle_system_id != INVALID_PARTICLE_SYSTEM_ID {
+            return Err("native AutoHeal particle deletion services absent".into());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn delete_owned(&mut self) -> Result<(), String> {
+        self.validate_delete_owned()?;
+        self.stop_healing_state();
+        self.last_wake_sleep = Some(UPDATE_SLEEP_FOREVER);
+        // The actual driving scheduler publishes the saved wake after this
+        // module loan ends. Never rediscover an identically numbered peer.
+        Ok(())
     }
 
     /// Undo upgrade - reset to non-upgraded state

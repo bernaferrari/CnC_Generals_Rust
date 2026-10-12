@@ -479,11 +479,7 @@ fn test_fire_mode_projectile() {
 
 #[test]
 fn test_projectileless_weapon_queues_delayed_damage() {
-    initialize_weapon_store().unwrap();
-    with_weapon_store_mut(|store| {
-        store.delayed_damage_info.clear();
-    })
-    .unwrap();
+    let mut store = WeaponStore::new();
 
     let mut template = WeaponTemplate::new("ProjectilelessDelayed".to_string());
     template.weapon_speed = 10.0;
@@ -495,10 +491,10 @@ fn test_projectileless_weapon_queues_delayed_damage() {
     let target_pos = Coord3D::new(100.0, 0.0, 0.0);
     let source_id = 42;
     let target_id = 77;
-    let current_frame = TheGameLogic::get_frame();
+    let current_frame = 73;
 
     weapon
-        .handle_projectileless_flight_damage(
+        .handle_projectileless_flight_damage_with_queue(
             source_id,
             &source_pos,
             Some(target_id),
@@ -506,21 +502,28 @@ fn test_projectileless_weapon_queues_delayed_damage() {
             10.0,
             &WeaponBonus::default(),
             true,
+            None,
+            |template, position, delay, source, victim, bonus| {
+                store.set_delayed_damage(
+                    template,
+                    position,
+                    current_frame + delay,
+                    source,
+                    victim,
+                    bonus,
+                );
+            },
         )
         .unwrap();
 
-    let (count, delay_frame, queued_source, queued_victim, queued_pos) =
-        with_weapon_store(|store| {
-            let queued = &store.delayed_damage_info[0];
-            (
-                store.delayed_damage_info.len(),
-                queued.delay_damage_frame,
-                queued.delay_source_id,
-                queued.delay_intended_victim_id,
-                queued.delay_damage_pos,
-            )
-        })
-        .unwrap();
+    let queued = &store.delayed_damage_info[0];
+    let (count, delay_frame, queued_source, queued_victim, queued_pos) = (
+        store.delayed_damage_info.len(),
+        queued.delay_damage_frame,
+        queued.delay_source_id,
+        queued.delay_intended_victim_id,
+        queued.delay_damage_pos,
+    );
 
     assert_eq!(count, 1);
     assert_eq!(delay_frame, current_frame + 10);
@@ -531,11 +534,7 @@ fn test_projectileless_weapon_queues_delayed_damage() {
 
 #[test]
 fn test_projectileless_weapon_skips_queue_when_damage_disabled() {
-    initialize_weapon_store().unwrap();
-    with_weapon_store_mut(|store| {
-        store.delayed_damage_info.clear();
-    })
-    .unwrap();
+    let mut store = WeaponStore::new();
 
     let mut template = WeaponTemplate::new("ProjectilelessNoDamage".to_string());
     template.weapon_speed = 10.0;
@@ -547,7 +546,7 @@ fn test_projectileless_weapon_skips_queue_when_damage_disabled() {
     let target_pos = Coord3D::new(100.0, 0.0, 0.0);
 
     weapon
-        .handle_projectileless_flight_damage(
+        .handle_projectileless_flight_damage_with_queue(
             1,
             &source_pos,
             Some(2),
@@ -555,11 +554,54 @@ fn test_projectileless_weapon_skips_queue_when_damage_disabled() {
             10.0,
             &WeaponBonus::default(),
             false,
+            None,
+            |template, position, delay, source, victim, bonus| {
+                store.set_delayed_damage(template, position, 73 + delay, source, victim, bonus);
+            },
         )
         .unwrap();
 
-    let queued_count = with_weapon_store(|store| store.delayed_damage_info.len()).unwrap();
+    let queued_count = store.delayed_damage_info.len();
     assert_eq!(queued_count, 0);
+}
+
+#[test]
+fn projectileless_owned_queues_keep_same_id_worlds_and_self_position_independent() {
+    let mut template = WeaponTemplate::new("OwnedProjectileless".into());
+    template.damage_dealt_at_self_position = true;
+    let template = Arc::new(template);
+    let mut weapon = Weapon::new(template.clone(), WeaponSlotType::Primary);
+    let source = Coord3D::new(10.0, 0.0, 0.0);
+    let target = Coord3D::new(35.0, 0.0, 0.0);
+    let mut receiver = WeaponStore::new();
+    let mut peer = WeaponStore::new();
+    peer.set_delayed_damage(&template, &target, 900, 42, 77, &WeaponBonus::default());
+    weapon
+        .handle_projectileless_flight_damage_with_queue(
+            42,
+            &source,
+            Some(77),
+            &target,
+            10.0,
+            &WeaponBonus::default(),
+            true,
+            None,
+            |template, position, delay, source, victim, bonus| {
+                assert_eq!(delay, 3, "CPP rounds positive fractional travel upward");
+                receiver.set_delayed_damage(template, position, 73 + delay, source, victim, bonus);
+            },
+        )
+        .unwrap();
+    assert_eq!(receiver.delayed_damage_info.len(), 1);
+    let hit = &receiver.delayed_damage_info[0];
+    assert_eq!(hit.delay_damage_frame, 76);
+    assert_eq!(hit.delay_source_id, 42);
+    assert_eq!(hit.delay_intended_victim_id, INVALID_ID);
+    assert_eq!(hit.delay_damage_pos, source);
+    assert_eq!(peer.delayed_damage_info.len(), 1);
+    assert_eq!(peer.delayed_damage_info[0].delay_damage_frame, 900);
+    assert_eq!(peer.delayed_damage_info[0].delay_intended_victim_id, 77);
+    assert_eq!(peer.delayed_damage_info[0].delay_damage_pos, target);
 }
 
 #[test]

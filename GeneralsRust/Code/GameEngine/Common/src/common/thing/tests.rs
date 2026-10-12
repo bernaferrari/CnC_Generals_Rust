@@ -677,7 +677,6 @@ fn module_descriptor_helpers_reflect_module_info() {
 
 #[test]
 fn module_descriptors_register_with_global_factory() {
-    clear_pending_descriptors_for_test();
     let mut guard = get_module_factory().expect("module factory mutex poisoned");
     let previous = guard.take();
     *guard = Some(ModuleFactory::new());
@@ -714,7 +713,6 @@ fn module_descriptors_register_with_global_factory() {
     let mut guard = get_module_factory().expect("module factory mutex poisoned");
     *guard = previous;
     drop(guard);
-    clear_pending_descriptors_for_test();
 }
 
 #[test]

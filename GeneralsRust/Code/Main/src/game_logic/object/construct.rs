@@ -2658,14 +2658,10 @@ impl Object {
         self.is_kind_of(KindOf::Harvester)
     }
 
-    /// C++ `Object::isHero` — leftover is RIGHT (any contained KINDOF_HERO, else self).
+    /// This object's authored hero kind. The driving GameLogic's
+    /// `host_object_is_hero` also resolves its actual contained occupants.
     pub fn is_hero(&self) -> bool {
-        leftover_object_is_hero(self.id)
-            || self
-                .contained_units()
-                .iter()
-                .any(|&id| leftover_object_is_kind_of_hero(id))
-            || self.is_kind_of(KindOf::Hero)
+        self.is_kind_of(KindOf::Hero)
     }
 
     pub fn is_command_center(&self) -> bool {

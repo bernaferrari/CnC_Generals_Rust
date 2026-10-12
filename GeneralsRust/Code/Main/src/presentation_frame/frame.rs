@@ -22,6 +22,10 @@ pub struct PresentationFrame {
     /// Host game mode residual (restart/save metadata).
     pub game_mode: crate::game_logic::GameMode,
     pub objects: Vec<RenderableObject>,
+    /// Completed canonical pose of a retained StructureTopple actor. This is
+    /// a presentation copy, never a second writable simulation transform.
+    #[serde(skip)]
+    pub(crate) structure_topple_transforms: std::collections::HashMap<ObjectId, glam::Mat4>,
     /// Transient direct Object→Drawable source roster.  This survives a
     /// GameWorld-primary replacement of `objects` so deferred death/rubble
     /// visuals retain their C++ Object lifetime.  It is deliberately not part

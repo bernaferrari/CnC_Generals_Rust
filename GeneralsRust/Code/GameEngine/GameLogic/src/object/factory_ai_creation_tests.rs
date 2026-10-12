@@ -151,7 +151,10 @@ fn exercise_factory(no_ai: bool) {
     let _serial = crate::test_sync::lock();
     register_ai_probe();
     let mut factory = ObjectFactory::new();
-    factory.next_object_id = 0xA1_F0_21;
+    crate::system::game_logic::get_game_logic()
+        .lock()
+        .unwrap()
+        .set_object_id_counter(0xA1_F0_21);
     factory.template_cache.insert(
         "EarlyFactoryAi".into(),
         Arc::new(ai_template("EarlyFactoryAi", !no_ai)),
@@ -252,7 +255,10 @@ fn factory_unit_owner_survives_registry_replacement_destroy_and_reset_until_reti
             .unwrap()
     };
     let mut factory = ObjectFactory::new();
-    factory.next_object_id = 0xA1_F0_31;
+    crate::system::game_logic::get_game_logic()
+        .lock()
+        .unwrap()
+        .set_object_id_counter(0xA1_F0_31);
     let template_name = "UnitOwnerRetirementProbe";
     factory.template_cache.insert(
         template_name.into(),

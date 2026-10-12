@@ -161,6 +161,31 @@ fn xfer_installed_module(
     definitions: Option<&native::ObjectXferDefinitions<'_>>,
 ) -> Result<(), String> {
     if let Some(definitions) = definitions {
+        if let Some(result) = crate::contain_module_overrides::xfer_active_body_with_templates(
+            module,
+            xfer,
+            &mut |name| Ok(definitions.thing(name)),
+        ) {
+            result?;
+            if xfer.is_reading() {
+                return crate::contain_module_overrides::validate_native_active_body_restore_particles(
+                    module,
+                )
+                .unwrap_or(Ok(()));
+            }
+            return Ok(());
+        }
+        if module
+            .as_any()
+            .is::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>()
+        {
+            module.xfer(xfer)?;
+            return module
+                .as_any()
+                .downcast_ref::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>()
+                .expect("typed SlowDeath module retained during transfer")
+                .validate_owned_saved_state();
+        }
         if let Some(ai) = module
             .as_any_mut()
             .downcast_mut::<crate::object::update::AIUpdateInterfaceModule>()

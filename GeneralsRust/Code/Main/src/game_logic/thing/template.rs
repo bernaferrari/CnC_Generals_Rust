@@ -108,6 +108,15 @@ pub struct ThingTemplate {
     /// building name never synthesizes this death animation module.
     #[serde(default)]
     pub authored_structure_topple: bool,
+    /// Effective immutable module data belongs to the receiving definition
+    /// catalog. It is reconstructed from Object INI, never appended to the
+    /// historical positional raw Thing/ThingTemplate serde record.
+    #[serde(skip)]
+    pub(crate) structure_topple_definition: Option<
+        std::sync::Arc<
+            crate::game_logic::host_structure_topple::definition::StructureToppleDefinition,
+        >,
+    >,
     /// Exact authored WaveGuideUpdate audio; absent modules have no audio authority.
     #[serde(default)]
     pub wave_guide_audio: Option<crate::game_logic::host_wave_guide::WaveGuideAudioMetadata>,
@@ -574,6 +583,7 @@ impl ThingTemplate {
             deploy_style_metadata: None,
             production_exit_metadata: None,
             authored_structure_topple: false,
+            structure_topple_definition: None,
             wave_guide_audio: None,
             authored_structure_collapse: false,
             veterancy_crate_collide: None,

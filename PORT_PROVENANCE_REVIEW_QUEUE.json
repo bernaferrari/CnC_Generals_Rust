@@ -18600,6 +18600,7 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/object_ini_fields.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_factory.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/module_fields.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template_snapshot.rs"
           ],
           "candidate_destinations": [
@@ -18692,6 +18693,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/module_fields.rs"
             },
             {
               "cargo_reachable": true,
@@ -18906,6 +18912,7 @@
             "unreviewed_source_range_ownership",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/object_ini_fields.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/module_fields.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template_snapshot.rs"
           ],
           "candidate_destinations": [
@@ -18938,6 +18945,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/module_fields.rs"
             },
             {
               "cargo_reachable": true,
@@ -43244,13 +43256,20 @@
           "blockers": [
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/instant_death_behavior.rs"
+            "unreviewed_source_range_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/instant_death_behavior.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/instant_death_owned.rs"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/instant_death_behavior.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/instant_death_owned.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/Object/Behavior/InstantDeathBehavior.cpp",
@@ -44239,13 +44258,20 @@
           "blockers": [
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/slow_death_behavior.rs"
+            "unreviewed_source_range_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/slow_death_behavior.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/slow_death_owned.rs"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/slow_death_behavior.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/slow_death_owned.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/Object/Behavior/SlowDeathBehavior.cpp",
@@ -50674,6 +50700,7 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/hijacker_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/horde_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/instant_death_behavior.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/instant_death_owned.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/jet_slow_death_behavior.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/laser_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/lifetime_update.rs",
@@ -50703,6 +50730,7 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/radius_decal_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/rebuild_hole_behavior.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/slow_death_behavior.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/slow_death_owned.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/smart_bomb_target_homing_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/spawn_behavior.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/special_ability_update.rs",
@@ -51176,6 +51204,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/instant_death_owned.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/jet_slow_death_behavior.rs"
             },
             {
@@ -51357,6 +51390,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/slow_death_behavior.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/slow_death_owned.rs"
             },
             {
               "cargo_reachable": true,
@@ -52476,6 +52514,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_destroy_owned.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_factory.rs"
             },
             {
@@ -52532,6 +52575,11 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_modules/physics_installation_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_owned_death.rs"
             },
             {
               "cargo_reachable": true,
@@ -52617,6 +52665,16 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_xfer_native_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_xfer_native_tests/factory_identity.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_xfer_native_tests/saved_particles.rs"
             },
             {
               "cargo_reachable": true,
@@ -189254,7 +189312,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "155714f519bd868cfd7df79401dceb4875bd3d299f74063e7c76f496c6078e87",
+  "provenance_input_digest": "c838d20ddec80cb1db9e07e3fc5aed87932d1addb364e3fd82819329cd2eac9e",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

@@ -765,7 +765,8 @@ impl BehaviorModuleDefinition {
     /// appear once per phase; HashMap last-wins would drop INITIAL when FINAL
     /// follows. Concatenate with newlines.
     pub(super) fn insert_attribute(&mut self, key: String, value: String) {
-        let repeatable = key.eq_ignore_ascii_case("FX")
+        let repeatable = key.eq_ignore_ascii_case("AngleFX")
+            || key.eq_ignore_ascii_case("FX")
             || key.eq_ignore_ascii_case("FXList")
             || key.eq_ignore_ascii_case("OCL")
             || key.eq_ignore_ascii_case("Weapon");

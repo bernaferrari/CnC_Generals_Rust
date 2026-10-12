@@ -759,10 +759,54 @@ pub struct NamedObjectTracker {
 /// transaction boundary.  Keeping the singleton's `Arc` wrapper in place is
 /// important: existing systems retain that wrapper, so swapping the wrapper
 /// itself would leave stale aliases in the active world.
+#[derive(Default)]
 pub(crate) struct NamedObjectTrackerState {
     name_to_id: HashMap<String, u32>,
     id_to_name: HashMap<u32, String>,
     name_history: HashSet<String>,
+}
+
+fn register_name_maps(
+    names: &mut HashMap<String, u32>,
+    ids: &mut HashMap<u32, String>,
+    name: String,
+    object_id: u32,
+) {
+    if let Some(old_name) = ids.insert(object_id, name.clone()) {
+        names.remove(&old_name);
+    }
+    names.insert(name, object_id);
+}
+
+fn unregister_name_maps(
+    names: &mut HashMap<String, u32>,
+    ids: &mut HashMap<u32, String>,
+    object_id: u32,
+) -> Option<String> {
+    let name = ids.remove(&object_id)?;
+    names.remove(&name);
+    Some(name)
+}
+
+impl NamedObjectTrackerState {
+    pub(crate) fn register(&mut self, name: String, object_id: u32) {
+        register_name_maps(
+            &mut self.name_to_id,
+            &mut self.id_to_name,
+            name.clone(),
+            object_id,
+        );
+        self.name_history.insert(name);
+    }
+    pub(crate) fn find(&self, name: &str) -> Option<u32> {
+        self.name_to_id.get(name).copied()
+    }
+    pub(crate) fn name(&self, object_id: u32) -> Option<&str> {
+        self.id_to_name.get(&object_id).map(String::as_str)
+    }
+    pub(crate) fn remove(&mut self, object_id: u32) {
+        unregister_name_maps(&mut self.name_to_id, &mut self.id_to_name, object_id);
+    }
 }
 
 impl NamedObjectTracker {
@@ -785,13 +829,7 @@ impl NamedObjectTracker {
             GameLogicError::Threading(format!("Failed to acquire ID map lock: {}", e))
         })?;
 
-        // Remove old mapping if object was previously named
-        if let Some(old_name) = id_map.insert(object_id, name.clone()) {
-            name_map.remove(&old_name);
-        }
-
-        // Add new mapping
-        name_map.insert(name.clone(), object_id);
+        register_name_maps(&mut name_map, &mut id_map, name.clone(), object_id);
         if let Ok(mut history) = self.name_history.write() {
             history.insert(name.clone());
         }
@@ -802,18 +840,15 @@ impl NamedObjectTracker {
 
     /// Unregister an object
     pub fn unregister_object(&self, object_id: u32) -> GameLogicResult<()> {
+        let mut name_map = self.name_to_id.write().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to acquire name map lock: {}", e))
+        })?;
         let mut id_map = self.id_to_name.write().map_err(|e| {
             GameLogicError::Threading(format!("Failed to acquire ID map lock: {}", e))
         })?;
-
-        if let Some(name) = id_map.remove(&object_id) {
-            let mut name_map = self.name_to_id.write().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to acquire name map lock: {}", e))
-            })?;
-            name_map.remove(&name);
+        if let Some(name) = unregister_name_maps(&mut name_map, &mut id_map, object_id) {
             log::debug!("Unregistered named object: {} (ID: {})", name, object_id);
         }
-
         Ok(())
     }
 

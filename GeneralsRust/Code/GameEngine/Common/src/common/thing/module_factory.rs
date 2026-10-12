@@ -22,9 +22,7 @@ use crate::common::{
 };
 use std::{
     any::Any,
-    cell::RefCell,
     collections::{HashMap, hash_map::Entry},
-    mem,
     sync::{Arc, Mutex},
 };
 
@@ -353,23 +351,6 @@ fn module_maps<T>() -> ModuleMap<T> {
     std::array::from_fn(|_| HashMap::new())
 }
 
-// Transitional startup staging only. Owned factories never consult this during dispatch.
-thread_local! {
-    static MODULE_OVERRIDES: RefCell<ModuleMap<ModuleOverride>> =
-        RefCell::new(module_maps());
-}
-
-#[derive(Clone)]
-struct PendingDescriptor {
-    module_type: ModuleType,
-    descriptor: TemplateModuleDescriptor,
-}
-
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static PENDING_DESCRIPTORS: RefCell<Vec<PendingDescriptor>> = RefCell::new(Vec::new());
-}
-
 pub struct ModuleFactory {
     module_template_map: ModuleMap<ModuleTemplate>,
     module_overrides: ModuleMap<ModuleOverride>,
@@ -386,37 +367,6 @@ pub type NewModuleProc =
 pub type NewModuleDataProc = fn(ini: Option<&mut INI>) -> Box<dyn ModuleData>;
 
 // Stub module creation removed; missing modules must be implemented.
-
-fn enqueue_pending_descriptor(module_type: ModuleType, descriptor: &TemplateModuleDescriptor) {
-    PENDING_DESCRIPTORS.with_borrow_mut(|pending| {
-        if let Some(existing) = pending.iter_mut().find(|entry| {
-            entry.module_type == module_type && entry.descriptor.name == descriptor.name
-        }) {
-            let combined_mask = existing.descriptor.interface_mask.0 | descriptor.interface_mask.0;
-            existing.descriptor.interface_mask = ModuleInterfaceType(combined_mask);
-            existing.descriptor.inheritable |= descriptor.inheritable;
-            existing.descriptor.overrideable_by_like_kind |= descriptor.overrideable_by_like_kind;
-            existing.descriptor.copied_from_default &= descriptor.copied_from_default;
-        } else {
-            pending.push(PendingDescriptor {
-                module_type,
-                descriptor: descriptor.clone(),
-            });
-        }
-    });
-}
-
-fn cache_descriptor_set(descriptor_set: &TemplateModuleDescriptorSet) {
-    for descriptor in &descriptor_set.behavior {
-        enqueue_pending_descriptor(ModuleType::Behavior, descriptor);
-    }
-    for descriptor in &descriptor_set.draw {
-        enqueue_pending_descriptor(ModuleType::Draw, descriptor);
-    }
-    for descriptor in &descriptor_set.client_update {
-        enqueue_pending_descriptor(ModuleType::ClientUpdate, descriptor);
-    }
-}
 
 /// Module template containing creation functions and interface info
 #[derive(Clone)]
@@ -481,8 +431,8 @@ impl ModuleTemplate {
     }
 }
 
-/// Stage constructors for the transitional global startup path.
-/// Prefer `ModuleFactory::register_override` for an explicitly owned factory.
+/// Compatibility registration on the retained factory owner. Local rules owners
+/// use `ModuleFactory::register_override`; no thread-local startup table exists.
 pub fn register_module_override(
     name: &str,
     module_type: ModuleType,
@@ -490,50 +440,22 @@ pub fn register_module_override(
     create_data_proc: NewModuleDataProc,
 ) -> Result<(), String> {
     if name.is_empty() {
-        return Err("module override name cannot be empty".to_string());
+        return Err("module override name cannot be empty".to_owned());
     }
-
-    MODULE_OVERRIDES.with_borrow_mut(|registry| {
-        registry[module_type as usize].insert(
-            name.to_owned(),
-            ModuleOverride {
-                create_proc,
-                create_data_proc,
-            },
-        );
-    });
-    Ok(())
+    let mut guard = get_module_factory().map_err(|_| "Failed to lock module factory")?;
+    guard
+        .get_or_insert_with(ModuleFactory::new)
+        .register_override(name, module_type, create_proc, create_data_proc)
 }
 
-/// Registers a descriptor set with the global factory if available, otherwise caches it
-/// until initialization completes.
+/// Compatibility descriptor admission on the same retained factory. Registration
+/// before subsystem initialization needs no staging or later cross-owner import.
 pub fn register_descriptor_set_global(descriptor_set: &TemplateModuleDescriptorSet) {
-    let should_cache = {
-        if let Ok(mut guard) = MODULE_FACTORY.lock() {
-            if let Some(factory) = guard.as_mut() {
-                factory.register_descriptor_set(descriptor_set);
-                false
-            } else {
-                true
-            }
-        } else {
-            true
-        }
-    };
-
-    if should_cache {
-        cache_descriptor_set(descriptor_set);
+    if let Ok(mut guard) = get_module_factory() {
+        guard
+            .get_or_insert_with(ModuleFactory::new)
+            .register_descriptor_set(descriptor_set);
     }
-}
-
-#[cfg(test)]
-fn clear_module_overrides_for_test() {
-    MODULE_OVERRIDES.with_borrow_mut(|registry| *registry = module_maps());
-}
-
-#[cfg(test)]
-pub(crate) fn clear_pending_descriptors_for_test() {
-    PENDING_DESCRIPTORS.with_borrow_mut(|pending| pending.clear());
 }
 
 impl ModuleFactory {
@@ -619,7 +541,7 @@ impl ModuleFactory {
     }
 
     /// Construct an independent catalog. Startup registration is explicit;
-    /// construction neither consumes pending descriptors nor allocates ambient name keys.
+    /// construction neither publishes a catalog nor allocates ambient name keys.
     pub fn new() -> Self {
         let mut factory = Self {
             module_template_map: module_maps(),
@@ -648,6 +570,12 @@ impl ModuleFactory {
             .find_module_template(name, module_type)
             .ok_or_else(|| format!("Module template '{}' not found", name))?;
 
+        if template.create_proc.is_none() {
+            return Err(format!(
+                "Missing module implementation for '{}' ({:?})",
+                name, module_type
+            ));
+        }
         let module = template.create_module(thing, module_data);
 
         Ok(module)
@@ -833,6 +761,21 @@ impl ModuleFactory {
         Ok(())
     }
 
+    /// Admit a built-in constructor only when this owner has no explicit choice.
+    /// Repeated compatibility startup preserves overrides installed by its caller.
+    pub fn register_override_if_absent(
+        &mut self,
+        name: &str,
+        module_type: ModuleType,
+        create_proc: NewModuleProc,
+        create_data_proc: NewModuleDataProc,
+    ) -> Result<(), String> {
+        if self.module_overrides[module_type as usize].contains_key(name) {
+            return Ok(());
+        }
+        self.register_override(name, module_type, create_proc, create_data_proc)
+    }
+
     /// Find a module template by name and type
     fn find_module_template(&self, name: &str, module_type: ModuleType) -> Option<&ModuleTemplate> {
         self.module_template_map[module_type as usize].get(name)
@@ -841,19 +784,6 @@ impl ModuleFactory {
     /// Convert string to name key (simplified implementation)
     fn string_to_name_key(&self, s: &str) -> NameKeyType {
         NameKeyGenerator::name_to_key(s)
-    }
-
-    fn absorb_pending_descriptors(&mut self) {
-        let pending_entries = PENDING_DESCRIPTORS.with_borrow_mut(|pending| mem::take(pending));
-
-        for PendingDescriptor {
-            module_type,
-            descriptor,
-        } in pending_entries
-        {
-            let descriptor_array = [descriptor];
-            self.register_template_descriptors(module_type, &descriptor_array);
-        }
     }
 }
 
@@ -980,53 +910,20 @@ pub fn get_module_factory() -> Result<
     MODULE_FACTORY.lock()
 }
 
-/// Initialize the global module factory
+/// Initialize the retained compatibility factory in place. Like C++ init(),
+/// this registers on the current owner; it does not replace its catalog/data.
 pub fn init_module_factory() -> Result<(), String> {
-    let mut factory_guard = get_module_factory().map_err(|_| "Failed to lock module factory")?;
-    let mut factory = ModuleFactory::new();
-    apply_registered_module_overrides(&mut factory)?;
-    factory.absorb_pending_descriptors();
-    factory
+    let mut guard = get_module_factory().map_err(|_| "Failed to lock module factory")?;
+    guard
+        .get_or_insert_with(ModuleFactory::new)
         .init()
-        .map_err(|e| format!("Failed to initialize module factory: {:?}", e))?;
-    *factory_guard = Some(factory);
-    Ok(())
+        .map_err(|e| format!("Failed to initialize module factory: {:?}", e))
 }
 
-/// Apply registered override constructors to any templates already present in the global factory.
-///
-/// This supports late override registration (e.g. game-logic override installation after
-/// module-factory initialization) by rebinding constructor pointers in place.
+/// Compatibility for old startup callers. Overrides now rebind templates at
+/// registration, so there is no deferred table to import at this boundary.
 pub fn apply_module_overrides_to_existing_templates() -> Result<(), String> {
-    let mut factory_guard =
-        get_module_factory().map_err(|_| "Failed to lock module factory".to_string())?;
-    let Some(factory) = factory_guard.as_mut() else {
-        return Ok(());
-    };
-
-    apply_registered_module_overrides(factory)
-}
-
-/// Explicit import for transitional startup callers. Prefer direct owned registration.
-fn apply_registered_module_overrides(factory: &mut ModuleFactory) -> Result<(), String> {
-    let overrides = MODULE_OVERRIDES.with_borrow(Clone::clone);
-    for (module_type, entries) in [
-        ModuleType::Behavior,
-        ModuleType::Draw,
-        ModuleType::ClientUpdate,
-    ]
-    .into_iter()
-    .zip(overrides)
-    {
-        for (name, entry) in entries {
-            factory.register_override(
-                &name,
-                module_type,
-                entry.create_proc,
-                entry.create_data_proc,
-            )?;
-        }
-    }
+    let _guard = get_module_factory().map_err(|_| "Failed to lock module factory")?;
     Ok(())
 }
 
@@ -1272,19 +1169,16 @@ mod tests {
 
     #[test]
     fn register_override_swaps_constructors() {
-        clear_pending_descriptors_for_test();
-        clear_module_overrides_for_test();
-
-        register_module_override(
-            "StubModule",
-            ModuleType::Behavior,
-            override_new_module,
-            override_new_module_data,
-        )
-        .expect("failed to register override");
-
         let mut factory = ModuleFactory::new();
-        apply_registered_module_overrides(&mut factory).expect("import staged override");
+        factory
+            .register_override(
+                "StubModule",
+                ModuleType::Behavior,
+                override_new_module,
+                override_new_module_data,
+            )
+            .expect("failed to register override");
+
         let name = AsciiString::from("StubModule");
         factory.add_module_internal(
             Some(test_new_module),
@@ -1306,9 +1200,6 @@ mod tests {
 
     #[test]
     fn builtin_descriptors_seeded_on_construction() {
-        clear_pending_descriptors_for_test();
-        clear_module_overrides_for_test();
-
         let factory = ModuleFactory::new();
 
         let status_bits = AsciiString::from("StatusBitsUpgrade");
@@ -1325,7 +1216,6 @@ mod tests {
 
     #[test]
     fn descriptor_registration_populates_catalog() {
-        clear_pending_descriptors_for_test();
         let mut factory = ModuleFactory::new();
 
         let mut set = TemplateModuleDescriptorSet::default();
@@ -1365,7 +1255,6 @@ mod tests {
 
     #[test]
     fn descriptor_registration_merges_interface_masks() {
-        clear_pending_descriptors_for_test();
         let mut factory = ModuleFactory::new();
 
         let mut set = TemplateModuleDescriptorSet::default();
@@ -1396,41 +1285,26 @@ mod tests {
     }
 
     #[test]
-    fn global_registration_caches_until_factory_ready() {
-        clear_pending_descriptors_for_test();
-        let mut guard = get_module_factory().expect("module factory mutex poisoned");
-        let previous = guard.take();
-        drop(guard);
-
+    fn descriptor_registration_survives_repeated_owner_initialization() {
+        let mut factory = ModuleFactory::new();
         let mut set = TemplateModuleDescriptorSet::default();
         set.behavior.push(make_descriptor(
             "AutoHealBehavior",
             "TagBehavior",
             ModuleInterfaceType::BODY,
         ));
-
-        register_descriptor_set_global(&set);
-
-        let mut factory = ModuleFactory::new();
-        factory.absorb_pending_descriptors();
-        let behavior_name = AsciiString::from("AutoHealBehavior");
+        factory.register_descriptor_set(&set);
+        factory.init().unwrap();
+        factory.init().unwrap();
         assert!(
             factory
-                .descriptor_for(ModuleType::Behavior, &behavior_name)
-                .is_some(),
-            "descriptor should surface after factory construction"
+                .descriptor_for(ModuleType::Behavior, "AutoHealBehavior")
+                .is_some()
         );
-
-        let mut guard = get_module_factory().expect("module factory mutex poisoned");
-        *guard = previous;
-        drop(guard);
-        clear_pending_descriptors_for_test();
     }
 
     #[test]
     fn descriptors_preserve_registration_order() {
-        clear_pending_descriptors_for_test();
-        clear_module_overrides_for_test();
         let mut factory = ModuleFactory::new();
 
         let mut set = TemplateModuleDescriptorSet::default();
@@ -1471,9 +1345,7 @@ mod tests {
     // Stub template ordering tests removed: missing modules now hard-fail instead of stubbing.
 
     #[test]
-    fn pending_descriptors_merge_interface_flags() {
-        clear_pending_descriptors_for_test();
-
+    fn owned_descriptors_merge_interface_flags() {
         let mut set = TemplateModuleDescriptorSet::default();
         set.behavior.push(make_descriptor(
             "MergedBehavior",
@@ -1486,10 +1358,8 @@ mod tests {
             ModuleInterfaceType::UPDATE,
         ));
 
-        register_descriptor_set_global(&set);
-
         let mut factory = ModuleFactory::new();
-        factory.absorb_pending_descriptors();
+        factory.register_descriptor_set(&set);
 
         let name = AsciiString::from("MergedBehavior");
         let descriptor = factory
@@ -1509,7 +1379,5 @@ mod tests {
             matching, 1,
             "descriptor should not be duplicated among builtins"
         );
-
-        clear_pending_descriptors_for_test();
     }
 }

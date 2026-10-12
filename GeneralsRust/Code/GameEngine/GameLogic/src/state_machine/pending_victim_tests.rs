@@ -6,10 +6,12 @@ use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
 
 fn prepared_pair(target_x: f32) -> (ObjectFactory, Arc<RwLock<Object>>, Arc<RwLock<Object>>) {
     let mut factory = ObjectFactory::new();
+    let mut identity_owner = crate::system::game_logic::GameLogic::new();
     let mut objects = Vec::new();
     for (name, x) in [("PendingSource", 0.0), ("PendingTarget", target_x)] {
         let id = factory
             .prepare_object(
+                &mut identity_owner,
                 Arc::new(crate::common::DefaultThingTemplate::new(name.into())),
                 Coord3D::new(x, 0.0, 0.0),
                 None,

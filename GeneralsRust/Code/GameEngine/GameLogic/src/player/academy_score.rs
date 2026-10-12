@@ -758,7 +758,7 @@ impl ScoreKeeper {
         self.add_object_lost_obj_with_policy(object, Self::scoring_enabled());
     }
 
-    fn add_object_lost_obj_with_policy(
+    pub(crate) fn add_object_lost_obj_with_policy(
         &mut self,
         object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
         scoring_enabled: bool,
@@ -794,7 +794,7 @@ impl ScoreKeeper {
         self.add_object_destroyed_obj_with_policy(object, Self::scoring_enabled());
     }
 
-    fn add_object_destroyed_obj_with_policy(
+    pub(crate) fn add_object_destroyed_obj_with_policy(
         &mut self,
         object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
         scoring_enabled: bool,

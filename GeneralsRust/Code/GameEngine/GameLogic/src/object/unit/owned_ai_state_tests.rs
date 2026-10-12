@@ -4,10 +4,11 @@
 
 use super::UnitAIUpdate;
 use crate::common::{Coord3D, ObjectID};
-use crate::helpers::TheGameLogic;
+use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::AIUpdateInterface;
 use crate::object::Object;
 use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
+use crate::system::game_logic::GameLogic;
 use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
 use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
 use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
@@ -86,10 +87,38 @@ fn definitions() {
     );
 }
 
+// Only compatibility fixtures allocate through the singleton. Native peers
+// retain the actual driving GameLogic and the authored definition they pass.
+fn create_fixture_actor(
+    factory: &mut ObjectFactory,
+    logic: &mut Option<GameLogic>,
+    name: &str,
+    position: Coord3D,
+    team: Option<Arc<RwLock<crate::team::Team>>>,
+    flags: ObjectCreationFlags,
+) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
+    if let Some(logic) = logic {
+        let definition =
+            TheThingFactory::find_template(name).ok_or("authored fixture definition absent")?;
+        factory.prepare_object(logic, definition, position, team, flags)
+    } else {
+        factory.create_object(name, position, team, flags)
+    }
+}
+
+fn fixture_actor(logic: &Option<GameLogic>, id: ObjectID) -> Arc<RwLock<Object>> {
+    match logic {
+        Some(logic) => logic.find_object_by_id(id),
+        None => TheGameLogic::find_object_by_id(id),
+    }
+    .expect("actual driving GameLogic owns fixture actor")
+}
+
 struct FactoryRuntime {
     // A fresh bounded child retains the genuinely classified factory Unit.
     // No UNIT_REGISTRY entry, fake machine or substitute cached AI is added.
     _factory: ObjectFactory,
+    _logic: Option<GameLogic>,
     owner: Arc<RwLock<Object>>,
     ai: Arc<Mutex<dyn AIUpdateInterface>>,
     id: ObjectID,
@@ -97,26 +126,31 @@ struct FactoryRuntime {
 
 impl FactoryRuntime {
     fn new() -> Self {
+        Self::with_logic(None)
+    }
+    fn new_owned() -> Self {
+        Self::with_logic(Some(GameLogic::new()))
+    }
+    fn with_logic(mut logic: Option<GameLogic>) -> Self {
         let mut factory = ObjectFactory::new();
-        let id = factory
-            .create_object(
-                "OwnedAiFieldUnit",
-                Coord3D::new(20.0, 30.0, 0.0),
-                None,
-                ObjectCreationFlags::empty(),
-            )
-            .unwrap();
+        let id = create_fixture_actor(
+            &mut factory,
+            &mut logic,
+            "OwnedAiFieldUnit",
+            Coord3D::new(20.0, 30.0, 0.0),
+            None,
+            ObjectCreationFlags::empty(),
+        )
+        .unwrap();
         let unit = factory.get_object(id).unwrap();
         assert!(unit.is_unit());
         let owner = unit.get_base_object().unwrap();
-        assert!(Arc::ptr_eq(
-            &owner,
-            &TheGameLogic::find_object_by_id(id).unwrap()
-        ));
+        assert!(Arc::ptr_eq(&owner, &fixture_actor(&logic, id)));
         assert!(super::registry::get_unit_arc(id).is_none());
         let ai = owner.read().unwrap().get_ai_update_interface().unwrap();
         Self {
             _factory: factory,
+            _logic: logic,
             owner,
             ai,
             id,
@@ -191,13 +225,12 @@ fn retained_factory_same_id_ai_fields_and_query_clones_are_independent() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     definitions();
-    let first = FactoryRuntime::new();
-    let second = FactoryRuntime::new();
+    let first = FactoryRuntime::new_owned();
+    let second = FactoryRuntime::new_owned();
     assert_eq!(
         first.id, second.id,
-        "independent factories allocate the same ID"
+        "independent driving GameLogic owners allocate the same ID"
     );
     assert!(!Arc::ptr_eq(&first.owner, &second.owner));
     assert!(!Arc::ptr_eq(&first.ai, &second.ai));

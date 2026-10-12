@@ -7,7 +7,7 @@ use crate::object::behavior::auto_heal_behavior::{
 };
 use crate::object::body::active_body::{ActiveBodyModuleData, BodyDefinitionCatalog};
 use std::collections::HashMap;
-fn damage_actor(heals: bool) -> Arc<dyn ThingTemplate> {
+pub(super) fn damage_actor(heals: bool) -> Arc<dyn ThingTemplate> {
     let mut base = DefaultThingTemplate::new(
         if heals {
             "OwnedDamageHealer"
@@ -55,12 +55,33 @@ fn receiving_damage_world() -> NativeMatch {
         )
         .unwrap(),
     );
+    let source_template = damage_actor(true);
+    let target_template = damage_actor(false);
+    let mut catalog = game_engine::common::thing::module_factory::ModuleFactory::new();
+    crate::contain_module_overrides::register_native_module_overrides(&mut catalog).unwrap();
+    for template in [&source_template, &target_template] {
+        for entry in template.get_behavior_module_info() {
+            catalog.add_module_internal(
+                None,
+                None,
+                game_engine::common::thing::module::ModuleType::Behavior,
+                &entry.name,
+                entry.interface_flags(),
+            );
+        }
+    }
     let mut lookup = |_name: &str| Ok(None);
     factory
-        .prepare_saved_object(damage_actor(true), 1, &mut lookup, Arc::clone(&definitions))
+        .prepare_saved_object(
+            source_template,
+            1,
+            &mut lookup,
+            Arc::clone(&definitions),
+            &catalog,
+        )
         .unwrap();
     factory
-        .prepare_saved_object(damage_actor(false), 2, &mut lookup, definitions)
+        .prepare_saved_object(target_template, 2, &mut lookup, definitions, &catalog)
         .unwrap();
     game.source = factory.get_object(1).unwrap().get_base_object().unwrap();
     game.target = factory.get_object(2).unwrap().get_base_object().unwrap();
@@ -141,7 +162,7 @@ fn actual_damage_releases_body_owner_before_installed_autoheal_wake() {
     });
 }
 #[test]
-fn self_damage_uses_exact_source_and_rejects_foreign_or_lethal_before_mutation() {
+fn self_damage_uses_exact_source_and_rejects_foreign_or_shockwave_before_mutation() {
     let mut first = receiving_damage_world();
     let peer = receiving_damage_world();
     let owner = Arc::clone(&first.source);
@@ -167,7 +188,11 @@ fn self_damage_uses_exact_source_and_rejects_foreign_or_lethal_before_mutation()
     first.operate(203, |world| {
         assert!(
             world
-                .attempt_damage_owned(&owner, &mut hit(1, 200.0))
+                .attempt_damage_owned(&owner, &mut {
+                    let mut damage = hit(1, 200.0);
+                    damage.input.shock_wave_amount = 1.0;
+                    damage
+                })
                 .is_err()
         )
     });
@@ -221,4 +246,27 @@ fn caller_held_actual_owner_body_or_callback_rejects_before_health_commit() {
     });
     assert_eq!(health(&game.source), 100.0);
     assert_eq!(healing_wake(&game), wake);
+}
+
+#[test]
+fn no_die_module_marks_dead_but_does_not_invent_destruction() {
+    // CPP Object::onDie iterates zero die interfaces then runs its tail.
+    let mut game = receiving_damage_world();
+    let owner = Arc::clone(&game.source);
+    let mut damage = hit(1, 150.0);
+    game.operate(410, |world| {
+        world.attempt_damage_owned(&owner, &mut damage).unwrap()
+    });
+    let owner = owner.read().unwrap();
+    assert_eq!(owner.get_health(), 0.0);
+    assert!(owner.is_effectively_dead());
+    assert!(!owner.is_destroyed());
+    assert_eq!(
+        owner
+            .behavior_modules()
+            .iter()
+            .filter(|entry| entry.interface_mask().0 & ModuleInterfaceType::DIE.0 != 0)
+            .count(),
+        0
+    );
 }

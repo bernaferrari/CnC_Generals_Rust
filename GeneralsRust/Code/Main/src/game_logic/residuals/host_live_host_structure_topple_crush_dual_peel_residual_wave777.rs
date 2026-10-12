@@ -71,6 +71,9 @@ fn sh_source() -> &'static str {
 fn gl_source() -> &'static str {
     super::GAME_LOGIC_HOST_SRC
 }
+fn owned_crush_source() -> &'static str {
+    include_str!("../world_objects/create_destroy_die/structure_topple_owned.rs")
+}
 pub fn honesty_host_structure_topple_crush_dual_peel_method_names_residual_wave777() -> bool {
     let names = LIVE_HOST_STRUCTURE_TOPPLE_CRUSH_DUAL_PEEL_METHOD_NAMES_WAVE777;
     let ok = residual_name_index(names, "structure_topple_last_crushed_location").is_some()
@@ -89,8 +92,9 @@ pub fn honesty_host_structure_topple_crush_dual_peel_source_markers_residual_wav
         && sh.contains("host_structure_topple_crush_log::record")
         && sh.contains("host_structure_topple_crush_log::drain")
         && sh.contains("take_crush_sweep_samples")
-        && gl.contains("Wave 777")
-        && gl.contains("take_structure_topple_crush_samples")
+        && gl.contains("update_owned_structure_topple")
+        && owned_crush_source().contains("take_crush_sweep_samples")
+        && owned_crush_source().contains("apply_prepared_structure_topple_crush_samples")
         && gl.contains("shadow_coupled_tick_active()");
     residual_action_store(ResidualHostStructureToppleCrushDualPeelAction::SourceMarkers);
     ok
@@ -109,14 +113,16 @@ pub fn honesty_host_structure_topple_crush_dual_peel_nav_commands_residual_wave7
 pub fn simulate_host_structure_topple_crush_dual_peel_collect_source() -> bool {
     let ok = sh_source().contains("Wave 777")
         && sh_source().contains("host_structure_topple_crush_log")
-        && gl_source().contains("Wave 777");
+        && gl_source().contains("update_owned_structure_topple");
     residual_action_store(ResidualHostStructureToppleCrushDualPeelAction::CollectSource);
     ok
 }
 pub fn simulate_host_structure_topple_crush_dual_peel_dispatch_source() -> bool {
     let ok = sh_source().contains("host_structure_topple_crush_log::record")
         && sh_source().contains("apply_structure_topple_crush_samples")
-        && gl_source().contains("take_structure_topple_crush_samples")
+        && gl_source().contains("update_owned_structure_topple")
+        && owned_crush_source().contains("take_crush_sweep_samples")
+        && owned_crush_source().contains("apply_prepared_structure_topple_crush_samples")
         && gl_source().contains("shadow_coupled_tick_active()");
     residual_action_store(ResidualHostStructureToppleCrushDualPeelAction::DispatchSource);
     ok

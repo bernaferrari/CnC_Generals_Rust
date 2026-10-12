@@ -2442,6 +2442,7 @@ mod object_combat;
 mod object_impl_imports;
 mod object_lifecycle;
 mod object_modules;
+mod object_owned_death;
 mod object_partition_services;
 mod object_power;
 pub(crate) use object_power::PowerDisabledEdge;
@@ -2497,3 +2498,5 @@ mod factory_inactive_body_tests;
 
 #[cfg(test)]
 mod team_power_owner_tests;
+
+mod object_destroy_owned;

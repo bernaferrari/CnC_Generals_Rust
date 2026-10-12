@@ -16,6 +16,7 @@ struct Catalog {
     bonuses: crate::weapon::WeaponBonusSet,
     bodies: Arc<crate::object::body::active_body::BodyDefinitionCatalog>,
     weapon_sets: Arc<ObjectWeaponSetCatalog>,
+    module_factory: game_engine::common::thing::module_factory::ModuleFactory,
 }
 impl Catalog {
     fn new() -> Self {
@@ -45,6 +46,20 @@ impl Catalog {
             (transport.get_name().to_string(), transport),
         ]);
         let weapons = HashMap::new();
+        let mut module_factory = game_engine::common::thing::module_factory::ModuleFactory::new();
+        crate::contain_module_overrides::register_native_module_overrides(&mut module_factory)
+            .unwrap();
+        for template in things.values() {
+            for entry in template.get_behavior_module_info() {
+                module_factory.add_module_internal(
+                    None,
+                    None,
+                    game_engine::common::thing::module::ModuleType::Behavior,
+                    &entry.name,
+                    entry.interface_flags(),
+                );
+            }
+        }
         let weapon_sets =
             Arc::new(ObjectWeaponSetCatalog::from_definitions(&things, &weapons).unwrap());
         Self {
@@ -62,6 +77,7 @@ impl Catalog {
                 .unwrap(),
             ),
             weapon_sets,
+            module_factory,
         }
     }
     fn borrowed(&self, frame: u32) -> ObjectXferDefinitions<'_> {
@@ -73,6 +89,7 @@ impl Catalog {
             &self.bonuses,
             self.bodies.clone(),
             self.weapon_sets.clone(),
+            &self.module_factory,
             frame,
         )
         .unwrap()
@@ -137,13 +154,30 @@ fn fresh(
     catalog: &Catalog,
     records: Option<&[ObjectSnapshotRecord]>,
 ) -> Result<NativeMatch, String> {
+    fresh_with_templates(
+        catalog,
+        records,
+        "FreshNativeInfantry",
+        "NativeEnterTransport",
+        true,
+        171,
+    )
+}
+fn fresh_with_templates(
+    catalog: &Catalog,
+    records: Option<&[ObjectSnapshotRecord]>,
+    source_name: &str,
+    target_name: &str,
+    source_has_ai: bool,
+    restore_frame: u32,
+) -> Result<NativeMatch, String> {
     let mut factory = ObjectFactory::new();
     let definitions = catalog.borrowed(17);
     if let Some(records) = records {
         definitions.prepare_objects(&mut factory, records)?;
     } else {
-        definitions.prepare_object(&mut factory, "FreshNativeInfantry", 1)?;
-        definitions.prepare_object(&mut factory, "NativeEnterTransport", 2)?;
+        definitions.prepare_object(&mut factory, source_name, 1)?;
+        definitions.prepare_object(&mut factory, target_name, 2)?;
     }
     let source = factory
         .get_object(1)
@@ -202,6 +236,8 @@ fn fresh(
         )
         .unwrap();
     let mut game = NativeMatch {
+        disposal: crate::modules::ai_native_world::owned_disposal::NativeDisposalState::new()
+            .unwrap(),
         scheduler: crate::system::game_logic::GameLogic::new(),
         teams,
         client_random: Default::default(),
@@ -224,22 +260,32 @@ fn fresh(
         target,
     };
     if let Some(records) = records {
-        transfer(&mut game, catalog, 171, |services| {
+        transfer(&mut game, catalog, restore_frame, |services| {
             services.load_objects(records)
         })
         .map_err(|error| error.to_string())?;
-        assert_eq!(
-            game.source
-                .read()
-                .unwrap()
-                .get_ai_update_interface()
-                .unwrap()
-                .lock()
-                .unwrap()
-                .get_current_state_id(),
-            Some(crate::ai::states::AIStateType::Idle as u32),
-            "the original installed AI block must restore before supplied postload"
-        );
+        if source_has_ai {
+            assert_eq!(
+                game.source
+                    .read()
+                    .unwrap()
+                    .get_ai_update_interface()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .get_current_state_id(),
+                Some(crate::ai::states::AIStateType::Idle as u32),
+                "the original installed AI block must restore before supplied postload"
+            );
+        } else {
+            assert!(
+                game.source
+                    .read()
+                    .unwrap()
+                    .get_ai_update_interface()
+                    .is_none()
+            );
+        }
         // Retain original record/module visitation order for supplied postload.
         for record in records {
             let owner = game
@@ -247,11 +293,11 @@ fn fresh(
                 .get_object(record.saved_id()?)
                 .and_then(|slot| slot.get_base_object())
                 .unwrap();
-            game.operate(171, |world| {
+            game.operate(restore_frame, |world| {
                 Object::load_post_process_from_handle_with_world(&owner, world)
             })?;
         }
-        game.scheduler.set_current_frame(171);
+        game.scheduler.set_current_frame(restore_frame.into());
         for record in records {
             let owner = game
                 .factory
@@ -272,11 +318,14 @@ fn fresh(
 }
 
 fn capture(game: &mut NativeMatch, catalog: &Catalog) -> Vec<ObjectSnapshotRecord> {
+    capture_at(game, catalog, 137)
+}
+fn capture_at(game: &mut NativeMatch, catalog: &Catalog, frame: u32) -> Vec<ObjectSnapshotRecord> {
     // CPP GameLogic inserts each newly-created object at the list head.
     [game.target.clone(), game.source.clone()]
         .into_iter()
         .map(|owner| {
-            transfer(game, catalog, 137, |services| {
+            transfer(game, catalog, frame, |services| {
                 services.save_object(&owner).unwrap()
             })
         })
@@ -388,3 +437,6 @@ fn fresh_native_object_restore_preserves_boarding_wake_and_future_removal() {
     assert_eq!(original.scheduler.sleepy_entry_for(&proxy), Some((1, 223)));
     assert_eq!(peer.source.read().unwrap().get_contained_by(), None);
 }
+
+#[path = "slow_restore.rs"]
+mod slow_restore;

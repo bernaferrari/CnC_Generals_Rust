@@ -8,11 +8,13 @@ use crate::player::Player;
 
 fn prepared(power: i32) -> (ObjectFactory, Arc<RwLock<Object>>) {
     let mut factory = ObjectFactory::new();
+    let mut identity_owner = crate::system::game_logic::GameLogic::new();
     let mut template = DefaultThingTemplate::new(format!("PowerPhase{power}"));
     template.add_kind_of(KindOf::Structure);
     template.set_energy_production(power);
     let id = factory
         .prepare_object(
+            &mut identity_owner,
             Arc::new(template),
             Coord3D::ZERO,
             None,
@@ -127,6 +129,7 @@ fn same_id_factory_objects_do_not_redirect_supplied_energy_accounting() {
 #[test]
 fn same_actual_team_assignment_keeps_completed_energy_without_reentering_membership() {
     let mut factory = ObjectFactory::new();
+    let mut identity_owner = crate::system::game_logic::GameLogic::new();
     let mut definition = DefaultThingTemplate::new("SameActualTeamPower".into());
     definition.set_energy_production(10);
     let team = Arc::new(RwLock::new(crate::team::Team::new(
@@ -137,6 +140,7 @@ fn same_actual_team_assignment_keeps_completed_energy_without_reentering_members
     let player = Arc::new(RwLock::new(Player::new(0)));
     let id = factory
         .prepare_object(
+            &mut identity_owner,
             Arc::new(definition),
             Coord3D::ZERO,
             Some(team.clone()),

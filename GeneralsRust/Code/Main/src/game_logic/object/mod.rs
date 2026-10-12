@@ -3272,9 +3272,6 @@ pub(crate) use panic_runtime::{PanicRuntime, PanicSaveState};
 pub use barrels::WeaponBarrelState;
 mod damage_context;
 pub(in crate::game_logic) use damage_context::DamageHitContext;
-pub use status_bits::{
-    leftover_object_is_hero, leftover_object_is_kind_of_hero, leftover_object_script_targetable,
-};
 
 pub use jets::{
     HostJetAi, HostJetPendingResume, JET_AFTERBURNER_SOUND, JET_AFTERBURNER_SOUND_STOP,

@@ -124,6 +124,27 @@ impl Object {
         attacker_pos: Option<(f32, f32)>,
         override_direction: Option<(f32, f32)>,
     ) -> bool {
+        let prepared = self.prepare_structure_topple_with_direction(
+            current_frame,
+            attacker_pos,
+            override_direction,
+            0,
+            None,
+        );
+        if prepared {
+            self.dispatch_pending_structure_topple_fx();
+        }
+        prepared
+    }
+
+    pub(crate) fn prepare_structure_topple_with_direction(
+        &mut self,
+        current_frame: u32,
+        attacker_pos: Option<(f32, f32)>,
+        override_direction: Option<(f32, f32)>,
+        delay: u32,
+        burst_location: Option<glam::Vec3>,
+    ) -> bool {
         if !self.is_kind_of(crate::game_logic::KindOf::Structure) {
             return false;
         }
@@ -160,37 +181,26 @@ impl Object {
             self.get_orientation(),
         );
         data.bind_world_pos(pos.x, pos.y, pos.z);
-        if let Some(peel) =
-            crate::game_logic::host_structure_topple::leftover_structure_topple_module_peel(
-                &self.template_name,
-            )
-        {
-            if !peel.weapon.is_empty() {
-                data.bind_crushing_weapon(&peel.weapon);
-            } else {
-                data.bind_crushing_weapon(
-                    crate::game_logic::host_structure_topple::STRUCTURE_TOPPLE_CRUSHING_WEAPON_NAME,
-                );
-            }
-            if !peel.fx.is_empty() {
-                data.crushing_fx = peel.fx.clone();
-            }
-            data.bind_topple_fx(&peel);
-        } else {
-            data.bind_crushing_weapon(
-                crate::game_logic::host_structure_topple::STRUCTURE_TOPPLE_CRUSHING_WEAPON_NAME,
-            );
-        }
-        data.begin(current_frame, dx, dz, 0);
-        self.structure_topple_data = Some(data);
-        self.dispatch_pending_structure_topple_fx();
-        if let Some(bfx) = self.bone_fx_damage.as_mut() {
-            bfx.stop_all_bone_fx();
-        }
-        // C++ marks AI dead and deselects while retaining the body for presentation.
+        let definition = self.thing.template.structure_topple_definition.clone();
+        let default_definition =
+            crate::game_logic::host_structure_topple::definition::StructureToppleDefinition::default();
+        let definition = definition.as_deref().unwrap_or(&default_definition);
+        data.bind_crushing_weapon(&definition.fx.weapon);
+        data.crushing_fx = definition.fx.fx.clone();
+        data.bind_topple_fx(&definition.fx);
+        data.structural_decay = definition.decay;
+        // Original onDie marks AI dead and deselects BEFORE Start FX.
         self.selected = false;
         self.status.selected = false;
         self.set_ai_state(crate::game_logic::AIState::Idle);
+        data.begin(current_frame, dx, dz, delay);
+        data.structural_integrity = definition.integrity;
+        if let Some(location) = burst_location {
+            data.delay_burst_x = location.x;
+            data.delay_burst_y = location.y;
+            data.delay_burst_z = location.z;
+        }
+        self.structure_topple_data = Some(data);
         // ActiveBody has already committed lethal HP/dead state before onDie.
         // The independently scheduled structure update must not revive that body.
         true
@@ -849,6 +859,53 @@ impl Object {
             st.poll_fx(current_frame);
         }
         self.dispatch_pending_structure_topple_fx();
+    }
+
+    pub(crate) fn restore_owned_structure_topple(
+        &mut self,
+        runtime: crate::game_logic::host_structure_topple::HostStructureToppleData,
+        matrix: glam::Mat4,
+    ) {
+        self.structure_topple_data = Some(runtime);
+        self.thing.set_transform_matrix(matrix);
+    }
+
+    pub(crate) fn apply_owned_structure_topple_rotation(&mut self) {
+        let Some(data) = self.structure_topple_data.as_mut() else {
+            return;
+        };
+        let velocity = data.topple_velocity;
+        let (dx, dy) = (data.dir_x, data.dir_y);
+        data.lean_radians += velocity;
+        let matrix = crate::game_logic::host_structure_topple::pose::rotate_toppling_basis(
+            self.thing.get_transform_matrix(),
+            velocity,
+            dx,
+            dy,
+        );
+        self.thing.set_transform_matrix(matrix);
+    }
+    pub(crate) fn finish_owned_structure_topple_pose(&mut self) {
+        self.model_condition_bits &=
+            !(1u128 << crate::game_logic::host_enum_table_residual::rubble_model_bit());
+        self.model_condition_bits |=
+            1u128 << crate::game_logic::host_enum_table_residual::post_collapse_model_bit();
+        self.record_host_model_condition();
+        if let Some(bfx) = self.bone_fx_damage.as_mut() {
+            bfx.stop_all_bone_fx();
+        }
+        let Some(data) = self.structure_topple_data.as_ref() else {
+            return;
+        };
+        let angle = data.dir_y.atan2(data.dir_x);
+        let original = self.get_orientation();
+        self.thing.set_orientation(original);
+        self.thing.set_transform_matrix(
+            crate::game_logic::host_structure_topple::pose::rotate_done_basis(
+                self.thing.get_transform_matrix(),
+                angle - original,
+            ),
+        );
     }
 
     /// Combined presentation lean (tree topple or structure topple).

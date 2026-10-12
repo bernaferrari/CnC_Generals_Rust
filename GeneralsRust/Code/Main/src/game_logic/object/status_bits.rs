@@ -338,7 +338,7 @@ impl Object {
 
     /// C++ `OBJECT_STATUS_SCRIPT_TARGETABLE` (map `objectTargetable`).
     pub fn is_script_targetable(&self) -> bool {
-        self.script_targetable || leftover_object_script_targetable(self.id)
+        self.script_targetable
     }
 
     /// C++ `setScriptStatus(OBJECT_STATUS_SCRIPT_TARGETABLE)`.
@@ -402,13 +402,7 @@ impl Object {
     }
 
     /// C++ `setScriptStatus(OBJECT_STATUS_SCRIPT_DISABLED, disabled)`.
-    /// Leftover `Object::set_script_status` is RIGHT (partition dirty + setDisabled).
     pub fn set_script_disabled(&mut self, disabled: bool) {
-        leftover_set_script_status(
-            self.id,
-            gamelogic::object::ObjectScriptStatusBit::ScriptDisabled,
-            disabled,
-        );
         self.apply_script_status_disabled_side_effects(disabled);
     }
 
@@ -417,13 +411,7 @@ impl Object {
     }
 
     /// C++ `setScriptStatus(OBJECT_STATUS_SCRIPT_UNPOWERED, underpowered)`.
-    /// Leftover `Object::set_script_status` is RIGHT (partition dirty + setDisabled).
     pub fn set_script_underpowered(&mut self, underpowered: bool) {
-        leftover_set_script_status(
-            self.id,
-            gamelogic::object::ObjectScriptStatusBit::ScriptUnderpowered,
-            underpowered,
-        );
         self.apply_script_status_underpowered_side_effects(underpowered);
     }
 
@@ -478,9 +466,8 @@ impl Object {
         }
     }
 
-    /// C++ `Object::maskObject` — leftover `mask_object` is RIGHT (MASKED + deselect).
+    /// C++ `Object::maskObject`: change this object's MASKED bit and deselect.
     pub fn set_status_masked(&mut self, v: bool) {
-        leftover_mask_object(self.id, v);
         self.status.masked = v;
         crate::game_logic::host_status_log::record_masked(self.id, v);
         if v {
@@ -1190,44 +1177,4 @@ impl Object {
         crate::game_logic::host_ai_state_log::record(self.id, ordinal);
         self.record_host_ai_mood();
     }
-}
-
-/// Drain leftover `OBJECT_STATUS_SCRIPT_TARGETABLE` (map `objectTargetable` /
-/// leftover_sa `Player Targetable` / OCL DeliverPayload transport).
-pub fn leftover_object_script_targetable(id: ObjectId) -> bool {
-    gamelogic::object::registry::OBJECT_REGISTRY
-        .with_object(id.0, |obj| {
-            obj.test_script_status_bit(gamelogic::object::ObjectScriptStatusBit::ScriptTargetable)
-        })
-        .unwrap_or(false)
-}
-
-fn leftover_mask_object(id: ObjectId, mask: bool) {
-    let _ = gamelogic::object::registry::OBJECT_REGISTRY.with_object_mut(id.0, |obj| {
-        obj.mask_object(mask);
-    });
-}
-
-fn leftover_set_script_status(
-    id: ObjectId,
-    bit: gamelogic::object::ObjectScriptStatusBit,
-    set: bool,
-) {
-    let _ = gamelogic::object::registry::OBJECT_REGISTRY.with_object_mut(id.0, |obj| {
-        obj.set_script_status(bit, set);
-    });
-}
-
-/// Drain leftover `Object::is_hero` (contained KINDOF_HERO, else self).
-pub fn leftover_object_is_hero(id: ObjectId) -> bool {
-    gamelogic::object::registry::OBJECT_REGISTRY
-        .with_object(id.0, |obj| obj.is_hero())
-        .unwrap_or(false)
-}
-
-/// Drain leftover `is_kind_of(KINDOF_HERO)` for a contained occupant id.
-pub fn leftover_object_is_kind_of_hero(id: ObjectId) -> bool {
-    gamelogic::object::registry::OBJECT_REGISTRY
-        .with_object(id.0, |obj| obj.is_kind_of(gamelogic::common::KindOf::Hero))
-        .unwrap_or(false)
 }

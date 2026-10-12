@@ -1407,7 +1407,6 @@ impl ScriptEngine {
 
     // PARITY_NOTE: C++ ScriptEngine::notifyOfObjectDestruction
     pub fn notify_of_object_destruction(&mut self, object_id: ObjectID) {
-        let inner = self.inner.get_mut();
         let tracker = get_named_object_tracker();
         let name = tracker.get_object_name(object_id).ok().flatten();
         if let Some(name) = name {
@@ -1416,6 +1415,22 @@ impl ScriptEngine {
             }
         }
 
+        self.clear_destroyed_object_references(object_id);
+    }
+
+    pub(crate) fn notify_of_object_destruction_owned(
+        &mut self,
+        object_id: ObjectID,
+        names: &mut crate::scripting::events::NamedObjectTrackerState,
+    ) {
+        if names.name(object_id).is_some_and(|name| !name.is_empty()) {
+            names.remove(object_id);
+        }
+        self.clear_destroyed_object_references(object_id);
+    }
+
+    fn clear_destroyed_object_references(&mut self, object_id: ObjectID) {
+        let inner = self.inner.get_mut();
         if inner.condition_object == Some(object_id) {
             inner.condition_object = None;
         }

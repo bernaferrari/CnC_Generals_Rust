@@ -46,6 +46,7 @@ impl Match {
             .next()
             .unwrap();
         let mut factory = ObjectFactory::new();
+        let mut identity_owner = crate::system::game_logic::GameLogic::new();
         let mut create = |name: &str, power: i32, powered: bool| {
             let mut template = DefaultThingTemplate::new(name.into());
             template.add_kind_of(KindOf::Structure);
@@ -55,6 +56,7 @@ impl Match {
             template.set_energy_production(power);
             let id = factory
                 .prepare_object(
+                    &mut identity_owner,
                     Arc::new(template),
                     Coord3D::ZERO,
                     Some(team.clone()),

@@ -251,41 +251,22 @@ fn owned_overrides_keep_factory_precedence_and_isolation() {
                 .register_override("", ModuleType::Behavior, create_module, create_data)
                 .is_err()
         );
-        clear_module_overrides_for_test();
     })
     .join()
     .unwrap();
 }
 
 #[test]
-fn construction_leaves_pending_startup_and_overrides_for_explicit_import() {
-    std::thread::spawn(|| {
-        clear_module_overrides_for_test();
-        clear_pending_descriptors_for_test();
-        register_module_override(
-            "OwnedBehavior",
-            ModuleType::Behavior,
-            create_module,
-            create_data,
-        )
-        .unwrap();
-        enqueue_pending_descriptor(
-            ModuleType::Behavior,
-            &descriptor("OwnedBehavior", ModuleInterfaceType::DAMAGE),
-        );
-        let mut factory = ModuleFactory::new();
-        assert!(
-            factory
-                .descriptor_for(ModuleType::Behavior, "OwnedBehavior")
-                .is_none()
-        );
-        assert_eq!(PENDING_DESCRIPTORS.with_borrow(Vec::len), 1);
-        apply_registered_module_overrides(&mut factory).unwrap();
-        factory.absorb_pending_descriptors();
-        assert_eq!(created_marker(&factory), 1);
-        assert_eq!(PENDING_DESCRIPTORS.with_borrow(Vec::len), 0);
-        // The imported choices belong to the factory after the startup table is cleared.
-        clear_module_overrides_for_test();
+fn explicit_owner_initialization_keeps_override_precedence_and_catalog_order() {
+    let mut first = ModuleFactory::new();
+    let mut second = ModuleFactory::new();
+    for (factory, proc) in [
+        (&mut first, create_module as NewModuleProc),
+        (&mut second, create_other_module as NewModuleProc),
+    ] {
+        factory
+            .register_override("OwnedBehavior", ModuleType::Behavior, proc, create_data)
+            .unwrap();
         factory.add_module_internal(
             None,
             None,
@@ -293,10 +274,24 @@ fn construction_leaves_pending_startup_and_overrides_for_explicit_import() {
             "OwnedBehavior",
             ModuleInterfaceType::DAMAGE,
         );
-        assert_eq!(created_marker(&factory), 1);
-    })
-    .join()
-    .unwrap();
+        factory.init().unwrap();
+        factory
+            .register_override_if_absent(
+                "OwnedBehavior",
+                ModuleType::Behavior,
+                create_module,
+                create_data,
+            )
+            .unwrap();
+        factory.init().unwrap();
+    }
+    assert_eq!(created_marker(&first), 1);
+    assert_eq!(created_marker(&second), 2);
+    assert!(
+        ModuleFactory::new()
+            .descriptor_for(ModuleType::Behavior, "OwnedBehavior")
+            .is_none()
+    );
 }
 
 // C++ ModuleFactory.cpp:705-707 leaves registered ModuleData untouched during

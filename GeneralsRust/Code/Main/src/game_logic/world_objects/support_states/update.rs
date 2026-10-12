@@ -873,7 +873,7 @@ impl GameLogic {
                         .objects
                         .get(&object_id)
                         .map(|o| {
-                            (o.is_kind_of(KindOf::Infantry) || o.is_hero())
+                            (o.is_kind_of(KindOf::Infantry) || self.host_object_is_hero(o))
                                 && !o.is_kind_of(KindOf::NoGarrison)
                         })
                         .unwrap_or(false);

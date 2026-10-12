@@ -2,6 +2,10 @@
 #![allow(unused_imports, non_snake_case)]
 use super::*;
 
+#[cfg(test)]
+#[path = "script_status_owner_tests.rs"]
+mod script_status_owner_tests;
+
 // Host weather, replay, terrain, and bridge subsystem state.
 impl GameLogic {
     pub fn weather_state(&self) -> &RuntimeWeatherState {
@@ -110,8 +114,7 @@ impl GameLogic {
     }
 
     /// C++ `Object::updateObjValuesFromMapProperties` at live map spawn.
-    /// Leftover already matches C++; call it when a dual-world object exists,
-    /// then stamp the same Dict onto the live host object.
+    /// Apply the Dict to this session's actual host object.
     pub(in super::super) fn apply_update_obj_values_from_map_properties(
         &mut self,
         id: ObjectId,
@@ -124,10 +127,6 @@ impl GameLogic {
         if properties.get_pair_count() == 0 {
             return;
         }
-
-        let _ = gamelogic::object::registry::OBJECT_REGISTRY.with_object_mut(id.0, |obj| {
-            obj.update_obj_values_from_map_properties(properties);
-        });
 
         let get_bool = |key| {
             if properties.get_type(key) == Some(DictType::Bool) {
@@ -234,15 +233,9 @@ impl GameLogic {
             }
         }
 
-        if leftover_object_script_targetable(id)
-            || get_bool(well_known_keys::key_object_targetable()) == Some(true)
-        {
+        if let Some(targetable) = get_bool(well_known_keys::key_object_targetable()) {
             if let Some(created) = self.objects.get_mut(&id) {
-                created.set_script_targetable(true);
-            }
-        } else if get_bool(well_known_keys::key_object_targetable()) == Some(false) {
-            if let Some(created) = self.objects.get_mut(&id) {
-                created.set_script_targetable(false);
+                created.set_script_targetable(targetable);
             }
         }
 
@@ -616,24 +609,7 @@ impl GameLogic {
         world_pos: Vec3,
         terrain: Option<&gamelogic::terrain::TerrainLogic>,
     ) -> Option<f32> {
-        let ground = {
-            #[cfg(feature = "game_client")]
-            {
-                if let Some(h) = self.terrain.as_ref().map(|t| t.height_at_world(world_pos)) {
-                    Some(h)
-                } else {
-                    self.pathfinding_height_samples
-                        .as_ref()
-                        .and_then(|cache| self.cached_pathfind_height(world_pos, cache))
-                }
-            }
-            #[cfg(not(feature = "game_client"))]
-            {
-                self.pathfinding_height_samples
-                    .as_ref()
-                    .and_then(|cache| self.cached_pathfind_height(world_pos, cache))
-            }
-        };
+        let ground = self.terrain_ground_height_at(world_pos);
         // C++ getLayerHeight: non-rubble deck plane wins when the XY is on a span.
         if let Some(tl) = terrain {
             if let Some(deck) = tl.host_deck_height_at(world_pos.x, world_pos.z) {
@@ -643,6 +619,27 @@ impl GameLogic {
             }
         }
         ground
+    }
+
+    /// Original getGroundHeight without the bridge deck override used by
+    /// getLayerHeight. Positional effects/crushing must not climb a deck.
+    pub(crate) fn terrain_ground_height_at(&self, world_pos: Vec3) -> Option<f32> {
+        #[cfg(feature = "game_client")]
+        {
+            if let Some(h) = self.terrain.as_ref().map(|t| t.height_at_world(world_pos)) {
+                Some(h)
+            } else {
+                self.pathfinding_height_samples
+                    .as_ref()
+                    .and_then(|cache| self.cached_pathfind_height(world_pos, cache))
+            }
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            self.pathfinding_height_samples
+                .as_ref()
+                .and_then(|cache| self.cached_pathfind_height(world_pos, cache))
+        }
     }
 
     /// Query the driving logical terrain. Detached host terrain retains its

@@ -49,6 +49,7 @@ fn team(id: u32, player: u32) -> Arc<RwLock<Team>> {
 
 struct AttackRuntime {
     _factory: ObjectFactory,
+    _logic: Option<GameLogic>,
     owner: Arc<RwLock<Object>>,
     target: Arc<RwLock<Object>>,
     ai: Arc<Mutex<dyn AIUpdateInterface>>,
@@ -56,30 +57,35 @@ struct AttackRuntime {
 
 impl AttackRuntime {
     fn new(armed: bool) -> Self {
+        Self::with_logic(armed, None)
+    }
+    fn new_owned(armed: bool) -> Self {
+        Self::with_logic(armed, Some(GameLogic::new()))
+    }
+    fn with_logic(armed: bool, mut logic: Option<GameLogic>) -> Self {
         let mut factory = ObjectFactory::new();
-        let source_id = factory
-            .create_object(
-                "BorrowedAttackInfantry",
-                Coord3D::ZERO,
-                Some(team(9501, 0)),
-                ObjectCreationFlags::empty(),
-            )
-            .unwrap();
-        let target_id = factory
-            .create_object(
-                "BorrowedAttackTarget",
-                Coord3D::new(250.0, 0.0, 0.0),
-                Some(team(9502, 1)),
-                ObjectCreationFlags::NO_AI,
-            )
-            .unwrap();
+        let source_id = create_fixture_actor(
+            &mut factory,
+            &mut logic,
+            "BorrowedAttackInfantry",
+            Coord3D::ZERO,
+            Some(team(9501, 0)),
+            ObjectCreationFlags::empty(),
+        )
+        .unwrap();
+        let target_id = create_fixture_actor(
+            &mut factory,
+            &mut logic,
+            "BorrowedAttackTarget",
+            Coord3D::new(250.0, 0.0, 0.0),
+            Some(team(9502, 1)),
+            ObjectCreationFlags::NO_AI,
+        )
+        .unwrap();
         let unit = factory.get_object(source_id).unwrap();
         assert!(unit.is_unit());
         let owner = unit.get_base_object().unwrap();
-        assert!(Arc::ptr_eq(
-            &owner,
-            &TheGameLogic::find_object_by_id(source_id).unwrap()
-        ));
+        assert!(Arc::ptr_eq(&owner, &fixture_actor(&logic, source_id)));
         assert!(super::super::registry::get_unit_arc(source_id).is_none());
         let ai = owner.read().unwrap().get_ai_update_interface().unwrap();
         let target = factory
@@ -94,10 +100,7 @@ impl AttackRuntime {
             .get_body()
             .expect("authored damageable target body");
         assert_eq!(body.lock().unwrap().get_health(), 100.0);
-        assert!(Arc::ptr_eq(
-            &target,
-            &TheGameLogic::find_object_by_id(target_id).unwrap()
-        ));
+        assert!(Arc::ptr_eq(&target, &fixture_actor(&logic, target_id)));
         if armed {
             let mut source = owner.write().unwrap();
             let mut weapon = WeaponTemplate::new("BorrowedAttackWeapon".into());
@@ -134,6 +137,7 @@ impl AttackRuntime {
         }
         Self {
             _factory: factory,
+            _logic: logic,
             owner,
             target,
             ai,
@@ -263,10 +267,9 @@ fn factory_attack_query_same_id_instances_keep_distinct_weapon_ownership() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     definitions();
-    let armed = AttackRuntime::new(true);
-    let unarmed = AttackRuntime::new(false);
+    let armed = AttackRuntime::new_owned(true);
+    let unarmed = AttackRuntime::new_owned(false);
     assert_eq!(
         armed.owner.read().unwrap().get_id(),
         unarmed.owner.read().unwrap().get_id()

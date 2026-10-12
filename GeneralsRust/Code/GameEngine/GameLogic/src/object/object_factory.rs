@@ -180,9 +180,6 @@ bitflags::bitflags! {
 
 /// Object Factory responsible for creating all game objects
 pub struct ObjectFactory {
-    /// Next available object ID
-    next_object_id: ObjectID,
-
     /// Registry of all created objects
     object_registry: HashMap<ObjectID, GameObjectInstance>,
 
@@ -216,7 +213,6 @@ impl ObjectFactory {
     /// Create a new ObjectFactory
     pub fn new() -> Self {
         ObjectFactory {
-            next_object_id: 1, // Start from 1, as 0 is INVALID_ID
             object_registry: HashMap::new(),
             template_cache: HashMap::new(),
             weapon_template_cache: HashMap::new(),
@@ -264,6 +260,7 @@ impl ObjectFactory {
             None,
             None,
             None,
+            None,
         )
     }
 
@@ -271,6 +268,7 @@ impl ObjectFactory {
     /// The application supplies native onCreate/admission services separately.
     pub fn prepare_object(
         &mut self,
+        game_logic: &mut crate::system::game_logic::GameLogic,
         template: Arc<dyn ThingTemplate>,
         position: Coord3D,
         team: Option<Arc<RwLock<Team>>>,
@@ -278,17 +276,60 @@ impl ObjectFactory {
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         let name = template.get_name().to_string();
         self.template_cache.insert(name.clone(), template);
-        self.create_object_inner(
+        let id = self.create_object_inner(
             &name,
             position,
             team,
             flags | ObjectCreationFlags::NO_DRAWABLE,
             ObjectStatusMaskType::NONE,
             false,
+            Some(game_logic.allocate_object_id()),
             None,
             None,
             None,
-        )
+        )?;
+        let owner = self
+            .get_object(id)
+            .and_then(|slot| slot.get_base_object())
+            .ok_or("prepared Object absent during identity admission")?;
+        game_logic.track_object_in_update_list(owner)?;
+        Ok(id)
+    }
+
+    /// Ordinary native birth consumes the driving GameLogic identity once.
+    /// Construction only pins the supplied team; membership callbacks are an
+    /// explicit admission phase after every installed interface exists.
+    pub(crate) fn prepare_object_owned(
+        &mut self,
+        game_logic: &mut crate::system::game_logic::GameLogic,
+        template: Arc<dyn ThingTemplate>,
+        position: Coord3D,
+        team: Option<Arc<RwLock<Team>>>,
+        flags: ObjectCreationFlags,
+        lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
+        body_definitions: Arc<crate::object::body::active_body::BodyDefinitionCatalog>,
+        module_factory: &ModuleFactory,
+    ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
+        let name = template.get_name().to_string();
+        self.template_cache.insert(name.clone(), template);
+        let id = self.create_object_inner(
+            &name,
+            position,
+            team,
+            flags | ObjectCreationFlags::NO_DRAWABLE,
+            ObjectStatusMaskType::NONE,
+            false,
+            Some(game_logic.allocate_object_id()),
+            Some(lookup),
+            Some(body_definitions),
+            Some(module_factory),
+        )?;
+        let owner = self
+            .get_object(id)
+            .and_then(|slot| slot.get_base_object())
+            .ok_or("prepared Object absent during identity admission")?;
+        game_logic.track_object_in_update_list(owner)?;
+        Ok(id)
     }
 
     /// Restore construction uses the saved identity from the start: cached
@@ -300,8 +341,12 @@ impl ObjectFactory {
         object_id: ObjectID,
         lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
         body_definitions: Arc<crate::object::body::active_body::BodyDefinitionCatalog>,
+        module_factory: &ModuleFactory,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
-        if object_id == crate::common::INVALID_ID || self.object_registry.contains_key(&object_id) {
+        if object_id == crate::common::INVALID_ID
+            || object_id == ObjectID::MAX
+            || self.object_registry.contains_key(&object_id)
+        {
             return Err(format!("invalid or duplicate saved Object id {object_id}").into());
         }
         let name = template.get_name().to_string();
@@ -316,6 +361,7 @@ impl ObjectFactory {
             Some(object_id),
             Some(lookup),
             Some(body_definitions),
+            Some(module_factory),
         )
     }
 
@@ -330,6 +376,7 @@ impl ObjectFactory {
         saved_id: Option<ObjectID>,
         lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
         body_definitions: Option<Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
+        module_factory: Option<&ModuleFactory>,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         // Get template
         let template = self.get_or_load_template(template_name)?;
@@ -338,13 +385,15 @@ impl ObjectFactory {
         let object_type = self.determine_object_type(template.as_ref());
 
         // Allocate object ID
-        let object_id = saved_id.unwrap_or_else(|| self.allocate_object_id());
-        if saved_id.is_some() {
-            self.next_object_id = self.next_object_id.max(
-                object_id
-                    .checked_add(1)
-                    .ok_or("saved Object id exhausts the receiving identity space")?,
-            );
+        let object_id = match saved_id {
+            Some(id) => id,
+            None => crate::system::game_logic::get_game_logic()
+                .lock()
+                .map_err(|_| "Object creation identity owner poisoned")?
+                .allocate_object_id(),
+        };
+        if object_id == crate::common::INVALID_ID || self.object_registry.contains_key(&object_id) {
+            return Err(format!("invalid or duplicate Object id {object_id}").into());
         }
 
         // Create base object first
@@ -365,9 +414,11 @@ impl ObjectFactory {
                 template.clone(),
                 object_id,
                 status_mask,
+                team.clone(),
                 prepare_ai,
                 lookup,
                 body_definitions.ok_or("native Object construction body definitions absent")?,
+                module_factory.ok_or("native Object construction module catalog absent")?,
             )?
         } else {
             let assemble = if publish {
@@ -519,6 +570,29 @@ impl ObjectFactory {
 
     /// Update all objects for one frame
 
+    pub(crate) fn take_native_retiring_object(
+        &mut self,
+        object_id: ObjectID,
+        owner: &Arc<RwLock<Object>>,
+    ) -> Result<GameObjectInstance, String> {
+        let actual = self
+            .object_registry
+            .get(&object_id)
+            .and_then(|slot| slot.get_base_object())
+            .ok_or("retiring factory object absent")?;
+        if !Arc::ptr_eq(&actual, owner) {
+            return Err("foreign retiring factory object".into());
+        }
+        let instance = self
+            .object_registry
+            .remove(&object_id)
+            .expect("validated retiring entry");
+        self.destruction_queue.retain(|id| *id != object_id);
+        self.update_pool_stats_destroyed(&instance.object_type());
+        self.total_objects_destroyed = self.total_objects_destroyed.wrapping_add(1);
+        Ok(instance)
+    }
+
     /// Retire factory wrappers only after the driving owner retires admission.
     /// The factory never unregisters lookup or finalizes gameplay objects.
     fn process_destruction_queue(&mut self, game_logic: &crate::system::game_logic::GameLogic) {
@@ -608,20 +682,10 @@ impl ObjectFactory {
             self.track_destroyed_object(id);
         }
         self.process_destruction_queue(game_logic);
-        // A factory-only reset cannot restart an ID namespace still in use.
-        if game_logic.get_object_count() == 0 {
-            self.next_object_id = 1;
-        }
         Ok(())
     }
 
     // Private helper methods
-
-    fn allocate_object_id(&mut self) -> ObjectID {
-        let id = self.next_object_id;
-        self.next_object_id += 1;
-        id
-    }
 
     fn get_or_load_template(
         &mut self,

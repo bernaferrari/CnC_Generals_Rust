@@ -72,7 +72,7 @@ impl BorrowedAiWorld<'_> {
         }
         Ok(())
     }
-    /// Execute an ordinary nonlethal hit. Unsupported callback/visual/death
+    /// Execute an admitted ordinary hit. Unsupported callback/visual/death
     /// families fail before canonical health changes.
     pub fn attempt_damage_owned(
         &mut self,
@@ -156,6 +156,7 @@ impl BorrowedAiWorld<'_> {
         let incoming_preferred = match &source {
             Some(source) => {
                 let source = source.try_read().map_err(|_| "damage source unavailable")?;
+                source.controlling_player_id_from_pin()?;
                 candidate.input.source_template = Some(source.get_template().clone());
                 Some(
                     source.is_kind_of(KindOf::Vehicle)
@@ -177,13 +178,31 @@ impl BorrowedAiWorld<'_> {
             incoming_source_preferred: incoming_preferred,
             previous_source_exists: self.object(prior_source).is_some(),
         };
+        let lethal = body
+            .try_lock()
+            .map_err(|_| "damage body unavailable")?
+            .assess_owned_native_damage(&candidate)
+            .map_err(|error| error.to_string())?;
+        if lethal {
+            self.validate_native_lethal(owner, &candidate)?;
+        }
+        // The dead marker is observable by onDamage, before score and onDie.
+        drop(
+            owner
+                .try_write()
+                .map_err(|_| "damage owner unavailable for commit")?,
+        );
         let outcome = {
             let mut body = body.try_lock().map_err(|_| "damage body unavailable")?;
-            body.validate_owned_ordinary_damage(&candidate)
-                .map_err(|error| error.to_string())?;
-            body.begin_owned_ordinary_damage(&mut candidate, observations)
+            body.begin_owned_native_damage(&mut candidate, observations)
                 .map_err(|error| error.to_string())?
         };
+        if outcome.transition.effectively_dead {
+            owner
+                .write()
+                .expect("pre-admitted damaged owner")
+                .set_effectively_dead(true);
+        }
         if !outcome.processed {
             *damage = candidate;
             return Ok(damage.output.actual_damage_dealt);
@@ -253,6 +272,9 @@ impl BorrowedAiWorld<'_> {
                     let _ = self.add_audio_event(&fear);
                 }
             }
+        }
+        if outcome.damaged && outcome.current_health <= 0.0 && outcome.previous_health > 0.0 {
+            self.finish_native_lethal(owner, &candidate);
         }
         if self.services.rules.enable_repulsors && repulsable {
             owner

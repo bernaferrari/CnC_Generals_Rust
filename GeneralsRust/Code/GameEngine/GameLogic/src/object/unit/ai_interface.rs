@@ -666,6 +666,11 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::mark_as_dead(self)
     }
 
+    fn mark_dead_owned(&mut self) -> Result<(), String> {
+        self.runtime.data.ai_dead = true;
+        Ok(())
+    }
+
     fn set_is_recruitable(&mut self, recruitable: Bool) {
         UnitAIUpdate::set_is_recruitable(self, recruitable)
     }
@@ -944,6 +949,10 @@ impl AIUpdateInterface for UnitAIUpdate {
         if !Arc::ptr_eq(&actual, owner) || self.ai_state_machine.is_none() {
             return Err("removal AI does not belong to this installed owner".into());
         }
+        // Reuse the actual native-family admission before any damage/unlink
+        // mutation. Specialized stop/path hooks need their explicit services.
+        self.validate_owned_components(true, false)
+            .map_err(|error| error.to_string())?;
         Ok(())
     }
     fn wake_up_and_attempt_to_target_at(&mut self, frame: u32) -> Result<(), String> {

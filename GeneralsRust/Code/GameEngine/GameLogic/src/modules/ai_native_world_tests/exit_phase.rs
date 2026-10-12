@@ -72,11 +72,13 @@ fn owned_regular_exit_releases_ai_before_removal_then_completes_same_phase() {
         "the terminal state-change callback clears the actor's saved queue deadline"
     );
     assert_eq!(game.source.read().unwrap().get_contained_by(), None);
-    assert!(!game
-        .source
-        .read()
-        .unwrap()
-        .is_disabled_by_type(crate::common::DisabledType::Held));
+    assert!(
+        !game
+            .source
+            .read()
+            .unwrap()
+            .is_disabled_by_type(crate::common::DisabledType::Held)
+    );
     assert_eq!(
         game.target
             .read()

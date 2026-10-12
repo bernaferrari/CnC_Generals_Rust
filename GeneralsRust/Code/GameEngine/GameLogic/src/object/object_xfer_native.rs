@@ -88,6 +88,7 @@ pub(crate) struct ObjectXferDefinitions<'a> {
     pub upgrades: &'a game_engine::common::system::upgrade::UpgradeCenter,
     pub weapon_bonuses: &'a crate::weapon::WeaponBonusSet,
     pub body_definitions: Arc<crate::object::body::active_body::BodyDefinitionCatalog>,
+    module_factory: &'a game_engine::common::thing::module_factory::ModuleFactory,
     pub frame: u32,
 }
 
@@ -100,6 +101,7 @@ impl<'a> ObjectXferDefinitions<'a> {
         weapon_bonuses: &'a crate::weapon::WeaponBonusSet,
         body_definitions: Arc<crate::object::body::active_body::BodyDefinitionCatalog>,
         weapon_sets: Arc<ObjectWeaponSetCatalog>,
+        module_factory: &'a game_engine::common::thing::module_factory::ModuleFactory,
         frame: u32,
     ) -> Result<Self, String> {
         weapon_sets.validate_owners(things, weapons)?;
@@ -111,6 +113,7 @@ impl<'a> ObjectXferDefinitions<'a> {
             upgrades,
             weapon_bonuses,
             body_definitions,
+            module_factory,
             frame,
         })
     }
@@ -162,6 +165,17 @@ impl<'a> ObjectXferDefinitions<'a> {
                     return Err("native Body birth needs finite health and supplied initial rubble services".into());
                 }
             }
+            match entry.name.as_str() {
+                "InstantDeathBehavior" => entry.data.as_ref()
+                    .downcast_ref::<crate::object::behavior::instant_death_behavior::InstantDeathBehaviorModuleData>()
+                    .ok_or("native InstantDeath definition has the wrong family")?.validate_owned_effects()?,
+                "SlowDeathBehavior" => {
+                    if template.is_kind_of(KindOf::Hulk) { return Err("native SlowDeath hulk construction not admitted".into()); }
+                    entry.data.as_ref().downcast_ref::<crate::object::behavior::slow_death_behavior::SlowDeathBehaviorModuleData>()
+                        .ok_or("native SlowDeath definition has the wrong family")?.validate_owned_effects()?;
+                }
+                _ => {},
+            }
             if !matches!(
                 entry.name.as_str(),
                 "ActiveBody"
@@ -170,6 +184,8 @@ impl<'a> ObjectXferDefinitions<'a> {
                     | "AIUpdateInterface"
                     | "OpenContain"
                     | "TransportContain"
+                    | "InstantDeathBehavior"
+                    | "SlowDeathBehavior"
             ) {
                 return Err(format!(
                     "native Object restore module {} requires its own construction services",
@@ -195,12 +211,60 @@ impl<'a> ObjectXferDefinitions<'a> {
                 id,
                 &mut |name| Ok(self.locomotor(name)),
                 self.body_definitions.clone(),
+                self.module_factory,
             )
             .map_err(|error| error.to_string())?;
         let owner = factory
             .get_object(id)
             .and_then(|slot| slot.get_base_object())
             .ok_or("prepared Object absent from receiving factory")?;
+        self.install_prepared_weapons(&owner, template_name)?;
+        Ok(owner)
+    }
+
+    /// Native ordinary creation borrows the same identity owner as scripts,
+    /// direct construction, scheduling and subsequent restore admission.
+    pub(crate) fn prepare_new_object(
+        &self,
+        factory: &mut ObjectFactory,
+        game_logic: &mut crate::system::game_logic::GameLogic,
+        template_name: &str,
+        position: Coord3D,
+        team: Option<Arc<RwLock<Team>>>,
+        flags: crate::object::object_factory::ObjectCreationFlags,
+    ) -> Result<Arc<RwLock<Object>>, String> {
+        let template = self
+            .thing(template_name)
+            .ok_or("native birth template absent")?;
+        let id = factory
+            .prepare_object_owned(
+                game_logic,
+                template,
+                position,
+                team,
+                flags,
+                &mut |name| Ok(self.locomotor(name)),
+                self.body_definitions.clone(),
+                self.module_factory,
+            )
+            .map_err(|error| error.to_string())?;
+        let owner = factory
+            .get_object(id)
+            .and_then(|slot| slot.get_base_object())
+            .ok_or("native birth absent from receiving factory")?;
+        self.install_prepared_weapons(&owner, template_name)?;
+        Ok(owner)
+    }
+
+    fn install_prepared_weapons(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        template_name: &str,
+    ) -> Result<(), String> {
+        let id = owner
+            .read()
+            .map_err(|_| "prepared Object poisoned")?
+            .get_id();
         {
             let mut object = owner.write().map_err(|_| "prepared Object poisoned")?;
             object.weapon_set.install_definition_sets(
@@ -221,7 +285,7 @@ impl<'a> ObjectXferDefinitions<'a> {
                 )
                 .map_err(|error| error.to_string())?;
         }
-        Ok(owner)
+        Ok(())
     }
 
     /// Prepare all actual controller identities before references are resolved.
@@ -342,6 +406,8 @@ impl ObjectXferServices<'_> {
                     | "AIUpdateInterface"
                     | "OpenContain"
                     | "TransportContain"
+                    | "InstantDeathBehavior"
+                    | "SlowDeathBehavior"
             ) {
                 return Err(format!(
                     "native Object Xfer module {} requires its own services",
@@ -349,6 +415,7 @@ impl ObjectXferServices<'_> {
                 ));
             }
         }
+        object.validate_owned_death_callbacks(1.0)?;
         for player in self.players.iter() {
             if player
                 .read()
@@ -597,7 +664,11 @@ impl Object {
                         .map_err(|_| "installed contain postload poisoned")?
                         .snapshot_load_post_process_with_world(world)?;
                 }
-                "ActiveBody" | "InactiveBody" | "PhysicsBehavior" => {
+                "ActiveBody"
+                | "InactiveBody"
+                | "PhysicsBehavior"
+                | "InstantDeathBehavior"
+                | "SlowDeathBehavior" => {
                     entry.with_module(|module| module.load_post_process())?;
                 }
                 _ => {

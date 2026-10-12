@@ -1405,6 +1405,10 @@ fn structure_topple_crush_sweep_kills_nearby_infantry() {
     bt.set_health(100.0);
     bt.add_kind_of(KindOf::Structure);
     bt.authored_structure_topple = true;
+    let mut definition =
+        crate::game_logic::host_structure_topple::definition::StructureToppleDefinition::default();
+    definition.fx.weapon = "ToppledStructureWeapon".into();
+    bt.structure_topple_definition = Some(std::sync::Arc::new(definition));
     logic.templates.insert("AmericaWarFactory".into(), bt);
     let mut it = ThingTemplate::new("Ranger");
     it.set_health(50.0);
@@ -1443,7 +1447,9 @@ fn structure_topple_crush_sweep_kills_nearby_infantry() {
         .unwrap()
         .take_structure_topple_crush_samples();
     assert!(!samples.is_empty());
-    logic.apply_structure_topple_crush_samples(bid, samples);
+    logic
+        .apply_structure_topple_crush_samples(bid, samples)
+        .unwrap();
     let ranger = logic.objects.get(&iid).unwrap();
     assert!(
         !ranger.is_alive()
@@ -1468,6 +1474,10 @@ fn structure_topple_height_from_geometry_not_maxhp() {
     bt.set_health(5000.0);
     bt.add_kind_of(KindOf::Structure);
     bt.authored_structure_topple = true;
+    let mut definition =
+        crate::game_logic::host_structure_topple::definition::StructureToppleDefinition::default();
+    definition.fx.weapon = "ToppledStructureWeapon".into();
+    bt.structure_topple_definition = Some(std::sync::Arc::new(definition));
     bt.geometry_info = HostGeometryInfo {
         geom_type: HostGeometryType::Box,
         is_small: false,

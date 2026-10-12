@@ -720,7 +720,7 @@ impl SlowDeathBehavior {
             .ok_or_else(|| "Object not found".into())
     }
 
-    fn is_slow_death_activated(&self) -> bool {
+    pub(crate) fn is_slow_death_activated(&self) -> bool {
         (self.flags & (1 << Self::SLOW_DEATH_ACTIVATED)) != 0
     }
 
@@ -1274,8 +1274,8 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
         };
 
         // Calculate overkill percentage (C++ lines 163-165)
-        let overkill_damage =
-            damage_info.output.actual_damage_dealt - damage_info.output.actual_damage_clipped;
+        let overkill_damage = (damage_info.output.actual_damage_dealt
+            - damage_info.output.actual_damage_clipped) as Int;
         let overkill_percent = (overkill_damage as Real) / max_health;
         let overkill_modifier =
             (overkill_percent * self.module_data.modifier_bonus_per_overkill_percent) as Int;
@@ -1309,6 +1309,14 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
 }
 
 impl Module for SlowDeathBehavior {
+    fn record_scheduled_wake(
+        &mut self,
+        frame: u32,
+        phase: game_engine::common::thing::update_module::SleepyUpdatePhase,
+    ) {
+        self.next_call_frame_and_phase = (frame.min(0x3fff_ffff) << 2) | phase as u32;
+    }
+
     fn get_module_name_key(&self) -> NameKeyType {
         NameKeyGenerator::name_to_key("SlowDeathBehavior")
     }
@@ -1344,7 +1352,11 @@ impl Module for SlowDeathBehavior {
     /// `Module::get_initial_wake_frame()` accessor instead of the former
     /// `as_any().downcast_ref::<Self>()` chain in `initial_update_wake_frame`.
     fn get_initial_wake_frame(&mut self) -> Option<u32> {
-        Some(UpdateSleepTime::Forever.to_u32())
+        Some(if self.is_slow_death_activated() {
+            self.next_call_frame_and_phase >> 2
+        } else {
+            UpdateSleepTime::Forever.to_u32()
+        })
     }
 }
 
@@ -1500,3 +1512,7 @@ mod tests {
         assert!(sd.update_proxy.0.is_none());
     }
 }
+
+#[path = "slow_death_owned.rs"]
+mod owned;
+pub(crate) use owned::OwnedSlowBegin;

@@ -119,8 +119,10 @@ fn truncated_transform_stops_before_unread_phase() {
 #[test]
 fn checked_object_rejects_incomplete_header_before_changing_identity() {
     let mut factory = crate::object::object_factory::ObjectFactory::new();
+    let mut identity_owner = crate::system::game_logic::GameLogic::new();
     let id = factory
         .prepare_object(
+            &mut identity_owner,
             Arc::new(DefaultThingTemplate::new("DetachedHeader".into())),
             Coord3D::ZERO,
             None,

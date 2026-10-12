@@ -709,6 +709,26 @@ impl ThingFactory {
         name: &str,
         reskin_from: &str,
     ) -> Result<(), String> {
+        self.parse_object_definition_with_factory(ini, name, reskin_from, None)
+    }
+
+    pub(super) fn parse_object_definition_with_module_factory(
+        &mut self,
+        ini: &mut INI,
+        name: &str,
+        reskin_from: &str,
+        module_factory: &mut crate::common::thing::module_factory::ModuleFactory,
+    ) -> Result<(), String> {
+        self.parse_object_definition_with_factory(ini, name, reskin_from, Some(module_factory))
+    }
+
+    fn parse_object_definition_with_factory(
+        &mut self,
+        ini: &mut INI,
+        name: &str,
+        reskin_from: &str,
+        mut module_factory: Option<&mut crate::common::thing::module_factory::ModuleFactory>,
+    ) -> Result<(), String> {
         #[cfg(any(debug_assertions, feature = "internal"))]
         {
             // Set global variable for debugging
@@ -752,7 +772,11 @@ impl ThingFactory {
                 tmpl.copy_from(&reskin_template);
                 tmpl.set_copied_from_default();
                 tmpl.set_reskinned_from(reskin_template);
-                tmpl.parse_reskin_fields_for_load(&properties, ini.get_load_type())?;
+                tmpl.parse_reskin_fields_for_load_with_factory(
+                    &properties,
+                    ini.get_load_type(),
+                    module_factory.as_deref_mut(),
+                )?;
 
                 self.template_hash_map
                     .insert(AsciiString::from(name), thing_template.clone());
@@ -775,7 +799,11 @@ impl ThingFactory {
             // Use Arc::make_mut to get mutable access for parsing
             let tmpl = Arc::make_mut(&mut thing_template);
             set_locomotor_overrides_allowed(ini.get_load_type() == IniLoadType::CreateOverrides);
-            let parse_result = tmpl.parse_object_fields_for_load(&properties, ini.get_load_type());
+            let parse_result = tmpl.parse_object_fields_for_load_with_factory(
+                &properties,
+                ini.get_load_type(),
+                module_factory.as_deref_mut(),
+            );
             set_locomotor_overrides_allowed(false);
             parse_result?;
 
@@ -1123,10 +1151,22 @@ pub fn generic_tracer_template_matches_system_ini() -> bool {
 impl ThingFactory {
     /// Parse `Object` / `ObjectReskin` blocks into this factory (fills empty shells).
     pub fn load_ini_text(&mut self, content: &str) -> usize {
-        self.load_ini_text_inner(content)
+        self.load_ini_text_inner(content, None)
     }
 
-    fn load_ini_text_inner(&mut self, content: &str) -> usize {
+    pub(super) fn load_ini_text_with_module_factory(
+        &mut self,
+        content: &str,
+        module_factory: &mut crate::common::thing::module_factory::ModuleFactory,
+    ) -> usize {
+        self.load_ini_text_inner(content, Some(module_factory))
+    }
+
+    fn load_ini_text_inner(
+        &mut self,
+        content: &str,
+        mut module_factory: Option<&mut crate::common::thing::module_factory::ModuleFactory>,
+    ) -> usize {
         let factory = self;
         let mut loaded = 0usize;
         let lines: Vec<&str> = content.lines().collect();
@@ -1169,7 +1209,11 @@ impl ThingFactory {
                         let mut tmpl = existing.unwrap_or_else(|| factory.new_template(name));
                         {
                             let tmpl_ref = Arc::make_mut(&mut tmpl);
-                            if let Err(err) = tmpl_ref.parse_object_fields_from_ini(&properties) {
+                            if let Err(err) = tmpl_ref.parse_object_fields_for_load_with_factory(
+                                &properties,
+                                IniLoadType::Overwrite,
+                                module_factory.as_deref_mut(),
+                            ) {
                                 warn!("Skipping object '{}': {}", name, err);
                                 index = end_idx;
                                 continue;
@@ -1202,7 +1246,11 @@ impl ThingFactory {
                         }
                         {
                             let tmpl_ref = Arc::make_mut(&mut tmpl);
-                            if let Err(err) = tmpl_ref.parse_reskin_fields_from_ini(&properties) {
+                            if let Err(err) = tmpl_ref.parse_reskin_fields_for_load_with_factory(
+                                &properties,
+                                IniLoadType::Overwrite,
+                                module_factory.as_deref_mut(),
+                            ) {
                                 warn!("Skipping object reskin '{}': {}", name, err);
                                 index = end_idx;
                                 continue;

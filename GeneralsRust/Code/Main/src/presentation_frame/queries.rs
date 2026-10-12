@@ -308,6 +308,8 @@ impl PresentationFrame {
                     self.world_env.is_night,
                     self.frame.0,
                 );
+                input.structure_topple_matrix =
+                    self.structure_topple_transforms.get(&object.id).copied();
                 if self.local_viewer_uses_friendly_stealth_look(object) {
                     // Leftover setEffectiveOpacity result lives on the host
                     // (SetVisionCamo / camo_friendly_opacity), including mines.
@@ -383,30 +385,32 @@ impl PresentationFrame {
                 }
                 input
             };
-        let apply_visual_template = |input: &mut UnitRenderInput,
-                                     visual_template_name: &str,
-                                     visual_mesh_scale: f32| {
-            if visual_template_name.trim().is_empty() {
-                return;
-            }
-            let fallback_model_key = crate::assets::mesh_asset_resolve::model_key_from_presentation(
-                Some(visual_template_name),
-                visual_template_name,
-            );
-            let fallback_draw_models =
-                (!fallback_model_key.trim().is_empty()).then(|| crate::assets::AuthoredDrawModel {
-                    module_index: 0,
-                    model_key: fallback_model_key,
-                    ..Default::default()
-                });
-            input.resolve_draw_models_for_template(
-                visual_template_name,
-                fallback_draw_models.as_slice(),
-            );
-            if visual_mesh_scale.is_finite() && visual_mesh_scale > 0.0 {
-                input.mesh_scale = visual_mesh_scale;
-            }
-        };
+        let apply_visual_template =
+            |input: &mut UnitRenderInput, visual_template_name: &str, visual_mesh_scale: f32| {
+                if !visual_template_name.trim().is_empty()
+                    && visual_template_name != input.template_name
+                {
+                    let fallback_model_key =
+                        crate::assets::mesh_asset_resolve::model_key_from_presentation(
+                            Some(visual_template_name),
+                            visual_template_name,
+                        );
+                    let fallback_draw_models = (!fallback_model_key.trim().is_empty()).then(|| {
+                        crate::assets::AuthoredDrawModel {
+                            module_index: 0,
+                            model_key: fallback_model_key,
+                            ..Default::default()
+                        }
+                    });
+                    input.resolve_draw_models_for_template(
+                        visual_template_name,
+                        fallback_draw_models.as_slice(),
+                    );
+                }
+                if visual_mesh_scale.is_finite() && visual_mesh_scale > 0.0 {
+                    input.mesh_scale = visual_mesh_scale;
+                }
+            };
 
         // C++ StealthUpdate::changeVisualDisguise destroys/recreates the
         // Drawable with `m_disguiseAsTemplate` before it decides only the

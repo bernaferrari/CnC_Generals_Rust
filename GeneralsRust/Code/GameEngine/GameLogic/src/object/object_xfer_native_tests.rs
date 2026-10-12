@@ -51,6 +51,7 @@ pub(in crate::object) struct Definitions {
     bonuses: crate::weapon::WeaponBonusSet,
     body: Arc<crate::object::body::active_body::BodyDefinitionCatalog>,
     weapon_sets: Arc<ObjectWeaponSetCatalog>,
+    module_factory: game_engine::common::thing::module_factory::ModuleFactory,
 }
 impl Definitions {
     pub(in crate::object) fn new(initial_health: f32) -> Self {
@@ -118,6 +119,20 @@ impl Definitions {
                 }),
             );
         }
+        let mut module_factory = game_engine::common::thing::module_factory::ModuleFactory::new();
+        crate::contain_module_overrides::register_native_module_overrides(&mut module_factory)
+            .unwrap();
+        for template in things.values() {
+            for entry in template.get_behavior_module_info() {
+                module_factory.add_module_internal(
+                    None,
+                    None,
+                    game_engine::common::thing::module::ModuleType::Behavior,
+                    &entry.name,
+                    entry.interface_flags(),
+                );
+            }
+        }
         let weapon_sets =
             Arc::new(ObjectWeaponSetCatalog::from_definitions(&things, &weapons).unwrap());
         Self {
@@ -135,6 +150,7 @@ impl Definitions {
                 .unwrap(),
             ),
             weapon_sets,
+            module_factory,
         }
     }
     fn borrowed(&self, frame: u32) -> ObjectXferDefinitions<'_> {
@@ -146,6 +162,7 @@ impl Definitions {
             &self.bonuses,
             self.body.clone(),
             self.weapon_sets.clone(),
+            &self.module_factory,
             frame,
         )
         .unwrap()
@@ -692,3 +709,79 @@ fn fresh_infantry_without_authored_ai_preserves_no_ai_through_object_restore() {
         "SameIdPeer"
     );
 }
+
+#[test]
+fn native_birth_uses_exact_receiving_constructor_catalog_without_fallback() {
+    let first_definitions = Definitions::new(75.0);
+    let second_definitions = Definitions::new(4.0);
+    let mut first = Candidate::new();
+    let mut second = Candidate::new();
+    let first_object = first.prepare_source(&first_definitions);
+    let second_object = second.prepare_source(&second_definitions);
+    assert_eq!(
+        first_object.read().unwrap().get_id(),
+        second_object.read().unwrap().get_id()
+    );
+    assert_eq!(
+        first_object
+            .read()
+            .unwrap()
+            .get_body_module()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get_health(),
+        75.0
+    );
+    assert_eq!(
+        second_object
+            .read()
+            .unwrap()
+            .get_body_module()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get_health(),
+        4.0
+    );
+
+    // The definition still advertises ActiveBody and has its actual typed data,
+    // but this receiving catalog has no registered constructor. A fresh recipe
+    // or ambient factory fallback would erroneously let this birth succeed.
+    let mut missing = Definitions::new(19.0);
+    missing.module_factory = game_engine::common::thing::module_factory::ModuleFactory::new();
+    let mut rejected = Candidate::new();
+    let error = missing
+        .borrowed(17)
+        .prepare_object(&mut rejected.factory, "FreshBody", 91)
+        .unwrap_err();
+    assert!(error.contains("ActiveBody"), "{error}");
+    assert!(rejected.factory.get_object(91).is_none());
+    assert_eq!(
+        first_object
+            .read()
+            .unwrap()
+            .get_body_module()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get_health(),
+        75.0
+    );
+    assert_eq!(
+        second_object
+            .read()
+            .unwrap()
+            .get_body_module()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get_health(),
+        4.0
+    );
+}
+
+#[path = "object_xfer_native_tests/factory_identity.rs"]
+mod factory_identity;
+#[path = "object_xfer_native_tests/saved_particles.rs"]
+mod saved_particles;

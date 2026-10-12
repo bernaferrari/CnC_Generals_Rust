@@ -2,7 +2,7 @@
 //! `contain_module_overrides.rs` dump. Public factory function names are unchanged.
 
 use std::any::Any;
-use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use game_engine::common::ini::INI;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -11,9 +11,8 @@ use game_engine::common::thing::module::{
     BaseModuleData, CreateInterface, DeletionLifetimeInterface, Drawable as ModuleDrawableTrait,
     Module, ModuleData, ModuleType, NameKeyType, Object as ModuleObjectTrait, Thing as ModuleThing,
 };
-use game_engine::common::thing::module_factory::{
-    apply_module_overrides_to_existing_templates, register_module_override,
-};
+#[cfg(test)]
+use game_engine::common::thing::module_factory::register_module_override;
 use log::warn;
 
 use crate::common::{
@@ -418,13 +417,18 @@ mod registration_tests;
 mod body_definition_snapshot_tests;
 
 pub(crate) use body::install_body_for_module;
+pub(crate) use body::validate_native_active_body_restore_particles;
 #[cfg(test)]
 pub(crate) use body::with_active as with_active_body_binding_for_test;
 pub(crate) use body::{install_body_for_module_with_definitions, register_inert_active_body};
+#[cfg(test)]
+pub(crate) use body::{with_active, with_active_mut};
 pub(crate) use contain::contain_handle_for_module;
 pub use contain::{ContainModuleDataAdapter, ContainModuleDataKind};
 pub(crate) use helpers::ActiveBehaviorModule;
-pub use install::{ensure_module_overrides_installed, register_module_overrides};
+pub use install::{
+    ensure_module_overrides_installed, register_module_overrides, register_native_module_overrides,
+};
 
 /// Factory fixtures reset the global factory on their own test thread. Register
 /// the real body callbacks there without relying on the process-wide installer.
@@ -457,3 +461,9 @@ pub const CONTAIN_OVERRIDES_SRC: &str = concat!(
 );
 
 pub(crate) use update_modules::register_inert_auto_heal;
+
+pub(crate) use death::register_owned_death_constructors;
+
+pub(crate) use body::has_owned_empty_body_delete;
+
+pub(crate) use body::xfer_active_body_with_templates;

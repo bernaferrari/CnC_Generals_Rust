@@ -31,6 +31,7 @@ struct Army {
     excluded: Arc<RwLock<GameObject>>,
     enemy: Arc<RwLock<GameObject>>,
     player: Arc<RwLock<Player>>,
+    enemy_player: Arc<RwLock<Player>>,
     _players: PlayerListRestore,
 }
 
@@ -42,7 +43,7 @@ impl Army {
         {
             let mut list = player_list().write().unwrap();
             list.add_player(player.clone());
-            list.add_player(enemy_player);
+            list.add_player(enemy_player.clone());
         }
         let object = |id, kind, player_id| {
             let mut object = GameObject::new_test(id, 100.0);
@@ -60,14 +61,44 @@ impl Army {
             object.write().unwrap().set_team(Some(team)).unwrap();
             object
         };
+        let owner = object(0x00B0_7201, KindOf::Vehicle, 0);
+        let member = object(0x00B0_7202, KindOf::Vehicle, 0);
+        let excluded = object(0x00B0_7203, KindOf::Structure, 0);
+        let enemy = object(0x00B0_7204, KindOf::Vehicle, 1);
+        // BattlePlanUpdate's callback is Player::iterateObjects in C++; seed
+        // that recipient list explicitly for these raw-object fixtures.
+        for object in [&owner, &member, &excluded] {
+            player
+                .write()
+                .unwrap()
+                .add_owned_object(object.read().unwrap().get_id());
+        }
+        enemy_player
+            .write()
+            .unwrap()
+            .add_owned_object(enemy.read().unwrap().get_id());
         Self {
-            owner: object(0x00B0_7201, KindOf::Vehicle, 0),
-            member: object(0x00B0_7202, KindOf::Vehicle, 0),
-            excluded: object(0x00B0_7203, KindOf::Structure, 0),
-            enemy: object(0x00B0_7204, KindOf::Vehicle, 1),
+            owner,
+            member,
+            excluded,
+            enemy,
             player,
+            enemy_player,
             _players: players,
         }
+    }
+
+    fn assert_player_object_owners(&self) {
+        assert_eq!(
+            self.player.read().unwrap().get_all_objects(),
+            vec![0x00B0_7201, 0x00B0_7202, 0x00B0_7203],
+            "CPP Player::iterateObjects must visit the receiving Player's owned IDs"
+        );
+        assert_eq!(
+            self.enemy_player.read().unwrap().get_all_objects(),
+            vec![0x00B0_7204],
+            "the enemy object belongs only to its actual receiving Player"
+        );
     }
 
     fn assert_bonus(&self, scalar: f32, sight_scalar: f32, flag: WeaponBonusConditionFlags) {
@@ -303,6 +334,7 @@ fn kind_mask_roundtrips_all_retail_bits() {
 fn battle_plan_applies_nearest_scalar_below_one_like_cpp() {
     let _lock = test_isolation_lock().lock().unwrap();
     let army = Army::new();
+    army.assert_player_object_owners();
     let mut module = super::tests::make_module(army.owner.clone(), Some(1));
     // Player.cpp3524/3536 test scalar !=1.0f, not approximate equality.
     let scalar = f32::from_bits(1.0f32.to_bits() - 1);

@@ -246,3 +246,6 @@ impl DieModuleInterface for InstantDeathBehavior {
         let _ = TheGameLogic::destroy_object(object);
     }
 }
+
+#[path = "instant_death_owned.rs"]
+mod owned;

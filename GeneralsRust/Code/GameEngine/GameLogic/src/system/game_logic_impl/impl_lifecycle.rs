@@ -159,6 +159,15 @@ impl GameLogic {
             ));
         }
 
+        if let Some(existing) = self.objects.get(&object_id) {
+            if Arc::ptr_eq(existing, &object) {
+                return Ok(object_id);
+            }
+            return Err(GameLogicError::InvalidState(format!(
+                "Object id {object_id} already admitted"
+            )));
+        }
+        self.observe_object_id(object_id);
         // C++ GameLogic::registerObject prepends (GameLogic.cpp:3866).
         self.objects.insert(object_id, Arc::clone(&object));
         self.prepend_to_object_list(object_id);
@@ -269,15 +278,98 @@ impl GameLogic {
             ));
         }
 
-        if self.objects.contains_key(&object_id) {
-            return Ok(object_id);
+        if let Some(existing) = self.objects.get(&object_id) {
+            if Arc::ptr_eq(existing, &object) {
+                return Ok(object_id);
+            }
+            return Err(GameLogicError::InvalidState(format!(
+                "Object id {object_id} already admitted"
+            )));
         }
-
+        self.observe_object_id(object_id);
         // C++ registerObject prepends (GameLogic.cpp:3866).
         self.objects.insert(object_id, Arc::clone(&object));
         self.prepend_to_object_list(object_id);
 
         Ok(object_id)
+    }
+
+    pub(crate) fn next_native_destroyed_object(&self) -> Option<ObjectID> {
+        self.dead_objects.first().copied()
+    }
+
+    pub(crate) fn unlink_native_destroyed_object(
+        &mut self,
+        id: ObjectID,
+        owner: &Arc<RwLock<Object>>,
+    ) -> Result<(), String> {
+        let actual = self
+            .objects
+            .get(&id)
+            .ok_or("retiring scheduler object absent")?;
+        if !Arc::ptr_eq(actual, owner) {
+            return Err("foreign retiring scheduler object".into());
+        }
+        let index = self.all_objects.iter().position(|value| *value == id);
+        let previous = index
+            .and_then(|index| index.checked_sub(1))
+            .and_then(|index| self.all_objects.get(index))
+            .copied();
+        let next = index
+            .and_then(|index| self.all_objects.get(index + 1))
+            .copied();
+        // Acquire all sibling loans before changing the canonical linked list.
+        let previous_owner = previous.and_then(|id| self.objects.get(&id));
+        let next_owner = next.and_then(|id| self.objects.get(&id));
+        let mut previous_guard = previous_owner
+            .map(|owner| {
+                owner
+                    .try_write()
+                    .map_err(|_| "retiring previous object already borrowed")
+            })
+            .transpose()?;
+        let mut next_guard = next_owner
+            .map(|owner| {
+                owner
+                    .try_write()
+                    .map_err(|_| "retiring next object already borrowed")
+            })
+            .transpose()?;
+        if let Some(object) = &mut previous_guard {
+            object.set_next_object_id(next);
+        }
+        if let Some(object) = &mut next_guard {
+            object.set_prev_object_id(previous);
+        }
+        drop(previous_guard);
+        drop(next_guard);
+        self.remove_updates_for_object(id);
+        self.all_objects.retain(|value| *value != id);
+        self.objects.remove(&id);
+        self.dead_objects.retain(|value| *value != id);
+        Ok(())
+    }
+
+    pub(crate) fn notify_native_object_count_changed(&mut self, frame: u32) {
+        self.frame_objects_changed_trigger_areas = frame;
+    }
+
+    pub(crate) fn queue_native_destroy(
+        &mut self,
+        object_id: ObjectID,
+        owner: &Arc<RwLock<Object>>,
+    ) -> Result<(), String> {
+        let actual = self
+            .objects
+            .get(&object_id)
+            .ok_or("native destruction owner not admitted")?;
+        if !Arc::ptr_eq(actual, owner) {
+            return Err("foreign native destruction owner".into());
+        }
+        if !self.dead_objects.contains(&object_id) {
+            self.dead_objects.push(object_id);
+        }
+        Ok(())
     }
 
     /// Mark an object for destruction
@@ -423,12 +515,22 @@ impl GameLogic {
     ///
     /// ## C++ Reference: GameLogic::allocateObjectID() (GameLogic.cpp)
     pub fn allocate_object_id(&mut self) -> ObjectID {
-        let id = self.next_object_id;
-        self.next_object_id = self.next_object_id.wrapping_add(1);
-        if self.next_object_id == INVALID_ID {
-            self.next_object_id = 1;
+        // Ordinary C++ construction consumes one counter value. Explicit
+        // restored/direct admissions can also reserve identities; never alias
+        // a live object after a counter reset or integer wrap.
+        loop {
+            let id = self.next_object_id;
+            self.next_object_id = self.next_object_id.wrapping_add(1).max(1);
+            if id != INVALID_ID && !self.objects.contains_key(&id) {
+                return id;
+            }
         }
-        id
+    }
+
+    pub(crate) fn observe_object_id(&mut self, id: ObjectID) {
+        if id >= self.next_object_id {
+            self.next_object_id = id.wrapping_add(1).max(1);
+        }
     }
 
     /// Get the next object-id counter value (C++ GameLogic::getObjectIDCounter).

@@ -113,6 +113,7 @@ impl Object {
             true,
             None,
             None,
+            None,
         )
     }
 
@@ -134,6 +135,7 @@ impl Object {
             false,
             None,
             None,
+            None,
         )
     }
 
@@ -141,19 +143,22 @@ impl Object {
         thing_template: Arc<dyn ThingTemplate>,
         object_id: ObjectID,
         object_status_mask: ObjectStatusMaskType,
+        team: Option<Arc<RwLock<Team>>>,
         prepare_unit_ai: bool,
         lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
         body_definitions: Arc<crate::object::body::active_body::BodyDefinitionCatalog>,
+        module_factory: &game_engine::common::thing::module_factory::ModuleFactory,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         Self::new_with_id_admission(
             thing_template,
             object_id,
             object_status_mask,
-            None,
+            team,
             prepare_unit_ai,
             false,
             Some(lookup),
             Some(body_definitions),
+            Some(module_factory),
         )
     }
 
@@ -166,6 +171,7 @@ impl Object {
         publish: bool,
         lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
         body_definitions: Option<Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
+        module_factory: Option<&game_engine::common::thing::module_factory::ModuleFactory>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         // set_team runs on the still-unshared object: registration below is
         // what publishes the id, so the previous uniquely-owned write guard
@@ -191,12 +197,33 @@ impl Object {
             register_legacy_object(&object_arc);
         }
 
+        // The legacy unpublished convenience constructor owns its recipe at
+        // the call boundary. Supplied native births/restores borrow the actual
+        // receiving catalog; module assembly never selects another catalog.
+        let local_catalog = if !publish && module_factory.is_none() {
+            let mut catalog = game_engine::common::thing::module_factory::ModuleFactory::new();
+            crate::contain_module_overrides::register_module_overrides(&mut catalog)?;
+            crate::contain_module_overrides::register_inert_auto_heal(&mut catalog)?;
+            for entry in thing_template.get_behavior_module_info() {
+                catalog.add_module_internal(
+                    None,
+                    None,
+                    engine_module::ModuleType::Behavior,
+                    &entry.name,
+                    entry.interface_flags(),
+                );
+            }
+            Some(catalog)
+        } else {
+            None
+        };
         if let Err(err) = Self::init_modules_preparing_ai_with_lookup(
             &object_arc,
             thing_template.as_ref(),
             prepare_unit_ai,
             lookup,
             body_definitions.as_ref(),
+            module_factory.or(local_catalog.as_ref()),
         ) {
             if publish && object_id != INVALID_ID {
                 OBJECT_REGISTRY.unregister_object(object_id);

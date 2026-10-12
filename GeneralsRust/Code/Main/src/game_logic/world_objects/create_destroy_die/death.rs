@@ -2,6 +2,12 @@
 //! C++ Object/Die modules: preserve their synchronous ordering on the driving owner.
 use super::*;
 
+#[cfg(all(test, feature = "game_client"))]
+#[path = "structure_topple_fx_tests.rs"]
+mod structure_topple_fx_tests;
+#[path = "structure_topple_owned.rs"]
+mod structure_topple_owned;
+
 impl GameLogic {
     /// Damage carried onto debris/replacement objects when a dying object's
     /// death transfers combat damage. Shared by the debris and respawn paths.
@@ -888,92 +894,185 @@ impl GameLogic {
         false
     }
 
+    /// CPP doDamageLine fires each real weapon before that point's FX. The
+    /// immutable template is resolved before lending the owner to callbacks.
     pub(crate) fn apply_structure_topple_crush_samples(
         &mut self,
         building_id: ObjectId,
         samples: Vec<crate::game_logic::host_structure_topple::StructureToppleCrushSample>,
-    ) {
-        if samples.is_empty() {
-            return;
+    ) -> Result<(), String> {
+        let Some(weapon) = self.preflight_owned_structure_topple_crushing(building_id)? else {
+            return Ok(());
+        };
+        self.apply_prepared_structure_topple_crush_samples(building_id, samples, &weapon)
+    }
+
+    pub(super) fn preflight_owned_structure_topple_crushing(
+        &self,
+        building_id: ObjectId,
+    ) -> Result<Option<std::sync::Arc<gamelogic::weapon::WeaponTemplate>>, String> {
+        let Some(source) = self.objects.get(&building_id) else {
+            return Ok(None);
+        };
+        let Some(data) = source.structure_topple_data.as_ref() else {
+            return Ok(None);
+        };
+        let name = data.crushing_weapon_name.trim();
+        if name.is_empty() || name.eq_ignore_ascii_case("NONE") {
+            return Ok(None);
         }
-        let building_team = self.objects.get(&building_id).map(|o| o.team);
-        let crushing_fx = self
-            .objects
-            .get(&building_id)
-            .and_then(|o| o.structure_topple_data.as_ref())
-            .map(|d| d.crushing_fx.clone())
-            .unwrap_or_default();
-        if !crushing_fx.is_empty() {
-            for s in &samples {
-                // C++ StructureToppleUpdate.cpp:407-419 doDamageLine:
-                // target.z = TheTerrainLogic->getGroundHeight(target.x, target.y).
-                let sample_xz = glam::Vec3::new(s.x, 0.0, s.z);
-                let height = self.terrain_height_at(sample_xz).unwrap_or(0.0);
-                let _ = crate::game_logic::dispatch_fx_list_at_pos(
-                    &crushing_fx,
-                    glam::Vec3::new(s.x, height, s.z),
-                );
+        let template = crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
+            store.find_weapon_template(name).cloned()
+        })
+        .map_err(|error| format!("StructureTopple {building_id:?} weapon {name}: {error}"))?;
+        // CPP findWeaponTemplate(NULL) returns without firing or advancing the
+        // sweep. A missing definition is not an invented default weapon.
+        let Some(template) = template else {
+            return Ok(None);
+        };
+        let authored_name =
+            |name: &str| !name.trim().is_empty() && !name.eq_ignore_ascii_case("NONE");
+        let unsupported = if source.contained_by.is_some() {
+            Some("contained firing source")
+        } else if authored_name(&template.projectile_name)
+            || authored_name(&template.projectile_stream_name)
+        {
+            Some("projectile/stream birth")
+        } else if authored_name(&template.laser_name) {
+            Some("laser birth")
+        } else if template.damage_dealt_at_self_position {
+            Some("DamageDealtAtSelfPosition")
+        } else if template.damage_status_type.bits() != 0 {
+            Some("DamageStatusType")
+        } else if template.scatter_radius != 0.0 || !template.scatter_targets.is_empty() {
+            Some("scatter targeting")
+        } else if template.historic_bonus_count > 0 {
+            Some("historic bonus weapon")
+        } else if template.radius_damage_angle < std::f32::consts::PI {
+            Some("directional radius damage")
+        } else if template.affects_mask.bits()
+            & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF
+            != 0
+        {
+            Some("KillsSelf")
+        } else if template.fire_fx.iter().any(Option::is_some)
+            || template.fire_ocl.iter().any(Option::is_some)
+            || template
+                .fire_ocl_names
+                .iter()
+                .flatten()
+                .any(|name| authored_name(name))
+            || !template.fire_sound.is_empty()
+        {
+            Some("weapon fire-time FX/OCL/audio")
+        } else if !template.weapon_speed.is_finite() || template.weapon_speed <= 0.0 {
+            Some("invalid weapon speed")
+        } else {
+            None
+        };
+        if let Some(reason) = unsupported {
+            return Err(format!(
+                "StructureTopple {building_id:?} weapon {name} does not yet admit {reason}"
+            ));
+        }
+        // Geometric admission of the complete eventual sweep happens before
+        // any real phase mutation. This owned copy derives points only; its
+        // state/cursor is never replayed or written back to the Object.
+        let facing_width = data.crush_facing_width();
+        let rows = (data.building_height as f64 / 25.0).ceil() + 1.0;
+        let columns = (2.0 * facing_width as f64 / 25.0).ceil() + 1.0;
+        if !source.get_position().is_finite()
+            || !data.building_height.is_finite()
+            || data.building_height < 0.0
+            || !facing_width.is_finite()
+            || facing_width < 0.0
+            || rows * columns > 262_144.0
+        {
+            return Err(format!(
+                "StructureTopple {building_id:?} weapon {name} has invalid or unsupported sweep geometry"
+            ));
+        }
+        let mut point_plan = data.clone();
+        point_plan.state =
+            crate::game_logic::host_structure_topple::HostStructureToppleState::WaitingForDone;
+        point_plan.last_crushed_location = 0.0;
+        let position = source.get_position();
+        let points = point_plan.take_crush_sweep_samples(position.x, position.z);
+        self.validate_structure_topple_crush_points(building_id, &points, &template)?;
+        Ok(Some(template))
+    }
+
+    pub(super) fn validate_structure_topple_crush_points(
+        &self,
+        building_id: ObjectId,
+        samples: &[crate::game_logic::host_structure_topple::StructureToppleCrushSample],
+        weapon: &gamelogic::weapon::WeaponTemplate,
+    ) -> Result<(), String> {
+        let Some(source) = self.objects.get(&building_id) else {
+            return Ok(());
+        };
+        for s in samples {
+            let height = self
+                .terrain_ground_height_at(glam::Vec3::new(s.x, 0.0, s.z))
+                .unwrap_or(0.0);
+            let impact = glam::Vec3::new(s.x, height, s.z);
+            let delay = source.get_position().distance(impact) / weapon.weapon_speed;
+            if !impact.is_finite() || !delay.is_finite() || delay >= 1.0 {
+                return Err(format!(
+                    "StructureTopple {building_id:?} weapon {} requires unsupported delayed/invalid positional damage",
+                    weapon.name
+                ));
             }
         }
-        let mut destroy: Vec<ObjectId> = Vec::new();
-        let victims: Vec<ObjectId> = self.objects.keys().copied().collect();
-        for id in victims {
-            if id == building_id {
-                continue;
-            }
-            let Some(obj) = self.objects.get(&id) else {
-                continue;
+        Ok(())
+    }
+
+    pub(super) fn apply_prepared_structure_topple_crush_samples(
+        &mut self,
+        building_id: ObjectId,
+        samples: Vec<crate::game_logic::host_structure_topple::StructureToppleCrushSample>,
+        weapon: &gamelogic::weapon::WeaponTemplate,
+    ) -> Result<(), String> {
+        self.validate_structure_topple_crush_points(building_id, &samples, weapon)?;
+        for s in samples {
+            // Release the source loan before damage/onDie. Each following
+            // point rereads this match's source and bonuses after callbacks.
+            let Some(source) = self.objects.get(&building_id) else {
+                break;
             };
-            if !obj.is_alive() || obj.status.destroyed {
-                continue;
-            }
-            if obj.is_kind_of(KindOf::Structure) {
-                continue;
-            }
-            let pos = obj.get_position();
-            let mut best_dmg = 0.0_f32;
-            for s in &samples {
-                let dx = pos.x - s.x;
-                let dz = pos.z - s.z;
-                let radius = s.radius.max(1.0);
-                if dx * dx + dz * dz <= radius * radius {
-                    best_dmg = best_dmg.max(s.damage);
-                }
-            }
-            if best_dmg <= 0.0 {
-                continue;
-            }
-            let killed = if let Some(obj) = self.objects.get_mut(&id) {
-                // Structure topple crush residual is effectively unresistable for units
-                // under the fall sweep (C++ doDamageLine lethality residual).
-                let mut dead = obj.take_damage_from_typed_death_with_repulsor_policy(
-                    best_dmg,
-                    Some(building_id),
-                    crate::game_logic::combat::DamageType::Unresistable,
-                    crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
-                );
-                if !dead && (obj.status.destroyed || obj.health.current <= 0.0) {
-                    dead = true;
-                }
-                dead
-            } else {
-                false
-            };
-            if killed
-                || self
-                    .objects
-                    .get(&id)
-                    .map(|o| o.status.destroyed || o.health.current <= 0.0)
-                    .unwrap_or(false)
-            {
-                destroy.push(id);
+            let team = source.team;
+            let (damage_bonus, _, _, _, radius_bonus) =
+                source.weapon_bonus_fields_for_named_weapon(&weapon.name);
+            let crushing_fx = source
+                .structure_topple_data
+                .as_ref()
+                .map(|data| data.crushing_fx.clone())
+                .unwrap_or_default();
+            let height = self
+                .terrain_ground_height_at(glam::Vec3::new(s.x, 0.0, s.z))
+                .unwrap_or(0.0);
+            let impact = glam::Vec3::new(s.x, height, s.z);
+            // CPP Weapon.cpp1293-1470: the shared actual Main weapon route
+            // includes structures, authored affects/armor/death, and finishes
+            // each victim's onDie before visiting the next candidate.
+            self.apply_instant_hit_splash_at(
+                impact,
+                weapon.primary_damage * damage_bonus,
+                weapon.secondary_damage * damage_bonus,
+                weapon.primary_damage_radius * radius_bonus,
+                weapon.secondary_damage_radius * radius_bonus,
+                building_id,
+                team,
+                ObjectId(0), // positional shot has no primary victim
+                Some(&weapon.name),
+            );
+            // CPP doDamageLine407-429: even an empty/no-damage weapon shot is
+            // followed by its CrushingFX at this exact terrain point.
+            if !crushing_fx.is_empty() {
+                self.dispatch_fx_list_at_host_position(&crushing_fx, impact);
             }
         }
-        for id in destroy {
-            self.mark_object_for_destruction(id, building_team);
-        }
+        Ok(())
     }
 
     /// C++ CreateObjectDie::onDie residual — spawn OCL templates at dying object.
@@ -1174,9 +1273,62 @@ impl GameLogic {
         if obj.begin_structure_collapse(frame) {
             return true;
         }
-        if obj.begin_structure_topple_with_direction(frame, attacker_pos, override_direction) {
-            return true;
+        if !obj.thing().template.authored_structure_topple {
+            return false;
         }
-        false
+        let delay = obj
+            .thing()
+            .template
+            .structure_topple_definition
+            .as_ref()
+            .map(|definition| {
+                let hi = definition.max_delay.max(definition.min_delay);
+                let span = hi.wrapping_sub(definition.min_delay).wrapping_add(1);
+                if span == 0 {
+                    hi
+                } else {
+                    definition
+                        .min_delay
+                        .wrapping_add(self.logic_random.next_u32() % span)
+                }
+            })
+            .unwrap_or(0);
+        let position = obj.get_position();
+        let radius = (obj.thing().template.geometry_info.major_radius
+            + obj.thing().template.geometry_info.minor_radius)
+            * 0.5
+            * 0.9;
+        let random_unit = self.logic_random.next_u32() as f32 / u32::MAX as f32;
+        let angle = match attacker_pos {
+            Some((x, z)) => {
+                (position.z - z).atan2(position.x - x)
+                    + (random_unit * 2.0 - 1.0) * std::f32::consts::PI / 8.0
+            }
+            None => random_unit * std::f32::consts::TAU,
+        };
+        let original_direction = (angle.cos(), angle.sin());
+        // The named script override changes the fall direction, but C++ keeps
+        // the pre-override angle for the delay-burst position.
+        let direction = override_direction.or(Some(original_direction));
+        let mut burst = glam::Vec3::new(
+            position.x + radius * original_direction.0,
+            0.0,
+            position.z + radius * original_direction.1,
+        );
+        let _ = obj;
+        burst.y = self.terrain_ground_height_at(burst).unwrap_or(0.0);
+        let prepared = self.objects.get_mut(&id).is_some_and(|object| {
+            object.prepare_structure_topple_with_direction(
+                frame,
+                attacker_pos,
+                direction,
+                delay,
+                Some(burst),
+            )
+        });
+        if prepared {
+            self.dispatch_owned_structure_topple_fx(id);
+        }
+        prepared
     }
 }

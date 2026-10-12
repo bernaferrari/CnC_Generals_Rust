@@ -42,6 +42,15 @@ impl ActiveBody {
         &mut self,
         damage: &DamageInfo,
     ) -> BodyResult<()> {
+        if self.assess_owned_native_damage_impl(damage)? {
+            return Err(BodyError::OperationNotSupported);
+        }
+        Ok(())
+    }
+    pub(super) fn assess_owned_native_damage_impl(
+        &mut self,
+        damage: &DamageInfo,
+    ) -> BodyResult<bool> {
         if self.definitions.is_none()
             || !damage.input.amount.is_finite()
             || damage.input.shock_wave_amount != 0.0
@@ -66,10 +75,7 @@ impl ActiveBody {
         if damage.input.damage_type != DamageType::Unresistable {
             amount = self.scale_ordinary_damage(amount);
         }
-        if !self.state.indestructible && (damage.input.kill || amount >= self.get_health()) {
-            return Err(BodyError::OperationNotSupported);
-        }
-        Ok(())
+        Ok(!self.state.indestructible && (damage.input.kill || amount >= self.get_health()))
     }
     pub(super) fn begin_owned_ordinary_damage_impl(
         &mut self,
@@ -77,6 +83,14 @@ impl ActiveBody {
         observations: OwnedDamageObservation,
     ) -> BodyResult<OwnedDamageOutcome> {
         self.validate_owned_ordinary_damage_impl(damage)?;
+        self.begin_owned_native_damage_impl(damage, observations)
+    }
+    pub(super) fn begin_owned_native_damage_impl(
+        &mut self,
+        damage: &mut DamageInfo,
+        observations: OwnedDamageObservation,
+    ) -> BodyResult<OwnedDamageOutcome> {
+        self.assess_owned_native_damage_impl(damage)?;
         damage.sync_from_input();
         if self.state.indestructible {
             return Ok(OwnedDamageOutcome {
@@ -100,6 +114,9 @@ impl ActiveBody {
         let mut amount = self.adjust_damage_by_armor(damage.input.damage_type, damage.input.amount);
         if damage.input.damage_type != DamageType::Unresistable {
             amount = self.scale_ordinary_damage(amount);
+        }
+        if damage.input.kill {
+            amount = self.get_health();
         }
         let changed = !self.state.indestructible && amount > 0.0;
         let transition = if changed {

@@ -178,7 +178,97 @@ fn unregister_registered_update(
     }
 }
 
+pub(crate) struct NativeScheduledUpdate {
+    pub(crate) object_id: ObjectID,
+    pub(crate) module: UpdateModulePtr,
+    pub(crate) phase: SleepyUpdatePhase,
+    pub(crate) should_process: bool,
+}
+
 impl GameLogic {
+    fn due_sleepy_candidate(
+        &self,
+        current_frame: UnsignedInt,
+    ) -> Option<(ObjectID, UpdateModulePtr)> {
+        let entry = self.sleepy_updates.peek()?;
+        if entry.wake_frame == UPDATE_SLEEP_FOREVER_FRAMES || entry.wake_frame > current_frame {
+            return None;
+        }
+        Some((entry.object_id, Arc::clone(&entry.module)))
+    }
+
+    /// Keep the actual heap registration alive through a synchronous callback.
+    /// The returned owned identity holds no borrow of this scheduler or world.
+    pub(crate) fn next_owned_scheduled_update(
+        &mut self,
+        current_frame: UnsignedInt,
+    ) -> Result<Option<NativeScheduledUpdate>, String> {
+        while let Some((object_id, module)) = self.due_sleepy_candidate(current_frame) {
+            let Some(owner) = self.objects.get(&object_id) else {
+                self.unregister_update_module(object_id, module);
+                continue;
+            };
+            let flags = owner
+                .try_read()
+                .map_err(|_| "scheduled owner unavailable")?
+                .get_disabled_flags();
+            let update = module
+                .try_read()
+                .map_err(|_| "scheduled module already borrowed")?;
+            let phase = update.get_update_phase();
+            let should_process =
+                disabled_module_should_process(flags, update.get_disabled_types_to_process());
+            drop(update);
+            return Ok(Some(NativeScheduledUpdate {
+                object_id,
+                module,
+                phase,
+                should_process,
+            }));
+        }
+        Ok(None)
+    }
+
+    pub(crate) fn finish_owned_scheduled_update(
+        &mut self,
+        current_frame: UnsignedInt,
+        update: NativeScheduledUpdate,
+        sleep: UpdateSleepTime,
+    ) {
+        self.finish_scheduled_sleep(&update.module, update.phase, current_frame, sleep);
+    }
+
+    fn finish_scheduled_sleep(
+        &mut self,
+        module: &UpdateModulePtr,
+        phase: SleepyUpdatePhase,
+        current_frame: UnsignedInt,
+        sleep: UpdateSleepTime,
+    ) {
+        let next_wake = match sleep {
+            UpdateSleepTime::Forever => UPDATE_SLEEP_FOREVER_FRAMES,
+            UpdateSleepTime::None => current_frame
+                .saturating_add(1)
+                .min(UPDATE_SLEEP_FOREVER_FRAMES),
+            UpdateSleepTime::Frames(frames) => current_frame
+                .saturating_add(frames.max(1))
+                .min(UPDATE_SLEEP_FOREVER_FRAMES),
+        };
+        // A synchronous callback may unregister itself. Never resurrect it.
+        if self.sleepy_updates.index_of(module).is_some() {
+            let phase = module
+                .read()
+                .map(|update| update.get_update_phase())
+                .unwrap_or(phase);
+            self.sleepy_updates
+                .reschedule(module, next_wake, Some(phase));
+            module
+                .write()
+                .expect("scheduled module poisoned")
+                .record_scheduled_wake(next_wake, phase);
+        }
+    }
+
     fn process_sleepy_updates(&mut self, current_frame: UnsignedInt) {
         self.process_sleepy_updates_with_upgrade_services(current_frame, None);
     }
@@ -190,12 +280,7 @@ impl GameLogic {
     ) {
         // C++ GameLogic.cpp:3698–3736 keeps a module registered during update,
         // then rebalances it immediately before executing the next callback.
-        while let Some(entry) = self.sleepy_updates.peek() {
-            if entry.wake_frame > current_frame {
-                break;
-            }
-            let object_id = entry.object_id;
-            let module = Arc::clone(&entry.module);
+        while let Some((object_id, module)) = self.due_sleepy_candidate(current_frame) {
             let (module_disabled_mask, phase) = module
                 .read()
                 .map(|module| {
@@ -269,28 +354,7 @@ impl GameLogic {
             if let (Some(name), Some(services)) = (completed_upgrade, services.as_mut()) {
                 self.finish_scheduled_upgrade(&module, object_id, &name, &mut **services);
             }
-            let next_wake = match sleep {
-                UpdateSleepTime::Forever => UPDATE_SLEEP_FOREVER_FRAMES,
-                UpdateSleepTime::None => current_frame
-                    .saturating_add(1)
-                    .min(UPDATE_SLEEP_FOREVER_FRAMES),
-                UpdateSleepTime::Frames(frames) => current_frame
-                    .saturating_add(frames.max(1))
-                    .min(UPDATE_SLEEP_FOREVER_FRAMES),
-            };
-            // An explicit callback can unregister itself. Never resurrect it.
-            if self.sleepy_updates.index_of(&module).is_some() {
-                let phase = module
-                    .read()
-                    .map(|update| update.get_update_phase())
-                    .unwrap_or(phase);
-                self.sleepy_updates
-                    .reschedule(&module, next_wake, Some(phase));
-                module
-                    .write()
-                    .expect("scheduled module poisoned")
-                    .record_scheduled_wake(next_wake, phase);
-            }
+            self.finish_scheduled_sleep(&module, phase, current_frame, sleep);
         }
     }
 
@@ -530,6 +594,7 @@ impl GameLogic {
     pub(crate) fn admit_scheduling_owner(&mut self, id: ObjectID, owner: Arc<RwLock<Object>>) {
         self.validate_scheduling_owner(id, &owner)
             .expect("scheduling identity must be pre-admitted");
+        self.observe_object_id(id);
         self.objects.entry(id).or_insert(owner);
     }
 
@@ -727,7 +792,7 @@ mod sleepy_parity_tests {
         }
     }
 
-    fn counting_ptr(
+    pub(super) fn counting_ptr(
         disabled: DisabledMaskType,
         sleep: UpdateSleepTime,
     ) -> (UpdateModulePtr, Arc<AtomicU32>) {
@@ -765,8 +830,10 @@ mod sleepy_parity_tests {
             }
         }
         let mut factory = crate::object::object_factory::ObjectFactory::new();
+        let mut logic = GameLogic::new();
         let id = factory
             .prepare_object(
+                &mut logic,
                 Arc::new(crate::common::DefaultThingTemplate::new(
                     "SavedClockOwner".into(),
                 )),
@@ -776,7 +843,6 @@ mod sleepy_parity_tests {
             )
             .unwrap();
         let owner = factory.get_object(id).unwrap().get_base_object().unwrap();
-        let mut logic = GameLogic::new();
         logic.admit_scheduling_owner(id, owner);
         let raw = Arc::new(AtomicU32::new(0));
         let module: UpdateModulePtr = Arc::new(RwLock::new(SavedClockUpdate {
@@ -960,3 +1026,6 @@ mod sleepy_parity_tests {
 
 #[cfg(test)]
 mod sleepy_context_tests;
+
+#[cfg(test)]
+mod sleepy_forever_tests;

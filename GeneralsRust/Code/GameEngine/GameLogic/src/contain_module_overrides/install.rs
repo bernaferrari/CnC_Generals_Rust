@@ -1343,16 +1343,30 @@ pub fn register_module_overrides(
     })
 }
 
-static CONTAIN_OVERRIDES_READY: OnceLock<Result<(), String>> = OnceLock::new();
+/// Configure constructors for an unpublished receiving owner. Registration is
+/// inert; immutable content data is parsed against this catalog before assembly.
+pub fn register_native_module_overrides(
+    factory: &mut game_engine::common::thing::module_factory::ModuleFactory,
+) -> Result<(), String> {
+    register_module_overrides(factory)?;
+    super::register_inert_auto_heal(factory)?;
+    super::register_owned_death_constructors(factory)?;
+    super::register_inert_active_body(factory)
+}
 
+/// Compatibility startup initializes the current factory owner every time.
+/// A process-wide ready flag cannot certify another factory's catalog.
 pub fn ensure_module_overrides_installed() -> Result<(), String> {
-    CONTAIN_OVERRIDES_READY
-        .get_or_init(|| {
-            install_template_locomotor_applier();
-            register_module_constructors(register_module_override)?;
-            apply_stored_locomotors_to_all_templates();
-            apply_module_overrides_to_existing_templates()?;
-            Ok(())
-        })
-        .clone()
+    install_template_locomotor_applier();
+    {
+        let mut guard = game_engine::common::thing::module_factory::get_module_factory()
+            .map_err(|_| "Failed to lock module factory")?;
+        let factory = guard
+            .get_or_insert_with(game_engine::common::thing::module_factory::ModuleFactory::new);
+        register_module_constructors(|name, module_type, proc, data_proc| {
+            factory.register_override_if_absent(name, module_type, proc, data_proc)
+        })?;
+    }
+    apply_stored_locomotors_to_all_templates();
+    Ok(())
 }

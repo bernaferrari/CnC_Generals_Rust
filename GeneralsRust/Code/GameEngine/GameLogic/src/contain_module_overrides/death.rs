@@ -375,3 +375,55 @@ pub(super) fn jet_slow_death_behavior_module_factory(
         data_arc,
     ))
 }
+
+/// Native catalogs construct the real death behaviors without publishing or
+/// resolving an owner through the compatibility registry.
+pub(crate) fn register_owned_death_constructors(
+    factory: &mut game_engine::common::thing::module_factory::ModuleFactory,
+) -> Result<(), String> {
+    factory.register_override(
+        "InstantDeathBehavior",
+        ModuleType::Behavior,
+        instant_death_behavior_module_factory_owned,
+        instant_death_behavior_module_data_factory,
+    )?;
+    factory.register_override(
+        "SlowDeathBehavior",
+        ModuleType::Behavior,
+        slow_death_behavior_module_factory_owned,
+        slow_death_behavior_module_data_factory,
+    )
+}
+fn instant_death_behavior_module_factory_owned(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let id = resolve_owner_id(&thing);
+    let data = cloned_module_data_or_default::<InstantDeathBehaviorModuleData>(
+        "InstantDeathBehavior",
+        &module_data,
+    );
+    let metadata: Arc<dyn ModuleData> = data.clone();
+    Box::new(DieModuleWrapper::new_for_object_id(
+        &AsciiString::from("InstantDeathBehavior"),
+        metadata,
+        id,
+        Box::new(InstantDeathBehavior::new_for_object_id(id, data)),
+    ))
+}
+fn slow_death_behavior_module_factory_owned(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let id = resolve_owner_id(&thing);
+    let data = cloned_module_data_or_else::<SlowDeathBehaviorModuleData, _>(
+        "SlowDeathBehavior",
+        &module_data,
+        SlowDeathBehaviorModuleData::new,
+    );
+    let metadata: Arc<dyn crate::common::ModuleData> = data;
+    Box::new(
+        SlowDeathBehavior::new_with_object_id(id, metadata)
+            .expect("admitted SlowDeath module definition"),
+    )
+}

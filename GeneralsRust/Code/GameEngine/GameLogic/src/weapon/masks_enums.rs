@@ -500,6 +500,10 @@ impl From<crate::common::WeaponSlotType> for WeaponSlotType {
 pub struct ObjectStatusTypes(pub(super) u32);
 
 impl ObjectStatusTypes {
+    pub const fn bits(&self) -> u32 {
+        self.0
+    }
+
     pub const NONE: u32 = 0;
 
     pub fn new(status: u32) -> Self {

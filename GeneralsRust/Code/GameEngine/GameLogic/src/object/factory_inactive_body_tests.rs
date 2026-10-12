@@ -41,6 +41,7 @@ impl ThingTemplate for InactiveTemplate {
 }
 
 fn prepare(factory: &mut ObjectFactory) -> Arc<RwLock<Object>> {
+    let mut identity_owner = crate::system::game_logic::GameLogic::new();
     let template = InactiveTemplate {
         base: DefaultThingTemplate::new("OwnedInactiveBody".into()),
         modules: vec![TemplateModuleInfo {
@@ -52,6 +53,7 @@ fn prepare(factory: &mut ObjectFactory) -> Arc<RwLock<Object>> {
     };
     let id = factory
         .prepare_object(
+            &mut identity_owner,
             Arc::new(template),
             Coord3D::new(50.0, 50.0, 0.0),
             None,

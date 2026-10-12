@@ -135,6 +135,17 @@ pub enum OwnerMaxHealthChange {
 
 /// Interface for body module operations
 pub trait BodyModuleInterface: Send + Sync {
+    fn assess_owned_native_damage(&mut self, _damage: &DamageInfo) -> BodyResult<bool> {
+        Err(BodyError::OperationNotSupported)
+    }
+    fn begin_owned_native_damage(
+        &mut self,
+        _damage: &mut DamageInfo,
+        _observations: super::active_body::OwnedDamageObservation,
+    ) -> BodyResult<super::active_body::OwnedDamageOutcome> {
+        Err(BodyError::OperationNotSupported)
+    }
+
     fn validate_owned_ordinary_damage(&mut self, _damage: &DamageInfo) -> BodyResult<()> {
         Err(BodyError::OperationNotSupported)
     }

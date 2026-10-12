@@ -294,6 +294,10 @@ impl Team {
         }
     }
 
+    pub(crate) fn has_object_death_script(&self) -> bool {
+        !self.script_on_unit_destroyed.is_empty()
+    }
+
     /// Notify team of object death
     pub fn notify_team_of_object_death(&mut self) {
         if self.script_on_unit_destroyed.is_empty() {

@@ -31,7 +31,6 @@ impl GameLogic {
             // Advance local update timers. DISABLED_HACKED/EMP expire in
             // the separate end-of-frame disabled-status phase.
             let mut topple_kill = false;
-            let mut structure_topple_completed = false;
             let mut final_death_destroy = false;
             let mut lifetime_kill = false;
             let mut poison_kill = false;
@@ -277,13 +276,8 @@ impl GameLogic {
                         let _completed = obj.tick_structure_collapse(self.frame);
                     }
                 }
-                // Wave 776: under coupled shadow, StructureToppleUpdate is owned by
-                // Optional movement authority advances the animation; DONE never deletes.
-                if !crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    if !topple_kill && obj.structure_topple_data.is_some() {
-                        structure_topple_completed = obj.tick_structure_topple(self.frame);
-                    }
-                }
+                // StructureTopple lends this Object only for bounded phases;
+                // its original FX/crushing callbacks run on the owner below.
             }
             if let Some((name, pos, ori, burned)) = pending_stump {
                 self.spawn_topple_stump(&name, pos, ori, burned);
@@ -291,29 +285,21 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.poll_slow_death_phase_fx(self.frame);
                 obj.poll_structure_collapse_phase_fx(self.frame);
-                obj.poll_structure_topple_fx(self.frame);
             }
             self.sync_helicopter_attach_particle(object_id);
-            // Wave 777: under coupled shadow, StructureTopple crush sweep is owned by
-            // GW tick_status_timer_expirations + host_structure_topple_crush_log drain.
-            if !crate::gameworld_shadow::gameworld_movement_authority_live() {
-                // C++ StructureToppleUpdate::applyCrushingDamage residual.
-                if self
-                    .objects
-                    .get(&object_id)
-                    .and_then(|o| o.structure_topple_data.as_ref())
-                    .map(|d| d.is_active() || structure_topple_completed)
-                    .unwrap_or(false)
-                {
-                    let samples = self
-                        .objects
-                        .get_mut(&object_id)
-                        .map(|o| o.take_structure_topple_crush_samples())
-                        .unwrap_or_default();
-                    if !samples.is_empty() {
-                        self.apply_structure_topple_crush_samples(object_id, samples);
-                    }
+            if !topple_kill && !crate::gameworld_shadow::gameworld_movement_authority_live() {
+                if let Err(error) = self.update_owned_structure_topple(object_id) {
+                    log::error!("Owned StructureTopple update rejected: {error}");
                 }
+            } else if crate::gameworld_shadow::gameworld_movement_authority_live() {
+                if let Some(data) = self
+                    .objects
+                    .get_mut(&object_id)
+                    .and_then(|object| object.structure_topple_data.as_mut())
+                {
+                    data.poll_fx(self.frame);
+                }
+                self.dispatch_owned_structure_topple_fx(object_id);
             }
             // C++ FireWeaponWhenDamagedBehavior forceFire (reaction + continuous).
             let has_live_damaged = self

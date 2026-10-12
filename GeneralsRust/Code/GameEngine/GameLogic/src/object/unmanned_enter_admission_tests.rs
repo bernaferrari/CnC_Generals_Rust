@@ -184,8 +184,10 @@ impl AdmissionMatch {
             players.add_player(Arc::new(RwLock::new(player)));
         }
         let mut factory = ObjectFactory::new();
+        let mut identity_owner = crate::system::game_logic::GameLogic::new();
         let source_id = factory
             .prepare_object(
+                &mut identity_owner,
                 infantry(reject, slots),
                 Coord3D::ZERO,
                 Some(Arc::clone(&teams[0])),
@@ -194,6 +196,7 @@ impl AdmissionMatch {
             .unwrap();
         let target_id = factory
             .prepare_object(
+                &mut identity_owner,
                 target,
                 Coord3D::new(10.0, 0.0, 0.0),
                 Some(Arc::clone(&teams[usize::from(hostile)])),
@@ -247,6 +250,7 @@ impl AdmissionMatch {
             &self.factory,
             &self.players,
             AiNativeServices {
+                disposal: None,
                 current_update: None,
                 update_scheduler: &mut scheduler,
                 teams: &teams,
@@ -267,6 +271,7 @@ impl AdmissionMatch {
                 terrain_moved_objects: &mut terrain_moves,
                 frame: 17,
                 unlook_persist_frames: 2,
+                slow_death_scale: 1.0,
                 gravity: -0.1,
             },
         )

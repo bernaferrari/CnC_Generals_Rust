@@ -986,7 +986,6 @@ pub struct ObjectManager {
     spatial_partition: SpatialPartition,
 
     /// Next object ID to allocate
-    next_object_id: ObjectID,
 
     /// Object update order
     update_order: Vec<ObjectID>,
@@ -1015,7 +1014,6 @@ impl ObjectManager {
                 [-5000.0, -5000.0, -1000.0].into(),
                 [5000.0, 5000.0, 1000.0].into(),
             ),
-            next_object_id: 1,
             update_order: Vec::new(),
             enabled: true,
         }
@@ -1037,7 +1035,6 @@ impl ObjectManager {
             [-5000.0, -5000.0, -1000.0].into(),
             [5000.0, 5000.0, 1000.0].into(),
         );
-        self.next_object_id = 1;
         self.update_order.clear();
         self.factory = ObjectFactory::new();
         self.enabled = true;
@@ -1075,8 +1072,6 @@ impl ObjectManager {
         if !self.update_order.contains(&object_id) {
             self.update_order.push(object_id);
         }
-
-        self.next_object_id = self.next_object_id.max(object_id.saturating_add(1));
 
         Ok(object_id)
     }
@@ -1147,7 +1142,6 @@ impl ObjectManager {
             }
         }
         self.update_order.push(object_id);
-        self.next_object_id = self.next_object_id.max(object_id.saturating_add(1));
 
         if let Ok(mut engine_guard) = crate::scripting::engine::get_script_engine().write() {
             if let Some(ref mut engine) = *engine_guard {
@@ -1320,6 +1314,35 @@ impl ObjectManager {
                 }
             }
         }
+    }
+
+    pub(crate) fn validate_native_retirement(
+        &self,
+        id: ObjectID,
+        owner: &Arc<RwLock<Object>>,
+    ) -> Result<(), String> {
+        if let Some(slot) = self.objects.get(&id) {
+            let slot = slot
+                .read()
+                .map_err(|_| "native spatial object unavailable")?;
+            if !Arc::ptr_eq(&slot.base(), owner) {
+                return Err("foreign native spatial object".into());
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn retire_native_object(
+        &mut self,
+        id: ObjectID,
+        owner: &Arc<RwLock<Object>>,
+    ) -> Result<(), String> {
+        self.validate_native_retirement(id, owner)?;
+        self.spatial_partition.remove_object(id);
+        self.objects.remove(&id);
+        self.update_order.retain(|value| *value != id);
+        self.destroy_queue.retain(|value| *value != id);
+        Ok(())
     }
 
     /// Destroy object

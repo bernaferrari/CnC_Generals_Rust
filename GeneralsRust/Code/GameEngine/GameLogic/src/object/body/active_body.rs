@@ -376,7 +376,14 @@ fn armor_set_flags_from_u32(bits: u32) -> ArmorSetBitFlags {
     flags
 }
 
-fn xfer_damage_info_input(xfer: &mut dyn Xfer, input: &mut DamageInfoInput) -> Result<(), String> {
+pub(crate) type DamageTemplateLookup<'a> =
+    dyn FnMut(&str) -> Result<Option<Arc<dyn ThingTemplate>>, String> + 'a;
+
+fn xfer_damage_info_input(
+    xfer: &mut dyn Xfer,
+    input: &mut DamageInfoInput,
+    lookup: Option<&mut DamageTemplateLookup<'_>>,
+) -> Result<(), String> {
     const CURRENT_VERSION: XferVersion = 3;
     let mut version = CURRENT_VERSION;
     xfer.xfer_version(&mut version, CURRENT_VERSION)
@@ -443,7 +450,13 @@ fn xfer_damage_info_input(xfer: &mut dyn Xfer, input: &mut DamageInfoInput) -> R
         xfer.xfer_ascii_string(&mut template_name)
             .map_err(|e| e.to_string())?;
         if xfer.is_reading() {
-            input.source_template = TheThingFactory::find_template(&template_name);
+            input.source_template = match lookup {
+                Some(_) if template_name.is_empty() => None,
+                Some(lookup) => Some(lookup(&template_name)?.ok_or_else(|| {
+                    format!("receiving damage source ThingTemplate {template_name} absent")
+                })?),
+                None => TheThingFactory::find_template(&template_name),
+            };
         }
     }
 
@@ -469,13 +482,17 @@ fn xfer_damage_info_output(
     Ok(())
 }
 
-fn xfer_damage_info(xfer: &mut dyn Xfer, info: &mut DamageInfo) -> Result<(), String> {
+fn xfer_damage_info(
+    xfer: &mut dyn Xfer,
+    info: &mut DamageInfo,
+    lookup: Option<&mut DamageTemplateLookup<'_>>,
+) -> Result<(), String> {
     const CURRENT_VERSION: XferVersion = 1;
     let mut version = CURRENT_VERSION;
     xfer.xfer_version(&mut version, CURRENT_VERSION)
         .map_err(|e| e.to_string())?;
 
-    xfer_damage_info_input(xfer, &mut info.input)?;
+    xfer_damage_info_input(xfer, &mut info.input, lookup)?;
     xfer_damage_info_output(xfer, &mut info.output)?;
     info.sync_from_input();
     Ok(())
@@ -690,6 +707,37 @@ pub struct ActiveBody {
 }
 
 impl ActiveBody {
+    /// Native Object restore cannot rebind process-local particle IDs without
+    /// the receiving ParticleSystemManager. Invalid C++ sentinel IDs are inert.
+    pub(crate) fn validate_native_restore_particles(&self) -> Result<(), String> {
+        let mut cursor = self.state.particle_systems.as_ref();
+        while let Some(system) = cursor {
+            if system.particle_system_id != 0 {
+                return Err(
+                    "native ActiveBody restore requires a receiving particle-system owner".into(),
+                );
+            }
+            cursor = system.next.as_ref();
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_owner_particle_ids_for_test(&mut self, ids: &[u32]) {
+        self.state.particle_systems = None;
+        for id in ids.iter().rev().copied() {
+            record_body_particle_system(&mut self.state, id);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn first_owner_particle_id_for_test(&self) -> Option<u32> {
+        self.state
+            .particle_systems
+            .as_ref()
+            .map(|system| system.particle_system_id)
+    }
+
     /// Create a new active body
 
     /// Create a new active body with a known owner ID.
@@ -1879,6 +1927,17 @@ impl ActiveBody {
 }
 
 impl BodyModuleInterface for ActiveBody {
+    fn assess_owned_native_damage(&mut self, damage: &DamageInfo) -> BodyResult<bool> {
+        self.assess_owned_native_damage_impl(damage)
+    }
+    fn begin_owned_native_damage(
+        &mut self,
+        damage: &mut DamageInfo,
+        observations: OwnedDamageObservation,
+    ) -> BodyResult<OwnedDamageOutcome> {
+        self.begin_owned_native_damage_impl(damage, observations)
+    }
+
     fn validate_owned_ordinary_damage(&mut self, damage: &DamageInfo) -> BodyResult<()> {
         self.validate_owned_ordinary_damage_impl(damage)
     }
@@ -2528,12 +2587,12 @@ impl BodyModuleInterface for ActiveBody {
     }
 }
 
-impl Snapshotable for ActiveBody {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.base.crc(xfer)
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+impl ActiveBody {
+    pub(crate) fn xfer_with_template_lookup(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        lookup: Option<&mut DamageTemplateLookup<'_>>,
+    ) -> Result<(), String> {
         let current_version: XferVersion = 1;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
@@ -2572,7 +2631,7 @@ impl Snapshotable for ActiveBody {
         }
 
         let mut last_damage = state.last_damage_info.clone().unwrap_or_default();
-        xfer_damage_info(xfer, &mut last_damage)?;
+        xfer_damage_info(xfer, &mut last_damage, lookup)?;
         state.last_damage_info = Some(last_damage);
 
         xfer.xfer_unsigned_int(&mut state.last_damage_timestamp)
@@ -2681,6 +2740,16 @@ impl Snapshotable for ActiveBody {
         }
 
         Ok(())
+    }
+}
+
+impl Snapshotable for ActiveBody {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.base.crc(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.xfer_with_template_lookup(xfer, None)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {

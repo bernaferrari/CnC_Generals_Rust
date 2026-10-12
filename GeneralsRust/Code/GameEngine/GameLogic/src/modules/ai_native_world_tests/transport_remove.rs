@@ -53,6 +53,7 @@ fn another_armed_rider(game: &mut NativeMatch) -> Arc<RwLock<Object>> {
     let id = game
         .factory
         .prepare_object(
+            &mut game.scheduler,
             infantry_template(),
             Coord3D::new(50.0, 50.0, 0.0),
             team,

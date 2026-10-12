@@ -198,12 +198,15 @@ impl UnitAIUpdate {
             return Err("supplied AIEnter does not admit formation group movement".into());
         }
         if let Some(body) = owner.get_body_module() {
-            drop(body.lock().map_err(|_| "installed AI body poisoned")?);
+            drop(
+                body.try_lock()
+                    .map_err(|_| "installed AI body unavailable")?,
+            );
         }
         if let Some(physics) = owner.get_physics() {
             drop(
                 physics
-                    .access()
+                    .try_access()
                     .map_err(|_| "installed AI physics unavailable")?,
             );
         }

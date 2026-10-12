@@ -2064,6 +2064,15 @@ impl PresentationFrame {
             ai_difficulty: logic.get_difficulty(),
             game_mode: logic.game_mode(),
             objects,
+            structure_topple_transforms: logic
+                .host_objects()
+                .iter()
+                .filter(|(_, object)| {
+                    object.structure_topple_data.is_some()
+                        && !crate::gameworld_shadow::gameworld_movement_authority_live()
+                })
+                .map(|(id, object)| (*id, object.get_transform_matrix()))
+                .collect(),
             direct_host_drawables,
             #[cfg(feature = "game_client")]
             host_physics_visuals,

@@ -186,6 +186,15 @@ impl Object {
         self.weapon_bonus_fields_with_name(None, self.authored_weapon_name_for_slot(slot))
     }
 
+    /// Temporary weapons compute their own template extras, independently of
+    /// the Object's currently selected WeaponSet slot (CPP Weapon.cpp1814).
+    pub(crate) fn weapon_bonus_fields_for_named_weapon(
+        &self,
+        name: &str,
+    ) -> (f32, f32, f32, f32, f32) {
+        self.weapon_bonus_fields_with_name(None, Some(name))
+    }
+
     fn weapon_bonus_fields_with_name(
         &self,
         container: Option<&Object>,

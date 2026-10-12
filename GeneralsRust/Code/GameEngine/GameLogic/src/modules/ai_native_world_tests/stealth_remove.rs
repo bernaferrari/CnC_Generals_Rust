@@ -83,9 +83,11 @@ fn native_stealth_birth_and_reveal_use_supplied_frame_and_exact_cached_owner() {
     assert_eq!(controller.lock().unwrap().detection_deadline(), 237);
     assert_eq!(peer_controller.lock().unwrap().detection_deadline(), 0);
     assert_eq!(game.source.read().unwrap().get_contained_by(), None);
-    assert!(!game
-        .source
-        .read()
-        .unwrap()
-        .test_status(crate::common::ObjectStatusTypes::Detected));
+    assert!(
+        !game
+            .source
+            .read()
+            .unwrap()
+            .test_status(crate::common::ObjectStatusTypes::Detected)
+    );
 }

@@ -77,6 +77,40 @@ impl Weapon {
         inflict_damage: bool,
         borrowed_source: Option<&mut crate::object::Object>,
     ) -> Result<(), WeaponError> {
+        self.handle_projectileless_flight_damage_with_queue(
+            source_obj_id, source_pos, target_obj_id, target_position, speed, bonus,
+            inflict_damage, borrowed_source,
+            |template, position, delay, source, victim, bonus| {
+                let when = TheGameLogic::get_frame().saturating_add(delay);
+                let result = with_weapon_store_mut(|store| {
+                    store.set_delayed_damage(template, position, when, source, victim, bonus);
+                });
+                if let Err(error) = result {
+                    // Weapon.cpp:1057: an absent store skips the delayed hit.
+                    log::warn!(
+                        "Failed to queue delayed damage for '{}' (source {}, delay {}): {:?}; not applying early",
+                        template.name, source, delay, error
+                    );
+                }
+            },
+        )
+    }
+
+    /// The firing calculation is shared by ambient adapters and explicit
+    /// match-owned queues. The queue is called only for a delayed hit, at the
+    /// original firing boundary; immediate damage retains its source borrow.
+    pub(super) fn handle_projectileless_flight_damage_with_queue(
+        &mut self,
+        source_obj_id: ObjectId,
+        source_pos: &Coord3D,
+        target_obj_id: Option<ObjectId>,
+        target_position: &Coord3D,
+        speed: f32,
+        bonus: &WeaponBonus,
+        inflict_damage: bool,
+        borrowed_source: Option<&mut crate::object::Object>,
+        queue: impl FnOnce(&Arc<super::WeaponTemplate>, &Coord3D, u32, ObjectId, ObjectId, &WeaponBonus),
+    ) -> Result<(), WeaponError> {
         if !inflict_damage {
             return Ok(());
         }
@@ -107,29 +141,14 @@ impl Weapon {
         }
 
         let delay_whole_frames = delay_in_frames.ceil() as u32;
-        let when = TheGameLogic::get_frame().saturating_add(delay_whole_frames);
-
-        let queue_result = with_weapon_store_mut(|store| {
-            store.set_delayed_damage(
-                &self.template,
-                &damage_position,
-                when,
-                source_obj_id,
-                damage_id,
-                bonus,
-            );
-        });
-
-        if let Err(err) = queue_result {
-            // Weapon.cpp:1057 — a null store skips the hit. Do not apply it now.
-            log::warn!(
-                "Failed to queue delayed damage for '{}' (source {}, delay {}): {:?}; not applying early",
-                self.template.name,
-                source_obj_id,
-                delay_whole_frames,
-                err
-            );
-        }
+        queue(
+            &self.template,
+            &damage_position,
+            delay_whole_frames,
+            source_obj_id,
+            damage_id,
+            bonus,
+        );
 
         Ok(())
     }

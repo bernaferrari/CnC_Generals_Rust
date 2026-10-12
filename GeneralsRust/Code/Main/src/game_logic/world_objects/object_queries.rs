@@ -1283,7 +1283,7 @@ impl GameLogic {
             match target.normal_enter_admission() {
                 crate::game_logic::ContainAdmission::AnyMobile => {}
                 crate::game_logic::ContainAdmission::InfantryOnly => {
-                    if !unit.is_kind_of(KindOf::Infantry) && !unit.is_hero() {
+                    if !unit.is_kind_of(KindOf::Infantry) && !self.host_object_is_hero(unit) {
                         return false;
                     }
                 }
@@ -2133,24 +2133,15 @@ impl GameLogic {
         true
     }
 
-    /// Resolve a host object by script unit name (`Object::name` or tracker).
+    /// CPP ScriptEngine.cpp5975-5991: resolve the literal name in this
+    /// session's live objects. THIS_OBJECT belongs to the supplied script context.
     pub fn host_object_id_by_script_name(&self, unit_name: &str) -> Option<ObjectId> {
         if unit_name.is_empty() {
             return None;
         }
-        if let Some((id, _)) = self
-            .objects
-            .iter()
-            .find(|(_, obj)| !obj.name.is_empty() && obj.name.eq_ignore_ascii_case(unit_name))
-        {
-            return Some(*id);
-        }
-        let tracker = gamelogic::scripting::engine::get_named_object_tracker();
-        tracker
-            .get_object_id(unit_name)
-            .ok()
-            .flatten()
-            .map(ObjectId)
+        self.objects.iter().find_map(|(id, object)| {
+            (!object.name.is_empty() && object.name == unit_name).then_some(*id)
+        })
     }
 
     /// Apply NAMED_STOP/START/SET/ADD_SPECIAL_POWER_COUNTDOWN to a named host object.
@@ -3919,3 +3910,7 @@ mod dock_approach_owner_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "object_queries/script_name_owner_tests.rs"]
+mod script_name_owner_tests;
