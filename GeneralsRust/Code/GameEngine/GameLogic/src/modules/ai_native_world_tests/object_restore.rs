@@ -304,7 +304,7 @@ fn fresh_with_templates(
                 .get_object(record.saved_id()?)
                 .and_then(|slot| slot.get_base_object())
                 .unwrap();
-            Object::admit_restored_schedule_from_handle(&owner, &mut game.scheduler)?;
+            Object::admit_update_schedule_from_handle(&owner, &mut game.scheduler)?;
         }
     } else {
         let team = game.teams.find_team_by_id(1).unwrap();

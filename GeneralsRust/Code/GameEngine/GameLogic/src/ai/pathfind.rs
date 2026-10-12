@@ -264,6 +264,15 @@ impl Path {
         }
     }
 
+    /// Check admission without advancing the closest-point cursor or cache.
+    pub(crate) fn is_finite_single_layer(&self, layer: PathfindLayerEnum) -> bool {
+        self.head.is_some()
+            && self
+                .nodes
+                .values()
+                .all(|node| node.layer == layer && node.pos.is_finite())
+    }
+
     /// Get first node in the path
     pub fn get_first_node(&self) -> Option<&PathNode> {
         self.head.and_then(|key| self.nodes.get(key))

@@ -5,7 +5,7 @@
 //! before the caller changes its parent FSM, rather than discovered globally.
 use super::ai_world::{AiWorld, complete_enter};
 use crate::common::{
-    Coord3D, Int, KindOf, ObjectID, ObjectStatusTypes, PathfindLayerEnum, PlayerMaskType,
+    Coord3D, Int, KindOf, ObjectID, ObjectStatusTypes, PathfindLayerEnum, PlayerMaskType, Real,
     Relationship,
 };
 use crate::object::object_factory::ObjectFactory;
@@ -39,6 +39,7 @@ pub struct AiNativeServices<'a> {
     pub frame: u32,
     pub unlook_persist_frames: u32,
     pub gravity: f32,
+    pub movement_penalty: crate::locomotor::BodyDamageType,
     pub slow_death_scale: f32,
 }
 
@@ -1043,6 +1044,38 @@ impl AiWorld for BorrowedAiWorld<'_> {
     fn pathfinder(&mut self) -> Option<&mut crate::ai::Pathfinder> {
         Some(self.services.pathfinder)
     }
+    fn locomotor_movement_penalty(&self) -> Result<crate::locomotor::BodyDamageType, String> {
+        Ok(self.services.movement_penalty)
+    }
+    fn validate_owned_locomotor_path_step(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        locomotor: &crate::locomotor::Locomotor,
+    ) -> Result<(), String> {
+        self.validate_ground_path_step(owner, locomotor)
+    }
+    fn move_owned_locomotor_path_step(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        locomotor: &mut crate::locomotor::Locomotor,
+        target: Coord3D,
+        on_path_distance: Real,
+        desired_speed: Real,
+        blocked: bool,
+        condition: crate::locomotor::BodyDamageType,
+        penalty: crate::locomotor::BodyDamageType,
+    ) -> Result<(Coord3D, Real, Real), String> {
+        self.move_ground_path_step(
+            owner,
+            locomotor,
+            target,
+            on_path_distance,
+            desired_speed,
+            blocked,
+            condition,
+            penalty,
+        )
+    }
     fn validate_spy_disabled_edge(&self, owner: &Arc<RwLock<Object>>) -> Result<(), String> {
         self.validate_spy_edge(owner)
     }
@@ -1337,5 +1370,7 @@ mod owned_death;
 mod owned_destroy;
 
 mod owned_updates;
+
+mod owned_locomotion;
 
 pub(crate) mod owned_disposal;

@@ -10,6 +10,37 @@ use crate::object::behavior::physics_update::PhysicsBehaviorUpdate;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, LockResult, Mutex, MutexGuard, PoisonError, TryLockError, TryLockResult};
 
+impl super::Object {
+    /// Resolve one installed update proxy from its exact module entry, rejecting
+    /// duplicate descriptors and registrations that only share a class name.
+    pub(crate) fn installed_update_proxy_named(
+        &self,
+        name: &str,
+    ) -> Result<game_engine::common::thing::update_module::UpdateModulePtr, String> {
+        let mut entries = self.modules.iter().enumerate().filter(|(_, entry)| {
+            entry.name().as_str() == name
+                && (entry.mask().0
+                    & game_engine::common::thing::module::ModuleInterfaceType::UPDATE.0)
+                    != 0
+        });
+        let (index, _) = entries.next().ok_or("installed update descriptor absent")?;
+        if entries.next().is_some() {
+            return Err("duplicate installed update descriptors".into());
+        }
+        let mut registrations = self
+            .update_module_registrations
+            .iter()
+            .filter(|registration| registration.module_index == Some(index));
+        let proxy = registrations
+            .next()
+            .ok_or("installed update proxy absent")?;
+        if registrations.next().is_some() {
+            return Err("duplicate update proxy registrations".into());
+        }
+        Ok(proxy.module.clone())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PhysicsInterfaceHandle {
     kind: PhysicsInterfaceKind,
@@ -142,6 +173,97 @@ impl PhysicsInterfaceHandle {
                 self.with_physics(|physics| physics.reset_dynamic_physics())
             }
         }
+    }
+
+    /// C++ applyMotiveForce: clear expiry and apply force, wake synchronously,
+    /// then stamp expiry. The wake proxy may borrow this same module to record
+    /// its state, so each canonical Physics loan ends before that callback.
+    pub(crate) fn apply_motive_force_with_wake(
+        &self,
+        force: &super::Coord3D,
+        owner: &super::Object,
+        frame: u32,
+        wake: impl FnOnce() -> Result<(), String>,
+    ) -> Result<(), String> {
+        let PhysicsInterfaceKind::Module(handle) = &self.kind else {
+            return Err("motive wake requires installed PhysicsBehavior storage".into());
+        };
+        // The implicit C++ getObject() cannot name a peer's same-ID Object.
+        self.installed_update_proxy(owner)?;
+        let should_wake = {
+            let mut module = handle
+                .entry
+                .module
+                .lock()
+                .map_err(|_| "Physics module poisoned")?;
+            let physics = module.as_any_mut()
+                .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<PhysicsBehaviorUpdate>>()
+                .ok_or("Physics descriptor no longer references its installed module")?;
+            physics
+                .behavior_mut()
+                .prepare_motive_force_at(force, owner, frame)
+        };
+        let result = if should_wake { wake() } else { Ok(()) };
+        {
+            let mut module = handle
+                .entry
+                .module
+                .lock()
+                .map_err(|_| "Physics module poisoned")?;
+            let physics = module.as_any_mut()
+                .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<PhysicsBehaviorUpdate>>()
+                .ok_or("Physics descriptor no longer references its installed module")?;
+            physics.behavior_mut().finish_motive_force_at(frame);
+        }
+        result
+    }
+
+    pub(crate) fn installed_is_stunned(&self) -> Result<bool, String> {
+        let PhysicsInterfaceKind::Module(handle) = &self.kind else {
+            return Err("stun observation requires installed Physics storage".into());
+        };
+        handle.with_module(|module| module.as_any()
+            .downcast_ref::<crate::contain_module_overrides::ActiveBehaviorModule<PhysicsBehaviorUpdate>>()
+            .map(|module| module.behavior().is_stunned())
+            .ok_or("Physics descriptor no longer references its installed module".into()))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn accumulated_force_acceleration(&self) -> super::Coord3D {
+        let PhysicsInterfaceKind::Module(handle) = &self.kind else {
+            panic!("force observation requires actual installed Physics storage");
+        };
+        handle.with_module(|module| module.as_any()
+            .downcast_ref::<crate::contain_module_overrides::ActiveBehaviorModule<PhysicsBehaviorUpdate>>()
+            .expect("actual installed Physics module")
+            .behavior().accumulated_force_acceleration())
+    }
+
+    /// Resolve this descriptor's installed update proxy on the supplied owner.
+    /// Class-name matching alone cannot distinguish a peer or duplicate module.
+    pub(crate) fn installed_update_proxy(
+        &self,
+        owner: &super::Object,
+    ) -> Result<game_engine::common::thing::update_module::UpdateModulePtr, String> {
+        let PhysicsInterfaceKind::Module(handle) = &self.kind else {
+            return Err("native locomotion requires installed PhysicsBehavior storage".into());
+        };
+        let index = owner
+            .modules
+            .iter()
+            .position(|entry| Arc::ptr_eq(entry, &handle.entry))
+            .ok_or("Physics descriptor belongs to another Object")?;
+        let mut matching = owner
+            .update_module_registrations
+            .iter()
+            .filter(|entry| entry.module_index == Some(index));
+        let proxy = matching
+            .next()
+            .ok_or("installed Physics update proxy absent")?;
+        if matching.next().is_some() {
+            return Err("installed Physics has duplicate update proxies".into());
+        }
+        Ok(proxy.module.clone())
     }
 
     /// Identity comparison without locking. Container and rider can reference

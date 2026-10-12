@@ -396,14 +396,39 @@ impl Locomotor {
         condition: BodyDamageType,
         pivot_radius: Real,
     ) -> (Coord3D, Real, Real) {
+        self.move_towards_position_legs_with_penalty(
+            current_pos,
+            current_angle,
+            goal_pos,
+            on_path_dist_to_goal,
+            desired_speed,
+            current_speed,
+            condition,
+            pivot_radius,
+            movement_penalty_damage_state(),
+        )
+    }
+
+    fn move_towards_position_legs_with_penalty(
+        &mut self,
+        current_pos: Coord3D,
+        current_angle: Real,
+        goal_pos: Coord3D,
+        on_path_dist_to_goal: Real,
+        desired_speed: Real,
+        current_speed: Real,
+        condition: BodyDamageType,
+        pivot_radius: Real,
+        penalty: BodyDamageType,
+    ) -> (Coord3D, Real, Real) {
         // C++ Locomotor.cpp:1596-1598 - downhill only check for legs
         if self.template.downhill_only && current_pos.z < goal_pos.z {
             return (current_pos, current_angle, 0.0);
         }
 
-        let max_speed = self.get_max_speed_for_condition(condition);
+        let max_speed = self.get_max_speed_with_penalty(condition, penalty);
         let mut desired_speed = desired_speed.min(max_speed);
-        let max_acceleration = self.get_max_acceleration(condition);
+        let max_acceleration = self.get_max_acceleration_with_penalty(condition, penalty);
 
         let mut desired_angle = self.desired_angle_with_pivot(
             current_pos,
@@ -453,10 +478,18 @@ impl Locomotor {
         // C++ applies mass * acceleration as force, clamped to mass * speedDelta
         // We return the acceleration directly.
         let speed_delta = goal_speed - current_speed;
-        let acceleration = if speed_delta > 0.0 {
+        let acceleration = if speed_delta == 0.0 {
+            0.0
+        } else if speed_delta > 0.0 {
             max_acceleration
         } else {
             -braking
+        };
+        // C++ caps mass * acceleration at mass * speedDelta.
+        let acceleration = if acceleration.abs() > speed_delta.abs() {
+            speed_delta
+        } else {
+            acceleration
         };
 
         (current_pos, desired_angle, acceleration)
@@ -529,14 +562,39 @@ impl Locomotor {
         condition: BodyDamageType,
         pivot_radius: Real,
     ) -> (Coord3D, Real, Real) {
-        let max_speed = self.get_max_speed_for_condition(condition);
-        let mut desired_speed = desired_speed.min(max_speed);
-        let max_acceleration = self.get_max_acceleration(condition);
+        self.move_towards_position_other_with_penalty(
+            current_pos,
+            current_angle,
+            goal_pos,
+            on_path_dist_to_goal,
+            desired_speed,
+            current_speed,
+            condition,
+            pivot_radius,
+            movement_penalty_damage_state(),
+        )
+    }
+
+    pub(crate) fn move_towards_position_other_with_penalty(
+        &mut self,
+        current_pos: Coord3D,
+        current_angle: Real,
+        goal_pos: Coord3D,
+        on_path_dist_to_goal: Real,
+        desired_speed: Real,
+        current_speed: Real,
+        condition: BodyDamageType,
+        pivot_radius: Real,
+        penalty: BodyDamageType,
+    ) -> (Coord3D, Real, Real) {
+        let max_speed = self.get_max_speed_with_penalty(condition, penalty);
+        let desired_speed = desired_speed.min(max_speed);
+        let max_acceleration = self.get_max_acceleration_with_penalty(condition, penalty);
 
         // C++ Locomotor.cpp:2344-2366: ULTRA_ACCURATE slide-into-place logic
         // When close enough, don't turn -- just slide in the right direction.
         // C++ uses dirToApplyForce directly toward goal instead of unit direction vector.
-        let mut _goal_speed = desired_speed;
+        let mut goal_speed = desired_speed;
         let mut desired_angle = if matches!(
             self.template.appearance,
             LocomotorAppearance::Wings | LocomotorAppearance::Thrust
@@ -559,7 +617,6 @@ impl Locomotor {
             )
         };
 
-        let mut sliding_into_place = false;
         self.set_flag(FLAG_SLIDING_INTO_PLACE, false);
         if self.is_ultra_accurate() {
             let slide_threshold = desired_speed * self.template.ultra_accurate_slide_factor;
@@ -576,7 +633,6 @@ impl Locomotor {
                 if len > 0.001 {
                     desired_angle = dy.atan2(dx);
                 }
-                sliding_into_place = true;
                 self.set_flag(FLAG_SLIDING_INTO_PLACE, true);
             }
         }
@@ -585,21 +641,9 @@ impl Locomotor {
         // (handled by step_angle in the caller via sliding_into_place concept;
         // we encode it by returning the angle diff = 0 for ultra_accurate slides)
 
-        let rel_angle = if sliding_into_place {
-            // When sliding into place, angle_coeff stays 0 so we don't slow down.
-            0.0
-        } else {
-            Self::std_angle_diff(desired_angle, current_angle)
-        };
-
-        const QUARTER_PI: Real = std::f32::consts::PI / 4.0;
-        let mut angle_coeff = rel_angle.abs() / QUARTER_PI;
-        if angle_coeff > 1.0 {
-            angle_coeff = 1.0;
-        }
-
-        _goal_speed = (1.0 - angle_coeff) * desired_speed;
-
+        // C++ OTHER retains desiredSpeed while turning; unlike LEGS_TWO,
+        // it has no angle coefficient. Its force direction was copied before
+        // rotateTowardsPosition, except when an ultra-accurate slide replaces it.
         // C++ Locomotor.cpp:2368-2374: uses minSpeed, not 0.0
         if !self.no_slow_down_approaching_dest() {
             let slow_down_dist = Self::calc_slow_down_dist(
@@ -608,13 +652,13 @@ impl Locomotor {
                 self.get_braking(),
             );
             if on_path_dist_to_goal < slow_down_dist {
-                _goal_speed = self.template.min_speed;
+                goal_speed = self.template.min_speed;
             }
         }
 
         // C++ Locomotor.cpp:2380-2401: maintain goal speed
         // C++ clamps accelForce to mass * speedDelta to avoid overshooting.
-        let speed_delta = _goal_speed - current_speed;
+        let speed_delta = goal_speed - current_speed;
         let acceleration = if speed_delta == 0.0 {
             0.0
         } else if speed_delta > 0.0 {

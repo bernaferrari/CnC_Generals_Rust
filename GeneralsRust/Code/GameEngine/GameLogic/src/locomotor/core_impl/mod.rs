@@ -28,6 +28,11 @@ include!("path_follow.rs");
 include!("thrust.rs");
 include!("move_air.rs");
 include!("behavior_z.rs");
+#[path = "physics_access.rs"]
+mod physics_access;
+pub(crate) use physics_access::{
+    LocomotorMovementObservations, LocomotorPhysicsAccess, LocomotorPoseChange,
+};
 include!("move_dispatch.rs");
 include!("move_towards.rs");
 include!("maintain.rs");

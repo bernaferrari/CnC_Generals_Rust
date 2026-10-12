@@ -112,6 +112,30 @@ pub trait AiWorld {
         None
     }
 
+    fn locomotor_movement_penalty(&self) -> Result<crate::locomotor::BodyDamageType, String> {
+        Err("supplied movement damage penalty unavailable".into())
+    }
+    fn validate_owned_locomotor_path_step(
+        &self,
+        _owner: &Arc<RwLock<Object>>,
+        _locomotor: &crate::locomotor::Locomotor,
+    ) -> Result<(), String> {
+        Err("supplied owner does not admit native locomotion".into())
+    }
+    fn move_owned_locomotor_path_step(
+        &mut self,
+        _owner: &Arc<RwLock<Object>>,
+        _locomotor: &mut crate::locomotor::Locomotor,
+        _target: Coord3D,
+        _on_path_distance: Real,
+        _desired_speed: Real,
+        _blocked: bool,
+        _condition: crate::locomotor::BodyDamageType,
+        _penalty: crate::locomotor::BodyDamageType,
+    ) -> Result<(Coord3D, Real, Real), String> {
+        Err("supplied owner does not admit native locomotion".into())
+    }
+
     /// Combines actual source/inherited container flags and this session's
     /// immutable effective bonus definitions using Weapon's shared math.
     fn weapon_bonus(

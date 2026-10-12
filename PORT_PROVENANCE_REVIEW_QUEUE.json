@@ -50343,6 +50343,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/locomotor/core_impl/physics_access.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/locomotor/core_impl/set_store.rs"
             },
             {
@@ -53051,6 +53056,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_native_commands.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_owned_locomotion.rs"
             },
             {
               "cargo_reachable": true,
@@ -189321,7 +189331,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "c2032aa134ff2c07a545255367cf46686245770919d6375bb8f653f225ff0af8",
+  "provenance_input_digest": "287dbeb44e6d51d45b92cc2f34d90bf4d66be278ee626218788bf919fc52b1cf",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

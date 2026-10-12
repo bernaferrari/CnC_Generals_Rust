@@ -355,7 +355,7 @@ fn slow_death_component_xfer_replaces_deadlines_without_replaying_on_die() {
     assert_eq!(saved, slow_snapshot(&restored));
     // The paired worlds already executed the same lethal body/score/onDie input.
     // This is the installed component's future, not a claim of whole-world Xfer.
-    Object::admit_restored_schedule_from_handle(&second, &mut restored.scheduler).unwrap();
+    Object::admit_update_schedule_from_handle(&second, &mut restored.scheduler).unwrap();
     let first_proxy = slow_proxy(&original);
     let second_proxy = slow_proxy(&restored);
     assert_eq!(
@@ -416,7 +416,7 @@ fn installed_ai_death_latch_and_actual_proxy_wake_precede_destroy() {
     let mut game = native_world_with_death(instant_ai_actor());
     let peer = native_world_with_death(instant_ai_actor());
     let owner = game.target.clone();
-    Object::admit_restored_schedule_from_handle(&owner, &mut game.scheduler).unwrap();
+    Object::admit_update_schedule_from_handle(&owner, &mut game.scheduler).unwrap();
     let (ai, proxy) = {
         let owner = owner.read().unwrap();
         (

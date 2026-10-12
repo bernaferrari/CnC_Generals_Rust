@@ -156,7 +156,14 @@ impl Locomotor {
     /// Get maximum speed for given damage condition
     /// Matches C++ Locomotor::getMaxSpeedForCondition (Locomotor.cpp:768-781)
     pub fn get_max_speed_for_condition(&self, condition: BodyDamageType) -> Real {
-        let speed = if self.uses_undamaged_loco_stats(condition) {
+        self.get_max_speed_with_penalty(condition, movement_penalty_damage_state())
+    }
+    pub(crate) fn get_max_speed_with_penalty(
+        &self,
+        condition: BodyDamageType,
+        penalty: BodyDamageType,
+    ) -> Real {
+        let speed = if loco_is_condition_better(condition, penalty) {
             self.template.max_speed
         } else {
             heal_damaged_stat(self.template.max_speed_damaged, self.template.max_speed)
@@ -167,7 +174,14 @@ impl Locomotor {
     /// Get maximum turn rate for given damage condition
     /// Matches C++ Locomotor::getMaxTurnRate (Locomotor.cpp:784-801)
     pub fn get_max_turn_rate(&self, condition: BodyDamageType) -> Real {
-        let mut turn = if self.uses_undamaged_loco_stats(condition) {
+        self.get_max_turn_rate_with_penalty(condition, movement_penalty_damage_state())
+    }
+    pub(crate) fn get_max_turn_rate_with_penalty(
+        &self,
+        condition: BodyDamageType,
+        penalty: BodyDamageType,
+    ) -> Real {
+        let mut turn = if loco_is_condition_better(condition, penalty) {
             self.template.max_turn_rate
         } else {
             heal_damaged_stat(
@@ -185,7 +199,14 @@ impl Locomotor {
     /// Get maximum acceleration for given damage condition
     /// Matches C++ Locomotor::getMaxAcceleration (Locomotor.cpp:804-817)
     pub fn get_max_acceleration(&self, condition: BodyDamageType) -> Real {
-        let accel = if self.uses_undamaged_loco_stats(condition) {
+        self.get_max_acceleration_with_penalty(condition, movement_penalty_damage_state())
+    }
+    pub(crate) fn get_max_acceleration_with_penalty(
+        &self,
+        condition: BodyDamageType,
+        penalty: BodyDamageType,
+    ) -> Real {
+        let accel = if loco_is_condition_better(condition, penalty) {
             self.template.acceleration
         } else {
             heal_damaged_stat(

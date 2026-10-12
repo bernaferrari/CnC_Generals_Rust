@@ -358,13 +358,30 @@ impl Locomotor {
         condition: BodyDamageType,
         delta_time: Real,
     ) -> Real {
+        self.step_angle_with_penalty(
+            current_angle,
+            desired_angle,
+            condition,
+            delta_time,
+            movement_penalty_damage_state(),
+        )
+    }
+
+    fn step_angle_with_penalty(
+        &self,
+        current_angle: Real,
+        desired_angle: Real,
+        condition: BodyDamageType,
+        delta_time: Real,
+        penalty: BodyDamageType,
+    ) -> Real {
         // C++ Locomotor.cpp:2356: when ULTRA_ACCURATE and sliding into place,
         // TURN_NONE is set so the model does not rotate.
         if self.get_flag(FLAG_SLIDING_INTO_PLACE) {
             return current_angle;
         }
 
-        let mut max_turn = self.get_max_turn_rate(condition)
+        let mut max_turn = self.get_max_turn_rate_with_penalty(condition, penalty)
             * delta_time.max(0.0)
             * self.wheeled_turn_factor.clamp(0.0, 1.0);
         if matches!(

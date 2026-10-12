@@ -272,6 +272,16 @@ impl PhysicsBehaviorHandle {
         }
     }
 
+    fn prepare_motive_force_at(&mut self, force: &Vec3, owner: &GameObject, frame: u32) -> bool {
+        self.state.motive_force_expires = 0;
+        self.apply_force_with_obj_at(force, Some(owner), frame, false);
+        !self.state.has_flag(FLAG_IS_IN_UPDATE)
+    }
+
+    fn finish_motive_force_at(&mut self, frame: u32) {
+        self.state.motive_force_expires = frame.wrapping_add(MOTIVE_FRAMES);
+    }
+
     fn object_arc(&self) -> Option<Arc<RwLock<GameObject>>> {
         self.owner.upgrade()
     }
@@ -549,10 +559,9 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         owner: &GameObject,
         frame: u32,
     ) -> bool {
-        self.state.motive_force_expires = 0;
-        self.apply_force_with_obj_at(force, Some(owner), frame, false);
-        self.state.motive_force_expires = frame.wrapping_add(MOTIVE_FRAMES);
-        !self.state.has_flag(FLAG_IS_IN_UPDATE)
+        let wake = self.prepare_motive_force_at(force, owner, frame);
+        self.finish_motive_force_at(frame);
+        wake
     }
 
     fn get_turning(&self) -> Real {
@@ -709,6 +718,29 @@ pub struct PhysicsBehaviorUpdate {
 }
 
 impl PhysicsBehaviorUpdate {
+    pub(in crate::object) fn prepare_motive_force_at(
+        &mut self,
+        force: &Vec3,
+        owner: &GameObject,
+        frame: u32,
+    ) -> bool {
+        self.physics_handle
+            .prepare_motive_force_at(force, owner, frame)
+    }
+
+    pub(in crate::object) fn finish_motive_force_at(&mut self, frame: u32) {
+        self.physics_handle.finish_motive_force_at(frame);
+    }
+
+    pub(in crate::object) fn is_stunned(&self) -> bool {
+        self.physics_handle.state.has_flag(FLAG_IS_STUNNED)
+    }
+
+    #[cfg(test)]
+    pub(in crate::object) fn accumulated_force_acceleration(&self) -> Vec3 {
+        self.physics_handle.state.accel
+    }
+
     pub(in crate::object) fn physics_interface(&self) -> &(dyn PhysicsBehaviorTrait + 'static) {
         &self.physics_handle
     }

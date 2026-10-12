@@ -273,6 +273,7 @@ impl AdmissionMatch {
                 unlook_persist_frames: 2,
                 slow_death_scale: 1.0,
                 gravity: -0.1,
+                movement_penalty: crate::locomotor::BodyDamageType::ReallyDamaged,
             },
         )
         .unwrap();

@@ -682,9 +682,9 @@ impl Object {
         Ok(())
     }
 
-    /// Register the actual saved update proxies after candidate postload. This
-    /// is scheduling admission, not object creation or a compatibility publish.
-    pub(crate) fn admit_restored_schedule_from_handle(
+    /// Admit this Object's actual installed update proxies after preparation
+    /// or candidate postload. This phase never publishes a compatibility owner.
+    pub(crate) fn admit_update_schedule_from_handle(
         source: &Arc<RwLock<Object>>,
         scheduler: &mut crate::system::game_logic::GameLogic,
     ) -> Result<(), String> {

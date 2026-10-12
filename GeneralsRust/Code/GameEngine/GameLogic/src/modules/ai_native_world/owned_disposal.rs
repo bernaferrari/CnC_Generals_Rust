@@ -43,6 +43,7 @@ impl AiNativeServices<'_> {
             unlook_persist_frames: self.unlook_persist_frames,
             slow_death_scale: self.slow_death_scale,
             gravity: self.gravity,
+            movement_penalty: self.movement_penalty,
         }
     }
 }

@@ -35,6 +35,13 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Err("AI implementation does not support supplied world operations".into())
     }
+    /// Execute one installed UnitAI POSITION_ON_PATH phase against its supplied world.
+    fn update_locomotor_path_phase_with_world(
+        &mut self,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("AI implementation does not support supplied locomotion".into())
+    }
     fn update_exit_phase_with_world(
         &mut self,
         _world: &mut dyn ai_world::AiWorld,

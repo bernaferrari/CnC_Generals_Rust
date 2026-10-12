@@ -429,6 +429,7 @@ impl NativeMatch {
             unlook_persist_frames: 0,
             slow_death_scale: 1.0,
             gravity: crate::physics::GRAVITY,
+            movement_penalty: crate::locomotor::BodyDamageType::ReallyDamaged,
         };
         f(&mut self.factory, &self.players, services)
     }
@@ -958,3 +959,6 @@ mod lethal_damage;
 
 #[path = "ai_native_world_tests/disposal.rs"]
 mod disposal;
+
+#[path = "ai_native_world_tests/locomotion.rs"]
+mod locomotion;

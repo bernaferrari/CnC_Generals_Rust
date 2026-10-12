@@ -41,21 +41,59 @@ impl Locomotor {
         current_angle: Real,
         current_speed: Real,
         target: Coord3D,
+        on_path_dist_to_goal: Real,
+        desired_speed: Real,
+        condition: BodyDamageType,
+        delta_time: Real,
+        blocked: bool,
+        physics: Option<&mut (dyn crate::modules::PhysicsBehavior + '_)>,
+        object: Option<&mut crate::object::Object>,
+    ) -> (Coord3D, Real, Real) {
+        self.loco_update_move_with_access(
+            current,
+            current_angle,
+            current_speed,
+            target,
+            on_path_dist_to_goal,
+            desired_speed,
+            condition,
+            delta_time,
+            blocked,
+            physics.map(LocomotorPhysicsAccess::Borrowed),
+            object,
+            None,
+        )
+        .expect("classic borrowed Physics operations are infallible")
+    }
+
+    pub(crate) fn loco_update_move_with_access(
+        &mut self,
+        current: Coord3D,
+        current_angle: Real,
+        current_speed: Real,
+        target: Coord3D,
         mut on_path_dist_to_goal: Real,
         desired_speed: Real,
         condition: BodyDamageType,
         delta_time: Real,
         blocked: bool,
-        mut physics: Option<&mut (dyn crate::modules::PhysicsBehavior + '_)>,
+        mut physics: Option<LocomotorPhysicsAccess<'_, '_>>,
         mut object: Option<&mut crate::object::Object>,
-    ) -> (Coord3D, Real, Real) {
+        mut observations: Option<&mut LocomotorMovementObservations<'_>>,
+    ) -> Result<(Coord3D, Real, Real), String> {
         self.set_flag(FLAG_MAINTAIN_POS_VALID, false);
         // No object: stand in for last frame's OBJECT_STATUS_BRAKING.
         // Later IS_BRAKING writes in this call must not move the cheat gate.
         let locomotor_was_braking = self.is_braking();
         self.wheeled_turn_factor = 1.0;
 
-        let max_speed = self.get_max_speed_for_condition(condition);
+        let max_speed = self.get_max_speed_with_penalty(
+            condition,
+            observations
+                .as_ref()
+                .map(|o| o.penalty)
+                .unwrap_or_else(movement_penalty_damage_state),
+        );
         let desired_speed = desired_speed.min(max_speed);
         let braking = self.get_braking();
         if braking > 0.0 {
@@ -67,37 +105,51 @@ impl Locomotor {
         }
 
         let (disabled_held, object_layer) = object_loco_z_context(object.as_deref());
-        if object_is_stunned(object.as_deref()) {
-            return (current, current_angle, current_speed);
+        let stunned = physics
+            .as_ref()
+            .map(|p| p.installed_is_stunned())
+            .transpose()?
+            .flatten()
+            .unwrap_or_else(|| object_is_stunned(object.as_deref()));
+        if stunned {
+            return Ok((current, current_angle, current_speed));
         }
 
         // C++ Locomotor.cpp:968-977 — non-air invalid terrain runs fixInvalidPosition.
         if (self.template.surfaces & SURFACE_AIR) == 0 && !self.allows_invalid_position() {
-            if !self.valid_movement_terrain_at(object_layer, current) {
+            if !observations.as_ref().map_or_else(
+                || self.valid_movement_terrain_at(object_layer, current),
+                |o| o.valid_terrain(self.template.surfaces, object_layer, current),
+            ) {
                 let is_dozer = object
                     .as_ref()
                     .map(|obj| obj.is_kind_of(crate::common::KindOf::Dozer))
                     .unwrap_or(false);
                 let mass = physics
-                    .as_ref()
-                    .map(|physics| physics_mass_with_owner(*physics, object.as_deref()))
+                    .as_mut()
+                    .map(|p| p.with(|p| physics_mass_with_owner(p, object.as_deref())))
+                    .transpose()?
                     .unwrap_or(1.0);
                 let vel = physics
-                    .as_ref()
-                    .map(|p| p.get_velocity())
+                    .as_mut()
+                    .map(|p| p.with(|p| p.get_velocity()))
+                    .transpose()?
                     .unwrap_or(Coord3D::new(0.0, 0.0, 0.0));
                 if let Some(fix) =
                     self.fix_invalid_position_with(is_dozer, current, vel, mass, |pos| {
-                        self.valid_movement_terrain_at(object_layer, pos)
+                        observations.as_ref().map_or_else(
+                            || self.valid_movement_terrain_at(object_layer, pos),
+                            |o| o.valid_terrain(self.template.surfaces, object_layer, pos),
+                        )
                     })
                 {
                     if let Some(phys) = physics.as_mut() {
                         if let Some(extra) = fix.extra_push {
-                            apply_motive_force_with_owner(*phys, &extra, object.as_deref());
+                            phys.motive(&extra, object.as_deref())?;
                         }
-                        apply_motive_force_with_owner(*phys, &fix.correction, object.as_deref());
+                        phys.motive(&fix.correction, object.as_deref())?;
                     }
-                    return (current, current_angle, current_speed);
+                    return Ok((current, current_angle, current_speed));
                 }
             }
         }
@@ -117,23 +169,34 @@ impl Locomotor {
             on_path_dist_to_goal = dist_2d;
         }
 
+        // CPP observes airborne height before applying the zero motive force.
+        let gravity = observations
+            .as_ref()
+            .map(|o| o.gravity)
+            .unwrap_or_else(loco_gravity);
+        let treat_as_airborne = object
+            .as_ref()
+            .map(|obj| {
+                let height = observations
+                    .as_ref()
+                    .map_or_else(|| obj.get_height_above_terrain(), |o| o.height(obj));
+                height > -(3.0 * 3.0) * gravity
+            })
+            .unwrap_or(false);
         if let Some(physics) = physics.as_mut() {
-            apply_motive_force_with_owner(
-                *physics,
-                &Coord3D::new(0.0, 0.0, 0.0),
-                object.as_deref(),
-            );
+            physics.motive(&Coord3D::new(0.0, 0.0, 0.0), object.as_deref())?;
         }
 
         let current_speed = physics
-            .as_ref()
-            .map(|physics| physics_forward_speed_2d_with_owner(*physics, object.as_deref()))
+            .as_mut()
+            .map(|p| p.with(|p| physics_forward_speed_2d_with_owner(p, object.as_deref())))
+            .transpose()?
             .unwrap_or(current_speed);
 
         let mut blocked = blocked;
         if blocked {
-            if let Some(physics) = physics.as_ref() {
-                if desired_speed > velocity_magnitude(&physics.get_velocity()) {
+            if let Some(physics) = physics.as_mut() {
+                if desired_speed > physics.with(|p| velocity_magnitude(&p.get_velocity()))? {
                     blocked = false;
                 }
             }
@@ -144,17 +207,59 @@ impl Locomotor {
 
         if blocked {
             if let Some(physics) = physics.as_mut() {
-                physics.scrub_velocity_2d(desired_speed);
+                physics.with(|p| p.scrub_velocity_2d(desired_speed))?;
             }
             if self.template.wander_width_factor == 0.0 {
-                let _ = self.rotate_towards_position(current, current_angle, target, condition);
+                let turn = self.get_max_turn_rate_with_penalty(
+                    condition,
+                    observations
+                        .as_ref()
+                        .map(|o| o.penalty)
+                        .unwrap_or_else(movement_penalty_damage_state),
+                );
+                let rotation =
+                    self.rotate_obj_around_loco_pivot(current, current_angle, target, turn);
+                if observations.is_some() {
+                    if let Some(owner) = object.as_deref_mut() {
+                        if let Some(observations) = observations.as_deref_mut() {
+                            (observations.change_pose)(
+                                owner,
+                                LocomotorPoseChange::Orientation(current_angle + rotation),
+                            )?;
+                        }
+                    }
+                    let requested = Self::std_angle_diff(
+                        (target.y - current.y).atan2(target.x - current.x),
+                        current_angle,
+                    );
+                    if let Some(physics) = physics.as_mut() {
+                        physics.with(|p| {
+                            p.set_turning(if requested > turn {
+                                1
+                            } else if requested < -turn {
+                                -1
+                            } else {
+                                0
+                            })
+                        })?;
+                    }
+                    return Ok((
+                        current,
+                        current_angle + rotation,
+                        desired_speed.min(current_speed),
+                    ));
+                }
             }
-            let vel_z = physics.as_ref().map(|p| p.get_velocity().z).unwrap_or(0.0);
+            let vel_z = physics
+                .as_mut()
+                .map(|p| p.with(|p| p.get_velocity().z))
+                .transpose()?
+                .unwrap_or(0.0);
             let z = self.handle_behavior_z_for(
                 current,
                 target,
                 condition,
-                loco_gravity(),
+                gravity,
                 vel_z,
                 disabled_held,
                 object_layer,
@@ -163,20 +268,16 @@ impl Locomotor {
             if let Some(snapped) = z.snapped_z {
                 pos.z = snapped;
                 if let Some(object) = object.as_deref_mut() {
-                    object.set_position(&pos);
+                    set_locomotor_position(object, &pos, observations.as_deref_mut())?;
                 }
             }
-            if let (Some(physics), lift) = (physics, z.lift) {
+            if let (Some(physics), lift) = (physics.as_mut(), z.lift) {
                 if lift != 0.0 {
-                    let mass = physics_mass_with_owner(physics, object.as_deref());
-                    apply_motive_force_with_owner(
-                        physics,
-                        &Coord3D::new(0.0, 0.0, lift * mass),
-                        object.as_deref(),
-                    );
+                    let mass = physics.with(|p| physics_mass_with_owner(p, object.as_deref()))?;
+                    physics.motive(&Coord3D::new(0.0, 0.0, lift * mass), object.as_deref())?;
                 }
             }
-            return (pos, current_angle, desired_speed.min(current_speed));
+            return Ok((pos, current_angle, desired_speed.min(current_speed)));
         }
 
         if self.template.appearance == LocomotorAppearance::Wings {
@@ -189,14 +290,12 @@ impl Locomotor {
             .unwrap_or(locomotor_was_braking);
 
         if let Some(physics) = physics.as_mut() {
-            physics.set_turning(0);
-            self.apply_physics_options(*physics);
+            physics.with(|p| {
+                p.set_turning(0);
+                self.apply_physics_options(p);
+            })?;
         }
 
-        let treat_as_airborne = object
-            .as_ref()
-            .map(|obj| obj.get_height_above_terrain() > -(3.0 * 3.0) * loco_gravity())
-            .unwrap_or(false);
         let allow_2d = self.template.allow_motive_force_while_airborne || !treat_as_airborne;
 
         let pivot_radius = object
@@ -216,15 +315,44 @@ impl Locomotor {
                 delta_time,
                 object_layer,
                 pivot_radius,
+                observations.as_deref(),
             )
         } else {
             (current, current_angle, current_speed)
         };
+        // The original appearance mover changes orientation before its force
+        // application and subsequent Z behavior. Use this world's real pose hook.
+        if let (Some(owner), Some(observations)) =
+            (object.as_deref_mut(), observations.as_deref_mut())
+        {
+            (observations.change_pose)(owner, LocomotorPoseChange::Orientation(angle))?;
+            // CPP reports TURN_NONE when the complete requested rotation fits
+            // this frame's turn limit, even though orientation changed.
+            let requested = Self::std_angle_diff(
+                (target.y - current.y).atan2(target.x - current.x),
+                current_angle,
+            );
+            let limit = self.get_max_turn_rate_with_penalty(condition, observations.penalty)
+                * delta_time.max(0.0);
+            let turning = if !allow_2d || self.get_flag(FLAG_SLIDING_INTO_PLACE) {
+                0
+            } else if requested > limit {
+                1
+            } else if requested < -limit {
+                -1
+            } else {
+                0
+            };
+            if let Some(physics) = physics.as_mut() {
+                physics.with(|p| p.set_turning(turning))?;
+            }
+        }
         if self.template.appearance == LocomotorAppearance::Thrust {
             if let Some(obj) = object.as_mut() {
                 let vel = physics
-                    .as_ref()
-                    .map(|p| p.get_velocity())
+                    .as_mut()
+                    .map(|p| p.with(|p| p.get_velocity()))
+                    .transpose()?
                     .unwrap_or(Coord3D::new(0.0, 0.0, 0.0));
                 if vel.length_squared() > 1.0e-8 {
                     let mut turn = self.template.max_turn_rate;
@@ -257,8 +385,9 @@ impl Locomotor {
         }
 
         let vel_z = physics
-            .as_ref()
-            .map(|p| p.get_velocity().z)
+            .as_mut()
+            .map(|p| p.with(|p| p.get_velocity().z))
+            .transpose()?
             .unwrap_or(self.last_motive_accel.z * delta_time);
         let z = self.handle_behavior_z_for(
             object
@@ -267,7 +396,7 @@ impl Locomotor {
                 .unwrap_or(pos),
             target,
             condition,
-            loco_gravity(),
+            gravity,
             vel_z,
             disabled_held,
             object_layer,
@@ -277,28 +406,25 @@ impl Locomotor {
             if let Some(object) = object.as_deref_mut() {
                 let mut owner_pos = *object.get_position();
                 owner_pos.z = snapped;
-                object.set_position(&owner_pos);
+                set_locomotor_position(object, &owner_pos, observations.as_deref_mut())?;
             }
         }
         if let Some(physics) = physics.as_mut() {
             if z.lift != 0.0 {
-                let mass = physics_mass_with_owner(*physics, object.as_deref());
-                apply_motive_force_with_owner(
-                    *physics,
-                    &Coord3D::new(0.0, 0.0, z.lift * mass),
-                    object.as_deref(),
-                );
+                let mass = physics.with(|p| physics_mass_with_owner(p, object.as_deref()))?;
+                physics.motive(&Coord3D::new(0.0, 0.0, z.lift * mass), object.as_deref())?;
             }
-            let mass = physics_mass_with_owner(*physics, object.as_deref()).max(0.001);
-            apply_motive_force_with_owner(
-                *physics,
+            let mass = physics
+                .with(|p| physics_mass_with_owner(p, object.as_deref()))?
+                .max(0.001);
+            physics.motive(
                 &Coord3D::new(
                     self.last_motive_accel.x * mass,
                     self.last_motive_accel.y * mass,
                     self.last_motive_accel.z * mass,
                 ),
                 object.as_deref(),
-            );
+            )?;
         }
 
         if let Some(object) = object.as_mut() {
@@ -334,18 +460,17 @@ impl Locomotor {
             let fallback = speed * delta_time.max(0.0);
             let cheat_speed = if projectile {
                 physics
-                    .as_ref()
-                    .map(|p| {
-                        let v = p.get_velocity();
-                        (v.x * v.x + v.y * v.y + v.z * v.z).sqrt()
-                    })
+                    .as_mut()
+                    .map(|p| p.with(|p| velocity_magnitude(&p.get_velocity())))
+                    .transpose()?
                     .unwrap_or(fallback)
             } else {
                 physics
-                    .as_ref()
-                    .map(|physics| {
-                        physics_forward_speed_2d_with_owner(*physics, object.as_deref()).abs()
+                    .as_mut()
+                    .map(|p| {
+                        p.with(|p| physics_forward_speed_2d_with_owner(p, object.as_deref()).abs())
                     })
+                    .transpose()?
                     .unwrap_or(fallback)
             };
             let cheat = self.braking_cheat_step(
@@ -366,11 +491,11 @@ impl Locomotor {
             // Physics suppresses ordinary XY integration while braking, so the
             // real owner must receive this step as well as the returned value.
             if let Some(object) = object.as_deref_mut() {
-                object.set_position(&cheat);
+                set_locomotor_position(object, &cheat, observations.as_deref_mut())?;
             }
         }
 
-        (pos, angle, speed)
+        Ok((pos, angle, speed))
     }
 
     fn dispatch_appearance_move(
@@ -385,9 +510,12 @@ impl Locomotor {
         delta_time: Real,
         layer: crate::common::PathfindLayerEnum,
         pivot_radius: Real,
+        observations: Option<&LocomotorMovementObservations<'_>>,
     ) -> (Coord3D, Real, Real) {
         self.last_motive_accel = Coord3D::new(0.0, 0.0, 0.0);
-        let current_frame = TheGameLogic::get_frame();
+        let current_frame = observations
+            .map(|o| o.frame)
+            .unwrap_or_else(TheGameLogic::get_frame);
         let (desired_angle, accel, move_backwards) = match self.template.appearance {
             LocomotorAppearance::Treads => {
                 let (_pos, ang, acc) = self.move_towards_position_treads_physics(
@@ -419,7 +547,7 @@ impl Locomotor {
                 (ang, acc, back)
             }
             LocomotorAppearance::TwoLegs => {
-                let (_pos, ang, acc) = self.move_towards_position_legs_physics(
+                let (_pos, ang, acc) = self.move_towards_position_legs_with_penalty(
                     current,
                     current_angle,
                     target,
@@ -428,6 +556,9 @@ impl Locomotor {
                     current_speed,
                     condition,
                     pivot_radius,
+                    observations
+                        .map(|o| o.penalty)
+                        .unwrap_or_else(movement_penalty_damage_state),
                 );
                 (ang, acc, false)
             }
@@ -481,7 +612,10 @@ impl Locomotor {
                 (ang, acc, back)
             }
             LocomotorAppearance::Other => {
-                let (_pos, ang, acc) = self.move_towards_position_other_physics(
+                let penalty = observations
+                    .map(|o| o.penalty)
+                    .unwrap_or_else(movement_penalty_damage_state);
+                let (_pos, ang, acc) = self.move_towards_position_other_with_penalty(
                     current,
                     current_angle,
                     target,
@@ -490,16 +624,33 @@ impl Locomotor {
                     current_speed,
                     condition,
                     pivot_radius,
+                    penalty,
                 );
                 (ang, acc, false)
             }
         };
 
         if self.last_motive_accel.length_squared() < 1.0e-12 {
+            let penalty = observations
+                .map(|o| o.penalty)
+                .unwrap_or_else(movement_penalty_damage_state);
+            let force_angle = match self.template.appearance {
+                LocomotorAppearance::TwoLegs => self.step_angle_with_penalty(
+                    current_angle,
+                    desired_angle,
+                    condition,
+                    delta_time,
+                    penalty,
+                ),
+                LocomotorAppearance::Other if !self.get_flag(FLAG_SLIDING_INTO_PLACE) => {
+                    current_angle
+                }
+                _ => desired_angle,
+            };
             let dir_sign = if move_backwards { -1.0 } else { 1.0 };
             self.last_motive_accel = Coord3D::new(
-                desired_angle.cos() * accel * dir_sign,
-                desired_angle.sin() * accel * dir_sign,
+                force_angle.cos() * accel * dir_sign,
+                force_angle.sin() * accel * dir_sign,
                 0.0,
             );
         }
@@ -513,6 +664,7 @@ impl Locomotor {
             condition,
             delta_time,
             move_backwards,
+            observations.map(|o| o.penalty),
         )
     }
 
@@ -527,10 +679,13 @@ impl Locomotor {
         condition: BodyDamageType,
         delta_time: Real,
         move_backwards: bool,
+        penalty: Option<BodyDamageType>,
     ) -> (Coord3D, Real, Real) {
         let dt = delta_time.max(0.0);
-        let new_angle = self.step_angle(current_angle, desired_angle, condition, dt);
-        let max_speed = self.get_max_speed_for_condition(condition);
+        let penalty = penalty.unwrap_or_else(movement_penalty_damage_state);
+        let new_angle =
+            self.step_angle_with_penalty(current_angle, desired_angle, condition, dt, penalty);
+        let max_speed = self.get_max_speed_with_penalty(condition, penalty);
         let mut vel = Coord3D::new(
             current_angle.cos() * current_speed,
             current_angle.sin() * current_speed,
@@ -647,4 +802,17 @@ fn object_loco_z_context(
 
 fn velocity_magnitude(vel: &Coord3D) -> Real {
     (vel.x * vel.x + vel.y * vel.y + vel.z * vel.z).sqrt()
+}
+
+fn set_locomotor_position(
+    owner: &mut crate::object::Object,
+    position: &Coord3D,
+    observations: Option<&mut LocomotorMovementObservations<'_>>,
+) -> Result<(), String> {
+    if let Some(observations) = observations {
+        (observations.change_pose)(owner, LocomotorPoseChange::Position(*position))
+    } else {
+        owner.set_position(position);
+        Ok(())
+    }
 }

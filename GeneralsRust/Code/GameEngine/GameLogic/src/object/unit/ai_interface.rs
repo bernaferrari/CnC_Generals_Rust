@@ -74,6 +74,12 @@ impl AIUpdateInterface for UnitAIUpdate {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         UnitAIUpdate::update_enter_phase_with_world(self, world)
     }
+    fn update_locomotor_path_phase_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        UnitAIUpdate::update_locomotor_path_phase_with_world(self, world)
+    }
     fn update_exit_phase_with_world(
         &mut self,
         world: &mut dyn crate::modules::ai_world::AiWorld,
