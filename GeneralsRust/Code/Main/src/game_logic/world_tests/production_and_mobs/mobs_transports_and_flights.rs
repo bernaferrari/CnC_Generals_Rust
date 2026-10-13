@@ -88,16 +88,28 @@ fn preorder_create_sets_model_bit_on_command_center_complete() {
     );
     assert!(logic.honesty_preorder_create_ok());
 
-    // Non-preorder player clears bit.
+    // A repeated completion cannot re-run this creation callback.
     logic.set_player_did_preorder(Team::USA, false);
-    // Force clear path: clear bit then re-notify.
-    {
-        let o = logic.host_object_mut(id).unwrap();
-        o.model_condition_bits |= 1u128 << MC_BIT_PREORDER;
-    }
     logic.notify_structure_construction_complete(id);
-    let o = logic.host_object(id).unwrap();
-    assert!(!has_preorder_model_bit(o.model_condition_bits));
+    assert!(has_preorder_model_bit(
+        logic.host_object(id).unwrap().model_condition_bits
+    ));
+
+    // A different production object observes the current player's preorder
+    // flag at its one original completion callback.
+    let other = logic
+        .create_production_object_for_owner_or_team(
+            "AmericaCommandCenter",
+            Team::USA,
+            Some(0),
+            Vec3::new(30.0, 0.0, 0.0),
+        )
+        .unwrap();
+    logic.host_object_mut(other).unwrap().model_condition_bits |= 1u128 << MC_BIT_PREORDER;
+    logic.notify_structure_construction_complete(other);
+    assert!(!has_preorder_model_bit(
+        logic.host_object(other).unwrap().model_condition_bits
+    ));
 }
 
 #[test]

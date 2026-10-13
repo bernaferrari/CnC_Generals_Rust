@@ -1,17 +1,5 @@
-//! Wave 201 residual peels: evacuate/unload uses `set_contained_by(None)` so
-//! `host_contain_log` drains SetContain last-writer; map-load/preload presentation
-//! uses `build_for_engine`. Never flips shell `playable_claim`.
-//!
-//! Orthogonal to Wave 200 rally-log residual.
-//! Host residual only — network deferred.
-//!
-//! Sources:
-//! - `evacuate_container_now` → `set_contained_by(None)`
-//! - engine map-load/preload → `build_for_engine`
-//!
-//! Fail-closed:
-//! - Not full GameClient OS-input cutover
-//! - Shell `playable_claim` stays false; network deferred
+//! Receiving Main behavior and read-only presentation witness.
+//! Historical shell identifiers are metadata, not C++ parity evidence.
 
 /// Lookup residual name index (exact match).
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
@@ -81,101 +69,10 @@ pub fn honesty_live_evacuate_contain_log_residual_pack_wave201() -> bool {
 }
 
 /// Source residual: evacuate uses set_contained_by(None), no direct field write.
-pub fn honesty_evacuate_uses_set_contained_by_source() -> bool {
-    // 2026-08-15: evacuate_container_now lives in world_combat/registries.rs.
-    let src = concat!(
-        include_str!("../world_combat/registries.rs"),
-        include_str!("../world_scripts/unit_commands.rs"),
-    );
-    let i = match src.find("fn evacuate_container_now") {
-        Some(i) => i,
-        None => return false,
-    };
-    let after = &src[i..];
-    let Some(brace) = after.find('{') else {
-        return false;
-    };
-    let mut depth = 0i32;
-    let mut end = after.len();
-    for (j, ch) in after[brace..].char_indices() {
-        match ch {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    end = brace + j + 1;
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-    let body = &after[..end];
-    body.contains("set_contained_by(None)")
-        && !body.contains("contained_by = None")
-        && body.contains("remove_occupant")
-}
-
-/// Production window of a multi-file source concat: drops `#[cfg(test)]
-/// mod NAME { ... }` bodies so scans see production code only. `mod name;`
-/// re-exports have no inline body and are kept (their files are not in the
-/// concat). Test-module bodies always close with a column-0 `}`.
-fn production_source_window(src: &str) -> String {
-    let mut out = String::with_capacity(src.len());
-    let mut lines = src.lines().peekable();
-    while let Some(line) = lines.next() {
-        out.push_str(line);
-        out.push('\n');
-        let test_attr = line.trim_start().starts_with("#[cfg(test)]");
-        let inline_test_mod = lines.peek().map_or(false, |n: &&str| {
-            let t = n.trim_start();
-            t.starts_with("mod ") && t.ends_with('{')
-        });
-        if test_attr && inline_test_mod {
-            lines.next();
-            for inner in lines.by_ref() {
-                if inner == "}" {
-                    break;
-                }
-            }
-        }
-    }
-    out
-}
-
-/// Source residual: engine has zero production build_from_logic; uses build_for_engine.
-pub fn honesty_engine_build_for_engine_only_source() -> bool {
-    // Test bodies are cut structurally: selection freeze tests legitimately call
-    // build_from_logic under #[cfg(test)] and must not fail this production scan.
-    let eng = production_source_window(crate::cnc_game_engine::ENGINE_SRC);
-    // Production code: map-load and preload use build_for_engine.
-    eng.contains("publish_for_engine")
-        && eng
-            .lines()
-            .filter(|l| !l.trim_start().starts_with("//"))
-            .filter(|l| l.contains("build_from_logic"))
-            .count()
-            == 0
-}
-
-/// Live residual: evacuating a container logs host_contain clear for passengers.
 pub fn simulate_live_evacuate_contain_log_honesty() -> bool {
-    use crate::game_logic::host_contain_log;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
-
-    if !honesty_live_evacuate_contain_log_residual_pack_wave201() {
-        return false;
-    }
-    if !honesty_evacuate_uses_set_contained_by_source() {
-        return false;
-    }
-    if !honesty_engine_build_for_engine_only_source() {
-        return false;
-    }
-
-    host_contain_log::clear();
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EvacContain201");
@@ -203,7 +100,7 @@ pub fn simulate_live_evacuate_contain_log_honesty() -> bool {
         return false;
     };
     // Force bunker capacity + load passenger.
-    if let Some(obj) = logic.get_object_mut(bunker) {
+    if let Some(obj) = logic.host_object_mut(bunker) {
         if obj.building_data.is_none() {
             obj.building_data = Some(crate::game_logic::buildings::BuildingData::new(
                 crate::game_logic::buildings::BuildingType::Bunker,
@@ -213,29 +110,49 @@ pub fn simulate_live_evacuate_contain_log_honesty() -> bool {
         }
     }
     // Contain via set_contained_by + add occupant if API exists
-    if let Some(obj) = logic.get_object_mut(inf) {
+    if let Some(obj) = logic.host_object_mut(inf) {
         obj.set_contained_by(Some(bunker));
     }
-    if let Some(obj) = logic.get_object_mut(bunker) {
+    if let Some(obj) = logic.host_object_mut(bunker) {
         if let Some(bd) = obj.building_data.as_mut() {
             if !bd.garrisoned_units.contains(&inf) {
                 bd.garrisoned_units.push(inf);
             }
         }
     }
-    host_contain_log::clear();
 
     if !logic.evacuate_container_now(bunker, false) {
-        // If evacuate fails empty, still verify source residual for set_contained_by path.
-        return honesty_evacuate_uses_set_contained_by_source();
+        return false;
     }
-    let events = host_contain_log::drain();
-    // Passenger clear and/or garrison update should appear.
-    events
-        .iter()
-        .any(|e| e.object == inf && e.contained_by_host == 0)
-        || events.iter().any(|e| e.object == bunker)
-        || honesty_evacuate_uses_set_contained_by_source()
+    if logic
+        .host_object(inf)
+        .is_none_or(|rider| rider.contained_by.is_some())
+    {
+        return false;
+    }
+    if logic.host_object(bunker).is_none_or(|owner| {
+        owner
+            .building_data
+            .as_ref()
+            .is_none_or(|building| building.garrisoned_units.contains(&inf))
+    }) {
+        return false;
+    }
+    let mut observer = crate::gameworld_shadow::GameWorldShadow::new(64);
+    observer.sync_from_host(&logic);
+    let Some(rider) = observer
+        .entity_for_host(inf)
+        .and_then(|id| observer.world().entity(id))
+    else {
+        return false;
+    };
+    let Some(owner) = observer
+        .entity_for_host(bunker)
+        .and_then(|id| observer.world().entity(id))
+    else {
+        return false;
+    };
+    rider.contained_by_host == 0 && !owner.garrisoned_host_ids.contains(&inf.0)
 }
 
 #[cfg(test)]
@@ -255,12 +172,6 @@ mod tests {
     #[test]
     fn wave201_composite_pack() {
         assert!(honesty_live_evacuate_contain_log_residual_pack_wave201());
-    }
-
-    #[test]
-    fn evacuate_contain_sources() {
-        assert!(honesty_evacuate_uses_set_contained_by_source());
-        assert!(honesty_engine_build_for_engine_only_source());
     }
 
     #[test]

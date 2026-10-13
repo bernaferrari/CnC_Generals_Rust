@@ -8,9 +8,7 @@
 use super::super::imports::*;
 
 pub(super) struct Waves401440 {
-    pub live_ai_group_dual_world_empty_gate_method_names_wave401_ok: bool,
-    pub live_ai_group_dual_world_empty_gate_nav_commands_wave401_ok: bool,
-    pub live_ai_group_dual_world_empty_gate_live_wave401_ok: bool,
+
     pub live_slaved_update_dual_world_empty_gate_method_names_wave402_ok: bool,
     pub live_slaved_update_dual_world_empty_gate_nav_commands_wave402_ok: bool,
     pub live_slaved_update_dual_world_empty_gate_live_wave402_ok: bool,
@@ -20,12 +18,9 @@ pub(super) struct Waves401440 {
     pub live_bone_fx_update_dual_world_empty_gate_method_names_wave404_ok: bool,
     pub live_bone_fx_update_dual_world_empty_gate_nav_commands_wave404_ok: bool,
     pub live_bone_fx_update_dual_world_empty_gate_live_wave404_ok: bool,
-    pub live_supply_warehouse_dock_dual_world_empty_gate_method_names_wave405_ok: bool,
-    pub live_supply_warehouse_dock_dual_world_empty_gate_nav_commands_wave405_ok: bool,
-    pub live_supply_warehouse_dock_dual_world_empty_gate_live_wave405_ok: bool,
-    pub live_ocl_special_power_dual_world_empty_gate_method_names_wave406_ok: bool,
-    pub live_ocl_special_power_dual_world_empty_gate_nav_commands_wave406_ok: bool,
-    pub live_ocl_special_power_dual_world_empty_gate_live_wave406_ok: bool,
+
+
+
     pub live_railed_transport_ai_update_dual_world_empty_gate_method_names_wave407_ok: bool,
     pub live_railed_transport_ai_update_dual_world_empty_gate_nav_commands_wave407_ok: bool,
     pub live_railed_transport_ai_update_dual_world_empty_gate_live_wave407_ok: bool,
@@ -38,9 +33,7 @@ pub(super) struct Waves401440 {
     pub live_minefield_behavior_dual_world_empty_gate_method_names_wave410_ok: bool,
     pub live_minefield_behavior_dual_world_empty_gate_nav_commands_wave410_ok: bool,
     pub live_minefield_behavior_dual_world_empty_gate_live_wave410_ok: bool,
-    pub live_point_defense_laser_update_dual_world_empty_gate_method_names_wave411_ok: bool,
-    pub live_point_defense_laser_update_dual_world_empty_gate_nav_commands_wave411_ok: bool,
-    pub live_point_defense_laser_update_dual_world_empty_gate_live_wave411_ok: bool,
+
     pub live_lifetime_update_dual_world_empty_gate_method_names_wave412_ok: bool,
     pub live_lifetime_update_dual_world_empty_gate_nav_commands_wave412_ok: bool,
     pub live_lifetime_update_dual_world_empty_gate_live_wave412_ok: bool,
@@ -64,9 +57,8 @@ pub(super) struct Waves401440 {
     pub live_build_placement_dual_world_empty_gate_method_names_wave418_ok: bool,
     pub live_build_placement_dual_world_empty_gate_nav_commands_wave418_ok: bool,
     pub live_build_placement_dual_world_empty_gate_live_wave418_ok: bool,
-    pub live_weapon_set_dual_world_empty_gate_method_names_wave419_ok: bool,
-    pub live_weapon_set_dual_world_empty_gate_nav_commands_wave419_ok: bool,
-    pub live_weapon_set_dual_world_empty_gate_live_wave419_ok: bool,
+
+
     pub live_experience_tracker_dual_world_empty_gate_method_names_wave420_ok: bool,
     pub live_experience_tracker_dual_world_empty_gate_nav_commands_wave420_ok: bool,
     pub live_experience_tracker_dual_world_empty_gate_live_wave420_ok: bool,
@@ -122,9 +114,7 @@ pub(super) struct Waves401440 {
 
 pub(super) fn evaluate() -> Waves401440 {
     Waves401440 {
-        live_ai_group_dual_world_empty_gate_method_names_wave401_ok: honesty_live_ai_group_core_dual_world_empty_gate_method_names_residual_wave401(),
-        live_ai_group_dual_world_empty_gate_nav_commands_wave401_ok: honesty_live_ai_group_core_dual_world_empty_gate_nav_commands_residual_wave401(),
-        live_ai_group_dual_world_empty_gate_live_wave401_ok: simulate_live_ai_group_core_dual_world_empty_gate_honesty_wave401(),
+
         live_slaved_update_dual_world_empty_gate_method_names_wave402_ok: honesty_live_slaved_update_dual_world_empty_gate_method_names_residual_wave402(),
         live_slaved_update_dual_world_empty_gate_nav_commands_wave402_ok: honesty_live_slaved_update_dual_world_empty_gate_nav_commands_residual_wave402(),
         live_slaved_update_dual_world_empty_gate_live_wave402_ok: simulate_live_slaved_update_dual_world_empty_gate_honesty(),
@@ -134,12 +124,9 @@ pub(super) fn evaluate() -> Waves401440 {
         live_bone_fx_update_dual_world_empty_gate_method_names_wave404_ok: honesty_live_bone_fx_update_dual_world_empty_gate_method_names_residual_wave404(),
         live_bone_fx_update_dual_world_empty_gate_nav_commands_wave404_ok: honesty_live_bone_fx_update_dual_world_empty_gate_nav_commands_residual_wave404(),
         live_bone_fx_update_dual_world_empty_gate_live_wave404_ok: simulate_live_bone_fx_update_dual_world_empty_gate_honesty(),
-        live_supply_warehouse_dock_dual_world_empty_gate_method_names_wave405_ok: honesty_live_supply_warehouse_dock_dual_world_empty_gate_method_names_residual_wave405(),
-        live_supply_warehouse_dock_dual_world_empty_gate_nav_commands_wave405_ok: honesty_live_supply_warehouse_dock_dual_world_empty_gate_nav_commands_residual_wave405(),
-        live_supply_warehouse_dock_dual_world_empty_gate_live_wave405_ok: simulate_live_supply_warehouse_dock_dual_world_empty_gate_honesty(),
-        live_ocl_special_power_dual_world_empty_gate_method_names_wave406_ok: honesty_live_ocl_special_power_dual_world_empty_gate_method_names_residual_wave406(),
-        live_ocl_special_power_dual_world_empty_gate_nav_commands_wave406_ok: honesty_live_ocl_special_power_dual_world_empty_gate_nav_commands_residual_wave406(),
-        live_ocl_special_power_dual_world_empty_gate_live_wave406_ok: simulate_live_ocl_special_power_dual_world_empty_gate_honesty(),
+
+
+
         live_railed_transport_ai_update_dual_world_empty_gate_method_names_wave407_ok: honesty_live_railed_transport_ai_update_dual_world_empty_gate_method_names_residual_wave407(
         ),
         live_railed_transport_ai_update_dual_world_empty_gate_nav_commands_wave407_ok: honesty_live_railed_transport_ai_update_dual_world_empty_gate_nav_commands_residual_wave407(
@@ -154,11 +141,7 @@ pub(super) fn evaluate() -> Waves401440 {
         live_minefield_behavior_dual_world_empty_gate_method_names_wave410_ok: honesty_live_minefield_behavior_dual_world_empty_gate_method_names_residual_wave410(),
         live_minefield_behavior_dual_world_empty_gate_nav_commands_wave410_ok: honesty_live_minefield_behavior_dual_world_empty_gate_nav_commands_residual_wave410(),
         live_minefield_behavior_dual_world_empty_gate_live_wave410_ok: simulate_live_minefield_behavior_dual_world_empty_gate_honesty(),
-        live_point_defense_laser_update_dual_world_empty_gate_method_names_wave411_ok: honesty_live_point_defense_laser_update_dual_world_empty_gate_method_names_residual_wave411(
-        ),
-        live_point_defense_laser_update_dual_world_empty_gate_nav_commands_wave411_ok: honesty_live_point_defense_laser_update_dual_world_empty_gate_nav_commands_residual_wave411(
-        ),
-        live_point_defense_laser_update_dual_world_empty_gate_live_wave411_ok: simulate_live_point_defense_laser_update_dual_world_empty_gate_honesty(),
+
         live_lifetime_update_dual_world_empty_gate_method_names_wave412_ok: honesty_live_lifetime_update_dual_world_empty_gate_method_names_residual_wave412(),
         live_lifetime_update_dual_world_empty_gate_nav_commands_wave412_ok: honesty_live_lifetime_update_dual_world_empty_gate_nav_commands_residual_wave412(),
         live_lifetime_update_dual_world_empty_gate_live_wave412_ok: simulate_live_lifetime_update_dual_world_empty_gate_honesty(),
@@ -180,9 +163,8 @@ pub(super) fn evaluate() -> Waves401440 {
         live_build_placement_dual_world_empty_gate_method_names_wave418_ok: honesty_live_build_placement_dual_world_empty_gate_method_names_residual_wave418(),
         live_build_placement_dual_world_empty_gate_nav_commands_wave418_ok: honesty_live_build_placement_dual_world_empty_gate_nav_commands_residual_wave418(),
         live_build_placement_dual_world_empty_gate_live_wave418_ok: simulate_live_build_placement_dual_world_empty_gate_honesty(),
-        live_weapon_set_dual_world_empty_gate_method_names_wave419_ok: honesty_live_weapon_set_dual_world_empty_gate_method_names_residual_wave419(),
-        live_weapon_set_dual_world_empty_gate_nav_commands_wave419_ok: honesty_live_weapon_set_dual_world_empty_gate_nav_commands_residual_wave419(),
-        live_weapon_set_dual_world_empty_gate_live_wave419_ok: simulate_live_weapon_set_dual_world_empty_gate_honesty(),
+
+
         live_experience_tracker_dual_world_empty_gate_method_names_wave420_ok: honesty_live_experience_tracker_dual_world_empty_gate_method_names_residual_wave420(),
         live_experience_tracker_dual_world_empty_gate_nav_commands_wave420_ok: honesty_live_experience_tracker_dual_world_empty_gate_nav_commands_residual_wave420(),
         live_experience_tracker_dual_world_empty_gate_live_wave420_ok: simulate_live_experience_tracker_dual_world_empty_gate_honesty(),

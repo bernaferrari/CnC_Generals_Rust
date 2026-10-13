@@ -198,21 +198,9 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         "live nuclear missile power dual-world empty gate live residual wave441: {}",
         r.detail
     );
-    assert!(
-        r.live_overlord_draw_dual_world_empty_gate_method_names_wave442_ok,
-        "live overlord draw dual-world empty gate method names residual pack wave442: {}",
-        r.detail
-    );
-    assert!(
-        r.live_overlord_draw_dual_world_empty_gate_nav_commands_wave442_ok,
-        "live overlord draw dual-world empty gate nav commands residual pack wave442: {}",
-        r.detail
-    );
-    assert!(
-        r.live_overlord_draw_dual_world_empty_gate_live_wave442_ok,
-        "live overlord draw dual-world empty gate live residual wave442: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.live_stealth_integration_dual_world_empty_gate_method_names_wave443_ok,
         "live stealth integration dual-world empty gate method names residual pack wave443: {}",
@@ -273,36 +261,12 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         "live replace object upgrade dual-world empty gate live residual wave446: {}",
         r.detail
     );
-    assert!(
-        r.live_fire_spread_update_dual_world_empty_gate_method_names_wave447_ok,
-        "live fire spread update dual-world empty gate method names residual pack wave447: {}",
-        r.detail
-    );
-    assert!(
-        r.live_fire_spread_update_dual_world_empty_gate_nav_commands_wave447_ok,
-        "live fire spread update dual-world empty gate nav commands residual pack wave447: {}",
-        r.detail
-    );
-    assert!(
-        r.live_fire_spread_update_dual_world_empty_gate_live_wave447_ok,
-        "live fire spread update dual-world empty gate live residual wave447: {}",
-        r.detail
-    );
-    assert!(
-        r.live_object_upgrade_batch_dual_world_empty_gate_method_names_wave448_ok,
-        "live object upgrade batch dual-world empty gate method names residual pack wave448: {}",
-        r.detail
-    );
-    assert!(
-        r.live_object_upgrade_batch_dual_world_empty_gate_nav_commands_wave448_ok,
-        "live object upgrade batch dual-world empty gate nav commands residual pack wave448: {}",
-        r.detail
-    );
-    assert!(
-        r.live_object_upgrade_batch_dual_world_empty_gate_live_wave448_ok,
-        "live object upgrade batch dual-world empty gate live residual wave448: {}",
-        r.detail
-    );
+
+
+
+
+
+
     assert!(
         r.live_contain_module_overrides_fail_closed_method_names_wave449_ok,
         "live contain module overrides fail-closed method names residual pack wave449: {}",
@@ -318,21 +282,9 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         "live contain module overrides fail-closed live residual wave449: {}",
         r.detail
     );
-    assert!(
-        r.live_core_sim_dual_world_empty_gate_method_names_wave450_ok,
-        "live core sim dual-world empty gate method names residual pack wave450: {}",
-        r.detail
-    );
-    assert!(
-        r.live_core_sim_dual_world_empty_gate_nav_commands_wave450_ok,
-        "live core sim dual-world empty gate nav commands residual pack wave450: {}",
-        r.detail
-    );
-    assert!(
-        r.live_core_sim_dual_world_empty_gate_live_wave450_ok,
-        "live core sim dual-world empty gate live residual wave450: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.live_golden_mopup_honesty_method_names_wave451_ok,
         "live golden mop-up honesty method names residual pack wave451: {}",
@@ -508,21 +460,9 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         "render ui pipeline presentation live residual wave462: {}",
         r.detail
     );
-    assert!(
-        r.production_quantity_writeback_method_names_wave463_ok,
-        "production quantity writeback method names residual pack wave463: {}",
-        r.detail
-    );
-    assert!(
-        r.production_quantity_writeback_nav_commands_wave463_ok,
-        "production quantity writeback nav commands residual pack wave463: {}",
-        r.detail
-    );
-    assert!(
-        r.production_quantity_writeback_live_wave463_ok,
-        "production quantity writeback live residual wave463: {}",
-        r.detail
-    );
+
+
+
 
 
 

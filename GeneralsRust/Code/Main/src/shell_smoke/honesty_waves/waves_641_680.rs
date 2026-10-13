@@ -27,15 +27,6 @@ pub(super) struct Waves641680 {
     pub host_guard_ready_log_helper_live_wave669_ok: bool,
 
 
-
-
-
-
-
-    pub host_production_spawn_ready_log_helper_method_names_wave679_ok: bool,
-    pub host_production_spawn_ready_log_helper_nav_commands_wave679_ok: bool,
-    pub host_production_spawn_ready_log_helper_live_wave679_ok: bool,
-
 }
 
 pub(super) fn evaluate() -> Waves641680 {
@@ -67,18 +58,6 @@ pub(super) fn evaluate() -> Waves641680 {
         host_guard_ready_log_helper_live_wave669_ok:
             simulate_live_host_guard_ready_log_helper_honesty(),
 
-
-
-
-
-
-
-        host_production_spawn_ready_log_helper_method_names_wave679_ok:
-            honesty_host_production_spawn_ready_log_helper_method_names_residual_wave679(),
-        host_production_spawn_ready_log_helper_nav_commands_wave679_ok:
-            honesty_host_production_spawn_ready_log_helper_nav_commands_residual_wave679(),
-        host_production_spawn_ready_log_helper_live_wave679_ok:
-            simulate_live_host_production_spawn_ready_log_helper_honesty(),
 
     }
 }

@@ -1,18 +1,5 @@
-//! Wave 205 residual peels: capture/gather/hijack/special-ability pathing uses
-//! `Object::set_order_target` so `host_attack_log` drains without forcing
-//! `AIState::Attacking` (path_to_goal_with_state owns AI residual).
-//! Never flips shell `playable_claim`.
-//!
-//! Orthogonal to Wave 204 formation residual.
-//! Host residual only — network deferred.
-//!
-//! Sources:
-//! - `Object::set_order_target` → host_attack_log + target_location clear
-//! - command_executor ability pathing blocks use set_order_target
-//!
-//! Fail-closed:
-//! - Not full GameClient OS-input cutover
-//! - Shell `playable_claim` stays false; network deferred
+//! Receiving Main behavior and read-only presentation witness.
+//! Historical shell identifiers are metadata, not C++ parity evidence.
 
 /// Lookup residual name index (exact match).
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
@@ -82,79 +69,10 @@ pub fn honesty_live_command_order_target_log_residual_pack_wave205() -> bool {
 }
 
 /// Source residual: set_order_target records attack log and does not force Attacking.
-pub fn honesty_set_order_target_source() -> bool {
-    let src = crate::game_logic::object::OBJECT_SRC;
-    let i = match src.find("fn set_order_target") {
-        Some(i) => i,
-        None => return false,
-    };
-    // 2026-08-15: bound to the function — later OBJECT_SRC mentions Attacking.
-    let after = &src[i..];
-    let Some(brace) = after.find('{') else {
-        return false;
-    };
-    let mut depth = 0i32;
-    let mut end = after.len();
-    for (j, ch) in after[brace..].char_indices() {
-        match ch {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    end = brace + j + 1;
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-    let body = &after[..end];
-    body.contains("host_attack_log::record")
-        && body.contains("set_status_attacking(false)")
-        && !body.contains("AIState::Attacking")
-}
-
-/// Source residual: ability pathing uses set_order_target; no production target=Some bypass.
-pub fn honesty_ability_paths_use_order_target_source() -> bool {
-    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    // Production section: before #[cfg(test)]
-    // 2026-08-15: COMMAND_EXECUTOR_SRC hits `#[cfg(test)] mod tests;` in mod.rs first.
-    let prod = ce;
-    if !prod.contains("set_order_target") {
-        return false;
-    }
-    if !prod.contains("execute_capture_building") {
-        return false;
-    }
-    // No direct target assignment left in production.
-    let direct_raw = prod
-        .lines()
-        .filter(|l| {
-            let t = l.trim_start();
-            !t.starts_with("//") && t.contains("target = Some") && !t.contains("set_")
-        })
-        .count();
-    direct_raw == 0
-}
-
-/// Live residual: set_order_target drains host_attack_log without AI Attacking.
 pub fn simulate_live_command_order_target_log_honesty() -> bool {
-    use crate::game_logic::host_attack_log;
     use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
-
-    if !honesty_live_command_order_target_log_residual_pack_wave205() {
-        return false;
-    }
-    if !honesty_set_order_target_source() {
-        return false;
-    }
-    if !honesty_ability_paths_use_order_target_source() {
-        return false;
-    }
-
-    host_attack_log::clear();
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("OrderTgt205");
@@ -182,8 +100,7 @@ pub fn simulate_live_command_order_target_log_honesty() -> bool {
         return false;
     };
 
-    host_attack_log::clear();
-    if let Some(unit) = logic.get_object_mut(u) {
+    if let Some(unit) = logic.host_object_mut(u) {
         unit.set_ai_state(AIState::Idle);
         unit.set_order_target(Some(b));
         if unit.target != Some(b) {
@@ -202,10 +119,18 @@ pub fn simulate_live_command_order_target_log_honesty() -> bool {
     } else {
         return false;
     }
-    let events = host_attack_log::drain();
-    events
-        .iter()
-        .any(|e| e.attacker == u && e.target == Some(b))
+    let mut observer = crate::gameworld_shadow::GameWorldShadow::new(64);
+    observer.sync_from_host(&logic);
+    let Some(actor) = observer.entity_for_host(u) else {
+        return false;
+    };
+    let Some(target) = observer.entity_for_host(b) else {
+        return false;
+    };
+    observer
+        .world()
+        .entity(actor)
+        .is_some_and(|object| object.attack_target == Some(target))
 }
 
 #[cfg(test)]
@@ -225,12 +150,6 @@ mod tests {
     #[test]
     fn wave205_composite_pack() {
         assert!(honesty_live_command_order_target_log_residual_pack_wave205());
-    }
-
-    #[test]
-    fn order_target_sources() {
-        assert!(honesty_set_order_target_source());
-        assert!(honesty_ability_paths_use_order_target_source());
     }
 
     #[test]

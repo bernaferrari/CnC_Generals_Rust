@@ -611,6 +611,12 @@ impl GameLogic {
         // dual-tick tests drive shadow materialize+resolve after host combat.
         {}
 
+        // Object::fire_at_ex commits its firing target synchronously. Residual
+        // firing uses the same canonical engagement observation before damage.
+        if let Some(source) = self.objects.get_mut(&attacker_id) {
+            source.set_target(Some(target_id));
+        }
+
         let mut destroyed = false;
         let mut kill_xp = 0.0;
         if let Some(target) = self.objects.get_mut(&target_id) {

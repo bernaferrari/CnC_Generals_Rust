@@ -59,13 +59,21 @@ fn install_actual_reactions(logic: &mut GameLogic, id: ObjectId) -> ObjectId {
         .add_kind_of(KindOf::Attackable)
         .set_health(100.0);
     logic.templates.insert(target.name.clone(), target);
-    logic
+    let id = logic
         .create_object(
             "ActualReactionTarget",
             Team::China,
             Vec3::new(1.0, 0.0, 0.0),
         )
-        .unwrap()
+        .unwrap();
+    assert_eq!(
+        crate::game_logic::host_armor_residual::residual_armor_for_object(
+            logic.host_object(id).unwrap()
+        )
+        .adjust_damage(gamelogic::damage::DamageType::Poison, 1.0),
+        0.25
+    );
+    id
 }
 
 #[test]

@@ -1,19 +1,5 @@
-//! Historical Wave 199 navigation receipt: construction is now observed on its owner.
-//! Production cancel
-//! logs `HostProductionEvent::Cancel` for GameWorld queue last-writer.
-//! Never flips shell `playable_claim`.
-//!
-//! Orthogonal to Wave 198 guard-log residual.
-//! Host residual only — network deferred.
-//!
-//! Sources:
-//! - `create_object_under_construction` → `host_owns_construction`
-//! - `cancel_production` → `host_production_log::record_cancel`
-//! - shadow `apply_host_production_events` handles Cancel
-//!
-//! Fail-closed:
-//! - Enqueue already logged prior to this wave
-//! - Shell `playable_claim` stays false; network deferred
+//! Receiving Main behavior and read-only presentation witness.
+//! Historical shell identifiers are metadata, not C++ parity evidence.
 
 /// Lookup residual name index (exact match).
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
@@ -84,59 +70,10 @@ pub fn honesty_live_command_production_construction_log_residual_pack_wave199() 
 }
 
 /// Source residual: under-construction create records progress log at 0%.
-pub fn honesty_construction_start_progress_log_source() -> bool {
-    super::construction_owner_source_contract::host_owns_construction()
-}
-
-/// Source residual: cancel_production records Cancel; shadow matches Cancel.
-pub fn honesty_production_cancel_log_source() -> bool {
-    let gl = super::GAME_LOGIC_HOST_SRC;
-    let hp = include_str!("../host_production_log.rs");
-    let gw = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
-    let i = match gl.find("fn cancel_production") {
-        Some(i) => i,
-        None => return false,
-    };
-    let body = &gl[i..];
-    body.contains("host_production_log::record_cancel")
-        && hp.contains("HostProductionEvent::Cancel")
-        && hp.contains("pub fn record_cancel")
-        && gw.contains("HostProductionEvent::Cancel")
-}
-
-/// Actual scaffold admission plus the independent production cancellation receipt.
 pub fn simulate_live_command_production_construction_log_honesty() -> bool {
-    use crate::game_logic::host_production_log::{self, HostProductionEvent};
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
-
-    if !honesty_live_command_production_construction_log_residual_pack_wave199() {
-        return false;
-    }
-    if !honesty_construction_start_progress_log_source() {
-        return false;
-    }
-    if !honesty_production_cancel_log_source() {
-        return false;
-    }
-
-    host_production_log::clear();
-
-    // Direct log APIs (command path sources already honesty-checked).
-    host_production_log::record_cancel(crate::game_logic::ObjectId(42), "CancelUnit199");
-    let pe = host_production_log::drain();
-    if !pe.iter().any(|e| {
-        matches!(
-            e,
-            HostProductionEvent::Cancel {
-                template_name,
-                ..
-            } if template_name == "CancelUnit199"
-        )
-    }) {
-        return false;
-    }
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ProdConstr199");
@@ -157,9 +94,91 @@ pub fn simulate_live_command_production_construction_log_honesty() -> bool {
     ) else {
         return false;
     };
-    logic.host_object(bid).is_some_and(|object| {
+    if !logic.host_object(bid).is_some_and(|object| {
         object.status.under_construction && object.construction_percent == 0.0
-    })
+    }) {
+        return false;
+    }
+    let Some(player) = logic
+        .get_players()
+        .values()
+        .find(|player| player.team == Team::USA && player.is_alive)
+        .map(|player| player.id)
+    else {
+        return false;
+    };
+    logic
+        .get_player_mut(player)
+        .expect("selected player")
+        .resources
+        .supplies = 1000;
+    let mut unit_template = ThingTemplate::new("CancelUnit199");
+    unit_template.set_health(100.0);
+    unit_template.add_kind_of(KindOf::Infantry);
+    logic
+        .templates
+        .insert("CancelUnit199".into(), unit_template);
+    let mut factory_template = ThingTemplate::new("CancelFactory199");
+    factory_template.add_kind_of(KindOf::Structure);
+    factory_template.add_kind_of(KindOf::FSBarracks);
+    logic
+        .templates
+        .insert("CancelFactory199".into(), factory_template);
+    let Some(factory) =
+        logic.create_object("CancelFactory199", Team::USA, Vec3::new(70.0, 0.0, 50.0))
+    else {
+        return false;
+    };
+    {
+        use crate::game_logic::buildings::{
+            BuildingData, BuildingType, ProductionItem, ProductionKind,
+        };
+        let object = logic.host_object_mut(factory).expect("created factory");
+        object.set_team_and_owner(Team::USA, Some(player));
+        let building = object
+            .building_data
+            .get_or_insert_with(|| BuildingData::new(BuildingType::Barracks));
+        building.production_queue.push(ProductionItem {
+            template_name: "CancelUnit199".into(),
+            progress: 0.0,
+            total_time: 10.0,
+            construction_frames: 0,
+            cost: crate::game_logic::Resources {
+                supplies: 250,
+                power: 0,
+            },
+            quantity_total: 1,
+            quantity_produced: 0,
+            kind: ProductionKind::Unit,
+        });
+    }
+    if !logic.cancel_production(factory, "CancelUnit199".into()) {
+        return false;
+    }
+    if logic
+        .get_player(player)
+        .is_none_or(|player| player.resources.supplies != 1250)
+        || logic
+            .host_object(factory)
+            .and_then(|factory| factory.building_data.as_ref())
+            .is_none_or(|building| !building.production_queue.is_empty())
+        || logic.cancel_production(factory, "CancelUnit199".into())
+    {
+        return false;
+    }
+    let mut observer = crate::gameworld_shadow::GameWorldShadow::new(64);
+    observer.sync_from_host(&logic);
+    let Some(entity) = observer
+        .entity_for_host(bid)
+        .and_then(|id| observer.world().entity(id))
+    else {
+        return false;
+    };
+    entity.under_construction
+        && entity.construction_percent == 0.0
+        && logic
+            .get_player(player)
+            .is_some_and(|player| player.resources.supplies == 1250)
 }
 
 #[cfg(test)]
@@ -179,12 +198,6 @@ mod tests {
     #[test]
     fn wave199_composite_pack() {
         assert!(honesty_live_command_production_construction_log_residual_pack_wave199());
-    }
-
-    #[test]
-    fn production_construction_log_sources() {
-        assert!(honesty_construction_start_progress_log_source());
-        assert!(honesty_production_cancel_log_source());
     }
 
     #[test]

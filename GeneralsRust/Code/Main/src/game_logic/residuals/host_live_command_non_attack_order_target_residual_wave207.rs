@@ -1,18 +1,5 @@
-//! Wave 207 residual peels: enter/dock/repair/heal/return-resources/mine/combat-drop
-//! pathing uses `set_order_target` (not `set_target`) so AIState is owned by
-//! `path_to_goal_with_state` while `host_attack_log` still last-writes.
-//! Never flips shell `playable_claim`.
-//!
-//! Orthogonal to Wave 205 ability-order-target residual (capture/hijack/special).
-//! Host residual only — network deferred.
-//!
-//! Sources:
-//! - execute_enter / dock / repair / heal / return resources / mine clear / combat drop
-//! - set_order_target before non-Attacking AIState pathing
-//!
-//! Fail-closed:
-//! - Not full GameClient OS-input cutover
-//! - Shell `playable_claim` stays false; network deferred
+//! Receiving Main behavior and read-only presentation witness.
+//! Historical shell identifiers are metadata, not C++ parity evidence.
 
 /// Lookup residual name index (exact match).
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
@@ -82,76 +69,10 @@ pub fn honesty_live_command_non_attack_order_target_residual_pack_wave207() -> b
 }
 
 /// Source residual: dock/enter/repair use set_order_target.
-pub fn honesty_non_attack_paths_use_order_target_source() -> bool {
-    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    // 2026-08-15: do not truncate COMMAND_EXECUTOR_SRC at first `#[cfg(test)]`.
-    let prod = ce;
-    for needle in ["fn execute_dock", "fn execute_enter", "fn execute_repair"] {
-        let i = match prod.find(needle) {
-            Some(i) => i,
-            None => return false,
-        };
-        let body = &prod[i..];
-        // Wave 233: may route through unit_command_*order_target APIs.
-        if !(body.contains("set_order_target")
-            || body.contains("unit_command_stop_moving_order_target")
-            || body.contains("unit_command_set_order_target"))
-        {
-            return false;
-        }
-        // No set_target before path in these bodies.
-        if body.contains("set_target(Some") {
-            return false;
-        }
-    }
-    true
-}
-
-/// Source residual: production has no set_target followed by non-Attacking AIState first.
-pub fn honesty_no_set_target_before_non_attack_ai_source() -> bool {
-    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    let prod = ce;
-    let bytes = prod.as_bytes();
-    let s = prod;
-    let mut i = 0;
-    while let Some(rel) = s[i..].find("set_target(Some") {
-        let at = i + rel;
-        let after = &s[at..];
-        // first AIState::
-        if let Some(ai_rel) = after.find("AIState::") {
-            let name_start = ai_rel + "AIState::".len();
-            let name = after[name_start..]
-                .chars()
-                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-                .collect::<String>();
-            if name != "Attacking" {
-                let _ = bytes;
-                return false;
-            }
-        }
-        i = at + 1;
-    }
-    true
-}
-
-/// Live residual: set_order_target + Docking-style state does not force Attacking.
 pub fn simulate_live_command_non_attack_order_target_honesty() -> bool {
-    use crate::game_logic::host_attack_log;
     use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
-
-    if !honesty_live_command_non_attack_order_target_residual_pack_wave207() {
-        return false;
-    }
-    if !honesty_non_attack_paths_use_order_target_source() {
-        return false;
-    }
-    if !honesty_no_set_target_before_non_attack_ai_source() {
-        return false;
-    }
-
-    host_attack_log::clear();
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("NonAtk207");
@@ -178,8 +99,7 @@ pub fn simulate_live_command_non_attack_order_target_honesty() -> bool {
         return false;
     };
 
-    host_attack_log::clear();
-    if let Some(unit) = logic.get_object_mut(u) {
+    if let Some(unit) = logic.host_object_mut(u) {
         unit.set_ai_state(AIState::Idle);
         unit.set_order_target(Some(pad));
         unit.set_ai_state(AIState::Docking);
@@ -195,10 +115,18 @@ pub fn simulate_live_command_non_attack_order_target_honesty() -> bool {
     } else {
         return false;
     }
-    let events = host_attack_log::drain();
-    events
-        .iter()
-        .any(|e| e.attacker == u && e.target == Some(pad))
+    let mut observer = crate::gameworld_shadow::GameWorldShadow::new(64);
+    observer.sync_from_host(&logic);
+    let Some(actor) = observer.entity_for_host(u) else {
+        return false;
+    };
+    let Some(target) = observer.entity_for_host(pad) else {
+        return false;
+    };
+    observer
+        .world()
+        .entity(actor)
+        .is_some_and(|object| object.attack_target == Some(target))
 }
 
 #[cfg(test)]
@@ -218,12 +146,6 @@ mod tests {
     #[test]
     fn wave207_composite_pack() {
         assert!(honesty_live_command_non_attack_order_target_residual_pack_wave207());
-    }
-
-    #[test]
-    fn non_attack_order_sources() {
-        assert!(honesty_non_attack_paths_use_order_target_source());
-        assert!(honesty_no_set_target_before_non_attack_ai_source());
     }
 
     #[test]

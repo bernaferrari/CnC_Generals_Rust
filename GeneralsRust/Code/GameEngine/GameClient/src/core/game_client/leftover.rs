@@ -38,11 +38,7 @@ impl GameClient {
         let object_arc = OBJECT_REGISTRY.get_object(object_id)?;
         let object_guard = object_arc.read().ok()?;
         let name = object_guard.get_template().get_name().to_string();
-        if name.is_empty() {
-            None
-        } else {
-            Some(name)
-        }
+        if name.is_empty() { None } else { Some(name) }
     }
 
     fn collect_saveable_drawables_sorted(&self) -> Result<Vec<(DrawableId, String)>, String> {
@@ -303,8 +299,10 @@ impl GameClient {
                     }
                 }
                 "W3DTankTruckDraw" => {
-                    if let Some(data) =
-                        entry.data.as_any().downcast_ref::<W3DTankTruckDrawModuleData>()
+                    if let Some(data) = entry
+                        .data
+                        .as_any()
+                        .downcast_ref::<W3DTankTruckDrawModuleData>()
                     {
                         snapshot_modules.push(Box::new(
                             LogicDrawModuleSnapshotAdapter::draw_module(
@@ -478,6 +476,7 @@ impl GameClient {
     /// Destroys a drawable and removes it from all systems
     pub fn destroy_drawable(&mut self, id: DrawableId) -> GameClientResult<()> {
         self.ray_effects.delete(id);
+        self.owned_laser_order.retain(|owner| *owner != id);
         if let Some(drawable) = self.drawable_map.get(&id) {
             // Notify UI systems
             if let Some(ref ui) = self.subsystem_manager.in_game_ui {
@@ -500,8 +499,6 @@ impl GameClient {
         }
         // Direct visual identity is runtime-only and dies with the Drawable.
         self.presentation_direct_drawable_bindings.remove(&id);
-
-
 
         // Remove from text bearing list
         self.text_bearing_drawables
@@ -1273,9 +1270,8 @@ impl GameClient {
                 if entry.effectively_stealthed && !local {
                     drawable.set_stealth_look(crate::drawable::drawable::StealthLook::Invisible);
                 } else if entry.effectively_stealthed && local {
-                    drawable.set_stealth_look(
-                        crate::drawable::drawable::StealthLook::VisibleFriendly,
-                    );
+                    drawable
+                        .set_stealth_look(crate::drawable::drawable::StealthLook::VisibleFriendly);
                 }
                 drawable.set_visible(!fully_obscured && !status_hidden);
                 drawable.set_fully_obscured_by_shroud(fully_obscured);
@@ -1539,7 +1535,6 @@ impl GameClient {
             );
         }
     }
-
 }
 
 fn log_startup_shell_mapped_images() {
@@ -1652,7 +1647,8 @@ impl Snapshotable for GameClient {
             self.collect_saveable_drawables_sorted()?
         } else {
             self.drawable_map.clear();
-        self.ray_effects.reset();
+            self.ray_effects.reset();
+            self.owned_laser_order.clear();
             self.drawable_object_map.clear();
             self.presentation_direct_drawable_bindings.clear();
             Vec::new()
@@ -1752,7 +1748,11 @@ impl Snapshotable for GameClient {
                         let factory = guard
                             .as_ref()
                             .ok_or_else(|| "ThingFactory not initialized".to_string())?;
-                        !Self::drawable_matches_saved_template(existing.as_ref(), &template, factory)
+                        !Self::drawable_matches_saved_template(
+                            existing.as_ref(),
+                            &template,
+                            factory,
+                        )
                     } else {
                         true
                     };
@@ -1882,6 +1882,7 @@ impl Drop for GameClient {
         // Clear all drawables (they'll be dropped automatically)
         self.drawable_map.clear();
         self.ray_effects.reset();
+        self.owned_laser_order.clear();
 
         if owned_live_slot {
             crate::effects::clear_live_effects_after_drawables();
@@ -1918,16 +1919,14 @@ fn xfer_diplomacy_briefing_history(
     if xfer.is_writing() {
         let list = crate::gui::callbacks::diplomacy::get_briefing_text_list();
         let mut num_entries = i32::try_from(list.len()).unwrap_or(i32::MAX);
-        xfer.xfer_int(&mut num_entries)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut num_entries).map_err(|e| e.to_string())?;
         for mut temp_str in list {
             xfer.xfer_ascii_string(&mut temp_str)
                 .map_err(|e| e.to_string())?;
         }
     } else {
         let mut num_entries = 0i32;
-        xfer.xfer_int(&mut num_entries)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut num_entries).map_err(|e| e.to_string())?;
         crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text("", true);
         for _ in 0..num_entries.max(0) {
             let mut temp_str = String::new();

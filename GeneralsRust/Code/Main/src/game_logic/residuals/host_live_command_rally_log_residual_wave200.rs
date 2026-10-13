@@ -1,17 +1,5 @@
-//! Wave 200 residual peels: SetRallyPoint commands record `host_rally_log`
-//! so GameWorld shadow can last-write structure rally points.
-//! Never flips shell `playable_claim`.
-//!
-//! Orthogonal to Wave 199 production/construction log residual.
-//! Host residual only — network deferred.
-//!
-//! Sources:
-//! - `CommandExecutor::execute_set_rally_point` → `host_rally_log::record`
-//! - `WorldMutation::SetRallyPoint` + shadow `apply_host_rally_events`
-//!
-//! Fail-closed:
-//! - Not full command-buffer cutover for all CommandTypes
-//! - Shell `playable_claim` stays false; network deferred
+//! Receiving Main behavior and read-only presentation witness.
+//! Historical shell identifiers are metadata, not C++ parity evidence.
 
 /// Lookup residual name index (exact match).
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
@@ -80,58 +68,13 @@ pub fn honesty_live_command_rally_log_residual_pack_wave200() -> bool {
         && honesty_live_command_rally_log_nav_commands_residual_wave200()
 }
 
-/// Source residual: execute_set_rally_point records host_rally_log.
-pub fn honesty_execute_rally_records_source() -> bool {
-    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    let i = match src.find("fn execute_set_rally_point") {
-        Some(i) => i,
-        None => return false,
-    };
-    let body = &src[i..];
-    // Wave 233: executor may call unit_command_set_rally_point (records host_rally_log).
-    if body.contains("unit_command_set_rally_point") {
-        // 2026-08-15: scan host plus extra world_* splits.
-        let gl = super::host_logic_scan_src();
-        let gi = match gl.find("pub fn unit_command_set_rally_point") {
-            Some(gi) => gi,
-            None => return false,
-        };
-        let gbody = &gl[gi..];
-        return gbody.contains("host_rally_log::record")
-            && gbody.contains("rally_point = Some(location)");
-    }
-    body.contains("host_rally_log::record") && body.contains("rally_point = Some(location)")
-}
-
-/// Source residual: mutation + shadow drain/apply exist.
-pub fn honesty_shadow_drains_rally_log_source() -> bool {
-    let gw = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
-    gw.contains("host_rally_log::drain")
-        && gw.contains("e.rally_point =")
-        && gw.contains("obj.rally_point")
-}
-
-/// Live residual: rally command latches host_rally_log; shadow applies SetRallyPoint.
 pub fn simulate_live_command_rally_log_honesty() -> bool {
     use crate::command_system::{CommandType, GameCommand, ModifierKeys};
-    use crate::game_logic::host_rally_log;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::gameworld_shadow::GameWorldShadow;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
     use std::time::SystemTime;
-
-    if !honesty_live_command_rally_log_residual_pack_wave200() {
-        return false;
-    }
-    if !honesty_execute_rally_records_source() {
-        return false;
-    }
-    if !honesty_shadow_drains_rally_log_source() {
-        return false;
-    }
-
-    host_rally_log::clear();
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("RallyLog200");
@@ -151,7 +94,7 @@ pub fn simulate_live_command_rally_log_honesty() -> bool {
         return false;
     };
     // Ensure building_data present for rally.
-    if let Some(obj) = logic.get_object_mut(factory) {
+    if let Some(obj) = logic.host_object_mut(factory) {
         if obj.building_data.is_none() {
             obj.building_data = Some(crate::game_logic::buildings::BuildingData::new(
                 crate::game_logic::buildings::BuildingType::WarFactory,
@@ -170,15 +113,6 @@ pub fn simulate_live_command_rally_log_honesty() -> bool {
     });
     logic.process_commands();
 
-    let events = host_rally_log::drain();
-    if !events.iter().any(|e| {
-        e.object == factory
-            && e.position
-                .map(|p| (p[0] - 80.0).abs() < 1e-3 && (p[2] - 81.0).abs() < 1e-3)
-                .unwrap_or(false)
-    }) {
-        return false;
-    }
     if logic.host_object(factory).and_then(|object| {
         object
             .building_data
@@ -220,12 +154,6 @@ mod tests {
     #[test]
     fn wave200_composite_pack() {
         assert!(honesty_live_command_rally_log_residual_pack_wave200());
-    }
-
-    #[test]
-    fn rally_log_sources() {
-        assert!(honesty_execute_rally_records_source());
-        assert!(honesty_shadow_drains_rally_log_source());
     }
 
     #[test]

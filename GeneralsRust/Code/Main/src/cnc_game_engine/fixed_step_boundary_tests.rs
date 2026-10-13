@@ -30,9 +30,7 @@ fn fixture(name: &str, health: f32) -> (GameLogic, ObjectId, GameWorldShadow) {
     }
     let mut template = ThingTemplate::new(name);
     template.set_health(health);
-    template.authored_instant_death = Some(vec![
-        crate::game_logic::host_instant_death::HostInstantDeathIni::default(),
-    ]);
+    template.authored_instant_death = Some(vec![Default::default()]);
     template.add_kind_of(KindOf::Infantry);
     logic.templates.insert(name.into(), template);
     let id = logic

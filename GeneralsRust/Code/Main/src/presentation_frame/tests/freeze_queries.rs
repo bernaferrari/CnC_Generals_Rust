@@ -1439,14 +1439,13 @@ fn owner_changed_freezes_from_last_drain() {
 
 #[test]
 fn production_complete_freezes_from_last_drain() {
-    crate::game_logic::host_production_log::clear();
-    crate::game_logic::host_production_log::record_complete(
+    let mut logic = crate::game_logic::GameLogic::new();
+    logic.production_events.record_complete(
         crate::game_logic::ObjectId(1),
         "TestRanger",
         crate::game_logic::ObjectId(9),
     );
-    let _ = crate::game_logic::host_production_log::drain(); // simulate shadow session
-    let mut logic = crate::game_logic::GameLogic::new();
+    logic.production_events.complete_boundary();
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame.events.iter().any(|e| {

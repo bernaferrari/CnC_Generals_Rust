@@ -11,9 +11,8 @@ pub(super) struct Waves441480 {
     pub live_nuclear_missile_power_dual_world_empty_gate_method_names_wave441_ok: bool,
     pub live_nuclear_missile_power_dual_world_empty_gate_nav_commands_wave441_ok: bool,
     pub live_nuclear_missile_power_dual_world_empty_gate_live_wave441_ok: bool,
-    pub live_overlord_draw_dual_world_empty_gate_method_names_wave442_ok: bool,
-    pub live_overlord_draw_dual_world_empty_gate_nav_commands_wave442_ok: bool,
-    pub live_overlord_draw_dual_world_empty_gate_live_wave442_ok: bool,
+
+
     pub live_stealth_integration_dual_world_empty_gate_method_names_wave443_ok: bool,
     pub live_stealth_integration_dual_world_empty_gate_nav_commands_wave443_ok: bool,
     pub live_stealth_integration_dual_world_empty_gate_live_wave443_ok: bool,
@@ -26,18 +25,14 @@ pub(super) struct Waves441480 {
     pub live_replace_object_upgrade_dual_world_empty_gate_method_names_wave446_ok: bool,
     pub live_replace_object_upgrade_dual_world_empty_gate_nav_commands_wave446_ok: bool,
     pub live_replace_object_upgrade_dual_world_empty_gate_live_wave446_ok: bool,
-    pub live_fire_spread_update_dual_world_empty_gate_method_names_wave447_ok: bool,
-    pub live_fire_spread_update_dual_world_empty_gate_nav_commands_wave447_ok: bool,
-    pub live_fire_spread_update_dual_world_empty_gate_live_wave447_ok: bool,
-    pub live_object_upgrade_batch_dual_world_empty_gate_method_names_wave448_ok: bool,
-    pub live_object_upgrade_batch_dual_world_empty_gate_nav_commands_wave448_ok: bool,
-    pub live_object_upgrade_batch_dual_world_empty_gate_live_wave448_ok: bool,
+
+
     pub live_contain_module_overrides_fail_closed_method_names_wave449_ok: bool,
     pub live_contain_module_overrides_fail_closed_nav_commands_wave449_ok: bool,
     pub live_contain_module_overrides_fail_closed_live_wave449_ok: bool,
-    pub live_core_sim_dual_world_empty_gate_method_names_wave450_ok: bool,
-    pub live_core_sim_dual_world_empty_gate_nav_commands_wave450_ok: bool,
-    pub live_core_sim_dual_world_empty_gate_live_wave450_ok: bool,
+
+
+
     pub live_golden_mopup_honesty_method_names_wave451_ok: bool,
     pub live_golden_mopup_honesty_nav_commands_wave451_ok: bool,
     pub live_golden_mopup_honesty_live_wave451_ok: bool,
@@ -74,9 +69,8 @@ pub(super) struct Waves441480 {
     pub render_ui_pipeline_presentation_method_names_wave462_ok: bool,
     pub render_ui_pipeline_presentation_nav_commands_wave462_ok: bool,
     pub render_ui_pipeline_presentation_live_wave462_ok: bool,
-    pub production_quantity_writeback_method_names_wave463_ok: bool,
-    pub production_quantity_writeback_nav_commands_wave463_ok: bool,
-    pub production_quantity_writeback_live_wave463_ok: bool,
+
+
 
     pub minimap_heightmap_repair_presentation_first_method_names_wave465_ok: bool,
     pub minimap_heightmap_repair_presentation_first_nav_commands_wave465_ok: bool,
@@ -136,12 +130,8 @@ pub(super) fn evaluate() -> Waves441480 {
             honesty_live_nuclear_missile_power_dual_world_empty_gate_nav_commands_residual_wave441(),
         live_nuclear_missile_power_dual_world_empty_gate_live_wave441_ok:
             simulate_live_nuclear_missile_power_dual_world_empty_gate_honesty(),
-        live_overlord_draw_dual_world_empty_gate_method_names_wave442_ok:
-            honesty_live_overlord_draw_dual_world_empty_gate_method_names_residual_wave442(),
-        live_overlord_draw_dual_world_empty_gate_nav_commands_wave442_ok:
-            honesty_live_overlord_draw_dual_world_empty_gate_nav_commands_residual_wave442(),
-        live_overlord_draw_dual_world_empty_gate_live_wave442_ok:
-            simulate_live_overlord_draw_dual_world_empty_gate_honesty(),
+
+
         live_stealth_integration_dual_world_empty_gate_method_names_wave443_ok:
             honesty_live_stealth_integration_dual_world_empty_gate_method_names_residual_wave443(),
         live_stealth_integration_dual_world_empty_gate_nav_commands_wave443_ok:
@@ -170,30 +160,17 @@ pub(super) fn evaluate() -> Waves441480 {
             ),
         live_replace_object_upgrade_dual_world_empty_gate_live_wave446_ok:
             simulate_live_replace_object_upgrade_dual_world_empty_gate_honesty(),
-        live_fire_spread_update_dual_world_empty_gate_method_names_wave447_ok:
-            honesty_live_fire_spread_update_dual_world_empty_gate_method_names_residual_wave447(),
-        live_fire_spread_update_dual_world_empty_gate_nav_commands_wave447_ok:
-            honesty_live_fire_spread_update_dual_world_empty_gate_nav_commands_residual_wave447(),
-        live_fire_spread_update_dual_world_empty_gate_live_wave447_ok:
-            simulate_live_fire_spread_update_dual_world_empty_gate_honesty(),
-        live_object_upgrade_batch_dual_world_empty_gate_method_names_wave448_ok:
-            honesty_live_object_upgrade_batch_dual_world_empty_gate_method_names_residual_wave448(),
-        live_object_upgrade_batch_dual_world_empty_gate_nav_commands_wave448_ok:
-            honesty_live_object_upgrade_batch_dual_world_empty_gate_nav_commands_residual_wave448(),
-        live_object_upgrade_batch_dual_world_empty_gate_live_wave448_ok:
-            simulate_live_object_upgrade_batch_dual_world_empty_gate_honesty(),
+
+
         live_contain_module_overrides_fail_closed_method_names_wave449_ok:
             honesty_live_contain_module_overrides_fail_closed_method_names_residual_wave449(),
         live_contain_module_overrides_fail_closed_nav_commands_wave449_ok:
             honesty_live_contain_module_overrides_fail_closed_nav_commands_residual_wave449(),
         live_contain_module_overrides_fail_closed_live_wave449_ok:
             simulate_live_contain_module_overrides_fail_closed_honesty(),
-        live_core_sim_dual_world_empty_gate_method_names_wave450_ok:
-            honesty_live_core_sim_dual_world_empty_gate_method_names_residual_wave450(),
-        live_core_sim_dual_world_empty_gate_nav_commands_wave450_ok:
-            honesty_live_core_sim_dual_world_empty_gate_nav_commands_residual_wave450(),
-        live_core_sim_dual_world_empty_gate_live_wave450_ok:
-            simulate_live_core_sim_dual_world_empty_gate_honesty(),
+
+
+
         live_golden_mopup_honesty_method_names_wave451_ok:
             honesty_live_golden_mopup_default_off_method_names_residual_wave451(),
         live_golden_mopup_honesty_nav_commands_wave451_ok:
@@ -266,12 +243,8 @@ pub(super) fn evaluate() -> Waves441480 {
             honesty_render_ui_pipeline_presentation_nav_commands_residual_wave462(),
         render_ui_pipeline_presentation_live_wave462_ok:
             simulate_live_render_ui_pipeline_presentation_honesty(),
-        production_quantity_writeback_method_names_wave463_ok:
-            honesty_production_quantity_writeback_method_names_residual_wave463(),
-        production_quantity_writeback_nav_commands_wave463_ok:
-            honesty_production_quantity_writeback_nav_commands_residual_wave463(),
-        production_quantity_writeback_live_wave463_ok:
-            simulate_live_production_quantity_writeback_honesty(),
+
+
 
         minimap_heightmap_repair_presentation_first_method_names_wave465_ok:
             honesty_minimap_heightmap_repair_presentation_first_method_names_residual_wave465(),

@@ -10,9 +10,7 @@ fn admitted_world() -> (GameLogic, ObjectId) {
         .templates
         .get_mut("HealthEventOwnerTarget")
         .unwrap()
-        .authored_instant_death = Some(vec![
-        crate::game_logic::host_instant_death::HostInstantDeathIni::default(),
-    ]);
+        .authored_instant_death = Some(vec![Default::default()]);
     let id = logic
         .create_object("HealthEventOwnerTarget", Team::USA, Vec3::ZERO)
         .expect("admitted target");

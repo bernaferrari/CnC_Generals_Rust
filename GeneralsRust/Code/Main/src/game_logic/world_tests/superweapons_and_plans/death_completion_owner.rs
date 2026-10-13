@@ -163,25 +163,50 @@ fn owner_boundary(kind: DeathKind) {
         assert_live(&b, bid, "observer lifecycle cannot change same-ID peer");
     }
 }
+fn timer_capsule(logic: &GameLogic, id: ObjectId) -> serde_json::Value {
+    let object = logic.host_object(id).expect("installed timer owner");
+    assert_eq!(object.health.current, 100.0);
+    assert!(!object.status.on_die_started);
+    assert!(logic.objects_to_destroy.iter().all(|event| event.id != id));
+    serde_json::json!({
+        "slow": object.slow_death,
+        "jet": object.jet_slow_death,
+        "helicopter": object.helicopter_slow_death,
+        "effectively_dead": object.status.effectively_dead,
+        "destroyed": object.status.destroyed,
+        "position": object.get_position().to_array(),
+    })
+}
+
 fn disabled_timer(kind: DeathKind) {
     let (mut a, mut sa, aid) = fixture(kind, true);
     let frame = a.getFrame();
+    let before = timer_capsule(&a, aid);
     // Independent oracle frames have no authority over Main timer execution.
     sa.world_mut().advance_frames(128);
     assert_eq!(a.getFrame(), frame);
-    assert_live(&a, aid, "observer clocks cannot kill the owner");
+    assert_eq!(
+        timer_capsule(&a, aid),
+        before,
+        "observer clocks cannot advance or remove the installed owner timer"
+    );
     sa.sync_from_host(&a);
     finish_owner(&mut a, &mut sa, aid);
 }
 fn authority_toggle(kind: DeathKind) {
     let (mut a, mut sa, aid) = fixture(kind, true);
+    let before = timer_capsule(&a, aid);
     let eid = sa.entity_for_host(aid).unwrap();
     let entity = sa.world_mut().world_mut().entity_mut(eid).unwrap();
     entity.slow_death_phase = 4;
     entity.jet_slow_death_done = true;
     entity.heli_slow_death_done = true;
     crate::gameworld_shadow::run_owned_host_boundary(Some(&mut sa), &mut a);
-    assert_live(&a, aid, "poisoned observer completion cannot mutate Main");
+    assert_eq!(
+        timer_capsule(&a, aid),
+        before,
+        "poisoned observer completion cannot mutate Main"
+    );
     finish_owner(&mut a, &mut sa, aid);
 }
 

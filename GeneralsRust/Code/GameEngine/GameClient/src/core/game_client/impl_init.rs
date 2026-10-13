@@ -35,6 +35,7 @@ impl GameClient {
             last_visual_time_frame: u32::MAX,
             next_drawable_id: DrawableId(1),
             ray_effects: Default::default(),
+            owned_laser_order: Vec::new(),
             local_player_id: 0,
             visual_world: None,
             last_applied_military_caption: None,
@@ -167,6 +168,7 @@ impl GameClient {
         }
         self.drawable_map.clear();
         self.ray_effects.reset();
+        self.owned_laser_order.clear();
         self.drawable_object_map.clear();
         self.presentation_direct_drawable_bindings.clear();
         self.text_bearing_drawables.clear();

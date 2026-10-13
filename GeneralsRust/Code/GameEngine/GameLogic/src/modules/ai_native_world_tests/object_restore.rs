@@ -237,7 +237,8 @@ fn fresh_with_templates(
         .unwrap();
     let mut game = NativeMatch {
         weapon_store: crate::weapon::WeaponStore::new(),
-        historic_damage_limit: game_engine::common::global_data::GlobalData::default().historic_damage_limit,
+        historic_damage_limit: game_engine::common::global_data::GlobalData::default()
+            .historic_damage_limit,
         physics_rules: crate::object::behavior::physics_update::PhysicsRules::from_global_data(
             &game_engine::common::global_data::GlobalData::default(),
         ),

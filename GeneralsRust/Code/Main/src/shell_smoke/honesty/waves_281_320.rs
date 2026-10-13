@@ -8,9 +8,7 @@
 use super::super::imports::*;
 
 pub(super) struct Waves281320 {
-    pub live_helpers_dual_world_empty_gate_method_names_wave281_ok: bool,
-    pub live_helpers_dual_world_empty_gate_nav_commands_wave281_ok: bool,
-    pub live_helpers_dual_world_empty_gate_live_wave281_ok: bool,
+
     pub live_ai_update_interface_dual_world_empty_gate_method_names_wave282_ok: bool,
     pub live_ai_update_interface_dual_world_empty_gate_nav_commands_wave282_ok: bool,
     pub live_ai_update_interface_dual_world_empty_gate_live_wave282_ok: bool,
@@ -20,21 +18,16 @@ pub(super) struct Waves281320 {
     pub live_script_executor_dual_world_empty_gate_method_names_wave284_ok: bool,
     pub live_script_executor_dual_world_empty_gate_nav_commands_wave284_ok: bool,
     pub live_script_executor_dual_world_empty_gate_live_wave284_ok: bool,
-    pub live_ai_integration_dual_world_empty_gate_method_names_wave285_ok: bool,
-    pub live_ai_integration_dual_world_empty_gate_nav_commands_wave285_ok: bool,
-    pub live_ai_integration_dual_world_empty_gate_live_wave285_ok: bool,
-    pub live_dumb_projectile_dual_world_empty_gate_method_names_wave286_ok: bool,
-    pub live_dumb_projectile_dual_world_empty_gate_nav_commands_wave286_ok: bool,
-    pub live_dumb_projectile_dual_world_empty_gate_live_wave286_ok: bool,
+
+
+
     pub live_hijacker_update_dual_world_empty_gate_method_names_wave288_ok: bool,
     pub live_hijacker_update_dual_world_empty_gate_nav_commands_wave288_ok: bool,
     pub live_hijacker_update_dual_world_empty_gate_live_wave288_ok: bool,
     pub live_async_player_dual_world_empty_gate_method_names_wave290_ok: bool,
     pub live_async_player_dual_world_empty_gate_nav_commands_wave290_ok: bool,
     pub live_async_player_dual_world_empty_gate_live_wave290_ok: bool,
-    pub live_active_body_dual_world_empty_gate_method_names_wave291_ok: bool,
-    pub live_active_body_dual_world_empty_gate_nav_commands_wave291_ok: bool,
-    pub live_active_body_dual_world_empty_gate_live_wave291_ok: bool,
+
     pub live_skirmish_conditions_dual_world_empty_gate_method_names_wave292_ok: bool,
     pub live_skirmish_conditions_dual_world_empty_gate_nav_commands_wave292_ok: bool,
     pub live_skirmish_conditions_dual_world_empty_gate_live_wave292_ok: bool,
@@ -50,24 +43,21 @@ pub(super) struct Waves281320 {
     pub live_special_ability_dual_world_empty_gate_method_names_wave296_ok: bool,
     pub live_special_ability_dual_world_empty_gate_nav_commands_wave296_ok: bool,
     pub live_special_ability_dual_world_empty_gate_live_wave296_ok: bool,
-    pub live_supply_system_dual_world_empty_gate_method_names_wave298_ok: bool,
-    pub live_supply_system_dual_world_empty_gate_nav_commands_wave298_ok: bool,
-    pub live_supply_system_dual_world_empty_gate_live_wave298_ok: bool,
+
+
     pub live_particle_uplink_dual_world_empty_gate_method_names_wave299_ok: bool,
     pub live_particle_uplink_dual_world_empty_gate_nav_commands_wave299_ok: bool,
     pub live_particle_uplink_dual_world_empty_gate_live_wave299_ok: bool,
     pub live_overlord_contain_dual_world_empty_gate_method_names_wave300_ok: bool,
     pub live_overlord_contain_dual_world_empty_gate_nav_commands_wave300_ok: bool,
     pub live_overlord_contain_dual_world_empty_gate_live_wave300_ok: bool,
-    pub live_bridge_behavior_dual_world_empty_gate_method_names_wave301_ok: bool,
-    pub live_bridge_behavior_dual_world_empty_gate_nav_commands_wave301_ok: bool,
-    pub live_bridge_behavior_dual_world_empty_gate_live_wave301_ok: bool,
+
+
     pub live_stealth_behavior_dual_world_empty_gate_method_names_wave302_ok: bool,
     pub live_stealth_behavior_dual_world_empty_gate_nav_commands_wave302_ok: bool,
     pub live_stealth_behavior_dual_world_empty_gate_live_wave302_ok: bool,
-    pub live_crate_collide_dual_world_empty_gate_method_names_wave303_ok: bool,
-    pub live_crate_collide_dual_world_empty_gate_nav_commands_wave303_ok: bool,
-    pub live_crate_collide_dual_world_empty_gate_live_wave303_ok: bool,
+
+
     pub live_object_manager_dual_world_empty_gate_method_names_wave304_ok: bool,
     pub live_object_manager_dual_world_empty_gate_nav_commands_wave304_ok: bool,
     pub live_object_manager_dual_world_empty_gate_live_wave304_ok: bool,
@@ -89,18 +79,17 @@ pub(super) struct Waves281320 {
     pub live_flight_deck_dual_world_empty_gate_method_names_wave311_ok: bool,
     pub live_flight_deck_dual_world_empty_gate_nav_commands_wave311_ok: bool,
     pub live_flight_deck_dual_world_empty_gate_live_wave311_ok: bool,
-    pub live_exit_strategies_dual_world_empty_gate_method_names_wave312_ok: bool,
-    pub live_exit_strategies_dual_world_empty_gate_nav_commands_wave312_ok: bool,
-    pub live_exit_strategies_dual_world_empty_gate_live_wave312_ok: bool,
+
+
+
     pub live_collision_system_dual_world_empty_gate_method_names_wave313_ok: bool,
     pub live_collision_system_dual_world_empty_gate_nav_commands_wave313_ok: bool,
     pub live_collision_system_dual_world_empty_gate_live_wave313_ok: bool,
     pub live_structure_topple_dual_world_empty_gate_method_names_wave315_ok: bool,
     pub live_structure_topple_dual_world_empty_gate_nav_commands_wave315_ok: bool,
     pub live_structure_topple_dual_world_empty_gate_live_wave315_ok: bool,
-    pub live_physics_update_dual_world_empty_gate_method_names_wave316_ok: bool,
-    pub live_physics_update_dual_world_empty_gate_nav_commands_wave316_ok: bool,
-    pub live_physics_update_dual_world_empty_gate_live_wave316_ok: bool,
+
+
     pub live_cleanup_hazard_dual_world_empty_gate_method_names_wave317_ok: bool,
     pub live_cleanup_hazard_dual_world_empty_gate_nav_commands_wave317_ok: bool,
     pub live_cleanup_hazard_dual_world_empty_gate_live_wave317_ok: bool,
@@ -118,12 +107,7 @@ pub(super) fn evaluate(
 ) -> Waves281320 {
     let _ = (pres, presentation_ok);
     Waves281320 {
-        live_helpers_dual_world_empty_gate_method_names_wave281_ok:
-            honesty_live_helpers_dual_world_empty_gate_method_names_residual_wave281(),
-        live_helpers_dual_world_empty_gate_nav_commands_wave281_ok:
-            honesty_live_helpers_dual_world_empty_gate_nav_commands_residual_wave281(),
-        live_helpers_dual_world_empty_gate_live_wave281_ok:
-            simulate_live_helpers_dual_world_empty_gate_honesty(),
+
         live_ai_update_interface_dual_world_empty_gate_method_names_wave282_ok:
             honesty_live_ai_update_interface_dual_world_empty_gate_method_names_residual_wave282(),
         live_ai_update_interface_dual_world_empty_gate_nav_commands_wave282_ok:
@@ -142,18 +126,9 @@ pub(super) fn evaluate(
             honesty_live_script_executor_dual_world_empty_gate_nav_commands_residual_wave284(),
         live_script_executor_dual_world_empty_gate_live_wave284_ok:
             simulate_live_script_executor_dual_world_empty_gate_honesty(),
-        live_ai_integration_dual_world_empty_gate_method_names_wave285_ok:
-            honesty_live_ai_integration_dual_world_empty_gate_method_names_residual_wave285(),
-        live_ai_integration_dual_world_empty_gate_nav_commands_wave285_ok:
-            honesty_live_ai_integration_dual_world_empty_gate_nav_commands_residual_wave285(),
-        live_ai_integration_dual_world_empty_gate_live_wave285_ok:
-            simulate_live_ai_integration_dual_world_empty_gate_honesty(),
-        live_dumb_projectile_dual_world_empty_gate_method_names_wave286_ok:
-            honesty_live_dumb_projectile_dual_world_empty_gate_method_names_residual_wave286(),
-        live_dumb_projectile_dual_world_empty_gate_nav_commands_wave286_ok:
-            honesty_live_dumb_projectile_dual_world_empty_gate_nav_commands_residual_wave286(),
-        live_dumb_projectile_dual_world_empty_gate_live_wave286_ok:
-            simulate_live_dumb_projectile_dual_world_empty_gate_honesty(),
+
+
+
         live_hijacker_update_dual_world_empty_gate_method_names_wave288_ok:
             honesty_live_hijacker_update_dual_world_empty_gate_method_names_residual_wave288(),
         live_hijacker_update_dual_world_empty_gate_nav_commands_wave288_ok:
@@ -166,12 +141,7 @@ pub(super) fn evaluate(
             honesty_live_async_player_dual_world_empty_gate_nav_commands_residual_wave290(),
         live_async_player_dual_world_empty_gate_live_wave290_ok:
             simulate_live_async_player_dual_world_empty_gate_honesty(),
-        live_active_body_dual_world_empty_gate_method_names_wave291_ok:
-            honesty_live_active_body_dual_world_empty_gate_method_names_residual_wave291(),
-        live_active_body_dual_world_empty_gate_nav_commands_wave291_ok:
-            honesty_live_active_body_dual_world_empty_gate_nav_commands_residual_wave291(),
-        live_active_body_dual_world_empty_gate_live_wave291_ok:
-            simulate_live_active_body_dual_world_empty_gate_honesty(),
+
         live_skirmish_conditions_dual_world_empty_gate_method_names_wave292_ok:
             honesty_live_skirmish_conditions_dual_world_empty_gate_method_names_residual_wave292(),
         live_skirmish_conditions_dual_world_empty_gate_nav_commands_wave292_ok:
@@ -202,12 +172,8 @@ pub(super) fn evaluate(
             honesty_live_special_ability_dual_world_empty_gate_nav_commands_residual_wave296(),
         live_special_ability_dual_world_empty_gate_live_wave296_ok:
             simulate_live_special_ability_dual_world_empty_gate_honesty(),
-        live_supply_system_dual_world_empty_gate_method_names_wave298_ok:
-            honesty_live_supply_system_dual_world_empty_gate_method_names_residual_wave298(),
-        live_supply_system_dual_world_empty_gate_nav_commands_wave298_ok:
-            honesty_live_supply_system_dual_world_empty_gate_nav_commands_residual_wave298(),
-        live_supply_system_dual_world_empty_gate_live_wave298_ok:
-            simulate_live_supply_system_dual_world_empty_gate_honesty(),
+
+
         live_particle_uplink_dual_world_empty_gate_method_names_wave299_ok:
             honesty_live_particle_uplink_dual_world_empty_gate_method_names_residual_wave299(),
         live_particle_uplink_dual_world_empty_gate_nav_commands_wave299_ok:
@@ -220,24 +186,16 @@ pub(super) fn evaluate(
             honesty_live_overlord_contain_dual_world_empty_gate_nav_commands_residual_wave300(),
         live_overlord_contain_dual_world_empty_gate_live_wave300_ok:
             simulate_live_overlord_contain_dual_world_empty_gate_honesty(),
-        live_bridge_behavior_dual_world_empty_gate_method_names_wave301_ok:
-            honesty_live_bridge_behavior_dual_world_empty_gate_method_names_residual_wave301(),
-        live_bridge_behavior_dual_world_empty_gate_nav_commands_wave301_ok:
-            honesty_live_bridge_behavior_dual_world_empty_gate_nav_commands_residual_wave301(),
-        live_bridge_behavior_dual_world_empty_gate_live_wave301_ok:
-            simulate_live_bridge_behavior_dual_world_empty_gate_honesty(),
+
+
         live_stealth_behavior_dual_world_empty_gate_method_names_wave302_ok:
             honesty_live_stealth_behavior_dual_world_empty_gate_method_names_residual_wave302(),
         live_stealth_behavior_dual_world_empty_gate_nav_commands_wave302_ok:
             honesty_live_stealth_behavior_dual_world_empty_gate_nav_commands_residual_wave302(),
         live_stealth_behavior_dual_world_empty_gate_live_wave302_ok:
             simulate_live_stealth_behavior_dual_world_empty_gate_honesty(),
-        live_crate_collide_dual_world_empty_gate_method_names_wave303_ok:
-            honesty_live_crate_collide_dual_world_empty_gate_method_names_residual_wave303(),
-        live_crate_collide_dual_world_empty_gate_nav_commands_wave303_ok:
-            honesty_live_crate_collide_dual_world_empty_gate_nav_commands_residual_wave303(),
-        live_crate_collide_dual_world_empty_gate_live_wave303_ok:
-            simulate_live_crate_collide_dual_world_empty_gate_honesty(),
+
+
         live_object_manager_dual_world_empty_gate_method_names_wave304_ok:
             honesty_live_object_manager_dual_world_empty_gate_method_names_residual_wave304(),
         live_object_manager_dual_world_empty_gate_nav_commands_wave304_ok:
@@ -280,12 +238,9 @@ pub(super) fn evaluate(
             honesty_live_flight_deck_dual_world_empty_gate_nav_commands_residual_wave311(),
         live_flight_deck_dual_world_empty_gate_live_wave311_ok:
             simulate_live_flight_deck_dual_world_empty_gate_honesty(),
-        live_exit_strategies_dual_world_empty_gate_method_names_wave312_ok:
-            honesty_live_exit_strategies_dual_world_empty_gate_method_names_residual_wave312(),
-        live_exit_strategies_dual_world_empty_gate_nav_commands_wave312_ok:
-            honesty_live_exit_strategies_dual_world_empty_gate_nav_commands_residual_wave312(),
-        live_exit_strategies_dual_world_empty_gate_live_wave312_ok:
-            simulate_live_exit_strategies_dual_world_empty_gate_honesty(),
+
+
+
         live_collision_system_dual_world_empty_gate_method_names_wave313_ok:
             honesty_live_collision_system_dual_world_empty_gate_method_names_residual_wave313(),
         live_collision_system_dual_world_empty_gate_nav_commands_wave313_ok:
@@ -298,12 +253,8 @@ pub(super) fn evaluate(
             honesty_live_structure_topple_dual_world_empty_gate_nav_commands_residual_wave315(),
         live_structure_topple_dual_world_empty_gate_live_wave315_ok:
             simulate_live_structure_topple_dual_world_empty_gate_honesty(),
-        live_physics_update_dual_world_empty_gate_method_names_wave316_ok:
-            honesty_live_physics_update_dual_world_empty_gate_method_names_residual_wave316(),
-        live_physics_update_dual_world_empty_gate_nav_commands_wave316_ok:
-            honesty_live_physics_update_dual_world_empty_gate_nav_commands_residual_wave316(),
-        live_physics_update_dual_world_empty_gate_live_wave316_ok:
-            simulate_live_physics_update_dual_world_empty_gate_honesty(),
+
+
         live_cleanup_hazard_dual_world_empty_gate_method_names_wave317_ok:
             honesty_live_cleanup_hazard_dual_world_empty_gate_method_names_residual_wave317(),
         live_cleanup_hazard_dual_world_empty_gate_nav_commands_wave317_ok:

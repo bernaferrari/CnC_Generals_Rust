@@ -355,6 +355,9 @@ impl NativeMatch {
         let mut map = crate::system::map_loader::MapData::new();
         map.width = 32;
         map.height = 32;
+        // Parsed C++ HeightMapData supplies playable boundaries separately
+        // from sample dimensions; Pathfinder sizes itself from that boundary.
+        map.boundaries = vec![crate::common::ICoord2D::new(32, 32)];
         map.heightmap = vec![0; 32 * 32];
         assert!(terrain.load_map_geometry(map).is_empty());
         let mut pathfinder = crate::ai::Pathfinder::new();
@@ -372,7 +375,8 @@ impl NativeMatch {
             .unwrap();
         Self {
             weapon_store: crate::weapon::WeaponStore::new(),
-            historic_damage_limit: game_engine::common::global_data::GlobalData::default().historic_damage_limit,
+            historic_damage_limit: game_engine::common::global_data::GlobalData::default()
+                .historic_damage_limit,
             physics_rules: crate::object::behavior::physics_update::PhysicsRules::from_global_data(
                 &game_engine::common::global_data::GlobalData::default(),
             ),
@@ -796,7 +800,18 @@ fn cached_native_enter_installed_path_save_load_continues_on_its_factory() {
 #[test]
 fn cached_native_enter_queued_path_routes_around_actual_wall_through_gap() {
     use crate::ai::pathfind_astar::{GridCoord, PathfindCellType};
-    let mut game = NativeMatch::new(150.0);
+    let mut game = containment_lifecycle::lifecycle_world(0.0, false);
+    let actor = Arc::clone(&game.source);
+    let target = Arc::clone(&game.target);
+    game.operate(60, |world| {
+        world.remove_contained(1, 2, false).unwrap();
+        world
+            .set_object_position_handle(&actor, &Coord3D::new(50.0, 50.0, 0.0))
+            .unwrap();
+        world
+            .set_object_position_handle(&target, &Coord3D::new(150.0, 50.0, 0.0))
+            .unwrap();
+    });
     let source_pos = *game.source.read().unwrap().get_position();
     let target_pos = *game.target.read().unwrap().get_position();
     let wall_x = 10;
@@ -827,12 +842,45 @@ fn cached_native_enter_queued_path_routes_around_actual_wall_through_gap() {
         installed_path_observation(&game)
     );
     assert!(game.source.read().unwrap().get_contained_by().is_none());
-    for frame in 65..71 {
-        teleport_and_finish_enter(&mut game, frame);
-        if game.source.read().unwrap().get_contained_by().is_some() {
+    let ai = actor.read().unwrap().get_ai_update_interface().unwrap();
+    let mut crossed_actual_gap = false;
+    for frame in 65..1065 {
+        let ai_proxy = actor
+            .read()
+            .unwrap()
+            .named_update_registrations("AIUpdateInterface")
+            .pop()
+            .unwrap();
+        game.operate_with_current(frame, Some(ai_proxy), |world| {
+            world.process_enter_path_queue(8).unwrap();
+            ai.lock()
+                .unwrap()
+                .update_scheduled_tick_with_world(world)
+                .unwrap();
+        });
+        if actor.read().unwrap().get_contained_by().is_some() {
             break;
         }
+        let physics_proxy = actor
+            .read()
+            .unwrap()
+            .named_update_registrations("PhysicsBehavior")
+            .pop()
+            .unwrap();
+        game.operate_with_current(frame, Some(physics_proxy), |world| {
+            world.update_physics_phase(&actor).unwrap();
+        });
+        let position = *actor.read().unwrap().get_position();
+        if position.x >= 90.0 && position.x <= 120.0 && position.y >= 140.0 {
+            crossed_actual_gap = true;
+        }
     }
+    assert!(
+        crossed_actual_gap,
+        "actual Physics must cross the wall through its gap; final pose {:?}, path {:?}",
+        actor.read().unwrap().get_position(),
+        installed_path_observation(&game)
+    );
     assert_eq!(
         game.source.read().unwrap().get_contained_by(),
         Some(game.target.read().unwrap().get_id())

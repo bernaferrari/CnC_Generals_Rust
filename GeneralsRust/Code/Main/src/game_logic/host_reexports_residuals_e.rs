@@ -97,13 +97,6 @@ pub use super::host_live_host_unit_control_presentation_peel_residual_wave951::{
     simulate_live_host_unit_control_presentation_peel_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_unmapped_damage_fallback_residual_wave943::{
-    honesty_host_unmapped_damage_fallback_method_names_residual_wave943,
-    honesty_host_unmapped_damage_fallback_nav_commands_residual_wave943,
-    honesty_host_unmapped_damage_fallback_residual_pack_wave943,
-    simulate_live_host_unmapped_damage_fallback_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_host_unselectable_catalog_residual_wave1034::{
     honesty_host_unselectable_catalog_residual_method_names_residual_wave1034,
     honesty_host_unselectable_catalog_residual_nav_commands_residual_wave1034,
@@ -190,87 +183,6 @@ pub use super::host_live_host_wp_audio_clippy_residual_wave889::{
     honesty_host_wp_audio_clippy_residual_pack_wave889, simulate_live_host_wp_audio_clippy_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_writeback_core_boundary_residual_wave944::{
-    honesty_host_writeback_core_boundary_method_names_residual_wave944,
-    honesty_host_writeback_core_boundary_nav_commands_residual_wave944,
-    honesty_host_writeback_core_boundary_residual_pack_wave944,
-    simulate_live_host_writeback_core_boundary_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_writeback_host_object_mut_residual_wave946::{
-    honesty_host_writeback_host_object_mut_method_names_residual_wave946,
-    honesty_host_writeback_host_object_mut_nav_commands_residual_wave946,
-    honesty_host_writeback_host_object_mut_residual_pack_wave946,
-    simulate_live_host_writeback_host_object_mut_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_writeback_scalar_boundary_residual_wave945::{
-    honesty_host_writeback_scalar_boundary_method_names_residual_wave945,
-    honesty_host_writeback_scalar_boundary_nav_commands_residual_wave945,
-    honesty_host_writeback_scalar_boundary_residual_pack_wave945,
-    simulate_live_host_writeback_scalar_boundary_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_writeback_skip_pending_combat_movement_logs_residual_wave757::{
-    honesty_host_writeback_skip_pending_combat_movement_logs_method_names_residual_wave757,
-    honesty_host_writeback_skip_pending_combat_movement_logs_nav_commands_residual_wave757,
-    honesty_host_writeback_skip_pending_combat_movement_logs_residual_pack_wave757,
-    honesty_host_writeback_skip_pending_combat_movement_logs_source_markers_residual_wave757,
-    residual_host_writeback_skip_pending_combat_movement_logs_last_action,
-    residual_host_writeback_skip_pending_combat_movement_logs_ok,
-    simulate_live_host_writeback_skip_pending_combat_movement_logs_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_writeback_skip_pending_host_logs_residual_wave755::{
-    honesty_host_writeback_skip_pending_host_logs_method_names_residual_wave755,
-    honesty_host_writeback_skip_pending_host_logs_nav_commands_residual_wave755,
-    honesty_host_writeback_skip_pending_host_logs_residual_pack_wave755,
-    honesty_host_writeback_skip_pending_host_logs_source_markers_residual_wave755,
-    residual_host_writeback_skip_pending_host_logs_last_action,
-    residual_host_writeback_skip_pending_host_logs_ok,
-    simulate_live_host_writeback_skip_pending_host_logs_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_writeback_skip_pending_move_transform_logs_residual_wave759::{
-    honesty_host_writeback_skip_pending_move_transform_logs_method_names_residual_wave759,
-    honesty_host_writeback_skip_pending_move_transform_logs_nav_commands_residual_wave759,
-    honesty_host_writeback_skip_pending_move_transform_logs_residual_pack_wave759,
-    honesty_host_writeback_skip_pending_move_transform_logs_source_markers_residual_wave759,
-    residual_host_writeback_skip_pending_move_transform_logs_last_action,
-    residual_host_writeback_skip_pending_move_transform_logs_ok,
-    simulate_live_host_writeback_skip_pending_move_transform_logs_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_writeback_skip_pending_player_projectile_logs_residual_wave760::{
-    honesty_host_writeback_skip_pending_player_projectile_logs_method_names_residual_wave760,
-    honesty_host_writeback_skip_pending_player_projectile_logs_nav_commands_residual_wave760,
-    honesty_host_writeback_skip_pending_player_projectile_logs_residual_pack_wave760,
-    honesty_host_writeback_skip_pending_player_projectile_logs_source_markers_residual_wave760,
-    residual_host_writeback_skip_pending_player_projectile_logs_last_action,
-    residual_host_writeback_skip_pending_player_projectile_logs_ok,
-    simulate_live_host_writeback_skip_pending_player_projectile_logs_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_writeback_skip_pending_remaining_logs_residual_wave758::{
-    honesty_host_writeback_skip_pending_remaining_logs_method_names_residual_wave758,
-    honesty_host_writeback_skip_pending_remaining_logs_nav_commands_residual_wave758,
-    honesty_host_writeback_skip_pending_remaining_logs_residual_pack_wave758,
-    honesty_host_writeback_skip_pending_remaining_logs_source_markers_residual_wave758,
-    residual_host_writeback_skip_pending_remaining_logs_last_action,
-    residual_host_writeback_skip_pending_remaining_logs_ok,
-    simulate_live_host_writeback_skip_pending_remaining_logs_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_writeback_skip_pending_shock_disable_repulsor_residual_wave756::{
-    honesty_host_writeback_skip_pending_shock_disable_repulsor_method_names_residual_wave756,
-    honesty_host_writeback_skip_pending_shock_disable_repulsor_nav_commands_residual_wave756,
-    honesty_host_writeback_skip_pending_shock_disable_repulsor_residual_pack_wave756,
-    honesty_host_writeback_skip_pending_shock_disable_repulsor_source_markers_residual_wave756,
-    residual_host_writeback_skip_pending_shock_disable_repulsor_last_action,
-    residual_host_writeback_skip_pending_shock_disable_repulsor_ok,
-    simulate_live_host_writeback_skip_pending_shock_disable_repulsor_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_host_ww3d_particles_anim_gui_edit_wave886::{
     honesty_host_ww3d_particles_anim_gui_method_names_residual_wave886,
     honesty_host_ww3d_particles_anim_gui_nav_commands_residual_wave886,
@@ -302,13 +214,6 @@ pub use super::host_live_host_zlib_asset_debug_clippy_wave884::{
     honesty_host_zlib_asset_debug_nav_commands_residual_wave884,
     honesty_host_zlib_asset_debug_residual_pack_wave884,
     simulate_live_host_zlib_asset_debug_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_zone_damage_dual_peel_residual_wave825::{
-    honesty_host_zone_damage_dual_peel_method_names_residual_wave825,
-    honesty_host_zone_damage_dual_peel_nav_commands_residual_wave825,
-    honesty_host_zone_damage_dual_peel_residual_pack_wave825,
-    simulate_live_host_zone_damage_dual_peel_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_hotkey_move_attack_selection_presentation_only_residual_wave221::{
@@ -592,27 +497,6 @@ pub use super::host_live_object_registry_empty_fastpath_residual_wave247::{
     simulate_live_object_registry_empty_fastpath_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_object_upgrade_batch_dual_world_empty_gate_residual_wave448::{
-    honesty_live_object_upgrade_batch_dual_world_empty_gate_method_names_residual_wave448,
-    honesty_live_object_upgrade_batch_dual_world_empty_gate_nav_commands_residual_wave448,
-    honesty_live_object_upgrade_batch_dual_world_empty_gate_residual_pack_wave448,
-    simulate_live_object_upgrade_batch_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_ocl_special_power_dual_world_empty_gate_residual_wave406::{
-    honesty_live_ocl_special_power_dual_world_empty_gate_method_names_residual_wave406,
-    honesty_live_ocl_special_power_dual_world_empty_gate_nav_commands_residual_wave406,
-    honesty_live_ocl_special_power_dual_world_empty_gate_residual_pack_wave406,
-    simulate_live_ocl_special_power_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_open_contain_dual_world_empty_gate_residual_wave261::{
-    honesty_live_open_contain_dual_world_empty_gate_method_names_residual_wave261,
-    honesty_live_open_contain_dual_world_empty_gate_nav_commands_residual_wave261,
-    honesty_live_open_contain_dual_world_empty_gate_residual_pack_wave261,
-    simulate_live_open_contain_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_os_input_command_path_residual_wave209::{
     honesty_live_os_input_command_path_method_names_residual_wave209,
     honesty_live_os_input_command_path_nav_commands_residual_wave209,
@@ -632,13 +516,6 @@ pub use super::host_live_overlord_contain_dual_world_empty_gate_residual_wave300
     honesty_live_overlord_contain_dual_world_empty_gate_nav_commands_residual_wave300,
     honesty_live_overlord_contain_dual_world_empty_gate_residual_pack_wave300,
     simulate_live_overlord_contain_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_overlord_draw_dual_world_empty_gate_residual_wave442::{
-    honesty_live_overlord_draw_dual_world_empty_gate_method_names_residual_wave442,
-    honesty_live_overlord_draw_dual_world_empty_gate_nav_commands_residual_wave442,
-    honesty_live_overlord_draw_dual_world_empty_gate_residual_pack_wave442,
-    simulate_live_overlord_draw_dual_world_empty_gate_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_owner_resolve_dual_world_empty_gate_residual_wave433::{
@@ -669,20 +546,6 @@ pub use super::host_live_particle_uplink_dual_world_empty_gate_residual_wave299:
     simulate_live_particle_uplink_dual_world_empty_gate_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_partition_filters_dual_world_empty_gate_residual_wave266::{
-    honesty_live_partition_filters_dual_world_empty_gate_method_names_residual_wave266,
-    honesty_live_partition_filters_dual_world_empty_gate_nav_commands_residual_wave266,
-    honesty_live_partition_filters_dual_world_empty_gate_residual_pack_wave266,
-    simulate_live_partition_filters_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_partition_manager_dual_world_empty_gate_residual_wave324::{
-    honesty_live_partition_manager_dual_world_empty_gate_method_names_residual_wave324,
-    honesty_live_partition_manager_dual_world_empty_gate_nav_commands_residual_wave324,
-    honesty_live_partition_manager_dual_world_empty_gate_residual_pack_wave324,
-    simulate_live_partition_manager_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_path_following_dual_world_empty_gate_residual_wave424::{
     honesty_live_path_following_dual_world_empty_gate_method_names_residual_wave424,
     honesty_live_path_following_dual_world_empty_gate_nav_commands_residual_wave424,
@@ -695,13 +558,6 @@ pub use super::host_live_path_guard_authority_api_residual_wave225::{
     honesty_live_path_guard_authority_api_nav_commands_residual_wave225,
     honesty_live_path_guard_authority_api_residual_pack_wave225,
     simulate_live_path_guard_authority_api_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_pathfind_dual_world_empty_gate_residual_wave262::{
-    honesty_live_pathfind_dual_world_empty_gate_method_names_residual_wave262,
-    honesty_live_pathfind_dual_world_empty_gate_nav_commands_residual_wave262,
-    honesty_live_pathfind_dual_world_empty_gate_residual_pack_wave262,
-    simulate_live_pathfind_dual_world_empty_gate_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_pathfind_dual_world_empty_gate_residual_wave426::{
@@ -724,13 +580,6 @@ pub use super::host_live_pathfind_midframe_stub_removed_residual_wave469::{
     PATHFIND_MIDFRAME_STUB_REMOVED_NAV_STEPS_WAVE469,
     PATHFIND_MIDFRAME_STUB_REMOVED_SOURCE_MARKERS_WAVE469,
     RUNTIME_HOST_PATHFIND_MIDFRAME_STUB_REMOVED_CMD_NAMES_WAVE469,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_physics_update_dual_world_empty_gate_residual_wave316::{
-    honesty_live_physics_update_dual_world_empty_gate_method_names_residual_wave316,
-    honesty_live_physics_update_dual_world_empty_gate_nav_commands_residual_wave316,
-    honesty_live_physics_update_dual_world_empty_gate_residual_pack_wave316,
-    simulate_live_physics_update_dual_world_empty_gate_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_pick_object_presentation_only_residual_wave222::{
@@ -781,13 +630,6 @@ pub use super::host_live_player_upgrade_manager_dual_world_empty_gate_residual_w
     honesty_live_player_upgrade_manager_dual_world_empty_gate_nav_commands_residual_wave444,
     honesty_live_player_upgrade_manager_dual_world_empty_gate_residual_pack_wave444,
     simulate_live_player_upgrade_manager_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_point_defense_laser_update_dual_world_empty_gate_residual_wave411::{
-    honesty_live_point_defense_laser_update_dual_world_empty_gate_method_names_residual_wave411,
-    honesty_live_point_defense_laser_update_dual_world_empty_gate_nav_commands_residual_wave411,
-    honesty_live_point_defense_laser_update_dual_world_empty_gate_residual_pack_wave411,
-    simulate_live_point_defense_laser_update_dual_world_empty_gate_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_poisoned_behavior_dual_world_empty_gate_residual_wave377::{

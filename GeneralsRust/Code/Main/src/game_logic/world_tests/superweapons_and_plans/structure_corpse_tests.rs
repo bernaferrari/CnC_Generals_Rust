@@ -4,6 +4,21 @@ use super::*;
 
 fn lethal_owner(collapse: bool) -> (GameLogic, ObjectId, Option<ObjectId>) {
     let mut world = GameLogic::new();
+    if !collapse {
+        assert_eq!(
+            crate::assets::ini_template_loader::register_weapons_from_ini_text(
+                r#"
+Weapon ToppledStructureWeapon
+  PrimaryDamage = 99999
+  PrimaryDamageRadius = 20
+  DamageType = EXPLOSION
+  DeathType = EXPLODED
+End
+"#
+            ),
+            1
+        );
+    }
     ensure_test_player_for_team(&mut world, Team::USA);
     let mut template = ThingTemplate::new("AuthoredLethalStructure");
     template

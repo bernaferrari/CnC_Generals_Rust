@@ -56,8 +56,6 @@ impl HostHealthEvents {
         self.events.push(HostHealthEvent::Damage(event));
     }
 
-    /// Queue an absolute health effect not yet applied to this owner.
-
     /// Observe a completed owner absolute-health write.
     pub(crate) fn record_applied_heal(&mut self, target: ObjectId, health: f32) {
         self.push_heal(super::host_heal_log::HostHealEvent::applied(target, health));
@@ -88,23 +86,13 @@ impl HostHealthEvents {
         drained
     }
 
-    /// Preserve the eager receipt and append later events for this same
-    /// boundary. The prefix records shadow admission, not owner HP writes.
-
+    /// Keep every completed fixed-step receipt until this owner presents it.
     fn cache_completed(&mut self, drained: &[HostHealthEvent]) {
-        let mut damage = Vec::new();
-        let mut heal = Vec::new();
         for event in drained {
             match event {
-                HostHealthEvent::Damage(event) => damage.push(*event),
-                HostHealthEvent::Heal(event) => heal.push(*event),
+                HostHealthEvent::Damage(event) => self.last_damage.push(*event),
+                HostHealthEvent::Heal(event) => self.last_heal.push(*event),
             }
-        }
-        if !damage.is_empty() {
-            self.last_damage = damage;
-        }
-        if !heal.is_empty() {
-            self.last_heal = heal;
         }
     }
 
@@ -166,7 +154,7 @@ impl HostHealthEvents {
         }
         self.events = keep;
         if !selected.is_empty() {
-            self.last_damage = selected.clone();
+            self.last_damage.extend_from_slice(&selected);
         }
         selected
     }
@@ -183,7 +171,7 @@ impl HostHealthEvents {
         }
         self.events = keep;
         if !selected.is_empty() {
-            self.last_heal = selected.clone();
+            self.last_heal.extend_from_slice(&selected);
         }
         selected
     }
@@ -275,6 +263,43 @@ mod completed_receipt_tests {
         assert_eq!(object.health.current, 85.0);
         assert_eq!(events.snapshot_last_damage(), vec![damage]);
         assert_eq!(events.snapshot_last_heal(), vec![heal]);
+    }
+
+    #[test]
+    fn multiple_fixed_step_receipts_survive_peer_boundaries_and_present_once() {
+        let mut owner = body();
+        let mut peer = body();
+        let mut events = HostHealthEvents::default();
+        let mut peer_events = HostHealthEvents::default();
+        owner.take_damage(10.0, &mut events);
+        owner.heal(5.0, &mut events);
+        events.drain_for_host_boundary();
+        peer.take_damage(30.0, &mut peer_events);
+        peer_events.drain_for_host_boundary();
+        peer_events.clear();
+        owner.take_damage(20.0, &mut events);
+        owner.heal(5.0, &mut events);
+        events.drain_for_host_boundary();
+        assert!(events.drain_for_host_boundary().is_empty());
+        let damage = events.take_last_damage();
+        assert_eq!(
+            damage
+                .iter()
+                .map(|hit| hit.body_observation().current)
+                .collect::<Vec<_>>(),
+            [90.0, 75.0]
+        );
+        assert_eq!(
+            events
+                .take_last_heal()
+                .iter()
+                .map(|heal| heal.health)
+                .collect::<Vec<_>>(),
+            [95.0, 80.0]
+        );
+        assert_eq!(owner.health.current, 80.0);
+        assert!(events.take_last_damage().is_empty());
+        assert!(events.take_last_heal().is_empty());
     }
 
     #[test]

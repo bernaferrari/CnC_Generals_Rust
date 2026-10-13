@@ -90,7 +90,7 @@ impl GameLogic {
 
         if let Some(item) = cancelled {
             self.refund_cancelled_production_item(owner_player_id, team, &item);
-            crate::game_logic::host_production_log::record_cancel(producer_id, item.template_name);
+
             // Wave 485: last cancelled item clears factory exit-delay residual.
             if let Some(producer) = self.objects.get_mut(&producer_id) {
                 if let Some(building) = producer.building_data.as_mut() {
@@ -153,7 +153,6 @@ impl GameLogic {
         };
 
         self.refund_cancelled_production_item(owner_player_id, team, &item);
-        crate::game_logic::host_production_log::record_cancel(producer_id, item.template_name);
 
         // The final cancellation releases the factory door immediately just as
         // the name-based path does; otherwise stale exit-delay state can keep a
@@ -199,12 +198,10 @@ impl GameLogic {
 
         let mut cancelled_items: Vec<ProductionItem> = Vec::new();
         let mut cancelled_any = false;
-        let mut cancelled_names: Vec<String> = Vec::new();
         let mut cleared_exit_delay = false;
         if let Some(producer) = self.objects.get_mut(&producer_id) {
             if let Some(building) = producer.building_data.as_mut() {
                 for item in building.production_queue.drain(..) {
-                    cancelled_names.push(item.template_name.clone());
                     cancelled_items.push(item);
                     cancelled_any = true;
                 }
@@ -220,15 +217,6 @@ impl GameLogic {
         if cancelled_any {
             for item in &cancelled_items {
                 self.refund_cancelled_production_item(owner_player_id, team, item);
-            }
-            // Wave 484: sole-tick skips per-frame progress log — Cancel refreshes
-            // GW producer queue snapshot after host drain (sell/death/cancel-all).
-            if cancelled_names.is_empty() {
-                crate::game_logic::host_production_log::record_cancel(producer_id, String::new());
-            } else {
-                for name in cancelled_names {
-                    crate::game_logic::host_production_log::record_cancel(producer_id, name);
-                }
             }
             // Wave 485: publish exit-delay clear so GW sole-tick does not hold a ghost timer.
             if cleared_exit_delay {

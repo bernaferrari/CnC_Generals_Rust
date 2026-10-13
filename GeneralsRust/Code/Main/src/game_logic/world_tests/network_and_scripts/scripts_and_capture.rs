@@ -2833,6 +2833,14 @@ fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
             .add_kind_of(KindOf::Transport)
             .set_health(400.0);
         humvee.set_authored_ai_update_interface(Some(true));
+        humvee.contain_module = crate::game_logic::ContainModuleMetadata {
+            kind: crate::game_logic::ContainModuleKind::Transport,
+            slots: Some(8),
+            admission: crate::game_logic::ContainAdmission::InfantryOnly,
+            is_enclosing_container: true,
+            allow_allies_inside: true,
+            ..Default::default()
+        };
         logic.templates.insert("GarrEnterHumvee".into(), humvee);
         let infantry = logic
             .create_object_for_player("GarrEnterRanger", 1, Vec3::new(50.0 + offset, 0.0, 50.0))

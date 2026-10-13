@@ -548,6 +548,7 @@ impl GameLogic {
             map_name: String::new(),
             map_loaded: false,
             combat_system: CombatSystem::new(),
+            production_events: Default::default(),
             production_spawn_completions: Vec::new(),
             pathfinding_system: PathfindingSystem::new_with_origin(
                 world_min,
@@ -809,6 +810,7 @@ impl GameLogic {
         // C++ WeaponStore::reset also drops pending delayed damage.
         self.combat_system.reset_projectileless_delayed();
         self.combat_system.reset_pending_projectiles();
+        self.production_events.clear();
         self.production_spawn_completions.clear();
         self.warehouse_crippling_states.clear();
         self.mission_scripts.clear_warehouse_set_values();

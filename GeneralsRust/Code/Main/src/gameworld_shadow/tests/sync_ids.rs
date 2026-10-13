@@ -982,7 +982,6 @@ fn writeback_production_and_rally_to_host() {
     // The ready/production logs are process-global thread-locals; clear at the
     // boundary so a prior producer test's pending entries cannot feed the
     // writeback skip-guard (writeback_production.rs:43-47).
-    crate::game_logic::host_production_log::clear();
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("ProdRallyWb");
@@ -1229,7 +1228,6 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
     );
     // Process-global thread-local logs must not leak into the next producer
     // test (established clear-at-boundary pattern).
-    crate::game_logic::host_production_log::clear();
 
     match prev_shadow {
         Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),

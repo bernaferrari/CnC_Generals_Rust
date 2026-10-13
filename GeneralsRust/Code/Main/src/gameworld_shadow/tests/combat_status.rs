@@ -901,8 +901,6 @@ fn host_production_log_drives_set_production_queue_channel() {
         o.building_data = Some(bd);
     }
 
-    host_production_log::record_enqueue(barracks, "ProdRanger");
-
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(barracks).expect("map");
@@ -912,7 +910,6 @@ fn host_production_log_drives_set_production_queue_channel() {
         e.production_template.clear();
     }
     // Re-record for apply (drain consumed).
-    host_production_log::record_enqueue(barracks, "ProdRanger");
 
     shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");

@@ -1400,6 +1400,13 @@ fn fire_weapon_when_damaged_reaction_splash() {
 fn structure_topple_crush_sweep_kills_nearby_infantry() {
     use crate::game_logic::host_structure_topple::HostStructureToppleState;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
+    assert_eq!(
+        crate::assets::ini_template_loader::register_weapons_from_ini_text(
+            "Weapon ToppledStructureWeapon\n PrimaryDamage = 99999\n PrimaryDamageRadius = 20\n DamageType = EXPLOSION\n DeathType = EXPLODED\nEnd\n",
+        ),
+        1,
+        "actual authored crush weapon"
+    );
     let mut logic = GameLogic::new();
     let mut bt = ThingTemplate::new("AmericaWarFactory");
     bt.set_health(100.0);

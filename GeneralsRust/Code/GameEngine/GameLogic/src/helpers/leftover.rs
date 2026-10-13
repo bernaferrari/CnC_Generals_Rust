@@ -213,6 +213,24 @@ impl TheInGameUI {
                 })
             })
             .unwrap_or_else(|| TheGameLogic::get_frame() + template.get_reload_time());
+        Self::add_superweapon_at_ready_frame(
+            player_index,
+            power_name,
+            object_id,
+            template,
+            ready_frame,
+        );
+    }
+
+    /// Admit a countdown already observed from its receiving simulation owner.
+    /// The native UI store never discovers a Core world to derive its deadline.
+    pub fn add_superweapon_at_ready_frame(
+        player_index: Int,
+        power_name: String,
+        object_id: ObjectID,
+        template: &SpecialPowerTemplate,
+        ready_frame: UnsignedInt,
+    ) {
         if let Ok(mut state) = IN_GAME_UI_STATE.write() {
             state.superweapons.retain(|entry| {
                 !(entry.player_index == player_index

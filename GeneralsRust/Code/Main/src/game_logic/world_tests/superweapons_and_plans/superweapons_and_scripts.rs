@@ -1,6 +1,53 @@
 //! Behavior suite extracted from `superweapons_and_plans`.
 use super::*;
 
+// Exercise the receiving script interpreter and TeamFactory, rather than a
+// process-local request queue or an object name that only resembles a roster.
+fn execute_owned_fixture_action(
+    world: &mut GameLogic,
+    kind: gamelogic::scripting::core::ScriptActionType,
+    parameters: Vec<gamelogic::scripting::core::Parameter>,
+) {
+    use gamelogic::scripting::core::{
+        Condition, ConditionType, OrCondition, Script, ScriptAction, ScriptList,
+    };
+    let mut action = ScriptAction::new(kind);
+    for parameter in parameters {
+        action.add_parameter(parameter).unwrap();
+    }
+    let mut branch = OrCondition::new();
+    branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.script_name = "OwnedTeamAction".into();
+    script.is_one_shot = true;
+    script.condition = Some(Box::new(branch));
+    script.action = Some(Box::new(action));
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    engine
+        .set_script_list_for_player(0, Some(Box::new(list)))
+        .unwrap();
+    world
+        .update_local_script_engine_with_owner(&engine)
+        .unwrap();
+}
+
+fn register_owned_fixture_team(world: &mut GameLogic, name: &str, members: &[ObjectId]) {
+    let team = {
+        let mut factory = world.team_factory.lock().unwrap();
+        factory
+            .init_team_owned(name.into(), "TestPlayer".into(), false, None, Some(0))
+            .unwrap();
+        factory.create_team(name).unwrap()
+    };
+    for id in members {
+        world.host_object_mut(*id).unwrap().team_instance_name = name.into();
+        team.write().unwrap().add_member(id.0);
+    }
+    team.write().unwrap().set_active();
+}
+
 #[test]
 fn anthrax_bomb_exits_plane_at_delivery_distance_not_over_click() {
     use crate::game_logic::KindOf;
@@ -2604,10 +2651,7 @@ fn script_idle_all_units_and_resume_supply_write_live() {
 #[test]
 fn script_idle_and_guard_for_framecount_write_live() {
     use crate::game_logic::AIState;
-    use gamelogic::scripting::{
-        HostScriptHuntGuardRequest, HostScriptIdleRequest, request_host_script_hunt_guard,
-        request_host_script_idle,
-    };
+    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptActionType};
 
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
@@ -2622,22 +2666,27 @@ fn script_idle_and_guard_for_framecount_write_live() {
     if let Some(obj) = logic.host_object_mut(named) {
         obj.name = "NamedRanger".into();
     }
-    if let Some(obj) = logic.host_object_mut(teammate) {
-        obj.team_instance_name = "USA_RangerSquad".into();
-    }
+    register_owned_fixture_team(&mut logic, "USA_RangerSquad", &[teammate]);
     let far = glam::Vec3::new(400.0, 0.0, 0.0);
     let _ = logic.unit_command_move_to(named, far);
     let _ = logic.unit_command_move_to(teammate, far);
 
-    let _ = gamelogic::scripting::take_host_script_idle_requests();
-    request_host_script_idle(HostScriptIdleRequest::NamedStop {
-        unit: "NamedRanger".into(),
-    });
-    request_host_script_idle(HostScriptIdleRequest::TeamStop {
-        team: "USA_RangerSquad".into(),
-        disband: false,
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::UnitIdleForFramecount,
+        vec![
+            Parameter::with_string(ParameterType::Unit, "NamedRanger".into()),
+            Parameter::with_int(ParameterType::Integer, 0),
+        ],
+    );
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::TeamIdleForFramecount,
+        vec![
+            Parameter::with_string(ParameterType::Team, "USA_RangerSquad".into()),
+            Parameter::with_int(ParameterType::Integer, 0),
+        ],
+    );
     assert!(
         logic
             .host_object(named)
@@ -2653,10 +2702,14 @@ fn script_idle_and_guard_for_framecount_write_live() {
         "TEAM_IDLE_FOR_FRAMECOUNT must groupIdle live team members"
     );
 
-    request_host_script_hunt_guard(HostScriptHuntGuardRequest::NamedGuard {
-        unit: "NamedRanger".into(),
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::NamedGuard,
+        vec![Parameter::with_string(
+            ParameterType::Unit,
+            "NamedRanger".into(),
+        )],
+    );
     assert!(
         logic
             .host_object(named)
@@ -2899,10 +2952,7 @@ fn script_set_base_construction_speed_writes_live_ai_team_seconds() {
 #[test]
 fn script_team_nearest_and_partial_command_button_live() {
     use crate::game_logic::AIState;
-    use gamelogic::scripting::{
-        HostScriptTeamPartialCommandButtonRequest, HostScriptUseCommandButtonRequest,
-        request_host_script_use_command_button, request_host_team_partial_command_button,
-    };
+    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptActionType};
 
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
@@ -2927,24 +2977,19 @@ fn script_team_nearest_and_partial_command_button_live() {
             glam::Vec3::new(200.0, 0.0, 0.0),
         )
         .expect("far");
-    if let Some(obj) = logic.host_object_mut(near) {
-        obj.team_instance_name = "teamAmerica".into();
-        obj.owner_player_id = Some(0);
-    }
-    if let Some(obj) = logic.host_object_mut(far) {
-        obj.team_instance_name = "teamAmerica".into();
-        obj.owner_player_id = Some(0);
-    }
+    register_owned_fixture_team(&mut logic, "teamAmerica", &[near, far]);
     let _ = logic.unit_command_move_to(near, glam::Vec3::new(300.0, 0.0, 0.0));
     let _ = logic.unit_command_move_to(far, glam::Vec3::new(400.0, 0.0, 0.0));
 
-    let _ = gamelogic::scripting::take_host_team_partial_command_button_requests();
-    request_host_team_partial_command_button(HostScriptTeamPartialCommandButtonRequest {
-        team: "teamAmerica".into(),
-        button: "Command_Stop".into(),
-        percentage: 50.0,
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::TeamPartialUseCommandbutton,
+        vec![
+            Parameter::with_real(ParameterType::Real, 50.0),
+            Parameter::with_string(ParameterType::Team, "teamAmerica".into()),
+            Parameter::with_string(ParameterType::CommandButton, "Command_Stop".into()),
+        ],
+    );
     let near_idle = logic.host_object(near).expect("near").ai_state == AIState::Idle;
     let far_idle = logic.host_object(far).expect("far").ai_state == AIState::Idle;
     assert!(
@@ -2968,12 +3013,14 @@ fn script_team_nearest_and_partial_command_button_live() {
         obj.owner_player_id = Some(1);
     }
 
-    let _ = gamelogic::scripting::take_host_script_use_command_button_requests();
-    request_host_script_use_command_button(HostScriptUseCommandButtonRequest::TeamOnNearestEnemy {
-        team: "teamAmerica".into(),
-        button: "Command_Hijack".into(),
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyUnit,
+        vec![
+            Parameter::with_string(ParameterType::Team, "teamAmerica".into()),
+            Parameter::with_string(ParameterType::CommandButton, "Command_Hijack".into()),
+        ],
+    );
     let near_target = logic.host_object(near).and_then(|o| o.target);
     let far_target = logic.host_object(far).and_then(|o| o.target);
     assert!(

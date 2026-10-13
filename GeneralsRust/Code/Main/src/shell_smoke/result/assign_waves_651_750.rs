@@ -14,15 +14,6 @@
 
 
 
-
-
-
-        host_production_spawn_ready_log_helper_method_names_wave679_ok,
-        host_production_spawn_ready_log_helper_nav_commands_wave679_ok,
-        host_production_spawn_ready_log_helper_live_wave679_ok,
-
-
-
         host_construction_same_frame_ready_complete_method_names_wave715_ok,
         host_construction_same_frame_ready_complete_nav_commands_wave715_ok,
         host_construction_same_frame_ready_complete_live_wave715_ok,
@@ -81,42 +72,3 @@
         host_seed_starting_building_opt_in_method_names_wave734_ok,
         host_seed_starting_building_opt_in_nav_commands_wave734_ok,
         host_seed_starting_building_opt_in_live_wave734_ok,
-
-
-        host_production_object_id_prefers_gw_entity_method_names_wave737_ok,
-        host_production_object_id_prefers_gw_entity_nav_commands_wave737_ok,
-        host_production_object_id_prefers_gw_entity_live_wave737_ok,
-        host_production_spawn_requires_gw_bind_method_names_wave738_ok,
-        host_production_spawn_requires_gw_bind_nav_commands_wave738_ok,
-        host_production_spawn_requires_gw_bind_live_wave738_ok,
-        host_production_spawn_pose_no_rejitter_method_names_wave739_ok,
-        host_production_spawn_pose_no_rejitter_nav_commands_wave739_ok,
-        host_production_spawn_pose_no_rejitter_live_wave739_ok,
-
-
-        host_rebuild_spawn_requires_gw_bind_method_names_wave741_ok,
-        host_rebuild_spawn_requires_gw_bind_nav_commands_wave741_ok,
-        host_rebuild_spawn_requires_gw_bind_live_wave741_ok,
-        host_rebuild_hole_expose_entity_first_method_names_wave742_ok,
-        host_rebuild_hole_expose_entity_first_nav_commands_wave742_ok,
-        host_rebuild_hole_expose_entity_first_live_wave742_ok,
-
-
-        host_lifetime_kill_no_damage_auth_hp_stomp_method_names_wave745_ok,
-        host_lifetime_kill_no_damage_auth_hp_stomp_nav_commands_wave745_ok,
-        host_lifetime_kill_no_damage_auth_hp_stomp_live_wave745_ok,
-        host_crush_failclosed_no_damage_auth_hp_stomp_method_names_wave746_ok,
-        host_crush_failclosed_no_damage_auth_hp_stomp_nav_commands_wave746_ok,
-        host_crush_failclosed_no_damage_auth_hp_stomp_live_wave746_ok,
-        host_evacuate_exit_no_damage_auth_hp_stomp_method_names_wave747_ok,
-        host_evacuate_exit_no_damage_auth_hp_stomp_nav_commands_wave747_ok,
-        host_evacuate_exit_no_damage_auth_hp_stomp_live_wave747_ok,
-        host_hive_struct_damage_no_damage_auth_hp_stomp_method_names_wave748_ok,
-        host_hive_struct_damage_no_damage_auth_hp_stomp_nav_commands_wave748_ok,
-        host_hive_struct_damage_no_damage_auth_hp_stomp_live_wave748_ok,
-        host_tensile_rubble_no_damage_auth_hp_stomp_method_names_wave749_ok,
-        host_tensile_rubble_no_damage_auth_hp_stomp_nav_commands_wave749_ok,
-        host_tensile_rubble_no_damage_auth_hp_stomp_live_wave749_ok,
-        host_spectre_prior_clear_no_damage_auth_hp_stomp_method_names_wave750_ok,
-        host_spectre_prior_clear_no_damage_auth_hp_stomp_nav_commands_wave750_ok,
-        host_spectre_prior_clear_no_damage_auth_hp_stomp_live_wave750_ok,

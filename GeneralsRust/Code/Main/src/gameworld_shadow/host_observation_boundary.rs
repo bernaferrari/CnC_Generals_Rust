@@ -93,7 +93,7 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_player_meta_log::drain();
     let _ = crate::game_logic::host_player_progress_log::drain();
     let _ = crate::game_logic::host_production_door_log::drain();
-    let _ = crate::game_logic::host_production_log::drain();
+    logic.production_events.complete_boundary();
     let _ = crate::game_logic::host_production_progress_log::drain();
     let _ = crate::game_logic::host_projectile_log::drain();
     let _ = crate::game_logic::host_radar_extend_log::drain();

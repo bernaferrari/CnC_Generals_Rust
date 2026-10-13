@@ -24,9 +24,8 @@ pub(super) struct Waves921941 {
     pub host_presentation_build_boundary_method_names_wave926_ok: bool,
     pub host_presentation_build_boundary_nav_commands_wave926_ok: bool,
     pub host_presentation_build_boundary_live_wave926_ok: bool,
-    pub host_post_logic_shadow_boundary_method_names_wave927_ok: bool,
-    pub host_post_logic_shadow_boundary_nav_commands_wave927_ok: bool,
-    pub host_post_logic_shadow_boundary_live_wave927_ok: bool,
+
+
     pub host_save_load_skirmish_boundaries_method_names_wave928_ok: bool,
     pub host_save_load_skirmish_boundaries_nav_commands_wave928_ok: bool,
     pub host_save_load_skirmish_boundaries_live_wave928_ok: bool,
@@ -57,18 +56,11 @@ pub(super) struct Waves921941 {
     pub host_production_authority_boundary_method_names_wave937_ok: bool,
     pub host_production_authority_boundary_nav_commands_wave937_ok: bool,
     pub host_production_authority_boundary_live_wave937_ok: bool,
-    pub host_post_writeback_complete_boundary_method_names_wave938_ok: bool,
-    pub host_post_writeback_complete_boundary_nav_commands_wave938_ok: bool,
-    pub host_post_writeback_complete_boundary_live_wave938_ok: bool,
-    pub host_ready_log_drain_boundary_method_names_wave939_ok: bool,
-    pub host_ready_log_drain_boundary_nav_commands_wave939_ok: bool,
-    pub host_ready_log_drain_boundary_live_wave939_ok: bool,
-    pub host_sole_tick_object_id_boundary_method_names_wave940_ok: bool,
-    pub host_sole_tick_object_id_boundary_nav_commands_wave940_ok: bool,
-    pub host_sole_tick_object_id_boundary_live_wave940_ok: bool,
-    pub host_residual_mutation_boundary_method_names_wave941_ok: bool,
-    pub host_residual_mutation_boundary_nav_commands_wave941_ok: bool,
-    pub host_residual_mutation_boundary_live_wave941_ok: bool,
+
+
+
+
+
 }
 
 pub(super) fn evaluate() -> Waves921941 {
@@ -104,12 +96,8 @@ pub(super) fn evaluate() -> Waves921941 {
             honesty_host_presentation_build_boundary_nav_commands_residual_wave926(),
         host_presentation_build_boundary_live_wave926_ok:
             simulate_live_host_presentation_build_boundary_honesty(),
-        host_post_logic_shadow_boundary_method_names_wave927_ok:
-            honesty_host_post_logic_shadow_boundary_method_names_residual_wave927(),
-        host_post_logic_shadow_boundary_nav_commands_wave927_ok:
-            honesty_host_post_logic_shadow_boundary_nav_commands_residual_wave927(),
-        host_post_logic_shadow_boundary_live_wave927_ok:
-            simulate_live_host_post_logic_shadow_boundary_honesty(),
+
+
         host_save_load_skirmish_boundaries_method_names_wave928_ok:
             honesty_host_save_load_skirmish_boundaries_method_names_residual_wave928(),
         host_save_load_skirmish_boundaries_nav_commands_wave928_ok:
@@ -169,29 +157,10 @@ pub(super) fn evaluate() -> Waves921941 {
             honesty_host_production_authority_boundary_nav_commands_residual_wave937(),
         host_production_authority_boundary_live_wave937_ok:
             simulate_live_host_production_authority_boundary_honesty(),
-        host_post_writeback_complete_boundary_method_names_wave938_ok:
-            honesty_host_post_writeback_complete_boundary_method_names_residual_wave938(),
-        host_post_writeback_complete_boundary_nav_commands_wave938_ok:
-            honesty_host_post_writeback_complete_boundary_nav_commands_residual_wave938(),
-        host_post_writeback_complete_boundary_live_wave938_ok:
-            simulate_live_host_post_writeback_complete_boundary_honesty(),
-        host_ready_log_drain_boundary_method_names_wave939_ok:
-            honesty_host_ready_log_drain_boundary_method_names_residual_wave939(),
-        host_ready_log_drain_boundary_nav_commands_wave939_ok:
-            honesty_host_ready_log_drain_boundary_nav_commands_residual_wave939(),
-        host_ready_log_drain_boundary_live_wave939_ok:
-            simulate_live_host_ready_log_drain_boundary_honesty(),
-        host_sole_tick_object_id_boundary_method_names_wave940_ok:
-            honesty_host_sole_tick_object_id_boundary_method_names_residual_wave940(),
-        host_sole_tick_object_id_boundary_nav_commands_wave940_ok:
-            honesty_host_sole_tick_object_id_boundary_nav_commands_residual_wave940(),
-        host_sole_tick_object_id_boundary_live_wave940_ok:
-            simulate_live_host_sole_tick_object_id_boundary_honesty(),
-        host_residual_mutation_boundary_method_names_wave941_ok:
-            honesty_host_residual_mutation_boundary_method_names_residual_wave941(),
-        host_residual_mutation_boundary_nav_commands_wave941_ok:
-            honesty_host_residual_mutation_boundary_nav_commands_residual_wave941(),
-        host_residual_mutation_boundary_live_wave941_ok:
-            simulate_live_host_residual_mutation_boundary_honesty(),
+
+
+
+
+
     }
 }

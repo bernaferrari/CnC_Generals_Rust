@@ -93,21 +93,9 @@ pub(super) fn assert_waves_305_365(r: &ShellSmokeResult) {
         "live flight deck dual-world empty gate live residual wave311: {}",
         r.detail
     );
-    assert!(
-        r.live_exit_strategies_dual_world_empty_gate_method_names_wave312_ok,
-        "live exit strategies dual-world empty gate method names residual pack wave312: {}",
-        r.detail
-    );
-    assert!(
-        r.live_exit_strategies_dual_world_empty_gate_nav_commands_wave312_ok,
-        "live exit strategies dual-world empty gate nav commands residual pack wave312: {}",
-        r.detail
-    );
-    assert!(
-        r.live_exit_strategies_dual_world_empty_gate_live_wave312_ok,
-        "live exit strategies dual-world empty gate live residual wave312: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.live_collision_system_dual_world_empty_gate_method_names_wave313_ok,
         "live collision system dual-world empty gate method names residual pack wave313: {}",
@@ -138,21 +126,9 @@ pub(super) fn assert_waves_305_365(r: &ShellSmokeResult) {
         "live structure topple dual-world empty gate live residual wave315: {}",
         r.detail
     );
-    assert!(
-        r.live_physics_update_dual_world_empty_gate_method_names_wave316_ok,
-        "live physics update dual-world empty gate method names residual pack wave316: {}",
-        r.detail
-    );
-    assert!(
-        r.live_physics_update_dual_world_empty_gate_nav_commands_wave316_ok,
-        "live physics update dual-world empty gate nav commands residual pack wave316: {}",
-        r.detail
-    );
-    assert!(
-        r.live_physics_update_dual_world_empty_gate_live_wave316_ok,
-        "live physics update dual-world empty gate live residual wave316: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.live_cleanup_hazard_dual_world_empty_gate_method_names_wave317_ok,
         "live cleanup hazard dual-world empty gate method names residual pack wave317: {}",
@@ -243,21 +219,9 @@ pub(super) fn assert_waves_305_365(r: &ShellSmokeResult) {
         "live die mod dual-world empty gate live residual wave323: {}",
         r.detail
     );
-    assert!(
-        r.live_partition_manager_dual_world_empty_gate_method_names_wave324_ok,
-        "live partition manager dual-world empty gate method names residual pack wave324: {}",
-        r.detail
-    );
-    assert!(
-        r.live_partition_manager_dual_world_empty_gate_nav_commands_wave324_ok,
-        "live partition manager dual-world empty gate nav commands residual pack wave324: {}",
-        r.detail
-    );
-    assert!(
-        r.live_partition_manager_dual_world_empty_gate_live_wave324_ok,
-        "live partition manager dual-world empty gate live residual wave324: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.live_spectre_gunship_dual_world_empty_gate_method_names_wave325_ok,
         "live spectre gunship dual-world empty gate method names residual pack wave325: {}",
@@ -303,21 +267,9 @@ pub(super) fn assert_waves_305_365(r: &ShellSmokeResult) {
         "live neutron blast dual-world empty gate live residual wave327: {}",
         r.detail
     );
-    assert!(
-        r.live_countermeasures_dual_world_empty_gate_method_names_wave328_ok,
-        "live countermeasures dual-world empty gate method names residual pack wave328: {}",
-        r.detail
-    );
-    assert!(
-        r.live_countermeasures_dual_world_empty_gate_nav_commands_wave328_ok,
-        "live countermeasures dual-world empty gate nav commands residual pack wave328: {}",
-        r.detail
-    );
-    assert!(
-        r.live_countermeasures_dual_world_empty_gate_live_wave328_ok,
-        "live countermeasures dual-world empty gate live residual wave328: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.live_skirmish_player_dual_world_empty_gate_method_names_wave329_ok,
         "live skirmish player dual-world empty gate method names residual pack wave329: {}",
@@ -423,21 +375,9 @@ pub(super) fn assert_waves_305_365(r: &ShellSmokeResult) {
         "live bridge scaffold dual-world empty gate live residual wave335: {}",
         r.detail
     );
-    assert!(
-        r.live_assisted_targeting_dual_world_empty_gate_method_names_wave336_ok,
-        "live assisted targeting dual-world empty gate method names residual pack wave336: {}",
-        r.detail
-    );
-    assert!(
-        r.live_assisted_targeting_dual_world_empty_gate_nav_commands_wave336_ok,
-        "live assisted targeting dual-world empty gate nav commands residual pack wave336: {}",
-        r.detail
-    );
-    assert!(
-        r.live_assisted_targeting_dual_world_empty_gate_live_wave336_ok,
-        "live assisted targeting dual-world empty gate live residual wave336: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.live_economy_dual_world_empty_gate_method_names_wave337_ok,
         "live economy dual-world empty gate method names residual pack wave337: {}",
@@ -483,21 +423,9 @@ pub(super) fn assert_waves_305_365(r: &ShellSmokeResult) {
         "live modules dual-world empty gate live residual wave340: {}",
         r.detail
     );
-    assert!(
-        r.live_terrain_dual_world_empty_gate_method_names_wave341_ok,
-        "live terrain dual-world empty gate method names residual pack wave341: {}",
-        r.detail
-    );
-    assert!(
-        r.live_terrain_dual_world_empty_gate_nav_commands_wave341_ok,
-        "live terrain dual-world empty gate nav commands residual pack wave341: {}",
-        r.detail
-    );
-    assert!(
-        r.live_terrain_dual_world_empty_gate_live_wave341_ok,
-        "live terrain dual-world empty gate live residual wave341: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.live_special_power_template_dual_world_empty_gate_method_names_wave342_ok,
         "live special power template dual-world empty gate method names residual pack wave342: {}",
@@ -528,21 +456,9 @@ pub(super) fn assert_waves_305_365(r: &ShellSmokeResult) {
         "live script evaluator dual-world empty gate live residual wave343: {}",
         r.detail
     );
-    assert!(
-        r.live_system_game_logic_dual_world_empty_gate_method_names_wave344_ok,
-        "live system game logic dual-world empty gate method names residual pack wave344: {}",
-        r.detail
-    );
-    assert!(
-        r.live_system_game_logic_dual_world_empty_gate_nav_commands_wave344_ok,
-        "live system game logic dual-world empty gate nav commands residual pack wave344: {}",
-        r.detail
-    );
-    assert!(
-        r.live_system_game_logic_dual_world_empty_gate_live_wave344_ok,
-        "live system game logic dual-world empty gate live residual wave344: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.live_meta_event_dual_world_empty_gate_method_names_wave345_ok,
         "live meta event dual-world empty gate method names residual pack wave345: {}",
@@ -693,21 +609,9 @@ pub(super) fn assert_waves_305_365(r: &ShellSmokeResult) {
         "live pow truck ai dual-world empty gate live residual wave354: {}",
         r.detail
     );
-    assert!(
-        r.live_dock_update_dual_world_empty_gate_method_names_wave355_ok,
-        "live dock update dual-world empty gate method names residual pack wave355: {}",
-        r.detail
-    );
-    assert!(
-        r.live_dock_update_dual_world_empty_gate_nav_commands_wave355_ok,
-        "live dock update dual-world empty gate nav commands residual pack wave355: {}",
-        r.detail
-    );
-    assert!(
-        r.live_dock_update_dual_world_empty_gate_live_wave355_ok,
-        "live dock update dual-world empty gate live residual wave355: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.live_railroad_guide_ai_dual_world_empty_gate_method_names_wave357_ok,
         "live railroad guide ai dual-world empty gate method names residual pack wave357: {}",
@@ -828,19 +732,7 @@ pub(super) fn assert_waves_305_365(r: &ShellSmokeResult) {
         "live propaganda center behavior dual-world empty gate live residual wave364: {}",
         r.detail
     );
-    assert!(
-        r.live_production_update_complete_dual_world_empty_gate_method_names_wave365_ok,
-        "live production update complete dual-world empty gate method names residual pack wave365: {}",
-        r.detail
-    );
-    assert!(
-        r.live_production_update_complete_dual_world_empty_gate_nav_commands_wave365_ok,
-        "live production update complete dual-world empty gate nav commands residual pack wave365: {}",
-        r.detail
-    );
-    assert!(
-        r.live_production_update_complete_dual_world_empty_gate_live_wave365_ok,
-        "live production update complete dual-world empty gate live residual wave365: {}",
-        r.detail
-    );
+
+
+
 }

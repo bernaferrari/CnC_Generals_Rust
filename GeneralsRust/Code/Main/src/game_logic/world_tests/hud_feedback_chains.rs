@@ -88,11 +88,12 @@ fn superweapon_object_produces_counting_down_strip_entry_that_hits_ready() {
     let template = std::sync::Arc::new(template);
 
     // Special-power attach: GameLogic registers the timer with TheInGameUI.
-    gamelogic::helpers::TheInGameUI::add_superweapon(
+    gamelogic::helpers::TheInGameUI::add_superweapon_at_ready_frame(
         0,
         SW_POWER_NAME.to_string(),
         SW_OBJECT_ID,
         &template,
+        template.get_reload_time(),
     );
 
     let mut client = game_client::core::game_client::GameClient::new().expect("GameClient::new");

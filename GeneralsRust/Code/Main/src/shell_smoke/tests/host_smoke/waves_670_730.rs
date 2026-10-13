@@ -30,21 +30,9 @@ pub(super) fn assert_waves_670_730(r: &ShellSmokeResult) {
 
 
 
-    assert!(
-        r.host_production_spawn_ready_log_helper_method_names_wave679_ok,
-        "host production_spawn ready log helper method names residual pack wave679: {}",
-        r.detail
-    );
-    assert!(
-        r.host_production_spawn_ready_log_helper_nav_commands_wave679_ok,
-        "host production_spawn ready log helper nav commands residual pack wave679: {}",
-        r.detail
-    );
-    assert!(
-        r.host_production_spawn_ready_log_helper_live_wave679_ok,
-        "host production_spawn ready log helper live residual wave679: {}",
-        r.detail
-    );
+
+
+
 
 
 

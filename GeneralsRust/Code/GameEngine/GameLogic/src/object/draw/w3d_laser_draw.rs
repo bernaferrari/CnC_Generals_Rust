@@ -429,14 +429,14 @@ pub struct W3DLaserDraw {
 /// Positions and width consumed from the driving Drawable at this DRAW ordinal.
 /// This is temporary render input, never a second owner of LaserUpdate state.
 #[derive(Clone, Copy)]
-pub(crate) struct LaserDrawInput {
+pub struct LaserDrawInput {
     start_pos: Coord3D,
     end_pos: Coord3D,
     width_scale: Real,
 }
 
 impl LaserDrawInput {
-    pub(crate) fn consume(update: &mut dyn LaserUpdateInterface, self_dirty: bool) -> Option<Self> {
+    pub fn consume(update: &mut dyn LaserUpdateInterface, self_dirty: bool) -> Option<Self> {
         // W3DLaserDraw.cpp:243-247: the current draw clears dirty before geometry.
         // A later DRAW ordinal sees that mutation unless its own selfDirty wins.
         if !update.is_dirty() && !self_dirty {
@@ -482,21 +482,9 @@ impl W3DLaserDraw {
         self.self_dirty
     }
 
-    fn ensure_lines(&mut self) {
-        let beams = self.data.num_beams.max(1);
-        let segments = self.data.segments.max(1);
-        let total = (beams * segments) as usize;
-        if self.lines.len() != total {
-            self.lines = vec![LaserLine::default(); total];
-            self.init_lines();
-        }
-    }
-
-    fn init_lines(&mut self) {
+    fn init_lines_with_aspect(&mut self, aspect: Real) {
         self.has_texture = !self.data.texture_name.is_empty();
-        self.texture_aspect_ratio =
-            crate::object::draw::texture_aspect_ratio(self.data.texture_name.as_str())
-                .unwrap_or(1.0);
+        self.texture_aspect_ratio = aspect;
         let (inner_r, inner_g, inner_b, inner_a) = color_components_real(self.data.inner_color);
         let (outer_r, outer_g, outer_b, outer_a) = color_components_real(self.data.outer_color);
 
@@ -573,18 +561,24 @@ impl Module for W3DLaserDraw {
 
 impl W3DLaserDraw {
     /// Render the canonical laser using its driving Drawable's current update.
-    pub(crate) fn draw_from_update(&mut self, input: LaserDrawInput) {
+    pub fn geometry_with_services(
+        &mut self,
+        input: LaserDrawInput,
+        texture_aspect: Real,
+        terrain_height: &mut dyn FnMut(Real, Real) -> Option<Real>,
+    ) -> Vec<SceneLineDesc> {
         self.start_pos = input.start_pos;
         self.end_pos = input.end_pos;
         self.width_scale = input.width_scale;
         self.self_dirty = false;
 
-        self.ensure_lines();
+        self.init_lines_with_aspect(texture_aspect);
+        let mut output = Vec::new();
 
         let beams = self.data.num_beams.max(1);
         let segments = self.data.segments.max(1);
         let total = (beams * segments) as usize;
-        self.sync_scene_line_count(total);
+        output.reserve(total);
         let use_arc = self.data.arc_height > 0.0 && segments > 1;
 
         for segment in 0..segments {
@@ -624,13 +618,11 @@ impl W3DLaserDraw {
                     curved_start.z += height_start;
                     curved_end.z += height_end;
 
-                    if let Some(terrain) = crate::helpers::TheTerrainLogic::get() {
-                        let ground_start =
-                            terrain.get_ground_height(curved_start.x, curved_start.y, None);
-                        let ground_end =
-                            terrain.get_ground_height(curved_end.x, curved_end.y, None);
-                        curved_start.z = curved_start.z.max(2.0 + ground_start);
-                        curved_end.z = curved_end.z.max(2.0 + ground_end);
+                    if let Some(height) = terrain_height(curved_start.x, curved_start.y) {
+                        curved_start.z = curved_start.z.max(2.0 + height);
+                    }
+                    if let Some(height) = terrain_height(curved_end.x, curved_end.y) {
+                        curved_end.z = curved_end.z.max(2.0 + height);
                     }
 
                     (curved_start, curved_end)
@@ -665,38 +657,73 @@ impl W3DLaserDraw {
                     line.tile_factor = tile_factor;
                 }
 
-                let (cr, cg, cb, _ca) = color_components_real(line.color);
-                let desc = SceneLineDesc {
-                    start: game_engine::common::system::geometry::Coord3D::new(
-                        line.start.x,
-                        line.start.y,
-                        line.start.z,
-                    ),
-                    end: game_engine::common::system::geometry::Coord3D::new(
-                        line.end.x, line.end.y, line.end.z,
-                    ),
-                    width: line.width,
-                    color_r: cr,
-                    color_g: cg,
-                    color_b: cb,
-                    opacity: _ca,
-                    texture_name: if self.has_texture {
-                        Some(self.data.texture_name.to_string())
-                    } else {
-                        None
-                    },
-                    tile_factor: line.tile_factor,
-                    scroll_rate: self.data.scroll_rate,
-                    visible: line.visible,
-                };
-
-                match self.scene_line_ids[index] {
-                    None => {
-                        self.scene_line_ids[index] = submit_scene_line(0, &desc);
-                    }
-                    Some(id) => {
-                        update_scene_line(id, &desc);
-                    }
+                let desc = Self::line_description(&self.data, self.has_texture, line);
+                output.push(desc);
+            }
+        }
+        output
+    }
+    fn line_description(
+        data: &W3DLaserDrawModuleData,
+        textured: bool,
+        line: &LaserLine,
+    ) -> SceneLineDesc {
+        let (r, g, b, a) = color_components_real(line.color);
+        SceneLineDesc {
+            start: game_engine::common::system::geometry::Coord3D::new(
+                line.start.x,
+                line.start.y,
+                line.start.z,
+            ),
+            end: game_engine::common::system::geometry::Coord3D::new(
+                line.end.x, line.end.y, line.end.z,
+            ),
+            width: line.width,
+            color_r: r,
+            color_g: g,
+            color_b: b,
+            opacity: a,
+            texture_name: if textured {
+                Some(data.texture_name.to_string())
+            } else {
+                None
+            },
+            tile_factor: line.tile_factor,
+            scroll_rate: data.scroll_rate,
+            visible: line.visible,
+        }
+    }
+    /// Immutable presentation output from the canonical draw module cache.
+    pub fn current_geometry(&self) -> Vec<SceneLineDesc> {
+        let beams = self.data.num_beams.max(1) as usize;
+        (0..self.lines.len())
+            .map(|ordinal| {
+                let index = ordinal / beams * beams + beams - 1 - ordinal % beams;
+                Self::line_description(&self.data, self.has_texture, &self.lines[index])
+            })
+            .collect()
+    }
+    pub fn texture_name(&self) -> &str {
+        self.data.texture_name.as_str()
+    }
+    /// Compatibility scene submission shares the receiving geometry kernel.
+    pub(crate) fn draw_from_update(&mut self, input: LaserDrawInput) {
+        let aspect = crate::object::draw::texture_aspect_ratio(self.data.texture_name.as_str())
+            .unwrap_or(1.0);
+        let mut terrain = |x, y| {
+            crate::helpers::TheTerrainLogic::get()
+                .map(|terrain| terrain.get_ground_height(x, y, None))
+        };
+        let geometry = self.geometry_with_services(input, aspect, &mut terrain);
+        self.sync_scene_line_count(self.lines.len());
+        // Geometry is emitted in original segment/descending-beam visitation order.
+        let beams = self.data.num_beams.max(1) as usize;
+        for (ordinal, desc) in geometry.iter().enumerate() {
+            let index = ordinal / beams * beams + beams - 1 - ordinal % beams;
+            match self.scene_line_ids[index] {
+                None => self.scene_line_ids[index] = submit_scene_line(0, desc),
+                Some(id) => {
+                    update_scene_line(id, desc);
                 }
             }
         }

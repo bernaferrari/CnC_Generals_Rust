@@ -958,7 +958,6 @@ fn move_target_writeback_updates_host() {
 fn production_complete_applies_spawn_map_when_missing() {
     use crate::game_logic::host_production_log::HostProductionEvent;
     crate::game_logic::host_spawn_log::clear();
-    crate::game_logic::host_production_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ProdMap");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -980,7 +979,6 @@ fn production_complete_applies_spawn_map_when_missing() {
 
 #[test]
 fn production_complete_logs_when_queue_finishes() {
-    crate::game_logic::host_production_log::clear();
     crate::game_logic::host_spawn_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ProdDone");
@@ -1011,7 +1009,6 @@ fn production_complete_logs_when_queue_finishes() {
         t.build_cost.power = 0;
     }
     assert!(logic.enqueue_production(bid, name.to_string()));
-    crate::game_logic::host_production_log::clear();
     crate::game_logic::host_spawn_log::clear();
     let before = logic.host_objects().len();
     for _ in 0..300 {
@@ -1020,7 +1017,8 @@ fn production_complete_logs_when_queue_finishes() {
             break;
         }
     }
-    let prods = crate::game_logic::host_production_log::drain();
+    logic.production_events.complete_boundary();
+    let prods = logic.production_events.take_completed();
     let spawns = crate::game_logic::host_spawn_log::drain();
     let completed = prods.iter().any(|e| {
         matches!(
@@ -1042,51 +1040,55 @@ fn production_complete_logs_when_queue_finishes() {
 }
 
 #[test]
-fn production_enqueue_logs_for_shadow_session() {
-    crate::game_logic::host_production_log::clear();
+fn production_enqueue_commits_queue_before_any_completion_receipt() {
+    use crate::game_logic::{BuildingData, BuildingType, Player, ProductionExitMetadata};
     let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("ProdLog");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    // Prefer a real barracks from skirmish/map config if present.
-    let barracks = logic
-        .host_objects()
-        .iter()
-        .find(|(_, o)| o.team == Team::USA && o.building_data.is_some() && o.is_constructed())
-        .map(|(id, _)| *id);
-    let Some(bid) = barracks else {
-        // No producer in minimal config — channel still drains clean.
-        let _ = crate::game_logic::host_production_log::drain();
-        return;
-    };
-    // Try a known infantry name; skip assert if template missing.
-    let templates = ["AmericaInfantryRanger", "USA_Ranger", "Ranger"];
-    let mut logged = false;
-    for name in templates {
-        if !logic.templates.contains_key(name) {
-            continue;
-        }
-        crate::game_logic::host_production_log::clear();
-        if logic.enqueue_production(bid, name.to_string()) {
-            let ev = crate::game_logic::host_production_log::drain();
-            assert_eq!(ev.len(), 1, "enqueue should log once");
-            match &ev[0] {
-                crate::game_logic::host_production_log::HostProductionEvent::Enqueue {
-                    producer,
-                    template_name,
-                } => {
-                    assert_eq!(*producer, bid);
-                    assert_eq!(template_name, name);
-                }
-                other => panic!("expected Enqueue, got {other:?}"),
-            }
-            logged = true;
-            break;
-        }
-    }
-    if !logged {
-        // Still prove drain API is callable.
-        let _ = crate::game_logic::host_production_log::drain();
-    }
+    let mut player = Player::new(0, Team::USA, "QueueOwner", true);
+    player.resources.supplies = 10_000;
+    player.power_produced = 1;
+    logic.add_player(player);
+    let mut barracks = ThingTemplate::new("ReceiptQueueFactory");
+    barracks
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSBarracks)
+        .set_health(500.0);
+    barracks.production_exit_metadata = Some(ProductionExitMetadata {
+        style: crate::game_logic::thing::ProductionExitStyle::Default,
+        unit_create_point: [0.0; 3],
+        natural_rally_point: [0.0; 3],
+        exit_delay_frames: 0,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
+    });
+    logic.templates.insert(barracks.name.clone(), barracks);
+    let mut unit = ThingTemplate::new("ReceiptQueueInfantry");
+    unit.add_kind_of(KindOf::Infantry).set_health(100.0);
+    unit.build_time = 1.0;
+    unit.build_cost.supplies = 100;
+    logic.templates.insert(unit.name.clone(), unit);
+    let producer = logic
+        .create_object_for_player("ReceiptQueueFactory", 0, Vec3::ZERO)
+        .unwrap();
+    logic.host_object_mut(producer).unwrap().building_data =
+        Some(BuildingData::new(BuildingType::Barracks));
+    assert!(logic.enqueue_production(producer, "ReceiptQueueInfantry".into()));
+    let queue = &logic
+        .host_object(producer)
+        .unwrap()
+        .building_data
+        .as_ref()
+        .unwrap()
+        .production_queue;
+    assert_eq!(queue.len(), 1);
+    assert_eq!(queue[0].template_name, "ReceiptQueueInfantry");
+    assert_eq!(logic.get_player(0).unwrap().resources.supplies, 9_900);
+    logic.production_events.complete_boundary();
+    assert!(
+        logic.production_events.take_completed().is_empty(),
+        "an accepted queue is not a completed unit"
+    );
 }
 
 #[test]
@@ -1681,9 +1683,7 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
         .templates
         .get_mut("NoShadowDamageTarget")
         .unwrap()
-        .authored_instant_death = Some(vec![
-        crate::game_logic::host_instant_death::HostInstantDeathIni::default(),
-    ]);
+        .authored_instant_death = Some(vec![Default::default()]);
 
     let ordinary = logic
         .create_object("NoShadowDamageTarget", Team::USA, Vec3::new(1.0, 0.0, 1.0))

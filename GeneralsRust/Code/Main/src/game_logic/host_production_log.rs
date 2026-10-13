@@ -1,108 +1,48 @@
-//! Frame-local host production log for GameWorld shadow parity.
-//!
-//! - Enqueue: queue intent (producer + template)
-//! - Complete: producer finished a unit (spawned id + template); spawn also
-//!   flows through `host_spawn_log` via `create_object`.
-
+//! Real factory completion receipts owned by the receiving Main session.
+//! CPP ProductionUpdate completes creation/notifications before presentation;
+//! these receipts cannot modify a queue or spawn a second object.
 use super::ObjectId;
-use std::cell::RefCell;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostProductionEvent {
-    Enqueue {
-        producer: ObjectId,
-        template_name: String,
-    },
     Complete {
         producer: ObjectId,
         template_name: String,
         spawned: ObjectId,
     },
-    /// Player cancelled a queued item (Wave 199).
-    Cancel {
+}
+
+#[derive(Debug, Default)]
+pub struct ProductionEvents {
+    pending: Vec<HostProductionEvent>,
+    completed: Vec<HostProductionEvent>,
+}
+impl ProductionEvents {
+    pub(crate) fn record_complete(
+        &mut self,
         producer: ObjectId,
-        template_name: String,
-    },
-}
-
-thread_local! {
-    static LOG: RefCell<Vec<HostProductionEvent>> = RefCell::new(Vec::new());
-    /// Last drained batch (presentation freezes after shadow session drain).
-    static LAST_DRAIN: RefCell<Vec<HostProductionEvent>> = RefCell::new(Vec::new());
-}
-
-pub fn record_enqueue(producer: ObjectId, template_name: impl Into<String>) {
-    LOG.with(|log| {
-        log.borrow_mut().push(HostProductionEvent::Enqueue {
-            producer,
-            template_name: template_name.into(),
-        });
-    });
-}
-
-/// Backward-compatible alias used by existing enqueue sites.
-pub fn record(producer: ObjectId, template_name: impl Into<String>) {
-    record_enqueue(producer, template_name);
-}
-
-pub fn record_complete(producer: ObjectId, template_name: impl Into<String>, spawned: ObjectId) {
-    LOG.with(|log| {
-        log.borrow_mut().push(HostProductionEvent::Complete {
+        template_name: impl Into<String>,
+        spawned: ObjectId,
+    ) {
+        self.pending.push(HostProductionEvent::Complete {
             producer,
             template_name: template_name.into(),
             spawned,
         });
-    });
-}
-
-pub fn record_cancel(producer: ObjectId, template_name: impl Into<String>) {
-    LOG.with(|log| {
-        log.borrow_mut().push(HostProductionEvent::Cancel {
-            producer,
-            template_name: template_name.into(),
-        });
-    });
-}
-
-pub fn has_pending(object: ObjectId) -> bool {
-    LOG.with(|log| {
-        log.borrow().iter().any(|e| match e {
-            HostProductionEvent::Enqueue { producer, .. }
-            | HostProductionEvent::Complete { producer, .. }
-            | HostProductionEvent::Cancel { producer, .. } => *producer == object,
-        })
-    })
-}
-
-pub fn drain() -> Vec<HostProductionEvent> {
-    let v = LOG.with(|log| std::mem::take(&mut *log.borrow_mut()));
-    // Keep last non-empty batch for PresentationFrame after shadow session.
-    if !v.is_empty() {
-        LAST_DRAIN.with(|last| *last.borrow_mut() = v.clone());
     }
-    v
-}
-
-pub fn clear() {
-    LOG.with(|log| log.borrow_mut().clear());
-    LAST_DRAIN.with(|last| last.borrow_mut().clear());
-}
-
-/// Non-destructive peek of undrained log.
-pub fn snapshot() -> Vec<HostProductionEvent> {
-    LOG.with(|log| log.borrow().clone())
-}
-
-/// Take events from the most recent non-empty `drain()` (PresentationFrame sole consumer).
-pub fn take_last_drain() -> Vec<HostProductionEvent> {
-    LAST_DRAIN.with(|last| std::mem::take(&mut *last.borrow_mut()))
-}
-
-/// Non-destructive peek (tests).
-pub fn last_drain_snapshot() -> Vec<HostProductionEvent> {
-    LAST_DRAIN.with(|last| last.borrow().clone())
-}
-
-pub fn len() -> usize {
-    LOG.with(|log| log.borrow().len())
+    /// Preserve FIFO across multiple logic frames before a presentation freeze.
+    pub(crate) fn complete_boundary(&mut self) {
+        self.completed.append(&mut self.pending);
+    }
+    pub(crate) fn take_completed(&mut self) -> Vec<HostProductionEvent> {
+        std::mem::take(&mut self.completed)
+    }
+    pub(crate) fn clear(&mut self) {
+        self.pending.clear();
+        self.completed.clear();
+    }
+    #[cfg(test)]
+    pub(crate) fn snapshot_completed(&self) -> &[HostProductionEvent] {
+        &self.completed
+    }
 }

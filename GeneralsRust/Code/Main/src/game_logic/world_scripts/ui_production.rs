@@ -2374,10 +2374,7 @@ impl GameLogic {
                     if science_gated && science_ok {
                         self.stealth_fighter_science.record_production_enqueue();
                     }
-                    crate::game_logic::host_production_log::record(
-                        producer_id,
-                        template_name.clone(),
-                    );
+
                     return true;
                 }
                 if let Some(door) = reserved_exit_door {

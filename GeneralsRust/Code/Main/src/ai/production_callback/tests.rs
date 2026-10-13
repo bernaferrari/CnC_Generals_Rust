@@ -442,3 +442,110 @@ fn same_id_structure_completion_keeps_foreign_ai_delays_and_queue_unchanged() {
     foreign.notify_owned_ai_structure_produced(ObjectId(u32::MAX));
     assert_eq!(foreign.ai_manager.ai_players[&1].next_building_time, 80.0);
 }
+
+#[test]
+fn production_completion_receipts_follow_actual_owner_fifo_across_peer_reset_and_restore() {
+    use crate::game_logic::buildings::ProductionKind;
+    use crate::game_logic::host_production_log::HostProductionEvent;
+    use crate::game_logic::thing::{ProductionExitMetadata, ProductionExitStyle};
+    use crate::game_logic::{BuildingData, BuildingType, ProductionItem, Resources};
+
+    fn finish(world: &mut GameLogic, factory: ObjectId, name: &str) -> ObjectId {
+        let mut building = BuildingData::new(BuildingType::Barracks);
+        building.production_queue.push(ProductionItem {
+            template_name: name.into(),
+            progress: 0.0,
+            total_time: 0.0,
+            construction_frames: 0,
+            cost: Resources::default(),
+            quantity_total: 1,
+            quantity_produced: 0,
+            kind: ProductionKind::Unit,
+        });
+        world.host_object_mut(factory).unwrap().building_data = Some(building);
+        world.update_production(1.0 / 30.0);
+        assert!(
+            world
+                .host_object(factory)
+                .unwrap()
+                .building_data
+                .as_ref()
+                .unwrap()
+                .production_queue
+                .is_empty()
+        );
+        let spawned = world
+            .objects
+            .values()
+            .find(|object| object.producer_id == Some(factory))
+            .unwrap()
+            .id;
+        assert!(world.host_object(spawned).unwrap().is_alive());
+        world.production_events.complete_boundary();
+        spawned
+    }
+
+    let name = "ReceiptInfantry";
+    let (mut owner, factory) = production_world(name, false);
+    let metadata = ProductionExitMetadata {
+        style: ProductionExitStyle::Default,
+        unit_create_point: [0.0; 3],
+        natural_rally_point: [0.0; 3],
+        exit_delay_frames: 0,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
+    };
+    // The actual producer owns its immutable authored exit, not a shared registry.
+    owner
+        .templates
+        .get_mut("DeliveryFactory")
+        .unwrap()
+        .production_exit_metadata = Some(metadata);
+    // Recreate so the installed template carries the authored exit definition.
+    let mut installed = Object::new(
+        owner.templates["DeliveryFactory"].clone(),
+        factory,
+        Team::USA,
+    );
+    installed.owner_player_id = Some(1);
+    owner.objects.insert(factory, installed);
+    let first = finish(&mut owner, factory, name);
+    let (mut peer, peer_factory) = production_world(name, false);
+    assert_eq!(factory, peer_factory);
+    let peer_spawn = finish(&mut peer, peer_factory, name);
+    assert_eq!(first, peer_spawn);
+    assert_eq!(peer.production_events.take_completed().len(), 1);
+    peer.reset();
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    peer.templates = owner.templates.clone();
+    builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
+    assert!(peer.production_events.take_completed().is_empty());
+    let second_before = owner.objects.keys().copied().collect::<Vec<_>>();
+    finish(&mut owner, factory, name);
+    let second = owner
+        .objects
+        .keys()
+        .copied()
+        .find(|id| !second_before.contains(id))
+        .unwrap();
+    let completed = owner.production_events.take_completed();
+    assert_eq!(
+        completed,
+        vec![
+            HostProductionEvent::Complete {
+                producer: factory,
+                template_name: name.into(),
+                spawned: first
+            },
+            HostProductionEvent::Complete {
+                producer: factory,
+                template_name: name.into(),
+                spawned: second
+            },
+        ]
+    );
+    assert!(owner.production_events.take_completed().is_empty());
+}

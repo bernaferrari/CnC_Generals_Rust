@@ -775,13 +775,9 @@ fn main() {
         && r.live_garrison_dual_world_empty_gate_nav_commands_wave260_ok
         && r.live_garrison_dual_world_empty_gate_live_wave260_ok
         // Wave 261 residual honesty (OpenContain dual-world empty gates).
-        && r.live_open_contain_dual_world_empty_gate_method_names_wave261_ok
-        && r.live_open_contain_dual_world_empty_gate_nav_commands_wave261_ok
-        && r.live_open_contain_dual_world_empty_gate_live_wave261_ok
+
         // Wave 262 residual honesty (Pathfind dual-world empty gates).
-        && r.live_pathfind_dual_world_empty_gate_method_names_wave262_ok
-        && r.live_pathfind_dual_world_empty_gate_nav_commands_wave262_ok
-        && r.live_pathfind_dual_world_empty_gate_live_wave262_ok
+
         // Wave 263 residual honesty (AI mod dual-world empty gates).
         && r.live_ai_mod_dual_world_empty_gate_method_names_wave263_ok
         && r.live_ai_mod_dual_world_empty_gate_nav_commands_wave263_ok
@@ -795,9 +791,7 @@ fn main() {
         && r.live_weapon_dual_world_empty_gate_nav_commands_wave265_ok
         && r.live_weapon_dual_world_empty_gate_live_wave265_ok
         // Wave 266 residual honesty (Partition filters dual-world empty gates).
-        && r.live_partition_filters_dual_world_empty_gate_method_names_wave266_ok
-        && r.live_partition_filters_dual_world_empty_gate_nav_commands_wave266_ok
-        && r.live_partition_filters_dual_world_empty_gate_live_wave266_ok
+
         // Wave 268 residual honesty (Player dual-world empty gates).
         && r.live_player_dual_world_empty_gate_method_names_wave268_ok
         && r.live_player_dual_world_empty_gate_nav_commands_wave268_ok
@@ -815,9 +809,7 @@ fn main() {
         && r.live_script_conditions_dual_world_empty_gate_nav_commands_wave271_ok
         && r.live_script_conditions_dual_world_empty_gate_live_wave271_ok
         // Wave 272 residual honesty (TransportContain dual-world empty gates).
-        && r.live_transport_contain_dual_world_empty_gate_method_names_wave272_ok
-        && r.live_transport_contain_dual_world_empty_gate_nav_commands_wave272_ok
-        && r.live_transport_contain_dual_world_empty_gate_live_wave272_ok
+
         // Wave 273 residual honesty (InGameUI dual-world empty gates).
         && r.live_ingame_ui_dual_world_empty_gate_method_names_wave273_ok
         && r.live_ingame_ui_dual_world_empty_gate_nav_commands_wave273_ok
@@ -851,9 +843,7 @@ fn main() {
         && r.live_tunnel_contain_dual_world_empty_gate_nav_commands_wave280_ok
         && r.live_tunnel_contain_dual_world_empty_gate_live_wave280_ok
         // Wave 281 residual honesty (helpers dual-world empty gates).
-        && r.live_helpers_dual_world_empty_gate_method_names_wave281_ok
-        && r.live_helpers_dual_world_empty_gate_nav_commands_wave281_ok
-        && r.live_helpers_dual_world_empty_gate_live_wave281_ok
+
         // Wave 282 residual honesty (AIUpdateInterface dual-world empty gates).
         && r.live_ai_update_interface_dual_world_empty_gate_method_names_wave282_ok
         && r.live_ai_update_interface_dual_world_empty_gate_nav_commands_wave282_ok
@@ -867,13 +857,9 @@ fn main() {
         && r.live_script_executor_dual_world_empty_gate_nav_commands_wave284_ok
         && r.live_script_executor_dual_world_empty_gate_live_wave284_ok
         // Wave 285 residual honesty (AI integration dual-world empty gates).
-        && r.live_ai_integration_dual_world_empty_gate_method_names_wave285_ok
-        && r.live_ai_integration_dual_world_empty_gate_nav_commands_wave285_ok
-        && r.live_ai_integration_dual_world_empty_gate_live_wave285_ok
+
         // Wave 286 residual honesty (DumbProjectile dual-world empty gates).
-        && r.live_dumb_projectile_dual_world_empty_gate_method_names_wave286_ok
-        && r.live_dumb_projectile_dual_world_empty_gate_nav_commands_wave286_ok
-        && r.live_dumb_projectile_dual_world_empty_gate_live_wave286_ok
+
         // Wave 287 residual honesty (enhanced player dual-world empty gates).
         // Wave 288 residual honesty (hijacker update dual-world empty gates).
         && r.live_hijacker_update_dual_world_empty_gate_method_names_wave288_ok
@@ -885,9 +871,7 @@ fn main() {
         && r.live_async_player_dual_world_empty_gate_nav_commands_wave290_ok
         && r.live_async_player_dual_world_empty_gate_live_wave290_ok
         // Wave 291 residual honesty (active body dual-world empty gates).
-        && r.live_active_body_dual_world_empty_gate_method_names_wave291_ok
-        && r.live_active_body_dual_world_empty_gate_nav_commands_wave291_ok
-        && r.live_active_body_dual_world_empty_gate_live_wave291_ok
+
         // Wave 292 residual honesty (skirmish conditions dual-world empty gates).
         && r.live_skirmish_conditions_dual_world_empty_gate_method_names_wave292_ok
         && r.live_skirmish_conditions_dual_world_empty_gate_nav_commands_wave292_ok
@@ -909,9 +893,7 @@ fn main() {
         && r.live_special_ability_dual_world_empty_gate_nav_commands_wave296_ok
         && r.live_special_ability_dual_world_empty_gate_live_wave296_ok
         // Wave 298 residual honesty (supply system dual-world empty gates).
-        && r.live_supply_system_dual_world_empty_gate_method_names_wave298_ok
-        && r.live_supply_system_dual_world_empty_gate_nav_commands_wave298_ok
-        && r.live_supply_system_dual_world_empty_gate_live_wave298_ok
+
         // Wave 299 residual honesty (particle uplink dual-world empty gates).
         && r.live_particle_uplink_dual_world_empty_gate_method_names_wave299_ok
         && r.live_particle_uplink_dual_world_empty_gate_nav_commands_wave299_ok
@@ -921,17 +903,13 @@ fn main() {
         && r.live_overlord_contain_dual_world_empty_gate_nav_commands_wave300_ok
         && r.live_overlord_contain_dual_world_empty_gate_live_wave300_ok
         // Wave 301 residual honesty (bridge behavior dual-world empty gates).
-        && r.live_bridge_behavior_dual_world_empty_gate_method_names_wave301_ok
-        && r.live_bridge_behavior_dual_world_empty_gate_nav_commands_wave301_ok
-        && r.live_bridge_behavior_dual_world_empty_gate_live_wave301_ok
+
         // Wave 302 residual honesty (stealth behavior dual-world empty gates).
         && r.live_stealth_behavior_dual_world_empty_gate_method_names_wave302_ok
         && r.live_stealth_behavior_dual_world_empty_gate_nav_commands_wave302_ok
         && r.live_stealth_behavior_dual_world_empty_gate_live_wave302_ok
         // Wave 303 residual honesty (crate collide dual-world empty gates).
-        && r.live_crate_collide_dual_world_empty_gate_method_names_wave303_ok
-        && r.live_crate_collide_dual_world_empty_gate_nav_commands_wave303_ok
-        && r.live_crate_collide_dual_world_empty_gate_live_wave303_ok
+
         // Wave 304 residual honesty (object manager dual-world empty gates).
         && r.live_object_manager_dual_world_empty_gate_method_names_wave304_ok
         && r.live_object_manager_dual_world_empty_gate_nav_commands_wave304_ok
@@ -962,9 +940,7 @@ fn main() {
         && r.live_flight_deck_dual_world_empty_gate_nav_commands_wave311_ok
         && r.live_flight_deck_dual_world_empty_gate_live_wave311_ok
         // Wave 312 residual honesty (exit strategies dual-world empty gates).
-        && r.live_exit_strategies_dual_world_empty_gate_method_names_wave312_ok
-        && r.live_exit_strategies_dual_world_empty_gate_nav_commands_wave312_ok
-        && r.live_exit_strategies_dual_world_empty_gate_live_wave312_ok
+
         // Wave 313 residual honesty (collision system dual-world empty gates).
         && r.live_collision_system_dual_world_empty_gate_method_names_wave313_ok
         && r.live_collision_system_dual_world_empty_gate_nav_commands_wave313_ok
@@ -974,9 +950,7 @@ fn main() {
         && r.live_structure_topple_dual_world_empty_gate_nav_commands_wave315_ok
         && r.live_structure_topple_dual_world_empty_gate_live_wave315_ok
         // Wave 316 residual honesty (physics update dual-world empty gates).
-        && r.live_physics_update_dual_world_empty_gate_method_names_wave316_ok
-        && r.live_physics_update_dual_world_empty_gate_nav_commands_wave316_ok
-        && r.live_physics_update_dual_world_empty_gate_live_wave316_ok
+
         // Wave 317 residual honesty (cleanup hazard dual-world empty gates).
         && r.live_cleanup_hazard_dual_world_empty_gate_method_names_wave317_ok
         && r.live_cleanup_hazard_dual_world_empty_gate_nav_commands_wave317_ok
@@ -1002,9 +976,7 @@ fn main() {
         && r.live_die_mod_dual_world_empty_gate_nav_commands_wave323_ok
         && r.live_die_mod_dual_world_empty_gate_live_wave323_ok
         // Wave 324 residual honesty (partition manager dual-world empty gates).
-        && r.live_partition_manager_dual_world_empty_gate_method_names_wave324_ok
-        && r.live_partition_manager_dual_world_empty_gate_nav_commands_wave324_ok
-        && r.live_partition_manager_dual_world_empty_gate_live_wave324_ok
+
         // Wave 325 residual honesty (spectre gunship dual-world empty gates).
         && r.live_spectre_gunship_dual_world_empty_gate_method_names_wave325_ok
         && r.live_spectre_gunship_dual_world_empty_gate_nav_commands_wave325_ok
@@ -1018,9 +990,7 @@ fn main() {
         && r.live_neutron_blast_dual_world_empty_gate_nav_commands_wave327_ok
         && r.live_neutron_blast_dual_world_empty_gate_live_wave327_ok
         // Wave 328 residual honesty (countermeasures dual-world empty gates).
-        && r.live_countermeasures_dual_world_empty_gate_method_names_wave328_ok
-        && r.live_countermeasures_dual_world_empty_gate_nav_commands_wave328_ok
-        && r.live_countermeasures_dual_world_empty_gate_live_wave328_ok
+
         // Wave 329 residual honesty (skirmish player dual-world empty gates).
         && r.live_skirmish_player_dual_world_empty_gate_method_names_wave329_ok
         && r.live_skirmish_player_dual_world_empty_gate_nav_commands_wave329_ok
@@ -1050,9 +1020,7 @@ fn main() {
         && r.live_bridge_scaffold_dual_world_empty_gate_nav_commands_wave335_ok
         && r.live_bridge_scaffold_dual_world_empty_gate_live_wave335_ok
         // Wave 336 residual honesty (assisted targeting dual-world empty gates).
-        && r.live_assisted_targeting_dual_world_empty_gate_method_names_wave336_ok
-        && r.live_assisted_targeting_dual_world_empty_gate_nav_commands_wave336_ok
-        && r.live_assisted_targeting_dual_world_empty_gate_live_wave336_ok
+
         // Wave 337 residual honesty (economy dual-world empty gates).
         && r.live_economy_dual_world_empty_gate_method_names_wave337_ok
         && r.live_economy_dual_world_empty_gate_nav_commands_wave337_ok
@@ -1066,9 +1034,7 @@ fn main() {
         && r.live_modules_dual_world_empty_gate_nav_commands_wave340_ok
         && r.live_modules_dual_world_empty_gate_live_wave340_ok
         // Wave 341 residual honesty (terrain dual-world empty gates).
-        && r.live_terrain_dual_world_empty_gate_method_names_wave341_ok
-        && r.live_terrain_dual_world_empty_gate_nav_commands_wave341_ok
-        && r.live_terrain_dual_world_empty_gate_live_wave341_ok
+
         // Wave 342 residual honesty (special power template dual-world empty gates).
         && r.live_special_power_template_dual_world_empty_gate_method_names_wave342_ok
         && r.live_special_power_template_dual_world_empty_gate_nav_commands_wave342_ok
@@ -1078,9 +1044,7 @@ fn main() {
         && r.live_script_evaluator_dual_world_empty_gate_nav_commands_wave343_ok
         && r.live_script_evaluator_dual_world_empty_gate_live_wave343_ok
         // Wave 344 residual honesty (system game logic dual-world empty gates).
-        && r.live_system_game_logic_dual_world_empty_gate_method_names_wave344_ok
-        && r.live_system_game_logic_dual_world_empty_gate_nav_commands_wave344_ok
-        && r.live_system_game_logic_dual_world_empty_gate_live_wave344_ok
+
         // Wave 345 residual honesty (meta event dual-world empty gates).
         && r.live_meta_event_dual_world_empty_gate_method_names_wave345_ok
         && r.live_meta_event_dual_world_empty_gate_nav_commands_wave345_ok
@@ -1122,9 +1086,7 @@ fn main() {
         && r.live_pow_truck_ai_dual_world_empty_gate_nav_commands_wave354_ok
         && r.live_pow_truck_ai_dual_world_empty_gate_live_wave354_ok
         // Wave 355 residual honesty (dock update dual-world empty gates).
-        && r.live_dock_update_dual_world_empty_gate_method_names_wave355_ok
-        && r.live_dock_update_dual_world_empty_gate_nav_commands_wave355_ok
-        && r.live_dock_update_dual_world_empty_gate_live_wave355_ok
+
         // Wave 356 residual honesty (weapon template dual-world empty gates).
         // Wave 357 residual honesty (railroad guide ai dual-world empty gates).
         && r.live_railroad_guide_ai_dual_world_empty_gate_method_names_wave357_ok
@@ -1159,9 +1121,7 @@ fn main() {
         && r.live_propaganda_center_behavior_dual_world_empty_gate_nav_commands_wave364_ok
         && r.live_propaganda_center_behavior_dual_world_empty_gate_live_wave364_ok
         // Wave 365 residual honesty (production update complete dual-world empty gates).
-        && r.live_production_update_complete_dual_world_empty_gate_method_names_wave365_ok
-        && r.live_production_update_complete_dual_world_empty_gate_nav_commands_wave365_ok
-        && r.live_production_update_complete_dual_world_empty_gate_live_wave365_ok
+
         // Wave 366 residual honesty (pow truck behavior dual-world empty gates).
         && r.live_pow_truck_behavior_dual_world_empty_gate_method_names_wave366_ok
         && r.live_pow_truck_behavior_dual_world_empty_gate_nav_commands_wave366_ok
@@ -1187,9 +1147,7 @@ fn main() {
         && r.live_topple_update_dual_world_empty_gate_nav_commands_wave371_ok
         && r.live_topple_update_dual_world_empty_gate_live_wave371_ok
         // Wave 372 residual honesty (projectile stream update dual-world empty gates).
-        && r.live_projectile_stream_update_dual_world_empty_gate_method_names_wave372_ok
-        && r.live_projectile_stream_update_dual_world_empty_gate_nav_commands_wave372_ok
-        && r.live_projectile_stream_update_dual_world_empty_gate_live_wave372_ok
+
         // Wave 373 residual honesty (demo trap update dual-world empty gates).
         && r.live_demo_trap_update_dual_world_empty_gate_method_names_wave373_ok
         && r.live_demo_trap_update_dual_world_empty_gate_nav_commands_wave373_ok
@@ -1199,9 +1157,7 @@ fn main() {
         && r.live_mob_member_slaved_update_dual_world_empty_gate_nav_commands_wave374_ok
         && r.live_mob_member_slaved_update_dual_world_empty_gate_live_wave374_ok
         // Wave 375 residual honesty (TN guard dual-world empty gates).
-        && r.live_tn_guard_dual_world_empty_gate_method_names_wave375_ok
-        && r.live_tn_guard_dual_world_empty_gate_nav_commands_wave375_ok
-        && r.live_tn_guard_dual_world_empty_gate_live_wave375_ok
+
         // Wave 376 residual honesty (production update dual-world empty gates).
         && r.live_production_update_dual_world_empty_gate_method_names_wave376_ok
         && r.live_production_update_dual_world_empty_gate_nav_commands_wave376_ok
@@ -1215,9 +1171,7 @@ fn main() {
         && r.live_horde_update_dual_world_empty_gate_nav_commands_wave378_ok
         && r.live_horde_update_dual_world_empty_gate_live_wave378_ok
         // Wave 379 residual honesty (flammable update dual-world empty gates).
-        && r.live_flammable_update_dual_world_empty_gate_method_names_wave379_ok
-        && r.live_flammable_update_dual_world_empty_gate_nav_commands_wave379_ok
-        && r.live_flammable_update_dual_world_empty_gate_live_wave379_ok
+
         // Wave 380 residual honesty (base regenerate update dual-world empty gates).
         && r.live_base_regenerate_update_dual_world_empty_gate_method_names_wave380_ok
         && r.live_base_regenerate_update_dual_world_empty_gate_nav_commands_wave380_ok
@@ -1255,9 +1209,7 @@ fn main() {
         && r.live_stealth_detector_update_dual_world_empty_gate_nav_commands_wave388_ok
         && r.live_stealth_detector_update_dual_world_empty_gate_live_wave388_ok
         // Wave 389 residual honesty (hive structure body dual-world empty gates).
-        && r.live_hive_structure_body_dual_world_empty_gate_method_names_wave389_ok
-        && r.live_hive_structure_body_dual_world_empty_gate_nav_commands_wave389_ok
-        && r.live_hive_structure_body_dual_world_empty_gate_live_wave389_ok
+
         // Wave 390 residual honesty (salvage crate collide dual-world empty gates).
         && r.live_salvage_crate_collide_dual_world_empty_gate_method_names_wave390_ok
         && r.live_salvage_crate_collide_dual_world_empty_gate_nav_commands_wave390_ok
@@ -1300,9 +1252,7 @@ fn main() {
         && r.live_baikonur_launch_power_dual_world_empty_gate_nav_commands_wave400_ok
         && r.live_baikonur_launch_power_dual_world_empty_gate_live_wave400_ok
         // Wave 401 residual honesty (AI group dual-world empty gates).
-        && r.live_ai_group_dual_world_empty_gate_method_names_wave401_ok
-        && r.live_ai_group_dual_world_empty_gate_nav_commands_wave401_ok
-        && r.live_ai_group_dual_world_empty_gate_live_wave401_ok
+
         // Wave 402 residual honesty (slaved update dual-world empty gates).
         && r.live_slaved_update_dual_world_empty_gate_method_names_wave402_ok
         && r.live_slaved_update_dual_world_empty_gate_nav_commands_wave402_ok
@@ -1316,13 +1266,9 @@ fn main() {
         && r.live_bone_fx_update_dual_world_empty_gate_nav_commands_wave404_ok
         && r.live_bone_fx_update_dual_world_empty_gate_live_wave404_ok
         // Wave 405 residual honesty (supply warehouse dock dual-world empty gates).
-        && r.live_supply_warehouse_dock_dual_world_empty_gate_method_names_wave405_ok
-        && r.live_supply_warehouse_dock_dual_world_empty_gate_nav_commands_wave405_ok
-        && r.live_supply_warehouse_dock_dual_world_empty_gate_live_wave405_ok
+
         // Wave 406 residual honesty (OCL special power dual-world empty gates).
-        && r.live_ocl_special_power_dual_world_empty_gate_method_names_wave406_ok
-        && r.live_ocl_special_power_dual_world_empty_gate_nav_commands_wave406_ok
-        && r.live_ocl_special_power_dual_world_empty_gate_live_wave406_ok
+
         // Wave 407 residual honesty (railed transport AI dual-world empty gates).
         && r.live_railed_transport_ai_update_dual_world_empty_gate_method_names_wave407_ok
         && r.live_railed_transport_ai_update_dual_world_empty_gate_nav_commands_wave407_ok
@@ -1340,9 +1286,7 @@ fn main() {
         && r.live_minefield_behavior_dual_world_empty_gate_nav_commands_wave410_ok
         && r.live_minefield_behavior_dual_world_empty_gate_live_wave410_ok
         // Wave 411 residual honesty (point defense laser dual-world empty gates).
-        && r.live_point_defense_laser_update_dual_world_empty_gate_method_names_wave411_ok
-        && r.live_point_defense_laser_update_dual_world_empty_gate_nav_commands_wave411_ok
-        && r.live_point_defense_laser_update_dual_world_empty_gate_live_wave411_ok
+
         // Wave 412 residual honesty (lifetime update dual-world empty gates).
         && r.live_lifetime_update_dual_world_empty_gate_method_names_wave412_ok
         && r.live_lifetime_update_dual_world_empty_gate_nav_commands_wave412_ok
@@ -1372,9 +1316,7 @@ fn main() {
         && r.live_build_placement_dual_world_empty_gate_nav_commands_wave418_ok
         && r.live_build_placement_dual_world_empty_gate_live_wave418_ok
         // Wave 419 residual honesty (weapon set dual-world empty gates).
-        && r.live_weapon_set_dual_world_empty_gate_method_names_wave419_ok
-        && r.live_weapon_set_dual_world_empty_gate_nav_commands_wave419_ok
-        && r.live_weapon_set_dual_world_empty_gate_live_wave419_ok
+
         // Wave 420 residual honesty (experience tracker dual-world empty gates).
         && r.live_experience_tracker_dual_world_empty_gate_method_names_wave420_ok
         && r.live_experience_tracker_dual_world_empty_gate_nav_commands_wave420_ok
@@ -1450,9 +1392,7 @@ fn main() {
         && r.live_nuclear_missile_power_dual_world_empty_gate_nav_commands_wave441_ok
         && r.live_nuclear_missile_power_dual_world_empty_gate_live_wave441_ok
         // Wave 442 residual honesty (overlord draw dual-world empty gates).
-        && r.live_overlord_draw_dual_world_empty_gate_method_names_wave442_ok
-        && r.live_overlord_draw_dual_world_empty_gate_nav_commands_wave442_ok
-        && r.live_overlord_draw_dual_world_empty_gate_live_wave442_ok
+
         // Wave 443 residual honesty (stealth integration dual-world empty gates).
         && r.live_stealth_integration_dual_world_empty_gate_method_names_wave443_ok
         && r.live_stealth_integration_dual_world_empty_gate_nav_commands_wave443_ok
@@ -1470,21 +1410,15 @@ fn main() {
         && r.live_replace_object_upgrade_dual_world_empty_gate_nav_commands_wave446_ok
         && r.live_replace_object_upgrade_dual_world_empty_gate_live_wave446_ok
         // Wave 447 residual honesty (fire spread update dual-world empty gates).
-        && r.live_fire_spread_update_dual_world_empty_gate_method_names_wave447_ok
-        && r.live_fire_spread_update_dual_world_empty_gate_nav_commands_wave447_ok
-        && r.live_fire_spread_update_dual_world_empty_gate_live_wave447_ok
+
         // Wave 448 residual honesty (object upgrade batch dual-world empty gates).
-        && r.live_object_upgrade_batch_dual_world_empty_gate_method_names_wave448_ok
-        && r.live_object_upgrade_batch_dual_world_empty_gate_nav_commands_wave448_ok
-        && r.live_object_upgrade_batch_dual_world_empty_gate_live_wave448_ok
+
         // Wave 449 residual honesty (contain module overrides fail-closed).
         && r.live_contain_module_overrides_fail_closed_method_names_wave449_ok
         && r.live_contain_module_overrides_fail_closed_nav_commands_wave449_ok
         && r.live_contain_module_overrides_fail_closed_live_wave449_ok
         // Wave 450 residual honesty (core-sim dual-world empty gates).
-        && r.live_core_sim_dual_world_empty_gate_method_names_wave450_ok
-        && r.live_core_sim_dual_world_empty_gate_nav_commands_wave450_ok
-        && r.live_core_sim_dual_world_empty_gate_live_wave450_ok
+
         // Wave 451 residual honesty (golden mop-up default-off).
         && r.live_golden_mopup_honesty_method_names_wave451_ok
         && r.live_golden_mopup_honesty_nav_commands_wave451_ok

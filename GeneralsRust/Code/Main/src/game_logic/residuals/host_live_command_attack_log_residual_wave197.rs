@@ -1,17 +1,5 @@
-//! Wave 197 residual peels: player attack commands record `host_attack_log`
-//! so GameWorld shadow can last-write attack targets (parity with move log).
-//! Never flips shell `playable_claim`.
-//!
-//! Orthogonal to Wave 196 rebuilt vertical gate residual.
-//! Host residual only — network deferred.
-//!
-//! Sources:
-//! - `CommandExecutor::execute_attack` → `host_attack_log::record`
-//! - shadow drains `host_attack_log` into WorldMutation
-//!
-//! Fail-closed:
-//! - Not full command buffer / WorldMutation cutover for all CommandTypes
-//! - Shell `playable_claim` stays false; network deferred
+//! Receiving Main behavior and read-only presentation witness.
+//! Historical shell identifiers are metadata, not C++ parity evidence.
 
 /// Lookup residual name index (exact match).
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
@@ -78,55 +66,12 @@ pub fn honesty_live_command_attack_log_residual_pack_wave197() -> bool {
         && honesty_live_command_attack_log_nav_commands_residual_wave197()
 }
 
-/// Source residual: execute_attack records host_attack_log (directly or via unit_command_attack).
-pub fn honesty_execute_attack_records_source() -> bool {
-    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    let i = match src.find("fn execute_attack(") {
-        Some(i) => i,
-        None => return false,
-    };
-    let body = &src[i..];
-    // Wave 232: executor routes through GameLogic::unit_command_attack which records.
-    if body.contains("unit_command_attack") {
-        // 2026-08-15: unit_command_attack lives in world_scripts/unit_commands.rs.
-        let gl = super::GAME_LOGIC_UNIT_COMMANDS_SRC;
-        let gi = match gl.find("pub fn unit_command_attack(") {
-            Some(gi) => gi,
-            None => return false,
-        };
-        let gbody = &gl[gi..];
-        return gbody.contains("host_attack_log::record")
-            && gbody.contains("set_target(Some(target_id))");
-    }
-    body.contains("host_attack_log::record") && body.contains("set_target(Some(target_id))")
-}
-
-/// Source residual: shadow drains host_attack_log.
-pub fn honesty_shadow_drains_attack_log_source() -> bool {
-    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
-    src.contains("host_attack_log::drain") && src.contains("e.attack_target =")
-}
-
-/// Live residual: attack command latches host_attack_log event.
 pub fn simulate_live_command_attack_log_honesty() -> bool {
     use crate::command_system::{CommandType, GameCommand, ModifierKeys};
-    use crate::game_logic::host_attack_log;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
     use std::time::SystemTime;
-
-    if !honesty_live_command_attack_log_residual_pack_wave197() {
-        return false;
-    }
-    if !honesty_execute_attack_records_source() {
-        return false;
-    }
-    if !honesty_shadow_drains_attack_log_source() {
-        return false;
-    }
-
-    host_attack_log::clear();
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AtkLog197");
@@ -164,23 +109,24 @@ pub fn simulate_live_command_attack_log_honesty() -> bool {
     });
     logic.process_commands();
 
-    let events = host_attack_log::drain();
-    if !events
-        .iter()
-        .any(|e| e.attacker == attacker && e.target == Some(target))
-    {
-        return false;
-    }
-
     // The command has already committed its target to the canonical Main object.
     if logic.host_object(attacker).and_then(|object| object.target) != Some(target) {
         return false;
     }
     let mut observer = crate::gameworld_shadow::GameWorldShadow::new(64);
     observer.sync_from_host(&logic);
-    let Some(entity) = observer.entity_for_host(attacker) else { return false; };
-    let Some(victim) = observer.entity_for_host(target) else { return false; };
-    if observer.world().entity(entity).and_then(|object| object.attack_target) != Some(victim) {
+    let Some(entity) = observer.entity_for_host(attacker) else {
+        return false;
+    };
+    let Some(victim) = observer.entity_for_host(target) else {
+        return false;
+    };
+    if observer
+        .world()
+        .entity(entity)
+        .and_then(|object| object.attack_target)
+        != Some(victim)
+    {
         return false;
     }
 
@@ -204,12 +150,6 @@ mod tests {
     #[test]
     fn wave197_composite_pack() {
         assert!(honesty_live_command_attack_log_residual_pack_wave197());
-    }
-
-    #[test]
-    fn attack_log_sources() {
-        assert!(honesty_execute_attack_records_source());
-        assert!(honesty_shadow_drains_attack_log_source());
     }
 
     #[test]

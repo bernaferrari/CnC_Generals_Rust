@@ -116,11 +116,13 @@ fn owned_regular_exit_releases_ai_before_removal_then_completes_same_phase() {
         "the terminal state-change callback clears the actor's saved queue deadline"
     );
     assert_eq!(game.source.read().unwrap().get_contained_by(), None);
-    assert!(!game
-        .source
-        .read()
-        .unwrap()
-        .is_disabled_by_type(crate::common::DisabledType::Held));
+    assert!(
+        !game
+            .source
+            .read()
+            .unwrap()
+            .is_disabled_by_type(crate::common::DisabledType::Held)
+    );
     assert_eq!(
         game.target
             .read()
@@ -620,16 +622,17 @@ fn nested_transport_boards_redeploys_and_removes_with_actual_owned_children() {
     });
     assert_eq!(game.source.read().unwrap().get_contained_by(), None);
     assert_eq!(child.read().unwrap().get_contained_by(), Some(nested_id));
-    assert!(game
-        .source
-        .read()
-        .unwrap()
-        .get_contain()
-        .unwrap()
-        .lock()
-        .unwrap()
-        .get_contained_objects()
-        .contains(&child_id));
+    assert!(
+        game.source
+            .read()
+            .unwrap()
+            .get_contain()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get_contained_objects()
+            .contains(&child_id)
+    );
 }
 
 #[test]

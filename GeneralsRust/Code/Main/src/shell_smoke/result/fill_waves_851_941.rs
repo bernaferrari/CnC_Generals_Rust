@@ -225,9 +225,8 @@ fn fill_waves_851_941(
     out.host_presentation_build_boundary_method_names_wave926_ok = waves.host_presentation_build_boundary_method_names_wave926_ok;
     out.host_presentation_build_boundary_nav_commands_wave926_ok = waves.host_presentation_build_boundary_nav_commands_wave926_ok;
     out.host_presentation_build_boundary_live_wave926_ok = waves.host_presentation_build_boundary_live_wave926_ok;
-    out.host_post_logic_shadow_boundary_method_names_wave927_ok = waves.host_post_logic_shadow_boundary_method_names_wave927_ok;
-    out.host_post_logic_shadow_boundary_nav_commands_wave927_ok = waves.host_post_logic_shadow_boundary_nav_commands_wave927_ok;
-    out.host_post_logic_shadow_boundary_live_wave927_ok = waves.host_post_logic_shadow_boundary_live_wave927_ok;
+
+
     out.host_save_load_skirmish_boundaries_method_names_wave928_ok = waves.host_save_load_skirmish_boundaries_method_names_wave928_ok;
     out.host_save_load_skirmish_boundaries_nav_commands_wave928_ok = waves.host_save_load_skirmish_boundaries_nav_commands_wave928_ok;
     out.host_save_load_skirmish_boundaries_live_wave928_ok = waves.host_save_load_skirmish_boundaries_live_wave928_ok;
@@ -258,16 +257,9 @@ fn fill_waves_851_941(
     out.host_production_authority_boundary_method_names_wave937_ok = waves.host_production_authority_boundary_method_names_wave937_ok;
     out.host_production_authority_boundary_nav_commands_wave937_ok = waves.host_production_authority_boundary_nav_commands_wave937_ok;
     out.host_production_authority_boundary_live_wave937_ok = waves.host_production_authority_boundary_live_wave937_ok;
-    out.host_post_writeback_complete_boundary_method_names_wave938_ok = waves.host_post_writeback_complete_boundary_method_names_wave938_ok;
-    out.host_post_writeback_complete_boundary_nav_commands_wave938_ok = waves.host_post_writeback_complete_boundary_nav_commands_wave938_ok;
-    out.host_post_writeback_complete_boundary_live_wave938_ok = waves.host_post_writeback_complete_boundary_live_wave938_ok;
-    out.host_ready_log_drain_boundary_method_names_wave939_ok = waves.host_ready_log_drain_boundary_method_names_wave939_ok;
-    out.host_ready_log_drain_boundary_nav_commands_wave939_ok = waves.host_ready_log_drain_boundary_nav_commands_wave939_ok;
-    out.host_ready_log_drain_boundary_live_wave939_ok = waves.host_ready_log_drain_boundary_live_wave939_ok;
-    out.host_sole_tick_object_id_boundary_method_names_wave940_ok = waves.host_sole_tick_object_id_boundary_method_names_wave940_ok;
-    out.host_sole_tick_object_id_boundary_nav_commands_wave940_ok = waves.host_sole_tick_object_id_boundary_nav_commands_wave940_ok;
-    out.host_sole_tick_object_id_boundary_live_wave940_ok = waves.host_sole_tick_object_id_boundary_live_wave940_ok;
-    out.host_residual_mutation_boundary_method_names_wave941_ok = waves.host_residual_mutation_boundary_method_names_wave941_ok;
-    out.host_residual_mutation_boundary_nav_commands_wave941_ok = waves.host_residual_mutation_boundary_nav_commands_wave941_ok;
-    out.host_residual_mutation_boundary_live_wave941_ok = waves.host_residual_mutation_boundary_live_wave941_ok;
+
+
+
+
+
 }

@@ -125,9 +125,14 @@ const LASER_UPDATE_FIELDS: &[FieldParse<LaserUpdateModuleData>] = &[
     },
 ];
 
-#[derive(Debug, Clone)]
+#[path = "laser_owned.rs"]
+mod owned;
+pub use owned::{LaserDrawableObservation, LaserExecution, LaserObjectObservation};
+
+#[derive(Debug)]
 pub struct LaserUpdate {
     thing: ThingId,
+    external_particle_lifetime: bool,
     module_data: LaserUpdateModuleData,
     dirty: bool,
     start_pos: Coord3D,
@@ -168,6 +173,28 @@ impl LaserUpdateModule {
         }
     }
 
+    pub fn new_owned(
+        module_name_key: NameKeyType,
+        module_data: Arc<LaserUpdateModuleData>,
+        owner: ThingId,
+    ) -> Self {
+        let update = LaserUpdate::new_owned(owner, module_data.as_ref().clone());
+        Self {
+            module_name_key,
+            module_data,
+            update,
+        }
+    }
+    pub fn bind_owned_drawable(&mut self, owner: ThingId) {
+        self.update.thing = owner;
+    }
+    pub fn tracked_drawables(&self) -> (Option<DrawableId>, Option<DrawableId>, &str) {
+        (
+            self.update.parent_id,
+            self.update.target_id,
+            &self.update.parent_bone_name,
+        )
+    }
     pub fn update_mut(&mut self) -> &mut LaserUpdate {
         &mut self.update
     }
@@ -197,6 +224,11 @@ impl Module for LaserUpdateModule {
 
 impl ClientUpdateInterface for LaserUpdateModule {
     fn client_update(&mut self) -> bool {
+        // Receiving client modules execute through their supplied owner phase.
+        // A generic compatibility drawable walk cannot select particle/client owners.
+        if self.update.external_particle_lifetime {
+            return false;
+        }
         self.update.client_update();
         true
     }
@@ -357,6 +389,7 @@ impl LaserUpdate {
     pub fn new(thing: ThingId, module_data: LaserUpdateModuleData) -> Self {
         Self {
             thing,
+            external_particle_lifetime: false,
             module_data,
             dirty: false,
             start_pos: Coord3D::origin(),
@@ -385,95 +418,17 @@ impl LaserUpdate {
         parent_bone_name: String,
         size_delta_frames: i32,
     ) {
-        let now = TheGameLogic::get_frame();
-
-        if size_delta_frames > 0 {
-            self.widening = true;
-            self.widen_start_frame = now;
-            self.widen_finish_frame = now + size_delta_frames as u32;
-            self.current_width_scalar = 0.0;
-        } else if size_delta_frames < 0 {
-            self.decaying = true;
-            self.decay_start_frame = now;
-            self.decay_finish_frame = now + (-size_delta_frames) as u32;
-            self.current_width_scalar = 1.0;
+        if let Err(error) = self.init_laser_with_services(
+            parent.map(owned::object_observation),
+            target.map(owned::object_observation),
+            start_pos,
+            end_pos,
+            parent_bone_name,
+            size_delta_frames,
+            &mut owned::AmbientLaserExecution,
+        ) {
+            log::error!("LaserUpdate init failed: {error}");
         }
-
-        self.parent_bone_name = parent_bone_name;
-
-        // Record IDs if we have them, then figure out starting points
-        if let Some(parent_obj) = parent {
-            if let Some(drawable) = parent_obj.get_drawable() {
-                self.parent_id = Some(drawable.get_id());
-            }
-            self.update_start_pos();
-        } else if let Some(pos) = start_pos {
-            self.start_pos = *pos;
-        } else {
-            // C++ LaserUpdate.cpp:261-263 — no start, destroy the drawable.
-            self.destroy_owner_drawable();
-            return;
-        }
-
-        // Handle target/end position
-        if let Some(target_obj) = target {
-            if end_pos.is_none() {
-                if let Some(drawable) = target_obj.get_drawable() {
-                    self.target_id = Some(drawable.get_id());
-                }
-                self.end_pos = *target_obj.get_position();
-            }
-        }
-
-        if let Some(pos) = end_pos {
-            self.end_pos = *pos;
-        } else if target.is_none() {
-            // C++ LaserUpdate.cpp:279-283 — no end, destroy the drawable.
-            self.destroy_owner_drawable();
-            return;
-        }
-
-        // Create particle systems once, then always reposition existing IDs.
-        self.create_particle_systems(parent);
-        self.reposition_particle_systems();
-
-        // C++ LaserUpdate.cpp:347-366 — parentless beams use the start/end
-        // midpoint so frustum culling has a real world point.
-        let pos_to_use = if let Some(parent_obj) = parent {
-            *parent_obj.get_position()
-        } else {
-            Coord3D {
-                x: (self.start_pos.x + self.end_pos.x) * 0.5,
-                y: (self.start_pos.y + self.end_pos.y) * 0.5,
-                z: (self.start_pos.z + self.end_pos.z) * 0.5,
-            }
-        };
-        self.set_owner_drawable_position(&pos_to_use);
-
-        self.dirty = true;
-    }
-
-    fn destroy_owner_drawable(&self) {
-        if self.thing == 0 {
-            return;
-        }
-        if let Some(client) = TheGameClient::get() {
-            client.destroy_drawable(self.thing);
-        }
-    }
-
-    fn set_owner_drawable_position(&self, pos: &Coord3D) {
-        let Some(client) = TheGameClient::get() else {
-            return;
-        };
-        if self.thing != 0 {
-            client.set_drawable_position(self.thing, pos);
-        }
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.thing, |guard| {
-            if let Some(drawable) = guard.get_drawable() {
-                client.set_drawable_position(drawable.get_id(), pos);
-            }
-            });
     }
 
     pub fn is_dirty(&self) -> bool {
@@ -503,122 +458,24 @@ impl LaserUpdate {
     }
 
     fn update_start_pos(&mut self) {
-        let Some(parent_id) = self.parent_id else {
-            return;
-        };
-
-        let Some(parent_drawable) =
-            TheGameClient::get().and_then(|client| client.get_drawable_arc(parent_id))
-        else {
-            return;
-        };
-
-        let old_start_pos = self.start_pos;
-
-        if let Ok(drawable_guard) = parent_drawable.read() {
-            if !self.parent_bone_name.is_empty() {
-                if let Some(bone_matrix) = drawable_guard
-                    .get_current_worldspace_client_bone_positions(&self.parent_bone_name)
-                {
-                    let translation = bone_matrix.w_axis;
-                    self.start_pos = Coord3D {
-                        x: translation.x,
-                        y: translation.y,
-                        z: translation.z,
-                    };
-                } else {
-                    self.start_pos = drawable_guard.get_position();
-                    return;
-                }
-            } else {
-                self.start_pos = drawable_guard.get_position();
-            }
-        }
-
-        if self.start_pos != old_start_pos {
-            self.dirty = true;
+        if let Err(error) = self.update_start_with_services(&owned::AmbientLaserExecution) {
+            log::error!("LaserUpdate start observation failed: {error}");
         }
     }
-
     fn update_end_pos(&mut self) {
-        let Some(target_id) = self.target_id else {
-            return;
-        };
-
-        let old_end_pos = self.end_pos;
-
-        let target_drawable =
-            TheGameClient::get().and_then(|client| client.get_drawable_arc(target_id));
-        let target_dead = target_drawable
-            .as_ref()
-            .and_then(|drawable| drawable.read().ok())
-            .and_then(|drawable_guard| drawable_guard.get_object())
-            .and_then(|object| object.read().ok().map(|guard| guard.is_effectively_dead()))
-            .unwrap_or(false);
-
-        if target_drawable.is_none() || target_dead {
-            // Target is gone. Punch through the old spot
-            if self.module_data.punch_through_scalar > 0.0 {
-                let laser_vector = Vector3::new(
-                    self.end_pos.x - self.start_pos.x,
-                    self.end_pos.y - self.start_pos.y,
-                    self.end_pos.z - self.start_pos.z,
-                ) * self.module_data.punch_through_scalar;
-
-                self.end_pos.x = self.start_pos.x + laser_vector.x;
-                self.end_pos.y = self.start_pos.y + laser_vector.y;
-                self.end_pos.z = self.start_pos.z + laser_vector.z;
-            }
-
-            self.target_id = None;
-        } else if let Some(target_drawable) = target_drawable {
-            if let Ok(drawable_guard) = target_drawable.read() {
-                self.end_pos = drawable_guard.get_position();
-            }
-        }
-
-        if self.end_pos != old_end_pos {
-            self.dirty = true;
+        if let Err(error) = self.update_end_with_services(&owned::AmbientLaserExecution) {
+            log::error!("LaserUpdate end observation failed: {error}");
         }
     }
 
     pub fn client_update(&mut self) {
-        self.update_start_pos();
-        self.update_end_pos();
-
-        let now = TheGameLogic::get_frame();
-
-        if self.decaying {
-            self.current_width_scalar = 1.0
-                - (now - self.decay_start_frame) as f32
-                    / (self.decay_finish_frame - self.decay_start_frame) as f32;
-            self.dirty = true;
-
-            if self.current_width_scalar <= 0.0 {
-                self.current_width_scalar = 0.0;
-                // C++ LaserUpdate.cpp:186-192 — decay finished; dtor owns particles.
-                return;
-            }
-        } else if self.widening {
-            self.current_width_scalar = (now - self.widen_start_frame) as f32
-                / (self.widen_finish_frame - self.widen_start_frame) as f32;
-            self.dirty = true;
-
-            if self.current_width_scalar >= 1.0 {
-                self.current_width_scalar = 1.0;
-                self.widening = false;
-            }
+        if let Err(error) = self.client_update_with_services(&mut owned::AmbientLaserExecution) {
+            log::error!("LaserUpdate tick failed: {error}");
         }
     }
 
     pub fn set_decay_frames(&mut self, decay_frames: u32) {
-        if decay_frames > 0 {
-            let current_frame = TheGameLogic::get_frame();
-            self.decaying = true;
-            self.decay_start_frame = current_frame;
-            self.decay_finish_frame = current_frame + decay_frames;
-            self.current_width_scalar = 1.0;
-        }
+        self.set_decay_frames_at(decay_frames, TheGameLogic::get_frame());
     }
 
     pub fn get_current_laser_radius(&self) -> f32 {
@@ -637,58 +494,6 @@ impl LaserUpdate {
         }
 
         0.0
-    }
-
-    fn create_particle_systems(&mut self, parent: Option<&Object>) {
-        // C++ LaserUpdate.cpp:288 — last-day NULL check; create once.
-        if self.particle_system_id.is_some() {
-            return;
-        }
-
-        let local_visible = parent
-            .and_then(|parent_obj| {
-                let local_index = ThePlayerList()
-                    .read()
-                    .ok()
-                    .map(|list| list.get_local_player_index())
-                    .unwrap_or(-1);
-                let shroud = parent_obj.get_shrouded_status(local_index);
-                Some((shroud as u8) <= (ObjectShroudStatus::PartialClear as u8))
-            })
-            .unwrap_or(true);
-        if !local_visible {
-            return;
-        }
-
-        if let Some(ps_manager) = TheParticleSystemManager::get() {
-            if !self.module_data.particle_system_name.is_empty() {
-                if let Some(system_id) =
-                    ps_manager.create_particle_system(Some(&self.module_data.particle_system_name))
-                {
-                    self.particle_system_id = Some(system_id);
-                }
-            }
-
-            if !self.module_data.target_particle_system_name.is_empty() {
-                if let Some(system_id) = ps_manager
-                    .create_particle_system(Some(&self.module_data.target_particle_system_name))
-                {
-                    self.target_particle_system_id = Some(system_id);
-                }
-            }
-        }
-    }
-
-    fn reposition_particle_systems(&self) {
-        let Some(ps_manager) = TheParticleSystemManager::get() else {
-            return;
-        };
-        if let Some(system_id) = self.particle_system_id {
-            ps_manager.set_particle_system_position(system_id, &self.start_pos);
-        }
-        if let Some(system_id) = self.target_particle_system_id {
-            ps_manager.set_particle_system_position(system_id, &self.end_pos);
-        }
     }
 
     pub fn save(&self, xfer: &mut dyn Xfer) {
@@ -788,6 +593,9 @@ impl LaserUpdate {
 
 impl Drop for LaserUpdate {
     fn drop(&mut self) {
+        if self.external_particle_lifetime {
+            return;
+        }
         if let Some(ps_manager) = TheParticleSystemManager::get() {
             if let Some(system_id) = self.particle_system_id {
                 ps_manager.destroy_particle_system(system_id);

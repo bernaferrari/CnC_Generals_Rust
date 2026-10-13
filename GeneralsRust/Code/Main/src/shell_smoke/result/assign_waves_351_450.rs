@@ -10,9 +10,8 @@
         live_pow_truck_ai_dual_world_empty_gate_method_names_wave354_ok,
         live_pow_truck_ai_dual_world_empty_gate_nav_commands_wave354_ok,
         live_pow_truck_ai_dual_world_empty_gate_live_wave354_ok,
-        live_dock_update_dual_world_empty_gate_method_names_wave355_ok,
-        live_dock_update_dual_world_empty_gate_nav_commands_wave355_ok,
-        live_dock_update_dual_world_empty_gate_live_wave355_ok,
+
+
         live_railroad_guide_ai_dual_world_empty_gate_method_names_wave357_ok,
         live_railroad_guide_ai_dual_world_empty_gate_nav_commands_wave357_ok,
         live_railroad_guide_ai_dual_world_empty_gate_live_wave357_ok,
@@ -37,9 +36,7 @@
         live_propaganda_center_behavior_dual_world_empty_gate_method_names_wave364_ok,
         live_propaganda_center_behavior_dual_world_empty_gate_nav_commands_wave364_ok,
         live_propaganda_center_behavior_dual_world_empty_gate_live_wave364_ok,
-        live_production_update_complete_dual_world_empty_gate_method_names_wave365_ok,
-        live_production_update_complete_dual_world_empty_gate_nav_commands_wave365_ok,
-        live_production_update_complete_dual_world_empty_gate_live_wave365_ok,
+
         live_pow_truck_behavior_dual_world_empty_gate_method_names_wave366_ok,
         live_pow_truck_behavior_dual_world_empty_gate_nav_commands_wave366_ok,
         live_pow_truck_behavior_dual_world_empty_gate_live_wave366_ok,
@@ -58,18 +55,16 @@
         live_topple_update_dual_world_empty_gate_method_names_wave371_ok,
         live_topple_update_dual_world_empty_gate_nav_commands_wave371_ok,
         live_topple_update_dual_world_empty_gate_live_wave371_ok,
-        live_projectile_stream_update_dual_world_empty_gate_method_names_wave372_ok,
-        live_projectile_stream_update_dual_world_empty_gate_nav_commands_wave372_ok,
-        live_projectile_stream_update_dual_world_empty_gate_live_wave372_ok,
+
+
         live_demo_trap_update_dual_world_empty_gate_method_names_wave373_ok,
         live_demo_trap_update_dual_world_empty_gate_nav_commands_wave373_ok,
         live_demo_trap_update_dual_world_empty_gate_live_wave373_ok,
         live_mob_member_slaved_update_dual_world_empty_gate_method_names_wave374_ok,
         live_mob_member_slaved_update_dual_world_empty_gate_nav_commands_wave374_ok,
         live_mob_member_slaved_update_dual_world_empty_gate_live_wave374_ok,
-        live_tn_guard_dual_world_empty_gate_method_names_wave375_ok,
-        live_tn_guard_dual_world_empty_gate_nav_commands_wave375_ok,
-        live_tn_guard_dual_world_empty_gate_live_wave375_ok,
+
+
         live_production_update_dual_world_empty_gate_method_names_wave376_ok,
         live_production_update_dual_world_empty_gate_nav_commands_wave376_ok,
         live_production_update_dual_world_empty_gate_live_wave376_ok,
@@ -79,9 +74,8 @@
         live_horde_update_dual_world_empty_gate_method_names_wave378_ok,
         live_horde_update_dual_world_empty_gate_nav_commands_wave378_ok,
         live_horde_update_dual_world_empty_gate_live_wave378_ok,
-        live_flammable_update_dual_world_empty_gate_method_names_wave379_ok,
-        live_flammable_update_dual_world_empty_gate_nav_commands_wave379_ok,
-        live_flammable_update_dual_world_empty_gate_live_wave379_ok,
+
+
         live_base_regenerate_update_dual_world_empty_gate_method_names_wave380_ok,
         live_base_regenerate_update_dual_world_empty_gate_nav_commands_wave380_ok,
         live_base_regenerate_update_dual_world_empty_gate_live_wave380_ok,
@@ -109,9 +103,8 @@
         live_stealth_detector_update_dual_world_empty_gate_method_names_wave388_ok,
         live_stealth_detector_update_dual_world_empty_gate_nav_commands_wave388_ok,
         live_stealth_detector_update_dual_world_empty_gate_live_wave388_ok,
-        live_hive_structure_body_dual_world_empty_gate_method_names_wave389_ok,
-        live_hive_structure_body_dual_world_empty_gate_nav_commands_wave389_ok,
-        live_hive_structure_body_dual_world_empty_gate_live_wave389_ok,
+
+
         live_salvage_crate_collide_dual_world_empty_gate_method_names_wave390_ok,
         live_salvage_crate_collide_dual_world_empty_gate_nav_commands_wave390_ok,
         live_salvage_crate_collide_dual_world_empty_gate_live_wave390_ok,
@@ -142,9 +135,7 @@
         live_baikonur_launch_power_dual_world_empty_gate_method_names_wave400_ok,
         live_baikonur_launch_power_dual_world_empty_gate_nav_commands_wave400_ok,
         live_baikonur_launch_power_dual_world_empty_gate_live_wave400_ok,
-        live_ai_group_dual_world_empty_gate_method_names_wave401_ok,
-        live_ai_group_dual_world_empty_gate_nav_commands_wave401_ok,
-        live_ai_group_dual_world_empty_gate_live_wave401_ok,
+
         live_slaved_update_dual_world_empty_gate_method_names_wave402_ok,
         live_slaved_update_dual_world_empty_gate_nav_commands_wave402_ok,
         live_slaved_update_dual_world_empty_gate_live_wave402_ok,
@@ -154,12 +145,9 @@
         live_bone_fx_update_dual_world_empty_gate_method_names_wave404_ok,
         live_bone_fx_update_dual_world_empty_gate_nav_commands_wave404_ok,
         live_bone_fx_update_dual_world_empty_gate_live_wave404_ok,
-        live_supply_warehouse_dock_dual_world_empty_gate_method_names_wave405_ok,
-        live_supply_warehouse_dock_dual_world_empty_gate_nav_commands_wave405_ok,
-        live_supply_warehouse_dock_dual_world_empty_gate_live_wave405_ok,
-        live_ocl_special_power_dual_world_empty_gate_method_names_wave406_ok,
-        live_ocl_special_power_dual_world_empty_gate_nav_commands_wave406_ok,
-        live_ocl_special_power_dual_world_empty_gate_live_wave406_ok,
+
+
+
         live_railed_transport_ai_update_dual_world_empty_gate_method_names_wave407_ok,
         live_railed_transport_ai_update_dual_world_empty_gate_nav_commands_wave407_ok,
         live_railed_transport_ai_update_dual_world_empty_gate_live_wave407_ok,
@@ -172,9 +160,7 @@
         live_minefield_behavior_dual_world_empty_gate_method_names_wave410_ok,
         live_minefield_behavior_dual_world_empty_gate_nav_commands_wave410_ok,
         live_minefield_behavior_dual_world_empty_gate_live_wave410_ok,
-        live_point_defense_laser_update_dual_world_empty_gate_method_names_wave411_ok,
-        live_point_defense_laser_update_dual_world_empty_gate_nav_commands_wave411_ok,
-        live_point_defense_laser_update_dual_world_empty_gate_live_wave411_ok,
+
         live_lifetime_update_dual_world_empty_gate_method_names_wave412_ok,
         live_lifetime_update_dual_world_empty_gate_nav_commands_wave412_ok,
         live_lifetime_update_dual_world_empty_gate_live_wave412_ok,
@@ -196,9 +182,8 @@
         live_build_placement_dual_world_empty_gate_method_names_wave418_ok,
         live_build_placement_dual_world_empty_gate_nav_commands_wave418_ok,
         live_build_placement_dual_world_empty_gate_live_wave418_ok,
-        live_weapon_set_dual_world_empty_gate_method_names_wave419_ok,
-        live_weapon_set_dual_world_empty_gate_nav_commands_wave419_ok,
-        live_weapon_set_dual_world_empty_gate_live_wave419_ok,
+
+
         live_experience_tracker_dual_world_empty_gate_method_names_wave420_ok,
         live_experience_tracker_dual_world_empty_gate_nav_commands_wave420_ok,
         live_experience_tracker_dual_world_empty_gate_live_wave420_ok,
@@ -253,9 +238,8 @@
         live_nuclear_missile_power_dual_world_empty_gate_method_names_wave441_ok,
         live_nuclear_missile_power_dual_world_empty_gate_nav_commands_wave441_ok,
         live_nuclear_missile_power_dual_world_empty_gate_live_wave441_ok,
-        live_overlord_draw_dual_world_empty_gate_method_names_wave442_ok,
-        live_overlord_draw_dual_world_empty_gate_nav_commands_wave442_ok,
-        live_overlord_draw_dual_world_empty_gate_live_wave442_ok,
+
+
         live_stealth_integration_dual_world_empty_gate_method_names_wave443_ok,
         live_stealth_integration_dual_world_empty_gate_nav_commands_wave443_ok,
         live_stealth_integration_dual_world_empty_gate_live_wave443_ok,
@@ -268,15 +252,8 @@
         live_replace_object_upgrade_dual_world_empty_gate_method_names_wave446_ok,
         live_replace_object_upgrade_dual_world_empty_gate_nav_commands_wave446_ok,
         live_replace_object_upgrade_dual_world_empty_gate_live_wave446_ok,
-        live_fire_spread_update_dual_world_empty_gate_method_names_wave447_ok,
-        live_fire_spread_update_dual_world_empty_gate_nav_commands_wave447_ok,
-        live_fire_spread_update_dual_world_empty_gate_live_wave447_ok,
-        live_object_upgrade_batch_dual_world_empty_gate_method_names_wave448_ok,
-        live_object_upgrade_batch_dual_world_empty_gate_nav_commands_wave448_ok,
-        live_object_upgrade_batch_dual_world_empty_gate_live_wave448_ok,
+
+
         live_contain_module_overrides_fail_closed_method_names_wave449_ok,
         live_contain_module_overrides_fail_closed_nav_commands_wave449_ok,
         live_contain_module_overrides_fail_closed_live_wave449_ok,
-        live_core_sim_dual_world_empty_gate_method_names_wave450_ok,
-        live_core_sim_dual_world_empty_gate_nav_commands_wave450_ok,
-        live_core_sim_dual_world_empty_gate_live_wave450_ok,

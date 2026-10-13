@@ -27,6 +27,7 @@ pub struct GameClient {
     last_visual_time_frame: u32,
     next_drawable_id: DrawableId,
     ray_effects: crate::effects::ray_effect_registry::RayEffectSystem,
+    owned_laser_order: Vec<DrawableId>,
     local_player_id: i32,
     /// Presentation companion for the driving GameLogic instance. Bound by
     /// the engine only when a world becomes active, never by construction.
@@ -49,7 +50,6 @@ pub struct GameClient {
     letterbox_overlay_fade_start: Option<Instant>,
     /// Last live InGameUI postDraw / icon-UI submit residual (present path).
     last_live_ingame_hud_draw: LiveInGameHudDrawCounts,
-
 
     // Drawable management
     drawable_map: std::collections::HashMap<DrawableId, Box<dyn Drawable>>,

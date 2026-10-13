@@ -672,7 +672,6 @@ impl GameLogic {
         }
         for (producer_id, owner_player_id, team, item) in cancelled {
             self.refund_cancelled_production_item(owner_player_id, team, &item);
-            crate::game_logic::host_production_log::record_cancel(producer_id, item.template_name);
         }
     }
 
@@ -1003,11 +1002,8 @@ impl GameLogic {
             // ID below solely for the authoritative research completion event.
             // Wave 483: refresh GW producer queue after host pop (sole-tick skips
             // per-frame progress log; Complete path snapshots host queue).
-            crate::game_logic::host_production_log::record_complete(
-                producer_id,
-                upgrade_name.clone(),
-                ObjectId(0),
-            );
+            self.production_events
+                .record_complete(producer_id, upgrade_name.clone(), ObjectId(0));
             // Unlock via player queue drain + host apply path.
             if let Some(pid) = producer_owner_player_id {
                 let already = self
@@ -1197,11 +1193,8 @@ impl GameLogic {
                     }
                 }
 
-                crate::game_logic::host_production_log::record_complete(
-                    producer_id,
-                    template.clone(),
-                    new_id,
-                );
+                self.production_events
+                    .record_complete(producer_id, template.clone(), new_id);
                 // Wave 679: production spawn ObjectId ready residual —
                 // host door/notify/exit/path apply drains the ready log.
                 self.record_production_spawn_completion(

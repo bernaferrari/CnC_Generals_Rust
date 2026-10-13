@@ -1,19 +1,5 @@
-//! Wave 186 residual peels: live GameWorld presentation view residual
-//! (engine seeds observe-path entity count from `presentation_view_from_shadow`
-//! after coupled tick; never flips shell `playable_claim`).
-//!
-//! Orthogonal to Wave 185 fire-spawn/special-power residual.
-//! Host residual only — network deferred.
-//!
-//! Sources (architecture migration):
-//! - `presentation_view_from_shadow` / `presentation_view_from_gameworld`
-//! - engine `last_gameworld_presentation_entity_count` after shadow session
-//! - status `gameworld_presentation_entities`
-//! - Main `PresentationFrame` still built from host (temporary)
-//!
-//! Fail-closed:
-//! - Not full PresentationFrame cutover to GameWorld-only
-//! - Shell `playable_claim` stays false; network deferred
+//! Receiving Main behavior and read-only presentation witness.
+//! Historical shell identifiers are metadata, not C++ parity evidence.
 
 /// Lookup residual name index (exact match).
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
@@ -83,44 +69,13 @@ pub fn honesty_live_gameworld_presentation_view_residual_pack_wave186() -> bool 
 }
 
 /// Source residual: presentation view APIs exist.
-pub fn honesty_presentation_view_api_source() -> bool {
-    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
-    src.contains("pub fn presentation_view_from_shadow")
-        && src.contains("pub fn presentation_view_from_gameworld")
-        && src.contains("pub struct GameWorldPresentationView")
-        && src.contains("pub entities: Vec<GameWorldEntityView>")
-}
-
-/// Source residual: engine seeds GW presentation count after shadow session.
-pub fn honesty_engine_seeds_gameworld_presentation_view_source() -> bool {
-    let eng = crate::cnc_game_engine::ENGINE_SRC;
-    eng.contains("last_gameworld_presentation_entity_count")
-        && eng.contains("presentation_view_from_shadow")
-        && eng.contains("gameworld_presentation_entities")
-        && eng.contains("shadow_session_after_host_tick")
-}
-
-/// Live residual: after map load + shadow sync, presentation view is non-empty.
 pub fn simulate_live_gameworld_presentation_view_honesty() -> bool {
     use crate::game_logic::{
         DEFAULT_SKIRMISH_MAP_WAVE169, GameLogic, GameMode, LONE_EAGLE_MAP_WAVE169,
         resolve_retail_map_path,
     };
-    use crate::gameworld_shadow::{
-        GameWorldShadow,         presentation_view_from_shadow,
-    };
+    use crate::gameworld_shadow::{GameWorldShadow, presentation_view_from_shadow};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
-
-    if !honesty_live_gameworld_presentation_view_residual_pack_wave186() {
-        return false;
-    }
-    if !honesty_presentation_view_api_source() {
-        return false;
-    }
-    if !honesty_engine_seeds_gameworld_presentation_view_source() {
-        return false;
-    }
-
 
     // Soft-ok when MapsZH absent (CI without retail maps).
     let map_name = if resolve_retail_map_path(LONE_EAGLE_MAP_WAVE169).is_some() {
@@ -135,9 +90,28 @@ pub fn simulate_live_gameworld_presentation_view_honesty() -> bool {
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         let view = presentation_view_from_shadow(&shadow, 0);
-        // Empty entities is fine pre-map; API must not panic.
-        let _ = view.entities.len();
-        return true;
+        if !view.entities.is_empty() {
+            return false;
+        }
+        let mut template = crate::game_logic::ThingTemplate::new("ReceivingPresentation186");
+        template.set_health(120.0);
+        template.add_kind_of(crate::game_logic::KindOf::Infantry);
+        logic
+            .templates
+            .insert("ReceivingPresentation186".into(), template);
+        let Some(id) = logic.create_object(
+            "ReceivingPresentation186",
+            crate::game_logic::Team::USA,
+            glam::Vec3::new(8.0, 0.0, 16.0),
+        ) else {
+            return false;
+        };
+        shadow.sync_from_host(&logic);
+        let view = presentation_view_from_shadow(&shadow, 0);
+        return view.entities.iter().any(|entity| entity.id == id.0)
+            && logic
+                .host_object(id)
+                .is_some_and(|object| object.health.current == 120.0);
     };
 
     let mut logic = GameLogic::new();
@@ -170,7 +144,6 @@ pub fn simulate_live_gameworld_presentation_view_honesty() -> bool {
         return false;
     }
 
-
     true
 }
 
@@ -194,12 +167,6 @@ mod tests {
     }
 
     #[test]
-    fn presentation_view_sources() {
-        assert!(honesty_presentation_view_api_source());
-        assert!(honesty_engine_seeds_gameworld_presentation_view_source());
-    }
-
-    #[test]
     fn simulate_live_gameworld_presentation_view_honesty_residual_live() {
         assert!(
             simulate_live_gameworld_presentation_view_honesty(),
@@ -210,12 +177,10 @@ mod tests {
     #[test]
     fn presentation_view_from_shadow_reports_created_host_object() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-        use crate::gameworld_shadow::{
-            GameWorldShadow, presentation_view_from_shadow,
-        };
+        use crate::gameworld_shadow::{GameWorldShadow, presentation_view_from_shadow};
         use glam::Vec3;
 
-            let mut logic = GameLogic::new();
+        let mut logic = GameLogic::new();
         let mut t = ThingTemplate::new("GwViewRanger186");
         t.set_health(120.0);
         t.add_kind_of(KindOf::Infantry);

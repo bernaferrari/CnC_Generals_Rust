@@ -1887,20 +1887,18 @@ impl PresentationFrame {
                 units_affected: up.units_affected,
             });
         }
-        // Shadow session drains production before presentation; freeze last drain batch.
-        for ev in crate::game_logic::host_production_log::take_last_drain() {
-            if let crate::game_logic::host_production_log::HostProductionEvent::Complete {
+        // Consume this match’s completed production receipts exactly once.
+        for ev in logic.production_events.take_completed() {
+            let crate::game_logic::host_production_log::HostProductionEvent::Complete {
                 producer,
                 template_name,
                 spawned,
-            } = ev
-            {
-                events.push(PresentationEvent::ProductionComplete {
-                    producer,
-                    template: template_name,
-                    spawned,
-                });
-            }
+            } = ev;
+            events.push(PresentationEvent::ProductionComplete {
+                producer,
+                template: template_name,
+                spawned,
+            });
         }
         for ev in crate::game_logic::host_owner_log::take_last_drain() {
             events.push(PresentationEvent::OwnerChanged {

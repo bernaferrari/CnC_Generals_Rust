@@ -327,7 +327,6 @@ fn declared_movement_authority_shadow_final_deletion_does_not_reenter_death_star
                 // context, matching the real engine's authority dispatch boundary.
 
                 {
-                    assert!(crate::gameworld_shadow::gameworld_shadow_enabled());
                     let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
                     shadow.sync_from_host(&world);
                     while world.getFrame() < due {
@@ -343,7 +342,7 @@ fn declared_movement_authority_shadow_final_deletion_does_not_reenter_death_star
                                 .as_ref()
                                 .unwrap()
                                 .is_active(),
-                            "declared mirror authority peels the local timer"
+                            "actual owner timer remains active before its original deadline"
                         );
                         let _ = crate::gameworld_shadow::run_owned_host_boundary(
                             Some(&mut shadow),
@@ -354,6 +353,9 @@ fn declared_movement_authority_shadow_final_deletion_does_not_reenter_death_star
                             assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
                         }
                     }
+                    // update() increments after processing the current logic
+                    // frame. At due, run the real AI phase before final cleanup.
+                    world.update_ai(&[id], 1.0 / 30.0);
                     let owner = world.host_object(id).unwrap();
                     assert!(owner.status.on_die_started);
                     assert_eq!(
@@ -368,7 +370,7 @@ fn declared_movement_authority_shadow_final_deletion_does_not_reenter_death_star
                             .filter(|event| event.id == id)
                             .count(),
                         1,
-                        "actual mirror completion queues final destruction despite the onDie latch"
+                        "actual owner timer queues final destruction despite the onDie latch"
                     );
                     world.destroy_object(id);
                     assert_eq!(

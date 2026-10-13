@@ -136,10 +136,7 @@ impl Xfer for RuntimeCommonXferAdapter<'_> {
         self.inner.skip(data_size).map_err(runtime_status_to_common)
     }
 
-    fn xfer_snapshot(
-        &mut self,
-        _snapshot: &mut dyn Snapshotable,
-    ) -> Result<(), CommonXferStatus> {
+    fn xfer_snapshot(&mut self, _snapshot: &mut dyn Snapshotable) -> Result<(), CommonXferStatus> {
         Err(CommonXferStatus::ModeUnknown)
     }
 
@@ -217,6 +214,7 @@ pub(crate) fn xfer_live_game_client_state(
             } else {
                 client.drawable_map.clear();
                 client.ray_effects.reset();
+                client.owned_laser_order.clear();
                 client.drawable_object_map.clear();
                 client.presentation_direct_drawable_bindings.clear();
                 Vec::new()

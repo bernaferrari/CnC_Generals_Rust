@@ -172,6 +172,7 @@ include!("impl_init.rs");
 include!("impl_update.rs");
 include!("impl_draw.rs");
 include!("leftover.rs");
+include!("owned_laser.rs");
 include!("tests.rs");
 
 /// Concatenated live sources for residual `include_str!` scans.

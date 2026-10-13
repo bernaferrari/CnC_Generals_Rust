@@ -45,16 +45,6 @@ pub use crate::game_logic::host_live_garrison_dual_world_empty_gate_residual_wav
     honesty_live_garrison_dual_world_empty_gate_nav_commands_residual_wave260,
     simulate_live_garrison_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_open_contain_dual_world_empty_gate_residual_wave261::{
-    honesty_live_open_contain_dual_world_empty_gate_method_names_residual_wave261,
-    honesty_live_open_contain_dual_world_empty_gate_nav_commands_residual_wave261,
-    simulate_live_open_contain_dual_world_empty_gate_honesty,
-};
-pub use crate::game_logic::host_live_pathfind_dual_world_empty_gate_residual_wave262::{
-    honesty_live_pathfind_dual_world_empty_gate_method_names_residual_wave262,
-    honesty_live_pathfind_dual_world_empty_gate_nav_commands_residual_wave262,
-    simulate_live_pathfind_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_ai_mod_dual_world_empty_gate_residual_wave263::{
     honesty_live_ai_mod_dual_world_empty_gate_method_names_residual_wave263,
     honesty_live_ai_mod_dual_world_empty_gate_nav_commands_residual_wave263,
@@ -69,11 +59,6 @@ pub use crate::game_logic::host_live_weapon_dual_world_empty_gate_residual_wave2
     honesty_live_weapon_dual_world_empty_gate_method_names_residual_wave265,
     honesty_live_weapon_dual_world_empty_gate_nav_commands_residual_wave265,
     simulate_live_weapon_dual_world_empty_gate_honesty,
-};
-pub use crate::game_logic::host_live_partition_filters_dual_world_empty_gate_residual_wave266::{
-    honesty_live_partition_filters_dual_world_empty_gate_method_names_residual_wave266,
-    honesty_live_partition_filters_dual_world_empty_gate_nav_commands_residual_wave266,
-    simulate_live_partition_filters_dual_world_empty_gate_honesty,
 };
 pub use crate::game_logic::host_live_player_dual_world_empty_gate_residual_wave268::{
     honesty_live_player_dual_world_empty_gate_method_names_residual_wave268,
@@ -94,11 +79,6 @@ pub use crate::game_logic::host_live_script_conditions_dual_world_empty_gate_res
     honesty_live_script_conditions_dual_world_empty_gate_method_names_residual_wave271,
     honesty_live_script_conditions_dual_world_empty_gate_nav_commands_residual_wave271,
     simulate_live_script_conditions_dual_world_empty_gate_honesty,
-};
-pub use crate::game_logic::host_live_transport_contain_dual_world_empty_gate_residual_wave272::{
-    honesty_live_transport_contain_dual_world_empty_gate_method_names_residual_wave272,
-    honesty_live_transport_contain_dual_world_empty_gate_nav_commands_residual_wave272,
-    simulate_live_transport_contain_dual_world_empty_gate_honesty,
 };
 pub use crate::game_logic::host_live_ingame_ui_dual_world_empty_gate_residual_wave273::{
     honesty_live_ingame_ui_dual_world_empty_gate_method_names_residual_wave273,
@@ -140,11 +120,6 @@ pub use crate::game_logic::host_live_tunnel_contain_dual_world_empty_gate_residu
     honesty_live_tunnel_contain_dual_world_empty_gate_nav_commands_residual_wave280,
     simulate_live_tunnel_contain_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_helpers_dual_world_empty_gate_residual_wave281::{
-    honesty_live_helpers_dual_world_empty_gate_method_names_residual_wave281,
-    honesty_live_helpers_dual_world_empty_gate_nav_commands_residual_wave281,
-    simulate_live_helpers_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_ai_update_interface_dual_world_empty_gate_residual_wave282::{
     honesty_live_ai_update_interface_dual_world_empty_gate_method_names_residual_wave282,
     honesty_live_ai_update_interface_dual_world_empty_gate_nav_commands_residual_wave282,
@@ -160,16 +135,6 @@ pub use crate::game_logic::host_live_script_executor_dual_world_empty_gate_resid
     honesty_live_script_executor_dual_world_empty_gate_nav_commands_residual_wave284,
     simulate_live_script_executor_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_ai_integration_dual_world_empty_gate_residual_wave285::{
-    honesty_live_ai_integration_dual_world_empty_gate_method_names_residual_wave285,
-    honesty_live_ai_integration_dual_world_empty_gate_nav_commands_residual_wave285,
-    simulate_live_ai_integration_dual_world_empty_gate_honesty,
-};
-pub use crate::game_logic::host_live_dumb_projectile_dual_world_empty_gate_residual_wave286::{
-    honesty_live_dumb_projectile_dual_world_empty_gate_method_names_residual_wave286,
-    honesty_live_dumb_projectile_dual_world_empty_gate_nav_commands_residual_wave286,
-    simulate_live_dumb_projectile_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_hijacker_update_dual_world_empty_gate_residual_wave288::{
     honesty_live_hijacker_update_dual_world_empty_gate_method_names_residual_wave288,
     honesty_live_hijacker_update_dual_world_empty_gate_nav_commands_residual_wave288,
@@ -179,11 +144,6 @@ pub use crate::game_logic::host_live_async_player_dual_world_empty_gate_residual
     honesty_live_async_player_dual_world_empty_gate_method_names_residual_wave290,
     honesty_live_async_player_dual_world_empty_gate_nav_commands_residual_wave290,
     simulate_live_async_player_dual_world_empty_gate_honesty,
-};
-pub use crate::game_logic::host_live_active_body_dual_world_empty_gate_residual_wave291::{
-    honesty_live_active_body_dual_world_empty_gate_method_names_residual_wave291,
-    honesty_live_active_body_dual_world_empty_gate_nav_commands_residual_wave291,
-    simulate_live_active_body_dual_world_empty_gate_honesty,
 };
 pub use crate::game_logic::host_live_skirmish_conditions_dual_world_empty_gate_residual_wave292::{
     honesty_live_skirmish_conditions_dual_world_empty_gate_method_names_residual_wave292,
@@ -210,11 +170,6 @@ pub use crate::game_logic::host_live_special_ability_dual_world_empty_gate_resid
     honesty_live_special_ability_dual_world_empty_gate_nav_commands_residual_wave296,
     simulate_live_special_ability_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_supply_system_dual_world_empty_gate_residual_wave298::{
-    honesty_live_supply_system_dual_world_empty_gate_method_names_residual_wave298,
-    honesty_live_supply_system_dual_world_empty_gate_nav_commands_residual_wave298,
-    simulate_live_supply_system_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_particle_uplink_dual_world_empty_gate_residual_wave299::{
     honesty_live_particle_uplink_dual_world_empty_gate_method_names_residual_wave299,
     honesty_live_particle_uplink_dual_world_empty_gate_nav_commands_residual_wave299,
@@ -225,20 +180,10 @@ pub use crate::game_logic::host_live_overlord_contain_dual_world_empty_gate_resi
     honesty_live_overlord_contain_dual_world_empty_gate_nav_commands_residual_wave300,
     simulate_live_overlord_contain_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_bridge_behavior_dual_world_empty_gate_residual_wave301::{
-    honesty_live_bridge_behavior_dual_world_empty_gate_method_names_residual_wave301,
-    honesty_live_bridge_behavior_dual_world_empty_gate_nav_commands_residual_wave301,
-    simulate_live_bridge_behavior_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_stealth_behavior_dual_world_empty_gate_residual_wave302::{
     honesty_live_stealth_behavior_dual_world_empty_gate_method_names_residual_wave302,
     honesty_live_stealth_behavior_dual_world_empty_gate_nav_commands_residual_wave302,
     simulate_live_stealth_behavior_dual_world_empty_gate_honesty,
-};
-pub use crate::game_logic::host_live_crate_collide_dual_world_empty_gate_residual_wave303::{
-    honesty_live_crate_collide_dual_world_empty_gate_method_names_residual_wave303,
-    honesty_live_crate_collide_dual_world_empty_gate_nav_commands_residual_wave303,
-    simulate_live_crate_collide_dual_world_empty_gate_honesty,
 };
 pub use crate::game_logic::host_live_object_manager_dual_world_empty_gate_residual_wave304::{
     honesty_live_object_manager_dual_world_empty_gate_method_names_residual_wave304,
@@ -275,11 +220,6 @@ pub use crate::game_logic::host_live_flight_deck_dual_world_empty_gate_residual_
     honesty_live_flight_deck_dual_world_empty_gate_nav_commands_residual_wave311,
     simulate_live_flight_deck_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_exit_strategies_dual_world_empty_gate_residual_wave312::{
-    honesty_live_exit_strategies_dual_world_empty_gate_method_names_residual_wave312,
-    honesty_live_exit_strategies_dual_world_empty_gate_nav_commands_residual_wave312,
-    simulate_live_exit_strategies_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_collision_system_dual_world_empty_gate_residual_wave313::{
     honesty_live_collision_system_dual_world_empty_gate_method_names_residual_wave313,
     honesty_live_collision_system_dual_world_empty_gate_nav_commands_residual_wave313,
@@ -289,11 +229,6 @@ pub use crate::game_logic::host_live_structure_topple_dual_world_empty_gate_resi
     honesty_live_structure_topple_dual_world_empty_gate_method_names_residual_wave315,
     honesty_live_structure_topple_dual_world_empty_gate_nav_commands_residual_wave315,
     simulate_live_structure_topple_dual_world_empty_gate_honesty,
-};
-pub use crate::game_logic::host_live_physics_update_dual_world_empty_gate_residual_wave316::{
-    honesty_live_physics_update_dual_world_empty_gate_method_names_residual_wave316,
-    honesty_live_physics_update_dual_world_empty_gate_nav_commands_residual_wave316,
-    simulate_live_physics_update_dual_world_empty_gate_honesty,
 };
 pub use crate::game_logic::host_live_cleanup_hazard_dual_world_empty_gate_residual_wave317::{
     honesty_live_cleanup_hazard_dual_world_empty_gate_method_names_residual_wave317,
@@ -325,11 +260,6 @@ pub use crate::game_logic::host_live_die_mod_dual_world_empty_gate_residual_wave
     honesty_live_die_mod_dual_world_empty_gate_nav_commands_residual_wave323,
     simulate_live_die_mod_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_partition_manager_dual_world_empty_gate_residual_wave324::{
-    honesty_live_partition_manager_dual_world_empty_gate_method_names_residual_wave324,
-    honesty_live_partition_manager_dual_world_empty_gate_nav_commands_residual_wave324,
-    simulate_live_partition_manager_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_spectre_gunship_dual_world_empty_gate_residual_wave325::{
     honesty_live_spectre_gunship_dual_world_empty_gate_method_names_residual_wave325,
     honesty_live_spectre_gunship_dual_world_empty_gate_nav_commands_residual_wave325,
@@ -344,11 +274,6 @@ pub use crate::game_logic::host_live_neutron_blast_dual_world_empty_gate_residua
     honesty_live_neutron_blast_dual_world_empty_gate_method_names_residual_wave327,
     honesty_live_neutron_blast_dual_world_empty_gate_nav_commands_residual_wave327,
     simulate_live_neutron_blast_dual_world_empty_gate_honesty,
-};
-pub use crate::game_logic::host_live_countermeasures_dual_world_empty_gate_residual_wave328::{
-    honesty_live_countermeasures_dual_world_empty_gate_method_names_residual_wave328,
-    honesty_live_countermeasures_dual_world_empty_gate_nav_commands_residual_wave328,
-    simulate_live_countermeasures_dual_world_empty_gate_honesty,
 };
 pub use crate::game_logic::host_live_skirmish_player_dual_world_empty_gate_residual_wave329::{
     honesty_live_skirmish_player_dual_world_empty_gate_method_names_residual_wave329,
@@ -385,11 +310,6 @@ pub use crate::game_logic::host_live_bridge_scaffold_dual_world_empty_gate_resid
     honesty_live_bridge_scaffold_dual_world_empty_gate_nav_commands_residual_wave335,
     simulate_live_bridge_scaffold_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_assisted_targeting_dual_world_empty_gate_residual_wave336::{
-    honesty_live_assisted_targeting_dual_world_empty_gate_method_names_residual_wave336,
-    honesty_live_assisted_targeting_dual_world_empty_gate_nav_commands_residual_wave336,
-    simulate_live_assisted_targeting_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_economy_dual_world_empty_gate_residual_wave337::{
     honesty_live_economy_dual_world_empty_gate_method_names_residual_wave337,
     honesty_live_economy_dual_world_empty_gate_nav_commands_residual_wave337,
@@ -405,11 +325,6 @@ pub use crate::game_logic::host_live_modules_dual_world_empty_gate_residual_wave
     honesty_live_modules_dual_world_empty_gate_nav_commands_residual_wave340,
     simulate_live_modules_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_terrain_dual_world_empty_gate_residual_wave341::{
-    honesty_live_terrain_dual_world_empty_gate_method_names_residual_wave341,
-    honesty_live_terrain_dual_world_empty_gate_nav_commands_residual_wave341,
-    simulate_live_terrain_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_special_power_template_dual_world_empty_gate_residual_wave342::{
     honesty_live_special_power_template_dual_world_empty_gate_method_names_residual_wave342,
     honesty_live_special_power_template_dual_world_empty_gate_nav_commands_residual_wave342,
@@ -419,11 +334,6 @@ pub use crate::game_logic::host_live_script_evaluator_dual_world_empty_gate_resi
     honesty_live_script_evaluator_dual_world_empty_gate_method_names_residual_wave343,
     honesty_live_script_evaluator_dual_world_empty_gate_nav_commands_residual_wave343,
     simulate_live_script_evaluator_dual_world_empty_gate_honesty,
-};
-pub use crate::game_logic::host_live_system_game_logic_dual_world_empty_gate_residual_wave344::{
-    honesty_live_system_game_logic_dual_world_empty_gate_method_names_residual_wave344,
-    honesty_live_system_game_logic_dual_world_empty_gate_nav_commands_residual_wave344,
-    simulate_live_system_game_logic_dual_world_empty_gate_honesty,
 };
 pub use crate::game_logic::host_live_meta_event_dual_world_empty_gate_residual_wave345::{
     honesty_live_meta_event_dual_world_empty_gate_method_names_residual_wave345,
