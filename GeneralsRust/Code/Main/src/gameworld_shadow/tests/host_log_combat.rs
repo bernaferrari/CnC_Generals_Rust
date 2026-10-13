@@ -63,8 +63,8 @@ fn host_movement_log_drives_set_movement_channel() {
 }
 
 #[test]
-fn host_weapon_stats_log_drives_set_weapon_stats_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon, host_weapon_stats_log};
+fn canonical_weapon_stats_is_projected_from_receiving_owner() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("WsCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -491,8 +491,8 @@ fn canonical_overcharge_projects_without_writeback() {
 }
 
 #[test]
-fn host_weapon_set_log_drives_set_weapon_set_flags_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_weapon_set_log};
+fn canonical_weapon_set_is_projected_from_receiving_owner() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("WSetCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -892,8 +892,8 @@ fn canonical_entity_power_projects_without_writeback() {
 }
 
 #[test]
-fn host_weapon_slot_log_drives_set_active_weapon_slot_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_weapon_slot_log};
+fn canonical_weapon_slot_is_projected_from_receiving_owner() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("WSlotCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -932,8 +932,8 @@ fn host_weapon_slot_log_drives_set_active_weapon_slot_channel() {
 }
 
 #[test]
-fn host_weapon_bonus_log_drives_set_weapon_bonus_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_weapon_bonus_log};
+fn canonical_weapon_bonus_is_projected_from_receiving_owner() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("WBonusCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");

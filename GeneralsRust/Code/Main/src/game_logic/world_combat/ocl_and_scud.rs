@@ -882,7 +882,6 @@ impl GameLogic {
         weapon.can_target_ground = true;
         weapon.can_target_air = false;
         let _ = obj.replace_weapon_set_slot(0, Some(weapon));
-        obj.record_host_weapon_stats();
 
         // Tag residual crate upgrade for tier inference.
         obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_ONE");
@@ -1266,7 +1265,6 @@ impl GameLogic {
             w.can_target_air = false;
             w.can_target_ground = true;
         }
-        obj.record_host_weapon_stats();
         if let Some(w) = obj.secondary_weapon.as_mut() {
             let refreshed = gattling_building_air_weapon(new_level, chain);
             w.damage = refreshed.damage;
@@ -1275,7 +1273,6 @@ impl GameLogic {
             w.can_target_air = true;
             w.can_target_ground = false;
         }
-        obj.record_host_weapon_stats();
 
         if slot == 1 {
             self.gattling_building_residual_aa_fires =
@@ -1360,7 +1357,6 @@ impl GameLogic {
             w.can_target_air = false;
             w.can_target_ground = true;
         }
-        obj.record_host_weapon_stats();
         if let Some(w) = obj.secondary_weapon.as_mut() {
             let refreshed = gattling_air_weapon(new_level, chain);
             w.damage = refreshed.damage;
@@ -1369,7 +1365,6 @@ impl GameLogic {
             w.can_target_air = true;
             w.can_target_ground = false;
         }
-        obj.record_host_weapon_stats();
 
         if slot == 1 {
             self.gattling_tank_residual_aa_fires =
@@ -1691,7 +1686,6 @@ impl GameLogic {
         weapon.can_target_ground = true;
         weapon.can_target_air = false;
         let _ = obj.replace_weapon_set_slot(0, Some(weapon));
-        obj.record_host_weapon_stats();
 
         obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_ONE");
         obj.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_TWO");

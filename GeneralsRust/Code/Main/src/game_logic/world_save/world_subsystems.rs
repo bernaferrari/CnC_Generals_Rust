@@ -166,7 +166,6 @@ impl GameLogic {
                         new_max,
                         crate::game_logic::object::MaxHealthChange::PreserveRatio,
                     );
-                    created.record_host_max_health();
                 }
             }
         }

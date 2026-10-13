@@ -869,7 +869,6 @@ impl GameLogic {
             w.can_target_air = false;
             w.can_target_ground = true;
         }
-        obj.record_host_weapon_stats();
         if let Some(w) = obj.secondary_weapon.as_mut() {
             let refreshed = minigunner_air_weapon(new_level, chain, in_horde, nationalism);
             w.damage = refreshed.damage;
@@ -878,7 +877,6 @@ impl GameLogic {
             w.can_target_air = true;
             w.can_target_ground = false;
         }
-        obj.record_host_weapon_stats();
 
         if new_level == GattlingFireLevel::Mean && prev_level != GattlingFireLevel::Mean {
             self.minigunner_residual_ramp_mean =

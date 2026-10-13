@@ -778,7 +778,6 @@ impl Object {
         self.weapon_bonus_elite = elite;
         self.weapon_bonus_hero = hero;
         self.stamp_veterancy_weaponset_model_bits();
-        self.record_host_weapon_set();
     }
 
     /// C++ `TheWeaponSetTypeToModelConditionTypeMap` WEAPONSET_VETERAN/ELITE/HERO.
@@ -1051,13 +1050,6 @@ impl Object {
                 .any(|u| is_advanced_training_upgrade(u))
     }
 
-    pub fn record_host_max_health(&self) {
-        crate::game_logic::host_max_health_log::record(
-            self.id,
-            self.max_health.max(self.health.maximum).max(1.0),
-        );
-    }
-
     /// C++ `TheGlobalData->m_healthBonus[new] / m_healthBonus[old]`.
     /// Leftover GlobalData when INI-populated; else GameData.ini residual 1.0/1.2/1.3/1.5.
     fn veterancy_health_bonus_scale(
@@ -1172,7 +1164,6 @@ impl Object {
         }
 
         self.set_body_max_health(self.health.maximum.max(1.0));
-        self.record_host_max_health();
         self.set_veterancy_armor_set_flags(new_level);
         self.validate_armor_and_damage_fx();
 

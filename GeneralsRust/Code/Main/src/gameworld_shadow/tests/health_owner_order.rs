@@ -218,16 +218,14 @@ fn coupled_owner_healing_is_visible_to_repeated_borrows_and_damage_state() {
 fn health_admission_preserves_max_health_and_experience_neighbors() {
     for eager in [true, false] {
         let (mut logic, mut shadow, id) = injured_world();
-        crate::game_logic::host_max_health_log::clear();
         let eid = shadow.entity_for_host(id).unwrap();
         owner_heal(&mut logic, id, 50.0);
-        // The existing max-health channel applies after the health batch in
-        // production: lowering this cap must retain its final HP clamp.
+        // Observe the completed receiving Body operation: lowering the
+        // canonical cap must retain its final HP clamp in the projection.
         let object = logic.host_object_mut(id).unwrap();
         object.health.maximum = 60.0;
         object.max_health = 60.0;
         object.health.current = 60.0;
-        object.record_host_max_health();
         logic.host_object_mut(id).unwrap().gain_experience(12.0);
 
         if eager {
@@ -245,7 +243,6 @@ fn health_admission_preserves_max_health_and_experience_neighbors() {
             "eager={eager}"
         );
     }
-    crate::game_logic::host_max_health_log::clear();
 }
 
 #[test]

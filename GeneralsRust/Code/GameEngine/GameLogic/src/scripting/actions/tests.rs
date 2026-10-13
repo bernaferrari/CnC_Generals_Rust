@@ -105,6 +105,19 @@ impl Drop for ScriptActionFixtureObjects {
     }
 }
 
+/// These adapters intentionally exercise process-global ScriptEngine/player/
+/// registry APIs. A fresh exact-test child isolates resets without a shared
+/// serialization mutex; the bounded helper rejects missing tests and stalls.
+fn action_fixture_child(test: &str) -> bool {
+    matches!(
+        crate::test_process::run_bounded(
+            &format!("scripting::actions::tests::{test}"),
+            "GENERALS_SCRIPT_ACTION_FIXTURE_CHILD",
+        ),
+        crate::test_process::TestProcess::Child
+    )
+}
+
 fn test_context() -> ScriptContext {
     ScriptContext {
         game_time: std::time::Duration::from_secs(0),
@@ -186,9 +199,11 @@ async fn test_action_registry() {
 
 #[tokio::test]
 async fn test_create_unit_action() {
+    if !action_fixture_child("test_create_unit_action") {
+        return;
+    }
     use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
 
-    let _test_lock = crate::test_sync::lock();
     reset_test_object_manager();
     // Ensure a template exists for the requested unit type.
     // The fully-implemented `CreateUnitAction` now uses the real object factory path.
@@ -250,6 +265,9 @@ async fn test_parameter_extraction() {
 
 #[tokio::test]
 async fn set_player_resource_sets_money() {
+    if !action_fixture_child("set_player_resource_sets_money") {
+        return;
+    }
     reset_test_player(0, 250);
 
     let action = SetPlayerResourceAction;
@@ -270,6 +288,9 @@ async fn set_player_resource_sets_money() {
 
 #[tokio::test]
 async fn add_player_resource_updates_money_and_ignores_unknown_resources() {
+    if !action_fixture_child("add_player_resource_updates_money_and_ignores_unknown_resources") {
+        return;
+    }
     reset_test_player(0, 500);
 
     let action = AddPlayerResourceAction;
@@ -297,6 +318,9 @@ async fn add_player_resource_updates_money_and_ignores_unknown_resources() {
 
 #[tokio::test]
 async fn named_money_actions_update_money_without_reentrant_deposit() {
+    if !action_fixture_child("named_money_actions_update_money_without_reentrant_deposit") {
+        return;
+    }
     reset_test_player(0, 500);
 
     let mut params = HashMap::new();
@@ -330,6 +354,9 @@ async fn named_money_actions_update_money_without_reentrant_deposit() {
 
 #[tokio::test]
 async fn indexed_player_add_money_spends_only_available_money() {
+    if !action_fixture_child("indexed_player_add_money_spends_only_available_money") {
+        return;
+    }
     reset_test_player(0, 300);
 
     let mut params = HashMap::new();
@@ -349,6 +376,9 @@ async fn indexed_player_add_money_spends_only_available_money() {
 
 #[tokio::test]
 async fn timer_actions_update_script_engine_counters() {
+    if !action_fixture_child("timer_actions_update_script_engine_counters") {
+        return;
+    }
     reset_test_script_engine();
 
     let mut params = HashMap::new();
@@ -394,6 +424,9 @@ async fn timer_actions_update_script_engine_counters() {
 
 #[tokio::test]
 async fn display_timer_actions_create_counter_state() {
+    if !action_fixture_child("display_timer_actions_create_counter_state") {
+        return;
+    }
     reset_test_script_engine();
 
     let mut params = HashMap::new();
@@ -434,6 +467,9 @@ async fn display_timer_actions_create_counter_state() {
 
 #[tokio::test]
 async fn set_team_alliance_sets_one_way_player_relationship() {
+    if !action_fixture_child("set_team_alliance_sets_one_way_player_relationship") {
+        return;
+    }
     reset_test_players(2);
 
     let mut params = HashMap::new();
@@ -458,6 +494,9 @@ async fn set_team_alliance_sets_one_way_player_relationship() {
 
 #[tokio::test]
 async fn destroy_building_queues_object_manager_removal() {
+    if !action_fixture_child("destroy_building_queues_object_manager_removal") {
+        return;
+    }
     reset_test_object_manager();
 
     let object =
@@ -489,7 +528,9 @@ async fn destroy_building_queues_object_manager_removal() {
 
 #[tokio::test]
 async fn spawn_reinforcements_creates_grid_formation() {
-    let _test_lock = crate::test_sync::lock();
+    if !action_fixture_child("spawn_reinforcements_creates_grid_formation") {
+        return;
+    }
     reset_test_object_manager();
     ensure_test_template("TestReinforcement");
 
@@ -538,6 +579,9 @@ async fn spawn_reinforcements_creates_grid_formation() {
 
 #[tokio::test]
 async fn give_special_power_initializes_player_ready_timer() {
+    if !action_fixture_child("give_special_power_initializes_player_ready_timer") {
+        return;
+    }
     reset_test_players(1);
     if let Some(mut store) = crate::object::special_power_template::get_special_power_store_mut() {
         store.reset();
@@ -569,11 +613,14 @@ async fn give_special_power_initializes_player_ready_timer() {
 
 #[tokio::test]
 async fn weather_set_dispatches_visibility_to_action_handler() {
+    if !action_fixture_child("weather_set_dispatches_visibility_to_action_handler") {
+        return;
+    }
     use crate::scripting::engine::ScriptActionHandler;
     use std::sync::Mutex;
 
     struct RecordingWeatherHandler {
-        calls: Arc<Mutex<Vec<bool>>>,
+        calls: Mutex<Vec<bool>>,
     }
 
     impl ScriptActionHandler for RecordingWeatherHandler {
@@ -584,16 +631,16 @@ async fn weather_set_dispatches_visibility_to_action_handler() {
     }
 
     reset_test_script_engine();
-    let calls = Arc::new(Mutex::new(Vec::new()));
+    let handler = Arc::new(RecordingWeatherHandler {
+        calls: Mutex::new(Vec::new()),
+    });
     {
         let engine_lock = get_script_engine();
         let mut engine = engine_lock.write().unwrap();
         engine
             .as_mut()
             .unwrap()
-            .set_action_handler(Some(Arc::new(RecordingWeatherHandler {
-                calls: Arc::clone(&calls),
-            })));
+            .set_action_handler(Some(handler.clone()));
     }
 
     let mut params = HashMap::new();
@@ -608,11 +655,14 @@ async fn weather_set_dispatches_visibility_to_action_handler() {
         .await
         .unwrap();
 
-    assert_eq!(*calls.lock().unwrap(), vec![false]);
+    assert_eq!(*handler.calls.lock().unwrap(), vec![false]);
 }
 
 #[tokio::test]
 async fn player_hunt_sets_player_hunt_flag() {
+    if !action_fixture_child("player_hunt_sets_player_hunt_flag") {
+        return;
+    }
     reset_test_player(0, 0);
 
     let mut params = HashMap::new();
@@ -630,12 +680,15 @@ async fn player_hunt_sets_player_hunt_flag() {
 
 #[tokio::test]
 async fn team_guard_without_position_guards_each_member_at_own_position() {
+    if !action_fixture_child("team_guard_without_position_guards_each_member_at_own_position") {
+        return;
+    }
     use crate::modules::AIUpdateInterface;
     use std::sync::Mutex;
 
     #[derive(Debug)]
     struct RecordingAi {
-        calls: Arc<Mutex<Vec<(AiCommandType, Coord3D, i32, CommandSourceType)>>>,
+        calls: Vec<(AiCommandType, Coord3D, i32, CommandSourceType)>,
     }
 
     impl AIUpdateInterface for RecordingAi {
@@ -659,7 +712,7 @@ async fn team_guard_without_position_guards_each_member_at_own_position() {
             &mut self,
             command: &AiCommandParams,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            self.calls.lock().unwrap().push((
+            self.calls.push((
                 command.cmd,
                 command.pos,
                 command.int_value,
@@ -689,7 +742,7 @@ async fn team_guard_without_position_guards_each_member_at_own_position() {
     let mut calls = Vec::new();
     for (idx, position) in positions.iter().enumerate() {
         let object_id = 8100 + idx as u32;
-        let call_log = Arc::new(Mutex::new(Vec::new()));
+        let call_log = Arc::new(Mutex::new(RecordingAi { calls: Vec::new() }));
         calls.push(Arc::clone(&call_log));
 
         let object = crate::object_manager::GameObjectInstance::new(
@@ -705,9 +758,7 @@ async fn team_guard_without_position_guards_each_member_at_own_position() {
                 .base()
                 .write()
                 .unwrap()
-                .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-                    calls: call_log,
-                }))));
+                .set_ai_update_interface(Some(call_log.clone()));
         }
         get_object_manager()
             .write()
@@ -730,7 +781,7 @@ async fn team_guard_without_position_guards_each_member_at_own_position() {
 
     for (call_log, expected_pos) in calls.iter().zip(positions.iter()) {
         assert_eq!(
-            *call_log.lock().unwrap(),
+            call_log.lock().unwrap().calls,
             vec![(
                 AiCommandType::GuardPosition,
                 *expected_pos,
@@ -743,6 +794,9 @@ async fn team_guard_without_position_guards_each_member_at_own_position() {
 
 #[tokio::test]
 async fn team_attack_area_dispatches_attack_area_to_team_members() {
+    if !action_fixture_child("team_attack_area_dispatches_attack_area_to_team_members") {
+        return;
+    }
     use crate::common::ICoord3D;
     use crate::modules::AIUpdateInterface;
     use crate::polygon_trigger::PolygonTrigger;
@@ -750,7 +804,7 @@ async fn team_attack_area_dispatches_attack_area_to_team_members() {
 
     #[derive(Debug)]
     struct RecordingAi {
-        calls: Arc<Mutex<Vec<(AiCommandType, Coord3D, Option<i32>, CommandSourceType)>>>,
+        calls: Vec<(AiCommandType, Coord3D, Option<i32>, CommandSourceType)>,
     }
 
     impl AIUpdateInterface for RecordingAi {
@@ -774,7 +828,7 @@ async fn team_attack_area_dispatches_attack_area_to_team_members() {
             &mut self,
             command: &AiCommandParams,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            self.calls.lock().unwrap().push((
+            self.calls.push((
                 command.cmd,
                 command.pos,
                 command.polygon,
@@ -820,7 +874,7 @@ async fn team_attack_area_dispatches_attack_area_to_team_members() {
     let mut calls = Vec::new();
     for idx in 0..2 {
         let object_id = 8200 + idx as u32;
-        let call_log = Arc::new(Mutex::new(Vec::new()));
+        let call_log = Arc::new(Mutex::new(RecordingAi { calls: Vec::new() }));
         calls.push(Arc::clone(&call_log));
 
         let object = crate::object_manager::GameObjectInstance::new(
@@ -836,9 +890,7 @@ async fn team_attack_area_dispatches_attack_area_to_team_members() {
                 .base()
                 .write()
                 .unwrap()
-                .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-                    calls: call_log,
-                }))));
+                .set_ai_update_interface(Some(call_log.clone()));
         }
         get_object_manager()
             .write()
@@ -865,7 +917,7 @@ async fn team_attack_area_dispatches_attack_area_to_team_members() {
 
     for call_log in calls {
         assert_eq!(
-            *call_log.lock().unwrap(),
+            call_log.lock().unwrap().calls,
             vec![(
                 AiCommandType::AttackArea,
                 expected_center,
@@ -878,6 +930,9 @@ async fn team_attack_area_dispatches_attack_area_to_team_members() {
 
 #[tokio::test]
 async fn named_attack_area_leaves_group_and_dispatches_attack_area() {
+    if !action_fixture_child("named_attack_area_leaves_group_and_dispatches_attack_area") {
+        return;
+    }
     use crate::common::ICoord3D;
     use crate::modules::AIUpdateInterface;
     use crate::polygon_trigger::PolygonTrigger;
@@ -885,8 +940,8 @@ async fn named_attack_area_leaves_group_and_dispatches_attack_area() {
 
     #[derive(Debug)]
     struct RecordingAi {
-        commands: Arc<Mutex<Vec<(AiCommandType, Coord3D, Option<i32>, CommandSourceType)>>>,
-        locomotors: Arc<Mutex<Vec<LocomotorSetType>>>,
+        commands: Vec<(AiCommandType, Coord3D, Option<i32>, CommandSourceType)>,
+        locomotors: Vec<LocomotorSetType>,
     }
 
     impl AIUpdateInterface for RecordingAi {
@@ -910,7 +965,7 @@ async fn named_attack_area_leaves_group_and_dispatches_attack_area() {
             &mut self,
             set: LocomotorSetType,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            self.locomotors.lock().unwrap().push(set);
+            self.locomotors.push(set);
             Ok(())
         }
 
@@ -918,7 +973,7 @@ async fn named_attack_area_leaves_group_and_dispatches_attack_area() {
             &mut self,
             command: &AiCommandParams,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            self.commands.lock().unwrap().push((
+            self.commands.push((
                 command.cmd,
                 command.pos,
                 command.polygon,
@@ -948,8 +1003,10 @@ async fn named_attack_area_leaves_group_and_dispatches_attack_area() {
             ],
         ));
 
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
+    let recorder = Arc::new(Mutex::new(RecordingAi {
+        commands: Vec::new(),
+        locomotors: Vec::new(),
+    }));
     let object_id = 8300;
     let object = crate::object_manager::GameObjectInstance::new(
         object_id,
@@ -962,10 +1019,7 @@ async fn named_attack_area_leaves_group_and_dispatches_attack_area() {
     {
         let __base_arc = object.base();
         let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-            commands: Arc::clone(&commands),
-            locomotors: Arc::clone(&locomotors),
-        }))));
+        base.set_ai_update_interface(Some(recorder.clone()));
         base.enter_group(&crate::ai::AIGroup::new(77));
         assert_eq!(base.get_group_id(), Some(77));
     }
@@ -994,9 +1048,12 @@ async fn named_attack_area_leaves_group_and_dispatches_attack_area() {
         .await
         .unwrap();
 
-    assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
     assert_eq!(
-        *commands.lock().unwrap(),
+        recorder.lock().unwrap().locomotors,
+        vec![LocomotorSetType::Normal]
+    );
+    assert_eq!(
+        recorder.lock().unwrap().commands,
         vec![(
             AiCommandType::AttackArea,
             expected_center,
@@ -1016,13 +1073,16 @@ async fn named_attack_area_leaves_group_and_dispatches_attack_area() {
 
 #[tokio::test]
 async fn named_hunt_selects_normal_locomotor_before_hunt() {
+    if !action_fixture_child("named_hunt_selects_normal_locomotor_before_hunt") {
+        return;
+    }
     use crate::modules::AIUpdateInterface;
     use std::sync::Mutex;
 
     #[derive(Debug)]
     struct RecordingAi {
-        commands: Arc<Mutex<Vec<(AiCommandType, CommandSourceType)>>>,
-        locomotors: Arc<Mutex<Vec<LocomotorSetType>>>,
+        commands: Vec<(AiCommandType, CommandSourceType)>,
+        locomotors: Vec<LocomotorSetType>,
     }
 
     impl AIUpdateInterface for RecordingAi {
@@ -1046,7 +1106,7 @@ async fn named_hunt_selects_normal_locomotor_before_hunt() {
             &mut self,
             set: LocomotorSetType,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            self.locomotors.lock().unwrap().push(set);
+            self.locomotors.push(set);
             Ok(())
         }
 
@@ -1054,10 +1114,7 @@ async fn named_hunt_selects_normal_locomotor_before_hunt() {
             &mut self,
             command: &AiCommandParams,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            self.commands
-                .lock()
-                .unwrap()
-                .push((command.cmd, command.cmd_source));
+            self.commands.push((command.cmd, command.cmd_source));
             Ok(())
         }
     }
@@ -1065,8 +1122,10 @@ async fn named_hunt_selects_normal_locomotor_before_hunt() {
     reset_test_object_manager();
     reset_test_named_object_tracker();
 
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
+    let recorder = Arc::new(Mutex::new(RecordingAi {
+        commands: Vec::new(),
+        locomotors: Vec::new(),
+    }));
     let object_id = 8350;
     let object = crate::object_manager::GameObjectInstance::new(
         object_id,
@@ -1082,10 +1141,7 @@ async fn named_hunt_selects_normal_locomotor_before_hunt() {
             .base()
             .write()
             .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-                commands: Arc::clone(&commands),
-                locomotors: Arc::clone(&locomotors),
-            }))));
+            .set_ai_update_interface(Some(recorder.clone()));
     }
 
     get_object_manager()
@@ -1108,22 +1164,28 @@ async fn named_hunt_selects_normal_locomotor_before_hunt() {
         .await
         .unwrap();
 
-    assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
     assert_eq!(
-        *commands.lock().unwrap(),
+        recorder.lock().unwrap().locomotors,
+        vec![LocomotorSetType::Normal]
+    );
+    assert_eq!(
+        recorder.lock().unwrap().commands,
         vec![(AiCommandType::Hunt, CommandSourceType::FromScript)]
     );
 }
 
 #[tokio::test]
 async fn named_attack_named_leaves_group_and_dispatches_force_attack() {
+    if !action_fixture_child("named_attack_named_leaves_group_and_dispatches_force_attack") {
+        return;
+    }
     use crate::modules::AIUpdateInterface;
     use std::sync::Mutex;
 
     #[derive(Debug)]
     struct RecordingAi {
-        commands: Arc<Mutex<Vec<(AiCommandType, Option<u32>, i32, CommandSourceType)>>>,
-        locomotors: Arc<Mutex<Vec<LocomotorSetType>>>,
+        commands: Vec<(AiCommandType, Option<u32>, i32, CommandSourceType)>,
+        locomotors: Vec<LocomotorSetType>,
     }
 
     impl AIUpdateInterface for RecordingAi {
@@ -1147,7 +1209,7 @@ async fn named_attack_named_leaves_group_and_dispatches_force_attack() {
             &mut self,
             set: LocomotorSetType,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            self.locomotors.lock().unwrap().push(set);
+            self.locomotors.push(set);
             Ok(())
         }
 
@@ -1155,7 +1217,7 @@ async fn named_attack_named_leaves_group_and_dispatches_force_attack() {
             &mut self,
             command: &AiCommandParams,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            self.commands.lock().unwrap().push((
+            self.commands.push((
                 command.cmd,
                 command.obj,
                 command.int_value,
@@ -1168,8 +1230,10 @@ async fn named_attack_named_leaves_group_and_dispatches_force_attack() {
     reset_test_object_manager();
     reset_test_named_object_tracker();
 
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
+    let recorder = Arc::new(Mutex::new(RecordingAi {
+        commands: Vec::new(),
+        locomotors: Vec::new(),
+    }));
     let attacker_id = 8350;
     let target_id = 8351;
     let attacker = crate::object_manager::GameObjectInstance::new(
@@ -1190,10 +1254,7 @@ async fn named_attack_named_leaves_group_and_dispatches_force_attack() {
     {
         let __base_arc = attacker.base();
         let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-            commands: Arc::clone(&commands),
-            locomotors: Arc::clone(&locomotors),
-        }))));
+        base.set_ai_update_interface(Some(recorder.clone()));
         base.enter_group(&crate::ai::AIGroup::new(87));
         assert_eq!(base.get_group_id(), Some(87));
     }
@@ -1231,9 +1292,12 @@ async fn named_attack_named_leaves_group_and_dispatches_force_attack() {
         .await
         .unwrap();
 
-    assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
     assert_eq!(
-        *commands.lock().unwrap(),
+        recorder.lock().unwrap().locomotors,
+        vec![LocomotorSetType::Normal]
+    );
+    assert_eq!(
+        recorder.lock().unwrap().commands,
         vec![(
             AiCommandType::ForceAttackObject,
             Some(target_id),
@@ -1257,13 +1321,16 @@ async fn named_attack_named_leaves_group_and_dispatches_force_attack() {
 
 #[tokio::test]
 async fn named_attack_team_leaves_group_and_dispatches_attack_team() {
+    if !action_fixture_child("named_attack_team_leaves_group_and_dispatches_attack_team") {
+        return;
+    }
     use crate::modules::AIUpdateInterface;
     use std::sync::Mutex;
 
     #[derive(Debug)]
     struct RecordingAi {
-        commands: Arc<Mutex<Vec<(AiCommandType, Option<String>, i32, CommandSourceType)>>>,
-        locomotors: Arc<Mutex<Vec<LocomotorSetType>>>,
+        commands: Vec<(AiCommandType, Option<String>, i32, CommandSourceType)>,
+        locomotors: Vec<LocomotorSetType>,
     }
 
     impl AIUpdateInterface for RecordingAi {
@@ -1287,7 +1354,7 @@ async fn named_attack_team_leaves_group_and_dispatches_attack_team() {
             &mut self,
             set: LocomotorSetType,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            self.locomotors.lock().unwrap().push(set);
+            self.locomotors.push(set);
             Ok(())
         }
 
@@ -1295,7 +1362,7 @@ async fn named_attack_team_leaves_group_and_dispatches_attack_team() {
             &mut self,
             command: &AiCommandParams,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            self.commands.lock().unwrap().push((
+            self.commands.push((
                 command.cmd,
                 command.team.clone(),
                 command.int_value,
@@ -1322,8 +1389,10 @@ async fn named_attack_team_leaves_group_and_dispatches_attack_team() {
             .expect("target team should be created");
     }
 
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
+    let recorder = Arc::new(Mutex::new(RecordingAi {
+        commands: Vec::new(),
+        locomotors: Vec::new(),
+    }));
     let object_id = 8400;
     let object = crate::object_manager::GameObjectInstance::new(
         object_id,
@@ -1336,10 +1405,7 @@ async fn named_attack_team_leaves_group_and_dispatches_attack_team() {
     {
         let __base_arc = object.base();
         let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-            commands: Arc::clone(&commands),
-            locomotors: Arc::clone(&locomotors),
-        }))));
+        base.set_ai_update_interface(Some(recorder.clone()));
         base.enter_group(&crate::ai::AIGroup::new(88));
         assert_eq!(base.get_group_id(), Some(88));
     }
@@ -1368,9 +1434,12 @@ async fn named_attack_team_leaves_group_and_dispatches_attack_team() {
         .await
         .unwrap();
 
-    assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
     assert_eq!(
-        *commands.lock().unwrap(),
+        recorder.lock().unwrap().locomotors,
+        vec![LocomotorSetType::Normal]
+    );
+    assert_eq!(
+        recorder.lock().unwrap().commands,
         vec![(
             AiCommandType::AttackTeam,
             Some("TargetTeam".to_string()),
@@ -1390,6 +1459,9 @@ async fn named_attack_team_leaves_group_and_dispatches_attack_team() {
 
 #[tokio::test]
 async fn create_explosion_dispatches_fx_at_position() {
+    if !action_fixture_child("create_explosion_dispatches_fx_at_position") {
+        return;
+    }
     // This fixture observes the action's FX dispatch, not explosion damage.
     // The one-shot manager registration needs a fresh process lifetime.
     #[cfg(not(target_arch = "wasm32"))]
@@ -1413,7 +1485,7 @@ async fn create_explosion_dispatches_fx_at_position() {
 
     #[derive(Debug)]
     struct RecordingFxManager {
-        calls: Arc<Mutex<Vec<(u32, Coord3D)>>>,
+        calls: Mutex<Vec<(u32, Coord3D)>>,
     }
 
     impl FXListManagerInterface for RecordingFxManager {
@@ -1436,10 +1508,10 @@ async fn create_explosion_dispatches_fx_at_position() {
         }
     }
 
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    assert!(register_fx_list_manager(Arc::new(RecordingFxManager {
-        calls: Arc::clone(&calls),
-    })));
+    let manager = Arc::new(RecordingFxManager {
+        calls: Mutex::new(Vec::new()),
+    });
+    assert!(register_fx_list_manager(manager.clone()));
 
     let mut params = HashMap::new();
     params.insert(
@@ -1457,7 +1529,7 @@ async fn create_explosion_dispatches_fx_at_position() {
         .unwrap();
 
     assert_eq!(
-        *calls.lock().unwrap(),
+        *manager.calls.lock().unwrap(),
         vec![(
             NameKeyGenerator::name_to_key("TestExplosionFX"),
             Coord3D::new(10.0, 20.0, 5.0),
@@ -1467,6 +1539,9 @@ async fn create_explosion_dispatches_fx_at_position() {
 
 #[tokio::test]
 async fn enable_disable_execute_script_actions_call_live_script_engine() {
+    if !action_fixture_child("enable_disable_execute_script_actions_call_live_script_engine") {
+        return;
+    }
     // C++ ScriptEngine::enableScript/disableScript/executeScript
     // ScriptEngine.cpp:6797-6823 / CALL_SUBROUTINE execute path.
     reset_test_script_engine();

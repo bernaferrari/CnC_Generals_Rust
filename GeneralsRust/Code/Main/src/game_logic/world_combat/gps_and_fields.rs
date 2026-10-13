@@ -1098,9 +1098,7 @@ impl GameLogic {
             for obj in self.objects.values_mut() {
                 if obj.weapon_bonus_enthusiastic || obj.weapon_bonus_subliminal {
                     obj.weapon_bonus_enthusiastic = false;
-                    obj.record_host_weapon_bonus();
                     obj.weapon_bonus_subliminal = false;
-                    obj.record_host_weapon_bonus();
                 }
             }
             return;
@@ -1236,18 +1234,15 @@ impl GameLogic {
                 let mut granted = false;
                 if !target.weapon_bonus_enthusiastic {
                     target.weapon_bonus_enthusiastic = true;
-                    target.record_host_weapon_bonus();
                     granted = true;
                 }
                 if *upgraded {
                     if !target.weapon_bonus_subliminal {
                         target.weapon_bonus_subliminal = true;
-                        target.record_host_weapon_bonus();
                         granted = true;
                     }
                 } else if target.weapon_bonus_subliminal {
                     target.weapon_bonus_subliminal = false;
-                    target.record_host_weapon_bonus();
                 }
                 if granted {
                     buff_ticks = buff_ticks.saturating_add(1);
@@ -1277,9 +1272,7 @@ impl GameLogic {
             }
             if obj.weapon_bonus_enthusiastic || obj.weapon_bonus_subliminal {
                 obj.weapon_bonus_enthusiastic = false;
-                obj.record_host_weapon_bonus();
                 obj.weapon_bonus_subliminal = false;
-                obj.record_host_weapon_bonus();
             }
         }
 

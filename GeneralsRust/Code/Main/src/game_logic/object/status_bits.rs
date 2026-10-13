@@ -712,21 +712,6 @@ impl Object {
         );
     }
 
-    pub fn record_host_stealth_delay(&self) {
-        crate::game_logic::host_stealth_delay_log::record(
-            self.id,
-            self.stealth_allowed_frame,
-            self.stealth_delay_pending,
-            self.stealth_delay_frames,
-            self.stealth_breaks_on_damage,
-            self.detection_expires_frame,
-            self.camo_opacity_pulse_phase,
-            self.camo_heat_vision_opacity,
-            self.camo_net_sub_object_shown,
-            self.camo_net_sub_object_observer_visible,
-        );
-    }
-
     pub fn record_host_turret(&self) {
         crate::game_logic::host_turret_log::record(
             self.id,
@@ -759,10 +744,6 @@ impl Object {
             self.power_provided = provided;
             self.power_consumed = consumed;
         }
-    }
-
-    pub fn record_host_weapon_slot(&self) {
-        crate::game_logic::host_weapon_slot_log::record(self.id, self.active_weapon_slot);
     }
 
     /// C++ Object::setWeaponLock residual.
@@ -867,7 +848,6 @@ impl Object {
     pub fn set_active_weapon_slot(&mut self, slot: u8) {
         if self.active_weapon_slot != slot {
             self.active_weapon_slot = slot;
-            self.record_host_weapon_slot();
         }
     }
 

@@ -1808,8 +1808,6 @@ impl GameLogic {
                     self.frame.saturating_add(object.stealth_delay_frames);
                 object.stealth_delay_pending = false;
 
-                object.record_host_stealth_delay();
-
                 // Retail WeaponSet Conditions=None has PRIMARY None until PLAYER_UPGRADE.
                 // Strip kind-based Weapon::default fallback from resolve_primary_weapon.
                 // C++ initObject → updateUpgradeModules applies completed player
@@ -1874,8 +1872,6 @@ impl GameLogic {
                     object.stealth_allowed_frame =
                         self.frame.saturating_add(object.stealth_delay_frames);
                     object.stealth_delay_pending = false;
-
-                    object.record_host_stealth_delay();
                 }
             }
 
@@ -2340,7 +2336,6 @@ impl GameLogic {
                     let mut maximum = object.health.maximum;
                     apply_drone_armor_health(kind, &mut max_h, &mut cur, &mut maximum);
                     object.set_body_max_health(max_h);
-                    object.record_host_max_health();
                     object.health.maximum = maximum;
                     object.internal_change_health(cur - object.health.current);
                 }
@@ -2614,9 +2609,6 @@ impl GameLogic {
             // Wave 680: mid-frame GameWorld map while coupled shadow tick is live.
             // End-of-tick host_spawn_log drain remains idempotent for unmapped IDs.
 
-            if let Some(obj) = self.host_objects_mut().get_mut(&id) {
-                obj.record_model_mesh_from_template();
-            }
             // C++ Object.cpp:473 TheRadar->addObject(this) after modules ready.
             self.host_radar_add_object(id);
             self.apply_difficulty_bonuses_for_object(id);
@@ -2821,7 +2813,6 @@ impl GameLogic {
                 new_max,
                 crate::game_logic::object::MaxHealthChange::PreserveRatio,
             );
-            object.record_host_max_health();
         }
     }
 

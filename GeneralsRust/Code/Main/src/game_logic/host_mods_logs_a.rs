@@ -51,12 +51,6 @@ pub mod host_death_type_log;
 #[path = "host_attack_log.rs"]
 pub mod host_attack_log;
 
-#[path = "host_building_type_log.rs"]
-pub mod host_building_type_log;
-
-#[path = "host_command_set_log.rs"]
-pub mod host_command_set_log;
-
 #[path = "host_construction_log.rs"]
 pub mod host_construction_log;
 

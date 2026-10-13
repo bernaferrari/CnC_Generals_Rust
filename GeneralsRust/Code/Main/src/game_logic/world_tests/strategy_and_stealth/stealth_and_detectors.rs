@@ -1818,8 +1818,8 @@ fn spectre_gunship_host_path_queues_orbit_damage_over_time() {
     // pass) fails closed the orbit gattling fog gate, so only the unfiltered
     // howitzer damage lands and the residual damage asserts below see
     // dealt=80 instead of 90/170. Sanitize the viewer slot the gate reads
-    // before the strike — leaked-global defense precedent:
-    // combat::tests::ensure_unit_test_direct_damage.
+    // before the strike. Native shroud discovery remains a separate ownership
+    // dependency; the combat fixture itself mutates its owned objects directly.
     gamelogic::system::shroud_manager::get_shroud_manager()
         .lock()
         .unwrap_or_else(|e| e.into_inner())

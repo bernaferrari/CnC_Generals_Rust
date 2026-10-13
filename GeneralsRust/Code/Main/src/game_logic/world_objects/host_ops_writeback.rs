@@ -624,7 +624,6 @@ impl GameLogic {
                 if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                     let was = obj.weapon_bonus_horde;
                     obj.weapon_bonus_horde = now_horde;
-                    obj.record_host_weapon_bonus();
                     obj.apply_horde_terrain_decal(
                         was,
                         now_horde,

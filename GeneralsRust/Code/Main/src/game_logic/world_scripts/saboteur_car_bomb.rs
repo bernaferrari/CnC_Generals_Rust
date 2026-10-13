@@ -423,7 +423,6 @@ impl GameLogic {
                     let open = chute.is_parachute_open();
                     if let Some(r) = self.objects.get_mut(&pilot_id) {
                         r.set_position(cp);
-                        crate::game_logic::host_ground_height_log::record(pilot_id, cp.y, false);
                         {}
                         if open && !r.is_parachute_open() {
                             r.open_eject_parachute();
@@ -526,7 +525,6 @@ impl GameLogic {
                 p.y = ground;
             }
             obj.set_position(p);
-            crate::game_logic::host_ground_height_log::record(pilot_id, ground, false);
             {}
             if let Some((np, nr, npr, nrr)) = sway {
                 obj.status.parachute_pitch = np;
@@ -554,7 +552,6 @@ impl GameLogic {
             for rid in ids {
                 if let Some(r) = self.objects.get_mut(&rid) {
                     r.set_position(land_pos);
-                    crate::game_logic::host_ground_height_log::record(rid, ground, false);
                     {}
                     if open && !r.is_parachute_open() {
                         r.open_eject_parachute();
@@ -574,7 +571,6 @@ impl GameLogic {
                     r.set_ai_state(AIState::Idle);
                     {}
                     r.set_position(land_pos);
-                    crate::game_logic::host_ground_height_log::record(*rid, ground, false);
                     {}
                     r.clear_eject_parachuting();
                     // Partition restore residual after chute dump.
@@ -859,7 +855,6 @@ impl GameLogic {
         if let Some(unit) = self.objects.get_mut(&rider_id) {
             unit.set_position(create);
             unit.set_orientation(orientation);
-            crate::game_logic::host_ground_height_log::record(rider_id, 0.0, false);
             {}
         }
 

@@ -702,11 +702,9 @@ impl Object {
         match slot {
             0 => {
                 self.leech_range_active_primary = true;
-                self.record_host_weapon_stats();
             }
             1 => {
                 self.leech_range_active_secondary = true;
-                self.record_host_weapon_stats();
             }
             // The host only has persisted leech flags for A/B.  Do not alias
             // a tertiary leech weapon to primary; it would alter a different
@@ -718,9 +716,7 @@ impl Object {
     /// C++ Object::clearLeechRangeModeForAllWeapons residual.
     pub fn clear_leech_range_mode_for_all_weapons(&mut self) {
         self.leech_range_active_primary = false;
-        self.record_host_weapon_stats();
         self.leech_range_active_secondary = false;
-        self.record_host_weapon_stats();
     }
 
     pub fn stop_attack(&mut self) {

@@ -47,14 +47,6 @@ impl Object {
         );
     }
 
-    pub fn record_host_ground_height(&self) {
-        crate::game_logic::host_ground_height_log::record(
-            self.id,
-            self.ground_height,
-            self.ground_height_from_terrain,
-        );
-    }
-
     pub fn set_ground_height_residual(&mut self, height: f32, from_terrain: bool) {
         let changed = (self.ground_height - height).abs() > f32::EPSILON
             || self.ground_height_from_terrain != from_terrain;
@@ -63,26 +55,6 @@ impl Object {
         }
         self.ground_height = height;
         self.ground_height_from_terrain = from_terrain;
-        self.record_host_ground_height();
-    }
-
-    /// Presentation mesh identity residual (model_key + mesh_scale) → GameWorld SetModelMesh.
-    pub fn set_model_mesh_residual(&mut self, model_key: impl Into<String>, mesh_scale: f32) {
-        let key = model_key.into();
-        let scale = if mesh_scale.is_finite() && mesh_scale > 0.0 {
-            mesh_scale
-        } else {
-            1.0
-        };
-        crate::game_logic::host_model_mesh_log::record(self.id, key, scale);
-    }
-
-    /// Resolve and log mesh residual from the active (possibly disguised) template.
-    pub fn record_model_mesh_from_template(&mut self) {
-        let tpl = self.get_template();
-        let key = crate::assets::mesh_asset_resolve::model_key_from_template(tpl);
-        let scale = crate::assets::mesh_asset_resolve::mesh_scale_from_template(tpl);
-        self.set_model_mesh_residual(key, scale);
     }
 
     /// FOW visibility residual → GameWorld SetFow (presentation last-writer channel).
@@ -146,32 +118,6 @@ impl Object {
             }
         }
         bits
-    }
-
-    pub fn record_host_building_type(&self) {
-        use crate::game_logic::BuildingType as B;
-        let (is_building, ordinal) = match self.building_data.as_ref() {
-            Some(bd) => {
-                let ord = match bd.building_type {
-                    B::CommandCenter => 0u8,
-                    B::Barracks => 1,
-                    B::WarFactory => 2,
-                    B::Airfield => 3,
-                    B::RepairPad => 4,
-                    B::HealPad => 5,
-                    B::SupplyCenter => 6,
-                    B::PowerPlant => 7,
-                    B::DefenseTurret => 8,
-                    B::SupplyDropZone => 9,
-                    B::Palace => 10,
-                    B::Propaganda => 11,
-                    B::Bunker => 12,
-                };
-                (true, ord)
-            }
-            None => (false, 255u8),
-        };
-        crate::game_logic::host_building_type_log::record(self.id, is_building, ordinal);
     }
 
     /// C++ CrushDie model condition FRONTCRUSHED/BACKCRUSHED residual.
@@ -368,89 +314,9 @@ impl Object {
         self.record_host_physics_motive();
     }
 
-    pub fn record_host_weapon_stats(&self) {
-        let (
-            has_weapon,
-            weapon_damage,
-            weapon_range,
-            weapon_min_range,
-            weapon_reload_time,
-            weapon_last_fire_time,
-            weapon_clip_size,
-            weapon_clip_reload_time,
-            weapon_ammo,
-            weapon_can_target_air,
-            weapon_can_target_ground,
-            weapon_projectile_speed,
-        ) = if let Some(w) = self.weapon.as_ref() {
-            (
-                true,
-                w.damage,
-                w.range,
-                w.min_range,
-                w.reload_time,
-                w.last_fire_time,
-                w.clip_size,
-                w.clip_reload_time,
-                w.ammo.unwrap_or(u32::MAX),
-                w.can_target_air,
-                w.can_target_ground,
-                w.projectile_speed,
-            )
-        } else {
-            (
-                false,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0,
-                0.0,
-                u32::MAX,
-                false,
-                true,
-                0.0,
-            )
-        };
-        let (has_secondary_weapon, secondary_weapon_damage, secondary_weapon_range) =
-            if let Some(w) = self.secondary_weapon.as_ref() {
-                (true, w.damage, w.range)
-            } else {
-                (false, 0.0, 0.0)
-            };
-        crate::game_logic::host_weapon_stats_log::record(
-            crate::game_logic::host_weapon_stats_log::HostWeaponStatsEvent {
-                object: self.id,
-                has_weapon,
-                weapon_damage,
-                weapon_range,
-                weapon_min_range,
-                weapon_reload_time,
-                weapon_last_fire_time,
-                weapon_clip_size,
-                weapon_clip_reload_time,
-                weapon_ammo,
-                weapon_can_target_air,
-                weapon_can_target_ground,
-                weapon_projectile_speed,
-                has_secondary_weapon,
-                secondary_weapon_damage,
-                secondary_weapon_range,
-                leech_range_active_primary: self.leech_range_active_primary,
-                leech_range_active_secondary: self.leech_range_active_secondary,
-            },
-        );
-    }
-
-    pub fn record_host_command_set(&self) {
-        crate::game_logic::host_command_set_log::record(self.id, self.command_set_override.clone());
-    }
-
     pub fn set_command_set_override(&mut self, command_set: Option<String>) {
         if self.command_set_override != command_set {
             self.command_set_override = command_set;
-            self.record_host_command_set();
         }
     }
 
@@ -510,7 +376,6 @@ impl Object {
             self.release_weapon_lock_on_set_change();
         }
         self.reset_weapon_barrel_states_if_sources_changed(previous_sources);
-        self.record_host_weapon_set();
         true
     }
 
@@ -556,14 +421,6 @@ impl Object {
             self.set_ai_state(AIState::Idle);
         }
         self.record_host_locomotor();
-    }
-
-    pub fn record_host_weapon_set(&self) {
-        crate::game_logic::host_weapon_set_log::record(
-            self.id,
-            self.weapon_set_player_upgrade,
-            self.armed_riders_upgrade_weapon_set,
-        );
     }
 
     pub fn set_ai_attitude_i8(&mut self, attitude: i8) {

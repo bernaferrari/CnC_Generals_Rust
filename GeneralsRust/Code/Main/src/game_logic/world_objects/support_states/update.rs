@@ -1154,11 +1154,6 @@ impl GameLogic {
                         // origin. Fire Base (IsEnclosingContainer=No) stays at stations.
                         if enclosing_garrison || !container_is_structure {
                             obj.set_position(container_pos);
-                            crate::game_logic::host_ground_height_log::record(
-                                obj.id,
-                                container_pos.y,
-                                false,
-                            );
                             {}
                         }
                         let __ai_st = if container_is_heal_contain || container_is_tunnel_network {
@@ -3582,7 +3577,6 @@ impl GameLogic {
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         obj.set_contained_by_enclosing(Some(container_id), enclosing);
                         obj.set_position(pin_pos);
-                        crate::game_logic::host_ground_height_log::record(obj.id, pin_pos.y, false);
                         {}
                         obj.stop_moving();
                         obj.set_status_moving(false);

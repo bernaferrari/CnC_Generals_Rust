@@ -267,108 +267,6 @@ impl game_engine::common::thing::module::CommandButtonHuntControlInterface for R
     }
 }
 
-#[derive(Debug)]
-struct RecordingMoveAi {
-    commands: Arc<Mutex<Vec<(AiCommandType, Coord3D, CommandSourceType)>>>,
-    locomotors: Arc<Mutex<Vec<LocomotorSetType>>>,
-    cleared: Arc<Mutex<u32>>,
-    attitudes: Arc<Mutex<Vec<crate::modules::AIAttitudeType>>>,
-}
-
-impl AIUpdateInterface for RecordingMoveAi {
-    fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Ok(())
-    }
-
-    fn is_moving(&self) -> bool {
-        false
-    }
-
-    fn is_idle(&self) -> bool {
-        true
-    }
-
-    fn set_movement_target(&mut self, _target: &Coord3D) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn choose_locomotor_set(
-        &mut self,
-        set: LocomotorSetType,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.locomotors.lock().unwrap().push(set);
-        Ok(())
-    }
-
-    fn execute_command(
-        &mut self,
-        command: &AiCommandParams,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.commands
-            .lock()
-            .unwrap()
-            .push((command.cmd, command.pos, command.cmd_source));
-        Ok(())
-    }
-
-    fn clear_waypoint_queue(&mut self) {
-        *self.cleared.lock().unwrap() += 1;
-    }
-
-    fn set_attitude(
-        &mut self,
-        attitude: crate::modules::AIAttitudeType,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.attitudes.lock().unwrap().push(attitude);
-        Ok(())
-    }
-}
-
-fn install_recording_named_unit(
-    unit_id: ObjectID,
-    name: &str,
-    group_id: Option<u32>,
-) -> (
-    Arc<Mutex<Vec<(AiCommandType, Coord3D, CommandSourceType)>>>,
-    Arc<Mutex<Vec<LocomotorSetType>>>,
-    Arc<Mutex<u32>>,
-    Arc<Mutex<Vec<crate::modules::AIAttitudeType>>>,
-) {
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
-    let cleared = Arc::new(Mutex::new(0u32));
-    let attitudes = Arc::new(Mutex::new(Vec::new()));
-    let unit = crate::object_manager::GameObjectInstance::new(
-        unit_id,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("named unit");
-    {
-        let base_arc = unit.base();
-        let mut base = base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingMoveAi {
-            commands: Arc::clone(&commands),
-            locomotors: Arc::clone(&locomotors),
-            cleared: Arc::clone(&cleared),
-            attitudes: Arc::clone(&attitudes),
-        }))));
-        if let Some(gid) = group_id {
-            base.enter_group(&crate::ai::AIGroup::new(gid));
-        }
-    }
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(unit, Coord3D::new(4.0, 5.0, 0.0))
-        .unwrap();
-    get_named_object_tracker()
-        .register_named_object(name.to_string(), unit_id)
-        .unwrap();
-    (commands, locomotors, cleared, attitudes)
-}
-
 fn live_host_named_object(
     name: &str,
     id: u32,
@@ -633,9 +531,20 @@ fn owned_area_unit(
         crate::common::ObjectStatusMaskType::none(),
         None,
     );
-    let mut geometry = object.get_geometry_info().clone();
-    geometry.position = crate::common::Coord3D::new(x, y, 0.0);
-    object.set_geometry_info(geometry);
+    let position = crate::common::Coord3D::new(x, y, 0.0);
+    let mut matrix = object.get_transform_matrix();
+    matrix.w_axis = position.extend(1.0);
+    object
+        .set_transform_matrix_with_services(
+            &matrix,
+            &crate::terrain::TerrainLogic::new(),
+            &mut crate::object::collide::collision_system::CollisionSystem::new(),
+            0,
+            &mut |_| {},
+            &mut |_| {},
+        )
+        .expect("owned census canonical pose admission");
+    assert_eq!(*object.get_position(), position);
     (owner.into(), object)
 }
 

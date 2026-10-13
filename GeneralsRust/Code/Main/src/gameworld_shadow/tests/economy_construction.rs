@@ -616,7 +616,6 @@ fn body_damage_state_channel_via_set_body_damage() {
 
 #[test]
 fn weapon_last_fire_time_channel_via_set_weapon_stats() {
-    use crate::game_logic::host_weapon_stats_log::{self, HostWeaponStatsEvent};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
@@ -658,7 +657,6 @@ fn weapon_last_fire_time_channel_via_set_weapon_stats() {
 
 #[test]
 fn weapon_clip_size_channel_via_set_weapon_stats() {
-    use crate::game_logic::host_weapon_stats_log::{self, HostWeaponStatsEvent};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();

@@ -79,13 +79,6 @@ impl Object {
             self.status.disguise_transition_opacity = 1.0;
         }
         self.record_host_ai_request();
-        // C++ loadPostProcess sets m_xferRestoreDisguise when the disguise
-        // template is present so changeVisualDisguise rebuilds the drawable.
-        if self.has_disguise_template()
-            && (self.status.disguised || self.status.disguise_halfpoint_reached)
-        {
-            self.record_model_mesh_from_template();
-        }
     }
 
     /// Apply Bomb Truck disguise residual (StealthUpdate::disguiseAsObject).
@@ -106,7 +99,6 @@ impl Object {
         self.set_status_stealthed(true);
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
-        self.record_host_stealth_delay();
         self.status.disguise_transition_frames = BOMB_TRUCK_DISGUISE_TRANSITION_FRAMES;
         self.set_status_disguise_transitioning_to(true);
         self.set_status_disguise_halfpoint_reached(false);
@@ -146,13 +138,11 @@ impl Object {
         self.set_status_stealthed(false);
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
-        self.record_host_stealth_delay();
         self.status.disguise_transition_frames = 0;
         self.set_status_disguise_transitioning_to(false);
         self.set_status_disguise_halfpoint_reached(false);
         self.status.disguise_transition_opacity = 1.0;
         // C++ changeVisualDisguise reveal: new true drawable + payload restore.
-        self.record_model_mesh_from_template();
 
         self.force_refresh_sub_object_upgrade_status();
     }
@@ -195,8 +185,6 @@ impl Object {
                 }
                 self.set_status_disguised(true);
 
-                self.record_model_mesh_from_template();
-
                 self.set_status_stealthed(true);
                 self.set_status_detected(false);
             } else {
@@ -210,7 +198,6 @@ impl Object {
                 // C++ changeVisualDisguise (StealthUpdate.cpp:1052-1057): after
                 // swapping back to the true bomb-truck drawable, rebuild W3D
                 // payload subobjects (BioBomb / HighExplosiveBomb barrels).
-                self.record_model_mesh_from_template();
 
                 self.force_refresh_sub_object_upgrade_status();
             }
@@ -221,7 +208,6 @@ impl Object {
             self.set_status_stealthed(false);
             self.set_status_detected(false);
             self.detection_expires_frame = 0;
-            self.record_host_stealth_delay();
             self.status.disguise_transition_opacity = 1.0;
         }
 
@@ -304,7 +290,6 @@ impl Object {
         // Keep the later expiry if already detected by another scanner.
         if expires_frame > self.detection_expires_frame {
             self.detection_expires_frame = expires_frame;
-            self.record_host_stealth_delay();
         }
     }
 
@@ -325,8 +310,6 @@ impl Object {
         self.camo_friendly_opacity = MINE_STEALTH_OPACITY_RESIDUAL;
         // Mines aren't auto-acquirable (MinefieldBehavior ctor).
         self.apply_mine_no_attack_from_ai();
-
-        self.record_host_stealth_delay();
     }
 
     /// C++ MinefieldBehavior.cpp:105-106 ctor `OBJECT_STATUS_NO_ATTACK_FROM_AI`.
@@ -341,7 +324,6 @@ impl Object {
     pub fn clear_detected(&mut self) {
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
-        self.record_host_stealth_delay();
     }
 
     /// Break stealth entirely (fire / script residual).
@@ -355,17 +337,14 @@ impl Object {
         self.set_status_stealthed(false);
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
-        self.record_host_stealth_delay();
         // CamoNetting / StealthDelay residual: schedule re-cloak gate on reveal.
         if was_stealthed && self.stealth_delay_frames > 0 {
             self.stealth_delay_pending = true;
-            self.record_host_stealth_delay();
         }
         // CamoNetting FriendlyOpacity residual: revealed → max opacity.
         if was_stealthed && self.stealth_breaks_on_damage {
             self.camo_friendly_opacity = 1.0;
             self.camo_opacity_pulse_phase = 0.0;
-            self.record_host_stealth_delay();
         }
     }
 
@@ -386,8 +365,6 @@ impl Object {
         }
         self.stealth_allowed_frame = 0;
         self.stealth_delay_pending = false;
-
-        self.record_host_stealth_delay();
     }
 
     /// C++ StealthUpdate.cpp:203-214 `receiveGrant(false)` leftover revoke.
@@ -406,8 +383,6 @@ impl Object {
         self.stealth_allowed_frame = u32::MAX;
         self.stealth_delay_pending = false;
         self.camo_friendly_opacity = 1.0;
-
-        self.record_host_stealth_delay();
     }
 
     /// Leftover `StealthUpdate::update` else-branch (`StealthUpdate.cpp:666-670`).
@@ -528,8 +503,6 @@ impl Object {
             return;
         }
         self.camo_heat_vision_opacity = 1.0;
-
-        self.record_host_stealth_delay();
     }
 
     /// C++ `Drawable::draw` (`Drawable.cpp:2615-2622`) heat-vision overlay fade.
@@ -551,16 +524,13 @@ impl Object {
         } else {
             self.camo_heat_vision_opacity = 0.0;
         }
-        if (self.camo_heat_vision_opacity - before).abs() > f32::EPSILON {
-            self.record_host_stealth_delay();
-        }
+        if (self.camo_heat_vision_opacity - before).abs() > f32::EPSILON {}
     }
 
     /// C++ StealthUpdate.cpp:739 — `m_stealthAllowedFrame = now + stealthDelay`.
     pub fn rearm_stealth_delay(&mut self, now: u32) {
         self.stealth_allowed_frame = now.saturating_add(self.stealth_delay_frames);
         self.stealth_delay_pending = false;
-        self.record_host_stealth_delay();
     }
 
     /// Leftover StealthUpdate / StealthDetectorUpdate `get_disabled_types_to_process = HELD`.
@@ -604,14 +574,12 @@ impl Object {
                 self.detection_expires_frame = 0;
                 self.stealth_allowed_frame = 0;
                 self.stealth_delay_pending = false;
-                self.record_host_stealth_delay();
             }
         } else {
             self.rearm_stealth_delay(now);
             if self.status.stealthed {
                 self.break_stealth();
                 self.stealth_delay_pending = false;
-                self.record_host_stealth_delay();
             }
         }
     }

@@ -1995,8 +1995,6 @@ mod staged_restore_tests {
     /// stayed attached to the live world.
     fn record_all_stage_queue_events(object: crate::game_logic::ObjectId, label: &str) {
         crate::game_logic::host_spawn_log::record(object, label.to_string(), 7, [1.0, 2.0, 3.0]);
-        crate::game_logic::host_ground_height_log::record(object, 7.0, true);
-        crate::game_logic::host_model_mesh_log::record(object, label, 1.25);
 
         crate::game_logic::host_movement_log::record(
             object,
@@ -2022,22 +2020,14 @@ mod staged_restore_tests {
         );
         crate::game_logic::host_demo_mine_cheer_log::record(object, true, true, 14.0);
 
-        crate::game_logic::host_weapon_set_log::record(object, true, false);
-
         crate::game_logic::host_stored_supplies_log::record(object, 26);
 
         crate::game_logic::host_locomotor_log::record(
             object, false, false, true, false, true, false, 29.0, 30.0, true, false, 31.0, 32.0,
             33.0, 34, 35, 36.0, -1,
         );
-        crate::game_logic::host_command_set_log::record(
-            object,
-            Some(format!("{label}-command-set")),
-        );
         crate::game_logic::host_continuous_fire_log::record(object, 52, 53, 54);
 
-        crate::game_logic::host_max_health_log::record(object, 61.0);
-        crate::game_logic::host_building_type_log::record(object, true, 12);
         crate::game_logic::host_physics_motive_log::record(
             object,
             63,

@@ -488,12 +488,9 @@ impl GameLogic {
                     transfer_next_shot_last_fire_time(fire, sec);
                 }
             }
-            obj.record_host_weapon_stats();
         } else {
             let _ = obj.replace_weapon_set_slot(0, None);
-            obj.record_host_weapon_stats();
             let _ = obj.replace_weapon_set_slot(1, None);
-            obj.record_host_weapon_stats();
         }
 
         self.combat_cycle_residual_rider_switches =

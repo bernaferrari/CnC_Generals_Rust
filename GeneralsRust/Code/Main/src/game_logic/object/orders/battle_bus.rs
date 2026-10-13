@@ -24,7 +24,6 @@ impl Object {
             self.health.maximum = crate::game_logic::host_battle_bus::BATTLE_BUS_MAX_HEALTH;
             self.health.current = crate::game_logic::host_battle_bus::BATTLE_BUS_MAX_HEALTH;
         }
-        self.record_host_weapon_set();
     }
 
     /// True when this vehicle is a Battle Bus residual transport.
@@ -69,7 +68,6 @@ impl Object {
         self.target = None;
         self.status.attacking = false;
         let _ = BATTLE_BUS_MC_BIT_SECOND_LIFE; // set on land
-        self.record_host_weapon_set();
         // Leftover `execute_fx_at_object_id` / C++ `FXList::doFXObj(m_fxStartUndeath, me)`.
         let fx = battle_bus_start_undeath_fx_name(&self.template_name);
         crate::game_logic::publish_host_fx_object(

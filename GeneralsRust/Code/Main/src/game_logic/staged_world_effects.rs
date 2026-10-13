@@ -7,10 +7,8 @@
 //! rollback, and clear the old world's events only once commit is certain.
 
 use super::{
-    host_building_type_log, host_command_set_log, host_continuous_fire_log,
-    host_demo_mine_cheer_log, host_ground_height_log, host_locomotor_log, host_max_health_log,
-    host_model_mesh_log, host_movement_log, host_physics_motive_log, host_spawn_log,
-    host_stored_supplies_log, host_weapon_set_log,
+    host_continuous_fire_log, host_demo_mine_cheer_log, host_locomotor_log, host_movement_log,
+    host_physics_motive_log, host_spawn_log, host_stored_supplies_log,
 };
 use std::cell::Cell;
 
@@ -29,23 +27,16 @@ pub(crate) fn world_stage_effects_active() -> bool {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct WorldStageEffectsState {
     spawn: Vec<host_spawn_log::HostSpawnEvent>,
-    ground_height: Vec<host_ground_height_log::HostGroundHeightEvent>,
-    model_mesh: Vec<host_model_mesh_log::HostModelMeshEvent>,
 
     movement: Vec<host_movement_log::HostMovementEvent>,
     demo_mine_cheer: Vec<host_demo_mine_cheer_log::HostDemoMineCheerEvent>,
-
-    weapon_set: Vec<host_weapon_set_log::HostWeaponSetEvent>,
 
     stored_supplies: Vec<host_stored_supplies_log::HostStoredSuppliesEvent>,
 
     locomotor: Vec<host_locomotor_log::HostLocomotorEvent>,
 
-    command_set: Vec<host_command_set_log::HostCommandSetEvent>,
     continuous_fire: Vec<host_continuous_fire_log::HostContinuousFireEvent>,
 
-    max_health: Vec<host_max_health_log::HostMaxHealthEvent>,
-    building_type: Vec<host_building_type_log::HostBuildingTypeEvent>,
     physics_motive: Vec<host_physics_motive_log::HostPhysicsMotiveEvent>,
 }
 
@@ -53,23 +44,16 @@ impl WorldStageEffectsState {
     fn take_for_world_stage() -> Self {
         Self {
             spawn: host_spawn_log::take_for_world_stage(),
-            ground_height: host_ground_height_log::take_for_world_stage(),
-            model_mesh: host_model_mesh_log::take_for_world_stage(),
 
             movement: host_movement_log::take_for_world_stage(),
             demo_mine_cheer: host_demo_mine_cheer_log::take_for_world_stage(),
-
-            weapon_set: host_weapon_set_log::take_for_world_stage(),
 
             stored_supplies: host_stored_supplies_log::take_for_world_stage(),
 
             locomotor: host_locomotor_log::take_for_world_stage(),
 
-            command_set: host_command_set_log::take_for_world_stage(),
             continuous_fire: host_continuous_fire_log::take_for_world_stage(),
 
-            max_health: host_max_health_log::take_for_world_stage(),
-            building_type: host_building_type_log::take_for_world_stage(),
             physics_motive: host_physics_motive_log::take_for_world_stage(),
         }
     }
@@ -77,15 +61,11 @@ impl WorldStageEffectsState {
     fn replace_for_world_stage(next: Self) -> Self {
         Self {
             spawn: host_spawn_log::replace_for_world_stage(next.spawn),
-            ground_height: host_ground_height_log::replace_for_world_stage(next.ground_height),
-            model_mesh: host_model_mesh_log::replace_for_world_stage(next.model_mesh),
 
             movement: host_movement_log::replace_for_world_stage(next.movement),
             demo_mine_cheer: host_demo_mine_cheer_log::replace_for_world_stage(
                 next.demo_mine_cheer,
             ),
-
-            weapon_set: host_weapon_set_log::replace_for_world_stage(next.weapon_set),
 
             stored_supplies: host_stored_supplies_log::replace_for_world_stage(
                 next.stored_supplies,
@@ -93,36 +73,26 @@ impl WorldStageEffectsState {
 
             locomotor: host_locomotor_log::replace_for_world_stage(next.locomotor),
 
-            command_set: host_command_set_log::replace_for_world_stage(next.command_set),
             continuous_fire: host_continuous_fire_log::replace_for_world_stage(
                 next.continuous_fire,
             ),
 
-            max_health: host_max_health_log::replace_for_world_stage(next.max_health),
-            building_type: host_building_type_log::replace_for_world_stage(next.building_type),
             physics_motive: host_physics_motive_log::replace_for_world_stage(next.physics_motive),
         }
     }
 
     fn discard_for_world_replace() {
         host_spawn_log::clear();
-        host_ground_height_log::clear();
-        host_model_mesh_log::clear();
 
         host_movement_log::clear();
         host_demo_mine_cheer_log::clear();
-
-        host_weapon_set_log::clear();
 
         host_stored_supplies_log::clear();
 
         host_locomotor_log::clear();
 
-        host_command_set_log::clear();
         host_continuous_fire_log::clear();
 
-        host_max_health_log::clear();
-        host_building_type_log::clear();
         host_physics_motive_log::clear();
     }
 

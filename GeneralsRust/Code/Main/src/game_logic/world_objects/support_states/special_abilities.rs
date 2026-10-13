@@ -60,7 +60,6 @@ fn clear_rider_change_runtime_state(
     container.combat_cycle_rider = 0;
     let _ = container.replace_weapon_set_slot(0, None);
     let _ = container.replace_weapon_set_slot(1, None);
-    container.record_host_weapon_stats();
     container.record_host_model_condition();
 }
 

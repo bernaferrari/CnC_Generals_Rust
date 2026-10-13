@@ -1196,13 +1196,7 @@ impl GameLogic {
         self.execute_pending_weapon_fire_ocls();
         // Apply countermeasure diversion within the receiving projectile
         // operation, before committing damage; never repair health afterward.
-        let projectile_hits = {
-            let hits = self.update_owned_projectile_impacts(dt);
-            crate::game_logic::host_projectile_log::record_snapshot(
-                self.combat_system.projectiles_snapshot(),
-            );
-            hits
-        };
+        let projectile_hits = self.update_owned_projectile_impacts(dt);
         for victim in self.combat_system.take_pending_under_attack() {
             let _ = self.try_under_attack_from_damage(victim);
         }

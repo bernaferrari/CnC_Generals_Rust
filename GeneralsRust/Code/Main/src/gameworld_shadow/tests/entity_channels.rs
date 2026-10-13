@@ -364,7 +364,6 @@ fn turret_extended_channel_via_set_turret() {
 
 #[test]
 fn stealth_delay_channel_via_set_stealth_delay() {
-    use crate::game_logic::host_stealth_delay_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
@@ -661,7 +660,6 @@ fn hijacker_channel_via_set_hijacker() {
 
 #[test]
 fn leech_range_channel_via_set_weapon_stats() {
-    use crate::game_logic::host_weapon_stats_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
@@ -796,11 +794,9 @@ fn projectile_flight_channel_via_set_projectile_flight() {
 #[test]
 fn parsed_missile_kill_self_snapshot_holds_shadow_pose_and_retires() {
     use crate::game_logic::combat::{DamageType, Projectile};
-    use crate::game_logic::host_projectile_log;
     use crate::game_logic::weapon_bootstrap::HostProjectileLifecycle;
     use gamelogic::world::ProjectileFlightState;
 
-    host_projectile_log::clear();
     let mut logic = GameLogic::new();
     let id = logic.combat_system.fire_projectile(
         glam::Vec3::new(10.0, 1.0, 20.0),
@@ -887,11 +883,9 @@ fn parsed_missile_kill_self_snapshot_holds_shadow_pose_and_retires() {
 
 #[test]
 fn projectile_authority_steps_flight_and_writeback() {
-    use crate::game_logic::host_projectile_log;
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
 
-    host_projectile_log::clear();
     // Seed one ballistic projectile on host combat system.
     {
         use crate::game_logic::Weapon;
@@ -921,7 +915,6 @@ fn projectile_authority_steps_flight_and_writeback() {
                 .0
         );
     }
-    host_projectile_log::record_snapshot(logic.combat_system.projectiles_snapshot());
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let before = shadow

@@ -1322,7 +1322,6 @@ impl Object {
         self.continuous_fire_coast_until_frame = 0;
 
         self.record_host_continuous_fire();
-        self.record_host_weapon_set();
 
         self.sync_overlord_addon_body_damage();
     }
@@ -1418,7 +1417,6 @@ impl Object {
             let mut bd = BuildingData::new(BuildingType::Bunker);
             bd.max_garrison = crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY;
             self.building_data = Some(bd);
-            self.record_host_building_type();
         }
     }
 
@@ -1443,7 +1441,6 @@ impl Object {
             let mut bd = BuildingData::new(BuildingType::Bunker);
             bd.max_garrison = crate::game_logic::host_cave_system::MAX_CAVE_CAPACITY;
             self.building_data = Some(bd);
-            self.record_host_building_type();
         }
     }
 
@@ -1463,7 +1460,6 @@ impl Object {
         self.max_transport = crate::game_logic::host_technical::TECHNICAL_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = false;
         self.armed_riders_upgrade_weapon_set = false;
-        self.record_host_weapon_set();
     }
 
     /// True when this vehicle is a GLA Technical residual transport.
@@ -1480,7 +1476,6 @@ impl Object {
         self.max_transport = crate::game_logic::host_combat_cycle::COMBAT_CYCLE_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = false;
         self.armed_riders_upgrade_weapon_set = false;
-        self.record_host_weapon_set();
     }
 
     /// True when this vehicle is a GLA Combat Cycle residual transport.
@@ -1526,7 +1521,6 @@ impl Object {
         self.max_transport = crate::game_logic::host_humvee::HUMVEE_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = true;
         self.armed_riders_upgrade_weapon_set = false;
-        self.record_host_weapon_set();
     }
 
     /// True when this vehicle is an America Humvee residual transport.
@@ -1544,7 +1538,6 @@ impl Object {
         self.max_transport = crate::game_logic::host_troop_crawler::TROOP_CRAWLER_TRANSPORT_SLOTS;
         self.passengers_allowed_to_fire = false;
         self.armed_riders_upgrade_weapon_set = false;
-        self.record_host_weapon_set();
     }
 
     /// True when this vehicle is a China Troop Crawler residual transport.
@@ -1582,7 +1575,6 @@ impl Object {
         // (ListeningOutpostUpgradedDummyWeapon). Strip kind-based Weapon::default.
         self.weapon = None;
         self.weapon_set_player_upgrade = false;
-        self.record_host_weapon_set();
     }
 
     /// Vanilla AmericaVehicleChinook: TransportContain Slots=8 + ChinookAI, no passenger fire.
@@ -1634,14 +1626,11 @@ impl Object {
         self.stealth_delay_frames =
             crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_STEALTH_DELAY_FRAMES;
         self.stealth_delay_pending = false;
-        self.record_host_stealth_delay();
         // Retail WeaponSet Conditions=None has PRIMARY NONE until PLAYER_UPGRADE.
         self.weapon = None;
         self.weapon_set_player_upgrade = false;
         // KindOf residual includes CAN_ATTACK (for dummy weapon range residual).
         self.thing.template.add_kind_of(KindOf::Attackable);
-
-        self.record_host_weapon_set();
     }
 
     /// True when this vehicle is a China Listening Outpost residual transport.

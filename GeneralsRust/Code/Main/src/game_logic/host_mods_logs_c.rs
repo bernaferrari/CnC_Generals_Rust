@@ -17,9 +17,6 @@ use super::host_structure_topple;
 #[path = "host_production_door_log.rs"]
 pub mod host_production_door_log;
 
-#[path = "host_projectile_log.rs"]
-pub mod host_projectile_log;
-
 #[path = "host_rebuild_producer_log.rs"]
 pub mod host_rebuild_producer_log;
 
@@ -28,9 +25,6 @@ pub mod host_shock_stun_log;
 
 #[path = "host_sole_healing_log.rs"]
 pub mod host_sole_healing_log;
-
-#[path = "host_stealth_delay_log.rs"]
-pub mod host_stealth_delay_log;
 
 #[path = "host_production_log.rs"]
 pub mod host_production_log;
@@ -55,18 +49,6 @@ pub mod host_stored_supplies_log;
 
 #[path = "host_turret_log.rs"]
 pub mod host_turret_log;
-
-#[path = "host_weapon_bonus_log.rs"]
-pub mod host_weapon_bonus_log;
-
-#[path = "host_weapon_set_log.rs"]
-pub mod host_weapon_set_log;
-
-#[path = "host_weapon_slot_log.rs"]
-pub mod host_weapon_slot_log;
-
-#[path = "host_weapon_stats_log.rs"]
-pub mod host_weapon_stats_log;
 
 #[path = "host_power_plant_rods_log.rs"]
 pub mod host_power_plant_rods_log;

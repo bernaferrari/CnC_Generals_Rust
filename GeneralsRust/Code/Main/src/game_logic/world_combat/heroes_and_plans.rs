@@ -459,7 +459,6 @@ impl GameLogic {
             r.set_ai_state(AIState::Idle);
             {}
             r.set_position(eject_pos);
-            crate::game_logic::host_ground_height_log::record(rider_id, eject_pos.y, false);
             {}
             // C++ ParachuteContain::onDie: chute gone, rider setAllowToFall + setIsInFreeFall.
             r.set_status_parachute_open(false);

@@ -1408,7 +1408,6 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
             w.reload_time = 0.05;
             w.damage = 100.0; // StealthJetMissile residual
         }
-        f.record_host_weapon_stats();
         f.set_position(Vec3::new(0.0, 0.0, 0.0));
     }
 
@@ -1628,7 +1627,6 @@ fn kill_garrisoned_residual_microwave_clears_occupants() {
             w.min_range = 0.0;
             w.damage = 1.0; // KILL_GARRISONED amount = 1 occupant
         }
-        m.record_host_weapon_stats();
     }
 
     game_logic.set_current_frame(20);
@@ -1716,7 +1714,6 @@ fn ordinary_weapon_leftover_damages_garrisoned_structure() {
             w.min_range = 0.0;
             w.damage = 5.0;
         }
-        r.record_host_weapon_stats();
     }
 
     game_logic.set_current_frame(20);

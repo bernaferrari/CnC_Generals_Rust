@@ -777,7 +777,6 @@ fn avenger_residual_designator_paint_and_rof() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
         }
-        a.record_host_weapon_stats();
     }
     game_logic.frame = 1;
     game_logic.update_combat(&[avenger_id, enemy_id], LOGIC_FRAME_TIMESTEP);
@@ -819,7 +818,6 @@ fn avenger_residual_designator_paint_and_rof() {
             // Not ready under normal ROF (0.5s < 1.0s), ready under 150% ROF (~0.667).
             w.last_fire_time = 0.0;
         }
-        ally.record_host_weapon_stats();
     }
     // t=0.7s with last_fire=0 reload=1.0 → only ready with FAERIE 150% ROF.
     game_logic.frame = 21;

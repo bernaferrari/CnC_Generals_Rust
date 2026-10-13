@@ -48,9 +48,6 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_ai_request_log::drain();
     logic.attack_events.complete_boundary();
     let _ = crate::game_logic::host_bounce_land_log::drain();
-    let _ = crate::game_logic::host_building_type_log::drain();
-
-    let _ = crate::game_logic::host_command_set_log::drain();
 
     let _ = crate::game_logic::host_continuous_fire_log::drain();
     let _ = crate::game_logic::host_crush_vision_log::drain();
@@ -66,13 +63,10 @@ fn freeze_host_observations(logic: &mut GameLogic) {
         .complete_boundary();
     let _ = crate::game_logic::host_formation_log::drain();
     let _ = crate::game_logic::host_fow_log::drain();
-    let _ = crate::game_logic::host_ground_height_log::drain();
     let _ = crate::game_logic::host_hijacker_log::drain();
 
     let _ = crate::game_logic::host_locomotor_log::drain();
-    let _ = crate::game_logic::host_max_health_log::drain();
     let _ = crate::game_logic::host_model_condition_log::drain();
-    let _ = crate::game_logic::host_model_mesh_log::drain();
     let _ = logic.movement_events.drain_for_host_boundary();
     let _ = crate::game_logic::host_movement_log::drain();
 
@@ -82,7 +76,6 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_production_door_log::drain();
     logic.production_events.complete_boundary();
     let _ = crate::game_logic::host_production_progress_log::drain();
-    let _ = crate::game_logic::host_projectile_log::drain();
 
     let _ = crate::game_logic::host_rebuild_producer_log::drain();
 
@@ -90,15 +83,9 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_sole_healing_log::drain();
     let _ = crate::game_logic::host_spawn_log::drain();
 
-    let _ = crate::game_logic::host_stealth_delay_log::drain();
-
     let _ = crate::game_logic::host_stored_supplies_log::drain();
 
     let _ = crate::game_logic::host_turret_log::drain();
 
-    let _ = crate::game_logic::host_weapon_bonus_log::drain();
-    let _ = crate::game_logic::host_weapon_set_log::drain();
-    let _ = crate::game_logic::host_weapon_slot_log::drain();
-    let _ = crate::game_logic::host_weapon_stats_log::drain();
     logic.economy_events.complete_boundary();
 }

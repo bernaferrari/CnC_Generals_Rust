@@ -41,9 +41,6 @@ pub mod host_leaflet_b52_drop_log;
 #[path = "host_locomotor_log.rs"]
 pub mod host_locomotor_log;
 
-#[path = "host_max_health_log.rs"]
-pub mod host_max_health_log;
-
 #[path = "host_paradrop_cargo_drop_log.rs"]
 pub mod host_paradrop_cargo_drop_log;
 
@@ -62,14 +59,8 @@ pub mod host_formation_log;
 #[path = "host_fow_log.rs"]
 pub mod host_fow_log;
 
-#[path = "host_ground_height_log.rs"]
-pub mod host_ground_height_log;
-
 #[path = "host_model_condition_log.rs"]
 pub mod host_model_condition_log;
-
-#[path = "host_model_mesh_log.rs"]
-pub mod host_model_mesh_log;
 
 #[path = "movement_events.rs"]
 pub(crate) mod movement_events;

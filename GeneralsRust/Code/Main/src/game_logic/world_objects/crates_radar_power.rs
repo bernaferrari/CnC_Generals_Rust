@@ -826,7 +826,6 @@ impl GameLogic {
             p.z = nz;
             p.y = new_y;
             obj.set_position(p);
-            crate::game_logic::host_ground_height_log::record(crate_id, ground, false);
             {}
             if landed {
                 obj.clear_eject_parachuting();

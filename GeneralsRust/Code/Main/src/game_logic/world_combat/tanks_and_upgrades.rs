@@ -38,7 +38,6 @@ pub(crate) fn apply_evaluate_morale_bonus(obj: &mut Object) {
         nationalism_active,
         has_fanaticism_upgrade(&obj.applied_upgrades),
     );
-    obj.record_host_weapon_bonus();
 }
 
 impl GameLogic {
@@ -418,7 +417,6 @@ impl GameLogic {
             nationalism_active,
             has_fanaticism_upgrade(&obj.applied_upgrades),
         );
-        obj.record_host_weapon_bonus();
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
         let mut w = red_guard_weapon(in_horde, nationalism_active);
         w.last_fire_time = last_fire;
@@ -450,7 +448,6 @@ impl GameLogic {
             nationalism_active,
             has_fanaticism_upgrade(&obj.applied_upgrades),
         );
-        obj.record_host_weapon_bonus();
 
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
         let mut w = tank_hunter_weapon(in_horde, nationalism_active);
@@ -487,7 +484,6 @@ impl GameLogic {
             nationalism_active,
             has_fanaticism_upgrade(&obj.applied_upgrades),
         );
-        obj.record_host_weapon_bonus();
 
         let chain = has_chain_guns_upgrade(&obj.applied_upgrades);
         let level = GattlingFireLevel::from_u8(obj.continuous_fire_level);

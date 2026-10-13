@@ -456,8 +456,8 @@ fn sync_players_copies_unlocked_sciences() {
 }
 
 #[test]
-fn host_command_set_log_drives_set_command_set_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_command_set_log};
+fn canonical_command_set_is_projected_from_receiving_owner() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CsCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -541,8 +541,8 @@ fn canonical_selection_radius_projects_without_writeback() {
 }
 
 #[test]
-fn host_ground_height_log_drives_set_ground_height_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_ground_height_log};
+fn canonical_ground_height_is_projected_from_receiving_owner() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("GhCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -586,8 +586,8 @@ fn host_ground_height_log_drives_set_ground_height_channel() {
 }
 
 #[test]
-fn host_model_mesh_log_drives_set_model_mesh_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_model_mesh_log};
+fn canonical_effective_model_mesh_is_projected_from_receiving_owner() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MmCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -747,10 +747,8 @@ fn canonical_identity_projects_without_writeback() {
 }
 
 #[test]
-fn host_building_type_log_drives_set_building_type_channel() {
-    use crate::game_logic::{
-        BuildingData, BuildingType, KindOf, Team, ThingTemplate, host_building_type_log,
-    };
+fn canonical_building_type_is_projected_from_receiving_owner() {
+    use crate::game_logic::{BuildingData, BuildingType, KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("BtCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");

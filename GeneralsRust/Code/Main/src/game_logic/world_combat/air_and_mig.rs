@@ -1583,7 +1583,6 @@ impl GameLogic {
             nationalism_active,
             has_fanaticism_upgrade(&obj.applied_upgrades),
         );
-        obj.record_host_weapon_bonus();
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
         let mut w = battlemaster_weapon(uranium, in_horde, nationalism_active);
         w.last_fire_time = last_fire;

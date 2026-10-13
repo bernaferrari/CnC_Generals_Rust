@@ -12,7 +12,7 @@ type RecordedCommand = (AiCommandType, Option<ObjectID>, CommandSourceType, bool
 
 #[derive(Debug)]
 struct ReceivingAi {
-    commands: Arc<Mutex<Vec<RecordedCommand>>>,
+    commands: Vec<RecordedCommand>,
     allowed: bool,
 }
 
@@ -43,7 +43,7 @@ impl AIUpdateInterface for ReceivingAi {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // The receiver sees every command and applies its own restriction,
         // just as UnitAIUpdate's private MoveAwayFromUnit handler does.
-        self.commands.lock().unwrap().push((
+        self.commands.push((
             params.cmd,
             params.obj,
             params.cmd_source,
@@ -95,25 +95,19 @@ impl Drop for OtherWorldUnit {
     }
 }
 
-fn receiver(
-    allowed: bool,
-) -> (
-    Arc<Mutex<dyn AIUpdateInterface>>,
-    Arc<Mutex<Vec<RecordedCommand>>>,
-) {
-    let commands = Arc::new(Mutex::new(Vec::new()));
+fn receiver(allowed: bool) -> (Arc<Mutex<dyn AIUpdateInterface>>, Arc<Mutex<ReceivingAi>>) {
     let ai = Arc::new(Mutex::new(ReceivingAi {
-        commands: commands.clone(),
+        commands: Vec::new(),
         allowed,
     }));
-    (ai, commands)
+    (ai.clone(), ai)
 }
 
 #[test]
 fn move_away_forwards_to_receiving_policy_with_original_source() {
-    let (ai, commands) = receiver(false);
+    let (ai, receiver) = receiver(false);
     ai.ai_move_away_from_unit(0xA1_2A_0001, CommandSourceType::FromScript);
-    let observed = commands.lock().unwrap().clone();
+    let observed = receiver.lock().unwrap().commands.clone();
     assert_eq!(
         observed,
         vec![(
@@ -130,9 +124,9 @@ fn move_away_forwards_to_receiving_policy_with_original_source() {
 fn other_world_using_ability_cannot_veto_move_away_dispatch() {
     let _serial = crate::test_sync::lock();
     let other = OtherWorldUnit::using_ability(0xA1_2A_0002);
-    let (ai, commands) = receiver(true);
+    let (ai, receiver) = receiver(true);
     ai.ai_move_away_from_unit(other.id, CommandSourceType::FromAi);
-    let observed = commands.lock().unwrap().clone();
+    let observed = receiver.lock().unwrap().commands.clone();
     assert_eq!(
         observed,
         vec![(

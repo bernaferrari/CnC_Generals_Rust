@@ -56,7 +56,6 @@ fn anthrax_gamma_residual_toxin_stream_and_field() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.05;
         }
-        t.record_host_weapon_stats();
     }
     let hp_before = game_logic
         .host_object(enemy)
@@ -173,7 +172,6 @@ fn anthrax_gamma_residual_toxin_stream_and_field() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.05;
         }
-        t.record_host_weapon_stats();
     }
     let hp_mid = game_logic
         .host_object(gamma_enemy)
@@ -237,12 +235,10 @@ fn anthrax_gamma_residual_toxin_stream_and_field() {
             w.damage = 0.0;
             w.range = 15.0;
         }
-        t.record_host_weapon_stats();
         if let Some(w) = t.weapon.as_mut() {
             w.last_fire_time = 0.0;
             w.reload_time = 1000.0;
         }
-        t.record_host_weapon_stats();
     }
     game_logic.set_current_frame(60);
     use crate::game_logic::host_toxin_tractor::{
@@ -578,7 +574,6 @@ fn chem_terrorist_gamma_and_demo_death_weapon_residual() {
             w.reload_time = 0.1;
             w.range = 20.0;
         }
-        t.record_host_weapon_stats();
     }
     let near = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(8.0, 0.0, 0.0))
@@ -640,7 +635,6 @@ fn chem_terrorist_gamma_and_demo_death_weapon_residual() {
             w.reload_time = 0.1;
             w.range = 20.0;
         }
-        t.record_host_weapon_stats();
     }
     let zones_mid = game_logic.toxin_tractor_registry().zones_spawned;
     let hp2_before = game_logic

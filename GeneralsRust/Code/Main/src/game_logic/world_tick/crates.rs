@@ -92,7 +92,6 @@ impl GameLogic {
             // Fail-closed: still parachute the rider without a container object.
             if let Some(r) = self.objects.get_mut(&rider_id) {
                 r.set_position(pos);
-                crate::game_logic::host_ground_height_log::record(rider_id, 0.0, false);
                 {}
                 r.apply_eject_parachuting();
             }
@@ -130,7 +129,6 @@ impl GameLogic {
             r.set_ai_state(crate::game_logic::AIState::Docked);
             {}
             r.set_position(pos);
-            crate::game_logic::host_ground_height_log::record(rider_id, 0.0, false);
             {}
             r.apply_eject_parachuting();
             // Still not selectable while in chute (partition restore already cleared

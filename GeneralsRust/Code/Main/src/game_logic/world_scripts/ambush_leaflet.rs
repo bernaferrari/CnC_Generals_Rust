@@ -180,7 +180,6 @@ impl GameLogic {
                         if p.y < 80.0 {
                             p.y = 120.0;
                             obj.set_position(p);
-                            crate::game_logic::host_ground_height_log::record(id, p.y, false);
                             {}
                         }
                         obj.apply_eject_parachuting();

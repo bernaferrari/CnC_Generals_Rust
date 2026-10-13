@@ -352,7 +352,6 @@ fn toxin_tractor_residual_stream_spray_and_death_field() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.05;
         }
-        t.record_host_weapon_stats();
     }
     let hp_before = game_logic
         .host_object(enemy)
@@ -419,12 +418,10 @@ fn toxin_tractor_residual_stream_spray_and_death_field() {
             w.damage = 0.0; // retail PrimaryDamage 0; spray uses host secondary path
             w.range = 15.0;
         }
-        t.record_host_weapon_stats();
         if let Some(w) = t.weapon.as_mut() {
             w.last_fire_time = 0.0;
             w.reload_time = 1000.0;
         }
-        t.record_host_weapon_stats();
     }
     let spray_hp_before = game_logic
         .host_object(spray_victim)

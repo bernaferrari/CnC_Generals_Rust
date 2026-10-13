@@ -630,7 +630,6 @@ pub(super) fn setup_ground_attacker(
         weapon.reload_time = 0.25;
         weapon.last_fire_time = 0.0;
     }
-    attacker.record_host_weapon_stats();
 
     attacker_id
 }

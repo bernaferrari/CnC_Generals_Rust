@@ -2,21 +2,13 @@
 
 #[cfg(test)]
 pub(in crate::game_logic) mod tests {
-    /// CombatSystem unit tests apply damage without a GameWorld shadow session,
-    /// so host HP must mutate directly: publish the all-off authority context
-    /// barrier (hq-e84zk retired the `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY` env
-    /// opt-out) in case another test leaked a thread-local authority snapshot.
-    fn ensure_unit_test_direct_damage() {}
-
     use super::*;
     use crate::game_logic::{KindOf, Object, Team, ThingTemplate, Weapon};
     use glam::Vec3;
 
-    /// The characterization tests in this module share process globals (the
-    /// WeaponStore delayed-damage list, the
-    /// global logic frame, and the thread-local authority context), so the default parallel
-    /// test harness must not run them concurrently inside one process.
-    /// Mirrors the host_rng_residual RNG_TEST_LOCK precedent.
+    /// Serialize fixtures which install or inspect shared native WeaponStore
+    /// state or temporarily change the remaining compatibility clock. Pure
+    /// source-contract checks have no shared state and need no guard.
     static COMBAT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     pub(in crate::game_logic) fn combat_test_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -286,19 +278,13 @@ pub(in crate::game_logic) mod tests {
     }
 
     #[test]
-    fn coupled_missile_kill_self_removal_publishes_inactive_shadow_residual() {
-        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+    fn canonical_missile_kill_self_removal_retires_receiving_projection() {
+        use crate::game_logic::GameLogic;
+        use crate::gameworld_shadow::GameWorldShadow;
+        use gamelogic::world::ProjectileFlightState;
 
-        let mut health_events = crate::game_logic::HostHealthEvents::default();
-
-        let _combat_serial = combat_test_guard();
-
-        let prior_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-
-        crate::game_logic::host_projectile_log::clear();
-
-        let mut combat = CombatSystem::new();
-        let id = combat.fire_projectile(
+        let mut owner = GameLogic::new();
+        let id = owner.combat_system.fire_projectile(
             Vec3::ZERO,
             Vec3::new(1_000.0, 0.0, 0.0),
             &Weapon::default(),
@@ -306,7 +292,7 @@ pub(in crate::game_logic) mod tests {
             None,
             100.0,
         );
-        let projectile = combat.projectile_mut(id).expect("projectile");
+        let projectile = owner.combat_system.projectile_mut(id).expect("projectile");
         projectile.set_projectile_lifecycle(Some(
             crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile {
                 try_to_follow_target: false,
@@ -316,32 +302,65 @@ pub(in crate::game_logic) mod tests {
             },
         ));
         projectile.missile_kill_self_started_frame = Some(0);
-        projectile.lifetime = 3.0 / 30.0;
-
-        {
-            let mut objects = HashMap::new();
-            let removed = combat.update_projectiles_with_countermeasures(
-                0.0,
-                &mut objects,
-                None,
-                0,
-                &mut health_events,
-                &mut _ownership_output,
-            );
-            assert_eq!(removed, vec![id]);
-        }
-        let events = crate::game_logic::host_projectile_log::drain();
-        assert!(
-            events
-                .iter()
-                .any(|event| event.host_id == id.0 && !event.active),
-            "actual KILL_SELF completion must retire its GameWorld flight residual: {events:?}"
+        projectile.lifetime = 2.0 / 30.0;
+        owner.frame = 2;
+        let mut projection = GameWorldShadow::new(64);
+        projection.sync_from_host(&owner);
+        let observed = projection
+            .world()
+            .projectiles()
+            .get(&id.0)
+            .expect("active hold observation");
+        assert_eq!(
+            observed.flight_state,
+            ProjectileFlightState::MissileKillSelfHold
+        );
+        assert_eq!(observed.lifetime, 2.0 / 30.0);
+        assert_eq!(
+            owner.combat_system.projectile_mut(id).unwrap().lifetime,
+            2.0 / 30.0,
+            "observation must not integrate its receiving projectile"
         );
 
-        match prior_shadow {
-            Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),
-            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-        }
+        let removed = owner.combat_system.update_projectiles_with_countermeasures(
+            0.0,
+            &mut owner.objects,
+            None,
+            owner.frame,
+            &mut owner.health_events,
+            &mut owner.ownership_events,
+        );
+        assert!(
+            removed.is_empty(),
+            "KILL_SELF must hold until the authored third frame"
+        );
+        assert_eq!(owner.combat_system.projectile_count(), 1);
+        assert!(owner.combat_system.take_impact_fx().is_empty());
+        owner.frame = 3;
+        let removed = owner.combat_system.update_projectiles_with_countermeasures(
+            1.0 / 30.0,
+            &mut owner.objects,
+            None,
+            owner.frame,
+            &mut owner.health_events,
+            &mut owner.ownership_events,
+        );
+        assert_eq!(removed, vec![id]);
+        assert_eq!(owner.combat_system.projectile_count(), 0);
+        assert!(
+            owner.combat_system.take_impact_fx().is_empty(),
+            "KILL_SELF retirement must not detonate"
+        );
+        assert!(
+            projection.world().projectiles().contains_key(&id.0),
+            "last frozen output remains immutable until refreshed"
+        );
+        projection.sync_from_host(&owner);
+        assert!(
+            !projection.world().projectiles().contains_key(&id.0),
+            "actual receiving freeze must apply active=false retirement for its previously observed ID"
+        );
+        assert_eq!(owner.combat_system.projectile_count(), 0);
     }
 
     #[test]
@@ -351,7 +370,6 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
 
         let mut objects = HashMap::new();
         let atk = ObjectId(1);
@@ -437,7 +455,6 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
 
         let mut objects = HashMap::new();
         let atk = ObjectId(21);
@@ -520,7 +537,6 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn projectile_structure_intercept_cpp_surface() {
-        let _combat_serial = combat_test_guard();
         let src = concat!(include_str!("projectile.rs"), include_str!("resolution.rs"));
         assert!(
             src.contains("Intervening structure residual")
@@ -537,7 +553,6 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
 
         let mut objects = HashMap::new();
         let atk = ObjectId(91);
@@ -671,7 +686,6 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
 
         let mut objects = HashMap::new();
         let atk = ObjectId(10);
@@ -739,7 +753,6 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
 
         let mut objects = HashMap::new();
         let atk = ObjectId(20);
@@ -825,7 +838,6 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
 
         let mut objects = HashMap::new();
         let atk = ObjectId(70);
@@ -985,7 +997,6 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
 
         let mut objects = HashMap::new();
         let atk = ObjectId(40);
@@ -1066,7 +1077,6 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn instant_and_homing_cpp_surface() {
-        let _combat_serial = combat_test_guard();
         let src = concat!(include_str!("projectile.rs"), include_str!("resolution.rs"));
         assert!(src.contains("is_instant_speed"));
         assert!(src.contains("fire_projectile_ex"));
@@ -1641,7 +1651,6 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
         let mut objects = HashMap::new();
         let atk = ObjectId(70);
         let ally = ObjectId(71);
@@ -1709,7 +1718,6 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
         let mut objects = HashMap::new();
         let atk = ObjectId(72);
         let ground = ObjectId(73);
@@ -1803,7 +1811,6 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
         let mut objects = HashMap::new();
         let atk = ObjectId(80);
         let building = ObjectId(81);
@@ -1860,7 +1867,6 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
         let mut objects = HashMap::new();
         let atk = ObjectId(90);
         let ally = ObjectId(91);
@@ -1945,7 +1951,6 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
         crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         const NAME: &str = "HuntLiveDamageAtSelfSplash";
         let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
@@ -2042,7 +2047,6 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
         let mut objects = HashMap::new();
         let atk = ObjectId(100);
         let enemy = ObjectId(101);
@@ -2110,7 +2114,6 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
 
         let mut objects = HashMap::new();
         let atk = ObjectId(70);
@@ -2704,7 +2707,6 @@ pub(in crate::game_logic) mod tests {
 
         let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
 
         crate::game_logic::host_historic_bonus::set_logic_frame(20);
         let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
@@ -2785,7 +2787,6 @@ pub(in crate::game_logic) mod tests {
 
         let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
 
         crate::game_logic::host_historic_bonus::set_logic_frame(7);
         let leftover_before = leftover_delayed_damage_count_for_test();
@@ -2832,7 +2833,6 @@ pub(in crate::game_logic) mod tests {
 
         let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
-        ensure_unit_test_direct_damage();
 
         crate::game_logic::host_historic_bonus::set_logic_frame(3);
         let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();

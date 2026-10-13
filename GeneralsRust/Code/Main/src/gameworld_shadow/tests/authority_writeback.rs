@@ -439,8 +439,8 @@ fn host_experience_is_canonical_and_shadow_only_observes() {
 }
 
 #[test]
-fn host_max_health_log_drives_set_max_health_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_max_health_log};
+fn canonical_max_health_is_projected_from_receiving_owner() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MaxHealthCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -453,26 +453,14 @@ fn host_max_health_log_drives_set_max_health_channel() {
     let oid = logic
         .create_object("MaxHU", Team::USA, glam::Vec3::new(2.0, 0.0, 2.0))
         .expect("id");
-    host_max_health_log::clear();
     {
         let obj = logic.host_object_mut(oid).expect("o");
         obj.max_health = 250.0;
         obj.health.maximum = 250.0;
         obj.health.current = 200.0;
-        obj.record_host_max_health();
     }
-    let events = host_max_health_log::drain();
-    assert!(
-        events
-            .iter()
-            .any(|e| e.object == oid && (e.max_health - 250.0).abs() < 1e-3),
-        "events {:?}",
-        events
-    );
-    {
-        let obj = logic.host_object_mut(oid).expect("o");
-        obj.record_host_max_health();
-    }
+    assert_eq!(logic.host_object(oid).unwrap().max_health, 250.0);
+    assert_eq!(logic.host_object(oid).unwrap().health.current, 200.0);
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");

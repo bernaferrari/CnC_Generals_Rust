@@ -457,9 +457,7 @@ impl Object {
     /// C++ Weapon::getStatus residual refresh for the active/primary slot.
     pub fn refresh_weapon_fire_status(&mut self, current_time: f32) {
         self.apply_weapon_bonus_rof_restart(current_time);
-        if self.complete_elapsed_auto_reload_clips(current_time) {
-            self.record_host_weapon_stats();
-        }
+        if self.complete_elapsed_auto_reload_clips(current_time) {}
         // Pre-attack wind-up wins while armed.
         if self.pre_attack_ready_at > current_time + 1e-6 {
             self.weapon_fire_status = WeaponFireStatus::PreAttack;

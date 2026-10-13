@@ -214,9 +214,7 @@ impl GameLogic {
         // to the template-name slot, so do not carry a partially consumed
         // cursor into the residual replacement.
         let _ = obj.replace_weapon_set_slot(0, Some(ground));
-        obj.record_host_weapon_stats();
         let _ = obj.replace_weapon_set_slot(1, Some(air));
-        obj.record_host_weapon_stats();
         self.quad_cannon_residual_barrel_upgrades =
             self.quad_cannon_residual_barrel_upgrades.saturating_add(1);
         true

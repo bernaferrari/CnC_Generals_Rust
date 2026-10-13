@@ -317,7 +317,6 @@ impl GameLogic {
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_GLA_FORTIFIED_STRUCTURE);
             obj.max_health = (obj.max_health + add).max(1.0);
-            obj.record_host_max_health();
             obj.health.maximum = (obj.health.maximum + add).max(1.0);
             let new_hp = (obj.health.current + add).min(obj.health.maximum);
             Self::write_object_health_authority_aware(obj, new_hp, &mut self.health_events);
@@ -442,7 +441,6 @@ impl GameLogic {
             obj.applied_upgrades
                 .insert(UPGRADE_AMERICA_DRONE_ARMOR.to_string());
             obj.max_health = (obj.max_health + add).max(1.0);
-            obj.record_host_max_health();
             obj.health.maximum = (obj.health.maximum + add).max(1.0);
             let new_hp = (obj.health.current + add).min(obj.health.maximum);
             Self::write_object_health_authority_aware(obj, new_hp, &mut self.health_events);
@@ -490,7 +488,6 @@ impl GameLogic {
             let mut maximum = obj.health.maximum;
             apply_mig_aircraft_armor_health(&mut max_h, &mut cur, &mut maximum);
             obj.set_body_max_health(max_h);
-            obj.record_host_max_health();
             Self::write_object_health_authority_aware(obj, cur, &mut self.health_events);
             obj.health.maximum = maximum;
             n = n.saturating_add(1);
@@ -1478,7 +1475,6 @@ impl GameLogic {
                 maximum = max_h;
             }
             obj.set_body_max_health(max_h);
-            obj.record_host_max_health();
             {
                 obj.previous_health = before;
             }
@@ -1719,7 +1715,6 @@ impl GameLogic {
             obj.stealth_delay_frames = CAMOUFLAGE_STEALTH_DELAY_FRAMES;
             obj.stealth_allowed_frame = camouflage_stealth_allowed_frame(now);
             obj.stealth_delay_pending = false;
-            obj.record_host_stealth_delay();
             affected = affected.saturating_add(1);
         }
         affected
@@ -1763,7 +1758,6 @@ impl GameLogic {
             obj.stealth_delay_frames = CAMO_NETTING_STEALTH_DELAY_FRAMES;
             obj.stealth_allowed_frame = camo_netting_stealth_allowed_frame(now);
             obj.stealth_delay_pending = false;
-            obj.record_host_stealth_delay();
             // Sub-object net mesh residual: upgrade shows CamoNet presentation.
             obj.camo_net_sub_object_shown = true;
             obj.camo_net_sub_object_observer_visible = true;
