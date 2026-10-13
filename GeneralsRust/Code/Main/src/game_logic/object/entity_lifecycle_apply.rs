@@ -2,7 +2,7 @@
 
 use super::Object;
 use super::entity_lifecycle_inventory::{
-    FireWeaponWhenDamagedBundle, FiringTrackerResidual, SpawnBehaviorHiveResidual, decode_payload,
+    FireWeaponWhenDamagedBundle, SpawnBehaviorHiveResidual, decode_firing_tracker, decode_payload,
 };
 use super::entity_lifecycle_projectiles::ProjectileFlightResiduals;
 use super::entity_lifecycle_residuals::{
@@ -17,6 +17,21 @@ pub(crate) fn apply_module_states(
     object: &mut Object,
     modules: &[EntityModuleState],
 ) -> Result<Option<crate::game_logic::host_railroad::HostRailroadCar>, EntityLifecycleCodecError> {
+    // Preflight the complete tracker payload before any earlier module can
+    // mutate the receiving Object. Its owner comes from this exact envelope.
+    let mut tracker_seen = false;
+    for module in modules
+        .iter()
+        .filter(|module| module.tag == TAG_FIRING_TRACKER)
+    {
+        if tracker_seen {
+            return Err(EntityLifecycleCodecError::InvalidOwnerComponent {
+                component: "firing tracker",
+            });
+        }
+        tracker_seen = true;
+        let _ = decode_firing_tracker(&module.payload)?;
+    }
     // Validate the owner-bound component before mutating any Object field.
     let mut railroad = None;
     for module in modules.iter().filter(|module| module.tag == TAG_RAILROAD) {
@@ -119,8 +134,7 @@ fn apply_one(
             residual.apply(object);
         }
         TAG_FIRING_TRACKER => {
-            let residual: FiringTrackerResidual = decode_payload(payload)?;
-            residual.apply(object);
+            decode_firing_tracker(payload)?.apply(object);
         }
         TAG_FIRE_OCL_AFTER_COOLDOWN => {
             object.fire_ocl_after_cooldown = Some(decode_payload(payload)?);

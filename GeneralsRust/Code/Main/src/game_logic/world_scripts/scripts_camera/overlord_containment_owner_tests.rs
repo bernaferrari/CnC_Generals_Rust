@@ -137,7 +137,11 @@ fn overlord_delete_detaches_payload_and_riders_before_physical_removal() {
 #[test]
 fn overlord_redirection_phase_survives_owned_lifecycle_codec() {
     let (mut owner, _, hull, payload) = world();
-    let saved = owner.host_object(hull).unwrap().entity_lifecycle_envelope();
+    let saved = owner
+        .host_object(hull)
+        .unwrap()
+        .entity_lifecycle_envelope()
+        .expect("valid lifecycle capture");
     let bytes = saved.encode();
     let decoded = gamelogic::world::entities::EntityLifecycleEnvelope::decode(&bytes).unwrap();
     owner
@@ -156,7 +160,9 @@ fn overlord_redirection_phase_survives_owned_lifecycle_codec() {
     assert_eq!(owner.redirected_containment_owner(hull), payload);
     let outer = owner.host_object_mut(hull).unwrap();
     outer.overlord_redirection_active = false;
-    let saved_inactive = outer.entity_lifecycle_envelope();
+    let saved_inactive = outer
+        .entity_lifecycle_envelope()
+        .expect("valid lifecycle capture");
     outer.overlord_redirection_active = true;
     outer
         .entity_apply_lifecycle_envelope(&saved_inactive)
@@ -302,7 +308,7 @@ fn malformed_overlord_phase_restore_keeps_running_owner_and_same_id_peer() {
     let (peer, peer_unit, peer_hull, peer_payload) = world();
     assert_eq!((unit, hull, payload), (peer_unit, peer_hull, peer_payload));
     enter(&mut owner, unit, hull);
-    let mut tail = capture_lifecycle_tail(&owner);
+    let mut tail = capture_lifecycle_tail(&owner).expect("valid lifecycle capture");
     let envelope = tail
         .envelopes
         .iter_mut()
@@ -332,7 +338,7 @@ fn active_overlord_restore_rejects_wrong_child_and_admits_saved_links() {
         .create_object_for_player("PhysicalBunkerInfantry", 1, Vec3::ZERO)
         .unwrap();
     assert!(owner.host_object(foreign).is_none());
-    let saved = capture_lifecycle_tail(&owner);
+    let saved = capture_lifecycle_tail(&owner).expect("valid lifecycle capture");
     for wrong_child in [None, Some(hull), Some(unit), Some(foreign)] {
         let mut invalid = saved.clone();
         let mut malformed = owner.host_object(hull).unwrap().clone();
@@ -341,7 +347,9 @@ fn active_overlord_restore_rejects_wrong_child_and_admits_saved_links() {
             .envelopes
             .iter_mut()
             .find(|entry| entry.entity_id == hull.0)
-            .unwrap() = malformed.entity_lifecycle_envelope();
+            .unwrap() = malformed
+            .entity_lifecycle_envelope()
+            .expect("valid lifecycle capture");
         assert!(apply_lifecycle_tail_to_host(&invalid, &mut owner).is_err());
         assert_eq!(owner.redirected_containment_owner(hull), payload);
         assert_eq!(owner.host_object(payload).unwrap().contained_by, Some(hull));

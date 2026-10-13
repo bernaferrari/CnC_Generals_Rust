@@ -36,7 +36,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXOB_MAGIC: &[u8; 4] = b"OXOB";
-const OXOB_VERSION: u32 = 15;
+const OXOB_VERSION: u32 = 16;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectXferPersistPayload {
@@ -45,7 +45,21 @@ struct ObjectXferPersistPayload {
     structures: Vec<StructureTopplePersist>,
     damage_info: Vec<ObjectDamageInfoPersist>,
     transport: Vec<TransportMovementPersist>,
+    body_history: Vec<body_damage_history_persist::BodyDamageHistoryPersist>,
 }
+
+/// v15 retains its exact transport/body-type positional bincode layout.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistPayloadV15 {
+    objects: Vec<ObjectXferPersist>,
+    script_status: Vec<ObjectScriptStatusPersist>,
+    structures: Vec<StructureTopplePersist>,
+    damage_info: Vec<ObjectDamageInfoPersist>,
+    transport: Vec<TransportMovementPersist>,
+}
+
+#[path = "body_damage_history_persist.rs"]
+mod body_damage_history_persist;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectXferPersistPayloadV14 {
@@ -1610,6 +1624,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         && version != 12
         && version != 13
         && version != 14
+        && version != 15
         && version != OXOB_VERSION
     {
         return Err(SaveLoadError::Corrupted(format!(
@@ -1636,6 +1651,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             structures: Vec::new(),
             damage_info: Vec::new(),
             transport: Vec::new(),
+            body_history: Vec::new(),
         }
     } else if version == 2 {
         let old: ObjectXferPersistPayloadV2 = bincode_legacy::deserialize(encoded)
@@ -1650,6 +1666,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             structures: Vec::new(),
             damage_info: Vec::new(),
             transport: Vec::new(),
+            body_history: Vec::new(),
         }
     } else if version == 3 {
         let old: ObjectXferPersistPayloadV3 = bincode_legacy::deserialize(encoded)
@@ -1664,6 +1681,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             structures: Vec::new(),
             damage_info: Vec::new(),
             transport: Vec::new(),
+            body_history: Vec::new(),
         }
     } else if version == 4 {
         let old: ObjectXferPersistPayloadV4 = bincode_legacy::deserialize(encoded)
@@ -1678,6 +1696,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             structures: Vec::new(),
             damage_info: Vec::new(),
             transport: Vec::new(),
+            body_history: Vec::new(),
         }
     } else if version == 5 {
         let old: ObjectXferPersistPayloadV5 = bincode_legacy::deserialize(encoded)
@@ -1692,6 +1711,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             structures: Vec::new(),
             damage_info: Vec::new(),
             transport: Vec::new(),
+            body_history: Vec::new(),
         }
     } else if version == 6 {
         let old: ObjectXferPersistPayloadV6 = bincode_legacy::deserialize(encoded)
@@ -1706,6 +1726,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             structures: Vec::new(),
             damage_info: Vec::new(),
             transport: Vec::new(),
+            body_history: Vec::new(),
         }
     } else if version == 7 {
         let old: ObjectXferPersistPayloadV7 = bincode_legacy::deserialize(encoded)
@@ -1720,6 +1741,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             structures: Vec::new(),
             damage_info: Vec::new(),
             transport: Vec::new(),
+            body_history: Vec::new(),
         }
     } else if version == 8 {
         let old: ObjectXferPersistPayloadV8 = bincode_legacy::deserialize(encoded)
@@ -1734,6 +1756,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             structures: Vec::new(),
             damage_info: Vec::new(),
             transport: Vec::new(),
+            body_history: Vec::new(),
         }
     } else if version == 9 {
         let old: ObjectXferPersistPayloadV9 = bincode_legacy::deserialize(encoded)
@@ -1748,6 +1771,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             structures: Vec::new(),
             damage_info: Vec::new(),
             transport: Vec::new(),
+            body_history: Vec::new(),
         }
     } else if version == 10 {
         let old: ObjectXferPersistPayloadV10 = bincode_legacy::deserialize(encoded)
@@ -1762,6 +1786,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             structures: Vec::new(),
             damage_info: Vec::new(),
             transport: Vec::new(),
+            body_history: Vec::new(),
         }
     } else if version == 11 {
         let old: ObjectXferPersistPayloadV11 = bincode_legacy::deserialize(encoded)
@@ -1772,6 +1797,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             structures: Vec::new(),
             damage_info: Vec::new(),
             transport: Vec::new(),
+            body_history: Vec::new(),
         }
     } else if version == 12 {
         let old: ObjectXferPersistPayloadV12 = bincode_legacy::deserialize(encoded)
@@ -1782,6 +1808,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             structures: Vec::new(),
             damage_info: Vec::new(),
             transport: Vec::new(),
+            body_history: Vec::new(),
         }
     } else if version == 13 {
         let old: ObjectXferPersistPayloadV13 = bincode_legacy::deserialize(encoded)
@@ -1792,6 +1819,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             structures: old.structures,
             damage_info: Vec::new(),
             transport: Vec::new(),
+            body_history: Vec::new(),
         }
     } else if version == 14 {
         let old: ObjectXferPersistPayloadV14 = bincode_legacy::deserialize(encoded)
@@ -1802,13 +1830,31 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             structures: old.structures,
             damage_info: old.damage_info,
             transport: Vec::new(),
+            body_history: Vec::new(),
+        }
+    } else if version == 15 {
+        let old: ObjectXferPersistPayloadV15 = bincode_legacy::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
+        ObjectXferPersistPayload {
+            objects: old.objects,
+            script_status: old.script_status,
+            structures: old.structures,
+            damage_info: old.damage_info,
+            transport: old.transport,
+            body_history: Vec::new(),
         }
     } else {
         bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?
     };
+    body_damage_history_persist::validate(game_logic, &payload.body_history)?;
+    if version == OXOB_VERSION && payload.body_history.len() != game_logic.host_objects().len() {
+        return Err(SaveLoadError::Corrupted(
+            "incomplete saved body history owners".into(),
+        ));
+    }
     transport_movement_persist::validate(game_logic, &payload.transport)?;
-    if version == OXOB_VERSION && payload.transport.len() != game_logic.host_objects().len() {
+    if version >= 15 && payload.transport.len() != game_logic.host_objects().len() {
         return Err(SaveLoadError::Corrupted(
             "incomplete saved transport movement owners".into(),
         ));
@@ -1954,6 +2000,7 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
         structures,
         damage_info,
         transport: transport_movement_persist::capture(game_logic),
+        body_history: body_damage_history_persist::capture(game_logic),
     }
 }
 
@@ -2020,6 +2067,7 @@ fn validate_structure_records(
 
 fn reset_object_xfer(game_logic: &mut GameLogic) {
     transport_movement_persist::reset(game_logic);
+    body_damage_history_persist::apply(game_logic, Vec::new());
     let ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
     for id in ids {
         let Some(object) = game_logic.host_objects_mut().get_mut(&id) else {
@@ -2075,6 +2123,7 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
 
 fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) {
     transport_movement_persist::apply(game_logic, payload.transport);
+    body_damage_history_persist::apply(game_logic, payload.body_history);
     // Original Object::xfer restores raw status; it does not replay mask or
     // script commands. The receiving world already owns these exact objects.
     for entry in payload.damage_info {

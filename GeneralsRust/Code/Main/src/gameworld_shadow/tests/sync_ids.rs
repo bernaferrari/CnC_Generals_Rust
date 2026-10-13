@@ -642,7 +642,7 @@ fn sync_from_host_copies_entity_combat_timing_residual() {
         obj.weapon_bonus_frenzy_until_frame = 90;
         obj.continuous_fire_coast_until_frame = 33;
         obj.battle_plan_sight_scalar_applied = 1.5;
-        obj.continuous_fire_consecutive = 4;
+        obj.consecutive_shots_at_target = 4;
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -686,7 +686,7 @@ fn sync_from_host_copies_entity_combat_bonus_residual() {
         obj.weapon_bonus_battle_plan_hold_the_line = true;
         obj.weapon_bonus_battle_plan_search_and_destroy = true;
         obj.continuous_fire_level = 3;
-        obj.continuous_fire_consecutive = 7;
+        obj.consecutive_shots_at_target = 7;
         obj.faerie_fire_until_frame = 99;
         obj.is_humvee_transport = true;
         obj.is_listening_outpost_transport = true;

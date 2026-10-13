@@ -1038,7 +1038,10 @@ impl Object {
             overlay_arrival_snap: false,
             worker_ai_update: template_has_worker_ai_update(&template_name),
             body_damage_state:
-                crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
+                crate::game_logic::host_enum_table_residual::host_calc_body_damage_state(
+                    initial_health,
+                    max_health,
+                ),
             move_loop_audio: None,
             ambient_audio: None,
             ambient_sound_enabled_from_script: true,
@@ -1266,7 +1269,7 @@ impl Object {
             is_receiving_difficulty_bonus: false,
 
             battle_plan_sight_scalar_applied: 1.0,
-            continuous_fire_consecutive: 0,
+
             continuous_fire_level: 0,
             continuous_fire_one_shots: tracker.continuous_fire_one_shots,
             continuous_fire_two_shots: tracker.continuous_fire_two_shots,
@@ -1275,7 +1278,7 @@ impl Object {
             frame_to_force_reload: 0,
             continuous_fire_coast_until_frame: 0,
             fire_ocl_after_cooldown: None,
-            continuous_fire_victim: 0,
+
             faerie_fire_until_frame: 0,
             subdual_damage: 0.0,
             subdual_damage_cap,
@@ -1331,7 +1334,6 @@ impl Object {
             last_damage_fx_done: None,
             last_damage_info_type: None,
             next_damage_fx_time: 0,
-            last_damage_source_preferred: false,
             kill_experience_awarded: false,
             health_box_offset: [0.0, 0.0, 0.0],
             uses_inactive_body: false,
@@ -1974,7 +1976,10 @@ impl Object {
             overlay_arrival_snap: false,
             worker_ai_update: template_has_worker_ai_update(&template_name),
             body_damage_state:
-                crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
+                crate::game_logic::host_enum_table_residual::host_calc_body_damage_state(
+                    initial_health,
+                    100.0,
+                ),
             move_loop_audio: None,
             ambient_audio: None,
             ambient_sound_enabled_from_script: true,
@@ -2202,7 +2207,7 @@ impl Object {
             is_receiving_difficulty_bonus: false,
 
             battle_plan_sight_scalar_applied: 1.0,
-            continuous_fire_consecutive: 0,
+
             continuous_fire_level: 0,
             continuous_fire_one_shots: tracker.continuous_fire_one_shots,
             continuous_fire_two_shots: tracker.continuous_fire_two_shots,
@@ -2211,7 +2216,7 @@ impl Object {
             frame_to_force_reload: 0,
             continuous_fire_coast_until_frame: 0,
             fire_ocl_after_cooldown: None,
-            continuous_fire_victim: 0,
+
             faerie_fire_until_frame: 0,
             subdual_damage: 0.0,
             subdual_damage_cap: 0.0,
@@ -2267,7 +2272,6 @@ impl Object {
             last_damage_fx_done: None,
             last_damage_info_type: None,
             next_damage_fx_time: 0,
-            last_damage_source_preferred: false,
             kill_experience_awarded: false,
             health_box_offset: [0.0, 0.0, 0.0],
             uses_inactive_body: false,
@@ -2327,7 +2331,7 @@ impl Object {
         obj.set_status_under_construction(true);
         // C++ DozerAIUpdate::construct (DozerAIUpdate.cpp:1706-1708):
         // newly constructed objects start at one hit point.
-        obj.health.current = 1.0;
+        obj.internal_change_health(1.0 - obj.health.current);
 
         obj
     }
@@ -2577,31 +2581,15 @@ impl Object {
         }
     }
 
-    /// C++ `ActiveBody::setMaxHealth`: overwrite max and initial together.
-    /// Callers that then write `health.current` own the clip and the damage-state refresh.
+    /// CPP ActiveBody::setMaxHealth(SAME_CURRENTHEALTH), including final clipping.
     pub fn set_body_max_health(&mut self, new_max: f32) {
-        self.health.maximum = new_max;
-        self.max_health = new_max;
-        if new_max > 0.0 {
-            self.initial_health = new_max;
-        }
+        self.set_body_max_health_with_mode(new_max, super::MaxHealthChange::KeepCurrent);
     }
 
-    /// C++ `ActiveBody::setInitialHealth` — scales current HP only.
+    /// C++ ActiveBody::setInitialHealth: ordinary Body change, not a healing event.
     pub fn set_initial_health_percent(&mut self, percent: i32) {
-        let initial = self.body_initial_health();
-        let new_hp = (percent as f32 / 100.0) * initial;
-        let cap = if self.health.maximum > 0.0 {
-            self.health.maximum
-        } else {
-            self.max_health
-        };
-        let before = self.health.current;
-        self.previous_health = before;
-        self.health.current = new_hp.clamp(0.0, cap);
-        if (self.health.current - before).abs() > 1e-4 {
-            self.refresh_model_condition_bits();
-        }
+        let new_hp = (percent as f32 / 100.0) * self.body_initial_health();
+        self.internal_change_health(new_hp - self.health.current);
     }
 
     /// C++ `ScriptConditions::evaluateUnitHealth` integer percent.

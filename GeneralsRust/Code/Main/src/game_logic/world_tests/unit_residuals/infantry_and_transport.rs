@@ -2295,24 +2295,27 @@ fn create_object_die_spawns_on_lifetime_expiry() {
             fired: false,
         });
     }
-    // Simulate lifetime tick path.
-    {
-        let o = logic.objects.get_mut(&id).unwrap();
-        assert!(o.tick_lifetime_update(2));
-        // Wave 753: under damage authority, do not zero host HP mid-frame
-        // (dual with GW HP writeback). Project lethal via damage log + flags.
-        {
-            o.health.current = 0.0;
-        }
-        o.status.destroyed = true;
-        o.refresh_model_condition_bits();
-    }
-    logic.apply_pending_create_object_die(id);
+    // Drive the actual receiving update phase, not a raw HP/model mutation.
+    logic.frame = 2;
+    logic.update_ai(&[id], 1.0 / 30.0);
     let spawned = logic
         .objects
         .values()
-        .any(|o| o.template_name.contains("TunnelNetwork") && o.id != id);
-    assert!(spawned, "CreateObjectDie should spawn tunnel network");
+        .find(|object| object.template_name == "GLASneakAttackTunnelNetwork" && object.id != id)
+        .expect("CreateObjectDie should spawn tunnel network");
+    // Lifetime kills at full previous HP, so TransferPreviousHealth contributes
+    // no damage to the newly created 200 HP tunnel (CPP CreateObjectDie).
+    assert_eq!(spawned.health.current, 200.0);
+    assert_eq!(logic.host_object(id).unwrap().previous_health, 50.0);
+    assert!(
+        !logic
+            .host_object(id)
+            .unwrap()
+            .lifetime_update
+            .as_ref()
+            .unwrap()
+            .active
+    );
 }
 
 #[test]

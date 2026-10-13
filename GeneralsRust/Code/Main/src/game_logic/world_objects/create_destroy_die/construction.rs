@@ -203,7 +203,7 @@ impl GameLogic {
         // This is not the completion callback and must not activate power/score.
         if let Some(object) = self.objects.get_mut(&id) {
             object.construction_percent = 0.0;
-            object.health.current = 1.0;
+            object.internal_change_health(1.0 - object.health.current);
             object.set_under_construction_model_conditions(false);
         }
         self.health_events.record_applied_heal(id, 1.0);

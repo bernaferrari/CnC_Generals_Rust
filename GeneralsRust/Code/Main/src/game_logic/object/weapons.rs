@@ -1303,6 +1303,24 @@ impl Object {
         }
     }
 
+    /// Main stores weapon intervals in seconds. The first eligible logic frame
+    /// is the ceiling of the same bonused interval used by readiness; no new
+    /// weapon clock is stored. Observe this before this shot changes ROF.
+    pub(crate) fn possible_next_shot_frame_for_slot(
+        &self,
+        slot: u8,
+        frame: u32,
+        target_has_faerie_fire: bool,
+    ) -> u32 {
+        let delay = self.weapon_slot(slot).map_or(0.0, |weapon| {
+            crate::game_logic::host_avenger::effective_reload_vs_target(
+                self.effective_weapon_reload(weapon.reload_time),
+                target_has_faerie_fire,
+            )
+        });
+        frame.wrapping_add((delay * 30.0).ceil() as u32)
+    }
+
     /// Record a successful discharge for PreAttackType PER_ATTACK bookkeeping
     /// plus the generic FiringTracker MEAN/FAST continuous-fire derivation.
     ///
@@ -1310,37 +1328,51 @@ impl Object {
     /// Attackers owned by a specialized continuous-fire lane (gattling tank,
     /// minigunner, structure gattling) already had the shot's level/coast
     /// derived by the lane; they must call
-    /// [`Object::record_shot_at_target_without_continuous_fire`] instead so
+    /// [`Object::finish_shot_after_specialized_tracker`] instead so
     /// the generic derivation cannot clobber the lane's deadline or level.
-    pub fn record_shot_at_target(&mut self, target_id: ObjectId) {
-        self.record_shot_engagement_bookkeeping(target_id);
-        self.update_continuous_fire_after_shot(target_id);
+    pub fn record_shot_at_target(
+        &mut self,
+        target_id: Option<ObjectId>,
+        logic_frame: u32,
+        possible_next_shot_frame: u32,
+    ) {
+        self.record_shot_engagement_bookkeeping(
+            target_id,
+            logic_frame,
+            self.continuous_fire_coast_until_frame,
+        );
+        self.stamp_continuous_fire_coast(possible_next_shot_frame);
+        self.update_continuous_fire_after_shot();
     }
 
-    /// Engagement bookkeeping only (PER_ATTACK counter, stats, PER_SHOT
-    /// re-arm, shared reload sync) — no continuous-fire writes. Used by the
-    /// specialized gattling/minigunner lanes whose advance helper already
-    /// derived level/coast for the same shot.
-    pub fn record_shot_at_target_without_continuous_fire(&mut self, target_id: ObjectId) {
-        self.record_shot_engagement_bookkeeping(target_id);
+    /// Specialized lanes already completed the one canonical tracker update.
+    /// Apply only PER_SHOT re-arm and shared reload synchronization.
+    pub(crate) fn finish_shot_after_specialized_tracker(&mut self) {
+        self.finish_shot_engagement();
     }
 
-    fn record_shot_engagement_bookkeeping(&mut self, target_id: ObjectId) {
-        let now = crate::game_logic::host_historic_bonus::logic_frame();
+    fn record_shot_engagement_bookkeeping(
+        &mut self,
+        target_id: Option<ObjectId>,
+        now: u32,
+        pre_shot_coast_until_frame: u32,
+    ) {
         // C++ FiringTracker.cpp:83-99: same victim, or a target switch inside
         // the coast window (pre-shot deadline, strict), keeps the count.
-        let within_coast = self.continuous_fire_coast_until_frame != 0
-            && now < self.continuous_fire_coast_until_frame;
-        if self.consecutive_shot_target == Some(target_id) || within_coast {
+        let within_coast = now < pre_shot_coast_until_frame;
+        if self.consecutive_shot_target == target_id || within_coast {
             self.consecutive_shots_at_target = self.consecutive_shots_at_target.saturating_add(1);
-            self.consecutive_shot_target = Some(target_id);
+            self.consecutive_shot_target = target_id;
         } else {
-            self.consecutive_shot_target = Some(target_id);
+            self.consecutive_shot_target = target_id;
             self.consecutive_shots_at_target = 1;
         }
-        // PER_SHOT: force next fire_at to re-arm delay by clearing ready stamp into the past.
-        self.pre_attack_ready_at = 0.0;
+        self.finish_shot_engagement();
+    }
 
+    fn finish_shot_engagement(&mut self) {
+        // PER_SHOT: force the next admitted shot to re-arm its delay.
+        self.pre_attack_ready_at = 0.0;
         self.sync_shared_weapon_reload();
     }
 
@@ -1350,15 +1382,14 @@ impl Object {
     ///
     /// Demotion is C++ coolDown (FiringTracker.cpp:111-131, 286-322): straight
     /// to base AND restart — consecutive = 0, victim cleared.
-    pub fn update_continuous_fire_after_shot(&mut self, target_id: ObjectId) {
+    pub fn update_continuous_fire_after_shot(&mut self) {
         let one = self.continuous_fire_one_shots;
         let two = self.continuous_fire_two_shots;
         if one == 0 || one == u32::MAX {
             return;
         }
         let c = self.consecutive_shots_at_target;
-        self.continuous_fire_victim = target_id.0;
-        self.continuous_fire_consecutive = c;
+
         let level = self.continuous_fire_level;
         let new_level = if level == 1 {
             if c < one {
@@ -1381,24 +1412,17 @@ impl Object {
             // over" — the demoting shot leaves no count and no victim.
             self.consecutive_shots_at_target = 0;
             self.consecutive_shot_target = None;
-            self.continuous_fire_consecutive = 0;
-            self.continuous_fire_victim = 0;
         }
         self.record_host_continuous_fire();
     }
 
     /// Stamp ContinuousFireCoast deadline after a shot (C++ m_frameToStartCoolDown).
     pub fn stamp_continuous_fire_coast(&mut self, frame: u32) {
-        if self.continuous_fire_level == 0 {
-            self.continuous_fire_coast_until_frame = 0;
-            return;
-        }
-        let coast = self.continuous_fire_coast_frames;
-        if coast == 0 {
-            // No coast configured — keep spin until explicit cool-down.
-            return;
-        }
-        self.continuous_fire_coast_until_frame = frame.saturating_add(coast);
+        self.continuous_fire_coast_until_frame = if self.continuous_fire_coast_frames == 0 {
+            0
+        } else {
+            frame.wrapping_add(self.continuous_fire_coast_frames)
+        };
     }
 
     /// C++ FiringTracker::update cool-down after ContinuousFireCoast idle.
@@ -1411,22 +1435,25 @@ impl Object {
         self.tick_fire_sound_loop(frame, events);
         let _ = frame;
         self.tick_subdual_damage(health_events);
-        if self.continuous_fire_level == 0 {
-            return;
-        }
         let until = self.continuous_fire_coast_until_frame;
         // C++ FiringTracker.cpp:189: strict `now > m_frameToStartCooldown` —
         // the deadline frame itself is still cool-free; cool one frame later.
         if until == 0 || frame <= until {
             return;
         }
-        // coolDown residual: clear MEAN/FAST straight to zero.
+        // CPP update arms another 30 frames before coolDown. A spun-up
+        // tracker retains that deadline; a second Base cooldown clears it.
+        let was_spun_up = self.continuous_fire_level != 0;
         self.continuous_fire_level = 0;
-        self.continuous_fire_consecutive = 0;
+
         self.consecutive_shots_at_target = 0;
         self.consecutive_shot_target = None;
-        self.continuous_fire_victim = 0;
-        self.continuous_fire_coast_until_frame = 0;
+
+        self.continuous_fire_coast_until_frame = if was_spun_up {
+            frame.wrapping_add(30)
+        } else {
+            0
+        };
         self.record_host_continuous_fire();
     }
 

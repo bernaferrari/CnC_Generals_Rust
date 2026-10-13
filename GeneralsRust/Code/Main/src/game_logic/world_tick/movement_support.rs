@@ -2459,18 +2459,37 @@ impl GameLogic {
     pub(in super::super) fn physics_damage_source_players(
         &self,
         victim_id: ObjectId,
-    ) -> [Option<(ObjectId, u32)>; 2] {
+    ) -> crate::game_logic::object::PhysicsDamageSources {
         let previous = self
             .objects
             .get(&victim_id)
             .and_then(|object| object.last_damage_source);
-        [Some(victim_id), previous].map(|source| {
-            source.and_then(|id| {
-                self.objects
-                    .get(&id)
-                    .and_then(|object| object.owner_player_id.map(|player| (id, player)))
-            })
-        })
+        self.physics_damage_sources([Some(victim_id), previous])
+    }
+
+    pub(in super::super) fn physics_damage_sources(
+        &self,
+        ids: [Option<ObjectId>; 2],
+    ) -> crate::game_logic::object::PhysicsDamageSources {
+        crate::game_logic::object::PhysicsDamageSources {
+            players: ids.map(|source| {
+                source.and_then(|id| {
+                    self.objects
+                        .get(&id)
+                        .and_then(|object| object.owner_player_id.map(|player| (id, player)))
+                })
+            }),
+            observations: ids.map(|source| {
+                source.map(|id| {
+                    (
+                        id,
+                        crate::game_logic::object::LastDamageSourceObservation::observe(
+                            self.objects.get(&id),
+                        ),
+                    )
+                })
+            }),
+        }
     }
 
     fn stamp_object_airborne_target(
@@ -2478,18 +2497,19 @@ impl GameLogic {
         ground_y: f32,
         frame: u32,
         players: &mut std::collections::HashMap<u32, crate::game_logic::Player>,
-        source_players: &[Option<(ObjectId, u32)>],
+        source_players: &crate::game_logic::object::PhysicsDamageSources,
         health_events: &mut crate::game_logic::HostHealthEvents,
         repulsors: &bool,
     ) {
-        let mut attacked_by = |victim, source| {
-            Self::notify_residual_attacked_by(players, frame, source_players, victim, source)
+        let mut player_effects = |effect| {
+            Self::apply_body_player_effect(players, frame, &source_players.players, effect)
         };
         let mut services = crate::game_logic::object::PhysicsDamageServices {
+            sources: source_players,
             frame,
             health_events,
             repulsors,
-            attacked_by: &mut attacked_by,
+            player_effects: &mut player_effects,
         };
         Self::stamp_object_airborne_target_body(obj, ground_y, &mut services);
     }

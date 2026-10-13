@@ -12,6 +12,19 @@ impl GameLogic {
             target_location,
             ..
         } = input;
+        let target_has_faerie_fire = target_id
+            .and_then(|id| self.objects.get(&id))
+            .is_some_and(|target| target.is_faerie_fire());
+        let possible_next_shot_frame =
+            self.objects
+                .get(&attacker_id)
+                .map_or(self.frame, |attacker| {
+                    attacker.possible_next_shot_frame_for_slot(
+                        slot,
+                        self.frame,
+                        target_has_faerie_fire,
+                    )
+                });
         // Pathfinder residual sniper honesty (any successful fire from residual).
         if self
             .objects
@@ -59,6 +72,17 @@ impl GameLogic {
             .unwrap_or(false)
         {
             self.advance_minigunner_continuous_fire(attacker_id, target_id, slot);
+        }
+
+        // A cannon reaching this shared accepted-discharge route still owns
+        // one structure FiringTracker transition. The dedicated base-defense
+        // driver performs this phase itself and never calls commit_combat_shot.
+        if self.objects.get(&attacker_id).is_some_and(|attacker| {
+            crate::game_logic::host_base_defense::is_gattling_cannon_structure(
+                &attacker.template_name,
+            )
+        }) {
+            self.advance_gattling_building_continuous_fire(attacker_id, target_id, slot);
         }
 
         // Combat particle residual: weapon fire → muzzle (+ impact) registry entries.
@@ -278,34 +302,23 @@ impl GameLogic {
             {
                 attacker.release_weapon_lock(WeaponLockType::LockedTemporarily);
             }
-            if let Some(tid) = attacker.target {
-                // C++ has one FiringTracker::shotFired per shot
-                // (FiringTracker.cpp:60-160). Attackers owned by a
-                // specialized continuous-fire lane already had this
-                // shot's level/coast derived above (advance_gattling_
-                // / advance_minigunner_continuous_fire). Re-running
-                // the generic derivation would overwrite the lane's
-                // coast deadline (frame + coast, losing the fired
-                // shot's next-shot delay term) and zero it at base
-                // level — disarming retarget retention and spinning
-                // the lane down early. Keep only engagement
-                // bookkeeping for those lanes.
-                let specialized_lane =
-                    crate::game_logic::host_gattling_tank::is_gattling_tank_template(
-                        &attacker.template_name,
-                    ) || crate::game_logic::host_minigunner::is_minigunner_template(
-                        &attacker.template_name,
-                    ) || crate::game_logic::host_base_defense::is_gattling_cannon_structure(
-                        &attacker.template_name,
-                    );
-                if specialized_lane {
-                    attacker.record_shot_at_target_without_continuous_fire(tid);
-                } else {
-                    attacker.record_shot_at_target(tid);
-                    attacker.stamp_continuous_fire_coast(self.frame);
-                }
-                attacker.stamp_auto_reload_when_idle_from_slot(slot, self.frame);
+            // Each lane owns one FiringTracker transition. Specialized lanes
+            // already advanced its canonical count/victim and derived ROF;
+            // finish only the shared post-shot effects here.
+            let specialized_lane = crate::game_logic::host_gattling_tank::is_gattling_tank_template(
+                &attacker.template_name,
+            ) || crate::game_logic::host_minigunner::is_minigunner_template(
+                &attacker.template_name,
+            )
+                || crate::game_logic::host_base_defense::is_gattling_cannon_structure(
+                    &attacker.template_name,
+                );
+            if specialized_lane {
+                attacker.finish_shot_after_specialized_tracker();
+            } else {
+                attacker.record_shot_at_target(target_id, fire_frame, possible_next_shot_frame);
             }
+            attacker.stamp_auto_reload_when_idle_from_slot(slot, fire_frame);
             // C++ STEALTH_NOT_WHILE_ATTACKING residual: combat fire breaks stealth.
             if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
                 attacker.break_stealth();

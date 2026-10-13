@@ -93,7 +93,7 @@ impl GameLogic {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
                 {
-                    o.health.current = 0.0;
+                    o.internal_change_health(-o.health.current);
                 }
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
@@ -259,7 +259,7 @@ impl GameLogic {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
                 {
-                    o.health.current = 0.0;
+                    o.internal_change_health(-o.health.current);
                 }
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
@@ -821,12 +821,8 @@ impl GameLogic {
             return;
         };
         let prev_level = GattlingFireLevel::from_u8(obj.continuous_fire_level);
-        let prev_consec = obj.continuous_fire_consecutive;
-        let prev_victim = if obj.continuous_fire_victim == 0 {
-            None
-        } else {
-            Some(obj.continuous_fire_victim)
-        };
+        let prev_consec = obj.consecutive_shots_at_target;
+        let prev_victim = obj.consecutive_shot_target.map(|id| id.0);
         let new_victim = target_id.map(|id| id.0);
         let coast_until = obj.continuous_fire_coast_until_frame;
         let in_horde = obj.weapon_bonus_horde;
@@ -851,14 +847,10 @@ impl GameLogic {
 
         obj.continuous_fire_level = new_level.as_u8();
         obj.record_host_continuous_fire();
-        obj.continuous_fire_consecutive = consecutive;
+        obj.consecutive_shots_at_target = consecutive;
         // C++ coolDown resets the victim together with the count
         // (FiringTracker.cpp:319-321); consecutive == 0 marks that reset.
-        obj.continuous_fire_victim = if consecutive == 0 {
-            0
-        } else {
-            new_victim.unwrap_or(0)
-        };
+        obj.consecutive_shot_target = if consecutive == 0 { None } else { target_id };
         // C++ m_frameToStartCooldown = getPossibleNextShotFrame() + coast
         // (FiringTracker.cpp:106-110): the next-shot frame was stamped with
         // the FIRED shot's (pre-promotion) delay (Weapon.cpp:2645-2647;
@@ -1247,7 +1239,7 @@ impl GameLogic {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
                 {
-                    o.health.current = 0.0;
+                    o.internal_change_health(-o.health.current);
                 }
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
@@ -1779,7 +1771,7 @@ impl GameLogic {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
                 {
-                    o.health.current = 0.0;
+                    o.internal_change_health(-o.health.current);
                 }
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;

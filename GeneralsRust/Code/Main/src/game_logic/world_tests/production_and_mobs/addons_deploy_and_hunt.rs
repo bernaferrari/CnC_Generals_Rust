@@ -1014,8 +1014,7 @@ fn overlord_portable_addon_mirrors_host_body_damage() {
 
     {
         let o = game_logic.host_object_mut(overlord_id).unwrap();
-        o.health.current = o.health.maximum * 0.5;
-        o.refresh_model_condition_bits();
+        o.internal_change_health(o.health.maximum * 0.5 - o.health.current);
         assert_eq!(o.body_damage_state, HostBodyDamageType::Damaged);
         assert_eq!(
             o.overlord_addon_body_damage_state,
@@ -1034,8 +1033,7 @@ fn overlord_portable_addon_mirrors_host_body_damage() {
 
     {
         let o = game_logic.host_object_mut(overlord_id).unwrap();
-        o.health.current = o.health.maximum * 0.2;
-        o.refresh_model_condition_bits();
+        o.internal_change_health(o.health.maximum * 0.2 - o.health.current);
         assert_eq!(o.body_damage_state, HostBodyDamageType::ReallyDamaged);
         assert_eq!(
             o.overlord_addon_body_damage_state,
@@ -1054,7 +1052,7 @@ fn overlord_portable_addon_mirrors_host_body_damage() {
 
     {
         let o = game_logic.host_object_mut(overlord_id).unwrap();
-        o.health.current = 0.0;
+        o.internal_change_health(-o.health.current);
         o.status.destroyed = true;
         o.refresh_model_condition_bits();
         assert_eq!(o.body_damage_state, HostBodyDamageType::Rubble);

@@ -439,7 +439,7 @@ fn combat_attack_channel_via_set_combat_attack() {
         o.max_shots_to_fire = 5;
         o.attack_substate = AttackSubState::FireWeapon;
         o.approach_timestamp = 90;
-        o.continuous_fire_victim = tgt.0;
+        o.consecutive_shot_target = Some(ObjectId(tgt.0));
         o.maintain_pos_valid = true;
         o.maintain_pos = Some(glam::Vec3::new(1.0, 2.0, 3.0));
         o.temporary_move_frames = 7;

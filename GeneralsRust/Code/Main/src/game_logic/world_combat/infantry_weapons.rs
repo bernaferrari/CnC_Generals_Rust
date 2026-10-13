@@ -1684,27 +1684,36 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
-            let Some(obj) = self.objects.get_mut(&id) else {
-                continue;
-            };
-            let max_h = obj.health.maximum.max(obj.max_health).max(1.0);
-            let cur = obj.health.current;
-            let under = obj.status.under_construction;
-            let sold = obj.status.sold;
-            let amount = {
+            // The timer owns only scheduling. End both module and Object loans
+            // before CPP BaseRenerateUpdate.cpp:118 attempts Healing on this
+            // receiving world; callbacks can observe the committed body now.
+            let (amount, consumed_damage_delay) = {
+                let Some(obj) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let max_h = obj.health.maximum.max(obj.max_health).max(1.0);
+                let cur = obj.health.current;
+                let under = obj.status.under_construction;
+                let sold = obj.status.sold;
                 let Some(br) = obj.base_regenerate.as_mut() else {
                     continue;
                 };
                 let had_pending = br.pending_damage;
-                let amt = br.tick_heal_amount(frame, cur, max_h, under, sold);
-                if had_pending && !br.pending_damage {
-                    self.base_regenerate_reg.record_damage_delay();
-                }
-                amt
+                let amount = br.tick_heal_amount(frame, cur, max_h, under, sold);
+                (amount, had_pending && !br.pending_damage)
             };
+            if consumed_damage_delay {
+                self.base_regenerate_reg.record_damage_delay();
+            }
             if amount > 0.0 {
-                let new_h = (cur + amount).min(max_h);
-                obj.health.current = new_h;
+                self.apply_residual_damage_owned(
+                    id,
+                    amount,
+                    Some(id),
+                    crate::game_logic::combat::DamageType::Healing,
+                    crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                    None,
+                );
                 self.base_regenerate_reg.record_heal(amount);
             }
         }
@@ -2085,7 +2094,7 @@ impl GameLogic {
                     let max_h = o.health.maximum.max(o.max_health).max(1.0);
                     let cap = max_h * TENSILE_BODY_DAMAGED_HEALTH_FRAC;
                     if o.health.current > cap {
-                        o.health.current = cap;
+                        o.internal_change_health(cap - o.health.current);
                     }
                     if let Some(tf) = o.tensile_formation.as_mut() {
                         tf.set_enabled(true);
@@ -2102,7 +2111,7 @@ impl GameLogic {
                 // non-authority path keeps host HP clear. Tensile rubble flags
                 // remain host residual either way.
                 {
-                    o.health.current = 0.0;
+                    o.internal_change_health(-o.health.current);
                 }
                 if let Some(tf) = o.tensile_formation.as_mut() {
                     tf.rubble = true;
@@ -2396,7 +2405,7 @@ impl GameLogic {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
                 {
-                    o.health.current = 0.0;
+                    o.internal_change_health(-o.health.current);
                 }
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
@@ -2417,3 +2426,7 @@ impl GameLogic {
         self.nuke_cannon_scatter_applied > 0 || self.nuke_cannon_scatter_misses > 0
     }
 }
+
+#[cfg(test)]
+#[path = "base_regenerate_owner_tests.rs"]
+mod base_regenerate_owner_tests;

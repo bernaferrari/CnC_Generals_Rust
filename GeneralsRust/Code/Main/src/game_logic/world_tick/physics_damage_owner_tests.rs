@@ -206,3 +206,38 @@ fn full_shipping_stun_fall_and_inverted_death_keep_self_then_null_source_order()
     assert!(!peer.players[&1].get_attacked_by(1));
     assert_eq!(peer.host_object(victim).unwrap().health.current, 100.0);
 }
+
+#[test]
+fn nonlethal_physics_self_hit_prefers_actual_infantry_over_prior_vehicle() {
+    let (mut receiving, crusher, victim) = crush_world();
+    let (peer, _, _) = crush_world();
+    receiving.frame = 90;
+    {
+        let object = receiving.host_object_mut(victim).unwrap();
+        object.last_damage_timestamp = Some(90);
+        object.last_damage_source = Some(crusher);
+        object.set_position(Vec3::new(0.0, -1.0, 0.0));
+        object.was_airborne_last_frame = true;
+        object.immune_to_falling_damage = false;
+        object.movement.velocity = Vec3::new(0.0, -4.0, 0.0);
+        object.physics_mass = 1.0;
+        object.fall_height_damage_factor = 1.0;
+    }
+    receiving.stamp_airborne_targets_from_locomotor(&[victim]);
+    let actual = receiving.host_object(victim).unwrap();
+    assert!(actual.health.current > 0.0 && actual.health.current < 100.0);
+    assert_eq!(
+        actual.last_damage_source,
+        Some(victim),
+        "CPP prefers a real incoming infantry even when the hit is nonlethal"
+    );
+    assert!(receiving.players[&1].get_attacked_by(1));
+    assert!(!receiving.players[&1].get_attacked_by(2));
+    assert_eq!(receiving.players[&1].attacked_frame, 90);
+    assert_eq!(
+        peer.host_object(victim).unwrap().last_damage_source,
+        Some(crusher)
+    );
+    assert_eq!(peer.host_object(victim).unwrap().health.current, 100.0);
+    assert_eq!(peer.players[&1].attacked_frame, 0);
+}

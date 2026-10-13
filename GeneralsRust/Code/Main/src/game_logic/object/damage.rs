@@ -238,7 +238,7 @@ impl Object {
         health_events: &mut crate::game_logic::HostHealthEvents,
         ownership_events: Option<&mut crate::game_logic::host_owner_log::OwnershipEvents>,
     ) -> DamageApplication {
-        self.begin_damage_with_context_and_attacked_by(
+        self.begin_damage_with_context_and_player_effects(
             damage,
             source,
             damage_type,
@@ -248,11 +248,11 @@ impl Object {
             context,
             health_events,
             ownership_events,
-            |_, _| {},
+            |_| {},
         )
     }
 
-    pub(in crate::game_logic) fn begin_damage_with_context_and_attacked_by(
+    pub(in crate::game_logic) fn begin_damage_with_context_and_player_effects(
         &mut self,
         damage: f32,
         source: Option<ObjectId>,
@@ -263,7 +263,7 @@ impl Object {
         context: &DamageHitContext,
         health_events: &mut crate::game_logic::HostHealthEvents,
         ownership_events: Option<&mut crate::game_logic::host_owner_log::OwnershipEvents>,
-        mut attacked_by: impl FnMut(Option<u32>, Option<ObjectId>),
+        mut player_effects: impl FnMut(BodyPlayerEffect),
     ) -> DamageApplication {
         // C++ InactiveBody::attemptDamage (InactiveBody.cpp:53-86): no HP except
         // DAMAGE_UNRESISTABLE (onDie once, never DamageFX).
@@ -311,17 +311,30 @@ impl Object {
             damage_type,
             crate::game_logic::combat::DamageType::KillGarrisoned
         ) {
+            let amount = crate::game_logic::host_armor_residual::apply_residual_armor(
+                self,
+                damage_type,
+                damage,
+            );
             let kills = damage.max(0.0).floor() as u32;
             self.status.pending_kill_garrisoned =
                 self.status.pending_kill_garrisoned.saturating_add(kills);
-            if damage > 0.0 {
-                self.stamp_last_damage_cpp(source, false, damage_type, frame);
+            if amount > 0.0 || context.is_kill() {
+                self.stamp_last_damage_cpp(source, damage_type, frame, context);
+                player_effects(BodyPlayerEffect::AttackedBy {
+                    victim_player: self.owner_player_id,
+                    selected_source: self.last_damage_source,
+                });
             }
             let fx_type = fx_override.unwrap_or(damage_type);
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
                 self,
                 fx_type,
-                damage.max(0.0),
+                if context.is_kill() {
+                    self.health.current
+                } else {
+                    amount.max(0.0)
+                },
                 frame,
                 context.source(),
             );
@@ -370,7 +383,6 @@ impl Object {
                 self.last_healing_timestamp = Some(now);
                 self.last_damage_timestamp = Some(now);
                 self.last_damage_source = source;
-                self.last_damage_source_preferred = false;
                 self.last_damage_info_type = Some(crate::game_logic::combat::DamageType::Healing);
             }
             let fx_type = fx_override.unwrap_or(damage_type);
@@ -405,6 +417,11 @@ impl Object {
             damage_type,
             crate::game_logic::combat::DamageType::KillPilot
         ) {
+            let amount = crate::game_logic::host_armor_residual::apply_residual_armor(
+                self,
+                damage_type,
+                damage,
+            );
             let fx_type = fx_override.unwrap_or(damage_type);
             if self.is_kind_of(crate::game_logic::KindOf::Vehicle)
                 || self.is_kind_of(crate::game_logic::KindOf::Aircraft)
@@ -415,12 +432,14 @@ impl Object {
                 if rider_change {
                     if self.status.moving {
                         self.health.current = 0.0;
+                        self.status.effectively_dead = true;
                         self.status.destroyed = true;
                         self.status.death_type = death_type;
                         crate::game_logic::host_death_type_log::record(
                             self.id,
                             self.status.death_type.ordinal(),
                         );
+                        self.refresh_model_condition_bits_with_source(context.source(), frame);
                         self.set_ai_state(AIState::Idle);
                         self.target = None;
                         health_events.record_applied_damage(
@@ -442,35 +461,53 @@ impl Object {
                                 },
                             },
                         );
-                        self.stamp_last_damage_cpp(source, false, damage_type, frame);
+                        if amount > 0.0 || context.is_kill() {
+                            self.stamp_last_damage_cpp(source, damage_type, frame, context);
+                            player_effects(BodyPlayerEffect::AttackedBy {
+                                victim_player: self.owner_player_id,
+                                selected_source: self.last_damage_source,
+                            });
+                        }
                         let _ =
                             crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
                                 self,
                                 fx_type,
-                                damage.max(0.0),
+                                if context.is_kill() {
+                                    self.health.current
+                                } else {
+                                    amount.max(0.0)
+                                },
                                 frame,
                                 context.source(),
                             );
                         if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
-                            record_neutral_vehicle_sniped();
+                            player_effects(BodyPlayerEffect::NeutralVehicleSniped);
                         }
                         return DamageApplication::Complete(true);
                     }
                     self.occupants.clear();
                     self.rider_change_scuttled_on_frame =
                         self.rider_change_scuttled_on_frame.max(1);
-                    if damage > 0.0 {
-                        self.stamp_last_damage_cpp(source, false, damage_type, frame);
+                    if amount > 0.0 || context.is_kill() {
+                        self.stamp_last_damage_cpp(source, damage_type, frame, context);
+                        player_effects(BodyPlayerEffect::AttackedBy {
+                            victim_player: self.owner_player_id,
+                            selected_source: self.last_damage_source,
+                        });
                     }
                     let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
                         self,
                         fx_type,
-                        damage.max(0.0),
+                        if context.is_kill() {
+                            self.health.current
+                        } else {
+                            amount.max(0.0)
+                        },
                         frame,
                         context.source(),
                     );
                     if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
-                        record_neutral_vehicle_sniped();
+                        player_effects(BodyPlayerEffect::NeutralVehicleSniped);
                     }
                     return DamageApplication::Complete(false);
                 }
@@ -478,22 +515,36 @@ impl Object {
                     // Detonation handled by combat caller; mark unmanned edge.
                 }
                 self.apply_kill_pilot_unmanned(health_events);
-                if let Some(event) = self.set_team_state(crate::game_logic::Team::Neutral) {
-                    if let Some(output) = ownership_events {
-                        output.record(event.object, event.team, event.owner_player_id);
-                    }
+                if let Some(output) = ownership_events {
+                    self.set_team_and_owner(
+                        crate::game_logic::Team::Neutral,
+                        context.neutral_player_id(),
+                        output,
+                    );
+                } else {
+                    // Detached bodies have no session owner/output; preserve
+                    // that explicit absence instead of discovering a Player.
+                    let _ = self.set_team_state(crate::game_logic::Team::Neutral);
                 }
                 if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
-                    record_neutral_vehicle_sniped();
+                    player_effects(BodyPlayerEffect::NeutralVehicleSniped);
                 }
             }
-            if damage > 0.0 {
-                self.stamp_last_damage_cpp(source, false, damage_type, frame);
+            if amount > 0.0 || context.is_kill() {
+                self.stamp_last_damage_cpp(source, damage_type, frame, context);
+                player_effects(BodyPlayerEffect::AttackedBy {
+                    victim_player: self.owner_player_id,
+                    selected_source: self.last_damage_source,
+                });
             }
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
                 self,
                 fx_type,
-                damage.max(0.0),
+                if context.is_kill() {
+                    self.health.current
+                } else {
+                    amount.max(0.0)
+                },
                 frame,
                 context.source(),
             );
@@ -507,20 +558,31 @@ impl Object {
         // take armor-scaled HP. Host EMP is a leftover alias of Microwave.
         // C++ SUBDUAL_* is not HP and is not DAMAGE_UNRESISTABLE.
         if damage_type.is_subdual() {
+            if !self.can_be_subdued() {
+                return DamageApplication::Complete(false);
+            }
             let typed = crate::game_logic::host_armor_residual::apply_residual_armor(
                 self,
                 damage_type,
                 damage,
             );
             self.apply_subdual_damage(typed, health_events);
-            if typed > 0.0 {
-                self.stamp_last_damage_cpp(source, false, damage_type, frame);
+            if typed > 0.0 || context.is_kill() {
+                self.stamp_last_damage_cpp(source, damage_type, frame, context);
+                player_effects(BodyPlayerEffect::AttackedBy {
+                    victim_player: self.owner_player_id,
+                    selected_source: self.last_damage_source,
+                });
             }
             let fx_type = fx_override.unwrap_or(damage_type);
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
                 self,
                 fx_type,
-                typed.max(0.0),
+                if context.is_kill() {
+                    self.health.current
+                } else {
+                    typed.max(0.0)
+                },
                 frame,
                 context.source(),
             );
@@ -544,14 +606,22 @@ impl Object {
                     }
                 }
             }
-            if amount > 0.0 {
-                self.stamp_last_damage_cpp(source, false, damage_type, frame);
+            if amount > 0.0 || context.is_kill() {
+                self.stamp_last_damage_cpp(source, damage_type, frame, context);
+                player_effects(BodyPlayerEffect::AttackedBy {
+                    victim_player: self.owner_player_id,
+                    selected_source: self.last_damage_source,
+                });
             }
             let fx_type = fx_override.unwrap_or(damage_type);
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
                 self,
                 fx_type,
-                amount.max(0.0),
+                if context.is_kill() {
+                    self.health.current
+                } else {
+                    amount.max(0.0)
+                },
                 frame,
                 context.source(),
             );
@@ -569,7 +639,7 @@ impl Object {
             frame,
             context,
             health_events,
-            &mut attacked_by,
+            &mut player_effects,
         )
     }
 
@@ -584,7 +654,7 @@ impl Object {
         frame: u32,
         context: &DamageHitContext,
         health_events: &mut crate::game_logic::HostHealthEvents,
-        attacked_by: &mut dyn FnMut(Option<u32>, Option<ObjectId>),
+        player_effects: &mut dyn FnMut(BodyPlayerEffect),
     ) -> DamageApplication {
         if self.status.destroyed {
             return DamageApplication::Complete(false);
@@ -605,7 +675,6 @@ impl Object {
             return DamageApplication::Complete(false);
         }
         let prev_health = self.health.current;
-        let old_body_state = self.body_damage_state;
         let max_health = if self.health.maximum > 0.0 {
             self.health.maximum
         } else {
@@ -704,14 +773,10 @@ impl Object {
             }
         }
 
-        // C++ ActiveBody::internalChangeHealth is a single write
-        // (ActiveBody.cpp:1188+). Always mutate host health.current this
-        // frame so mid-frame death / HP visibility matches C++, and still
-        // log for the GameWorld shadow channel.
-        if actual_damage > 0.0 {
-            self.previous_health = prev_health;
-        }
-        self.health.damage(actual_damage);
+        // CPP ActiveBody500–520 commits canonical Body and effectively-dead
+        // before lastDamageInfo/Player/onDamage. Keep the prior state for the
+        // later timed DamageModule transition, without consuming its edge.
+        let old_body_state = self.internal_change_health(-actual_damage);
         // C++ MinefieldBehavior::onDamage — next mine tick syncs virtuals from HP.
         if let Some(md) = self.mine_data.as_mut() {
             md.last_synced_health = None;
@@ -745,7 +810,7 @@ impl Object {
         // after armor+scalar. Same-or-next-frame prefers VEHICLE/INFANTRY/faction
         // structure over projectiles; 0-amount crush FX does not stamp.
         if actual_damage > 0.0 || context.is_kill() {
-            self.stamp_last_damage_cpp(source, destroyed, damage_type, frame);
+            self.stamp_last_damage_cpp(source, damage_type, frame, context);
         }
         health_events.record_applied_damage(
             self.id,
@@ -764,7 +829,16 @@ impl Object {
         );
         // C++ ActiveBody.cpp:574-581 setAttackedBy + :653 doDamageFX.
         if actual_damage > 0.0 || context.is_kill() {
-            attacked_by(self.owner_player_id, self.last_damage_source);
+            player_effects(BodyPlayerEffect::AttackedBy {
+                victim_player: self.owner_player_id,
+                selected_source: self.last_damage_source,
+            });
+        }
+        // CPP ActiveBody585: damage modules observe the Player notification.
+        if actual_damage > 0.0 {
+            if let Some(md) = self.mine_data.as_mut() {
+                md.on_damage_at(frame, actual_damage);
+            }
         }
         // C++ PoisonedBehavior::onDamage residual.
         if actual_damage > 0.0 {
@@ -809,7 +883,7 @@ impl Object {
             }
         }
 
-        self.refresh_model_condition_bits_with_source(context.source(), frame);
+        self.react_to_body_damage_state_change(old_body_state, context.source(), frame);
         let voice_fear_id = self.id;
         let voice_fear_pos = self.get_position();
         let voice_fear_player = self.owner_player_id;
@@ -1008,39 +1082,22 @@ impl Object {
     fn stamp_last_damage_cpp(
         &mut self,
         source: Option<ObjectId>,
-        preferred: bool,
         damage_type: crate::game_logic::combat::DamageType,
         frame: u32,
+        context: &DamageHitContext,
     ) {
-        self.last_damage_info_type = Some(damage_type);
-        let same_or_next = self.last_damage_timestamp == Some(frame)
-            || self.last_damage_timestamp == Some(frame.saturating_sub(1));
-        if !same_or_next {
+        let (incoming, previous) = context.last_damage_observations();
+        // CPP initializes m_lastDamageTimestamp to UINT_MAX. None represents
+        // that initial/unknown older-save state without inventing a frame.
+        let timestamp = self.last_damage_timestamp.unwrap_or(u32::MAX);
+        let same_or_next = timestamp == frame || timestamp == frame.wrapping_sub(1);
+        // CPP copies the entire DamageInfo only on this branch. A raw source
+        // ID and a lethal result cannot stand in for current source identity.
+        if !same_or_next || (incoming.exists && (!previous.exists || incoming.preferred)) {
+            self.last_damage_info_type = Some(damage_type);
             self.last_damage_source = source;
             self.last_damage_timestamp = Some(frame);
-            self.last_damage_source_preferred = preferred;
-            return;
         }
-        if source.is_none() {
-            return;
-        }
-        if self.last_damage_source.is_none() || preferred {
-            self.last_damage_source = source;
-            self.last_damage_timestamp = Some(frame);
-            self.last_damage_source_preferred = preferred;
-        }
-    }
-}
-
-pub(crate) fn record_neutral_vehicle_sniped() {
-    let Ok(list) = gamelogic::player::player_list().read() else {
-        return;
-    };
-    let Some(neutral) = list.get_neutral_player() else {
-        return;
-    };
-    if let Ok(mut player) = neutral.write() {
-        player.get_academy_stats_mut().record_vehicle_sniped();
     }
 }
 

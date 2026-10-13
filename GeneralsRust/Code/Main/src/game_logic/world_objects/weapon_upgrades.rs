@@ -1485,7 +1485,7 @@ impl GameLogic {
             Self::write_object_health_authority_aware(obj, cur, &mut self.health_events);
             obj.health.maximum = maximum;
             if live_maximum && obj.health.maximum > 0.0 && obj.health.current > obj.health.maximum {
-                obj.health.current = obj.health.maximum;
+                obj.internal_change_health(obj.health.maximum - obj.health.current);
             }
             self.health_events
                 .record_applied_heal(obj.id, obj.health.current);

@@ -288,7 +288,7 @@ impl Object {
             frame,
             context,
             health_events,
-            &mut |_, _| {},
+            &mut |_| {},
         );
         application.finish_standalone(self, context.source(), repulsor_policy)
     }

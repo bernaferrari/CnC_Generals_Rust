@@ -55,6 +55,11 @@ fn fixture() -> Fixture {
     assert!(husk.status.keep_as_rubble && husk.status.effectively_dead);
     assert!(!husk.status.destroyed && husk.health.current == 0.0);
     assert_eq!(husk.keep_object_die.as_ref().unwrap().rubble_frame, 37);
+    // A living damaged control can heal without a retained-object module.
+    logic
+        .host_object_mut(live)
+        .unwrap()
+        .internal_change_health(-50.0);
     // Encoding control only: dead HP without dispatch must not invent retained state.
     logic.host_object_mut(zero_hp).unwrap().health.current = 0.0;
     // Compatibility control uses the real existing bridge-husk operation, not KeepObject dispatch.
@@ -211,17 +216,20 @@ fn keepobject_save_file_live_and_zero_hp_controls_do_not_invent_retained_state()
     save_and_load(&f.logic, &mut loaded);
     for id in [f.live, f.zero_hp] {
         let object = loaded.host_object(id).unwrap();
-        assert!(!object.status.keep_as_rubble && !object.status.effectively_dead);
+        assert!(!object.status.keep_as_rubble);
+        assert_eq!(object.status.effectively_dead, object.health.current <= 0.0);
         assert!(!object.status.on_die_started && !object.status.destroyed);
         assert!(object.keep_object_die.is_none());
     }
     assert!(loaded.host_object(f.live).unwrap().is_alive());
     assert!(!loaded.host_object(f.zero_hp).unwrap().is_alive());
+    heal(&mut loaded, f.live);
+    assert_eq!(loaded.host_object(f.live).unwrap().health.current, 75.0);
     heal(&mut loaded, f.zero_hp);
     assert_eq!(
         loaded.host_object(f.zero_hp).unwrap().health.current,
-        25.0,
-        "zero HP alone must not invent KeepObject and suppress permitted healing"
+        0.0,
+        "CPP ActiveBody.cpp:795 rejects healing an effectively dead non-bridge, independently of KeepObject"
     );
     assert!(!loaded.host_object(f.zero_hp).unwrap().status.on_die_started);
 }
@@ -258,7 +266,8 @@ fn keepobject_snapshot_builder_restores_kept_state_alongside_exact_latch() {
     assert_eq!(kept.keep_object_die.as_ref().unwrap().rubble_frame, 37);
     for id in [f.live, f.zero_hp] {
         let object = loaded.host_object(id).unwrap();
-        assert!(!object.status.keep_as_rubble && !object.status.effectively_dead);
+        assert!(!object.status.keep_as_rubble);
+        assert_eq!(object.status.effectively_dead, object.health.current <= 0.0);
         assert!(!object.status.on_die_started && object.keep_object_die.is_none());
     }
 }

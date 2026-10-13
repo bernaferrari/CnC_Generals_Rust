@@ -1443,7 +1443,8 @@ mod tests {
         let envelope = logic
             .host_object(id)
             .expect("obj")
-            .entity_lifecycle_envelope_with_railroad(logic.railroad.get(id));
+            .entity_lifecycle_envelope_with_railroad(logic.railroad.get(id))
+            .expect("valid lifecycle capture");
         logic.railroad_registry_reset();
         assert!(logic.railroad_car(id).is_none());
         let restored = logic

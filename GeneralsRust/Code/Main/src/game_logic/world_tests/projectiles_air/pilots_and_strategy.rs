@@ -983,6 +983,9 @@ fn eject_pilot_parachute_open_fudge_and_free_fall_damage_residual() {
         p.set_status_parachute_open(true); // open chute then cut residual
         p.health.current = p.health.maximum;
     }
+    // This is an established match-frame falling witness; C++ frame-zero
+    // UINT_MAX history initialization has a separate exact negative control.
+    game_logic.frame = 2;
     let hp_before = game_logic.host_object(pilot_id).unwrap().health.current;
     let max_hp = game_logic.host_object(pilot_id).unwrap().health.maximum;
     assert!(!game_logic.honesty_pilot_free_fall_damage_ok());
@@ -1061,6 +1064,7 @@ fn parachute_loss_falling_damage_observes_defensive_body_scalar() {
         assert!(HOLD_THE_LINE_ARMOR_DAMAGE_SCALAR < 1.0);
         free_fall_damage_amount(object.health.maximum) * HOLD_THE_LINE_ARMOR_DAMAGE_SCALAR
     };
+    logic.frame = 2;
     assert!(logic.destroy_eject_parachute_midair(rider));
     let object = logic.host_object(rider).unwrap();
     assert_eq!(object.last_damage_info_type, Some(DamageType::Falling));

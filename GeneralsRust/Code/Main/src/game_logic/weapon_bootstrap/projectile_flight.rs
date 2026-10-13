@@ -454,7 +454,7 @@ pub fn apply_garrison_hit_kill(
             continue;
         }
         let _ = launcher_id;
-        occupant.health.current = 0.0;
+        occupant.internal_change_health(-occupant.health.current);
         occupant.status.destroyed = true;
         occupant.status.effectively_dead = true;
         killed.push(occupant_id);

@@ -227,8 +227,9 @@ impl Object {
             let frames = (self.thing.template.build_time * 30.0).max(1.0);
             let per_frame = self.health.maximum / frames;
             let logic_frames = (dt * 30.0).max(0.0);
-            self.health.current =
+            let target =
                 (self.health.current.max(1.0) + per_frame * logic_frames).min(self.health.maximum);
+            self.internal_change_health(target - self.health.current);
 
             if self.construction_percent >= 1.0 {
                 self.construction_percent = 1.0;
@@ -1107,15 +1108,8 @@ impl Object {
         } else {
             self.max_health.max(1.0)
         };
-        let ratio = self.health.current / old_max;
         let new_max = (old_max * scale).max(1.0);
-        let before = self.health.current;
-        self.set_body_max_health(new_max);
-        self.previous_health = before;
-        self.health.current = (new_max * ratio).clamp(0.0, new_max);
-        if (self.health.current - before).abs() > 1e-4 {
-            self.refresh_model_condition_bits();
-        }
+        self.set_body_max_health_with_mode(new_max, super::MaxHealthChange::PreserveRatio);
     }
 
     pub(crate) fn apply_veterancy_bonuses(

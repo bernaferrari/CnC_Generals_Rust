@@ -1317,10 +1317,9 @@ impl Object {
         let _ = self.set_weapon_set_flag(0, true);
         let chain = has_chain_guns_upgrade(&self.applied_upgrades);
         let _ = self.replace_weapon_set_slot(1, Some(overlord_gattling_air_weapon(0, chain)));
-        self.continuous_fire_consecutive = 0;
+
         self.continuous_fire_level = 0;
         self.continuous_fire_coast_until_frame = 0;
-        self.continuous_fire_victim = 0;
 
         self.record_host_continuous_fire();
         self.record_host_weapon_set();
@@ -1388,12 +1387,12 @@ impl Object {
         ) {
             return;
         }
-        self.health.current =
+        let target =
             crate::game_logic::host_overlord_addon_damage::overlord_addon_set_damage_state_health(
                 self.health.maximum.max(0.0),
                 new_state,
             );
-        self.refresh_model_condition_bits();
+        self.internal_change_health(target - self.health.current);
     }
 
     /// True when portable gattling residual is active on this host.

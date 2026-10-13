@@ -26,9 +26,6 @@ pub mod host_anthrax_bomb_drop_log;
 #[path = "host_artillery_barrage_drop_log.rs"]
 pub mod host_artillery_barrage_drop_log;
 
-#[path = "host_body_damage_log.rs"]
-pub mod host_body_damage_log;
-
 #[path = "host_bounce_land_log.rs"]
 pub mod host_bounce_land_log;
 

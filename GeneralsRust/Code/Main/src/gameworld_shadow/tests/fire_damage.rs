@@ -862,12 +862,25 @@ fn residual_auto_fire_damage_source_writeback_channel() {
     let victim = logic
         .create_object("SrcB", Team::China, glam::Vec3::new(10.0, 0.0, 0.0))
         .expect("v");
-    {
-        let (v, health_events) = logic.host_object_and_health_events_mut(victim).unwrap();
-        let _ = v.take_damage_from(25.0, Some(attacker), health_events);
-        assert_eq!(v.last_damage_source, Some(attacker));
-        // The actual nonlethal owner write retains its source.
-    }
+    let kind = crate::game_logic::combat::DamageType::Unresistable;
+    let context =
+        crate::game_logic::object::DamageHitContext::new(logic.host_object(attacker), None, kind);
+    logic
+        .apply_owned_damage(
+            victim,
+            25.0,
+            Some(attacker),
+            kind,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &context,
+        )
+        .unwrap();
+    assert_eq!(
+        logic.host_object(victim).unwrap().last_damage_source,
+        Some(attacker)
+    );
+    // The actual receiving nonlethal owner write retains its source.
     let events = logic.health_events.drain_damage();
     assert!(
         events

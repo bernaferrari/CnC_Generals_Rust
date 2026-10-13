@@ -65,7 +65,13 @@ fn save_file_roundtrip_preserves_lifecycle_envelope() {
     assert_eq!(object.emoticon_name, "Cheer");
     assert_eq!(object.emoticon_frames_left, 18);
     assert!(object.carpet_bomb_payload);
-    assert!(!object.entity_lifecycle_envelope().module_states.is_empty());
+    assert!(
+        !object
+            .entity_lifecycle_envelope()
+            .expect("valid lifecycle capture")
+            .module_states
+            .is_empty()
+    );
 }
 
 #[test]
@@ -152,4 +158,33 @@ fn save_file_absent_lifecycle_tail_loads_empty() {
     assert!(logic.host_objects().is_empty());
     let decoded = decode_lifecycle_tail(&snapshot.lifecycle_tail).expect("empty");
     assert!(decoded.envelopes.is_empty());
+}
+
+#[test]
+fn failed_tracker_encoding_rejects_normal_capture_and_save() {
+    let save_dir = tempfile::TempDir::new().expect("temp save dir");
+    let mut manager = SaveFileManager::with_save_directory(save_dir.path());
+    manager.init().expect("init");
+    let mut owner = GameLogic::new();
+    owner.templates.insert(
+        "InvalidTracker".into(),
+        ThingTemplate::new("InvalidTracker"),
+    );
+    let id = owner
+        .create_object("InvalidTracker", Team::USA, Vec3::ZERO)
+        .unwrap();
+    owner.host_object_mut(id).unwrap().continuous_fire_level = 3;
+    assert!(super::lifecycle_tail::capture_lifecycle_tail(&owner).is_err());
+    assert!(
+        SnapshotBuilder::new()
+            .create_world_snapshot(&owner)
+            .is_err()
+    );
+    assert!(
+        manager
+            .save_game("invalid_tracker", &owner, &save_info("invalid_tracker"))
+            .is_err()
+    );
+    assert_eq!(owner.host_object(id).unwrap().continuous_fire_level, 3);
+    assert!(!save_dir.path().join("invalid_tracker.gsv").exists());
 }

@@ -715,23 +715,18 @@ impl GameLogic {
             .objects
             .get(&crushee_id)
             .and_then(|object| object.last_damage_source);
-        let source_players = [Some(crusher_id), previous_source].map(|source| {
-            source.and_then(|id| {
-                self.objects
-                    .get(&id)
-                    .and_then(|object| object.owner_player_id.map(|player| (id, player)))
-            })
-        });
+        let source_players = self.physics_damage_sources([Some(crusher_id), previous_source]);
         let players = &mut self.players;
         let frame = self.frame;
-        let mut attacked_by = |victim, source| {
-            Self::notify_residual_attacked_by(players, frame, &source_players, victim, source)
+        let mut player_effects = |effect| {
+            Self::apply_body_player_effect(players, frame, &source_players.players, effect)
         };
         let mut services = crate::game_logic::object::PhysicsDamageServices {
+            sources: &source_players,
             frame,
             health_events: &mut self.health_events,
             repulsors: &self.enable_repulsors,
-            attacked_by: &mut attacked_by,
+            player_effects: &mut player_effects,
         };
         let [Some(crusher), Some(crushee)] =
             self.objects.get_disjoint_mut([&crusher_id, &crushee_id])
@@ -907,7 +902,7 @@ impl GameLogic {
                 // Damage authority: HP last-writer via damage log; destroy flag stays host.
                 let hp = v.health.current.max(1.0);
                 {
-                    v.health.current = 0.0;
+                    v.internal_change_health(-v.health.current);
                 }
                 v.status.destroyed = true;
                 v.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Exploded;

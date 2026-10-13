@@ -616,17 +616,16 @@ impl Object {
             }
             return;
         }
-        // C++ PoisonedBehavior::onHealing residual.
-        self.clear_poisoned_on_healing();
         // C++ ActiveBody::attemptHealing -> internalChangeHealth commits the
         // body before subsequent callbacks/readers. Shadow admission observes
         // this completed write; it must not decide when the owner sees healing.
         if self.health.maximum <= 0.0 && cap > 0.0 {
             self.health.maximum = cap;
         }
-        self.previous_health = before;
-        self.health.current = projected;
+        let old_body_state = self.internal_change_health(projected - before);
         health_events.record_applied_heal(self.id, self.health.current);
-        self.refresh_model_condition_bits_with_source(source, frame);
+        // CPP onHealing callbacks run after ordinary Body math/flags.
+        self.clear_poisoned_on_healing();
+        self.react_to_body_damage_state_change(old_body_state, source, frame);
     }
 }

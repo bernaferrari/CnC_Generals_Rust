@@ -1391,7 +1391,7 @@ impl GameWorldShadow {
         e.weapon_bonus_battle_plan_search_and_destroy =
             obj.weapon_bonus_battle_plan_search_and_destroy;
         e.continuous_fire_level = obj.continuous_fire_level;
-        e.continuous_fire_consecutive = obj.continuous_fire_consecutive.min(u16::MAX as u32) as u16;
+        e.continuous_fire_consecutive = obj.consecutive_shots_at_target.min(u16::MAX as u32) as u16;
         e.faerie_fire_until_frame = obj.faerie_fire_until_frame;
         e.is_humvee_transport = obj.is_humvee_transport;
         e.is_listening_outpost_transport = obj.is_listening_outpost_transport;
@@ -1511,7 +1511,7 @@ impl GameWorldShadow {
         e.max_shots_to_fire = obj.max_shots_to_fire;
         e.attack_substate_ordinal = obj.attack_substate.to_ordinal();
         e.approach_timestamp = obj.approach_timestamp;
-        e.continuous_fire_victim = obj.continuous_fire_victim;
+        e.continuous_fire_victim = obj.consecutive_shot_target.map_or(0, |id| id.0);
         e.maintain_pos_valid = obj.maintain_pos_valid;
         e.maintain_pos = obj.maintain_pos.map(|p| [p.x, p.y, p.z]);
         e.temporary_move_frames = obj.temporary_move_frames;

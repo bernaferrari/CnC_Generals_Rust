@@ -35,21 +35,23 @@ fn main_only_todo_groups_round_trip_when_present() {
     src.weapon = Some(Weapon {
         damage: 33.0,
         ..Weapon::default()
-});
+    });
     src.active_weapon_slot = 1;
     src.turret_enabled = true;
     src.turret_substate = TurretSubState::Aim;
     src.turret_target_id = Some(ObjectId(9));
     src.object_status_bits = 0x10;
     src.model_condition_bits = 0x20;
-    src.continuous_fire_consecutive = 6;
+    src.consecutive_shots_at_target = 6;
     src.continuous_fire_level = 2;
     src.subdual_damage = 25.0;
     src.subdual_heal_amount = 1.5;
     src.has_overlord_gattling_addon = true;
     src.overlord_bunker_capacity = Some(5);
 
-    let envelope = src.entity_lifecycle_envelope();
+    let envelope = src
+        .entity_lifecycle_envelope()
+        .expect("valid lifecycle capture");
     let tags: Vec<&str> = envelope
         .module_states
         .iter()
@@ -108,6 +110,7 @@ fn main_only_todo_groups_round_trip_when_present() {
 fn default_object_does_not_emit_todo_inventory_tags() {
     let tags: Vec<String> = test_object()
         .entity_lifecycle_envelope()
+        .expect("valid lifecycle capture")
         .module_states
         .iter()
         .map(|m| m.tag.clone())

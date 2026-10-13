@@ -86,7 +86,7 @@ impl SnapshotBuilder {
             shroud: self.snapshot_shroud_state(game_logic)?,
             lifecycle_tail: {
                 let mut bytes = super::super::lifecycle_tail::encode_lifecycle_tail(
-                    &super::super::lifecycle_tail::capture_lifecycle_tail(game_logic),
+                    &super::super::lifecycle_tail::capture_lifecycle_tail(game_logic)?,
                 );
                 super::super::special_power_cooldown_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
@@ -672,6 +672,12 @@ impl SnapshotBuilder {
         // Player's saved counts are canonical. Reconstruct only the derived
         // lifecycle admission map before a resumed capture/delete can observe it.
         game_logic.rebuild_host_radar_provider_admission();
+        // All saved status/HP overlays are installed. Keep the exact restored
+        // Body enum and any positive-HP AI-dead flag; zero HP is always dead.
+        // Pure model reconstruction must not replay damage or death callbacks.
+        for object in game_logic.host_objects_mut().values_mut() {
+            object.restore_body_observation(Some(object.body_damage_state));
+        }
         log::info!("World restoration complete");
         Ok(())
     }

@@ -202,7 +202,7 @@ fn present_groups(
         ),
         (
             TAG_FIRING_TRACKER,
-            super::entity_lifecycle_inventory::FiringTrackerResidual::present(object),
+            super::entity_lifecycle_inventory::FiringTrackerPersist::present(object),
         ),
         (
             TAG_FIRE_OCL_AFTER_COOLDOWN,
@@ -274,7 +274,9 @@ fn attach_round_trip_with_railroad(
     object: &Object,
     railroad: Option<&crate::game_logic::host_railroad::HostRailroadCar>,
 ) {
-    let envelope = object.entity_lifecycle_envelope_with_railroad(railroad);
+    let envelope = object
+        .entity_lifecycle_envelope_with_railroad(railroad)
+        .expect("valid lifecycle capture");
     let present = present_groups(object, railroad);
     let emitted: Vec<&str> = envelope
         .module_states

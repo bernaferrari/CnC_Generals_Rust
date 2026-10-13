@@ -123,43 +123,9 @@ impl SpawnBehaviorHiveResidual {
     }
 }
 
-/// C++ `FiringTracker::xfer` live consecutive-shot / coast residual.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct FiringTrackerResidual {
-    pub consecutive_shots: u32,
-    pub consecutive_target: Option<crate::game_logic::ObjectId>,
-    pub continuous_fire_level: u8,
-    pub coast_until_frame: u32,
-    pub force_reload_frame: u32,
-}
-
-impl FiringTrackerResidual {
-    pub(crate) fn present(object: &Object) -> bool {
-        object.consecutive_shots_at_target > 0
-            || object.consecutive_shot_target.is_some()
-            || object.continuous_fire_level > 0
-            || object.continuous_fire_coast_until_frame != 0
-            || object.frame_to_force_reload != 0
-    }
-
-    pub(crate) fn from_object(object: &Object) -> Self {
-        Self {
-            consecutive_shots: object.consecutive_shots_at_target,
-            consecutive_target: object.consecutive_shot_target,
-            continuous_fire_level: object.continuous_fire_level,
-            coast_until_frame: object.continuous_fire_coast_until_frame,
-            force_reload_frame: object.frame_to_force_reload,
-        }
-    }
-
-    pub(crate) fn apply(self, object: &mut Object) {
-        object.consecutive_shots_at_target = self.consecutive_shots;
-        object.consecutive_shot_target = self.consecutive_target;
-        object.continuous_fire_level = self.continuous_fire_level;
-        object.continuous_fire_coast_until_frame = self.coast_until_frame;
-        object.frame_to_force_reload = self.force_reload_frame;
-    }
-}
+#[path = "firing_tracker_persist.rs"]
+mod firing_tracker_persist;
+pub(crate) use firing_tracker_persist::{FiringTrackerPersist, decode as decode_firing_tracker};
 
 pub(crate) fn collect_module_states(
     object: &Object,
@@ -312,12 +278,12 @@ pub(crate) fn collect_module_states(
         SpawnBehaviorHiveResidual::present(object),
         &SpawnBehaviorHiveResidual::from_object(object),
     )?;
-    push_present(
-        &mut out,
-        TAG_FIRING_TRACKER,
-        FiringTrackerResidual::present(object),
-        &FiringTrackerResidual::from_object(object),
-    )?;
+    if FiringTrackerPersist::present(object) {
+        out.push(EntityModuleState {
+            tag: TAG_FIRING_TRACKER.to_owned(),
+            payload: firing_tracker_persist::encode(object)?,
+        });
+    }
     push_opt(
         &mut out,
         TAG_FIRE_OCL_AFTER_COOLDOWN,

@@ -531,7 +531,7 @@ impl GameLogic {
     pub(crate) fn set_health_absolute_authority_aware(&mut self, object_id: ObjectId, health: f32) {
         let hp = health.max(0.0);
         if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.health.current = hp.min(obj.health.maximum.max(hp));
+            obj.internal_change_health(hp - obj.health.current);
             self.health_events
                 .record_applied_heal(object_id, obj.health.current);
         } else {
@@ -545,7 +545,7 @@ impl GameLogic {
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) {
         let hp = health.max(0.0);
-        obj.health.current = hp.min(obj.health.maximum.max(hp));
+        obj.internal_change_health(hp - obj.health.current);
         health_events.record_applied_heal(obj.id, obj.health.current);
     }
 
@@ -558,7 +558,7 @@ impl GameLogic {
     ) {
         if let Some(obj) = self.objects.get_mut(&object_id) {
             if obj.health.current > 0.0 {
-                obj.health.current = 0.0;
+                obj.internal_change_health(-obj.health.current);
             }
             obj.status.destroyed = true;
         }
@@ -571,7 +571,7 @@ impl GameLogic {
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) {
         if obj.health.current > 0.0 {
-            obj.health.current = 0.0;
+            obj.internal_change_health(-obj.health.current);
         }
         obj.status.destroyed = true;
     }

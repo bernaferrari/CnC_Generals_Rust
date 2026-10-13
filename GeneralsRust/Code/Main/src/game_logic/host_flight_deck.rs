@@ -773,7 +773,7 @@ impl GameLogic {
                 if !jet.is_alive() {
                     continue;
                 }
-                jet.health.current = 0.0;
+                jet.internal_change_health(-jet.health.current);
                 jet.status.destroyed = true;
                 jet.status.effectively_dead = true;
             }

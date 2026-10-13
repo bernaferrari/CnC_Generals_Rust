@@ -165,7 +165,7 @@ fn train_held_action_before_first_tick_is_owned_and_failed_restore_preserves_pee
     assert!(peer.railroad_car(train).is_none());
     peer.set_railroad_held(train, false);
     assert!(!peer.railroad_car(train).unwrap().held);
-    let tail = capture_lifecycle_tail(&owner);
+    let tail = capture_lifecycle_tail(&owner).expect("valid lifecycle capture");
     owner.set_railroad_held(train, false);
     apply_lifecycle_tail_to_host(&tail, &mut owner).unwrap();
     assert!(owner.railroad_car(train).unwrap().held);

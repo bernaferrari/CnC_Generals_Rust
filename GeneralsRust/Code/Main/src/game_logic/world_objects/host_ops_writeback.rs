@@ -459,26 +459,6 @@ impl GameLogic {
     #[inline]
     pub fn apply_host_residual_mutation_op(&mut self, op: HostResidualMutationOp) {
         match op {
-            HostResidualMutationOp::ForceKill {
-                id,
-                death_type,
-                refresh_model_condition,
-                mark_destroy,
-            } => {
-                if let Some(obj) = self.host_objects_mut().get_mut(&id) {
-                    obj.health.current = 0.0;
-                    obj.status.destroyed = true;
-                    if let Some(dt) = death_type {
-                        obj.status.death_type = dt;
-                    }
-                    if refresh_model_condition {
-                        obj.refresh_model_condition_bits();
-                    }
-                }
-                if mark_destroy {
-                    self.mark_object_for_destruction(id, None);
-                }
-            }
             HostResidualMutationOp::SetPendingFireWhenDamaged {
                 id,
                 weapon,
@@ -502,7 +482,7 @@ impl GameLogic {
                         obj.set_position(pos);
                     }
                     {
-                        obj.health.current = 0.0;
+                        obj.internal_change_health(-obj.health.current);
                     }
                     obj.status.destroyed = true;
                     if effectively_dead {
@@ -603,7 +583,7 @@ impl GameLogic {
             }
             HostResidualMutationOp::DestroyBomb { id, mark_destroy } => {
                 if let Some(obj) = self.host_objects_mut().get_mut(&id) {
-                    obj.health.current = 0.0;
+                    obj.internal_change_health(-obj.health.current);
                     obj.status.destroyed = true;
                 }
                 if mark_destroy {

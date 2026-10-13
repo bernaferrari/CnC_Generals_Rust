@@ -291,7 +291,9 @@ mod tests {
         src.last_damage_source = Some(ObjectId(9));
         src.last_damage_timestamp = Some(44);
         src.apply_crush_die_model_conditions();
-        let envelope = src.entity_lifecycle_envelope();
+        let envelope = src
+            .entity_lifecycle_envelope()
+            .expect("valid lifecycle capture");
         assert!(
             envelope
                 .module_states
@@ -325,7 +327,9 @@ mod tests {
         src.motive_frames_remaining = 5;
         src.extra_friction = -0.02;
         src.refresh_model_condition_bits();
-        let envelope = src.entity_lifecycle_envelope();
+        let envelope = src
+            .entity_lifecycle_envelope()
+            .expect("valid lifecycle capture");
         assert!(
             envelope
                 .module_states
@@ -363,7 +367,9 @@ mod tests {
         car.track_data_loaded = true;
         car.held = true;
 
-        let envelope = src.entity_lifecycle_envelope_with_railroad(Some(&car));
+        let envelope = src
+            .entity_lifecycle_envelope_with_railroad(Some(&car))
+            .expect("valid lifecycle capture");
         assert!(
             envelope
                 .module_states

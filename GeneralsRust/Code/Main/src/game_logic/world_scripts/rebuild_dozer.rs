@@ -233,7 +233,7 @@ impl GameLogic {
                     unit.set_status_moving(false);
                     unit.set_status_attacking(false);
                     unit.status.destroyed = true;
-                    unit.health.current = 0.0;
+                    unit.internal_change_health(-unit.health.current);
                 }
                 // C++ dying-object combat engagement clear goes through the
                 // AI decision channel (Object::onDie → aiIdle family); the
@@ -1833,7 +1833,6 @@ impl GameLogic {
             // This is initial state, before the hole can take damage. Match
             // setMaxHealth's max and clipped current HP on both host and shadow.
             h.set_body_max_health(hole_max_health);
-            h.health.current = h.health.current.min(hole_max_health);
             h.is_rebuild_hole = true;
             h.rebuild_template_name = Some(template_name);
             h.rebuild_spawner_id = Some(destroyed_id);

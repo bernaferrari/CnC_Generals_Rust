@@ -1044,7 +1044,7 @@ impl PresentationFrame {
                 stealth_breaks_on_move: obj.stealth_breaks_on_move,
                 innate_stealth: obj.innate_stealth,
                 weapon_bonus_frenzy_until_frame: obj.weapon_bonus_frenzy_until_frame,
-                continuous_fire_consecutive: obj.continuous_fire_consecutive.min(u16::MAX as u32)
+                continuous_fire_consecutive: obj.consecutive_shots_at_target.min(u16::MAX as u32)
                     as u16,
                 continuous_fire_coast_until_frame: obj.continuous_fire_coast_until_frame,
                 battle_plan_sight_scalar_applied: obj.battle_plan_sight_scalar_applied,

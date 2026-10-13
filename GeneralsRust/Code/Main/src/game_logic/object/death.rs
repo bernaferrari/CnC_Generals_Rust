@@ -294,7 +294,7 @@ impl Object {
         if hd.tick(current_frame, hat, contained) {
             self.health.current = 0.0;
             self.status.destroyed = true;
-            self.refresh_model_condition_bits();
+            self.refresh_model_condition_bits_with_source(None, current_frame);
             return true;
         }
         false
@@ -315,7 +315,9 @@ impl Object {
         let mut data = crate::game_logic::host_keep_object_die::HostKeepObjectDieData::default();
         data.mark_rubble(current_frame);
         self.keep_object_die = Some(data);
-        self.health.current = 0.0;
+        if self.health.current > 0.0 {
+            self.internal_change_health(-self.health.current);
+        }
         self.status.effectively_dead = true;
         self.status.keep_as_rubble = true;
         // C++ ActiveBody::setCorrectDamageState rubble: collapse Z +
@@ -411,10 +413,8 @@ impl Object {
         }
         self.apply_slow_death_phase_fx(&mut sd);
         self.slow_death = Some(sd);
-        // Keep a sliver of HP bookkeeping like structure topple residual.
-        if self.health.current <= 0.0 {
-            self.health.current = 0.01;
-        }
+        // CPP SlowDeath retains the dead Body. Its owned timer and Physics
+        // continue without healing HP or replaying a damage-state transition.
         // Mark "dead" for AI but not removed yet.
         self.set_ai_state(crate::game_logic::AIState::Idle);
         self.target = None;
@@ -1020,7 +1020,7 @@ impl Object {
         };
         self.dispatch_pending_topple_fx(pos);
         if kill_now {
-            self.health.current = 0.0;
+            self.internal_change_health(-self.health.current);
             self.status.destroyed = true;
             self.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
         }
@@ -1059,7 +1059,7 @@ impl Object {
             return false;
         }
         // deathByToppling: UNRESISTABLE + DEATH_TOPPLED
-        self.health.current = 0.0;
+        self.internal_change_health(-self.health.current);
         self.status.destroyed = true;
         self.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
         true

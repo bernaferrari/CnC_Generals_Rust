@@ -211,7 +211,7 @@ impl GameLogic {
                         let build_hp = (obj.health.current + per_frame * logic_frames)
                             .clamp(0.0, obj.health.maximum);
                         {
-                            obj.health.current = build_hp;
+                            obj.internal_change_health(build_hp - obj.health.current);
                             self.health_events
                                 .record_applied_heal(id, obj.health.current);
                         }

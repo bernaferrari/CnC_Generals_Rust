@@ -28,6 +28,41 @@ impl OwnedDamageResult {
 }
 
 impl GameLogic {
+    pub(in crate::game_logic) fn record_neutral_vehicle_sniped(
+        players: &mut std::collections::HashMap<u32, crate::game_logic::Player>,
+    ) {
+        let neutral = players
+            .iter()
+            .filter_map(|(id, player)| player.is_reserved_neutral().then_some(*id))
+            .min();
+        if let Some(player) = neutral.and_then(|id| players.get_mut(&id)) {
+            player.academy_stats.record_vehicle_sniped();
+        }
+    }
+
+    pub(in crate::game_logic) fn apply_body_player_effect(
+        players: &mut std::collections::HashMap<u32, crate::game_logic::Player>,
+        frame: u32,
+        source_players: &[Option<(ObjectId, u32)>],
+        effect: crate::game_logic::object::BodyPlayerEffect,
+    ) {
+        match effect {
+            crate::game_logic::object::BodyPlayerEffect::AttackedBy {
+                victim_player,
+                selected_source,
+            } => Self::notify_residual_attacked_by(
+                players,
+                frame,
+                source_players,
+                victim_player,
+                selected_source,
+            ),
+            crate::game_logic::object::BodyPlayerEffect::NeutralVehicleSniped => {
+                Self::record_neutral_vehicle_sniped(players)
+            }
+        }
+    }
+
     /// Shared bounded Body callback; source observations belong to this owner
     /// and are captured before its non-reentrant body mutation.
     pub(in crate::game_logic) fn notify_residual_attacked_by(
@@ -79,14 +114,24 @@ impl GameLogic {
                     .and_then(|object| object.owner_player_id.map(|player| (id, player)))
             })
         });
-        let players = &mut self.players;
         let frame = self.frame;
-        let context = DamageHitContext::default();
+        let context = DamageHitContext::default()
+            .with_last_damage_sources(
+                source_id.and_then(|id| self.objects.get(&id)),
+                previous_source.and_then(|id| self.objects.get(&id)),
+            )
+            .with_neutral_player_id(
+                self.players
+                    .iter()
+                    .filter_map(|(id, player)| player.is_reserved_neutral().then_some(*id))
+                    .min(),
+            );
+        let players = &mut self.players;
         let victim = self
             .objects
             .get_mut(&victim_id)
             .expect("validated receiving victim");
-        let application = victim.begin_damage_with_context_and_attacked_by(
+        let application = victim.begin_damage_with_context_and_player_effects(
             amount,
             source_id,
             damage_type,
@@ -96,14 +141,8 @@ impl GameLogic {
             &context,
             &mut self.health_events,
             Some(&mut self.ownership_events),
-            |victim_player, selected_source| {
-                Self::notify_residual_attacked_by(
-                    players,
-                    frame,
-                    &source_players,
-                    victim_player,
-                    selected_source,
-                );
+            |effect| {
+                Self::apply_body_player_effect(players, frame, &source_players, effect);
             },
         );
         application.finish_standalone(victim, None, &self.enable_repulsors)
@@ -212,30 +251,37 @@ impl GameLogic {
                     .and_then(|object| object.owner_player_id.map(|player| (id, player)))
             })
         });
+        let context = context
+            .clone()
+            .with_last_damage_sources(
+                source_id.and_then(|id| self.objects.get(&id)),
+                previous_source.and_then(|id| self.objects.get(&id)),
+            )
+            .with_neutral_player_id(
+                self.players
+                    .iter()
+                    .filter_map(|(id, player)| player.is_reserved_neutral().then_some(*id))
+                    .min(),
+            );
         let players = &mut self.players;
         let frame = self.frame;
         let victim = self.objects.get_mut(&victim_id)?;
         let before_hp = victim.health.current;
-        let mut application: DamageApplication = victim.begin_damage_with_context_and_attacked_by(
-            damage,
-            source_id,
-            damage_type,
-            death_type,
-            fx_override,
-            self.frame,
-            context,
-            &mut self.health_events,
-            Some(&mut self.ownership_events),
-            |victim_player, selected_source| {
-                Self::notify_residual_attacked_by(
-                    players,
-                    frame,
-                    &source_players,
-                    victim_player,
-                    selected_source,
-                );
-            },
-        );
+        let mut application: DamageApplication = victim
+            .begin_damage_with_context_and_player_effects(
+                damage,
+                source_id,
+                damage_type,
+                death_type,
+                fx_override,
+                self.frame,
+                &context,
+                &mut self.health_events,
+                Some(&mut self.ownership_events),
+                |effect| {
+                    Self::apply_body_player_effect(players, frame, &source_players, effect);
+                },
+            );
         let hp_lost = (before_hp - victim.health.current).max(0.0);
         let victim_position = victim.get_position();
         let victim_team = victim.team;
@@ -515,3 +561,7 @@ mod repulsor_owner_tests;
 #[cfg(test)]
 #[path = "repulsor_fx_order_tests.rs"]
 mod repulsor_fx_order_tests;
+
+#[cfg(test)]
+#[path = "sniper_academy_owner_tests.rs"]
+mod sniper_academy_owner_tests;

@@ -572,7 +572,7 @@ impl Object {
     }
 
     pub fn record_host_continuous_fire(&self) {
-        let consecutive = self.continuous_fire_consecutive.min(u16::MAX as u32) as u16;
+        let consecutive = self.consecutive_shots_at_target.min(u16::MAX as u32) as u16;
         crate::game_logic::host_continuous_fire_log::record(
             self.id,
             self.continuous_fire_level,

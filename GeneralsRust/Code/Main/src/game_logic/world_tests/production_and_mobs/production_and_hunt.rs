@@ -1856,6 +1856,7 @@ fn saved_object_keeps_path_extra_distance() {
         unit.is_exact_path = true;
         unit.is_attack_path = false;
         unit.entity_lifecycle_envelope()
+            .expect("valid lifecycle capture")
     };
     {
         let unit = logic.host_object_mut(id).expect("unit");

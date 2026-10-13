@@ -106,6 +106,7 @@ fn read_inventory_audit_buckets() {
     let object = representative_object();
     let produced: Vec<String> = object
         .entity_lifecycle_envelope()
+        .expect("valid lifecycle capture")
         .module_states
         .iter()
         .map(|m| m.tag.clone())

@@ -132,19 +132,23 @@ impl GameLogic {
                         }
                     }
                 }
-                // CPP LifetimeUpdate returns FOREVER after its initial kill.
-                // This Object owns the timer even when movement is mirrored.
-                // Keep the existing initial mark/onDie boundary below; it is
-                // distinct from explicit final destroy_object.
-                // Wave 745: retain the existing damage-authority HP channel.
-                if obj.tick_lifetime_update(self.frame) {
-                    lifetime_kill = true;
-                    {
-                        obj.health.current = 0.0;
-                        obj.status.destroyed = true;
-                        obj.refresh_model_condition_bits();
-                    }
+                // CPP LifetimeUpdate::update calls Object::kill at this point,
+                // then sleeps forever. End the module/Object loan before the
+                // receiving Body dispatch; its immediate callbacks can reenter.
+                let lifetime_due = obj.tick_lifetime_update(self.frame);
+                let _ = obj;
+                if lifetime_due {
+                    lifetime_kill = self
+                        .apply_owned_kill(
+                            object_id,
+                            crate::game_logic::combat::DamageType::Unresistable,
+                            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                        )
+                        .is_some_and(|result| result.destroyed());
                 }
+                let Some(obj) = self.objects.get_mut(&object_id) else {
+                    continue;
+                };
                 // C++ MissileLauncherBuildingUpdate::update (ready-frame door SM).
                 let ml_pos = obj.get_position();
                 let (play, stop) = obj.tick_missile_launcher_building(self.frame);
@@ -477,7 +481,8 @@ impl GameLogic {
             // C++ CreateObjectDie residual (spawn after death FX).
             self.apply_pending_create_object_die(object_id);
             if lifetime_kill {
-                self.mark_object_for_destruction(object_id, None);
+                // The receiving kill driver already delivered onDie/retention.
+                // Never turn a retained corpse into a second forced destroy.
                 continue;
             }
             for a in defector_audio {

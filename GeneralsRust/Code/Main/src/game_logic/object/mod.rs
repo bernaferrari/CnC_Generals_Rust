@@ -2585,11 +2585,6 @@ pub struct Object {
     /// Residual sight-range scale currently applied for SearchAndDestroy (1.0 = none).
     #[serde(default = "default_one_f32")]
     pub battle_plan_sight_scalar_applied: f32,
-    /// Host residual continuous-fire ramp (Gattling Tank FiringTracker residual).
-    /// Consecutive shots at current victim for ContinuousFireOne/Two thresholds.
-    /// Fail-closed: not full model-condition CONTINUOUS_FIRE_* animation matrix.
-    #[serde(default)]
-    pub continuous_fire_consecutive: u32,
     /// 0=base/slow, 1=mean (200% RoF), 2=fast (300% RoF).
     #[serde(default)]
     pub continuous_fire_level: u8,
@@ -2609,10 +2604,6 @@ pub struct Object {
     /// C++ FireOCLAfterWeaponCooldownUpdate residual (toxin spray secondary).
     pub fire_ocl_after_cooldown:
         Option<crate::game_logic::host_toxin_tractor::HostFireOclAfterCooldownData>,
-    /// Last continuous-fire victim object id bits (0 = none/ground).
-    #[serde(default)]
-    pub continuous_fire_victim: u32,
-
     /// Absolute host logic frame when FAERIE_FIRE residual expires (0 = none).
     /// C++ StatusDamageHelper m_frameToHeal residual (Avenger paint).
     #[serde(default)]
@@ -2820,9 +2811,6 @@ pub struct Object {
     /// C++ ActiveBody `m_nextDamageFXTime` (logic frame; throttle gate).
     #[serde(default)]
     pub next_damage_fx_time: u32,
-    /// Last-damage source was VEHICLE/INFANTRY/faction structure (same-frame preference).
-    #[serde(default)]
-    pub last_damage_source_preferred: bool,
     /// C++ ActiveBody scoreTheKill once per death (splash/residual + direct-fire).
     #[serde(default)]
     pub kill_experience_awarded: bool,
@@ -3237,7 +3225,6 @@ mod bonuses;
 mod construct;
 pub(crate) use construct::template_has_worker_ai_update;
 mod damage;
-pub(crate) use damage::record_neutral_vehicle_sniped;
 pub(in crate::game_logic) use damage::{BridgeBodyCallbacks, DamageApplication};
 mod death;
 #[cfg(test)]
@@ -3259,7 +3246,9 @@ mod physics;
 mod physics_damage;
 mod physics_landing;
 mod physics_motion;
-pub(in crate::game_logic) use physics_damage::PhysicsDamageServices;
+pub(in crate::game_logic) use physics_damage::{PhysicsDamageServices, PhysicsDamageSources};
+mod body_visuals;
+pub(crate) use body_visuals::MaxHealthChange;
 mod pose;
 mod record;
 mod rtb;
@@ -3278,7 +3267,7 @@ pub(crate) use panic_runtime::{PanicRuntime, PanicSaveState};
 
 pub use barrels::WeaponBarrelState;
 mod damage_context;
-pub(crate) use damage_context::DamageHitContext;
+pub(crate) use damage_context::{BodyPlayerEffect, DamageHitContext, LastDamageSourceObservation};
 
 pub use jets::{
     HostJetAi, HostJetPendingResume, JET_AFTERBURNER_SOUND, JET_AFTERBURNER_SOUND_STOP,

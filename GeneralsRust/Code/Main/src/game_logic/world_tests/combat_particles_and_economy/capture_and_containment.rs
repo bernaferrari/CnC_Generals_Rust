@@ -1957,8 +1957,7 @@ fn garrison_really_damaged_rejects_enter() {
 
     {
         let bunker = game_logic.host_object_mut(bunker_id).expect("bunker mut");
-        bunker.health.current = 200.0;
-        bunker.refresh_model_condition_bits();
+        bunker.internal_change_health(200.0 - bunker.health.current);
         assert_eq!(bunker.body_damage_state, HostBodyDamageType::ReallyDamaged);
     }
 
@@ -2069,8 +2068,7 @@ fn garrisonable_until_destroyed_still_allows_occupy_when_really_damaged() {
         bunker
             .template_mut()
             .add_kind_of(KindOf::GarrisonableUntilDestroyed);
-        bunker.health.current = 200.0;
-        bunker.refresh_model_condition_bits();
+        bunker.internal_change_health(200.0 - bunker.health.current);
         assert_eq!(bunker.body_damage_state, HostBodyDamageType::ReallyDamaged);
     }
 

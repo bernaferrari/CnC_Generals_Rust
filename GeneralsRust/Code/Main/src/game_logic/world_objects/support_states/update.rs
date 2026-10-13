@@ -2073,7 +2073,7 @@ impl GameLogic {
                                     o.status.effectively_dead = true;
                                     o.status.destroyed = true;
                                     if o.health.current > 0.0 {
-                                        o.health.current = 0.0;
+                                        o.internal_change_health(-o.health.current);
                                     }
                                 }
                             }
@@ -2306,7 +2306,7 @@ impl GameLogic {
                                     target.is_kind_of(crate::game_logic::KindOf::Vehicle);
                                 drop(target);
                                 if sniped_vehicle {
-                                    crate::game_logic::object::record_neutral_vehicle_sniped();
+                                    Self::record_neutral_vehicle_sniped(&mut self.players);
                                 }
                                 self.admit_local_drawable_deselected(special_target_id);
                                 for player in self.players.values_mut() {

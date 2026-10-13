@@ -847,7 +847,7 @@ impl Object {
         self.queue_transition_damage_fx_event_with_source(ev, None);
     }
 
-    fn queue_transition_damage_fx_event_with_source(
+    pub(super) fn queue_transition_damage_fx_event_with_source(
         &mut self,
         mut ev: crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
@@ -864,109 +864,34 @@ impl Object {
         self.pending_transition_damage_fx.push(ev);
     }
 
-    /// Temporary non-body pose adapter. Authoritative Body operations pass
-    /// their receiving frame to the shared source-aware kernel directly.
-    /// Remaining callers belong to hq-vrkh8; this does not establish isolation.
+    /// Model flags observe canonical Body state; pose and AI setters cannot
+    /// reclassify health or invoke damage modules and their clocks.
     pub fn refresh_model_condition_bits(&mut self) {
-        self.refresh_model_condition_bits_with_source(
-            None,
-            crate::game_logic::host_historic_bonus::logic_frame(),
-        );
+        self.rebuild_model_condition_bits();
     }
 
-    pub(super) fn refresh_model_condition_bits_with_source(
-        &mut self,
-        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
-        frame: u32,
-    ) {
+    /// Rebuild presentation flags from already canonical Body and status state.
+    /// This operation cannot change HP, reclassify Body state, or retime damage FX.
+    pub(super) fn rebuild_model_condition_bits(&mut self) {
         use crate::game_logic::host_enum_table_residual::{
             HostBodyDamageType, MC_BIT_ATTACKING, MC_BIT_DISGUISED, MC_BIT_DYING, MC_BIT_MOVING,
-            host_apply_body_damage_model_bits, host_calc_body_damage_state,
+            host_apply_body_damage_model_bits,
         };
-        let health = self.health.current;
-        let max_h = if self.health.maximum > 0.0 {
-            self.health.maximum
-        } else {
-            self.max_health.max(0.0)
-        };
-        let old_state = self.body_damage_state;
-        let state = if self.status.destroyed || health <= 0.0 {
-            HostBodyDamageType::Rubble
-        } else {
-            // GameData UnitDamagedThresh 0.7 / ReallyDamaged 0.35 (ActiveBody.cpp:88).
-            host_calc_body_damage_state(health, max_h)
-        };
-        self.body_damage_state = state;
-        crate::game_logic::host_body_damage_log::record(self.id, state.ordinal());
-        // C++ ActiveBody::setCorrectDamageState rubble (ActiveBody.cpp:189-208).
-        if matches!(state, HostBodyDamageType::Rubble)
-            && !matches!(old_state, HostBodyDamageType::Rubble)
-        {
-            self.apply_structure_rubble_collision_effects();
-        }
-
-        // C++ GarrisonContain::onBodyDamageStateChange (GarrisonContain.cpp:1724-1732).
-        if old_state != state
-            && matches!(state, HostBodyDamageType::ReallyDamaged)
-            && self.is_garrison_contain()
-            && !self.is_kind_of(crate::game_logic::KindOf::GarrisonableUntilDestroyed)
-            && !self.contained_units().is_empty()
-        {
-            self.status.pending_garrison_really_damaged_eject = true;
-        }
-        // C++ ActiveBody.cpp:1219 — skip evaluateVisualCondition while
-        // OBJECT_STATUS_UNDER_CONSTRUCTION (no damaged-art health visuals).
-        let show_health_visuals = !self.status.under_construction || self.status.destroyed;
-        // C++ BoneFXDamage::onBodyDamageStateChange residual.
-        if old_state != state && show_health_visuals {
-            if self.bone_fx_damage.is_none() {
-                self.bone_fx_damage =
-                    crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_template(
-                        &self.template_name,
-                    );
-            }
-            if let Some(bfx) = self.bone_fx_damage.as_mut() {
-                bfx.stamp_last_damage_type(self.last_damage_info_type);
-                let _ =
-                    bfx.on_body_damage_state_change(&self.template_name, old_state, state, frame);
-            }
-        }
-        if show_health_visuals {
-            self.ensure_transition_damage_fx();
-            if let Some(cfg) = self.transition_damage_fx.as_ref() {
-                if let Some(ev) =
-                    crate::game_logic::host_transition_damage_fx::on_body_damage_state_change_for_damage(
-                        cfg,
-                        old_state,
-                        state,
-                        self.last_damage_info_type.map(|d| d.to_store()),
-                    )
-                {
-                    self.queue_transition_damage_fx_event_with_source(ev, source);
-                }
-            }
-        }
-
-        // C++ FXListDie when entering rubble / destroyed.
-        if show_health_visuals
-            && matches!(state, HostBodyDamageType::Rubble)
-            && !matches!(old_state, HostBodyDamageType::Rubble)
-        {
-            self.fire_fx_list_die();
-            self.fire_create_object_die();
-            if !matches!(
-                self.status.death_type,
-                crate::game_logic::host_usa_pilot::HostDeathType::Crushed
-            ) {
-                self.fire_crush_die();
-            }
-        }
-        let visual_state = if show_health_visuals {
-            state
+        let visual_state = if !self.status.under_construction || self.status.destroyed {
+            self.body_damage_state
         } else {
             HostBodyDamageType::Pristine
         };
         let mut bits = host_apply_body_damage_model_bits(self.model_condition_bits, visual_state);
+        // CPP MinefieldBehavior sets RUBBLE art for an empty regenerating pad,
+        // even while its canonical Body retains positive MIN_HEALTH.
+        if self
+            .mine_data
+            .as_ref()
+            .is_some_and(|mine| mine.regenerates && mine.virtual_mines_remaining == 0)
+        {
+            bits |= 1u128 << crate::game_logic::host_enum_table_residual::rubble_model_bit();
+        }
         // Motion / combat residual bits from ObjectStatus.
         if self.status.moving {
             bits |= 1u128 << MC_BIT_MOVING;

@@ -674,7 +674,7 @@ fn host_continuous_fire_log_drives_set_continuous_fire_channel() {
     {
         let o = logic.host_object_mut(oid).expect("o");
         o.continuous_fire_level = 2;
-        o.continuous_fire_consecutive = 9;
+        o.consecutive_shots_at_target = 9;
         o.continuous_fire_coast_until_frame = 44;
     }
     let mut shadow = GameWorldShadow::new(64);
@@ -701,7 +701,7 @@ fn host_continuous_fire_log_drives_set_continuous_fire_channel() {
 
     let o = logic.host_objects().get(&oid).expect("o");
     assert_eq!(o.continuous_fire_level, 2);
-    assert_eq!(o.continuous_fire_consecutive, 9);
+    assert_eq!(o.consecutive_shots_at_target, 9);
     assert_eq!(o.continuous_fire_coast_until_frame, 44);
 }
 

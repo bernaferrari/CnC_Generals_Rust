@@ -101,10 +101,13 @@ fn explosion_detonation_damage_source_authority_source() {
             && owner.contains("amount,source_id,damage_type,death_type,fx_override,frame,")
     );
     assert!(
-        owner.contains("victim.begin_damage_with_context_and_attacked_by("),
+        owner.contains("victim.begin_damage_with_context_and_player_effects("),
         "all typed families must enter the outer Body admission kernel"
     );
-    assert!(owner.contains("Self::notify_residual_attacked_by(players,frame,&source_players,victim_player,selected_source,)"), "Player mutation must use the selected source at the real receiving Body callback");
+    assert!(
+        owner.contains("Self::apply_body_player_effect(players,frame,&source_players,effect);"),
+        "Player mutation must use the selected source at the real receiving Body callback"
+    );
 }
 
 #[test]

@@ -202,6 +202,8 @@ impl Object {
         }
         {}
 
+        let possible_next_shot_frame =
+            self.possible_next_shot_frame_for_slot(slot, logic_frame, target_has_faerie_fire);
         let fire_weapon_name = self.weapon_name_for_slot(slot).map(str::to_owned);
         let name = fire_weapon_name.as_deref();
         // C++ WeaponTemplate keeps each of these references per veterancy
@@ -467,7 +469,7 @@ impl Object {
 
         // C++ fireWeaponTemplate LeechRange activate residual.
         self.activate_leech_range_for_slot(slot);
-        self.record_shot_at_target(target_id);
+        self.record_shot_at_target(Some(target_id), logic_frame, possible_next_shot_frame);
         // C++ --m_maxShotCount residual.
         self.consume_max_shot_count();
         self.refresh_weapon_fire_status(current_time);

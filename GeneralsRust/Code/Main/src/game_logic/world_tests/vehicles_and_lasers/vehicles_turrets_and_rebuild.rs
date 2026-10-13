@@ -839,8 +839,8 @@ fn voice_rapid_fire_plays_authored_per_unit_sound() {
     {
         let o = logic.objects.get_mut(&tank).unwrap();
         o.continuous_fire_level = GattlingFireLevel::Mean.as_u8();
-        o.continuous_fire_consecutive = 6;
-        o.continuous_fire_victim = 99;
+        o.consecutive_shots_at_target = 6;
+        o.consecutive_shot_target = Some(ObjectId(99));
     }
     logic.advance_gattling_continuous_fire(tank, Some(ObjectId(99)), 0);
     assert!(
@@ -862,8 +862,8 @@ fn voice_rapid_fire_plays_authored_per_unit_sound() {
     {
         let o = logic.objects.get_mut(&bld).unwrap();
         o.continuous_fire_level = GattlingFireLevel::Mean.as_u8();
-        o.continuous_fire_consecutive = 6;
-        o.continuous_fire_victim = 99;
+        o.consecutive_shots_at_target = 6;
+        o.consecutive_shot_target = Some(ObjectId(99));
     }
     logic.advance_gattling_building_continuous_fire(bld, Some(ObjectId(99)), 0);
     assert!(
@@ -889,8 +889,8 @@ fn voice_rapid_fire_plays_authored_per_unit_sound() {
         o.continuous_fire_level = GattlingFireLevel::Mean.as_u8();
         // Retail Weapon.ini Infa_MiniGunnerGun ContinuousFireTwo = 12: the shot
         // must push consecutive PAST Two (FiringTracker.cpp:117-121) to enter FAST.
-        o.continuous_fire_consecutive = 12;
-        o.continuous_fire_victim = 99;
+        o.consecutive_shots_at_target = 12;
+        o.consecutive_shot_target = Some(ObjectId(99));
     }
     logic.advance_minigunner_continuous_fire(mini, Some(ObjectId(99)), 0);
     assert!(
@@ -929,8 +929,8 @@ fn voice_rapid_fire_missing_unit_sound_stays_silent() {
     {
         let o = logic.objects.get_mut(&id).unwrap();
         o.continuous_fire_level = GattlingFireLevel::Mean.as_u8();
-        o.continuous_fire_consecutive = 6;
-        o.continuous_fire_victim = 99;
+        o.consecutive_shots_at_target = 6;
+        o.consecutive_shot_target = Some(ObjectId(99));
     }
     logic.advance_gattling_continuous_fire(id, Some(ObjectId(99)), 0);
     assert!(
@@ -974,8 +974,8 @@ fn continuous_fire_coast_deadline_uses_fired_shot_level() {
     // shot was FIRED at BASE, so the deadline keeps the BASE delay (12f).
     {
         let o = logic.objects.get_mut(&tank).unwrap();
-        o.continuous_fire_consecutive = GATTLING_CONTINUOUS_FIRE_ONE;
-        o.continuous_fire_victim = 99;
+        o.consecutive_shots_at_target = GATTLING_CONTINUOUS_FIRE_ONE;
+        o.consecutive_shot_target = Some(ObjectId(99));
     }
     logic.advance_gattling_continuous_fire(tank, Some(ObjectId(99)), 0);
     {
@@ -991,15 +991,15 @@ fn continuous_fire_coast_deadline_uses_fired_shot_level() {
     // deadline keeps the FIRED (MEAN) delay.
     {
         let o = logic.objects.get_mut(&tank).unwrap();
-        o.continuous_fire_consecutive = 0;
-        o.continuous_fire_victim = 99;
+        o.consecutive_shots_at_target = 0;
+        o.consecutive_shot_target = Some(ObjectId(99));
     }
     logic.advance_gattling_continuous_fire(tank, Some(ObjectId(99)), 0);
     {
         let o = logic.objects.get(&tank).unwrap();
         assert_eq!(o.continuous_fire_level, GattlingFireLevel::Base.as_u8());
-        assert_eq!(o.continuous_fire_consecutive, 0);
-        assert_eq!(o.continuous_fire_victim, 0);
+        assert_eq!(o.consecutive_shots_at_target, 0);
+        assert_eq!(o.consecutive_shot_target.map_or(0, |id| id.0), 0);
         assert_eq!(
             o.continuous_fire_coast_until_frame,
             100 + gattling_delay_frames_for_level(GattlingFireLevel::Mean) + GATTLING_COAST_FRAMES
@@ -1016,8 +1016,8 @@ fn continuous_fire_coast_deadline_uses_fired_shot_level() {
     logic.frame = 200;
     {
         let o = logic.objects.get_mut(&bld).unwrap();
-        o.continuous_fire_consecutive = 1; // → 2 > ONE(1)
-        o.continuous_fire_victim = 99;
+        o.consecutive_shots_at_target = 1; // → 2 > ONE(1)
+        o.consecutive_shot_target = Some(ObjectId(99));
     }
     logic.advance_gattling_building_continuous_fire(bld, Some(ObjectId(99)), 0);
     {
@@ -1042,8 +1042,8 @@ fn continuous_fire_coast_deadline_uses_fired_shot_level() {
     logic.frame = 300;
     {
         let o = logic.objects.get_mut(&mini).unwrap();
-        o.continuous_fire_consecutive = 6;
-        o.continuous_fire_victim = 99;
+        o.consecutive_shots_at_target = 6;
+        o.consecutive_shot_target = Some(ObjectId(99));
     }
     logic.advance_minigunner_continuous_fire(mini, Some(ObjectId(99)), 0);
     {

@@ -67,3 +67,6 @@ impl GameLogic {
         );
     }
 }
+
+#[cfg(test)]
+mod firing_clock_tests;

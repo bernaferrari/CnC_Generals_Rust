@@ -47,7 +47,6 @@ pub(crate) fn run_owned_host_boundary(
 fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_ai_request_log::drain();
     logic.attack_events.complete_boundary();
-    let _ = crate::game_logic::host_body_damage_log::drain();
     let _ = crate::game_logic::host_bounce_land_log::drain();
     let _ = crate::game_logic::host_building_type_log::drain();
 

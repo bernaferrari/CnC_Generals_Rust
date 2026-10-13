@@ -79,33 +79,37 @@ impl ModelConditionResidual {
 
 impl ContinuousFireResidual {
     pub(crate) fn present(object: &Object) -> bool {
-        object.continuous_fire_consecutive != 0
+        object.consecutive_shots_at_target != 0
             || object.continuous_fire_level != 0
             || object.continuous_fire_coast_until_frame != 0
-            || object.continuous_fire_victim != 0
+            || object.consecutive_shot_target.map_or(0, |id| id.0) != 0
             || object.frame_to_force_reload != 0
     }
     pub(crate) fn from_object(object: &Object) -> Self {
         Self {
-            consecutive: object.continuous_fire_consecutive,
+            consecutive: object.consecutive_shots_at_target,
             level: object.continuous_fire_level,
             one_shots: object.continuous_fire_one_shots,
             two_shots: object.continuous_fire_two_shots,
             coast_frames: object.continuous_fire_coast_frames,
             coast_until_frame: object.continuous_fire_coast_until_frame,
-            victim: object.continuous_fire_victim,
+            victim: object.consecutive_shot_target.map_or(0, |id| id.0),
             auto_reload_when_idle_frames: object.auto_reload_when_idle_frames,
             frame_to_force_reload: object.frame_to_force_reload,
         }
     }
     pub(crate) fn apply(self, object: &mut Object) {
-        object.continuous_fire_consecutive = self.consecutive;
+        object.consecutive_shots_at_target = self.consecutive;
         object.continuous_fire_level = self.level;
         object.continuous_fire_one_shots = self.one_shots;
         object.continuous_fire_two_shots = self.two_shots;
         object.continuous_fire_coast_frames = self.coast_frames;
         object.continuous_fire_coast_until_frame = self.coast_until_frame;
-        object.continuous_fire_victim = self.victim;
+        object.consecutive_shot_target = if self.victim == 0 {
+            None
+        } else {
+            Some(crate::game_logic::ObjectId(self.victim))
+        };
         object.auto_reload_when_idle_frames = self.auto_reload_when_idle_frames;
         object.frame_to_force_reload = self.frame_to_force_reload;
     }

@@ -574,7 +574,6 @@ fn exit_delay_remaining_channel_via_production_progress() {
 
 #[test]
 fn body_damage_state_channel_via_set_body_damage() {
-    use crate::game_logic::host_body_damage_log;
     use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 

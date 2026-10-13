@@ -17,10 +17,8 @@ enum FactoryCreationPurpose {
 
 /// Zero the continuous-fire ramp state when a template re-seeds base weapons.
 fn reset_continuous_fire_state(object: &mut Object) {
-    object.continuous_fire_consecutive = 0;
     object.continuous_fire_level = 0;
     object.continuous_fire_coast_until_frame = 0;
-    object.continuous_fire_victim = 0;
 }
 
 /// Compact live-host peel of C++ `SpawnBehaviorModuleData` for Tunnel / Stinger.
@@ -982,7 +980,7 @@ impl GameLogic {
             .collect();
         for victim in victims {
             if let Some(object) = self.host_object_mut(victim) {
-                object.health.current = 0.0;
+                object.internal_change_health(-object.health.current);
                 object.status.effectively_dead = true;
             }
             self.mark_object_for_destruction(victim, None);
@@ -1752,7 +1750,6 @@ impl GameLogic {
             if crate::game_logic::host_overlord_addons::is_overlord_tank_template(template_name) {
                 // OverlordContain style: portable slot reserved; bunker residual separate.
                 object.overlord_bunker_capacity = Some(0);
-
             }
             if crate::game_logic::host_overlord_addons::is_helix_template(template_name) {
                 object.install_helix_transport();
@@ -1765,7 +1762,6 @@ impl GameLogic {
                 object.has_overlord_propaganda_addon = true;
 
                 object.overlord_bunker_capacity = Some(0);
-
             }
             let emperor_spawn =
                 crate::game_logic::host_overlord_addons::is_emperor_template(template_name);
@@ -2344,7 +2340,7 @@ impl GameLogic {
                     object.set_body_max_health(max_h);
                     object.record_host_max_health();
                     object.health.maximum = maximum;
-                    object.health.current = cur;
+                    object.internal_change_health(cur - object.health.current);
                 }
             }
 
@@ -2812,7 +2808,6 @@ impl GameLogic {
             } else {
                 object.max_health.max(1.0)
             };
-            let ratio = (object.health.current / old_max).clamp(0.0, 1.0);
             let new_max = if apply {
                 old_max * health_factor
             } else if health_factor != 0.0 {
@@ -2820,10 +2815,10 @@ impl GameLogic {
             } else {
                 old_max
             };
-            let before = object.health.current;
-            object.set_body_max_health(new_max);
-            object.previous_health = before;
-            object.health.current = (new_max * ratio).clamp(0.0, new_max.max(0.0));
+            object.set_body_max_health_with_mode(
+                new_max,
+                crate::game_logic::object::MaxHealthChange::PreserveRatio,
+            );
             object.record_host_max_health();
         }
     }

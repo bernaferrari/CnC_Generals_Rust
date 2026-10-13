@@ -345,3 +345,314 @@ fn prepared_context_freezes_source_veterancy_and_does_not_leak_status_or_fx_sour
             .any(|name| name == "FX_FrozenContextElite" || name == "FX_FrozenContextHeroic")
     );
 }
+
+fn history_world(incoming_kind: KindOf) -> (crate::game_logic::GameLogic, [ObjectId; 4]) {
+    use crate::game_logic::{GameLogic, Player};
+    let mut world = GameLogic::new();
+    for (id, team) in [
+        (1, Team::USA),
+        (2, Team::GLA),
+        (3, Team::China),
+        (4, Team::GLA),
+    ] {
+        world.add_player(Player::new(id, team, "HistoryOwner", id == 1));
+    }
+    let mut ids = Vec::new();
+    for (name, player, kind) in [
+        ("HistoryVictim", 1, KindOf::Infantry),
+        ("HistoryFirstSource", 2, KindOf::Infantry),
+        ("HistoryIncomingSource", 3, incoming_kind),
+        ("HistoryFactionSource", 4, KindOf::FSBarracks),
+    ] {
+        let mut template = ThingTemplate::new(name);
+        template.set_health(1000.0).add_kind_of(kind);
+        world.templates.insert(name.into(), template);
+        ids.push(
+            world
+                .create_object_for_player(name, player, glam::Vec3::ZERO)
+                .unwrap(),
+        );
+    }
+    (world, ids.try_into().unwrap())
+}
+
+fn history_hit(
+    world: &mut crate::game_logic::GameLogic,
+    victim: ObjectId,
+    source: Option<ObjectId>,
+    frame: u32,
+    kind: DamageType,
+) {
+    world.frame = frame;
+    let context = DamageHitContext::new(source.and_then(|id| world.objects.get(&id)), None, kind);
+    world
+        .apply_owned_damage(
+            victim,
+            1.0,
+            source,
+            kind,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &context,
+        )
+        .unwrap();
+}
+
+#[test]
+fn last_damage_selects_current_receiving_source_kinds_and_disappearance() {
+    let (mut a, [victim, first, incoming, faction]) = history_world(KindOf::Projectile);
+    let (mut b, peer_ids) = history_world(KindOf::Vehicle);
+    assert_eq!([victim, first, incoming, faction], peer_ids);
+    history_hit(&mut a, victim, Some(first), 100, DamageType::Unresistable);
+    history_hit(&mut b, victim, Some(first), 100, DamageType::Unresistable);
+    // Same IDs, different actual classifications in different owners.
+    history_hit(&mut a, victim, Some(incoming), 100, DamageType::Falling);
+    history_hit(&mut b, victim, Some(incoming), 100, DamageType::Falling);
+    assert_eq!(a.objects[&victim].last_damage_source, Some(first));
+    assert_eq!(
+        a.objects[&victim].last_damage_info_type,
+        Some(DamageType::Unresistable)
+    );
+    assert!(a.get_player(1).unwrap().get_attacked_by(2));
+    assert!(!a.get_player(1).unwrap().get_attacked_by(3));
+    assert_eq!(b.objects[&victim].last_damage_source, Some(incoming));
+    assert_eq!(
+        b.objects[&victim].last_damage_info_type,
+        Some(DamageType::Falling)
+    );
+    assert!(b.get_player(1).unwrap().get_attacked_by(3));
+    history_hit(&mut a, victim, Some(faction), 101, DamageType::Falling);
+    assert_eq!(a.objects[&victim].last_damage_source, Some(faction));
+    // A non-null missing ID is not an existing attacker.
+    history_hit(
+        &mut a,
+        victim,
+        Some(ObjectId(999)),
+        101,
+        DamageType::Unresistable,
+    );
+    assert_eq!(a.objects[&victim].last_damage_source, Some(faction));
+    assert_eq!(
+        a.objects[&victim].last_damage_info_type,
+        Some(DamageType::Falling)
+    );
+    a.objects.remove(&faction);
+    history_hit(
+        &mut a,
+        victim,
+        Some(incoming),
+        102,
+        DamageType::Unresistable,
+    );
+    assert_eq!(a.objects[&victim].last_damage_source, Some(incoming));
+    assert_eq!(a.objects[&victim].last_damage_timestamp, Some(102));
+    history_hit(&mut a, victim, None, 103, DamageType::Falling);
+    assert_eq!(a.objects[&victim].last_damage_source, Some(incoming));
+    assert_eq!(
+        a.objects[&victim].last_damage_info_type,
+        Some(DamageType::Unresistable)
+    );
+    assert_eq!(a.objects[&victim].last_damage_timestamp, Some(102));
+    history_hit(&mut a, victim, None, 104, DamageType::Falling);
+    assert_eq!(a.objects[&victim].last_damage_source, None);
+    assert_eq!(a.objects[&victim].last_damage_timestamp, Some(104));
+    assert_eq!(b.objects[&victim].last_damage_source, Some(incoming));
+}
+
+#[test]
+fn last_damage_same_next_frame_relation_wraps_original_u32_clock() {
+    let (mut world, [victim, first, incoming, _]) = history_world(KindOf::Projectile);
+    history_hit(
+        &mut world,
+        victim,
+        Some(first),
+        u32::MAX,
+        DamageType::Unresistable,
+    );
+    history_hit(&mut world, victim, Some(incoming), 0, DamageType::Falling);
+    assert_eq!(world.objects[&victim].last_damage_source, Some(first));
+    assert_eq!(world.objects[&victim].last_damage_timestamp, Some(u32::MAX));
+    assert_eq!(
+        world.objects[&victim].last_damage_info_type,
+        Some(DamageType::Unresistable)
+    );
+    history_hit(&mut world, victim, Some(incoming), 1, DamageType::Falling);
+    assert_eq!(world.objects[&victim].last_damage_source, Some(incoming));
+    assert_eq!(world.objects[&victim].last_damage_timestamp, Some(1));
+}
+
+#[test]
+fn initial_frame_zero_uses_cpp_uintmax_history_sentinel() {
+    let (mut world, [victim, _, incoming, _]) = history_world(KindOf::Projectile);
+    history_hit(
+        &mut world,
+        victim,
+        Some(ObjectId(999)),
+        0,
+        DamageType::Unresistable,
+    );
+    assert_eq!(world.objects[&victim].last_damage_timestamp, None);
+    assert_eq!(world.objects[&victim].last_damage_source, None);
+    assert_eq!(world.objects[&victim].last_damage_info_type, None);
+    history_hit(&mut world, victim, None, 0, DamageType::Falling);
+    assert_eq!(world.objects[&victim].last_damage_timestamp, None);
+    assert_eq!(world.objects[&victim].last_damage_info_type, None);
+    history_hit(&mut world, victim, Some(incoming), 0, DamageType::Falling);
+    assert_eq!(world.objects[&victim].last_damage_timestamp, Some(0));
+    assert_eq!(world.objects[&victim].last_damage_source, Some(incoming));
+    assert_eq!(
+        world.objects[&victim].last_damage_info_type,
+        Some(DamageType::Falling)
+    );
+    assert!(world.get_player(1).unwrap().get_attacked_by(3));
+}
+
+fn typed_history_world() -> (crate::game_logic::GameLogic, [ObjectId; 4]) {
+    use crate::game_logic::{GameLogic, Player};
+    let mut world = GameLogic::new();
+    for (id, team) in [(0, Team::Neutral), (1, Team::USA), (2, Team::GLA)] {
+        let mut player = Player::new(id, team, "TypedHistory", id == 1);
+        if team == Team::Neutral {
+            player.map_side.role = crate::game_logic::game_logic::PlayerSideRole::Neutral;
+        }
+        world.add_player(player);
+    }
+    let mut ids = Vec::new();
+    for (name, player, kind, cap) in [
+        ("TypedHistoryVehicle", 1, KindOf::Vehicle, 100.0),
+        ("TypedHistoryInfantry", 1, KindOf::Infantry, 100.0),
+        ("TypedHistoryImmune", 1, KindOf::Infantry, 0.0),
+        ("TypedHistorySource", 2, KindOf::Infantry, 0.0),
+    ] {
+        let mut template = ThingTemplate::new(name);
+        template.set_health(100.0).add_kind_of(kind);
+        template.subdual_damage_cap = cap;
+        world.templates.insert(name.into(), template);
+        ids.push(
+            world
+                .create_object_for_player(name, player, glam::Vec3::ZERO)
+                .unwrap(),
+        );
+    }
+    (world, ids.try_into().unwrap())
+}
+
+#[test]
+fn typed_special_effects_notify_selected_player_without_hp_damage_or_peer_writes() {
+    let (mut a, [vehicle, infantry, immune, source]) = typed_history_world();
+    let (b, peer_ids) = typed_history_world();
+    assert_eq!([vehicle, infantry, immune, source], peer_ids);
+    for victim in [vehicle, infantry] {
+        a.frame = 20;
+        let context = DamageHitContext::new(
+            a.objects.get(&source),
+            None,
+            DamageType::SubdualUnresistable,
+        );
+        a.apply_owned_damage(
+            victim,
+            10.0,
+            Some(source),
+            DamageType::SubdualUnresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &context,
+        )
+        .unwrap();
+        assert_eq!(a.objects[&victim].health.current, 100.0);
+        assert_eq!(a.objects[&victim].subdual_damage, 10.0);
+        assert_eq!(a.objects[&victim].last_damage_source, Some(source));
+        assert!(a.get_player(1).unwrap().get_attacked_by(2));
+        assert_eq!(a.get_player(1).unwrap().get_attacked_frame(), 20);
+    }
+    a.get_player_mut(1).unwrap().attacked_by[2] = false;
+    a.frame = 21;
+    let context = DamageHitContext::for_kill();
+    a.apply_owned_damage(
+        immune,
+        10.0,
+        Some(source),
+        DamageType::SubdualUnresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        None,
+        &context,
+    )
+    .unwrap();
+    assert_eq!(a.objects[&immune].subdual_damage, 0.0);
+    assert_eq!(a.objects[&immune].last_damage_source, None);
+    assert!(!a.get_player(1).unwrap().get_attacked_by(2));
+    // STATUS changes the authored status, then notifies at the same frame;
+    // it is duration input and never HP damage.
+    let context = DamageHitContext::with_status(gamelogic::common::ObjectStatusTypes::FaerieFire);
+    a.apply_owned_damage(
+        vehicle,
+        1000.0,
+        Some(source),
+        DamageType::Status,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        None,
+        &context,
+    )
+    .unwrap();
+    assert!(a.objects[&vehicle].status.faerie_fire);
+    assert_eq!(a.objects[&vehicle].health.current, 100.0);
+    assert_eq!(
+        a.objects[&vehicle].last_damage_info_type,
+        Some(DamageType::Status)
+    );
+    assert!(a.get_player(1).unwrap().get_attacked_by(2));
+    assert_eq!(a.get_player(1).unwrap().get_attacked_frame(), 21);
+    a.get_player_mut(1).unwrap().attacked_by[2] = false;
+    a.apply_owned_damage(
+        vehicle,
+        0.0,
+        Some(source),
+        DamageType::Status,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        None,
+        &DamageHitContext::default(),
+    )
+    .unwrap();
+    assert!(!a.get_player(1).unwrap().get_attacked_by(2));
+    a.frame = 22;
+    a.apply_owned_damage(
+        vehicle,
+        0.0,
+        Some(source),
+        DamageType::Status,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        None,
+        &DamageHitContext::for_kill(),
+    )
+    .unwrap();
+    assert!(a.get_player(1).unwrap().get_attacked_by(2));
+    assert_eq!(a.get_player(1).unwrap().get_attacked_frame(), 22);
+    assert_eq!(a.objects[&vehicle].health.current, 100.0);
+    assert!(!b.get_player(1).unwrap().get_attacked_by(2));
+    assert_eq!(b.objects[&infantry].subdual_damage, 0.0);
+}
+
+#[test]
+fn kill_pilot_notifies_actual_post_effect_neutral_owner_before_fx() {
+    let (mut world, [vehicle, _, _, source]) = typed_history_world();
+    world.frame = 31;
+    let context = DamageHitContext::new(world.objects.get(&source), None, DamageType::KillPilot);
+    world
+        .apply_owned_damage(
+            vehicle,
+            1.0,
+            Some(source),
+            DamageType::KillPilot,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &context,
+        )
+        .unwrap();
+    assert!(world.objects[&vehicle].status.disabled_unmanned);
+    assert_eq!(world.objects[&vehicle].team, Team::Neutral);
+    assert_eq!(world.objects[&vehicle].owner_player_id, Some(0));
+    assert_eq!(world.objects[&vehicle].health.current, 100.0);
+    assert!(world.get_player(0).unwrap().get_attacked_by(2));
+    assert_eq!(world.get_player(0).unwrap().get_attacked_frame(), 31);
+    assert!(!world.get_player(1).unwrap().get_attacked_by(2));
+}

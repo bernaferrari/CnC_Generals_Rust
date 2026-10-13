@@ -9,7 +9,9 @@ use gamelogic::world::entities::{
 
 impl Object {
     /// Inventory residual groups the Main object owns today. Additive only.
-    pub fn entity_lifecycle_envelope(&self) -> EntityLifecycleEnvelope {
+    pub fn entity_lifecycle_envelope(
+        &self,
+    ) -> Result<EntityLifecycleEnvelope, EntityLifecycleCodecError> {
         self.entity_lifecycle_envelope_with_railroad(None)
     }
 
@@ -17,14 +19,14 @@ impl Object {
     pub fn entity_lifecycle_envelope_with_railroad(
         &self,
         railroad: Option<&crate::game_logic::host_railroad::HostRailroadCar>,
-    ) -> EntityLifecycleEnvelope {
-        EntityLifecycleEnvelope {
+    ) -> Result<EntityLifecycleEnvelope, EntityLifecycleCodecError> {
+        Ok(EntityLifecycleEnvelope {
             version: ENTITY_LIFECYCLE_ENVELOPE_VERSION,
             entity_id: self.id.0,
             destroyed: self.status.destroyed,
             destroyed_at_frame: 0,
-            module_states: collect_module_states(self, railroad).unwrap_or_default(),
-        }
+            module_states: collect_module_states(self, railroad)?,
+        })
     }
 
     /// Restore only groups this Main object actually owns. Unknown tags skip.
@@ -189,7 +191,9 @@ mod tests {
             800,
         ));
 
-        let envelope = src.entity_lifecycle_envelope();
+        let envelope = src
+            .entity_lifecycle_envelope()
+            .expect("valid lifecycle capture");
         assert!(envelope.destroyed);
         let tags: Vec<&str> = envelope
             .module_states
@@ -211,7 +215,9 @@ mod tests {
         let mut dst = test_object();
         dst.entity_apply_lifecycle_envelope(&envelope)
             .expect("apply");
-        let again = dst.entity_lifecycle_envelope();
+        let again = dst
+            .entity_lifecycle_envelope()
+            .expect("valid lifecycle capture");
         assert_eq!(again.module_states, envelope.module_states);
         assert!(dst.status.destroyed);
         assert_eq!(
@@ -226,7 +232,9 @@ mod tests {
 
     #[test]
     fn unknown_tag_is_skipped_and_known_groups_still_apply() {
-        let mut env = test_object().entity_lifecycle_envelope();
+        let mut env = test_object()
+            .entity_lifecycle_envelope()
+            .expect("valid lifecycle capture");
         env.module_states.push(EntityModuleState {
             tag: "FutureUnknownModule".to_string(),
             payload: vec![1, 2, 3, 4],
@@ -260,7 +268,9 @@ mod tests {
         let mut truncated = 2u32.to_le_bytes().to_vec();
         truncated.extend_from_slice(&0u32.to_le_bytes());
         assert!(decode_lifecycle_snapshot_block(&truncated).is_err());
-        let encoded = encode_lifecycle_snapshot_block(&[test_object().entity_lifecycle_envelope()]);
+        let encoded = encode_lifecycle_snapshot_block(&[test_object()
+            .entity_lifecycle_envelope()
+            .expect("valid lifecycle capture")]);
         assert_eq!(decode_lifecycle_snapshot_block(&encoded).unwrap().len(), 1);
     }
 
@@ -271,7 +281,9 @@ mod tests {
                 .expect("absent")
                 .is_empty()
         );
-        let encoded = encode_lifecycle_snapshot_block(&[test_object().entity_lifecycle_envelope()]);
+        let encoded = encode_lifecycle_snapshot_block(&[test_object()
+            .entity_lifecycle_envelope()
+            .expect("valid lifecycle capture")]);
         let decoded = decode_lifecycle_snapshot_block(&encoded).expect("present");
         assert_eq!(decoded.len(), 1);
         assert_eq!(decoded[0].entity_id, 7);
@@ -312,7 +324,9 @@ mod tests {
         src.stealth_jet_missile_projectile = true;
         src.stealth_jet_missile_travelled = 40.0;
 
-        let envelope = src.entity_lifecycle_envelope();
+        let envelope = src
+            .entity_lifecycle_envelope()
+            .expect("valid lifecycle capture");
         let tags: Vec<&str> = envelope
             .module_states
             .iter()

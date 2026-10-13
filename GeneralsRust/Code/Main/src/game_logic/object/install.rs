@@ -123,7 +123,7 @@ impl Object {
             if let Some(md) = self.mine_data.as_mut() {
                 let _ = md.disarm_regenerating_pad();
             }
-            self.health.current = MINE_MIN_HEALTH;
+            self.internal_change_health(MINE_MIN_HEALTH - self.health.current);
             self.model_condition_bits |= 1u128 << rubble_model_bit();
             self.set_status_masked(true);
             return false;
@@ -133,7 +133,7 @@ impl Object {
             md.proximity_enabled = false;
             md.detonate_at_frame = None;
         }
-        self.health.current = 0.0;
+        self.internal_change_health(-self.health.current);
         self.status.destroyed = true;
         true
     }
@@ -161,10 +161,6 @@ impl Object {
         }
         // C++ canBeSubdued: unauthored / zero cap is immune.
         if !self.can_be_subdued() {
-            return;
-        }
-        // Infantry residual: subdual rarely applies (microwave targets vehicles/structures).
-        if self.is_kind_of(crate::game_logic::KindOf::Infantry) {
             return;
         }
         let was = self.is_subdued();
@@ -961,13 +957,12 @@ impl Object {
 
     /// Apply InvulnerableTime residual until `until_frame` (absolute host logic frame).
     /// Refresh extends the timer if a later expiry is provided.
-    pub fn apply_eject_invulnerable(&mut self, until_frame: u32) {
+    pub fn apply_eject_invulnerable_at(&mut self, until_frame: u32, now: u32) {
         self.set_status_eject_invulnerable(true);
         if until_frame > self.status.eject_invulnerable_until_frame {
             self.status.eject_invulnerable_until_frame = until_frame;
         }
         // C++ goInvulnerable uses defection helper without defector FX flash.
-        let now = crate::game_logic::host_historic_bonus::logic_frame();
         let frames = until_frame.saturating_sub(now).max(1);
         self.begin_undetected_defection(
             now,
@@ -1147,5 +1142,50 @@ impl Object {
             self.set_status_eject_invulnerable(false);
             self.status.eject_invulnerable_until_frame = 0;
         }
+    }
+}
+
+#[cfg(test)]
+mod receiving_ejection_frame_tests {
+    use crate::game_logic::{GameLogic, Object, ObjectId, Team, ThingTemplate};
+
+    #[test]
+    fn ejection_invulnerability_and_defection_use_each_receiving_frame() {
+        let id = ObjectId(74001);
+        let mut first = GameLogic::new();
+        let mut second = GameLogic::new();
+        first.frame = 41;
+        second.frame = 900;
+        for world in [&mut first, &mut second] {
+            world.objects.insert(
+                id,
+                Object::new(ThingTemplate::new("OwnedEjectedPilot"), id, Team::USA),
+            );
+            let now = world.frame;
+            world
+                .objects
+                .get_mut(&id)
+                .unwrap()
+                .apply_eject_invulnerable_at(now + 60, now);
+        }
+        let first_pilot = first.objects.get_mut(&id).unwrap();
+        let first_timer = first_pilot.defection_helper.as_ref().unwrap();
+        assert_eq!(
+            (first_timer.detection_start, first_timer.detection_end),
+            (41, 101)
+        );
+        assert!(!first_timer.do_defector_fx);
+        first_pilot.tick_eject_invulnerable(100);
+        assert!(first_pilot.is_eject_invulnerable());
+        first_pilot.tick_eject_invulnerable(101);
+        assert!(!first_pilot.is_eject_invulnerable());
+        let second_pilot = second.objects.get(&id).unwrap();
+        let second_timer = second_pilot.defection_helper.as_ref().unwrap();
+        assert_eq!(
+            (second_timer.detection_start, second_timer.detection_end),
+            (900, 960)
+        );
+        assert!(second_pilot.is_eject_invulnerable());
+        assert_eq!(second_pilot.status.eject_invulnerable_until_frame, 960);
     }
 }

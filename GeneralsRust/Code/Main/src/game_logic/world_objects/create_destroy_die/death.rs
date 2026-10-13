@@ -180,7 +180,7 @@ impl GameLogic {
             return false;
         };
         {
-            o.health.current = 0.0;
+            o.internal_change_health(-o.health.current);
         }
         o.status.destroyed = true;
         o.status.effectively_dead = true;
@@ -423,7 +423,10 @@ impl GameLogic {
             }
             if let Some(pilot) = self.objects.get_mut(&pilot_id) {
                 if invulnerable_frames > 0 {
-                    pilot.apply_eject_invulnerable(self.frame.saturating_add(invulnerable_frames));
+                    pilot.apply_eject_invulnerable_at(
+                        self.frame.saturating_add(invulnerable_frames),
+                        self.frame,
+                    );
                 }
                 if parachute_ocl {
                     let raw_y = pilot.get_position().y;

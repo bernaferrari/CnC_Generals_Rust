@@ -1022,7 +1022,7 @@ fn dozer_mine_clear_defuses_demo_trap_without_detonation() {
 #[test]
 fn china_regen_pad_survives_disarm_and_refills() {
     use crate::game_logic::host_mines::{
-        MINE_AUTO_HEAL_AMOUNT, MINE_AUTO_HEAL_DELAY_FRAMES, MINE_MIN_HEALTH,
+        MINE_AUTO_HEAL_AMOUNT, MINE_AUTO_HEAL_START_DELAY_FRAMES, MINE_MIN_HEALTH,
         STANDARD_MINE_NUM_VIRTUAL,
     };
     let mut logic = GameLogic::new();
@@ -1051,7 +1051,7 @@ fn china_regen_pad_survives_disarm_and_refills() {
 
     logic.frame = 0;
     logic.update_mines_and_demo_traps();
-    logic.frame = MINE_AUTO_HEAL_DELAY_FRAMES;
+    logic.frame = MINE_AUTO_HEAL_START_DELAY_FRAMES;
     logic.update_mines_and_demo_traps();
     let after = logic.host_object(mine_id).unwrap();
     assert!(

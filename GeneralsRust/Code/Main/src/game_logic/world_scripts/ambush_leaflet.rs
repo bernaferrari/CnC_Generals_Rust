@@ -392,7 +392,7 @@ impl GameLogic {
                                 // Wave 752: under damage authority, do not zero host HP mid-frame
                                 // (dual with GW HP writeback). Project lethal via damage log + flags.
                                 {
-                                    o.health.current = 0.0;
+                                    o.internal_change_health(-o.health.current);
                                 }
                                 o.status.destroyed = true;
                                 o.status.effectively_dead = true;

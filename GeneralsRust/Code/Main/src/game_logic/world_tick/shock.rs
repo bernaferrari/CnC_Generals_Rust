@@ -69,14 +69,15 @@ impl GameLogic {
             let source_players = self.physics_damage_source_players(id);
             let frame = self.frame;
             let players = &mut self.players;
-            let mut attacked_by = |victim, source| {
-                Self::notify_residual_attacked_by(players, frame, &source_players, victim, source)
+            let mut player_effects = |effect| {
+                Self::apply_body_player_effect(players, frame, &source_players.players, effect)
             };
             let mut services = crate::game_logic::object::PhysicsDamageServices {
+                sources: &source_players,
                 frame,
                 health_events: &mut self.health_events,
                 repulsors: &self.enable_repulsors,
-                attacked_by: &mut attacked_by,
+                player_effects: &mut player_effects,
             };
             if let Some(o) = self.objects.get_mut(&id) {
                 let _ = o.tick_physics_motion_step_with_services(ground_y, &mut services);
@@ -242,14 +243,15 @@ impl GameLogic {
             let source_players = self.physics_damage_source_players(id);
             let frame = self.frame;
             let players = &mut self.players;
-            let mut attacked_by = |victim, source| {
-                Self::notify_residual_attacked_by(players, frame, &source_players, victim, source)
+            let mut player_effects = |effect| {
+                Self::apply_body_player_effect(players, frame, &source_players.players, effect)
             };
             let mut services = crate::game_logic::object::PhysicsDamageServices {
+                sources: &source_players,
                 frame,
                 health_events: &mut self.health_events,
                 repulsors: &self.enable_repulsors,
-                attacked_by: &mut attacked_by,
+                player_effects: &mut player_effects,
             };
             if let Some(o) = self.objects.get_mut(&id) {
                 o.cell_is_cliff = cliff;

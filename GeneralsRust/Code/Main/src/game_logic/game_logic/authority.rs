@@ -457,13 +457,6 @@ pub enum HostObjectIdResult {
 /// Wave 941/942: host residual mutation payload (kill/pending fire/expire/field).
 #[derive(Debug, Clone)]
 pub enum HostResidualMutationOp {
-    /// Force HP to 0 / destroyed (+ optional death_type / model refresh).
-    ForceKill {
-        id: ObjectId,
-        death_type: Option<crate::game_logic::host_usa_pilot::HostDeathType>,
-        refresh_model_condition: bool,
-        mark_destroy: bool,
-    },
     /// FireWeaponWhenDamaged pending weapon residual.
     SetPendingFireWhenDamaged {
         id: ObjectId,

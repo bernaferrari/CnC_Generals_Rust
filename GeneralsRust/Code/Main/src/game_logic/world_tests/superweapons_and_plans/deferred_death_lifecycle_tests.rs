@@ -73,6 +73,12 @@ End
     let owner = world.host_object(id).unwrap();
     assert!(owner.status.on_die_started);
     assert!(!owner.status.destroyed);
+    assert_eq!(
+        owner.health.current, 0.0,
+        "SlowDeath must not heal a dead Body"
+    );
+    assert_eq!(owner.previous_health, 100.0);
+    assert!(owner.status.effectively_dead);
     let death = owner.slow_death.as_ref().unwrap();
     assert!(death.is_active());
     assert_eq!(death.begin_frame, frame);
@@ -131,6 +137,7 @@ fn ordinary_slow_death_final_frame_requests_final_deletion_without_restart() {
     let (mut world, id, due) = parsed_slow_death_owner();
     while world.getFrame() < due {
         let before = world.getFrame();
+        assert_eq!(world.host_object(id).unwrap().health.current, 0.0);
         // A repeated death-start notification is not final destruction.
         world.mark_object_for_destruction(id, Some(Team::GLA));
         assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
@@ -294,10 +301,8 @@ fn coupled_default_authority_keeps_host_slow_death_timer_until_original_deadline
                         assert!(owner.status.on_die_started);
                         assert!(!owner.status.destroyed);
                         assert_eq!(owner.slow_death.as_ref().unwrap().destroy_at_frame, due);
-                        assert!(
-                            owner.health.current > 0.0,
-                            "diagnostic mirror must not consume final-death ForceKill with authority off"
-                        );
+                        assert_eq!(owner.health.current, 0.0);
+                        assert!(owner.status.effectively_dead);
                         assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
                     } else {
                         assert!(
@@ -618,4 +623,86 @@ fn coupled_default_structure_completion_retains_objects_until_explicit_delete() 
             };
         },
     );
+}
+
+#[test]
+fn zero_hp_dying_body_keeps_owned_physics_motion_without_peer_revival() {
+    let (mut owner, id, due) = parsed_slow_death_owner();
+    let (mut peer, peer_id, _) = parsed_slow_death_owner();
+    assert_eq!(id, peer_id);
+    owner.frame = 1;
+    peer.frame = 700;
+    for world in [&mut owner, &mut peer] {
+        let body = world.host_object_mut(id).unwrap();
+        body.set_position(Vec3::new(10.0, 100.0, 10.0));
+        body.ground_height = 0.0;
+        body.movement.velocity = Vec3::new(1.0, 0.0, 0.0);
+        body.allow_to_fall = true;
+        assert_eq!(body.health.current, 0.0);
+        assert!(!body.is_alive() && !body.can_move());
+    }
+    let peer_pose = peer.host_object(peer_id).unwrap().get_position();
+    owner.tick_physics_collisions_all();
+    let body = owner.host_object(id).unwrap();
+    assert!(
+        body.get_position().x > 10.0,
+        "dead Physics still integrates its velocity"
+    );
+    assert!(
+        body.get_position().y < 100.0,
+        "dead Physics still admits gravity"
+    );
+    assert_eq!((body.health.current, body.previous_health), (0.0, 100.0));
+    assert_eq!(body.slow_death.as_ref().unwrap().destroy_at_frame, due);
+    assert_eq!(peer.host_object(peer_id).unwrap().get_position(), peer_pose);
+    assert_eq!(peer.host_object(peer_id).unwrap().health.current, 0.0);
+}
+
+#[test]
+fn saved_zero_hp_dying_body_preserves_motion_and_final_deadline() {
+    let (mut owner, id, due) = parsed_slow_death_owner();
+    owner.frame = 1;
+    {
+        let body = owner.host_object_mut(id).unwrap();
+        body.set_position(Vec3::new(10.0, 100.0, 10.0));
+        body.movement.velocity = Vec3::new(1.0, 0.0, 0.0);
+        body.allow_to_fall = true;
+    }
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&owner).unwrap();
+    let (mut restored, peer_id, _) = parsed_slow_death_owner();
+    assert_eq!(id, peer_id);
+    restored.frame = 900;
+    builder
+        .restore_from_snapshot(&saved, &mut restored)
+        .unwrap();
+    assert_eq!(restored.host_object(id).unwrap().health.current, 0.0);
+    assert_eq!(restored.host_object(id).unwrap().previous_health, 100.0);
+    assert_eq!(
+        restored
+            .host_object(id)
+            .unwrap()
+            .slow_death
+            .as_ref()
+            .unwrap()
+            .destroy_at_frame,
+        due
+    );
+    for world in [&mut owner, &mut restored] {
+        world.frame = 2;
+        world.tick_physics_collisions_all();
+    }
+    assert_eq!(
+        restored.host_object(id).unwrap().get_position(),
+        owner.host_object(id).unwrap().get_position()
+    );
+    for world in [&mut owner, &mut restored] {
+        world.frame = due;
+        world.update_ai(&[id], 1.0 / 30.0);
+        world.process_destroy_list();
+        assert!(
+            world.host_object(id).is_none(),
+            "original final deadline still deletes the dead body"
+        );
+    }
 }

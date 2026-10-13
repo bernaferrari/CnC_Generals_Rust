@@ -58,12 +58,14 @@ pub const MINE_IMMUNITY_HOLD_FRAMES: u32 = 2;
 pub const MINE_MIN_HEALTH: f32 = 0.1;
 /// C++ CreatorDeathCheckRate default (LOGICFRAMES_PER_SECOND).
 pub const MINE_CREATOR_DEATH_CHECK_FRAMES: u32 = 30;
-/// Retail ChinaStandardMine DegenPercentPerSecondAfterCreatorDies **100%**.
-pub const MINE_DEGEN_PERCENT_PER_SECOND: f32 = 1.0;
+/// Retail ChinaStandardMine/ChinaEMPMine creator-death drain=3.33% per second.
+pub const MINE_DEGEN_PERCENT_PER_SECOND: f32 = 0.0333;
 /// China mine AutoHeal HealingAmount residual (StartsActive Yes).
 pub const MINE_AUTO_HEAL_AMOUNT: f32 = 2.0;
-/// China mine AutoHeal HealingDelay 1000ms → 30f.
-pub const MINE_AUTO_HEAL_DELAY_FRAMES: u32 = 30;
+/// Retail ChinaStandardMine and ChinaEMPMine HealingDelay=5000ms → 150f.
+pub const MINE_AUTO_HEAL_DELAY_FRAMES: u32 = 5 * 30;
+/// Retail ChinaStandardMine and ChinaEMPMine StartHealingDelay=15000ms.
+pub const MINE_AUTO_HEAL_START_DELAY_FRAMES: u32 = 15 * 30;
 
 /// Retail ChinaStandardMine / ChinaEMPMine NumVirtualMines residual.
 pub const STANDARD_MINE_NUM_VIRTUAL: u32 = 8;
@@ -823,9 +825,6 @@ impl HostMineData {
             return false;
         }
         self.virtual_mines_remaining = 0;
-        self.draining = false;
-        self.auto_heal_stopped = false;
-        self.auto_heal_wake_frame = 0;
         self.last_synced_health = Some(MINE_MIN_HEALTH);
         self.clear_pre_attack_clearer = None;
         self.clear_pre_attack_ready_frame = 0;
@@ -901,6 +900,20 @@ impl HostMineData {
         }
     }
 
+    /// The admitted Body hit wakes this pad's authored regeneration delay.
+    /// Minefield's ignoreDamage suppresses virtual-count recursion only; the
+    /// separate AutoHeal onDamage callback still observes detonation HP drain.
+    pub(crate) fn on_damage_at(&mut self, frame: u32, amount: f32) {
+        if amount > 0.0
+            && self.regenerates
+            && !self.auto_heal_stopped
+            && !self.draining
+            && !self.detonated
+        {
+            self.auto_heal_wake_frame = frame.wrapping_add(MINE_AUTO_HEAL_START_DELAY_FRAMES);
+        }
+    }
+
     /// C++ AutoHeal pulse for regenerating China pads.
     pub fn tick_regen_auto_heal(&mut self, now: u32, health: f32, max_health: f32) -> f32 {
         if !self.regenerates || self.auto_heal_stopped || self.draining || self.detonated {
@@ -909,14 +922,10 @@ impl HostMineData {
         if health + 1e-4 >= max_health {
             return health;
         }
-        if self.auto_heal_wake_frame == 0 {
-            self.auto_heal_wake_frame = now.saturating_add(MINE_AUTO_HEAL_DELAY_FRAMES);
-            return health;
-        }
         if now < self.auto_heal_wake_frame {
             return health;
         }
-        self.auto_heal_wake_frame = now.saturating_add(MINE_AUTO_HEAL_DELAY_FRAMES);
+        self.auto_heal_wake_frame = now.wrapping_add(MINE_AUTO_HEAL_DELAY_FRAMES);
         (health + MINE_AUTO_HEAL_AMOUNT).min(max_health)
     }
 
@@ -2361,6 +2370,7 @@ mod tests {
         let mut d = HostMineData::land_mine_for_template("ChinaStandardMine");
         assert!(d.regenerates);
         assert_eq!(d.virtual_mines_remaining, STANDARD_MINE_NUM_VIRTUAL);
+        d.on_damage_at(0, 99.9);
         assert!(d.disarm_regenerating_pad());
         assert_eq!(d.virtual_mines_remaining, 0);
         assert!(d.regenerates);
@@ -2372,8 +2382,11 @@ mod tests {
         );
         assert_eq!(d.virtual_mines_remaining, 4);
         let healed = d.tick_regen_auto_heal(0, 0.1, 100.0);
-        assert!((healed - 0.1).abs() < 1e-4, "first pulse only arms wake");
-        let healed = d.tick_regen_auto_heal(MINE_AUTO_HEAL_DELAY_FRAMES, 0.1, 100.0);
+        assert!(
+            (healed - 0.1).abs() < 1e-4,
+            "actual disarm damage delays first healing"
+        );
+        let healed = d.tick_regen_auto_heal(MINE_AUTO_HEAL_START_DELAY_FRAMES, 0.1, 100.0);
         assert!((healed - (0.1 + MINE_AUTO_HEAL_AMOUNT)).abs() < 1e-4);
     }
 

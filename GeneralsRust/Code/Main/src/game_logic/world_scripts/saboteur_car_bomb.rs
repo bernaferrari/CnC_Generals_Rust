@@ -638,7 +638,7 @@ impl GameLogic {
                     chute.clear_eject_parachuting();
                     let hp = chute.health.current.max(1.0);
                     {
-                        chute.health.current = 0.0;
+                        chute.internal_change_health(-chute.health.current);
                     }
                     chute.status.destroyed = true;
                 }
@@ -739,7 +739,7 @@ impl GameLogic {
         if let Some(r) = self.objects.get_mut(&rider_id) {
             let hp = r.health.current.max(1.0);
             {
-                r.health.current = 0.0;
+                r.internal_change_health(-r.health.current);
             }
             r.status.destroyed = true;
         }
@@ -1138,11 +1138,12 @@ impl GameLogic {
                     camo_reveal = true;
                 }
                 if result.structure_damage_applied > 0.0 {
-                    // Wave 748: under damage authority, do not mutate host HP
-                    // (dual with GW HP writeback). Damage log owns the numeric
-                    // residual; lethal still stamps destroyed + idle residual.
+                    // Hive allocation already computed actual structure damage;
+                    // commit once, then run the receiving-frame Body reaction.
                     {
-                        obj.health.current = new_struct_hp;
+                        obj.previous_health = obj.health.current;
+                        obj.health.current = new_struct_hp.max(0.0);
+                        obj.refresh_model_condition_bits_with_source(None, frame);
                         self.health_events.record_applied_damage(
                             obj.id,
                             result.structure_damage_applied,
@@ -1154,9 +1155,6 @@ impl GameLogic {
                                 maximum: obj.health.maximum,
                             },
                         );
-                        if new_struct_hp <= 0.0 {
-                            obj.health.current = 0.0;
-                        }
                     }
                     if new_struct_hp <= 0.0 {
                         obj.status.destroyed = true;

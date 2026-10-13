@@ -7,7 +7,7 @@
 //!
 //! Orthogonal to Wave 486 production-door model log.
 //! Structural source checks only. Main owns model state; the shadow observes it.
-//! Source-aware Body evaluation requires a frame; general pose clock debt remains.
+//! Source-aware Body reactions require a frame; pure pose flags cannot retime them.
 //!
 //! Sources:
 //! - object.rs refresh_model_condition_bits WEAPON_MC_PRESERVE
@@ -162,16 +162,24 @@ pub fn simulate_combat_model_condition_channel_refresh_source() -> bool {
     let Some(wrapper) = function_body(src, "fn refresh_model_condition_bits(") else {
         return false;
     };
-    let Some(body) = function_body(src, "fn refresh_model_condition_bits_with_source(") else {
+    let Some(body) = function_body(src, "fn rebuild_model_condition_bits(") else {
+        return false;
+    };
+    let body_source = include_str!("../object/body_visuals.rs");
+    let Some(reactions) = function_body(body_source, "fn react_to_body_damage_state_change(")
+    else {
         return false;
     };
     let normalized_wrapper: String = wrapper.split_whitespace().collect();
-    let normalized_body: String = body.split_whitespace().collect();
-    // The general pose adapter remains explicit parent clock debt. The shared
-    // Body evaluation itself requires its caller's frame and forwards it to FX.
-    let ok = normalized_wrapper.contains("self.refresh_model_condition_bits_with_source(None,crate::game_logic::host_historic_bonus::logic_frame(),)")
-        && normalized_body.contains("bfx.on_body_damage_state_change(&self.template_name,old_state,state,frame")
-        && !body.contains("host_historic_bonus::logic_frame")
+    let normalized_reactions: String = reactions.split_whitespace().collect();
+    // Pose flags consume already canonical state; only actual Body reactions
+    // receive the operation's frame. These are structural witnesses only.
+    let ok = normalized_wrapper.contains("self.rebuild_model_condition_bits();")
+        && !wrapper.contains("host_historic_bonus::logic_frame")
+        && !wrapper.contains("refresh_model_condition_bits_with_source")
+        && normalized_reactions
+            .contains("bfx.on_body_damage_state_change(&self.template_name,old_state,state,frame")
+        && !reactions.contains("host_historic_bonus::logic_frame")
         && body.contains(
             "Wave 487: preserve combat/presentation bits refresh rebuild does not recompute",
         )

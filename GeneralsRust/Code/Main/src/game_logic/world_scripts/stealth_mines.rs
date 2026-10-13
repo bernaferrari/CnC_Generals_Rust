@@ -2422,7 +2422,7 @@ impl GameLogic {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
                 {
-                    o.health.current = 0.0;
+                    o.internal_change_health(-o.health.current);
                 }
                 o.status.destroyed = true;
                 o.status.effectively_dead = true;
@@ -2436,179 +2436,100 @@ impl GameLogic {
 
     /// C++ MinefieldBehavior::update producer-death drain + AutoHeal + onDamage virtual sync.
     fn update_land_mine_regen_and_virtual(&mut self) {
-        use crate::game_logic::host_enum_table_residual::rubble_model_bit;
-        use crate::game_logic::host_mines::{
-            HostMineKind, MINE_CREATOR_DEATH_CHECK_FRAMES, MineOnDamageStep,
-        };
-
+        use crate::game_logic::host_mines::{HostMineKind, MINE_CREATOR_DEATH_CHECK_FRAMES};
         let frame = self.frame;
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
-            .filter_map(|(id, o)| {
-                let md = o.mine_data.as_ref()?;
-                if md.detonated || !matches!(md.kind, HostMineKind::LandMine) {
-                    return None;
-                }
-                // C++ onDamage runs after HP hits 0 and chain-detonates remaining
-                // virtuals before destroyObject. Do not drop lethal pads here.
-                if !o.is_alive() && !md.defers_lethal_body_destroy() {
+            .filter_map(|(id, obj)| {
+                let data = obj.mine_data.as_ref()?;
+                if data.detonated
+                    || !matches!(data.kind, HostMineKind::LandMine)
+                    || (!obj.is_alive() && !data.defers_lethal_body_destroy())
+                {
                     return None;
                 }
                 Some(*id)
             })
             .collect();
-
-        let mut detonate: Vec<(ObjectId, u32)> = Vec::new();
-        let mut destroy: Vec<ObjectId> = Vec::new();
-
         for id in ids {
-            let producer = self.objects.get(&id).and_then(|o| {
-                o.mine_data
+            let producer = self.objects.get(&id).and_then(|obj| {
+                obj.mine_data
                     .as_ref()
-                    .and_then(|m| m.producer_id)
-                    .or(o.producer_id)
+                    .and_then(|data| data.producer_id)
+                    .or(obj.producer_id)
             });
-            let producer_dead = match producer {
-                Some(pid) => self
-                    .objects
-                    .get(&pid)
-                    .map(|p| !p.is_alive() || p.status.effectively_dead)
-                    .unwrap_or(true),
-                None => false,
-            };
-
-            let Some(obj) = self.objects.get_mut(&id) else {
-                continue;
-            };
-            let max_h = obj.health.maximum.max(obj.max_health).max(1.0);
-            let mut health = obj.health.current;
-            let Some(md) = obj.mine_data.as_mut() else {
-                continue;
-            };
-
-            if md.regenerates
-                && md.stops_regen_after_creator_dies
-                && producer_dead
-                && frame >= md.next_death_check_frame
-            {
-                md.note_producer_dead(frame);
-            } else if md.regenerates
-                && md.stops_regen_after_creator_dies
-                && frame >= md.next_death_check_frame
-            {
-                md.next_death_check_frame = frame.saturating_add(MINE_CREATOR_DEATH_CHECK_FRAMES);
-            }
-
-            let mut healing = false;
-            let mut self_drain = false;
-            if md.draining {
-                let amount = md.drain_health_amount(max_h);
-                if amount > 0.0 {
-                    health = (health - amount).max(0.0);
-                    self_drain = true;
-                }
-            } else {
-                let healed = md.tick_regen_auto_heal(frame, health, max_h);
-                if healed > health + 1e-4 {
-                    health = healed;
-                    healing = true;
-                }
-            }
-
-            if md
-                .last_synced_health
-                .is_some_and(|h| (h - health).abs() < 1e-4)
-                && !self_drain
-                && !healing
-            {
-                continue;
-            }
-
-            let mut want_detonate_n = 0u32;
-            let mut want_destroy = false;
-            loop {
-                match md.apply_on_damage_step(health, max_h, healing, self_drain) {
-                    MineOnDamageStep::Done => break,
-                    MineOnDamageStep::Continue => {
-                        if md.virtual_mines_remaining == 0 && !md.regenerates {
-                            want_destroy = true;
-                            break;
+            let producer_dead = producer.is_some_and(|producer| {
+                self.objects
+                    .get(&producer)
+                    .is_none_or(|object| object.status.effectively_dead)
+            });
+            let (amount, healing, self_drain, needs_sync) = {
+                let Some(obj) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let health = obj.health.current;
+                let max_health = obj.health.maximum.max(obj.max_health).max(1.0);
+                let Some(data) = obj.mine_data.as_mut() else {
+                    continue;
+                };
+                if data.regenerates
+                    && data.stops_regen_after_creator_dies
+                    && frame >= data.next_death_check_frame
+                {
+                    data.next_death_check_frame =
+                        frame.saturating_add(MINE_CREATOR_DEATH_CHECK_FRAMES);
+                    if producer_dead {
+                        data.note_producer_dead(frame);
+                        if let Some(auto_heal) = obj.default_auto_heal.as_mut() {
+                            auto_heal.stopped = true;
+                            auto_heal.pending_damage = false;
                         }
                     }
-                    MineOnDamageStep::Detonate => {
-                        let expected =
-                            md.virtual_mines_expected_from_health(health, max_h, healing);
-                        want_detonate_n = md.virtual_mines_remaining.saturating_sub(expected);
-                        break;
-                    }
                 }
-            }
-
-            health = md.clamp_empty_regen_health(health);
-            let empty = md.virtual_mines_remaining == 0;
-            let regenerates = md.regenerates;
-            drop(md);
-            obj.health.current = health;
-            let bit = 1u128 << rubble_model_bit();
-            if empty {
-                obj.model_condition_bits |= bit;
-                obj.set_status_masked(true);
-                if !regenerates && health <= 0.0 {
-                    want_destroy = true;
-                }
-            } else {
-                obj.model_condition_bits &= !bit;
-                obj.set_status_masked(false);
-            }
-            if want_detonate_n > 0 {
-                detonate.push((id, want_detonate_n));
-            }
-            if want_destroy {
-                destroy.push(id);
-            }
-        }
-
-        self.drain_masked_object_selection();
-        for (id, n) in detonate {
-            let pos = self
-                .objects
-                .get(&id)
-                .map(|o| o.get_position())
-                .unwrap_or(glam::Vec3::ZERO);
-            for _ in 0..n {
-                if !self.trip_virtual_land_mine(id, pos) {
-                    break;
-                }
-            }
-            self.admit_object_drawable_deselection(id);
-            // C++ onDamage after the loop: regen pads at 0 HP restore MIN_HEALTH.
-            if let Some(obj) = self.objects.get_mut(&id) {
-                if let Some(md) = obj.mine_data.as_mut() {
-                    let clamped = md.clamp_empty_regen_health(obj.health.current);
-                    obj.health.current = clamped;
-                    md.last_synced_health = Some(clamped);
-                    let empty = md.virtual_mines_remaining == 0;
-                    let regenerates = md.regenerates;
-                    drop(md);
-                    let bit = 1u128 << rubble_model_bit();
-                    if empty {
-                        obj.model_condition_bits |= bit;
-                        obj.set_status_masked(true);
-                        if !regenerates && clamped <= 0.0 {
-                            destroy.push(id);
-                        }
+                let (amount, healing, self_drain) = if data.draining {
+                    (data.drain_health_amount(max_health), false, true)
+                } else {
+                    (
+                        data.tick_regen_auto_heal(frame, health, max_health) - health,
+                        true,
+                        false,
+                    )
+                };
+                let needs_sync = data
+                    .last_synced_health
+                    .is_none_or(|last| (last - health).abs() >= 1e-4);
+                (amount, healing, self_drain, needs_sync)
+            };
+            if amount > 0.0 {
+                self.apply_residual_damage_owned(
+                    id,
+                    amount,
+                    Some(id),
+                    if healing {
+                        crate::game_logic::combat::DamageType::Healing
                     } else {
-                        obj.model_condition_bits &= !bit;
-                        obj.set_status_masked(false);
-                    }
-                }
+                        crate::game_logic::combat::DamageType::Unresistable
+                    },
+                    if healing {
+                        crate::game_logic::host_usa_pilot::HostDeathType::None
+                    } else {
+                        crate::game_logic::host_usa_pilot::HostDeathType::Normal
+                    },
+                    None,
+                );
+            }
+            // Finish this pad's real onHealing/onDamage callback before the
+            // next actor. No batch of synthetic HP or delayed virtual blasts.
+            if amount > 0.0 || needs_sync {
+                self.synchronize_mine_body_owned(
+                    id,
+                    amount > 0.0 && healing,
+                    amount > 0.0 && self_drain,
+                );
             }
         }
-
-        for id in destroy {
-            self.mark_object_for_destruction(id, None);
-        }
+        self.drain_masked_object_selection();
     }
 
     pub fn update_mines_and_demo_traps(&mut self) {
@@ -3099,6 +3020,21 @@ impl GameLogic {
         let mine_pos = mine.get_position();
         let blast_pos =
             clip_point_to_mine_footprint(mine_pos, victim_pos, LAND_MINE_GEOMETRY_RADIUS);
+        // CPP detonateOnce fires the weapon synchronously before decrementing
+        // virtual mines. Neighbor onDamage callbacks therefore observe the
+        // still-current source charge and may complete nested detonations.
+        let (damage, radius, kind, mine_team, producer) = (
+            data.detonation_damage,
+            data.detonation_radius,
+            data.kind,
+            mine.team,
+            data.producer_id,
+        );
+        self.mine_residual_proximity_detonations =
+            self.mine_residual_proximity_detonations.saturating_add(1);
+        self.apply_mine_splash(
+            mine_id, blast_pos, damage, radius, kind, mine_team, producer,
+        );
         let destroy_pad = {
             let Some(obj) = self.objects.get_mut(&mine_id) else {
                 return false;
@@ -3109,33 +3045,35 @@ impl GameLogic {
             md.consume_virtual_mine()
         };
         if destroy_pad {
-            return self.detonate_mine_internal(
-                mine_id,
-                crate::game_logic::host_mines::HostMineDetonateReason::Proximity,
-                Some(blast_pos),
-            );
+            // This blast already ran. CPP requests deletion, not another
+            // weapon fire or a synthetic lethal Body/onDie operation.
+            self.destroy_object(mine_id);
         }
 
-        // Persist: apply one blast, keep the pad, scale health, rubble if empty.
-        self.mine_residual_proximity_detonations =
-            self.mine_residual_proximity_detonations.saturating_add(1);
+        // CPP MinefieldBehavior.cpp:271-292: persistent pads drain through Body.
+        let amount = self
+            .objects
+            .get(&mine_id)
+            .and_then(|obj| {
+                obj.mine_data.as_ref().map(|md| {
+                    let desired =
+                        (md.virtual_health_fraction() * obj.health.maximum).max(MINE_MIN_HEALTH);
+                    obj.health.current - desired
+                })
+            })
+            .unwrap_or(0.0);
+        if !destroy_pad {
+            self.apply_guarded_mine_body_drain(mine_id, amount);
+        }
+        // Re-resolve the canonical pad after callbacks. The guard suppresses
+        // only Minefield's recursive virtual-count reaction, not other modules.
         if let Some(obj) = self.objects.get_mut(&mine_id) {
-            let desired = obj
-                .mine_data
-                .as_ref()
-                .map(|md| (md.virtual_health_fraction() * obj.health.maximum).max(MINE_MIN_HEALTH))
-                .unwrap_or(MINE_MIN_HEALTH);
-            let empty = obj
-                .mine_data
-                .as_ref()
-                .is_some_and(|md| md.virtual_mines_remaining == 0);
-            if obj.health.current > desired {
-                obj.health.current = desired;
-            }
             let hp = obj.health.current;
-            if let Some(md) = obj.mine_data.as_mut() {
-                md.last_synced_health = Some(hp);
-            }
+            let Some(md) = obj.mine_data.as_mut() else {
+                return true;
+            };
+            md.last_synced_health = Some(hp);
+            let empty = md.virtual_mines_remaining == 0;
             let bit = 1u128 << rubble_model_bit();
             if empty {
                 obj.model_condition_bits |= bit;
@@ -3146,21 +3084,42 @@ impl GameLogic {
             }
         }
         self.admit_object_drawable_deselection(mine_id);
-        let (damage, radius, kind, mine_team, producer) = {
-            let obj = self.objects.get(&mine_id).unwrap();
-            let md = obj.mine_data.as_ref().unwrap();
-            (
-                md.detonation_damage,
-                md.detonation_radius,
-                md.kind,
-                obj.team,
-                md.producer_id,
-            )
-        };
-        self.apply_mine_splash(
-            mine_id, blast_pos, damage, radius, kind, mine_team, producer,
-        );
         true
+    }
+
+    /// CPP Minefield detonation/disarm ignoreDamage guards only its own
+    /// virtual-count reaction; the admitted Body hit still reaches AutoHeal.
+    fn apply_guarded_mine_body_drain(&mut self, mine_id: ObjectId, amount: f32) {
+        if amount <= 0.0 {
+            return;
+        }
+        let previous_ignore = {
+            let Some(data) = self
+                .objects
+                .get_mut(&mine_id)
+                .and_then(|obj| obj.mine_data.as_mut())
+            else {
+                return;
+            };
+            let previous = data.ignore_damage;
+            data.ignore_damage = true;
+            previous
+        };
+        self.apply_residual_damage_owned(
+            mine_id,
+            amount,
+            Some(mine_id),
+            crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::None,
+            None,
+        );
+        if let Some(obj) = self.objects.get_mut(&mine_id) {
+            let hp = obj.health.current;
+            if let Some(data) = obj.mine_data.as_mut() {
+                data.ignore_damage = previous_ignore;
+                data.last_synced_health = Some(hp);
+            }
+        }
     }
 
     /// Safely disarm/clear a residual mine without detonation or area damage.
@@ -3195,11 +3154,18 @@ impl GameLogic {
         if keep_regen_pad {
             use crate::game_logic::host_enum_table_residual::rubble_model_bit;
             use crate::game_logic::host_mines::MINE_MIN_HEALTH;
+            let amount = self
+                .objects
+                .get(&mine_id)
+                .map(|obj| obj.health.current - MINE_MIN_HEALTH)
+                .unwrap_or(0.0);
+            self.apply_guarded_mine_body_drain(mine_id, amount);
             if let Some(obj) = self.objects.get_mut(&mine_id) {
                 if let Some(md) = obj.mine_data.as_mut() {
+                    // CPP disarm's count reset follows the guarded damage callback.
                     let _ = md.disarm_regenerating_pad();
+                    md.last_synced_health = Some(obj.health.current);
                 }
-                obj.health.current = MINE_MIN_HEALTH;
                 obj.model_condition_bits |= 1u128 << rubble_model_bit();
                 obj.set_status_masked(true);
             }
@@ -3373,7 +3339,7 @@ impl GameLogic {
                 if victim.mine_data.is_some() && !chain_pad {
                     continue;
                 }
-                if victim.team == mine_team && !hit_allies && !chain_pad {
+                if victim.team == mine_team && !hit_allies {
                     continue;
                 }
                 let dist = mine_splash_distance(victim, blast_pos);
@@ -3389,7 +3355,14 @@ impl GameLogic {
                     // C++ DemoTrap/LandMine weapons are EXPLOSION, not UNRESISTABLE.
                     if {
                         let owned_victim_id = victim.id;
-                        let owned_damage_type = crate::game_logic::combat::DamageType::Explosive;
+                        let owned_damage_type = if matches!(
+                            kind,
+                            crate::game_logic::host_mines::HostMineKind::LandMine
+                        ) {
+                            crate::game_logic::combat::DamageType::LandMine
+                        } else {
+                            crate::game_logic::combat::DamageType::Explosive
+                        };
                         self.apply_residual_damage_owned(
                             owned_victim_id,
                             dmg,
@@ -3458,7 +3431,7 @@ impl GameLogic {
         radius: f32,
         kind: crate::game_logic::host_mines::HostMineKind,
         mine_team: Team,
-        _producer: Option<ObjectId>,
+        producer: Option<ObjectId>,
     ) {
         use crate::game_logic::host_mines::damage_at_distance;
         let neutron_blast = self
@@ -3494,10 +3467,12 @@ impl GameLogic {
                 | crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge
         );
         let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
-        let mut chain_ids: Vec<ObjectId> = Vec::new();
         let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
         for vid in victim_ids {
-            if vid == mine_id {
+            if vid == mine_id
+                || (matches!(kind, crate::game_logic::host_mines::HostMineKind::LandMine)
+                    && Some(vid) == producer)
+            {
                 continue;
             }
             let Some(victim) = self.objects.get(&vid) else {
@@ -3510,7 +3485,7 @@ impl GameLogic {
             if victim.mine_data.is_some() && !chain_pad {
                 continue;
             }
-            if victim.team == mine_team && !hit_allies && !chain_pad {
+            if victim.team == mine_team && !hit_allies {
                 continue;
             }
             let dist = mine_splash_distance(victim, blast_pos);
@@ -3521,7 +3496,12 @@ impl GameLogic {
             if let Some(victim) = self.objects.get_mut(&vid) {
                 if {
                     let owned_victim_id = victim.id;
-                    let owned_damage_type = crate::game_logic::combat::DamageType::Unresistable;
+                    let owned_damage_type =
+                        if matches!(kind, crate::game_logic::host_mines::HostMineKind::LandMine) {
+                            crate::game_logic::combat::DamageType::LandMine
+                        } else {
+                            crate::game_logic::combat::DamageType::Explosive
+                        };
                     self.apply_residual_damage_owned(
                         owned_victim_id,
                         dmg,
@@ -3536,12 +3516,11 @@ impl GameLogic {
                 {
                     destroy_ids.push((vid, mine_team));
                 } else if chain_pad {
-                    chain_ids.push(vid);
+                    // Original weapon iteration completes this victim's
+                    // onDamage before advancing to the next radius victim.
+                    self.chain_detonate_land_mine_from_splash(vid);
                 }
             }
-        }
-        for id in chain_ids {
-            self.chain_detonate_land_mine_from_splash(id);
         }
         self.queue_audio_event(
             AudioEventRequest::new(kind.detonate_audio())
@@ -3564,32 +3543,76 @@ impl GameLogic {
 
     /// C++ MinefieldBehavior::onDamage after splash `attemptDamage`.
     fn chain_detonate_land_mine_from_splash(&mut self, mine_id: ObjectId) {
-        let Some(obj) = self.objects.get(&mine_id) else {
-            return;
-        };
-        let Some(md) = obj.mine_data.as_ref() else {
-            return;
-        };
-        if md.detonated
-            || !matches!(
-                md.kind,
-                crate::game_logic::host_mines::HostMineKind::LandMine
-            )
-        {
-            return;
-        }
-        let health = obj.health.current;
-        let max_h = obj.health.maximum.max(obj.max_health).max(1.0);
-        let expected = md.virtual_mines_expected_from_health(health, max_h, false);
-        let n = md.virtual_mines_remaining.saturating_sub(expected);
-        if n == 0 {
-            return;
-        }
-        let pos = obj.get_position();
-        for _ in 0..n {
+        self.synchronize_mine_body_owned(mine_id, false, false);
+    }
+
+    fn synchronize_mine_body_owned(&mut self, mine_id: ObjectId, healing: bool, self_drain: bool) {
+        // CPP onDamage rereads Body health after every nested detonateOnce.
+        loop {
+            let Some(obj) = self.objects.get(&mine_id) else {
+                return;
+            };
+            let Some(md) = obj.mine_data.as_ref() else {
+                return;
+            };
+            if md.detonated
+                || md.ignore_damage
+                || !matches!(
+                    md.kind,
+                    crate::game_logic::host_mines::HostMineKind::LandMine
+                )
+            {
+                return;
+            }
+            let health = obj.health.current;
+            let max_health = obj.health.maximum.max(obj.max_health).max(1.0);
+            let step = self
+                .objects
+                .get_mut(&mine_id)
+                .unwrap()
+                .mine_data
+                .as_mut()
+                .unwrap()
+                .apply_on_damage_step(health, max_health, healing, self_drain);
+            match step {
+                crate::game_logic::host_mines::MineOnDamageStep::Done => break,
+                crate::game_logic::host_mines::MineOnDamageStep::Continue => continue,
+                crate::game_logic::host_mines::MineOnDamageStep::Detonate => {}
+            }
+            let pos = self.objects[&mine_id].get_position();
             if !self.trip_virtual_land_mine(mine_id, pos) {
                 break;
             }
+        }
+        // CPP onDamage after the loop restores an empty regenerating pad
+        // using internalChangeHealth, then updates rubble/MASKED immediately.
+        if let Some(obj) = self.objects.get_mut(&mine_id) {
+            let Some(md) = obj.mine_data.as_ref() else {
+                return;
+            };
+            let health = md.clamp_empty_regen_health(obj.health.current);
+            let empty = md.virtual_mines_remaining == 0;
+            obj.internal_change_health(health - obj.health.current);
+            if let Some(md) = obj.mine_data.as_mut() {
+                md.last_synced_health = Some(obj.health.current);
+            }
+            let bit = 1u128 << crate::game_logic::host_enum_table_residual::rubble_model_bit();
+            if empty {
+                obj.model_condition_bits |= bit;
+            } else {
+                obj.model_condition_bits &= !bit;
+            }
+            obj.set_status_masked(empty);
+        }
+        self.admit_object_drawable_deselection(mine_id);
+        if self.objects.get(&mine_id).is_some_and(|obj| {
+            obj.health.current <= 0.0
+                && obj
+                    .mine_data
+                    .as_ref()
+                    .is_some_and(|data| !data.regenerates && data.virtual_mines_remaining == 0)
+        }) {
+            self.mark_object_for_destruction(mine_id, None);
         }
     }
     fn apply_neutron_mine_blast(
@@ -3911,3 +3934,7 @@ fn mine_splash_distance(victim: &Object, blast_pos: Vec3) -> f32 {
         (dx * dx + dz * dz).sqrt()
     }
 }
+
+#[cfg(test)]
+#[path = "virtual_mine_damage_owner_tests.rs"]
+mod virtual_mine_damage_owner_tests;

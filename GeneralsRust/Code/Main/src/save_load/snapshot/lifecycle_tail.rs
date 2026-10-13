@@ -109,7 +109,7 @@ pub fn decode_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<LifecycleTail> {
     })
 }
 
-pub fn capture_lifecycle_tail(game_logic: &GameLogic) -> LifecycleTail {
+pub fn capture_lifecycle_tail(game_logic: &GameLogic) -> SaveLoadResult<LifecycleTail> {
     let mut tail = LifecycleTail::default();
     // CPP GameLogic.cpp3816-3821 never reuses ObjectIDs. These links belong
     // to this Main session; another observer's arena generation cannot author
@@ -117,7 +117,14 @@ pub fn capture_lifecycle_tail(game_logic: &GameLogic) -> LifecycleTail {
     let generation_for = |_host: ObjectId| 1;
     for object in game_logic.host_objects().values() {
         tail.envelopes.push(
-            object.entity_lifecycle_envelope_with_railroad(game_logic.railroad.get(object.id)),
+            object
+                .entity_lifecycle_envelope_with_railroad(game_logic.railroad.get(object.id))
+                .map_err(|error| {
+                    SaveLoadError::Corrupted(format!(
+                        "lifecycle capture object {}: {error}",
+                        object.id.0
+                    ))
+                })?,
         );
         let entity_generation = generation_for(object.id);
         for occupant in &object.occupants {
@@ -137,7 +144,7 @@ pub fn capture_lifecycle_tail(game_logic: &GameLogic) -> LifecycleTail {
             });
         }
     }
-    tail
+    Ok(tail)
 }
 
 pub fn apply_lifecycle_tail_to_host(
@@ -455,7 +462,7 @@ mod tests {
         );
         owner.objects.insert(ObjectId(7), object);
         owner.restore_railroad_car(car);
-        let tail = capture_lifecycle_tail(&owner);
+        let tail = capture_lifecycle_tail(&owner).expect("valid lifecycle capture");
         apply_lifecycle_tail_to_host(&tail, &mut owner).unwrap();
         let restored = owner.railroad_car(ObjectId(7)).unwrap();
         assert_eq!(restored.conductor_state, HostConductorState::WaitAtStation);
@@ -500,7 +507,7 @@ mod tests {
             Some(2)
         );
 
-        let tail = capture_lifecycle_tail(&logic);
+        let tail = capture_lifecycle_tail(&logic).expect("valid lifecycle capture");
         let restored = decode_lifecycle_tail(&encode_lifecycle_tail(&tail)).unwrap();
         assert_eq!(restored, tail);
         // A second same-ID Main owner and a recycled observation arena cannot
@@ -509,14 +516,23 @@ mod tests {
         let mut peer_object = Object::new(ThingTemplate::new("Peer"), ObjectId(9), Team::China);
         peer_object.producer_id = Some(ObjectId(77));
         peer.host_objects_mut().insert(ObjectId(9), peer_object);
-        assert_eq!(capture_lifecycle_tail(&logic), tail);
         assert_eq!(
-            capture_lifecycle_tail(&peer).producer_links[0].producer_id,
+            capture_lifecycle_tail(&logic).expect("valid lifecycle capture"),
+            tail
+        );
+        assert_eq!(
+            capture_lifecycle_tail(&peer)
+                .expect("valid lifecycle capture")
+                .producer_links[0]
+                .producer_id,
             77
         );
         peer.reset();
         drop(peer);
-        assert_eq!(capture_lifecycle_tail(&logic), tail);
+        assert_eq!(
+            capture_lifecycle_tail(&logic).expect("valid lifecycle capture"),
+            tail
+        );
 
         assert_eq!(tail.contain_links.len(), 1);
         assert_eq!(tail.contain_links[0].container_generation, 1);

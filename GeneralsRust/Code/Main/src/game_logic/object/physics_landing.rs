@@ -8,13 +8,15 @@ impl Object {
         &mut self,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
-        let mut ignored = |_, _| {};
+        let mut ignored = |_| {};
         let repulsors = false;
+        let sources = super::PhysicsDamageSources::default();
         let mut services = super::PhysicsDamageServices {
+            sources: &sources,
             frame: crate::game_logic::host_historic_bonus::logic_frame(),
             health_events,
             repulsors: &repulsors,
-            attacked_by: &mut ignored,
+            player_effects: &mut ignored,
         };
         self.maybe_kill_when_resting_on_ground_with_services(&mut services)
     }
@@ -75,13 +77,15 @@ impl Object {
         impact_vy: f32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> f32 {
-        let mut ignored = |_, _| {};
+        let mut ignored = |_| {};
         let repulsors = false;
+        let sources = super::PhysicsDamageSources::default();
         let mut services = super::PhysicsDamageServices {
+            sources: &sources,
             frame: crate::game_logic::host_historic_bonus::logic_frame(),
             health_events,
             repulsors: &repulsors,
-            attacked_by: &mut ignored,
+            player_effects: &mut ignored,
         };
         self.apply_shock_fall_damage_with_services(impact_vy, &mut services)
     }
@@ -169,13 +173,15 @@ impl Object {
         ground_y: f32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> f32 {
-        let mut ignored = |_, _| {};
+        let mut ignored = |_| {};
         let repulsors = false;
+        let sources = super::PhysicsDamageSources::default();
         let mut services = super::PhysicsDamageServices {
+            sources: &sources,
             frame: crate::game_logic::host_historic_bonus::logic_frame(),
             health_events,
             repulsors: &repulsors,
-            attacked_by: &mut ignored,
+            player_effects: &mut ignored,
         };
         self.handle_shock_ground_bounce_with_services(old_y, new_y, ground_y, &mut services)
     }
@@ -228,13 +234,15 @@ impl Object {
         &mut self,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
-        let mut ignored = |_, _| {};
+        let mut ignored = |_| {};
         let repulsors = false;
+        let sources = super::PhysicsDamageSources::default();
         let mut services = super::PhysicsDamageServices {
+            sources: &sources,
             frame: crate::game_logic::host_historic_bonus::logic_frame(),
             health_events,
             repulsors: &repulsors,
-            attacked_by: &mut ignored,
+            player_effects: &mut ignored,
         };
         self.test_stunned_unit_for_destruction_with_services(&mut services)
     }

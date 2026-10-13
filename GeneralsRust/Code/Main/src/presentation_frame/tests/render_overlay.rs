@@ -1228,7 +1228,7 @@ fn presentation_freezes_detector_stealth_timing_residual() {
         obj.stealth_breaks_on_move = true;
         obj.innate_stealth = true;
         obj.weapon_bonus_frenzy_until_frame = 120;
-        obj.continuous_fire_consecutive = 9;
+        obj.consecutive_shots_at_target = 9;
         obj.continuous_fire_coast_until_frame = 40;
         obj.battle_plan_sight_scalar_applied = 1.25;
     }

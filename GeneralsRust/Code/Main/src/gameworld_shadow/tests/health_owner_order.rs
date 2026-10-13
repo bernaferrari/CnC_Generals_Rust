@@ -28,9 +28,8 @@ fn injured_world() -> (GameLogic, GameWorldShadow, ObjectId) {
         .create_object("OwnerHealingVehicle", Team::USA, Vec3::ZERO)
         .expect("owner object");
     let object = logic.host_object_mut(id).unwrap();
-    object.health.current = 40.0;
+    object.internal_change_health(40.0 - object.health.current);
     object.previous_health = 40.0;
-    object.refresh_model_condition_bits();
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     logic.health_events.clear_damage();
@@ -184,11 +183,8 @@ fn pending_health_records_keep_order_without_shadow_session() {
 #[test]
 fn coupled_owner_healing_is_visible_to_repeated_borrows_and_damage_state() {
     let (mut logic, mut shadow, id) = injured_world();
-    logic.host_object_mut(id).unwrap().health.current = 30.0;
-    logic
-        .host_object_mut(id)
-        .unwrap()
-        .refresh_model_condition_bits();
+    let object = logic.host_object_mut(id).unwrap();
+    object.internal_change_health(30.0 - object.health.current);
     shadow.sync_from_host(&logic);
 
     {

@@ -1414,9 +1414,15 @@ fn bone_fx_fires_on_body_damage_worsen() {
     o.health.current = 1000.0;
     o.health.maximum = 1000.0;
     o.refresh_model_condition_bits();
-    // Drop into damaged band.
-    o.health.current = 400.0;
-    o.refresh_model_condition_bits();
+    // Actual Body damage owns the transition and its operation-local clock.
+    o.take_damage_from_typed_death_at_frame(
+        600.0,
+        None,
+        crate::game_logic::combat::DamageType::Unresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        41,
+        &mut crate::game_logic::HostHealthEvents::default(),
+    );
     assert!(
         o.bone_fx_damage
             .as_ref()
@@ -1519,8 +1525,7 @@ fn structure_rubble_collapses_geometry_z_and_stamps_no_collisions() {
     let mut o = Object::new(t, ObjectId(11), Team::USA);
     assert!((o.thing.template.geometry_info.height - 40.0).abs() < 1e-4);
     assert!(!o.status.no_collisions);
-    o.health.current = 0.0;
-    o.refresh_model_condition_bits();
+    o.internal_change_health(-o.health.current);
     assert_eq!(
         o.body_damage_state,
         crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
@@ -1631,9 +1636,14 @@ fn create_object_die_queues_spawns() {
         transfer_previous_health: true,
         fired: false,
     });
-    o.health.current = 0.0;
-    o.status.destroyed = true;
-    o.refresh_model_condition_bits();
+    o.take_damage_from_typed_death_at_frame(
+        100.0,
+        None,
+        crate::game_logic::combat::DamageType::Unresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        41,
+        &mut crate::game_logic::HostHealthEvents::default(),
+    );
     let (spawns, dmg, transfer, _sub, _src) = o.take_pending_create_object_die_spawns();
     assert_eq!(spawns, vec!["GLASneakAttackTunnelNetwork".to_string()]);
     assert!(transfer);
@@ -1767,8 +1777,14 @@ fn transition_damage_fx_queues_on_worse_state() {
     o.health.maximum = 100.0;
     o.transition_damage_fx = Some(HostTransitionDamageFxData::generic_structure_residual());
     o.body_damage_state = HostBodyDamageType::Pristine;
-    o.health.current = 40.0; // damaged
-    o.refresh_model_condition_bits();
+    o.take_damage_from_typed_death_at_frame(
+        60.0,
+        None,
+        crate::game_logic::combat::DamageType::Unresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        41,
+        &mut crate::game_logic::HostHealthEvents::default(),
+    );
     assert_eq!(o.body_damage_state, HostBodyDamageType::Damaged);
     let ev = o.take_pending_transition_damage_fx();
     assert!(!ev.is_empty());
@@ -1788,9 +1804,14 @@ fn fx_list_die_queues_on_rubble() {
         death_audio: Some("VehicleDestroyed".into()),
         ..Default::default()
     });
-    o.health.current = 0.0;
-    o.status.destroyed = true;
-    o.refresh_model_condition_bits();
+    o.take_damage_from_typed_death_at_frame(
+        100.0,
+        None,
+        crate::game_logic::combat::DamageType::Unresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        41,
+        &mut crate::game_logic::HostHealthEvents::default(),
+    );
     let (fx, audio) = o.take_pending_death_fx_audio();
     assert_eq!(fx.as_deref(), Some("FX_VehicleDie"));
     assert_eq!(audio.as_deref(), Some("VehicleDestroyed"));
@@ -2585,8 +2606,8 @@ fn continuous_fire_coasts_down_after_idle() {
         a.continuous_fire_one_shots = 1;
         a.continuous_fire_two_shots = 4;
         a.continuous_fire_coast_frames = 10;
-        a.record_shot_at_target(tgt);
-        a.record_shot_at_target(tgt);
+        a.record_shot_at_target(Some(tgt), 100, 100);
+        a.record_shot_at_target(Some(tgt), 100, 100);
         assert_eq!(a.continuous_fire_level, 1);
         a.stamp_continuous_fire_coast(100);
         assert_eq!(a.continuous_fire_coast_until_frame, 110);
@@ -2622,15 +2643,15 @@ fn continuous_fire_mean_rof_after_threshold() {
         a.continuous_fire_one_shots = 2;
         a.continuous_fire_two_shots = 5;
         assert_eq!(a.continuous_fire_level, 0);
-        a.record_shot_at_target(tgt);
-        a.record_shot_at_target(tgt);
+        a.record_shot_at_target(Some(tgt), 100, 100);
+        a.record_shot_at_target(Some(tgt), 100, 100);
         assert_eq!(a.continuous_fire_level, 0); // need consecutive > 2
-        a.record_shot_at_target(tgt);
+        a.record_shot_at_target(Some(tgt), 100, 100);
         assert_eq!(a.continuous_fire_level, 1);
         let (_, _, rof, _, _) = a.weapon_bonus_fields();
         assert!((rof - 2.0).abs() < 0.01, "MEAN ROF 200% got {rof}");
         for _ in 0..3 {
-            a.record_shot_at_target(tgt);
+            a.record_shot_at_target(Some(tgt), 100, 100);
         }
         assert_eq!(a.continuous_fire_level, 2);
         let (_, _, rof2, _, _) = a.weapon_bonus_fields();
@@ -2657,25 +2678,25 @@ fn continuous_fire_demotion_resets_consecutive_and_victim() {
         a.continuous_fire_two_shots = 5;
         // Stale MEAN state from an earlier engagement.
         a.continuous_fire_level = 1;
-        a.continuous_fire_consecutive = 4;
-        a.continuous_fire_victim = 55;
+        a.consecutive_shots_at_target = 4;
+        a.consecutive_shot_target = Some(ObjectId(55));
         // Fresh engagement: count restarts at 1 < one → C++ coolDown demotes.
-        a.record_shot_at_target(tgt);
+        a.record_shot_at_target(Some(tgt), 100, 100);
         assert_eq!(a.continuous_fire_level, 0);
         // FiringTracker.cpp:319-321: count and victim restart together.
         assert_eq!(a.consecutive_shots_at_target, 0);
         assert_eq!(a.consecutive_shot_target, None);
-        assert_eq!(a.continuous_fire_consecutive, 0);
-        assert_eq!(a.continuous_fire_victim, 0);
+        assert_eq!(a.consecutive_shots_at_target, 0);
+        assert_eq!(a.consecutive_shot_target.map_or(0, |id| id.0), 0);
         // Promotion keeps the count (C++ speedUp does not reset).
-        a.record_shot_at_target(tgt);
-        a.record_shot_at_target(tgt);
-        a.record_shot_at_target(tgt);
+        a.record_shot_at_target(Some(tgt), 100, 100);
+        a.record_shot_at_target(Some(tgt), 100, 100);
+        a.record_shot_at_target(Some(tgt), 100, 100);
         assert_eq!(a.continuous_fire_level, 1);
         assert_eq!(a.consecutive_shots_at_target, 3);
         assert_eq!(a.consecutive_shot_target, Some(tgt));
-        assert_eq!(a.continuous_fire_consecutive, 3);
-        assert_eq!(a.continuous_fire_victim, tgt.0);
+        assert_eq!(a.consecutive_shots_at_target, 3);
+        assert_eq!(a.consecutive_shot_target.map_or(0, |id| id.0), tgt.0);
     }
 }
 
@@ -2702,13 +2723,16 @@ fn specialized_lanes_keep_generic_bookkeeping_without_continuous_fire() {
         a.continuous_fire_coast_until_frame = 200;
         a.continuous_fire_level = 0;
         a.pre_attack_ready_at = 5.0;
-        a.record_shot_at_target_without_continuous_fire(tgt);
+        // The lane has already applied exactly one accepted tracker shot.
+        a.consecutive_shot_target = Some(tgt);
+        a.consecutive_shots_at_target = 1;
+        a.finish_shot_after_specialized_tracker();
         // Generic derivation must not touch lane-owned state...
         assert_eq!(a.continuous_fire_coast_until_frame, 200);
         assert_eq!(a.continuous_fire_level, 0);
-        assert_eq!(a.continuous_fire_consecutive, 0);
-        assert_eq!(a.continuous_fire_victim, 0);
-        // ...but PER_ATTACK bookkeeping still advances.
+        assert_eq!(a.consecutive_shots_at_target, 1);
+        assert_eq!(a.consecutive_shot_target, Some(tgt));
+        // ...and post-shot rearm occurs without counting the shot again.
         assert_eq!(a.consecutive_shot_target, Some(tgt));
         assert_eq!(a.consecutive_shots_at_target, 1);
         assert_eq!(a.pre_attack_ready_at, 0.0);
@@ -2925,8 +2949,7 @@ fn effective_max_lift_uses_damaged_locomotor() {
         o.refresh_model_condition_bits();
         assert_eq!(o.body_damage_state, HostBodyDamageType::Pristine);
         assert!((o.effective_max_lift() - 8.0).abs() < 0.01);
-        o.health.current = 10.0;
-        o.refresh_model_condition_bits();
+        o.internal_change_health(10.0 - o.health.current);
         assert_eq!(o.body_damage_state, HostBodyDamageType::ReallyDamaged);
         assert!(
             (o.effective_max_lift() - 3.0).abs() < 0.01,
@@ -2955,8 +2978,7 @@ fn body_damage_sets_model_condition_bits() {
         MC_BIT_DAMAGED
     ));
 
-    o.health.current = 40.0; // between 0.25 and 0.5
-    o.refresh_model_condition_bits();
+    o.internal_change_health(40.0 - o.health.current); // between 0.25 and 0.5
     assert_eq!(o.body_damage_state, HostBodyDamageType::Damaged);
     assert!(host_model_condition_has(
         o.model_condition_bits,
@@ -2967,8 +2989,7 @@ fn body_damage_sets_model_condition_bits() {
         MC_BIT_REALLYDAMAGED
     ));
 
-    o.health.current = 10.0;
-    o.refresh_model_condition_bits();
+    o.internal_change_health(10.0 - o.health.current);
     assert_eq!(o.body_damage_state, HostBodyDamageType::ReallyDamaged);
     assert!(host_model_condition_has(
         o.model_condition_bits,

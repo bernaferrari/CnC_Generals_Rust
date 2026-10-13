@@ -141,9 +141,7 @@ impl Object {
             return false;
         }
         self.jet_slow_death = Some(j);
-        if self.health.current <= 0.0 {
-            self.health.current = 0.01;
-        }
+        // The crash timer moves this dead body; HP is never resurrected.
         self.status.destroyed = false;
         self.status.deck_height_offset = false;
         self.set_ai_state(crate::game_logic::AIState::Idle);
@@ -229,9 +227,7 @@ impl Object {
         h.begin();
         self.apply_heli_death_phase(h.take_pending_effects());
         self.helicopter_slow_death = Some(h);
-        if self.health.current <= 0.0 {
-            self.health.current = 0.01;
-        }
+        // The crash timer moves this dead body; HP is never resurrected.
         self.status.destroyed = false;
         self.set_ai_state(crate::game_logic::AIState::Idle);
         self.target = None;

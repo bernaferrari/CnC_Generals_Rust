@@ -263,13 +263,15 @@ impl Object {
         is_ally: bool,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
-        let mut ignored = |_, _| {};
+        let mut ignored = |_| {};
         let repulsors = false;
+        let sources = super::PhysicsDamageSources::default();
         let mut services = super::PhysicsDamageServices {
+            sources: &sources,
             frame: crate::game_logic::host_historic_bonus::logic_frame(),
             health_events,
             repulsors: &repulsors,
-            attacked_by: &mut ignored,
+            player_effects: &mut ignored,
         };
         self.check_for_overlap_collision_with_services(other, is_ally, &mut services)
     }
@@ -779,13 +781,15 @@ impl Object {
         ground_y: f32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
-        let mut ignored = |_, _| {};
+        let mut ignored = |_| {};
         let repulsors = false;
+        let sources = super::PhysicsDamageSources::default();
         let mut services = super::PhysicsDamageServices {
+            sources: &sources,
             frame: crate::game_logic::host_historic_bonus::logic_frame(),
             health_events,
             repulsors: &repulsors,
-            attacked_by: &mut ignored,
+            player_effects: &mut ignored,
         };
         self.tick_physics_motion_step_with_services(ground_y, &mut services)
     }
@@ -901,7 +905,7 @@ impl Object {
         if !new_pos.x.is_finite() || !new_pos.y.is_finite() || !new_pos.z.is_finite() {
             let hp = self.health.current.max(1.0);
             {
-                self.health.current = 0.0;
+                self.internal_change_health(-self.health.current);
             }
             self.status.destroyed = true;
             self.movement.velocity = glam::Vec3::ZERO;
@@ -1014,13 +1018,15 @@ impl Object {
     /// require AIUpdateInterface (C++ PhysicsUpdate.cpp:1777-1779).
     #[cfg(test)]
     pub fn tick_shock_stun(&mut self, health_events: &mut crate::game_logic::HostHealthEvents) {
-        let mut ignored = |_, _| {};
+        let mut ignored = |_| {};
         let repulsors = false;
+        let sources = super::PhysicsDamageSources::default();
         let mut services = super::PhysicsDamageServices {
+            sources: &sources,
             frame: crate::game_logic::host_historic_bonus::logic_frame(),
             health_events,
             repulsors: &repulsors,
-            attacked_by: &mut ignored,
+            player_effects: &mut ignored,
         };
         self.tick_shock_stun_with_services(&mut services);
     }
