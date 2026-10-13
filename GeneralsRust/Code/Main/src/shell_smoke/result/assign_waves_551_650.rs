@@ -1,9 +1,9 @@
         time_frozen_presentation_helper_method_names_wave551_ok,
         time_frozen_presentation_helper_nav_commands_wave551_ok,
         time_frozen_presentation_helper_live_wave551_ok,
-        shell_bypass_presentation_helper_method_names_wave552_ok,
-        shell_bypass_presentation_helper_nav_commands_wave552_ok,
-        shell_bypass_presentation_helper_live_wave552_ok,
+
+
+
         play_time_local_player_presentation_helper_method_names_wave553_ok,
         play_time_local_player_presentation_helper_nav_commands_wave553_ok,
         play_time_local_player_presentation_helper_live_wave553_ok,
@@ -13,9 +13,7 @@
         science_team_presentation_helper_method_names_wave555_ok,
         science_team_presentation_helper_nav_commands_wave555_ok,
         science_team_presentation_helper_live_wave555_ok,
-        victory_presentation_helper_method_names_wave556_ok,
-        victory_presentation_helper_nav_commands_wave556_ok,
-        victory_presentation_helper_live_wave556_ok,
+
         replay_presentation_helper_method_names_wave557_ok,
         replay_presentation_helper_nav_commands_wave557_ok,
         replay_presentation_helper_live_wave557_ok,
@@ -61,9 +59,9 @@
         popup_music_helper_method_names_wave571_ok,
         popup_music_helper_nav_commands_wave571_ok,
         popup_music_helper_live_wave571_ok,
-        boot_camera_helper_method_names_wave572_ok,
-        boot_camera_helper_nav_commands_wave572_ok,
-        boot_camera_helper_live_wave572_ok,
+
+
+
         boot_player_info_helper_method_names_wave573_ok,
         boot_player_info_helper_nav_commands_wave573_ok,
         boot_player_info_helper_live_wave573_ok,
@@ -94,12 +92,9 @@
         host_enqueue_shell_cmd_helper_method_names_wave582_ok,
         host_enqueue_shell_cmd_helper_nav_commands_wave582_ok,
         host_enqueue_shell_cmd_helper_live_wave582_ok,
-        host_runtime_cmd_helper_method_names_wave583_ok,
-        host_runtime_cmd_helper_nav_commands_wave583_ok,
-        host_runtime_cmd_helper_live_wave583_ok,
-        host_tick_mutation_helper_method_names_wave584_ok,
-        host_tick_mutation_helper_nav_commands_wave584_ok,
-        host_tick_mutation_helper_live_wave584_ok,
+
+
+
         host_ui_shell_world_helper_method_names_wave585_ok,
         host_ui_shell_world_helper_nav_commands_wave585_ok,
         host_ui_shell_world_helper_live_wave585_ok,
@@ -112,33 +107,18 @@
         host_game_client_menu_shell_helper_method_names_wave588_ok,
         host_game_client_menu_shell_helper_nav_commands_wave588_ok,
         host_game_client_menu_shell_helper_live_wave588_ok,
-        host_presentation_finalize_helper_method_names_wave589_ok,
-        host_presentation_finalize_helper_nav_commands_wave589_ok,
-        host_presentation_finalize_helper_live_wave589_ok,
-        host_presentation_seed_helper_method_names_wave590_ok,
-        host_presentation_seed_helper_nav_commands_wave590_ok,
-        host_presentation_seed_helper_live_wave590_ok,
-        host_render_ui_presentation_helper_method_names_wave591_ok,
-        host_render_ui_presentation_helper_nav_commands_wave591_ok,
-        host_render_ui_presentation_helper_live_wave591_ok,
-        host_render_ui_overlays_helper_method_names_wave592_ok,
-        host_render_ui_overlays_helper_nav_commands_wave592_ok,
-        host_render_ui_overlays_helper_live_wave592_ok,
+
+
+
         host_render_ui_finalize_helper_method_names_wave593_ok,
         host_render_ui_finalize_helper_nav_commands_wave593_ok,
         host_render_ui_finalize_helper_live_wave593_ok,
-        host_minimap_bounds_repair_helper_method_names_wave594_ok,
-        host_minimap_bounds_repair_helper_nav_commands_wave594_ok,
-        host_minimap_bounds_repair_helper_live_wave594_ok,
-        host_production_complete_apply_helper_method_names_wave595_ok,
-        host_production_complete_apply_helper_nav_commands_wave595_ok,
-        host_production_complete_apply_helper_live_wave595_ok,
+
+
         host_camera_queue_drain_helper_method_names_wave596_ok,
         host_camera_queue_drain_helper_nav_commands_wave596_ok,
         host_camera_queue_drain_helper_live_wave596_ok,
-        host_gameworld_shadow_session_helper_method_names_wave597_ok,
-        host_gameworld_shadow_session_helper_nav_commands_wave597_ok,
-        host_gameworld_shadow_session_helper_live_wave597_ok,
+
         host_ingame_hud_helper_method_names_wave598_ok,
         host_ingame_hud_helper_nav_commands_wave598_ok,
         host_ingame_hud_helper_live_wave598_ok,
@@ -148,12 +128,8 @@
         host_post_presentation_client_helper_method_names_wave600_ok,
         host_post_presentation_client_helper_nav_commands_wave600_ok,
         host_post_presentation_client_helper_live_wave600_ok,
-        host_restart_pause_helper_method_names_wave601_ok,
-        host_restart_pause_helper_nav_commands_wave601_ok,
-        host_restart_pause_helper_live_wave601_ok,
-        host_ingame_logic_shell_helper_method_names_wave602_ok,
-        host_ingame_logic_shell_helper_nav_commands_wave602_ok,
-        host_ingame_logic_shell_helper_live_wave602_ok,
+
+
         host_paused_endgame_boot_ui_helper_method_names_wave603_ok,
         host_paused_endgame_boot_ui_helper_nav_commands_wave603_ok,
         host_paused_endgame_boot_ui_helper_live_wave603_ok,
@@ -169,24 +145,19 @@
         host_ui_presentation_drain_helper_method_names_wave607_ok,
         host_ui_presentation_drain_helper_nav_commands_wave607_ok,
         host_ui_presentation_drain_helper_live_wave607_ok,
-        host_production_complete_host_apply_helper_method_names_wave608_ok,
-        host_production_complete_host_apply_helper_nav_commands_wave608_ok,
-        host_production_complete_host_apply_helper_live_wave608_ok,
+
         host_ui_economy_mouse_mode_helper_method_names_wave609_ok,
         host_ui_economy_mouse_mode_helper_nav_commands_wave609_ok,
         host_ui_economy_mouse_mode_helper_live_wave609_ok,
         host_ui_selection_startup_helper_method_names_wave610_ok,
         host_ui_selection_startup_helper_nav_commands_wave610_ok,
         host_ui_selection_startup_helper_live_wave610_ok,
-        host_start_save_load_helper_method_names_wave611_ok,
-        host_start_save_load_helper_nav_commands_wave611_ok,
-        host_start_save_load_helper_live_wave611_ok,
+
         host_combat_cursor_transition_helper_method_names_wave612_ok,
         host_combat_cursor_transition_helper_nav_commands_wave612_ok,
         host_combat_cursor_transition_helper_live_wave612_ok,
-        host_production_complete_collect_helper_method_names_wave613_ok,
-        host_production_complete_collect_helper_nav_commands_wave613_ok,
-        host_production_complete_collect_helper_live_wave613_ok,
+
+
 
 
 

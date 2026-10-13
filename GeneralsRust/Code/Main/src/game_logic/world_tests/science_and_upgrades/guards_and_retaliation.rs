@@ -275,6 +275,8 @@ fn notify_computer_killer_only() {
 
 #[test]
 fn begin_guard_retaliate_sets_state_and_anchor() {
+    let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     let mut logic = guard_test_world();
     let mut t = ThingTemplate::new("GR");
@@ -293,6 +295,7 @@ fn begin_guard_retaliate_sets_state_and_anchor() {
         victim,
         Some(glam::Vec3::new(10.0, 0.0, 20.0)),
         Some(5),
+        &mut _attack_output,
     );
     let o = &logic.objects[&id];
     assert_eq!(o.ai_state, AIState::GuardRetaliating);
@@ -303,6 +306,8 @@ fn begin_guard_retaliate_sets_state_and_anchor() {
 
 #[test]
 fn guard_retaliate_ends_when_victim_dead() {
+    let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     let mut logic = guard_test_world();
     let mut t = ThingTemplate::new("GR2");
@@ -323,11 +328,12 @@ fn guard_retaliate_ends_when_victim_dead() {
         e.set_position(glam::Vec3::new(15.0, 0.0, 0.0));
         e
     });
-    logic
-        .objects
-        .get_mut(&id)
-        .unwrap()
-        .begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None);
+    logic.objects.get_mut(&id).unwrap().begin_guard_retaliate(
+        vid,
+        Some(glam::Vec3::ZERO),
+        None,
+        &mut _attack_output,
+    );
     // Kill victim
     if let Some(e) = logic.objects.get_mut(&vid) {
         e.status.destroyed = true;
@@ -618,6 +624,8 @@ fn guard_area_polygon_rejects_outside_and_covers_far_corner() {
 
 #[test]
 fn guard_retaliate_chase_gives_up_on_timer() {
+    let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+
     use crate::game_logic::{
         AIState, GUARD_CHASE_PHASE_RETALIATE, KindOf, Object, ObjectId, Team, ThingTemplate,
     };
@@ -642,11 +650,12 @@ fn guard_retaliate_chase_gives_up_on_timer() {
         e
     });
 
-    logic
-        .objects
-        .get_mut(&id)
-        .unwrap()
-        .begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None);
+    logic.objects.get_mut(&id).unwrap().begin_guard_retaliate(
+        vid,
+        Some(glam::Vec3::ZERO),
+        None,
+        &mut _attack_output,
+    );
     assert_eq!(
         logic.objects[&id].guard_chase_phase,
         GUARD_CHASE_PHASE_RETALIATE
@@ -676,6 +685,8 @@ fn guard_retaliate_chase_gives_up_on_timer() {
 
 #[test]
 fn guard_retaliate_inner_scan_allows_base_defense() {
+    let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
     let mut logic = guard_test_world();
     logic
@@ -719,11 +730,12 @@ fn guard_retaliate_inner_scan_allows_base_defense() {
     patriot.set_position(glam::Vec3::new(40.0, 0.0, 0.0));
     logic.objects.insert(pid, patriot);
 
-    logic
-        .objects
-        .get_mut(&id)
-        .unwrap()
-        .begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None);
+    logic.objects.get_mut(&id).unwrap().begin_guard_retaliate(
+        vid,
+        Some(glam::Vec3::ZERO),
+        None,
+        &mut _attack_output,
+    );
     logic.objects.get_mut(&vid).unwrap().status.destroyed = true;
     logic.objects.get_mut(&vid).unwrap().health.current = 0.0;
     mark_guard_scan_due(&mut logic, id);
@@ -737,6 +749,8 @@ fn guard_retaliate_inner_scan_allows_base_defense() {
 
 #[test]
 fn guard_retaliate_computer_scan_allows_any_enemy_structure() {
+    let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+
     use crate::game_logic::{KindOf, Object, ObjectId, Player, Team, ThingTemplate};
     let mut logic = guard_test_world();
     logic
@@ -771,11 +785,12 @@ fn guard_retaliate_computer_scan_allows_any_enemy_structure() {
     warehouse.set_position(glam::Vec3::new(25.0, 0.0, 0.0));
     logic.objects.insert(wid, warehouse);
 
-    logic
-        .objects
-        .get_mut(&id)
-        .unwrap()
-        .begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None);
+    logic.objects.get_mut(&id).unwrap().begin_guard_retaliate(
+        vid,
+        Some(glam::Vec3::ZERO),
+        None,
+        &mut _attack_output,
+    );
     logic.objects.get_mut(&vid).unwrap().status.destroyed = true;
     logic.objects.get_mut(&vid).unwrap().health.current = 0.0;
     mark_guard_scan_due(&mut logic, id);
@@ -1051,7 +1066,7 @@ fn retaliate_chase_exit_clears_team_attack_common_target() {
 
     {
         let o = logic.objects.get_mut(&gid).unwrap();
-        o.begin_guard_retaliate(eid, Some(glam::Vec3::ZERO), None);
+        o.begin_guard_retaliate(eid, Some(glam::Vec3::ZERO), None, &mut logic.attack_events);
         o.guard_chase_phase = GUARD_CHASE_PHASE_RETALIATE;
         o.guard_chase_give_up_frame = 1;
         o.target = Some(eid);
@@ -1276,6 +1291,8 @@ fn area_guard_outer_chase_uses_polygon_radius() {
 
 #[test]
 fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
+    let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = guard_test_world();
     let mut t = ThingTemplate::new("ScanLeash");
@@ -1317,11 +1334,12 @@ fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
         e
     });
 
-    logic
-        .objects
-        .get_mut(&id)
-        .unwrap()
-        .begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None);
+    logic.objects.get_mut(&id).unwrap().begin_guard_retaliate(
+        vid,
+        Some(glam::Vec3::ZERO),
+        None,
+        &mut _attack_output,
+    );
     logic.objects.get_mut(&vid).unwrap().status.destroyed = true;
     logic.objects.get_mut(&vid).unwrap().health.current = 0.0;
     // Place the scan victim inside acquire (inner) so lookForInner finds it,
@@ -1493,7 +1511,7 @@ fn guard_retaliate_outer_refreshes_timer_while_victim_in_std_guard() {
 
     {
         let o = logic.objects.get_mut(&id).unwrap();
-        o.begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None);
+        o.begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None, &mut logic.attack_events);
         o.guard_chase_phase = 2;
         o.guard_chase_give_up_frame = logic.frame.saturating_add(1);
         o.target = Some(vid);

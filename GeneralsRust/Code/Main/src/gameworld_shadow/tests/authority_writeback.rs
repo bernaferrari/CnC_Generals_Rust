@@ -686,7 +686,6 @@ fn production_authority_defaults_off_host_sole_writer() {
 
 #[test]
 fn attack_target_logs_host_attack_event() {
-    crate::game_logic::host_attack_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AtkLog");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -702,31 +701,32 @@ fn attack_target_logs_host_attack_event() {
         .create_object("AtkB", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
         .expect("b");
     {
-        let o = logic.host_object_mut(a).unwrap();
+        let (o, attack_events) = logic.host_object_and_attack_events_mut(a).unwrap();
         // Ensure can_attack path: weapon or kind
-        o.attack_target(b);
+        o.attack_target(b, attack_events);
     }
-    let events = crate::game_logic::host_attack_log::drain();
+    logic.attack_events.complete_boundary();
+    let events = logic.attack_events.take_completed();
     assert!(
-        events
-            .iter()
-            .any(|e| e.attacker == a && e.target == Some(b)),
+        events.iter().any(|e| e.attacker == a && e.target == b),
         "attack_target must log host_attack event: {events:?}"
     );
     {
         let o = logic.host_object_mut(a).unwrap();
         o.stop_attack();
     }
-    let clears = crate::game_logic::host_attack_log::drain();
+    logic.attack_events.complete_boundary();
+    let clears = logic.attack_events.take_completed();
     assert!(
-        clears.iter().any(|e| e.attacker == a && e.target.is_none()),
-        "stop_attack must clear attack log: {clears:?}"
+        clears.is_empty()
+            && logic.host_object(a).unwrap().target.is_none()
+            && !logic.host_object(a).unwrap().status.attacking,
+        "stop_attack must clear the canonical target without a targeting receipt: {clears:?}"
     );
 }
 
 #[test]
 fn attack_log_feeds_set_attack_target_mutation() {
-    crate::game_logic::host_attack_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AtkLog");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -738,13 +738,14 @@ fn attack_log_feeds_set_attack_target_mutation() {
     let b = logic
         .create_object("LogB", Team::GLA, glam::Vec3::new(15.0, 0.0, 0.0))
         .expect("b");
-    if let Some(obj) = logic.host_object_mut(a) {
-        obj.set_target(Some(b));
+    if let Some((obj, attack_events)) = logic.host_object_and_attack_events_mut(a) {
+        obj.set_target(Some(b), attack_events);
     }
-    let evs = crate::game_logic::host_attack_log::drain();
+    logic.attack_events.complete_boundary();
+    let evs = logic.attack_events.take_completed();
     assert_eq!(evs.len(), 1);
     assert_eq!(evs[0].attacker, a);
-    assert_eq!(evs[0].target, Some(b));
+    assert_eq!(evs[0].target, b);
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -788,15 +789,15 @@ fn attack_target_syncs_to_shadow_entity() {
     let b = logic
         .create_object("AtkB", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
         .expect("b");
-    if let Some(obj) = logic.host_object_mut(a) {
-        obj.set_target(Some(b));
+    if let Some((obj, attack_events)) = logic.host_object_and_attack_events_mut(a) {
+        obj.set_target(Some(b), attack_events);
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let ea = shadow.entity_for_host(a).unwrap();
     let eb = shadow.entity_for_host(b).unwrap();
     assert_eq!(shadow.world().entity(ea).unwrap().attack_target, Some(eb));
-    logic.host_object_mut(a).unwrap().set_target(None);
+    logic.host_object_mut(a).unwrap().clear_target();
     shadow.sync_from_host(&logic);
     assert_eq!(shadow.world().entity(ea).unwrap().attack_target, None);
 }
@@ -821,7 +822,10 @@ fn attack_target_writeback_updates_host() {
         .expect("b");
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    logic.host_object_mut(a).unwrap().set_target(Some(b));
+    logic
+        .host_object_mut(a)
+        .unwrap()
+        .set_target(Some(b), &mut logic.attack_events);
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
 
@@ -829,7 +833,7 @@ fn attack_target_writeback_updates_host() {
 
     assert_eq!(logic.host_objects().get(&a).unwrap().target, Some(b));
     // Clear via shadow mutation + writeback
-    logic.host_object_mut(a).unwrap().set_target(None);
+    logic.host_object_mut(a).unwrap().clear_target();
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
 
@@ -1997,7 +2001,7 @@ fn host_logic_step_active_keeps_repeated_object_mutations_and_getters_on_owner()
             .with_host_logic_step(|owner| {
                 owner
                     .with_host_object_mut(source, |object| {
-                        object.set_order_target(Some(target));
+                        object.set_order_target(Some(target), &mut logic.attack_events);
                         object.set_position(glam::Vec3::from_array(owner_position));
                     })
                     .expect("first owner mutation");
@@ -2093,4 +2097,85 @@ fn update_simulation_enters_owned_step_without_shadow_ingress() {
                 .find("is_time_frozen_for_simulation()")
                 .expect("freeze")
     );
+}
+
+#[test]
+fn canonical_attack_receipts_keep_owner_fifo_across_same_id_peer_lifecycle() {
+    fn world() -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+        let mut logic = GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(
+            0,
+            Team::USA,
+            "AttackOwner",
+            true,
+        ));
+        logic.add_player(crate::game_logic::Player::new(1, Team::GLA, "Enemy", false));
+        let mut template = ThingTemplate::new("OwnedAttackReceiptInfantry");
+        template
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0);
+        logic.templates.insert(template.name.clone(), template);
+        let attacker = logic
+            .create_object_for_player("OwnedAttackReceiptInfantry", 0, Vec3::ZERO)
+            .unwrap();
+        let first = logic
+            .create_object_for_player("OwnedAttackReceiptInfantry", 1, Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        let second = logic
+            .create_object_for_player("OwnedAttackReceiptInfantry", 1, Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        (logic, attacker, first, second)
+    }
+    fn order(logic: &mut GameLogic, attacker: ObjectId, target: ObjectId) {
+        let (object, output) = logic.host_object_and_attack_events_mut(attacker).unwrap();
+        object.attack_target(target, output);
+        assert_eq!(object.target, Some(target));
+        assert_eq!(object.ai_state, crate::game_logic::AIState::Attacking);
+        assert!(object.status.attacking);
+        logic.attack_events.complete_boundary();
+    }
+    let (mut owner, attacker, first, second) = world();
+    let (mut peer, peer_attacker, peer_first, peer_second) = world();
+    assert_eq!(
+        (attacker, first, second),
+        (peer_attacker, peer_first, peer_second)
+    );
+    order(&mut owner, attacker, first);
+    order(&mut peer, peer_attacker, peer_second);
+    assert_eq!(peer.attack_events.take_completed().len(), 1);
+    peer.reset();
+    order(&mut owner, attacker, second);
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let (mut peer, peer_attacker, peer_first, _) = world();
+    order(&mut peer, peer_attacker, peer_first);
+    builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
+    assert!(peer.attack_events.take_completed().is_empty());
+    assert_eq!(peer.host_object(attacker).unwrap().target, Some(second));
+    owner.host_object_mut(attacker).unwrap().stop_attack();
+    assert!(owner.host_object(attacker).unwrap().target.is_none());
+    assert!(!owner.host_object(attacker).unwrap().status.attacking);
+    owner.attack_events.complete_boundary();
+    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut owner, 0);
+    let targeted = frame
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            generals_presentation::events::PresentationEvent::AttackTargeted {
+                attacker,
+                target,
+            } => Some((*attacker, *target)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        targeted,
+        vec![(attacker, Some(first)), (attacker, Some(second))]
+    );
+    let repeated = crate::presentation_frame::PresentationFrame::build_from_logic(&mut owner, 0);
+    assert!(!repeated.events.iter().any(|event| matches!(
+        event,
+        generals_presentation::events::PresentationEvent::AttackTargeted { .. }
+    )));
 }

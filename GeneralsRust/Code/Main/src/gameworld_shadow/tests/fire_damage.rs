@@ -38,7 +38,13 @@ fn fire_at_records_fire_intent_residual() {
             ..Weapon::default()
         });
         o.status.weapons_jammed = false;
-        let fired = o.fire_at(vid, 1.0, logic.frame, &mut logic.combat_system);
+        let fired = o.fire_at(
+            vid,
+            1.0,
+            logic.frame,
+            &mut logic.combat_system,
+            &mut logic.attack_events,
+        );
         assert!(fired, "close-range fire_at should discharge");
         // The shot commits its durable fields before any observer refresh.
         assert_eq!(o.last_fire_victim_host, vid.0);
@@ -74,7 +80,13 @@ fn fire_at_records_fire_intent_residual() {
         if let Some(w) = o.weapon.as_mut() {
             w.last_fire_time = 0.0;
         }
-        let fired = o.fire_at(vid, 2.0, logic.frame, &mut logic.combat_system);
+        let fired = o.fire_at(
+            vid,
+            2.0,
+            logic.frame,
+            &mut logic.combat_system,
+            &mut logic.attack_events,
+        );
         assert!(fired);
         assert_eq!(o.last_fire_victim_host, vid.0);
         assert!(o.fire_intent_count >= 1);

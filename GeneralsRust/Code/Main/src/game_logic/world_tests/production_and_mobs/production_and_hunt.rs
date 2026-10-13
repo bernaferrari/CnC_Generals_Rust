@@ -305,8 +305,10 @@ fn dozer_construction_rate_applies_handicap_buildtime() {
         obj.builder_id = Some(dozer);
     }
     {
-        let obj = logic.host_object_mut(dozer).expect("dozer");
-        obj.set_target(Some(pad_id));
+        let (obj, attack_events) = logic
+            .host_object_and_attack_events_mut(dozer)
+            .expect("dozer");
+        obj.set_target(Some(pad_id), attack_events);
         obj.set_ai_state(AIState::Constructing);
         obj.status.moving = false;
         obj.dozer_dock_action = Some(obj.get_position());
@@ -355,9 +357,11 @@ fn arrived_moving_dozer_builds_at_the_dock() {
         obj.builder_id = Some(dozer);
     }
     {
-        let obj = logic.host_object_mut(dozer).expect("dozer");
+        let (obj, attack_events) = logic
+            .host_object_and_attack_events_mut(dozer)
+            .expect("dozer");
         obj.set_position(dock);
-        obj.set_target(Some(pad_id));
+        obj.set_target(Some(pad_id), attack_events);
         obj.set_ai_state(AIState::Moving);
         obj.movement.path.clear();
         obj.waiting_for_path = false;
@@ -404,9 +408,11 @@ fn simulation_step_builds_when_dozer_is_at_the_pad() {
         obj.builder_id = Some(dozer);
     }
     {
-        let obj = logic.host_object_mut(dozer).expect("dozer");
+        let (obj, attack_events) = logic
+            .host_object_and_attack_events_mut(dozer)
+            .expect("dozer");
         obj.set_position(dock);
-        obj.set_target(Some(pad_id));
+        obj.set_target(Some(pad_id), attack_events);
         obj.set_ai_state(AIState::Constructing);
         obj.movement.path.clear();
         obj.waiting_for_path = false;
@@ -457,9 +463,11 @@ fn simulation_step_finishes_a_short_build() {
         obj.builder_id = Some(dozer);
     }
     {
-        let obj = logic.host_object_mut(dozer).expect("dozer");
+        let (obj, attack_events) = logic
+            .host_object_and_attack_events_mut(dozer)
+            .expect("dozer");
         obj.set_position(action);
-        obj.set_target(Some(pad_id));
+        obj.set_target(Some(pad_id), attack_events);
         obj.set_ai_state(AIState::Constructing);
         obj.movement.path.clear();
         obj.waiting_for_path = false;
@@ -578,8 +586,8 @@ fn repair_abort_clears_the_ignored_obstacle() {
         .create_object_for_player("NotADozer", 0, Vec3::new(40.0, 0.0, 0.0))
         .expect("building");
     {
-        let unit = logic.host_object_mut(id).expect("unit");
-        unit.set_order_target(Some(building));
+        let (unit, attack_events) = logic.host_object_and_attack_events_mut(id).expect("unit");
+        unit.set_order_target(Some(building), attack_events);
         unit.set_ai_state(AIState::Repairing);
         unit.ignored_obstacle_id = Some(building);
     }
@@ -648,8 +656,10 @@ fn full_truck_returns_to_the_supply_center_approach() {
         pad.selection_radius = 40.0;
     }
     {
-        let unit = logic.host_object_mut(truck).expect("truck");
-        unit.set_order_target(Some(warehouse));
+        let (unit, attack_events) = logic
+            .host_object_and_attack_events_mut(truck)
+            .expect("truck");
+        unit.set_order_target(Some(warehouse), attack_events);
         unit.set_ai_state(AIState::Gathering);
         unit.set_stored_supplies(VALUE_PER_SUPPLY_BOX as u32);
         unit.supply_truck_state = SupplyTruckState::DockingWarehouse;
@@ -891,8 +901,10 @@ fn repair_approach_crosses_the_buildings_obstacle() {
         );
     }
     {
-        let obj = logic.host_object_mut(dozer).expect("dozer");
-        obj.set_target(Some(pad_id));
+        let (obj, attack_events) = logic
+            .host_object_and_attack_events_mut(dozer)
+            .expect("dozer");
+        obj.set_target(Some(pad_id), attack_events);
         obj.set_ai_state(AIState::Repairing);
         obj.movement.path.clear();
         obj.waiting_for_path = false;
@@ -947,8 +959,10 @@ fn finished_repair_releases_the_dozer() {
         building.health.current = building.health.maximum - 1.0;
     }
     {
-        let unit = logic.host_object_mut(dozer).expect("dozer");
-        unit.set_order_target(Some(pad_id));
+        let (unit, attack_events) = logic
+            .host_object_and_attack_events_mut(dozer)
+            .expect("dozer");
+        unit.set_order_target(Some(pad_id), attack_events);
         unit.set_ai_state(AIState::Repairing);
         unit.dozer_task_repair_target = Some(pad_id);
         unit.ignored_obstacle_id = Some(pad_id);
@@ -1001,8 +1015,10 @@ fn dead_repair_target_releases_the_dozer() {
         building.construction_percent = 1.0;
     }
     {
-        let unit = logic.host_object_mut(dozer).expect("dozer");
-        unit.set_order_target(Some(pad_id));
+        let (unit, attack_events) = logic
+            .host_object_and_attack_events_mut(dozer)
+            .expect("dozer");
+        unit.set_order_target(Some(pad_id), attack_events);
         unit.set_ai_state(AIState::Repairing);
         unit.dozer_task_repair_target = Some(pad_id);
         unit.ignored_obstacle_id = Some(pad_id);
@@ -1117,12 +1133,12 @@ fn full_vehicle_leaves_the_repair_pad_for_its_rally() {
         building.construction_percent = 1.0;
     }
     {
-        let unit = logic.host_object_mut(tank).expect("tank");
+        let (unit, attack_events) = logic.host_object_and_attack_events_mut(tank).expect("tank");
         // C++ requestPath requires an active locomotor with nonzero valid
         // surfaces; synthetic vehicles default to an immobile fixture.
         unit.cur_locomotor_name = Some("GattlingTankLocomotor".into());
         unit.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
-        unit.set_order_target(Some(pad));
+        unit.set_order_target(Some(pad), attack_events);
         unit.set_ai_state(AIState::SeekingRepair);
         unit.health.current = unit.health.maximum;
     }
@@ -1194,12 +1210,12 @@ fn passthrough_rally_snapshots_the_pad() {
         building.construction_percent = 1.0;
     }
     {
-        let unit = logic.host_object_mut(tank).expect("tank");
+        let (unit, attack_events) = logic.host_object_and_attack_events_mut(tank).expect("tank");
         // C++ requestPath requires an active locomotor with nonzero valid
         // surfaces; synthetic vehicles default to an immobile fixture.
         unit.cur_locomotor_name = Some("GattlingTankLocomotor".into());
         unit.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
-        unit.set_order_target(Some(pad));
+        unit.set_order_target(Some(pad), attack_events);
         unit.set_ai_state(AIState::SeekingRepair);
         unit.health.current = unit.health.maximum;
     }
@@ -2061,8 +2077,8 @@ fn repair_tick_that_fills_the_vehicle_leaves_for_the_rally() {
         building.construction_percent = 1.0;
     }
     {
-        let unit = logic.host_object_mut(tank).expect("tank");
-        unit.set_order_target(Some(pad));
+        let (unit, attack_events) = logic.host_object_and_attack_events_mut(tank).expect("tank");
+        unit.set_order_target(Some(pad), attack_events);
         unit.set_ai_state(AIState::SeekingRepair);
         unit.health.current = unit.health.maximum - 1.0;
     }
@@ -2120,8 +2136,8 @@ fn repair_tick_that_fills_without_a_rally_goes_idle() {
         building.construction_percent = 1.0;
     }
     {
-        let unit = logic.host_object_mut(tank).expect("tank");
-        unit.set_order_target(Some(pad));
+        let (unit, attack_events) = logic.host_object_and_attack_events_mut(tank).expect("tank");
+        unit.set_order_target(Some(pad), attack_events);
         unit.set_ai_state(AIState::SeekingRepair);
         unit.health.current = unit.health.maximum - 1.0;
         unit.ignored_obstacle_id = Some(pad);
@@ -2300,9 +2316,11 @@ fn reissued_hacker_move_keeps_special_ability_and_the_building() {
         .create_object_for_player("HackerReplay", 0, Vec3::ZERO)
         .expect("hacker");
     {
-        let unit = logic.host_object_mut(hacker).expect("hacker");
+        let (unit, attack_events) = logic
+            .host_object_and_attack_events_mut(hacker)
+            .expect("hacker");
         unit.set_ai_state(AIState::SpecialAbility);
-        unit.set_order_target(Some(building));
+        unit.set_order_target(Some(building), attack_events);
         unit.pending_move = Some(Vec3::new(90.0, 0.0, 0.0));
     }
     let wall_x = {
@@ -2366,9 +2384,11 @@ fn reissued_attack_crosses_the_target_building() {
         .create_object_for_player("AttackReplay", 0, Vec3::ZERO)
         .expect("attacker");
     {
-        let unit = logic.host_object_mut(attacker).expect("attacker");
+        let (unit, attack_events) = logic
+            .host_object_and_attack_events_mut(attacker)
+            .expect("attacker");
         unit.set_ai_state(AIState::Attacking);
-        unit.set_order_target(Some(building));
+        unit.set_order_target(Some(building), attack_events);
         unit.pending_move = Some(Vec3::new(90.0, 0.0, 0.0));
     }
     let wall_x = {
@@ -2734,9 +2754,11 @@ fn attack_exit_clears_the_victim_building_ignore() {
         .create_object_for_player("AttackExit", 0, Vec3::ZERO)
         .expect("attacker");
     {
-        let unit = logic.host_object_mut(attacker).expect("attacker");
+        let (unit, attack_events) = logic
+            .host_object_and_attack_events_mut(attacker)
+            .expect("attacker");
         unit.set_ai_state(AIState::Attacking);
-        unit.set_order_target(Some(building));
+        unit.set_order_target(Some(building), attack_events);
         unit.ignored_obstacle_id = Some(building);
     }
     logic
@@ -2769,9 +2791,11 @@ fn live_attack_move_keeps_the_building_ignore() {
         .create_object_for_player("AttackMoveKeep", 0, Vec3::ZERO)
         .expect("attacker");
     {
-        let unit = logic.host_object_mut(attacker).expect("attacker");
+        let (unit, attack_events) = logic
+            .host_object_and_attack_events_mut(attacker)
+            .expect("attacker");
         unit.set_ai_state(AIState::AttackMoving);
-        unit.set_order_target(Some(building));
+        unit.set_order_target(Some(building), attack_events);
         unit.ignored_obstacle_id = Some(building);
         unit.requested_destination = Some(Vec3::new(80.0, 0.0, 0.0));
         unit.movement.path = vec![Vec3::new(80.0, 0.0, 0.0)];
@@ -2815,9 +2839,11 @@ fn owned_construction_completion_walks_the_dozer_off_the_pad() {
         obj.builder_id = Some(dozer);
     }
     {
-        let obj = logic.host_object_mut(dozer).expect("dozer");
+        let (obj, attack_events) = logic
+            .host_object_and_attack_events_mut(dozer)
+            .expect("dozer");
         obj.set_position(action);
-        obj.set_target(Some(pad_id));
+        obj.set_target(Some(pad_id), attack_events);
         obj.set_ai_state(AIState::Constructing);
         obj.movement.path.clear();
         obj.waiting_for_path = false;
@@ -3062,10 +3088,10 @@ fn queued_enter_path_keeps_the_carrier_ignore() {
         .create_object_for_player("EnterQueueJet", 0, Vec3::ZERO)
         .expect("jet");
     {
-        let unit = logic.host_object_mut(jet).expect("jet");
+        let (unit, attack_events) = logic.host_object_and_attack_events_mut(jet).expect("jet");
         unit.set_ai_state(AIState::Entering);
         unit.ignored_obstacle_id = Some(deck);
-        unit.set_order_target(Some(deck));
+        unit.set_order_target(Some(deck), attack_events);
     }
     logic.force_map_loaded_for_path_test(true);
     assert!(logic.assign_unit_path_ignoring(jet, Vec3::new(80.0, 0.0, 0.0), &[], Some(deck)));
@@ -3095,10 +3121,10 @@ fn reissued_enter_crosses_the_carrier() {
         .create_object_for_player("EnterReplayJet", 0, Vec3::ZERO)
         .expect("jet");
     {
-        let unit = logic.host_object_mut(jet).expect("jet");
+        let (unit, attack_events) = logic.host_object_and_attack_events_mut(jet).expect("jet");
         unit.set_ai_state(AIState::Entering);
         unit.ignored_obstacle_id = Some(deck);
-        unit.set_order_target(Some(deck));
+        unit.set_order_target(Some(deck), attack_events);
         unit.pending_move = Some(Vec3::new(90.0, 0.0, 0.0));
     }
     let wall_x = {
@@ -3359,9 +3385,11 @@ fn non_hijacker_at_the_vehicle_is_released() {
         PendingSpecialAbility::Hijack { target_id: vehicle },
     );
     {
-        let unit = logic.host_object_mut(infantry).expect("infantry");
+        let (unit, attack_events) = logic
+            .host_object_and_attack_events_mut(infantry)
+            .expect("infantry");
         unit.set_ai_state(AIState::SpecialAbility);
-        unit.set_order_target(Some(vehicle));
+        unit.set_order_target(Some(vehicle), attack_events);
         unit.ignored_obstacle_id = Some(vehicle);
         unit.movement.path = vec![Vec3::ZERO];
         unit.set_status_moving(true);
@@ -3401,9 +3429,11 @@ fn rejected_car_bomb_releases_the_infantry() {
         .pending_special_abilities
         .insert(infantry, PendingSpecialAbility::CarBomb { target_id: boat });
     {
-        let unit = logic.host_object_mut(infantry).expect("infantry");
+        let (unit, attack_events) = logic
+            .host_object_and_attack_events_mut(infantry)
+            .expect("infantry");
         unit.set_ai_state(AIState::SpecialAbility);
-        unit.set_order_target(Some(boat));
+        unit.set_order_target(Some(boat), attack_events);
         unit.ignored_obstacle_id = Some(boat);
         unit.movement.path = vec![Vec3::ZERO];
         unit.set_status_moving(true);
@@ -3443,9 +3473,11 @@ fn rejected_disguise_releases_the_infantry() {
         PendingSpecialAbility::DisguiseAsVehicle { target_id: jet },
     );
     {
-        let unit = logic.host_object_mut(infantry).expect("infantry");
+        let (unit, attack_events) = logic
+            .host_object_and_attack_events_mut(infantry)
+            .expect("infantry");
         unit.set_ai_state(AIState::SpecialAbility);
-        unit.set_order_target(Some(jet));
+        unit.set_order_target(Some(jet), attack_events);
         unit.ignored_obstacle_id = Some(jet);
         unit.movement.path = vec![Vec3::ZERO];
         unit.set_status_moving(true);
@@ -3484,9 +3516,11 @@ fn sabotage_of_a_vehicle_releases_the_infantry() {
         PendingSpecialAbility::Sabotage { target_id: vehicle },
     );
     {
-        let unit = logic.host_object_mut(infantry).expect("infantry");
+        let (unit, attack_events) = logic
+            .host_object_and_attack_events_mut(infantry)
+            .expect("infantry");
         unit.set_ai_state(AIState::SpecialAbility);
-        unit.set_order_target(Some(vehicle));
+        unit.set_order_target(Some(vehicle), attack_events);
         unit.ignored_obstacle_id = Some(vehicle);
         unit.movement.path = vec![Vec3::ZERO];
         unit.set_status_moving(true);
@@ -3526,9 +3560,11 @@ fn hijack_followup_tick_still_crosses_the_vehicle() {
         PendingSpecialAbility::Hijack { target_id: vehicle },
     );
     {
-        let unit = logic.host_object_mut(infantry).expect("infantry");
+        let (unit, attack_events) = logic
+            .host_object_and_attack_events_mut(infantry)
+            .expect("infantry");
         unit.set_ai_state(AIState::SpecialAbility);
-        unit.set_order_target(Some(vehicle));
+        unit.set_order_target(Some(vehicle), attack_events);
     }
     let wall_x = {
         let grid = &logic.pathfinding_system.grid;

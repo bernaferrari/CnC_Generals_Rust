@@ -415,7 +415,7 @@ fn stealth_delay_channel_via_set_stealth_delay() {
 
 #[test]
 fn combat_attack_channel_via_set_combat_attack() {
-    use crate::game_logic::host_combat_attack_log;
+
     use crate::game_logic::{AttackSubState, KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();

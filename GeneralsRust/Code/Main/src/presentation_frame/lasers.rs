@@ -13,6 +13,23 @@ pub struct PresentationSceneLine {
     pub scroll_rate: f32,
 }
 
+impl PresentationSceneLine {
+    /// Freeze a Core W3D descriptor in Main's Y-up renderer coordinates.
+    /// Core FX endpoints and terrain are C++ Z-up; this is the one output
+    /// conversion after the canonical client module has produced its geometry.
+    pub fn from_cpp_desc(line: game_engine::common::system::SceneLineDesc) -> Option<Self> {
+        line.visible.then(|| Self {
+            start: (line.start.x, line.start.z, line.start.y),
+            end: (line.end.x, line.end.z, line.end.y),
+            width: line.width,
+            color: (line.color_r, line.color_g, line.color_b, line.opacity),
+            texture_name: line.texture_name.unwrap_or_default(),
+            tile_factor: line.tile_factor,
+            scroll_rate: line.scroll_rate,
+        })
+    }
+}
+
 /// Frozen C++ `W3DStatusCircle` camera fade (ADD/SUBTRACT/SATURATE/MULTIPLY).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub struct PresentationCameraFade {

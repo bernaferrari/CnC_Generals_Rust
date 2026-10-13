@@ -56,7 +56,7 @@ fn continue_attack_range_chains_to_nearby_same_team_target() {
     if let Some(o) = logic.objects.get_mut(&mine1) {
         o.health.current = 0.0;
     }
-    crate::game_logic::host_ai_decision_log::clear();
+
     assert!(logic.try_continue_attack_after_kill(atk, mine1, pos, 100.0, team,));
     // Under AI_DECISION_AUTHORITY (default), continue-attack logs AttackTarget and
     // leaves host target untouched for GameWorld writeback.
@@ -65,7 +65,7 @@ fn continue_attack_range_chains_to_nearby_same_team_target() {
         assert_eq!(next, Some(mine2), "must chain to nearer same-team mine");
     }
     // Outside range: no continue.
-    crate::game_logic::host_ai_decision_log::clear();
+
     if let Some(o) = logic.objects.get_mut(&atk) {
         o.target = None;
         o.stop_attack();
@@ -87,10 +87,8 @@ fn continue_attack_range_chains_to_nearby_same_team_target() {
         logic.objects.get(&atk).and_then(|a| a.target).is_none(),
         "far mine outside range must not be acquired"
     );
-    assert!(
-        crate::game_logic::host_ai_decision_log::snapshot().is_empty(),
-        "out-of-range continue must not log AttackTarget"
-    );
+    assert!(!logic.objects[&atk].status.attacking,
+        "out-of-range continuation must leave the canonical attacker stopped");
     // continue_or_stop stops when nothing in range
     logic.continue_or_stop_after_kill(
         atk,

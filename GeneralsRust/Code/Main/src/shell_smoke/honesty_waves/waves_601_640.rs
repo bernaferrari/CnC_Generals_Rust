@@ -8,12 +8,8 @@
 use super::super::imports::*;
 
 pub(super) struct Waves601640 {
-    pub host_restart_pause_helper_method_names_wave601_ok: bool,
-    pub host_restart_pause_helper_nav_commands_wave601_ok: bool,
-    pub host_restart_pause_helper_live_wave601_ok: bool,
-    pub host_ingame_logic_shell_helper_method_names_wave602_ok: bool,
-    pub host_ingame_logic_shell_helper_nav_commands_wave602_ok: bool,
-    pub host_ingame_logic_shell_helper_live_wave602_ok: bool,
+
+
     pub host_paused_endgame_boot_ui_helper_method_names_wave603_ok: bool,
     pub host_paused_endgame_boot_ui_helper_nav_commands_wave603_ok: bool,
     pub host_paused_endgame_boot_ui_helper_live_wave603_ok: bool,
@@ -29,24 +25,19 @@ pub(super) struct Waves601640 {
     pub host_ui_presentation_drain_helper_method_names_wave607_ok: bool,
     pub host_ui_presentation_drain_helper_nav_commands_wave607_ok: bool,
     pub host_ui_presentation_drain_helper_live_wave607_ok: bool,
-    pub host_production_complete_host_apply_helper_method_names_wave608_ok: bool,
-    pub host_production_complete_host_apply_helper_nav_commands_wave608_ok: bool,
-    pub host_production_complete_host_apply_helper_live_wave608_ok: bool,
+
     pub host_ui_economy_mouse_mode_helper_method_names_wave609_ok: bool,
     pub host_ui_economy_mouse_mode_helper_nav_commands_wave609_ok: bool,
     pub host_ui_economy_mouse_mode_helper_live_wave609_ok: bool,
     pub host_ui_selection_startup_helper_method_names_wave610_ok: bool,
     pub host_ui_selection_startup_helper_nav_commands_wave610_ok: bool,
     pub host_ui_selection_startup_helper_live_wave610_ok: bool,
-    pub host_start_save_load_helper_method_names_wave611_ok: bool,
-    pub host_start_save_load_helper_nav_commands_wave611_ok: bool,
-    pub host_start_save_load_helper_live_wave611_ok: bool,
+
     pub host_combat_cursor_transition_helper_method_names_wave612_ok: bool,
     pub host_combat_cursor_transition_helper_nav_commands_wave612_ok: bool,
     pub host_combat_cursor_transition_helper_live_wave612_ok: bool,
-    pub host_production_complete_collect_helper_method_names_wave613_ok: bool,
-    pub host_production_complete_collect_helper_nav_commands_wave613_ok: bool,
-    pub host_production_complete_collect_helper_live_wave613_ok: bool,
+
+
 
 
 
@@ -78,18 +69,8 @@ pub(super) struct Waves601640 {
 
 pub(super) fn evaluate() -> Waves601640 {
     Waves601640 {
-        host_restart_pause_helper_method_names_wave601_ok:
-            honesty_host_restart_pause_helper_method_names_residual_wave601(),
-        host_restart_pause_helper_nav_commands_wave601_ok:
-            honesty_host_restart_pause_helper_nav_commands_residual_wave601(),
-        host_restart_pause_helper_live_wave601_ok: simulate_live_host_restart_pause_helper_honesty(
-        ),
-        host_ingame_logic_shell_helper_method_names_wave602_ok:
-            honesty_host_ingame_logic_shell_helper_method_names_residual_wave602(),
-        host_ingame_logic_shell_helper_nav_commands_wave602_ok:
-            honesty_host_ingame_logic_shell_helper_nav_commands_residual_wave602(),
-        host_ingame_logic_shell_helper_live_wave602_ok:
-            simulate_live_host_ingame_logic_shell_helper_honesty(),
+
+
         host_paused_endgame_boot_ui_helper_method_names_wave603_ok:
             honesty_host_paused_endgame_boot_ui_helper_method_names_residual_wave603(),
         host_paused_endgame_boot_ui_helper_nav_commands_wave603_ok:
@@ -118,12 +99,7 @@ pub(super) fn evaluate() -> Waves601640 {
             honesty_host_ui_presentation_drain_helper_nav_commands_residual_wave607(),
         host_ui_presentation_drain_helper_live_wave607_ok:
             simulate_live_host_ui_presentation_drain_helper_honesty(),
-        host_production_complete_host_apply_helper_method_names_wave608_ok:
-            honesty_host_production_complete_host_apply_helper_method_names_residual_wave608(),
-        host_production_complete_host_apply_helper_nav_commands_wave608_ok:
-            honesty_host_production_complete_host_apply_helper_nav_commands_residual_wave608(),
-        host_production_complete_host_apply_helper_live_wave608_ok:
-            simulate_live_host_production_complete_host_apply_helper_honesty(),
+
         host_ui_economy_mouse_mode_helper_method_names_wave609_ok:
             honesty_host_ui_economy_mouse_mode_helper_method_names_residual_wave609(),
         host_ui_economy_mouse_mode_helper_nav_commands_wave609_ok:
@@ -136,24 +112,15 @@ pub(super) fn evaluate() -> Waves601640 {
             honesty_host_ui_selection_startup_helper_nav_commands_residual_wave610(),
         host_ui_selection_startup_helper_live_wave610_ok:
             simulate_live_host_ui_selection_startup_helper_honesty(),
-        host_start_save_load_helper_method_names_wave611_ok:
-            honesty_host_start_save_load_helper_method_names_residual_wave611(),
-        host_start_save_load_helper_nav_commands_wave611_ok:
-            honesty_host_start_save_load_helper_nav_commands_residual_wave611(),
-        host_start_save_load_helper_live_wave611_ok:
-            simulate_live_host_start_save_load_helper_honesty(),
+
         host_combat_cursor_transition_helper_method_names_wave612_ok:
             honesty_host_combat_cursor_transition_helper_method_names_residual_wave612(),
         host_combat_cursor_transition_helper_nav_commands_wave612_ok:
             honesty_host_combat_cursor_transition_helper_nav_commands_residual_wave612(),
         host_combat_cursor_transition_helper_live_wave612_ok:
             simulate_live_host_combat_cursor_transition_helper_honesty(),
-        host_production_complete_collect_helper_method_names_wave613_ok:
-            honesty_host_production_complete_collect_helper_method_names_residual_wave613(),
-        host_production_complete_collect_helper_nav_commands_wave613_ok:
-            honesty_host_production_complete_collect_helper_nav_commands_residual_wave613(),
-        host_production_complete_collect_helper_live_wave613_ok:
-            simulate_live_host_production_complete_collect_helper_honesty(),
+
+
 
 
 

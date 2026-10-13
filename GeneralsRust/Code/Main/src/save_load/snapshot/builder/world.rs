@@ -302,6 +302,8 @@ impl SnapshotBuilder {
         // partial restore. Production loading isolates this work in a candidate.
         game_logic.clear_victory_observation();
         game_logic.health_events.clear();
+        game_logic.attack_events.clear();
+        game_logic.production_events.clear();
         // Replacement starts a new runtime output identity. Detached production
         // candidates own this state, so rejection cannot consume live receipts.
         game_logic.movement_events.reset();

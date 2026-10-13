@@ -851,7 +851,7 @@ impl Object {
     pub(crate) fn loco_maintain_appearance(&mut self, dt: f32) -> bool {
         if !self.maintain_pos_valid {
             self.maintain_pos = Some(self.get_position());
-            self.record_host_combat_attack();
+
             self.maintain_pos_valid = true;
         }
         // C++ Locomotor.cpp:2420-2421 — reset donut window and clear IS_BRAKING.
@@ -1511,7 +1511,7 @@ impl Object {
 
     pub fn set_max_shots_to_fire(&mut self, max_shots: i32) {
         self.max_shots_to_fire = max_shots;
-        self.record_host_combat_attack();
+
     }
 
     /// C++ Weapon::getMaxShotCount residual: 0 means cannot fire more.

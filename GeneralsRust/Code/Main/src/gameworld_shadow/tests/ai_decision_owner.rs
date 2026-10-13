@@ -140,9 +140,7 @@ mod ai_engagement_owner_tests {
 #[cfg(test)]
 mod ai_fire_owner_tests {
     use super::*;
-    use crate::game_logic::host_ai_decision_log::{
-        self, AI_DECISION_ATTACK, AI_DECISION_SET_STATE, AI_DECISION_STOP_ATTACK,
-    };
+
     use crate::game_logic::{
         AIState, AttackFireResult, GameLogic, KindOf, ObjectId, Team, ThingTemplate, Weapon,
     };
@@ -254,9 +252,7 @@ mod ai_fire_owner_tests {
 #[cfg(test)]
 mod ai_move_owner_tests {
     use super::*;
-    use crate::game_logic::host_ai_decision_log::{
-        self, AI_DECISION_MOVE_TO, AI_DECISION_SET_STATE,
-    };
+
     use crate::game_logic::{AICommand, AIState, GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
 

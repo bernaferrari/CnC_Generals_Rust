@@ -129,7 +129,7 @@ fn team_attack_named_forwards_owned_passengers_then_locked_hive_in_near_to_far_o
     // CPP GarrisonContain1691 queries the Object DISABLED_SUBDUED bit.
     assert!(owner.host_object(far).unwrap().is_subdued_disabled());
     for passenger in near_passengers.iter().chain(&far_passengers) {
-        owner.host_object_mut(*passenger).unwrap().set_target(None);
+        owner.host_object_mut(*passenger).unwrap().clear_target();
     }
     execute(
         &mut owner,

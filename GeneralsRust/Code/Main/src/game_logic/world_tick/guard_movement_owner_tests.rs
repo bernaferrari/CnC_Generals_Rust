@@ -37,7 +37,12 @@ fn guard_return_movement_receipts_stay_with_same_id_owner() {
                 object.set_position(anchor + glam::Vec3::new(200.0, 0.0, 0.0));
                 object.guard_position = Some(anchor);
                 object.set_ai_state(AIState::GuardingArea);
-                object.begin_guard_retaliate(ObjectId(49_211), Some(anchor), None);
+                object.begin_guard_retaliate(
+                    ObjectId(49_211),
+                    Some(anchor),
+                    None,
+                    &mut world.attack_events,
+                );
                 world.objects.insert(id, object);
                 id
             }

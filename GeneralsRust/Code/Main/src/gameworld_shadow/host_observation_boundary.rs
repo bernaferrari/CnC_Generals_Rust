@@ -47,13 +47,13 @@ pub(crate) fn run_owned_host_boundary(
 /// Construction completion also stays pending for PresentationFrame's direct
 /// drain; unlike production completion it has no LAST_DRAIN transport.
 fn freeze_host_observations(logic: &mut GameLogic) {
-    let _ = crate::game_logic::host_ai_decision_log::drain();
+
     let _ = crate::game_logic::host_ai_request_log::drain();
-    let _ = crate::game_logic::host_attack_log::drain();
+    logic.attack_events.complete_boundary();
     let _ = crate::game_logic::host_body_damage_log::drain();
     let _ = crate::game_logic::host_bounce_land_log::drain();
     let _ = crate::game_logic::host_building_type_log::drain();
-    let _ = crate::game_logic::host_combat_attack_log::drain();
+
     let _ = crate::game_logic::host_command_set_log::drain();
     let _ = crate::game_logic::host_contain_capacity_log::drain();
     let _ = crate::game_logic::host_contain_log::drain();
@@ -109,7 +109,7 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_stealth_delay_log::drain();
     let _ = crate::game_logic::host_stealth_flags_log::drain();
     let _ = crate::game_logic::host_stored_supplies_log::drain();
-    let _ = crate::game_logic::host_target_location_log::drain();
+
     let _ = crate::game_logic::host_turret_log::drain();
     let _ = crate::game_logic::host_vision_camo_log::drain();
     let _ = crate::game_logic::host_weapon_bonus_log::drain();

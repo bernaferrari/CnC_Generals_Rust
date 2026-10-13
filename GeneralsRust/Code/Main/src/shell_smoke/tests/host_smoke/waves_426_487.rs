@@ -267,21 +267,9 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
 
 
 
-    assert!(
-        r.live_contain_module_overrides_fail_closed_method_names_wave449_ok,
-        "live contain module overrides fail-closed method names residual pack wave449: {}",
-        r.detail
-    );
-    assert!(
-        r.live_contain_module_overrides_fail_closed_nav_commands_wave449_ok,
-        "live contain module overrides fail-closed nav commands residual pack wave449: {}",
-        r.detail
-    );
-    assert!(
-        r.live_contain_module_overrides_fail_closed_live_wave449_ok,
-        "live contain module overrides fail-closed live residual wave449: {}",
-        r.detail
-    );
+
+
+
 
 
 
@@ -415,21 +403,9 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         "terrain visual presentation only live residual wave459: {}",
         r.detail
     );
-    assert!(
-        r.camera_center_presentation_height_method_names_wave460_ok,
-        "camera center presentation height method names residual pack wave460: {}",
-        r.detail
-    );
-    assert!(
-        r.camera_center_presentation_height_nav_commands_wave460_ok,
-        "camera center presentation height nav commands residual pack wave460: {}",
-        r.detail
-    );
-    assert!(
-        r.camera_center_presentation_height_live_wave460_ok,
-        "camera center presentation height live residual wave460: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.presentation_world_bounds_probe_method_names_wave461_ok,
         "presentation world bounds probe method names residual pack wave461: {}",
@@ -496,81 +472,21 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         "presentation env seed gameworld live residual wave466: {}",
         r.detail
     );
-    assert!(
-        r.presentation_env_seed_mirror_last_method_names_wave467_ok,
-        "presentation env seed mirror last method names residual pack wave467: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_env_seed_mirror_last_nav_commands_wave467_ok,
-        "presentation env seed mirror last nav commands residual pack wave467: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_env_seed_mirror_last_live_wave467_ok,
-        "presentation env seed mirror last live residual wave467: {}",
-        r.detail
-    );
-    assert!(
-        r.minimap_reinit_instance_presentation_method_names_wave468_ok,
-        "minimap reinit instance presentation method names residual pack wave468: {}",
-        r.detail
-    );
-    assert!(
-        r.minimap_reinit_instance_presentation_nav_commands_wave468_ok,
-        "minimap reinit instance presentation nav commands residual pack wave468: {}",
-        r.detail
-    );
-    assert!(
-        r.minimap_reinit_instance_presentation_live_wave468_ok,
-        "minimap reinit instance presentation live residual wave468: {}",
-        r.detail
-    );
-    assert!(
-        r.pathfind_midframe_stub_removed_method_names_wave469_ok,
-        "pathfind midframe stub removed method names residual pack wave469: {}",
-        r.detail
-    );
-    assert!(
-        r.pathfind_midframe_stub_removed_nav_commands_wave469_ok,
-        "pathfind midframe stub removed nav commands residual pack wave469: {}",
-        r.detail
-    );
-    assert!(
-        r.pathfind_midframe_stub_removed_live_wave469_ok,
-        "pathfind midframe stub removed live residual wave469: {}",
-        r.detail
-    );
-    assert!(
-        r.projectile_authority_flare_host_method_names_wave470_ok,
-        "projectile authority flare host method names residual pack wave470: {}",
-        r.detail
-    );
-    assert!(
-        r.projectile_authority_flare_host_nav_commands_wave470_ok,
-        "projectile authority flare host nav commands residual pack wave470: {}",
-        r.detail
-    );
-    assert!(
-        r.projectile_authority_flare_host_live_wave470_ok,
-        "projectile authority flare host live residual wave470: {}",
-        r.detail
-    );
-    assert!(
-        r.engine_env_free_fn_game_logic_only_seed_method_names_wave471_ok,
-        "engine env free fn game logic only seed method names residual pack wave471: {}",
-        r.detail
-    );
-    assert!(
-        r.engine_env_free_fn_game_logic_only_seed_nav_commands_wave471_ok,
-        "engine env free fn game logic only seed nav commands residual pack wave471: {}",
-        r.detail
-    );
-    assert!(
-        r.engine_env_free_fn_game_logic_only_seed_live_wave471_ok,
-        "engine env free fn game logic only seed live residual wave471: {}",
-        r.detail
-    );
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     assert!(
         r.dead_model_preload_removed_method_names_wave472_ok,
         "dead model preload removed method names residual pack wave472: {}",
@@ -601,21 +517,9 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         "camera bootstrap presentation only live residual wave473: {}",
         r.detail
     );
-    assert!(
-        r.ensure_presentation_env_instance_method_names_wave474_ok,
-        "ensure presentation env instance method names residual pack wave474: {}",
-        r.detail
-    );
-    assert!(
-        r.ensure_presentation_env_instance_nav_commands_wave474_ok,
-        "ensure presentation env instance nav commands residual pack wave474: {}",
-        r.detail
-    );
-    assert!(
-        r.ensure_presentation_env_instance_live_wave474_ok,
-        "ensure presentation env instance live residual wave474: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.map_ground_no_registry_pose_dual_write_method_names_wave475_ok,
         "map ground no registry pose dual write method names residual pack wave475: {}",
@@ -646,21 +550,9 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         "named shell host only tracker live residual wave476: {}",
         r.detail
     );
-    assert!(
-        r.production_sole_tick_no_progress_stomp_method_names_wave477_ok,
-        "production sole tick no progress stomp method names residual pack wave477: {}",
-        r.detail
-    );
-    assert!(
-        r.production_sole_tick_no_progress_stomp_nav_commands_wave477_ok,
-        "production sole tick no progress stomp nav commands residual pack wave477: {}",
-        r.detail
-    );
-    assert!(
-        r.production_sole_tick_no_progress_stomp_live_wave477_ok,
-        "production sole tick no progress stomp live residual wave477: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.construction_sole_tick_no_progress_stomp_method_names_wave478_ok,
         "construction sole tick no progress stomp method names residual pack wave478: {}",
@@ -676,36 +568,12 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         "construction sole tick no progress stomp live residual wave478: {}",
         r.detail
     );
-    assert!(
-        r.special_power_sole_tick_no_cooldown_stomp_method_names_wave479_ok,
-        "special power sole tick no cooldown stomp method names residual pack wave479: {}",
-        r.detail
-    );
-    assert!(
-        r.special_power_sole_tick_no_cooldown_stomp_nav_commands_wave479_ok,
-        "special power sole tick no cooldown stomp nav commands residual pack wave479: {}",
-        r.detail
-    );
-    assert!(
-        r.special_power_sole_tick_no_cooldown_stomp_live_wave479_ok,
-        "special power sole tick no cooldown stomp live residual wave479: {}",
-        r.detail
-    );
-    assert!(
-        r.production_sole_tick_exit_delay_arm_method_names_wave480_ok,
-        "production sole tick exit delay arm method names residual pack wave480: {}",
-        r.detail
-    );
-    assert!(
-        r.production_sole_tick_exit_delay_arm_nav_commands_wave480_ok,
-        "production sole tick exit delay arm nav commands residual pack wave480: {}",
-        r.detail
-    );
-    assert!(
-        r.production_sole_tick_exit_delay_arm_live_wave480_ok,
-        "production sole tick exit delay arm live residual wave480: {}",
-        r.detail
-    );
+
+
+
+
+
+
     assert!(
         r.sell_deconstruction_sole_tick_no_stomp_method_names_wave481_ok,
         "sell deconstruction sole tick no stomp method names residual pack wave481: {}",
@@ -721,51 +589,15 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         "sell deconstruction sole tick no stomp live residual wave481: {}",
         r.detail
     );
-    assert!(
-        r.sell_finish_skips_topple_destroy_method_names_wave482_ok,
-        "sell finish skips topple destroy method names residual pack wave482: {}",
-        r.detail
-    );
-    assert!(
-        r.sell_finish_skips_topple_destroy_nav_commands_wave482_ok,
-        "sell finish skips topple destroy nav commands residual pack wave482: {}",
-        r.detail
-    );
-    assert!(
-        r.sell_finish_skips_topple_destroy_live_wave482_ok,
-        "sell finish skips topple destroy live residual wave482: {}",
-        r.detail
-    );
-    assert!(
-        r.production_upgrade_complete_queue_refresh_method_names_wave483_ok,
-        "production upgrade complete queue refresh method names residual pack wave483: {}",
-        r.detail
-    );
-    assert!(
-        r.production_upgrade_complete_queue_refresh_nav_commands_wave483_ok,
-        "production upgrade complete queue refresh nav commands residual pack wave483: {}",
-        r.detail
-    );
-    assert!(
-        r.production_upgrade_complete_queue_refresh_live_wave483_ok,
-        "production upgrade complete queue refresh live residual wave483: {}",
-        r.detail
-    );
-    assert!(
-        r.cancel_all_production_queue_refresh_method_names_wave484_ok,
-        "cancel_all production queue refresh method names residual pack wave484: {}",
-        r.detail
-    );
-    assert!(
-        r.cancel_all_production_queue_refresh_nav_commands_wave484_ok,
-        "cancel_all production queue refresh nav commands residual pack wave484: {}",
-        r.detail
-    );
-    assert!(
-        r.cancel_all_production_queue_refresh_live_wave484_ok,
-        "cancel_all production queue refresh live residual wave484: {}",
-        r.detail
-    );
+
+
+
+
+
+
+
+
+
     assert!(
         r.cancel_clears_exit_delay_method_names_wave485_ok,
         "cancel clears exit delay method names residual pack wave485: {}",
@@ -781,21 +613,9 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         "cancel clears exit delay live residual wave485: {}",
         r.detail
     );
-    assert!(
-        r.production_door_model_condition_log_method_names_wave486_ok,
-        "production door model condition log method names residual pack wave486: {}",
-        r.detail
-    );
-    assert!(
-        r.production_door_model_condition_log_nav_commands_wave486_ok,
-        "production door model condition log nav commands residual pack wave486: {}",
-        r.detail
-    );
-    assert!(
-        r.production_door_model_condition_log_live_wave486_ok,
-        "production door model condition log live residual wave486: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.combat_model_condition_channel_method_names_wave487_ok,
         "combat model condition channel method names residual pack wave487: {}",

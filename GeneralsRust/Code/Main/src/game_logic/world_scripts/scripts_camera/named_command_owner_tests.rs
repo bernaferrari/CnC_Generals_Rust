@@ -143,7 +143,7 @@ fn named_face_retains_object_goal_and_clears_route_without_idling_passengers() {
     world
         .host_object_mut(passenger)
         .unwrap()
-        .set_target(Some(target));
+        .set_target(Some(target), &mut world.attack_events);
     world.host_object_mut(id).unwrap().occupants.push(passenger);
     assert!(world.append_unit_waypoint(id, Vec3::new(200.0, 0.0, 200.0)));
     world.host_object_mut(id).unwrap().num_frames_blocked = 7;

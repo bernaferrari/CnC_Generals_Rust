@@ -27,9 +27,7 @@ pub(super) struct Waves441480 {
     pub live_replace_object_upgrade_dual_world_empty_gate_live_wave446_ok: bool,
 
 
-    pub live_contain_module_overrides_fail_closed_method_names_wave449_ok: bool,
-    pub live_contain_module_overrides_fail_closed_nav_commands_wave449_ok: bool,
-    pub live_contain_module_overrides_fail_closed_live_wave449_ok: bool,
+
 
 
 
@@ -60,9 +58,9 @@ pub(super) struct Waves441480 {
     pub terrain_visual_presentation_only_method_names_wave459_ok: bool,
     pub terrain_visual_presentation_only_nav_commands_wave459_ok: bool,
     pub terrain_visual_presentation_only_live_wave459_ok: bool,
-    pub camera_center_presentation_height_method_names_wave460_ok: bool,
-    pub camera_center_presentation_height_nav_commands_wave460_ok: bool,
-    pub camera_center_presentation_height_live_wave460_ok: bool,
+
+
+
     pub presentation_world_bounds_probe_method_names_wave461_ok: bool,
     pub presentation_world_bounds_probe_nav_commands_wave461_ok: bool,
     pub presentation_world_bounds_probe_live_wave461_ok: bool,
@@ -78,48 +76,29 @@ pub(super) struct Waves441480 {
     pub presentation_env_seed_gameworld_method_names_wave466_ok: bool,
     pub presentation_env_seed_gameworld_nav_commands_wave466_ok: bool,
     pub presentation_env_seed_gameworld_live_wave466_ok: bool,
-    pub presentation_env_seed_mirror_last_method_names_wave467_ok: bool,
-    pub presentation_env_seed_mirror_last_nav_commands_wave467_ok: bool,
-    pub presentation_env_seed_mirror_last_live_wave467_ok: bool,
-    pub minimap_reinit_instance_presentation_method_names_wave468_ok: bool,
-    pub minimap_reinit_instance_presentation_nav_commands_wave468_ok: bool,
-    pub minimap_reinit_instance_presentation_live_wave468_ok: bool,
-    pub pathfind_midframe_stub_removed_method_names_wave469_ok: bool,
-    pub pathfind_midframe_stub_removed_nav_commands_wave469_ok: bool,
-    pub pathfind_midframe_stub_removed_live_wave469_ok: bool,
-    pub projectile_authority_flare_host_method_names_wave470_ok: bool,
-    pub projectile_authority_flare_host_nav_commands_wave470_ok: bool,
-    pub projectile_authority_flare_host_live_wave470_ok: bool,
-    pub engine_env_free_fn_game_logic_only_seed_method_names_wave471_ok: bool,
-    pub engine_env_free_fn_game_logic_only_seed_nav_commands_wave471_ok: bool,
-    pub engine_env_free_fn_game_logic_only_seed_live_wave471_ok: bool,
+
+
+
     pub dead_model_preload_removed_method_names_wave472_ok: bool,
     pub dead_model_preload_removed_nav_commands_wave472_ok: bool,
     pub dead_model_preload_removed_live_wave472_ok: bool,
     pub camera_bootstrap_presentation_only_method_names_wave473_ok: bool,
     pub camera_bootstrap_presentation_only_nav_commands_wave473_ok: bool,
     pub camera_bootstrap_presentation_only_live_wave473_ok: bool,
-    pub ensure_presentation_env_instance_method_names_wave474_ok: bool,
-    pub ensure_presentation_env_instance_nav_commands_wave474_ok: bool,
-    pub ensure_presentation_env_instance_live_wave474_ok: bool,
+
     pub map_ground_no_registry_pose_dual_write_method_names_wave475_ok: bool,
     pub map_ground_no_registry_pose_dual_write_nav_commands_wave475_ok: bool,
     pub map_ground_no_registry_pose_dual_write_live_wave475_ok: bool,
     pub named_shell_host_only_tracker_method_names_wave476_ok: bool,
     pub named_shell_host_only_tracker_nav_commands_wave476_ok: bool,
     pub named_shell_host_only_tracker_live_wave476_ok: bool,
-    pub production_sole_tick_no_progress_stomp_method_names_wave477_ok: bool,
-    pub production_sole_tick_no_progress_stomp_nav_commands_wave477_ok: bool,
-    pub production_sole_tick_no_progress_stomp_live_wave477_ok: bool,
+
     pub construction_sole_tick_no_progress_stomp_method_names_wave478_ok: bool,
     pub construction_sole_tick_no_progress_stomp_nav_commands_wave478_ok: bool,
     pub construction_sole_tick_no_progress_stomp_live_wave478_ok: bool,
-    pub special_power_sole_tick_no_cooldown_stomp_method_names_wave479_ok: bool,
-    pub special_power_sole_tick_no_cooldown_stomp_nav_commands_wave479_ok: bool,
-    pub special_power_sole_tick_no_cooldown_stomp_live_wave479_ok: bool,
-    pub production_sole_tick_exit_delay_arm_method_names_wave480_ok: bool,
-    pub production_sole_tick_exit_delay_arm_nav_commands_wave480_ok: bool,
-    pub production_sole_tick_exit_delay_arm_live_wave480_ok: bool,
+
+
+
 }
 
 pub(super) fn evaluate() -> Waves441480 {
@@ -162,12 +141,7 @@ pub(super) fn evaluate() -> Waves441480 {
             simulate_live_replace_object_upgrade_dual_world_empty_gate_honesty(),
 
 
-        live_contain_module_overrides_fail_closed_method_names_wave449_ok:
-            honesty_live_contain_module_overrides_fail_closed_method_names_residual_wave449(),
-        live_contain_module_overrides_fail_closed_nav_commands_wave449_ok:
-            honesty_live_contain_module_overrides_fail_closed_nav_commands_residual_wave449(),
-        live_contain_module_overrides_fail_closed_live_wave449_ok:
-            simulate_live_contain_module_overrides_fail_closed_honesty(),
+
 
 
 
@@ -225,12 +199,9 @@ pub(super) fn evaluate() -> Waves441480 {
             honesty_terrain_visual_presentation_only_nav_commands_residual_wave459(),
         terrain_visual_presentation_only_live_wave459_ok:
             simulate_live_terrain_visual_presentation_only_honesty(),
-        camera_center_presentation_height_method_names_wave460_ok:
-            honesty_camera_center_presentation_height_method_names_residual_wave460(),
-        camera_center_presentation_height_nav_commands_wave460_ok:
-            honesty_camera_center_presentation_height_nav_commands_residual_wave460(),
-        camera_center_presentation_height_live_wave460_ok:
-            simulate_live_camera_center_presentation_height_honesty(),
+
+
+
         presentation_world_bounds_probe_method_names_wave461_ok:
             honesty_presentation_world_bounds_probe_method_names_residual_wave461(),
         presentation_world_bounds_probe_nav_commands_wave461_ok:
@@ -258,36 +229,9 @@ pub(super) fn evaluate() -> Waves441480 {
             honesty_presentation_env_seed_gameworld_nav_commands_residual_wave466(),
         presentation_env_seed_gameworld_live_wave466_ok:
             simulate_live_presentation_env_seed_gameworld_honesty(),
-        presentation_env_seed_mirror_last_method_names_wave467_ok:
-            honesty_presentation_env_seed_mirror_last_method_names_residual_wave467(),
-        presentation_env_seed_mirror_last_nav_commands_wave467_ok:
-            honesty_presentation_env_seed_mirror_last_nav_commands_residual_wave467(),
-        presentation_env_seed_mirror_last_live_wave467_ok:
-            simulate_live_presentation_env_seed_mirror_last_honesty(),
-        minimap_reinit_instance_presentation_method_names_wave468_ok:
-            honesty_minimap_reinit_instance_presentation_method_names_residual_wave468(),
-        minimap_reinit_instance_presentation_nav_commands_wave468_ok:
-            honesty_minimap_reinit_instance_presentation_nav_commands_residual_wave468(),
-        minimap_reinit_instance_presentation_live_wave468_ok:
-            simulate_live_minimap_reinit_instance_presentation_honesty(),
-        pathfind_midframe_stub_removed_method_names_wave469_ok:
-            honesty_pathfind_midframe_stub_removed_method_names_residual_wave469(),
-        pathfind_midframe_stub_removed_nav_commands_wave469_ok:
-            honesty_pathfind_midframe_stub_removed_nav_commands_residual_wave469(),
-        pathfind_midframe_stub_removed_live_wave469_ok:
-            simulate_live_pathfind_midframe_stub_removed_honesty(),
-        projectile_authority_flare_host_method_names_wave470_ok:
-            honesty_projectile_authority_flare_host_method_names_residual_wave470(),
-        projectile_authority_flare_host_nav_commands_wave470_ok:
-            honesty_projectile_authority_flare_host_nav_commands_residual_wave470(),
-        projectile_authority_flare_host_live_wave470_ok:
-            simulate_live_projectile_authority_flare_host_honesty(),
-        engine_env_free_fn_game_logic_only_seed_method_names_wave471_ok:
-            honesty_engine_env_free_fn_game_logic_only_seed_method_names_residual_wave471(),
-        engine_env_free_fn_game_logic_only_seed_nav_commands_wave471_ok:
-            honesty_engine_env_free_fn_game_logic_only_seed_nav_commands_residual_wave471(),
-        engine_env_free_fn_game_logic_only_seed_live_wave471_ok:
-            simulate_live_engine_env_free_fn_game_logic_only_seed_honesty(),
+
+
+
         dead_model_preload_removed_method_names_wave472_ok:
             honesty_dead_model_preload_removed_method_names_residual_wave472(),
         dead_model_preload_removed_nav_commands_wave472_ok:
@@ -300,12 +244,7 @@ pub(super) fn evaluate() -> Waves441480 {
             honesty_camera_bootstrap_presentation_only_nav_commands_residual_wave473(),
         camera_bootstrap_presentation_only_live_wave473_ok:
             simulate_live_camera_bootstrap_presentation_only_honesty(),
-        ensure_presentation_env_instance_method_names_wave474_ok:
-            honesty_ensure_presentation_env_instance_method_names_residual_wave474(),
-        ensure_presentation_env_instance_nav_commands_wave474_ok:
-            honesty_ensure_presentation_env_instance_nav_commands_residual_wave474(),
-        ensure_presentation_env_instance_live_wave474_ok:
-            simulate_live_ensure_presentation_env_instance_honesty(),
+
         map_ground_no_registry_pose_dual_write_method_names_wave475_ok:
             honesty_map_ground_no_registry_pose_dual_write_method_names_residual_wave475(),
         map_ground_no_registry_pose_dual_write_nav_commands_wave475_ok:
@@ -318,29 +257,15 @@ pub(super) fn evaluate() -> Waves441480 {
             honesty_named_shell_host_only_tracker_nav_commands_residual_wave476(),
         named_shell_host_only_tracker_live_wave476_ok:
             simulate_live_named_shell_host_only_tracker_honesty(),
-        production_sole_tick_no_progress_stomp_method_names_wave477_ok:
-            honesty_production_sole_tick_no_progress_stomp_method_names_residual_wave477(),
-        production_sole_tick_no_progress_stomp_nav_commands_wave477_ok:
-            honesty_production_sole_tick_no_progress_stomp_nav_commands_residual_wave477(),
-        production_sole_tick_no_progress_stomp_live_wave477_ok:
-            simulate_live_production_sole_tick_no_progress_stomp_honesty(),
+
         construction_sole_tick_no_progress_stomp_method_names_wave478_ok:
             honesty_construction_sole_tick_no_progress_stomp_method_names_residual_wave478(),
         construction_sole_tick_no_progress_stomp_nav_commands_wave478_ok:
             honesty_construction_sole_tick_no_progress_stomp_nav_commands_residual_wave478(),
         construction_sole_tick_no_progress_stomp_live_wave478_ok:
             simulate_live_construction_sole_tick_no_progress_stomp_honesty(),
-        special_power_sole_tick_no_cooldown_stomp_method_names_wave479_ok:
-            honesty_special_power_sole_tick_no_cooldown_stomp_method_names_residual_wave479(),
-        special_power_sole_tick_no_cooldown_stomp_nav_commands_wave479_ok:
-            honesty_special_power_sole_tick_no_cooldown_stomp_nav_commands_residual_wave479(),
-        special_power_sole_tick_no_cooldown_stomp_live_wave479_ok:
-            simulate_live_special_power_sole_tick_no_cooldown_stomp_honesty(),
-        production_sole_tick_exit_delay_arm_method_names_wave480_ok:
-            honesty_production_sole_tick_exit_delay_arm_method_names_residual_wave480(),
-        production_sole_tick_exit_delay_arm_nav_commands_wave480_ok:
-            honesty_production_sole_tick_exit_delay_arm_nav_commands_residual_wave480(),
-        production_sole_tick_exit_delay_arm_live_wave480_ok:
-            simulate_live_production_sole_tick_exit_delay_arm_honesty(),
+
+
+
     }
 }

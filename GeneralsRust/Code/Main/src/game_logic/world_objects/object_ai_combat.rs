@@ -56,6 +56,7 @@ impl GameLogic {
                                             tgt_faerie,
                                             self.frame,
                                             &mut self.combat_system,
+                                            &mut self.attack_events,
                                         );
                                     }
                                 }
@@ -349,7 +350,6 @@ impl GameLogic {
                         attacker.target_location = None;
                         attacker.set_force_attack(false);
                         attacker.set_ai_state(AIState::Idle);
-                        crate::game_logic::host_attack_log::record(object_id, None);
                     }
                 }
                 if self

@@ -399,7 +399,7 @@ impl GameLogic {
         let engaged = self.private_attack_object(id, target_id, -1);
         if !engaged {
             if let Some(unit) = self.objects.get_mut(&id) {
-                unit.set_target(Some(target_id));
+                unit.set_target(Some(target_id), &mut self.attack_events);
             } else {
                 return false;
             }
@@ -461,7 +461,7 @@ impl GameLogic {
         unit.clear_guard_chase();
         end_hunt_on_player_parent_order(unit);
 
-        unit.set_target(Some(target_id));
+        unit.set_target(Some(target_id), &mut self.attack_events);
         unit.set_force_attack(true);
         drop(unit);
         if let Some(unit) = self.objects.get_mut(&id) {
@@ -493,7 +493,7 @@ impl GameLogic {
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_guard_position(None);
             unit.end_guard_retaliate();
-            unit.set_target(None);
+            unit.clear_target();
         }
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.last_command_source = source;
@@ -544,11 +544,11 @@ impl GameLogic {
             if let Some(unit) = self.objects.get_mut(&id) {
                 unit.stop();
                 unit.ignored_obstacle_id = None;
-                unit.set_target(None);
+                unit.clear_target();
                 unit.set_force_attack(false);
                 unit.set_guard_position(None);
                 unit.set_guard_target(None);
-                crate::game_logic::host_attack_log::record(id, None);
+
                 unit.end_guard_retaliate();
                 unit.hunting = false;
                 unit.return_to_base_requested = true;
@@ -562,11 +562,11 @@ impl GameLogic {
         };
         unit.stop();
         unit.ignored_obstacle_id = None;
-        unit.set_target(None);
+        unit.clear_target();
         unit.set_force_attack(false);
         unit.set_guard_position(None);
         unit.set_guard_target(None);
-        crate::game_logic::host_attack_log::record(id, None);
+
         unit.end_guard_retaliate();
         unit.hunting = false;
         // C++ SupplyTruckAIUpdate::privateIdle(CMD_FROM_PLAYER) setForceBusyState.
@@ -890,7 +890,7 @@ impl GameLogic {
         end_hunt_on_player_parent_order(unit);
         unit.set_force_attack(true);
         unit.target = None;
-        crate::game_logic::host_attack_log::record(id, None);
+
         unit.leftover_choose_best_reset_primary_for_ground();
         unit.set_target_location(Some(location));
         unit.set_ai_state(AIState::AttackingGround);
@@ -1214,7 +1214,7 @@ impl GameLogic {
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.guard_radius = guard_radius;
             unit.set_guard_mode(mode);
-            unit.set_target(None);
+            unit.clear_target();
             unit.set_force_attack(false);
             unit.clear_guard_chase();
 
@@ -1229,7 +1229,6 @@ impl GameLogic {
                 unit.set_guard_position(Some(pos));
             }
             unit.set_ai_state(ai_state.clone());
-            crate::game_logic::host_attack_log::record(id, None);
         } else {
             return false;
         }
@@ -1298,7 +1297,7 @@ impl GameLogic {
         }
         end_hunt_on_player_parent_order(unit);
         unit.target = None;
-        crate::game_logic::host_attack_log::record(id, None);
+
         unit.set_force_attack(true);
         unit.set_max_shots_to_fire(max_shots);
         unit.leftover_choose_best_reset_primary_for_ground();
@@ -1325,12 +1324,12 @@ impl GameLogic {
         let entering_hunt = self.objects.get(&id).is_some_and(|u| !u.hunting);
         self.drop_jet_targeters_on_attack_exit(id);
         if let Some(unit) = self.objects.get_mut(&id) {
-            unit.set_target(None);
+            unit.clear_target();
             unit.set_force_attack(false);
             unit.set_guard_position(None);
             unit.set_guard_target(None);
             unit.end_guard_retaliate();
-            crate::game_logic::host_attack_log::record(id, None);
+
             unit.auto_acquire_when_idle = true;
             unit.hunting = true;
             unit.set_ai_state(AIState::Patrolling);
@@ -1515,7 +1514,7 @@ impl GameLogic {
         if !unit.is_alive() {
             return false;
         }
-        unit.set_target(Some(target_id));
+        unit.set_target(Some(target_id), &mut self.attack_events);
         unit.set_force_attack(false);
         true
     }
@@ -1621,7 +1620,7 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
-        unit.set_order_target(target);
+        unit.set_order_target(target, &mut self.attack_events);
         let can_construct = unit.can_construct();
         if can_construct {
             if let Some(sid) = target {
@@ -1646,7 +1645,7 @@ impl GameLogic {
             return false;
         };
         unit.stop_moving();
-        unit.set_order_target(target);
+        unit.set_order_target(target, &mut self.attack_events);
         true
     }
 
@@ -1661,7 +1660,7 @@ impl GameLogic {
             return false;
         }
         unit.stop_moving();
-        unit.set_order_target(Some(target));
+        unit.set_order_target(Some(target), &mut self.attack_events);
         unit.capture_channel = None;
         unit.set_status_using_ability(false);
         unit.set_ai_state(AIState::Capturing);
@@ -1687,7 +1686,7 @@ impl GameLogic {
             return false;
         }
         unit.stop_moving();
-        unit.set_order_target(Some(target));
+        unit.set_order_target(Some(target), &mut self.attack_events);
         unit.hacker_disable_channel = Some(crate::game_logic::HackerDisableChannelState::new(
             target,
             crate::game_logic::HackerDisableChannelPhase::Approaching,
@@ -1785,7 +1784,7 @@ impl GameLogic {
             unit.preferred_dock_id = Some(supply_center);
             unit.supply_truck_state = crate::game_logic::SupplyTruckState::Wanting;
             unit.supply_truck_force_pending = true;
-            unit.set_order_target(Some(supply_center));
+            unit.set_order_target(Some(supply_center), &mut self.attack_events);
             unit.set_ai_state(AIState::ReturningResources);
             unit.ignored_obstacle_id = None;
         } else {
@@ -1822,7 +1821,7 @@ impl GameLogic {
             unit.preferred_dock_id = Some(warehouse);
             unit.supply_truck_state = crate::game_logic::SupplyTruckState::Wanting;
             unit.supply_truck_force_pending = true;
-            unit.set_order_target(Some(warehouse));
+            unit.set_order_target(Some(warehouse), &mut self.attack_events);
             unit.set_ai_state(AIState::Gathering);
             unit.ignored_obstacle_id = None;
         } else {
@@ -1850,7 +1849,7 @@ impl GameLogic {
             return false;
         };
         unit.stop_attack();
-        unit.set_order_target(Some(transport));
+        unit.set_order_target(Some(transport), &mut self.attack_events);
         unit.set_ai_state(AIState::Docking);
         true
     }
@@ -2017,7 +2016,7 @@ impl GameLogic {
         unit.stop_moving();
         unit.set_position(drop_position);
         unit.set_contained_by(None);
-        unit.set_target(None);
+        unit.clear_target();
         if unit.ai_state != AIState::Idle {
             unit.set_ai_state(AIState::Idle);
         }
@@ -2084,7 +2083,7 @@ impl GameLogic {
             obj.pending_stream_exit = false;
         }
         if prep_move {
-            obj.set_target(None);
+            obj.clear_target();
             obj.set_force_attack(false);
             obj.set_guard_position(None);
             obj.set_guard_target(None);
@@ -2098,7 +2097,7 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
-        unit.set_order_target(Some(target_id));
+        unit.set_order_target(Some(target_id), &mut self.attack_events);
         unit.set_ai_state(AIState::Entering);
         // C++ AIEnterState::onEnter ignoreObstacle(goalObject).
         unit.ignored_obstacle_id = Some(target_id);
@@ -2189,12 +2188,12 @@ impl GameLogic {
         unit.attack_substate = AttackSubState::AimAtTarget;
 
         if let Some(tid) = target_object {
-            unit.set_target(Some(tid));
+            unit.set_target(Some(tid), &mut self.attack_events);
             unit.set_max_shots_to_fire(max_shots_to_fire);
             true
         } else if let Some(pos) = target_location {
             unit.target = None;
-            crate::game_logic::host_attack_log::record(id, None);
+
             unit.set_target_location(Some(pos));
             unit.set_force_attack(true);
             unit.set_ai_state(AIState::AttackingGround);
@@ -2865,7 +2864,7 @@ mod tests {
             "AIHuntState::onExit releases LOCKED_TEMPORARILY"
         );
         if let Some(unit) = logic.objects.get_mut(&hunter_id) {
-            unit.set_target(None);
+            unit.clear_target();
             unit.set_ai_state(AIState::Idle);
         }
         logic.update_ai(&[hunter_id, enemy_id], 1.0 / 30.0);
@@ -2892,7 +2891,7 @@ mod tests {
         );
         if let Some(unit) = logic.objects.get_mut(&hunter_id) {
             unit.set_ai_state(AIState::Idle);
-            unit.set_target(None);
+            unit.clear_target();
         }
         logic.update_ai(&[hunter_id, enemy_id], 1.0 / 30.0);
         let hunter = logic.objects.get(&hunter_id).expect("hunter after tick");

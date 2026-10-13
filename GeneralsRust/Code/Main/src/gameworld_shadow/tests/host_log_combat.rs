@@ -755,7 +755,7 @@ fn host_detector_log_drives_set_detector_channel() {
 
 #[test]
 fn host_target_location_log_drives_set_target_location_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_target_location_log};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("TLocCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");

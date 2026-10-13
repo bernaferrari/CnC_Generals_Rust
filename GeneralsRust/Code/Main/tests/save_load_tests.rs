@@ -799,6 +799,9 @@ mod integration_tests {
 
     #[test]
     fn test_save_with_active_combat() {
+        let mut _attack_output =
+            generals_main::game_logic::host_attack_log::AttackEvents::default();
+
         let mut game_logic = fixture_game();
         let attacker = game_logic
             .create_object("SaveTestRanger", Team::USA, Vec3::ZERO)
@@ -821,7 +824,7 @@ mod integration_tests {
                 projectile_speed: 0.0,
                 ..Weapon::default()
             });
-            attacker.attack_target(target);
+            attacker.attack_target(target, &mut _attack_output);
         }
 
         let (mut loaded, _) = save_and_load("active_combat", &game_logic);

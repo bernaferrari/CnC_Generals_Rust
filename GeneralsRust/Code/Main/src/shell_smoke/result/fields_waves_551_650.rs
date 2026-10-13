@@ -1,9 +1,9 @@
     pub time_frozen_presentation_helper_method_names_wave551_ok: bool,
     pub time_frozen_presentation_helper_nav_commands_wave551_ok: bool,
     pub time_frozen_presentation_helper_live_wave551_ok: bool,
-    pub shell_bypass_presentation_helper_method_names_wave552_ok: bool,
-    pub shell_bypass_presentation_helper_nav_commands_wave552_ok: bool,
-    pub shell_bypass_presentation_helper_live_wave552_ok: bool,
+
+
+
     pub play_time_local_player_presentation_helper_method_names_wave553_ok: bool,
     pub play_time_local_player_presentation_helper_nav_commands_wave553_ok: bool,
     pub play_time_local_player_presentation_helper_live_wave553_ok: bool,
@@ -13,9 +13,7 @@
     pub science_team_presentation_helper_method_names_wave555_ok: bool,
     pub science_team_presentation_helper_nav_commands_wave555_ok: bool,
     pub science_team_presentation_helper_live_wave555_ok: bool,
-    pub victory_presentation_helper_method_names_wave556_ok: bool,
-    pub victory_presentation_helper_nav_commands_wave556_ok: bool,
-    pub victory_presentation_helper_live_wave556_ok: bool,
+
     pub replay_presentation_helper_method_names_wave557_ok: bool,
     pub replay_presentation_helper_nav_commands_wave557_ok: bool,
     pub replay_presentation_helper_live_wave557_ok: bool,
@@ -61,9 +59,9 @@
     pub popup_music_helper_method_names_wave571_ok: bool,
     pub popup_music_helper_nav_commands_wave571_ok: bool,
     pub popup_music_helper_live_wave571_ok: bool,
-    pub boot_camera_helper_method_names_wave572_ok: bool,
-    pub boot_camera_helper_nav_commands_wave572_ok: bool,
-    pub boot_camera_helper_live_wave572_ok: bool,
+
+
+
     pub boot_player_info_helper_method_names_wave573_ok: bool,
     pub boot_player_info_helper_nav_commands_wave573_ok: bool,
     pub boot_player_info_helper_live_wave573_ok: bool,
@@ -94,12 +92,9 @@
     pub host_enqueue_shell_cmd_helper_method_names_wave582_ok: bool,
     pub host_enqueue_shell_cmd_helper_nav_commands_wave582_ok: bool,
     pub host_enqueue_shell_cmd_helper_live_wave582_ok: bool,
-    pub host_runtime_cmd_helper_method_names_wave583_ok: bool,
-    pub host_runtime_cmd_helper_nav_commands_wave583_ok: bool,
-    pub host_runtime_cmd_helper_live_wave583_ok: bool,
-    pub host_tick_mutation_helper_method_names_wave584_ok: bool,
-    pub host_tick_mutation_helper_nav_commands_wave584_ok: bool,
-    pub host_tick_mutation_helper_live_wave584_ok: bool,
+
+
+
     pub host_ui_shell_world_helper_method_names_wave585_ok: bool,
     pub host_ui_shell_world_helper_nav_commands_wave585_ok: bool,
     pub host_ui_shell_world_helper_live_wave585_ok: bool,
@@ -112,33 +107,18 @@
     pub host_game_client_menu_shell_helper_method_names_wave588_ok: bool,
     pub host_game_client_menu_shell_helper_nav_commands_wave588_ok: bool,
     pub host_game_client_menu_shell_helper_live_wave588_ok: bool,
-    pub host_presentation_finalize_helper_method_names_wave589_ok: bool,
-    pub host_presentation_finalize_helper_nav_commands_wave589_ok: bool,
-    pub host_presentation_finalize_helper_live_wave589_ok: bool,
-    pub host_presentation_seed_helper_method_names_wave590_ok: bool,
-    pub host_presentation_seed_helper_nav_commands_wave590_ok: bool,
-    pub host_presentation_seed_helper_live_wave590_ok: bool,
-    pub host_render_ui_presentation_helper_method_names_wave591_ok: bool,
-    pub host_render_ui_presentation_helper_nav_commands_wave591_ok: bool,
-    pub host_render_ui_presentation_helper_live_wave591_ok: bool,
-    pub host_render_ui_overlays_helper_method_names_wave592_ok: bool,
-    pub host_render_ui_overlays_helper_nav_commands_wave592_ok: bool,
-    pub host_render_ui_overlays_helper_live_wave592_ok: bool,
+
+
+
     pub host_render_ui_finalize_helper_method_names_wave593_ok: bool,
     pub host_render_ui_finalize_helper_nav_commands_wave593_ok: bool,
     pub host_render_ui_finalize_helper_live_wave593_ok: bool,
-    pub host_minimap_bounds_repair_helper_method_names_wave594_ok: bool,
-    pub host_minimap_bounds_repair_helper_nav_commands_wave594_ok: bool,
-    pub host_minimap_bounds_repair_helper_live_wave594_ok: bool,
-    pub host_production_complete_apply_helper_method_names_wave595_ok: bool,
-    pub host_production_complete_apply_helper_nav_commands_wave595_ok: bool,
-    pub host_production_complete_apply_helper_live_wave595_ok: bool,
+
+
     pub host_camera_queue_drain_helper_method_names_wave596_ok: bool,
     pub host_camera_queue_drain_helper_nav_commands_wave596_ok: bool,
     pub host_camera_queue_drain_helper_live_wave596_ok: bool,
-    pub host_gameworld_shadow_session_helper_method_names_wave597_ok: bool,
-    pub host_gameworld_shadow_session_helper_nav_commands_wave597_ok: bool,
-    pub host_gameworld_shadow_session_helper_live_wave597_ok: bool,
+
     pub host_ingame_hud_helper_method_names_wave598_ok: bool,
     pub host_ingame_hud_helper_nav_commands_wave598_ok: bool,
     pub host_ingame_hud_helper_live_wave598_ok: bool,
@@ -148,12 +128,8 @@
     pub host_post_presentation_client_helper_method_names_wave600_ok: bool,
     pub host_post_presentation_client_helper_nav_commands_wave600_ok: bool,
     pub host_post_presentation_client_helper_live_wave600_ok: bool,
-    pub host_restart_pause_helper_method_names_wave601_ok: bool,
-    pub host_restart_pause_helper_nav_commands_wave601_ok: bool,
-    pub host_restart_pause_helper_live_wave601_ok: bool,
-    pub host_ingame_logic_shell_helper_method_names_wave602_ok: bool,
-    pub host_ingame_logic_shell_helper_nav_commands_wave602_ok: bool,
-    pub host_ingame_logic_shell_helper_live_wave602_ok: bool,
+
+
     pub host_paused_endgame_boot_ui_helper_method_names_wave603_ok: bool,
     pub host_paused_endgame_boot_ui_helper_nav_commands_wave603_ok: bool,
     pub host_paused_endgame_boot_ui_helper_live_wave603_ok: bool,
@@ -169,24 +145,19 @@
     pub host_ui_presentation_drain_helper_method_names_wave607_ok: bool,
     pub host_ui_presentation_drain_helper_nav_commands_wave607_ok: bool,
     pub host_ui_presentation_drain_helper_live_wave607_ok: bool,
-    pub host_production_complete_host_apply_helper_method_names_wave608_ok: bool,
-    pub host_production_complete_host_apply_helper_nav_commands_wave608_ok: bool,
-    pub host_production_complete_host_apply_helper_live_wave608_ok: bool,
+
     pub host_ui_economy_mouse_mode_helper_method_names_wave609_ok: bool,
     pub host_ui_economy_mouse_mode_helper_nav_commands_wave609_ok: bool,
     pub host_ui_economy_mouse_mode_helper_live_wave609_ok: bool,
     pub host_ui_selection_startup_helper_method_names_wave610_ok: bool,
     pub host_ui_selection_startup_helper_nav_commands_wave610_ok: bool,
     pub host_ui_selection_startup_helper_live_wave610_ok: bool,
-    pub host_start_save_load_helper_method_names_wave611_ok: bool,
-    pub host_start_save_load_helper_nav_commands_wave611_ok: bool,
-    pub host_start_save_load_helper_live_wave611_ok: bool,
+
     pub host_combat_cursor_transition_helper_method_names_wave612_ok: bool,
     pub host_combat_cursor_transition_helper_nav_commands_wave612_ok: bool,
     pub host_combat_cursor_transition_helper_live_wave612_ok: bool,
-    pub host_production_complete_collect_helper_method_names_wave613_ok: bool,
-    pub host_production_complete_collect_helper_nav_commands_wave613_ok: bool,
-    pub host_production_complete_collect_helper_live_wave613_ok: bool,
+
+
 
 
 

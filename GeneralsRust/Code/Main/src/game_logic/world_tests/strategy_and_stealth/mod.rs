@@ -29,6 +29,8 @@ fn attach_command_special_power(
 }
 
 fn arm_attacker_then_attack(attacker: &mut Object, target_id: ObjectId, damage: f32) {
+    let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+
     attacker.weapon = Some(Weapon {
         damage,
         range: 200.0,
@@ -37,7 +39,7 @@ fn arm_attacker_then_attack(attacker: &mut Object, target_id: ObjectId, damage: 
         projectile_speed: 0.0,
         ..Weapon::default()
     });
-    attacker.attack_target(target_id);
+    attacker.attack_target(target_id, &mut _attack_output);
 }
 
 fn spawn_live_black_market(logic: &mut GameLogic, team: Team, pos: Vec3) -> ObjectId {

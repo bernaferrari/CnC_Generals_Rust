@@ -330,10 +330,10 @@ fn repair_complete_removes_scaffolding() {
     let dozer = logic
         .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 12.0))
         .expect("dozer");
-    if let Some(d) = logic.host_object_mut(dozer) {
+    if let Some((d, attack_events)) = logic.host_object_and_attack_events_mut(dozer) {
         d.worker_ai_update = false;
         d.dozer_task_repair_target = Some(tower);
-        d.set_target(Some(tower));
+        d.set_target(Some(tower), attack_events);
     }
     logic.dozer_internal_task_complete(dozer, true);
     assert!(

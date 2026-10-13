@@ -28,7 +28,7 @@ impl GameLogic {
             obj.ignored_obstacle_id = None;
             obj.target = None;
             obj.target_location = None;
-            obj.record_host_target_location();
+
             obj.set_status_force_attack(false);
             obj.set_status_attacking(false);
             obj.set_actively_constructing(false);
@@ -44,7 +44,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.stop_moving();
             obj.ignored_obstacle_id = None;
-            obj.set_target(None);
+            obj.clear_target();
             if obj.ai_state != AIState::Idle {
                 obj.set_ai_state(AIState::Idle);
             }
@@ -363,7 +363,7 @@ impl GameLogic {
                             matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
                         });
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_order_target(None);
+                            obj.clear_order_target();
                             if !rallied {
                                 obj.stop_moving();
                                 obj.ignored_obstacle_id = None;
@@ -379,7 +379,7 @@ impl GameLogic {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.stop_moving();
                             obj.ignored_obstacle_id = None;
-                            obj.set_target(None);
+                            obj.clear_target();
                             if obj.ai_state != AIState::Idle {
                                 obj.set_ai_state(AIState::Idle);
                             }
@@ -414,7 +414,7 @@ impl GameLogic {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.stop_moving();
                             obj.ignored_obstacle_id = None;
-                            obj.set_target(None);
+                            obj.clear_target();
                             if obj.ai_state != AIState::Idle {
                                 obj.set_ai_state(AIState::Idle);
                             }
@@ -436,7 +436,7 @@ impl GameLogic {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.stop_moving();
                             obj.ignored_obstacle_id = None;
-                            obj.set_target(None);
+                            obj.clear_target();
                             if obj.ai_state != AIState::Idle {
                                 obj.set_ai_state(AIState::Idle);
                             }
@@ -480,7 +480,7 @@ impl GameLogic {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.stop_moving();
                             obj.ignored_obstacle_id = None;
-                            obj.set_target(None);
+                            obj.clear_target();
                             if obj.ai_state != AIState::Idle {
                                 obj.set_ai_state(AIState::Idle);
                             }
@@ -570,7 +570,7 @@ impl GameLogic {
                             heal_pad_healed = true;
                         }
                         if obj.health.current >= obj.health.maximum - 0.01 {
-                            obj.set_order_target(None);
+                            obj.clear_order_target();
                         } else {
                             obj.set_ai_state(state);
                         }
@@ -619,7 +619,7 @@ impl GameLogic {
                 state @ (AIState::Entering | AIState::Docking) => {
                     let Some(container_id) = target_id else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
+                            obj.clear_target();
                             obj.stop_moving();
                         }
                         continue;
@@ -782,7 +782,7 @@ impl GameLogic {
                         && !self.can_unit_enter_normal_target(object_id, requested_container_id)
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
+                            obj.clear_target();
                             obj.stop_moving();
                         }
                         continue;
@@ -847,7 +847,7 @@ impl GameLogic {
                     })
                     else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
+                            obj.clear_target();
                             obj.stop_moving();
                         }
                         continue;
@@ -880,7 +880,7 @@ impl GameLogic {
                         // TunnelContain residual: reject aircraft only.
                         if unit_is_aircraft {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
+                                obj.clear_target();
                                 obj.stop_moving();
                             }
                             continue;
@@ -896,7 +896,7 @@ impl GameLogic {
                         && !unit_can_garrison_structure
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
+                            obj.clear_target();
                             obj.stop_moving();
                         }
                         continue;
@@ -907,7 +907,7 @@ impl GameLogic {
                         && (unit_is_aircraft || unit_is_huge_vehicle)
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
+                            obj.clear_target();
                             obj.stop_moving();
                         }
                         continue;
@@ -926,7 +926,7 @@ impl GameLogic {
                         || !container_can_contain
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
+                            obj.clear_target();
                             obj.stop_moving();
                         }
                         continue;
@@ -940,7 +940,7 @@ impl GameLogic {
                         )
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
+                            obj.clear_target();
                             obj.stop_moving();
                         }
                         continue;
@@ -955,7 +955,7 @@ impl GameLogic {
                                 .is_some_and(|c| self.stealth_garrison_occupant_counts(c).1 > 0))
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
+                            obj.clear_target();
                             obj.stop_moving();
                         }
                         continue;
@@ -993,7 +993,7 @@ impl GameLogic {
                     if is_rider_change_target {
                         if !self.rider_change_enter_at_arrival(object_id, container_id) {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
+                                obj.clear_target();
                                 obj.stop_moving();
                             }
                         }
@@ -1032,7 +1032,7 @@ impl GameLogic {
                         || space_after_kick;
                     if !can_enter {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
+                            obj.clear_target();
                             obj.stop_moving();
                         }
                         continue;
@@ -1064,7 +1064,7 @@ impl GameLogic {
                         && self.should_cancel_containment_after_booby_trap(container_id, object_id)
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
+                            obj.clear_target();
                             obj.stop_moving();
                         }
                         continue;
@@ -1093,7 +1093,7 @@ impl GameLogic {
                                 container.remove_occupant(object_id);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
+                                obj.clear_target();
                                 obj.stop_moving();
                             }
                             continue;
@@ -1113,7 +1113,7 @@ impl GameLogic {
                                 container.remove_occupant(object_id);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
+                                obj.clear_target();
                                 obj.stop_moving();
                             }
                             continue;
@@ -1655,7 +1655,7 @@ impl GameLogic {
                                 obj.ignored_obstacle_id = None;
                                 obj.hacker_disable_channel = None;
                                 obj.set_status_using_ability(false);
-                                obj.set_target(None);
+                                obj.clear_target();
                             }
                         }
                         continue;
@@ -1905,7 +1905,7 @@ impl GameLogic {
                         if !plant_ok {
                             self.pending_special_abilities.remove(&object_id);
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
+                                obj.clear_target();
                             }
                             continue;
                         }
@@ -1929,7 +1929,7 @@ impl GameLogic {
                         if !target_is_structure || !is_cash_gen {
                             self.pending_special_abilities.remove(&object_id);
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
+                                obj.clear_target();
                             }
                             continue;
                         }
@@ -1955,7 +1955,7 @@ impl GameLogic {
                         {
                             self.pending_special_abilities.remove(&object_id);
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
+                                obj.clear_target();
                             }
                             continue;
                         }
@@ -2276,12 +2276,12 @@ impl GameLogic {
                                     self.saboteur.record_consumed();
                                 } else if let Some(obj) = self.objects.get_mut(&object_id) {
                                     // Fail-closed: non-matching structure — cancel residual.
-                                    obj.set_target(None);
+                                    obj.clear_target();
                                     obj.stop_moving();
                                 }
                             } else if let Some(obj) = self.objects.get_mut(&object_id) {
                                 // Fail-closed: non-saboteur cannot complete residual.
-                                obj.set_target(None);
+                                obj.clear_target();
                                 obj.stop_moving();
                             }
                         }
@@ -2327,7 +2327,7 @@ impl GameLogic {
                             );
                             self.queue_radar_message_for_team(team, msg);
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
+                                obj.clear_target();
                                 obj.stop_moving();
                             }
                         }
@@ -2395,7 +2395,7 @@ impl GameLogic {
                                 self.queue_radar_message_for_team(team, msg);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
+                                obj.clear_target();
                                 obj.stop_moving();
                             }
                         }
@@ -2425,7 +2425,7 @@ impl GameLogic {
                                 self.queue_radar_message_for_team(team, msg);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
+                                obj.clear_target();
                                 obj.stop_moving();
                             }
                         }
@@ -2479,7 +2479,7 @@ impl GameLogic {
                                 self.queue_radar_message_for_team(team, msg);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
+                                obj.clear_target();
                                 obj.stop_moving();
                             }
                         }
@@ -2636,7 +2636,7 @@ impl GameLogic {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.stop_moving();
                                 obj.ignored_obstacle_id = None;
-                                obj.set_target(None);
+                                obj.clear_target();
                             }
                         }
                         PendingSpecialAbility::HackerDisableBuilding { .. } => {
@@ -2673,7 +2673,7 @@ impl GameLogic {
                                 obj.stop_moving();
                                 obj.ignored_obstacle_id = None;
                                 {
-                                    obj.set_target(None);
+                                    obj.clear_target();
                                     obj.set_ai_state(AIState::Idle);
                                 }
                             }
@@ -2723,7 +2723,7 @@ impl GameLogic {
                                 if let Some(obj) = self.objects.get_mut(&object_id) {
                                     obj.stop_moving();
                                     obj.ignored_obstacle_id = None;
-                                    obj.set_target(None);
+                                    obj.clear_target();
                                 }
                                 continue;
                             }
@@ -2778,7 +2778,7 @@ impl GameLogic {
                                 self.queue_radar_message_for_team(team, msg);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
+                                obj.clear_target();
                                 obj.stop_moving();
                             }
                         }
@@ -3455,7 +3455,7 @@ impl GameLogic {
                                             .contains("supplypile")
                                 });
                                 if let Some(obj) = self.objects.get_mut(&object_id) {
-                                    obj.set_order_target(Some(next));
+                                    obj.set_order_target(Some(next), &mut self.attack_events);
                                     obj.supply_truck_state = SupplyTruckState::Wanting;
                                     obj.supply_truck_next_dock_action_frame = 0;
                                 }
@@ -3521,7 +3521,7 @@ impl GameLogic {
                     let Some(container_id) = container_id else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_contained_by(None);
-                            obj.set_target(None);
+                            obj.clear_target();
                         }
                         continue;
                     };
@@ -3567,7 +3567,7 @@ impl GameLogic {
                     else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_contained_by(None);
-                            obj.set_target(None);
+                            obj.clear_target();
                         }
                         continue;
                     };
@@ -3575,7 +3575,7 @@ impl GameLogic {
                     if !container_alive || !container_has_unit {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_contained_by(None);
-                            obj.set_target(None);
+                            obj.clear_target();
                         }
                         continue;
                     }

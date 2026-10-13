@@ -388,6 +388,7 @@ impl UnitBehavior {
         objects: &mut HashMap<ObjectId, Object>,
         dt: f32,
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
     ) {
         let ai_state = {
             if let Some(obj) = objects.get(&object_id) {
@@ -400,7 +401,7 @@ impl UnitBehavior {
         match ai_state {
             AIState::Idle => {
                 // Look for enemies in sight range
-                Self::find_and_attack_enemies(object_id, objects);
+                Self::find_and_attack_enemies(object_id, objects, attack_events);
             }
             AIState::Patrolling => {
                 // Implement patrol behavior
@@ -408,13 +409,17 @@ impl UnitBehavior {
             }
             AIState::GuardingArea | AIState::GuardingObject => {
                 // Implement guard behavior
-                Self::update_guard_behavior(object_id, objects, dt);
+                Self::update_guard_behavior(object_id, objects, dt, attack_events);
             }
             _ => {} // Other states handled elsewhere
         }
     }
 
-    fn find_and_attack_enemies(object_id: ObjectId, objects: &mut HashMap<ObjectId, Object>) {
+    fn find_and_attack_enemies(
+        object_id: ObjectId,
+        objects: &mut HashMap<ObjectId, Object>,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+    ) {
         let (position, team, sight_range) = {
             if let Some(obj) = objects.get(&object_id) {
                 if !obj.can_attack() {
@@ -444,7 +449,7 @@ impl UnitBehavior {
         // Attack nearest enemy
         if let Some(enemy_id) = nearest_enemy {
             if let Some(obj) = objects.get_mut(&object_id) {
-                obj.attack_target(enemy_id);
+                obj.attack_target(enemy_id, attack_events);
             }
         }
     }
@@ -481,9 +486,10 @@ impl UnitBehavior {
         object_id: ObjectId,
         objects: &mut HashMap<ObjectId, Object>,
         _dt: f32,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
     ) {
         // Guard behavior - stay near guard position and attack enemies
-        Self::find_and_attack_enemies(object_id, objects);
+        Self::find_and_attack_enemies(object_id, objects, attack_events);
 
         // Return to guard position if moved too far (simplified)
         if let Some(obj) = objects.get_mut(&object_id) {

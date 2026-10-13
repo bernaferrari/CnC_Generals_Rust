@@ -68,8 +68,10 @@ fn ranger_residual_rifle_and_flashbang_splash() {
         .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
         .expect("vehicle");
     {
-        let ranger = game_logic.host_object_mut(ranger_id).unwrap();
-        ranger.attack_target(vehicle);
+        let (ranger, attack_events) = game_logic
+            .host_object_and_attack_events_mut(ranger_id)
+            .unwrap();
+        ranger.attack_target(vehicle, attack_events);
         if let Some(w) = ranger.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -119,8 +121,10 @@ fn ranger_residual_rifle_and_flashbang_splash() {
         .create_object("TestInfantry", Team::GLA, Vec3::new(55.0, 0.0, 0.0))
         .expect("splash infantry");
     {
-        let ranger = game_logic.host_object_mut(ranger_id).unwrap();
-        ranger.attack_target(enemy);
+        let (ranger, attack_events) = game_logic
+            .host_object_and_attack_events_mut(ranger_id)
+            .unwrap();
+        ranger.attack_target(enemy, attack_events);
         // Prefer secondary vs infantry (PreferredAgainst residual).
         if let Some(w) = ranger.weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -659,8 +663,10 @@ fn rpg_trooper_residual_rocket_and_ap_rockets() {
         .create_object("TestInfantry", Team::USA, Vec3::new(82.0, 0.0, 0.0))
         .expect("splash");
     {
-        let rpg = game_logic.host_object_mut(rpg_id).unwrap();
-        rpg.attack_target(enemy);
+        let (rpg, attack_events) = game_logic
+            .host_object_and_attack_events_mut(rpg_id)
+            .unwrap();
+        rpg.attack_target(enemy, attack_events);
         if let Some(w) = rpg.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -799,8 +805,10 @@ fn terrorist_residual_suicide_dynamite_pack() {
         )
         .expect("far infantry");
     {
-        let t = game_logic.host_object_mut(terror_id).unwrap();
-        t.attack_target(near);
+        let (t, attack_events) = game_logic
+            .host_object_and_attack_events_mut(terror_id)
+            .unwrap();
+        t.attack_target(near, attack_events);
         if let Some(w) = t.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -910,9 +918,9 @@ fn missile_defender_residual_missile_and_laser_guided() {
         .create_object("TestInfantry", Team::GLA, Vec3::new(82.0, 0.0, 0.0))
         .expect("splash");
     {
-        let md = game_logic.host_object_mut(md_id).unwrap();
+        let (md, attack_events) = game_logic.host_object_and_attack_events_mut(md_id).unwrap();
         md.active_weapon_slot = 0;
-        md.attack_target(enemy);
+        md.attack_target(enemy, attack_events);
         if let Some(w) = md.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -2474,8 +2482,10 @@ fn troop_crawler_residual_assault_deploy_unloads_and_attacks() {
         .expect("enemy");
 
     {
-        let c = game_logic.host_object_mut(crawler_id).unwrap();
-        c.attack_target(enemy);
+        let (c, attack_events) = game_logic
+            .host_object_and_attack_events_mut(crawler_id)
+            .unwrap();
+        c.attack_target(enemy, attack_events);
         if let Some(w) = c.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;

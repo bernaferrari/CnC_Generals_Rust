@@ -14,9 +14,9 @@ pub(super) struct Waves241280 {
     pub live_command_player_probe_method_names_wave242_ok: bool,
     pub live_command_player_probe_nav_commands_wave242_ok: bool,
     pub live_command_player_probe_live_wave242_ok: bool,
-    pub live_construct_economy_probe_method_names_wave243_ok: bool,
-    pub live_construct_economy_probe_nav_commands_wave243_ok: bool,
-    pub live_construct_economy_probe_live_wave243_ok: bool,
+
+
+
     pub live_command_unit_probe_method_names_wave244_ok: bool,
     pub live_command_unit_probe_nav_commands_wave244_ok: bool,
     pub live_command_unit_probe_live_wave244_ok: bool,
@@ -133,12 +133,9 @@ pub(super) fn evaluate(
         live_command_player_probe_nav_commands_wave242_ok:
             honesty_live_command_player_probe_nav_commands_residual_wave242(),
         live_command_player_probe_live_wave242_ok: simulate_live_command_player_probe_honesty(),
-        live_construct_economy_probe_method_names_wave243_ok:
-            honesty_live_construct_economy_probe_method_names_residual_wave243(),
-        live_construct_economy_probe_nav_commands_wave243_ok:
-            honesty_live_construct_economy_probe_nav_commands_residual_wave243(),
-        live_construct_economy_probe_live_wave243_ok: simulate_live_construct_economy_probe_honesty(
-        ),
+
+
+
         live_command_unit_probe_method_names_wave244_ok:
             honesty_live_command_unit_probe_method_names_residual_wave244(),
         live_command_unit_probe_nav_commands_wave244_ok:

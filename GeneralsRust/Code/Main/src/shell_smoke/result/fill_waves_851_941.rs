@@ -73,15 +73,12 @@ fn fill_waves_851_941(
     out.host_queue_stamp_method_names_wave874_ok = waves.host_queue_stamp_method_names_wave874_ok;
     out.host_queue_stamp_nav_commands_wave874_ok = waves.host_queue_stamp_nav_commands_wave874_ok;
     out.host_queue_stamp_live_wave874_ok = waves.host_queue_stamp_live_wave874_ok;
-    out.host_dual_read_zero_sole_tick_method_names_wave875_ok = waves.host_dual_read_zero_sole_tick_method_names_wave875_ok;
-    out.host_dual_read_zero_sole_tick_nav_commands_wave875_ok = waves.host_dual_read_zero_sole_tick_nav_commands_wave875_ok;
-    out.host_dual_read_zero_sole_tick_live_wave875_ok = waves.host_dual_read_zero_sole_tick_live_wave875_ok;
+
     out.host_shell_no_dual_pace_method_names_wave876_ok = waves.host_shell_no_dual_pace_method_names_wave876_ok;
     out.host_shell_no_dual_pace_nav_commands_wave876_ok = waves.host_shell_no_dual_pace_nav_commands_wave876_ok;
     out.host_shell_no_dual_pace_live_wave876_ok = waves.host_shell_no_dual_pace_live_wave876_ok;
-    out.host_gw_flight_over_assign_method_names_wave877_ok = waves.host_gw_flight_over_assign_method_names_wave877_ok;
-    out.host_gw_flight_over_assign_nav_commands_wave877_ok = waves.host_gw_flight_over_assign_nav_commands_wave877_ok;
-    out.host_gw_flight_over_assign_live_wave877_ok = waves.host_gw_flight_over_assign_live_wave877_ok;
+
+
     out.host_ci_clippy_peel_method_names_wave878_ok = waves.host_ci_clippy_peel_method_names_wave878_ok;
     out.host_ci_clippy_peel_nav_commands_wave878_ok = waves.host_ci_clippy_peel_nav_commands_wave878_ok;
     out.host_ci_clippy_peel_live_wave878_ok = waves.host_ci_clippy_peel_live_wave878_ok;
@@ -94,9 +91,8 @@ fn fill_waves_851_941(
     out.host_ui_framework_clippy_method_names_wave881_ok = waves.host_ui_framework_clippy_method_names_wave881_ok;
     out.host_ui_framework_clippy_nav_commands_wave881_ok = waves.host_ui_framework_clippy_nav_commands_wave881_ok;
     out.host_ui_framework_clippy_live_wave881_ok = waves.host_ui_framework_clippy_live_wave881_ok;
-    out.host_assets_big_unpack_method_names_wave882_ok = waves.host_assets_big_unpack_method_names_wave882_ok;
-    out.host_assets_big_unpack_nav_commands_wave882_ok = waves.host_assets_big_unpack_nav_commands_wave882_ok;
-    out.host_assets_big_unpack_live_wave882_ok = waves.host_assets_big_unpack_live_wave882_ok;
+
+
     out.host_wwshade_clippy_method_names_wave883_ok = waves.host_wwshade_clippy_method_names_wave883_ok;
     out.host_wwshade_clippy_nav_commands_wave883_ok = waves.host_wwshade_clippy_nav_commands_wave883_ok;
     out.host_wwshade_clippy_live_wave883_ok = waves.host_wwshade_clippy_live_wave883_ok;
@@ -218,9 +214,9 @@ fn fill_waves_851_941(
     out.host_tick_logic_frame_boundary_method_names_wave923_ok = waves.host_tick_logic_frame_boundary_method_names_wave923_ok;
     out.host_tick_logic_frame_boundary_nav_commands_wave923_ok = waves.host_tick_logic_frame_boundary_nav_commands_wave923_ok;
     out.host_tick_logic_frame_boundary_live_wave923_ok = waves.host_tick_logic_frame_boundary_live_wave923_ok;
-    out.host_placement_legal_build_cache_method_names_wave924_ok = waves.host_placement_legal_build_cache_method_names_wave924_ok;
-    out.host_placement_legal_build_cache_nav_commands_wave924_ok = waves.host_placement_legal_build_cache_nav_commands_wave924_ok;
-    out.host_placement_legal_build_cache_live_wave924_ok = waves.host_placement_legal_build_cache_live_wave924_ok;
+
+
+
 
     out.host_presentation_build_boundary_method_names_wave926_ok = waves.host_presentation_build_boundary_method_names_wave926_ok;
     out.host_presentation_build_boundary_nav_commands_wave926_ok = waves.host_presentation_build_boundary_nav_commands_wave926_ok;
@@ -245,15 +241,9 @@ fn fill_waves_851_941(
     out.host_session_control_boundary_method_names_wave933_ok = waves.host_session_control_boundary_method_names_wave933_ok;
     out.host_session_control_boundary_nav_commands_wave933_ok = waves.host_session_control_boundary_nav_commands_wave933_ok;
     out.host_session_control_boundary_live_wave933_ok = waves.host_session_control_boundary_live_wave933_ok;
-    out.host_support_boundary_method_names_wave934_ok = waves.host_support_boundary_method_names_wave934_ok;
-    out.host_support_boundary_nav_commands_wave934_ok = waves.host_support_boundary_nav_commands_wave934_ok;
-    out.host_support_boundary_live_wave934_ok = waves.host_support_boundary_live_wave934_ok;
-    out.host_gamelogic_borrow_boundary_method_names_wave935_ok = waves.host_gamelogic_borrow_boundary_method_names_wave935_ok;
-    out.host_gamelogic_borrow_boundary_nav_commands_wave935_ok = waves.host_gamelogic_borrow_boundary_nav_commands_wave935_ok;
-    out.host_gamelogic_borrow_boundary_live_wave935_ok = waves.host_gamelogic_borrow_boundary_live_wave935_ok;
-    out.host_sole_authority_surface_method_names_wave936_ok = waves.host_sole_authority_surface_method_names_wave936_ok;
-    out.host_sole_authority_surface_nav_commands_wave936_ok = waves.host_sole_authority_surface_nav_commands_wave936_ok;
-    out.host_sole_authority_surface_live_wave936_ok = waves.host_sole_authority_surface_live_wave936_ok;
+
+
+
     out.host_production_authority_boundary_method_names_wave937_ok = waves.host_production_authority_boundary_method_names_wave937_ok;
     out.host_production_authority_boundary_nav_commands_wave937_ok = waves.host_production_authority_boundary_nav_commands_wave937_ok;
     out.host_production_authority_boundary_live_wave937_ok = waves.host_production_authority_boundary_live_wave937_ok;

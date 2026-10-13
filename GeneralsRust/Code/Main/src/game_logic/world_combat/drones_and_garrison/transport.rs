@@ -185,7 +185,7 @@ impl GameLogic {
             // Object::set_target would force AIState::Attacking
             // (orders.rs:30-47) and eject the rider from its Docked state
             // (garrison fire path is the sibling convention).
-            attacker.set_order_target(Some(target_id));
+            attacker.set_order_target(Some(target_id), &mut self.attack_events);
             {}
             // Kill XP awarded after this borrow via award_experience.
         }

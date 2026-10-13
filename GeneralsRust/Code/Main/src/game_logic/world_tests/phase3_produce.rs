@@ -229,8 +229,8 @@ fn construction_percent_cpp_scale_and_exclusive_dozer() {
     let did = logic
         .create_object("TestDozer", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
         .expect("dozer");
-    if let Some(d) = logic.host_object_mut(did) {
-        d.set_target(Some(sid));
+    if let Some((d, attack_events)) = logic.host_object_and_attack_events_mut(did) {
+        d.set_target(Some(sid), attack_events);
         d.set_ai_state(AIState::Constructing);
     }
     let _ = logic.update_with_dt(1.0);
@@ -279,8 +279,8 @@ fn exclusive_dozer_does_not_stack_build_rate() {
         .create_object("TestDozer", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0))
         .expect("dozer2");
     assert!(logic.resume_construction(&[d1], sid));
-    if let Some(d) = logic.host_object_mut(d2) {
-        d.set_target(Some(sid));
+    if let Some((d, attack_events)) = logic.host_object_and_attack_events_mut(d2) {
+        d.set_target(Some(sid), attack_events);
         d.set_ai_state(AIState::Constructing);
     }
     assert_eq!(

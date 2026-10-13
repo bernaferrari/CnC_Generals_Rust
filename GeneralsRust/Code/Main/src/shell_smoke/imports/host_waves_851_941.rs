@@ -5,11 +5,6 @@ pub use crate::game_logic::host_live_exec_smoke_early_combat_residual_wave864::{
     honesty_exec_smoke_early_combat_nav_commands_residual_wave864,
     simulate_live_exec_smoke_early_combat_honesty,
 };
-pub use crate::game_logic::host_live_host_assets_big_unpack_clippy_wave882::{
-    honesty_host_assets_big_unpack_method_names_residual_wave882,
-    honesty_host_assets_big_unpack_nav_commands_residual_wave882,
-    simulate_live_host_assets_big_unpack_honesty,
-};
 pub use crate::game_logic::host_live_host_boot_camera_ui_failclosed_residual_wave899::{
     honesty_host_boot_camera_ui_failclosed_method_names_residual_wave899,
     honesty_host_boot_camera_ui_failclosed_nav_commands_residual_wave899,
@@ -70,11 +65,6 @@ pub use crate::game_logic::host_live_host_direct_order_gamelogic_boundary_residu
     honesty_host_direct_order_gamelogic_boundary_nav_commands_residual_wave930,
     simulate_live_host_direct_order_gamelogic_boundary_honesty,
 };
-pub use crate::game_logic::host_live_host_dual_read_zero_sole_tick_wave875::{
-    honesty_host_dual_read_zero_sole_tick_method_names_residual_wave875,
-    honesty_host_dual_read_zero_sole_tick_nav_commands_residual_wave875,
-    simulate_live_host_dual_read_zero_sole_tick_honesty,
-};
 pub use crate::game_logic::host_live_host_dual_tick_queue_destroy_peels_residual_wave916::{
     honesty_host_dual_tick_queue_destroy_peels_method_names_residual_wave916,
     honesty_host_dual_tick_queue_destroy_peels_nav_commands_residual_wave916,
@@ -89,16 +79,6 @@ pub use crate::game_logic::host_live_host_first_opponent_residual_wave863::{
     honesty_host_first_opponent_residual_method_names_residual_wave863,
     honesty_host_first_opponent_residual_nav_commands_residual_wave863,
     simulate_live_host_first_opponent_residual_honesty,
-};
-pub use crate::game_logic::host_live_host_gamelogic_borrow_boundary_residual_wave935::{
-    honesty_host_gamelogic_borrow_boundary_method_names_residual_wave935,
-    honesty_host_gamelogic_borrow_boundary_nav_commands_residual_wave935,
-    simulate_live_host_gamelogic_borrow_boundary_honesty,
-};
-pub use crate::game_logic::host_live_host_gw_flight_over_assign_residual_wave877::{
-    honesty_host_gw_flight_over_assign_method_names_residual_wave877,
-    honesty_host_gw_flight_over_assign_nav_commands_residual_wave877,
-    simulate_live_host_gw_flight_over_assign_honesty,
 };
 pub use crate::game_logic::host_live_host_legal_build_cache_residual_wave911::{
     honesty_host_legal_build_cache_method_names_residual_wave911,
@@ -194,11 +174,6 @@ pub use crate::game_logic::host_live_host_paused_tick_guard_refresh_peels_residu
     honesty_host_paused_tick_guard_refresh_peels_method_names_residual_wave919,
     honesty_host_paused_tick_guard_refresh_peels_nav_commands_residual_wave919,
     simulate_live_host_paused_tick_guard_refresh_peels_honesty,
-};
-pub use crate::game_logic::host_live_host_placement_legal_build_cache_residual_wave924::{
-    honesty_host_placement_legal_build_cache_method_names_residual_wave924,
-    honesty_host_placement_legal_build_cache_nav_commands_residual_wave924,
-    simulate_live_host_placement_legal_build_cache_honesty,
 };
 pub use crate::game_logic::host_live_host_pob_failclosed_boot_residual_wave895::{
     honesty_host_pob_failclosed_boot_method_names_residual_wave895,
@@ -323,11 +298,6 @@ pub use crate::game_logic::host_live_host_single_authority_camera_residual_wave9
     honesty_host_single_authority_camera_nav_commands_residual_wave904,
     simulate_live_host_single_authority_camera_honesty,
 };
-pub use crate::game_logic::host_live_host_sole_authority_surface_residual_wave936::{
-    honesty_host_sole_authority_surface_method_names_residual_wave936,
-    honesty_host_sole_authority_surface_nav_commands_residual_wave936,
-    simulate_live_host_sole_authority_surface_honesty,
-};
 pub use crate::game_logic::host_live_host_special_power_scan_unify_residual_wave857::{
     honesty_host_special_power_scan_unify_method_names_residual_wave857,
     honesty_host_special_power_scan_unify_nav_commands_residual_wave857,
@@ -337,11 +307,6 @@ pub use crate::game_logic::host_live_host_start_faction_supplies_residual_wave92
     honesty_host_start_faction_supplies_method_names_residual_wave921,
     honesty_host_start_faction_supplies_nav_commands_residual_wave921,
     simulate_live_host_start_faction_supplies_honesty,
-};
-pub use crate::game_logic::host_live_host_support_boundary_residual_wave934::{
-    honesty_host_support_boundary_method_names_residual_wave934,
-    honesty_host_support_boundary_nav_commands_residual_wave934,
-    simulate_live_host_support_boundary_honesty,
 };
 pub use crate::game_logic::host_live_host_template_ui_residual_wave872::{
     honesty_host_template_ui_method_names_residual_wave872,

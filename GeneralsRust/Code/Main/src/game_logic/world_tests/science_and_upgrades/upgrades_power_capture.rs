@@ -118,8 +118,10 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
         .create_object_for_player("OwnerScopedDozer", 1, Vec3::new(55.0, 0.0, 0.0))
         .expect("player 1 dozer");
     for (dozer_id, target_id) in [(p0_dozer, p0_building), (p1_dozer, p1_building)] {
-        let object = logic.host_object_mut(dozer_id).expect("dozer");
-        object.set_target(Some(target_id));
+        let (object, attack_events) = logic
+            .host_object_and_attack_events_mut(dozer_id)
+            .expect("dozer");
+        object.set_target(Some(target_id), attack_events);
         object.set_ai_state(AIState::Constructing);
     }
 
@@ -2179,7 +2181,10 @@ fn actively_constructing_bit_on_dozer_and_factory() {
     // set_target flips AIState to Attacking, so (re)enter the Constructing
     // state after acquiring the build goal — C++ enters the dozer sub-task
     // after the goal object is set.
-    logic.host_object_mut(did).unwrap().set_target(Some(bid));
+    logic
+        .host_object_mut(did)
+        .unwrap()
+        .set_target(Some(bid), &mut logic.attack_events);
     logic
         .host_object_mut(did)
         .unwrap()

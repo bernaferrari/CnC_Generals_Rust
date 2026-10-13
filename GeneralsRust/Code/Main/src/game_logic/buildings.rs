@@ -1221,7 +1221,11 @@ impl BuildingBehavior {
     }
 
     /// Update defensive buildings (turrets, etc.)
-    pub fn update_defense_behavior(object_id: ObjectId, objects: &mut HashMap<ObjectId, Object>) {
+    pub fn update_defense_behavior(
+        object_id: ObjectId,
+        objects: &mut HashMap<ObjectId, Object>,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+    ) {
         let (position, team, range) = {
             if let Some(building) = objects.get(&object_id) {
                 if !building.is_alive()
@@ -1261,7 +1265,7 @@ impl BuildingBehavior {
         // Attack nearest enemy
         if let Some(enemy_id) = nearest_enemy {
             if let Some(building) = objects.get_mut(&object_id) {
-                building.attack_target(enemy_id);
+                building.attack_target(enemy_id, attack_events);
             }
         }
     }

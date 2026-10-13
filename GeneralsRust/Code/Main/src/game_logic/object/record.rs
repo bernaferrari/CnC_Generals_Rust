@@ -632,7 +632,7 @@ impl Object {
 
     /// C++ AICMD_GO_PRONE residual — infantry hit the dirt briefly.
     pub fn go_prone(&mut self, duration_secs: f32) {
-        self.set_target(None);
+        self.clear_target();
         self.set_force_attack(false);
         self.stop_moving();
         self.prone_timer = duration_secs.max(0.1);

@@ -853,7 +853,12 @@ impl GameLogic {
             // C++ aiGuardRetaliate residual.
             if let Some(friend) = self.objects.get_mut(&fid) {
                 let anchor = friend.get_position();
-                friend.begin_guard_retaliate(damager_id, Some(anchor), None);
+                friend.begin_guard_retaliate(
+                    damager_id,
+                    Some(anchor),
+                    None,
+                    &mut self.attack_events,
+                );
                 n += 1;
             }
         }
@@ -2753,7 +2758,7 @@ mod tests {
         if let Some(o) = logic.objects.get_mut(&id) {
             o.owner_player_id = Some(1);
             o.team_instance_name = "USA_RetaliateSquad".into();
-            o.begin_guard_retaliate(dead, Some(glam::Vec3::ZERO), None);
+            o.begin_guard_retaliate(dead, Some(glam::Vec3::ZERO), None, &mut logic.attack_events);
         }
         w25_spawn_fighter(
             &mut logic,

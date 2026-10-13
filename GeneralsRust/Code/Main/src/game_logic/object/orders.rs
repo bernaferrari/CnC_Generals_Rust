@@ -54,14 +54,29 @@ impl Object {
         self.move_to(destination, movement_events);
     }
 
-    pub fn set_target(&mut self, target: Option<ObjectId>) {
+    pub fn clear_target(&mut self) {
+        self.set_target_state(None);
+    }
+
+    pub fn set_target(
+        &mut self,
+        target: Option<ObjectId>,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+    ) {
+        self.set_target_state(target);
+        if let Some(target) = target {
+            attack_events.record(self.id, target);
+        }
+    }
+
+    fn set_target_state(&mut self, target: Option<ObjectId>) {
         if target.is_some() {
             let _ = self.takeoff_from_airfield_parking();
         }
         self.target = target;
         if target.is_some() {
             self.target_location = None;
-            self.record_host_target_location();
+
             self.set_ai_state(AIState::Attacking);
             self.set_status_attacking(true);
         } else {
@@ -70,19 +85,22 @@ impl Object {
             self.set_ai_state(AIState::Idle);
             self.set_status_attacking(false);
         }
-        crate::game_logic::host_attack_log::record(self.id, target);
     }
 
     /// Per-frame engagement. Never calls `set_ai_state` itself.
     /// Takeoff no-ops unless the unit is `Docked` or still contained, so a
     /// parked aircraft leaves once even when enter already wrote this target.
-    /// The ground-point clear and `host_attack_log` run only when the id changes.
-    pub fn note_attack_target(&mut self, target: ObjectId) {
+    /// The ground-point clear and targeting observation runs only when the id changes.
+    pub fn note_attack_target(
+        &mut self,
+        target: ObjectId,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+    ) {
         let _ = self.takeoff_from_airfield_parking();
         if self.target != Some(target) {
             self.target_location = None;
-            self.record_host_target_location();
-            crate::game_logic::host_attack_log::record(self.id, Some(target));
+
+            attack_events.record(self.id, target);
         }
         self.target = Some(target);
         self.set_status_attacking(true);
@@ -91,17 +109,37 @@ impl Object {
     /// Set order target without forcing AIState::Attacking.
     /// Used by capture/hijack/gather/special-ability pathing where
     /// `path_to_goal_with_state` owns the AI state residual.
-    /// Still last-writes host_attack_log + target_location clear.
-    pub fn set_order_target(&mut self, target: Option<ObjectId>) {
+    /// Records the positive targeting observation after the canonical write.
+    pub fn clear_order_target(&mut self) {
+        self.set_order_target_state(None);
+    }
+
+    pub fn set_order_target(
+        &mut self,
+        target: Option<ObjectId>,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+    ) {
+        self.set_order_target_state(target);
+        if let Some(target) = target {
+            attack_events.record(self.id, target);
+        }
+    }
+
+    /// Reconstruct the saved order without admitting a new player/AI order.
+    /// Presentation receipts are transient and must not be replayed by load.
+    pub(crate) fn restore_order_target(&mut self, target: Option<ObjectId>) {
+        self.set_order_target_state(target);
+    }
+
+    fn set_order_target_state(&mut self, target: Option<ObjectId>) {
         if target.is_some() {
             let _ = self.takeoff_from_airfield_parking();
         }
         self.target = target;
         self.target_location = None;
-        self.record_host_target_location();
+
         self.set_status_force_attack(false);
         self.set_status_attacking(false);
-        crate::game_logic::host_attack_log::record(self.id, target);
     }
 
     /// Check whether this object can fire the requested special power.
@@ -582,7 +620,7 @@ impl Object {
         } else {
             self.set_status_force_attack(false);
         }
-        self.record_host_target_location();
+
     }
 
     pub fn set_force_attack(&mut self, force: bool) {
@@ -650,6 +688,7 @@ impl Object {
         victim: ObjectId,
         anchor: Option<glam::Vec3>,
         max_shots: Option<i32>,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
     ) {
         if !self.is_alive() || self.status.destroyed {
             return;
@@ -678,9 +717,9 @@ impl Object {
         self.status.attacking = true;
         if let Some(max) = max_shots {
             self.max_shots_to_fire = max;
-            self.record_host_combat_attack();
+
         }
-        crate::game_logic::host_attack_log::record(self.id, Some(victim));
+        attack_events.record(self.id, victim);
     }
 
     /// Clear GuardRetaliate residual and return to guard/idle.
@@ -696,7 +735,6 @@ impl Object {
         } else {
             self.set_ai_state(AIState::Idle);
         }
-        crate::game_logic::host_attack_log::record(self.id, None);
     }
 
     /// Tick GuardRetaliate: drop when victim gone; return toward anchor if far.
@@ -1282,7 +1320,7 @@ impl Object {
         self.continuous_fire_level = 0;
         self.continuous_fire_coast_until_frame = 0;
         self.continuous_fire_victim = 0;
-        self.record_host_combat_attack();
+
         self.record_host_continuous_fire();
         self.record_host_weapon_set();
         self.record_host_overlord();

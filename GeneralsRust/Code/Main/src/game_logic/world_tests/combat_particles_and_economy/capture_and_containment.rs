@@ -1531,7 +1531,9 @@ fn loaded_combat_chinook_does_not_auto_gather() {
 
     let chinook_id = create_test_combat_chinook(&mut logic, Vec3::ZERO);
     {
-        let chinook = logic.host_object_mut(chinook_id).expect("chinook mut");
+        let (chinook, attack_events) = logic
+            .host_object_and_attack_events_mut(chinook_id)
+            .expect("chinook mut");
         chinook.template_mut().supply_truck_metadata = Some(SupplyTruckMetadata {
             max_boxes: 8,
             warehouse_scan_distance: 700.0,
@@ -1539,7 +1541,7 @@ fn loaded_combat_chinook_does_not_auto_gather() {
             center_delay_frames: 0,
             upgraded_supply_boost: 60,
         });
-        chinook.set_target(Some(source));
+        chinook.set_target(Some(source), attack_events);
         chinook.set_ai_state(AIState::Gathering);
         chinook.supply_truck_state = SupplyTruckState::DockingWarehouse;
         chinook.set_stored_supplies(0);
@@ -1688,8 +1690,10 @@ fn worker_gather_arms_mine_clearing_detail() {
         .create_object_for_player("GLAInfantryWorker", 0, Vec3::ZERO)
         .expect("worker");
     {
-        let worker = logic.host_object_mut(worker_id).expect("worker mut");
-        worker.set_target(Some(source));
+        let (worker, attack_events) = logic
+            .host_object_and_attack_events_mut(worker_id)
+            .expect("worker mut");
+        worker.set_target(Some(source), attack_events);
         worker.set_ai_state(AIState::Gathering);
         worker.supply_truck_state = SupplyTruckState::DockingWarehouse;
         assert!(!worker.weapon_set_mine_clearing_detail);

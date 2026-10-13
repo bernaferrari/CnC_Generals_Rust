@@ -39,9 +39,9 @@
     pub host_skirmish_map_force_lone_eagle_method_names_wave837_ok: bool,
     pub host_skirmish_map_force_lone_eagle_nav_commands_wave837_ok: bool,
     pub host_skirmish_map_force_lone_eagle_live_wave837_ok: bool,
-    pub presentation_empty_shadow_failopen_method_names_wave838_ok: bool,
-    pub presentation_empty_shadow_failopen_nav_commands_wave838_ok: bool,
-    pub presentation_empty_shadow_failopen_live_wave838_ok: bool,
+
+
+
     pub host_vertical_render_mesh_gate_method_names_wave839_ok: bool,
     pub host_vertical_render_mesh_gate_nav_commands_wave839_ok: bool,
     pub host_vertical_render_mesh_gate_live_wave839_ok: bool,
@@ -75,6 +75,3 @@
     pub host_match_outcome_residuals_method_names_wave849_ok: bool,
     pub host_match_outcome_residuals_nav_commands_wave849_ok: bool,
     pub host_match_outcome_residuals_live_wave849_ok: bool,
-    pub host_match_selection_residuals_method_names_wave850_ok: bool,
-    pub host_match_selection_residuals_nav_commands_wave850_ok: bool,
-    pub host_match_selection_residuals_live_wave850_ok: bool,

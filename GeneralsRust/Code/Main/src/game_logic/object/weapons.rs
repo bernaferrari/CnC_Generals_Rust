@@ -1334,15 +1334,15 @@ impl Object {
         if self.consecutive_shot_target == Some(target_id) || within_coast {
             self.consecutive_shots_at_target = self.consecutive_shots_at_target.saturating_add(1);
             self.consecutive_shot_target = Some(target_id);
-            self.record_host_combat_attack();
+
         } else {
             self.consecutive_shot_target = Some(target_id);
             self.consecutive_shots_at_target = 1;
-            self.record_host_combat_attack();
+
         }
         // PER_SHOT: force next fire_at to re-arm delay by clearing ready stamp into the past.
         self.pre_attack_ready_at = 0.0;
-        self.record_host_combat_attack();
+
         self.sync_shared_weapon_reload();
     }
 

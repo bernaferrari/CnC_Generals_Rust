@@ -261,9 +261,7 @@ fn fill_waves_351_450(
     out.live_replace_object_upgrade_dual_world_empty_gate_live_wave446_ok = waves.live_replace_object_upgrade_dual_world_empty_gate_live_wave446_ok;
 
 
-    out.live_contain_module_overrides_fail_closed_method_names_wave449_ok = waves.live_contain_module_overrides_fail_closed_method_names_wave449_ok;
-    out.live_contain_module_overrides_fail_closed_nav_commands_wave449_ok = waves.live_contain_module_overrides_fail_closed_nav_commands_wave449_ok;
-    out.live_contain_module_overrides_fail_closed_live_wave449_ok = waves.live_contain_module_overrides_fail_closed_live_wave449_ok;
+
 
 
 

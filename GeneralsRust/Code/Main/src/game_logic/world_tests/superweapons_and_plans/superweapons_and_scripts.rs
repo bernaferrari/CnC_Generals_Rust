@@ -812,8 +812,8 @@ fn carbomb_attack_structure_detonates_with_observable_damage() {
         .expect("structure should be created");
 
     {
-        let car = game_logic
-            .host_object_mut(car_id)
+        let (car, attack_events) = game_logic
+            .host_object_and_attack_events_mut(car_id)
             .expect("car should exist");
         car.apply_convert_to_car_bomb();
         car.set_team(Team::GLA);
@@ -822,7 +822,7 @@ fn carbomb_attack_structure_detonates_with_observable_damage() {
             w.last_fire_time = 0.0;
             w.reload_time = 0.0;
         }
-        car.attack_target(structure_id);
+        car.attack_target(structure_id, attack_events);
     }
     game_logic.car_bomb.record_conversion();
 
@@ -906,10 +906,10 @@ fn attack_order_chases_target_when_out_of_range() {
         .expect("target should be created from template");
 
     {
-        let attacker = game_logic
-            .host_object_mut(attacker_id)
+        let (attacker, attack_events) = game_logic
+            .host_object_and_attack_events_mut(attacker_id)
             .expect("attacker should exist");
-        attacker.attack_target(target_id);
+        attacker.attack_target(target_id, attack_events);
         let weapon = attacker.weapon.as_mut().expect("authored current weapon");
         weapon.range = 50.0;
         weapon.reload_time = 0.0;
@@ -957,10 +957,10 @@ fn attack_order_clears_dead_target() {
         .expect("target should be created from template");
 
     {
-        let attacker = game_logic
-            .host_object_mut(attacker_id)
+        let (attacker, attack_events) = game_logic
+            .host_object_and_attack_events_mut(attacker_id)
             .expect("attacker should exist");
-        attacker.attack_target(target_id);
+        attacker.attack_target(target_id, attack_events);
     }
     {
         let target = game_logic

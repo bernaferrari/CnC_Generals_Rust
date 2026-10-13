@@ -104,7 +104,7 @@ impl GameLogic {
         unit.requested_destination = None;
         unit.waiting_for_path = false;
         unit.pending_move = None;
-        unit.set_target(None);
+        unit.clear_target();
         unit.set_target_location(None);
         unit.set_force_attack(false);
         unit.set_guard_position(None);
@@ -244,9 +244,11 @@ impl GameLogic {
             }
             self.drop_jet_targeters_on_attack_exit(passenger);
             self.clear_unit_movement_path(passenger);
-            let object = self.host_object_mut(passenger).expect("resolved passenger");
+            let (object, attack_events) = self
+                .host_object_and_attack_events_mut(passenger)
+                .expect("resolved passenger");
             Self::clear_owned_named_ai_goal(object);
-            object.set_target(Some(container_id));
+            object.set_target(Some(container_id), attack_events);
             object.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
             object.set_ai_state(AIState::Exiting);

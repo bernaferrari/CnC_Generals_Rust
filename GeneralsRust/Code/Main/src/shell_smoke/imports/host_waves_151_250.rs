@@ -22,11 +22,6 @@ pub use crate::game_logic::host_credits_roll_residual_wave151::{
     honesty_credits_nav_commands_residual_wave151,
     honesty_credits_style_method_names_residual_wave151,
 };
-pub use crate::game_logic::host_executable_gameworld_presentation_residual_wave188::{
-    honesty_executable_gameworld_presentation_method_names_residual_wave188,
-    honesty_executable_gameworld_presentation_nav_commands_residual_wave188,
-    simulate_executable_gameworld_presentation_honesty,
-};
 pub use crate::game_logic::host_executable_presentation_boundary_residual_wave176::{
     honesty_executable_presentation_boundary_method_names_residual_wave176,
     honesty_executable_presentation_boundary_nav_commands_residual_wave176,
@@ -137,11 +132,6 @@ pub use crate::game_logic::host_live_host_beacon_presentation_residual_wave211::
     honesty_live_host_beacon_presentation_nav_commands_residual_wave211,
     simulate_live_host_beacon_presentation_honesty,
 };
-pub use crate::game_logic::host_live_local_team_presentation_only_residual_wave220::{
-    honesty_live_local_team_presentation_only_method_names_residual_wave220,
-    honesty_live_local_team_presentation_only_nav_commands_residual_wave220,
-    simulate_live_local_team_presentation_only_honesty,
-};
 pub use crate::game_logic::host_live_hotkey_move_attack_selection_presentation_only_residual_wave221::{
     honesty_live_hotkey_move_attack_selection_presentation_only_method_names_residual_wave221,
     honesty_live_hotkey_move_attack_selection_presentation_only_nav_commands_residual_wave221,
@@ -152,11 +142,6 @@ pub use crate::game_logic::host_live_pick_object_presentation_only_residual_wave
     honesty_live_pick_object_presentation_only_nav_commands_residual_wave222,
     simulate_live_pick_object_presentation_only_honesty,
 };
-pub use crate::game_logic::host_live_bootstrap_camera_presentation_only_residual_wave223::{
-    honesty_live_bootstrap_camera_presentation_only_method_names_residual_wave223,
-    honesty_live_bootstrap_camera_presentation_only_nav_commands_residual_wave223,
-    simulate_live_bootstrap_camera_presentation_only_honesty,
-};
 pub use crate::game_logic::host_live_force_complete_authority_api_residual_wave224::{
     honesty_live_force_complete_authority_api_method_names_residual_wave224,
     honesty_live_force_complete_authority_api_nav_commands_residual_wave224,
@@ -166,16 +151,6 @@ pub use crate::game_logic::host_live_path_guard_authority_api_residual_wave225::
     honesty_live_path_guard_authority_api_method_names_residual_wave225,
     honesty_live_path_guard_authority_api_nav_commands_residual_wave225,
     simulate_live_path_guard_authority_api_honesty,
-};
-pub use crate::game_logic::host_live_hotkey_selection_camera_presentation_only_residual_wave226::{
-    honesty_live_hotkey_selection_camera_presentation_only_method_names_residual_wave226,
-    honesty_live_hotkey_selection_camera_presentation_only_nav_commands_residual_wave226,
-    simulate_live_hotkey_selection_camera_presentation_only_honesty,
-};
-pub use crate::game_logic::host_live_construct_spawn_pose_authority_api_residual_wave227::{
-    honesty_live_construct_spawn_pose_authority_api_method_names_residual_wave227,
-    honesty_live_construct_spawn_pose_authority_api_nav_commands_residual_wave227,
-    simulate_live_construct_spawn_pose_authority_api_honesty,
 };
 pub use crate::game_logic::host_live_rmb_target_presentation_only_residual_wave228::{
     honesty_live_rmb_target_presentation_only_method_names_residual_wave228,
@@ -202,16 +177,6 @@ pub use crate::game_logic::host_live_command_executor_authority_api_residual_wav
     honesty_live_command_executor_authority_api_nav_commands_residual_wave232,
     simulate_live_command_executor_authority_api_honesty,
 };
-pub use crate::game_logic::host_live_command_executor_more_authority_api_residual_wave233::{
-    honesty_live_command_executor_more_authority_api_method_names_residual_wave233,
-    honesty_live_command_executor_more_authority_api_nav_commands_residual_wave233,
-    simulate_live_command_executor_more_authority_api_honesty,
-};
-pub use crate::game_logic::host_live_engine_presentation_player_ui_residual_wave234::{
-    honesty_live_engine_presentation_player_ui_method_names_residual_wave234,
-    honesty_live_engine_presentation_player_ui_nav_commands_residual_wave234,
-    simulate_live_engine_presentation_player_ui_honesty,
-};
 pub use crate::game_logic::host_live_rmb_presentation_full_classify_residual_wave235::{
     honesty_live_rmb_presentation_full_classify_method_names_residual_wave235,
     honesty_live_rmb_presentation_full_classify_nav_commands_residual_wave235,
@@ -222,26 +187,6 @@ pub use crate::game_logic::host_live_mouse_input_presentation_only_residual_wave
     honesty_live_mouse_input_presentation_only_nav_commands_residual_wave236,
     simulate_live_mouse_input_presentation_only_honesty,
 };
-pub use crate::game_logic::host_live_engine_player_ui_boot_peel_residual_wave237::{
-    honesty_live_engine_player_ui_boot_peel_method_names_residual_wave237,
-    honesty_live_engine_player_ui_boot_peel_nav_commands_residual_wave237,
-    simulate_live_engine_player_ui_boot_peel_honesty,
-};
-pub use crate::game_logic::host_live_player_probe_api_residual_wave238::{
-    honesty_live_player_probe_api_method_names_residual_wave238,
-    honesty_live_player_probe_api_nav_commands_residual_wave238,
-    simulate_live_player_probe_api_honesty,
-};
-pub use crate::game_logic::host_live_player_team_probe_residual_wave239::{
-    honesty_live_player_team_probe_method_names_residual_wave239,
-    honesty_live_player_team_probe_nav_commands_residual_wave239,
-    simulate_live_player_team_probe_honesty,
-};
-pub use crate::game_logic::host_live_player_field_probe_residual_wave240::{
-    honesty_live_player_field_probe_method_names_residual_wave240,
-    honesty_live_player_field_probe_nav_commands_residual_wave240,
-    simulate_live_player_field_probe_honesty,
-};
 pub use crate::game_logic::host_live_camera_height_probe_residual_wave241::{
     honesty_live_camera_height_probe_method_names_residual_wave241,
     honesty_live_camera_height_probe_nav_commands_residual_wave241,
@@ -251,11 +196,6 @@ pub use crate::game_logic::host_live_command_player_probe_residual_wave242::{
     honesty_live_command_player_probe_method_names_residual_wave242,
     honesty_live_command_player_probe_nav_commands_residual_wave242,
     simulate_live_command_player_probe_honesty,
-};
-pub use crate::game_logic::host_live_construct_economy_probe_residual_wave243::{
-    honesty_live_construct_economy_probe_method_names_residual_wave243,
-    honesty_live_construct_economy_probe_nav_commands_residual_wave243,
-    simulate_live_construct_economy_probe_honesty,
 };
 pub use crate::game_logic::host_live_command_unit_probe_residual_wave244::{
     honesty_live_command_unit_probe_method_names_residual_wave244,
@@ -373,19 +313,10 @@ pub use crate::game_logic::host_new_game_stream_drain_residual_wave167::{
     honesty_new_game_stream_nav_commands_residual_wave167,
     simulate_new_game_stream_post_drain_honesty,
 };
-pub use crate::game_logic::host_presentation_boundary_residual_wave157::{
-    honesty_presentation_boundary_method_names_residual_wave157,
-    honesty_presentation_boundary_nav_commands_residual_wave157,
-    honesty_presentation_boundary_source_markers_residual_wave157,
-};
 pub use crate::game_logic::host_presentation_client_boundary_residual_wave174::{
     honesty_presentation_client_boundary_method_names_residual_wave174,
     honesty_presentation_client_boundary_nav_commands_residual_wave174,
     simulate_presentation_client_boundary_honesty,
-};
-pub use crate::game_logic::host_shell_skirmish_nav_residual_wave164::{
-    honesty_shell_skirmish_nav_commands_residual_wave164,
-    honesty_shell_skirmish_nav_method_names_residual_wave164, simulate_shell_skirmish_nav_honesty,
 };
 pub use crate::game_logic::host_shell_stack_push_residual_wave163::{
     honesty_shell_stack_push_method_names_residual_wave163,

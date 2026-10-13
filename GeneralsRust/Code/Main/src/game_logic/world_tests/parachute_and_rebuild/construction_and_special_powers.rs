@@ -78,7 +78,7 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
                 logic.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
                 logic.repair_complete_events = logic.repair_complete_events.saturating_add(1);
                 if let Some(d) = logic.host_object_mut(did) {
-                    d.set_target(None);
+                    d.clear_target();
                     d.set_ai_state(AIState::Idle);
                     d.set_actively_constructing(false);
                 }

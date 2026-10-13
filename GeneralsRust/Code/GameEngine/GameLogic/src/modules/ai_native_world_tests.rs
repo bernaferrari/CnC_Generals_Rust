@@ -3,6 +3,7 @@
 use super::ai_native_world::{AiNativeServices, BorrowedAiWorld};
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{Coord3D, DefaultThingTemplate, KindOf, TemplateModuleInfo, ThingTemplate};
+use crate::modules::ai_world::AiWorld;
 use crate::object::Object;
 use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
 use crate::player::{Player, PlayerList};
@@ -803,6 +804,9 @@ fn cached_native_enter_queued_path_routes_around_actual_wall_through_gap() {
     let mut game = containment_lifecycle::lifecycle_world(0.0, false);
     let actor = Arc::clone(&game.source);
     let target = Arc::clone(&game.target);
+    // This is an AI-issued order by a human controller: C++ still rejects
+    // unseen receivers. Author the rider's real sight before pose maintenance.
+    actor.write().unwrap().set_shroud_clearing_range(200.0);
     game.operate(60, |world| {
         world.remove_contained(1, 2, false).unwrap();
         world
@@ -829,16 +833,28 @@ fn cached_native_enter_queued_path_routes_around_actual_wall_through_gap() {
             "direct native path crosses actual impassable cells"
         );
     }
+    game.operate(61, |world| {
+        let source = actor.read().unwrap();
+        let receiver = target.read().unwrap();
+        assert!(world.can_enter(&source, &receiver, CommandSourceType::FromAI,
+            crate::action_manager::CanEnterType::CheckCapacity),
+            "actual receiving admission must accept source {:?} -> target {:?}; held={}, target dead={}",
+            source.get_contained_by(), receiver.get_contained_by(),
+            source.is_disabled_by_type(crate::common::DisabledType::Held), receiver.is_effectively_dead());
+    });
     game.issue_enter(61);
+    let admitted = installed_path_observation(&game);
+    let mut phases = Vec::new();
     for frame in 61..65 {
         drive_enter_queue(&mut game, frame);
+        phases.push((frame, installed_path_observation(&game)));
         if installed_path_observation(&game).1 {
             break;
         }
     }
     assert!(
         installed_path_observation(&game).1,
-        "actual queued search must find the distant wall gap: {:?}",
+        "actual queued search must find the distant wall gap: admitted={admitted:?}, phases={phases:?}, final={:?}",
         installed_path_observation(&game)
     );
     assert!(game.source.read().unwrap().get_contained_by().is_none());

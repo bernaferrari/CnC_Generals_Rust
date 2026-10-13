@@ -355,7 +355,7 @@ fn update_combat_secondary_considered_vs_structure() {
 
     {
         let atk = logic.objects.get_mut(&attacker_id).expect("attacker");
-        atk.attack_target(target_id);
+        atk.attack_target(target_id, &mut logic.attack_events);
         // Ensure both ready.
         if let Some(w) = atk.weapon.as_mut() {
             w.last_fire_time = 0.0;
@@ -427,7 +427,7 @@ fn update_combat_prefers_secondary_damage_vs_infantry() {
 
     {
         let atk = logic.objects.get_mut(&attacker_id).expect("attacker");
-        atk.attack_target(target_id);
+        atk.attack_target(target_id, &mut logic.attack_events);
         if let Some(w) = atk.weapon.as_mut() {
             w.last_fire_time = 0.0;
             w.reload_time = 0.1;
@@ -504,7 +504,7 @@ fn update_combat_uses_secondary_when_primary_reloading() {
 
     {
         let atk = logic.objects.get_mut(&attacker_id).expect("attacker");
-        atk.attack_target(target_id);
+        atk.attack_target(target_id, &mut logic.attack_events);
         // Primary still on cooldown; secondary ready.
         if let Some(w) = atk.weapon.as_mut() {
             w.last_fire_time = 100.0;

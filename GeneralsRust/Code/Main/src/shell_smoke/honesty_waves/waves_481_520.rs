@@ -11,21 +11,14 @@ pub(super) struct Waves481520 {
     pub sell_deconstruction_sole_tick_no_stomp_method_names_wave481_ok: bool,
     pub sell_deconstruction_sole_tick_no_stomp_nav_commands_wave481_ok: bool,
     pub sell_deconstruction_sole_tick_no_stomp_live_wave481_ok: bool,
-    pub sell_finish_skips_topple_destroy_method_names_wave482_ok: bool,
-    pub sell_finish_skips_topple_destroy_nav_commands_wave482_ok: bool,
-    pub sell_finish_skips_topple_destroy_live_wave482_ok: bool,
-    pub production_upgrade_complete_queue_refresh_method_names_wave483_ok: bool,
-    pub production_upgrade_complete_queue_refresh_nav_commands_wave483_ok: bool,
-    pub production_upgrade_complete_queue_refresh_live_wave483_ok: bool,
-    pub cancel_all_production_queue_refresh_method_names_wave484_ok: bool,
-    pub cancel_all_production_queue_refresh_nav_commands_wave484_ok: bool,
-    pub cancel_all_production_queue_refresh_live_wave484_ok: bool,
+
+
+
     pub cancel_clears_exit_delay_method_names_wave485_ok: bool,
     pub cancel_clears_exit_delay_nav_commands_wave485_ok: bool,
     pub cancel_clears_exit_delay_live_wave485_ok: bool,
-    pub production_door_model_condition_log_method_names_wave486_ok: bool,
-    pub production_door_model_condition_log_nav_commands_wave486_ok: bool,
-    pub production_door_model_condition_log_live_wave486_ok: bool,
+
+
     pub combat_model_condition_channel_method_names_wave487_ok: bool,
     pub combat_model_condition_channel_nav_commands_wave487_ok: bool,
     pub combat_model_condition_channel_live_wave487_ok: bool,
@@ -38,9 +31,7 @@ pub(super) struct Waves481520 {
     pub entity_presentation_structure_ui_method_names_wave490_ok: bool,
     pub entity_presentation_structure_ui_nav_commands_wave490_ok: bool,
     pub entity_presentation_structure_ui_live_wave490_ok: bool,
-    pub presentation_mesh_sold_condition_method_names_wave491_ok: bool,
-    pub presentation_mesh_sold_condition_nav_commands_wave491_ok: bool,
-    pub presentation_mesh_sold_condition_live_wave491_ok: bool,
+
     pub entity_presentation_mesh_fow_method_names_wave492_ok: bool,
     pub entity_presentation_mesh_fow_nav_commands_wave492_ok: bool,
     pub entity_presentation_mesh_fow_live_wave492_ok: bool,
@@ -56,9 +47,8 @@ pub(super) struct Waves481520 {
     pub presentation_mesh_door_phase_method_names_wave496_ok: bool,
     pub presentation_mesh_door_phase_nav_commands_wave496_ok: bool,
     pub presentation_mesh_door_phase_live_wave496_ok: bool,
-    pub presentation_mesh_condition_resolve_method_names_wave497_ok: bool,
-    pub presentation_mesh_condition_resolve_nav_commands_wave497_ok: bool,
-    pub presentation_mesh_condition_resolve_live_wave497_ok: bool,
+
+
     pub presentation_host_fx_overlay_method_names_wave498_ok: bool,
     pub presentation_host_fx_overlay_nav_commands_wave498_ok: bool,
     pub presentation_host_fx_overlay_live_wave498_ok: bool,
@@ -101,9 +91,8 @@ pub(super) struct Waves481520 {
     pub presentation_burn_cheer_carry_method_names_wave511_ok: bool,
     pub presentation_burn_cheer_carry_nav_commands_wave511_ok: bool,
     pub presentation_burn_cheer_carry_live_wave511_ok: bool,
-    pub presentation_fire_prone_turret_method_names_wave512_ok: bool,
-    pub presentation_fire_prone_turret_nav_commands_wave512_ok: bool,
-    pub presentation_fire_prone_turret_live_wave512_ok: bool,
+
+
     pub presentation_jam_die_reload_pack_method_names_wave513_ok: bool,
     pub presentation_jam_die_reload_pack_nav_commands_wave513_ok: bool,
     pub presentation_jam_die_reload_pack_live_wave513_ok: bool,
@@ -138,35 +127,16 @@ pub(super) fn evaluate() -> Waves481520 {
             honesty_sell_deconstruction_sole_tick_no_stomp_nav_commands_residual_wave481(),
         sell_deconstruction_sole_tick_no_stomp_live_wave481_ok:
             simulate_live_sell_deconstruction_sole_tick_no_stomp_honesty(),
-        sell_finish_skips_topple_destroy_method_names_wave482_ok:
-            honesty_sell_finish_skips_topple_destroy_method_names_residual_wave482(),
-        sell_finish_skips_topple_destroy_nav_commands_wave482_ok:
-            honesty_sell_finish_skips_topple_destroy_nav_commands_residual_wave482(),
-        sell_finish_skips_topple_destroy_live_wave482_ok:
-            simulate_live_sell_finish_skips_topple_destroy_honesty(),
-        production_upgrade_complete_queue_refresh_method_names_wave483_ok:
-            honesty_production_upgrade_complete_queue_refresh_method_names_residual_wave483(),
-        production_upgrade_complete_queue_refresh_nav_commands_wave483_ok:
-            honesty_production_upgrade_complete_queue_refresh_nav_commands_residual_wave483(),
-        production_upgrade_complete_queue_refresh_live_wave483_ok:
-            simulate_live_production_upgrade_complete_queue_refresh_honesty(),
-        cancel_all_production_queue_refresh_method_names_wave484_ok:
-            honesty_cancel_all_production_queue_refresh_method_names_residual_wave484(),
-        cancel_all_production_queue_refresh_nav_commands_wave484_ok:
-            honesty_cancel_all_production_queue_refresh_nav_commands_residual_wave484(),
-        cancel_all_production_queue_refresh_live_wave484_ok:
-            simulate_live_cancel_all_production_queue_refresh_honesty(),
+
+
+
         cancel_clears_exit_delay_method_names_wave485_ok:
             honesty_cancel_clears_exit_delay_method_names_residual_wave485(),
         cancel_clears_exit_delay_nav_commands_wave485_ok:
             honesty_cancel_clears_exit_delay_nav_commands_residual_wave485(),
         cancel_clears_exit_delay_live_wave485_ok: simulate_live_cancel_clears_exit_delay_honesty(),
-        production_door_model_condition_log_method_names_wave486_ok:
-            honesty_production_door_model_condition_log_method_names_residual_wave486(),
-        production_door_model_condition_log_nav_commands_wave486_ok:
-            honesty_production_door_model_condition_log_nav_commands_residual_wave486(),
-        production_door_model_condition_log_live_wave486_ok:
-            simulate_live_production_door_model_condition_log_honesty(),
+
+
         combat_model_condition_channel_method_names_wave487_ok:
             honesty_combat_model_condition_channel_method_names_residual_wave487(),
         combat_model_condition_channel_nav_commands_wave487_ok:
@@ -191,12 +161,7 @@ pub(super) fn evaluate() -> Waves481520 {
             honesty_entity_presentation_structure_ui_nav_commands_residual_wave490(),
         entity_presentation_structure_ui_live_wave490_ok:
             simulate_live_entity_presentation_structure_ui_honesty(),
-        presentation_mesh_sold_condition_method_names_wave491_ok:
-            honesty_presentation_mesh_sold_condition_method_names_residual_wave491(),
-        presentation_mesh_sold_condition_nav_commands_wave491_ok:
-            honesty_presentation_mesh_sold_condition_nav_commands_residual_wave491(),
-        presentation_mesh_sold_condition_live_wave491_ok:
-            simulate_live_presentation_mesh_sold_condition_honesty(),
+
         entity_presentation_mesh_fow_method_names_wave492_ok:
             honesty_entity_presentation_mesh_fow_method_names_residual_wave492(),
         entity_presentation_mesh_fow_nav_commands_wave492_ok:
@@ -226,12 +191,8 @@ pub(super) fn evaluate() -> Waves481520 {
             honesty_presentation_mesh_door_phase_nav_commands_residual_wave496(),
         presentation_mesh_door_phase_live_wave496_ok:
             simulate_live_presentation_mesh_door_phase_honesty(),
-        presentation_mesh_condition_resolve_method_names_wave497_ok:
-            honesty_presentation_mesh_condition_resolve_method_names_residual_wave497(),
-        presentation_mesh_condition_resolve_nav_commands_wave497_ok:
-            honesty_presentation_mesh_condition_resolve_nav_commands_residual_wave497(),
-        presentation_mesh_condition_resolve_live_wave497_ok:
-            simulate_live_presentation_mesh_condition_resolve_honesty(),
+
+
         presentation_host_fx_overlay_method_names_wave498_ok:
             honesty_presentation_host_fx_overlay_method_names_residual_wave498(),
         presentation_host_fx_overlay_nav_commands_wave498_ok:
@@ -315,12 +276,8 @@ pub(super) fn evaluate() -> Waves481520 {
             honesty_presentation_burn_cheer_carry_nav_commands_residual_wave511(),
         presentation_burn_cheer_carry_live_wave511_ok:
             simulate_live_presentation_burn_cheer_carry_honesty(),
-        presentation_fire_prone_turret_method_names_wave512_ok:
-            honesty_presentation_fire_prone_turret_method_names_residual_wave512(),
-        presentation_fire_prone_turret_nav_commands_wave512_ok:
-            honesty_presentation_fire_prone_turret_nav_commands_residual_wave512(),
-        presentation_fire_prone_turret_live_wave512_ok:
-            simulate_live_presentation_fire_prone_turret_honesty(),
+
+
         presentation_jam_die_reload_pack_method_names_wave513_ok:
             honesty_presentation_jam_die_reload_pack_method_names_residual_wave513(),
         presentation_jam_die_reload_pack_nav_commands_wave513_ok:

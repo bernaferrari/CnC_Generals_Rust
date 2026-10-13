@@ -1143,7 +1143,9 @@ fn presentation_frame_observes_combat_kill_particle_systems() {
         .expect("victim");
 
     {
-        let a = logic.host_object_mut(attacker).expect("attacker");
+        let (a, attack_events) = logic
+            .host_object_and_attack_events_mut(attacker)
+            .expect("attacker");
         // Wave 562: weapon must be bound before attack_target — can_attack()
         // requires weapon.is_some(); ordering weapon-after-order was a no-op.
         a.weapon = Some(Weapon {
@@ -1156,7 +1158,7 @@ fn presentation_frame_observes_combat_kill_particle_systems() {
             pre_attack_delay: 0.0,
             ..Weapon::default()
         });
-        a.attack_target(victim);
+        a.attack_target(victim, attack_events);
     }
     {
         let v = logic.host_object_mut(victim).expect("victim");

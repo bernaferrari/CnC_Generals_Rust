@@ -30,11 +30,10 @@ impl LaserExecution for ClientLaserPhase<'_, '_> {
         Ok(self.observations.get(&(id, _bone.to_string())).copied())
     }
     fn create_particle(&mut self, name: &str) -> Result<Option<u32>, String> {
-        let template = self
-            .services
-            .particles
-            .find_template(name)
-            .ok_or_else(|| format!("LaserUpdate particle template unavailable: {name}"))?;
+        // LaserUpdate.cpp299/316 explicitly skips an unavailable template.
+        let Some(template) = self.services.particles.find_template(name) else {
+            return Ok(None);
+        };
         let random = &mut self.services.random;
         self.services
             .particles
@@ -49,18 +48,14 @@ impl LaserExecution for ClientLaserPhase<'_, '_> {
         id: u32,
         pos: &gamelogic::common::Coord3D,
     ) -> Result<(), String> {
-        let system = self
-            .services
-            .particles
-            .find_particle_system_mut(id)
-            .ok_or_else(|| format!("LaserUpdate particle {id} unavailable"))?;
+        // The actual particle may already have expired independently.
+        let Some(system) = self.services.particles.find_particle_system_mut(id) else {
+            return Ok(());
+        };
         system.set_position(glam::Vec3::new(pos.x, pos.y, pos.z));
         Ok(())
     }
     fn destroy_particle(&mut self, id: u32) -> Result<(), String> {
-        if self.services.particles.find_particle_system(id).is_none() {
-            return Err(format!("LaserUpdate particle {id} unavailable"));
-        }
         self.services.particles.destroy_particle_system(id);
         Ok(())
     }
@@ -96,6 +91,27 @@ impl GameClient {
         if updates.len() != 1 {
             return Err(GameClientError::InvalidOperation(
                 "ray template requires exactly one authored LaserUpdate".into(),
+            ));
+        }
+        if template.get_client_update_module_info().iter().count() != 1 {
+            return Err(GameClientError::InvalidOperation(
+                "ray has additional unsupplied client-update callbacks".into(),
+            ));
+        }
+        let mut beam_count = 0;
+        for entry in template.get_draw_module_info().iter() {
+            if entry.name.as_str() != "W3DLaserDraw"
+                || !entry.data.as_any().is::<W3DLaserDrawModuleData>()
+            {
+                return Err(GameClientError::InvalidOperation(
+                    "ray has unsupported authored draw callback/data".into(),
+                ));
+            }
+            beam_count += 1;
+        }
+        if beam_count == 0 {
+            return Err(GameClientError::InvalidOperation(
+                "ray requires actual W3DLaserDraw".into(),
             ));
         }
         let entry = updates[0];
@@ -136,7 +152,7 @@ impl GameClient {
                 )),
             ),
         ));
-        drawable.set_position(glam::Vec3::new(
+        drawable.set_position(crate::drawable::Vector3::new(
             (start.x + end.x) * 0.5,
             (start.y + end.y) * 0.5,
             (start.z + end.z) * 0.5,
@@ -206,6 +222,19 @@ impl GameClient {
                 continue;
             };
             let position = drawable.get_position();
+            // Direct host projections are Y-up (camera_drain sends unchanged
+            // host XYZ and apply_frozen_direct_presentation_poses rotates Y).
+            // Authored Core/client FX drawables remain original C++ Z-up.
+            let host_projection = self
+                .presentation_direct_drawable_bindings
+                .contains_key(&client_id);
+            let to_cpp = |x, y, z| {
+                if host_projection {
+                    gamelogic::common::Coord3D::new(x, z, y)
+                } else {
+                    gamelogic::common::Coord3D::new(x, y, z)
+                }
+            };
             let bone_position = if bone.is_empty() {
                 None
             } else {
@@ -218,13 +247,13 @@ impl GameClient {
                     })
                     .map(|_| {
                         let pos = matrix.to_glam().w_axis;
-                        gamelogic::common::Coord3D::new(pos.x, pos.y, pos.z)
+                        to_cpp(pos.x, pos.y, pos.z)
                     })
             };
             observations.insert(
                 (tracked, bone.to_string()),
                 LaserDrawableObservation {
-                    position: gamelogic::common::Coord3D::new(position.x, position.y, position.z),
+                    position: to_cpp(position.x, position.y, position.z),
                     effectively_dead: (services.effectively_dead)(client_id)
                         .map_err(GameClientError::InvalidOperation)?,
                     bone_position,
@@ -243,7 +272,9 @@ impl GameClient {
             self.drawable_map
                 .get_mut(&id)
                 .ok_or(GameClientError::DrawableNotFound(id))?
-                .set_position(glam::Vec3::new(position.x, position.y, position.z));
+                .set_position(crate::drawable::Vector3::new(
+                    position.x, position.y, position.z,
+                ));
         }
         if phase.destroy {
             let mut phase = phase;
@@ -383,10 +414,6 @@ impl GameClient {
     }
 }
 
-#[cfg(test)]
-#[path = "owned_laser_tests.rs"]
-mod owned_laser_tests;
-
 impl GameClient {
     /// Actual LaserUpdate destructor releases receiving particle systems before
     /// its Drawable is removed; no global manager can receive a peer's IDs.
@@ -434,5 +461,101 @@ impl GameClient {
             output.extend(self.owned_laser_geometry(id, texture_aspect, terrain_height)?);
         }
         Ok(output)
+    }
+}
+
+/// FXList's actual receiving Drawable owner and immutable content definitions.
+/// Tracer ownership is a distinct callback domain and is rejected before any
+/// FX nugget mutations until its actual authored draw module is supplied.
+pub struct ClientFxDrawables<'a> {
+    pub client: &'a mut GameClient,
+    pub definitions: &'a game_engine::common::thing::ThingFactory,
+}
+impl crate::fx_list::FxDrawableExecution for ClientFxDrawables<'_> {
+    fn validate_tracer(&self, _template: &str) -> Result<(), String> {
+        Err("receiving tracer draw/update callback domain unavailable".into())
+    }
+    fn spawn_tracer(
+        &mut self,
+        _request: &crate::fx_list::FxTracerRequest<'_>,
+    ) -> Result<(), String> {
+        Err("receiving tracer draw/update callback domain unavailable".into())
+    }
+    fn validate_ray(&self, name: &str) -> Result<(), String> {
+        let template = self
+            .definitions
+            .find_template(name, false)
+            .ok_or_else(|| format!("ray template unavailable: {name}"))?;
+        let updates: Vec<_> = template
+            .get_client_update_module_info()
+            .iter()
+            .filter(|entry| entry.name.as_str() == "LaserUpdate")
+            .collect();
+        if updates.len() != 1 {
+            return Err("ray requires exactly one actual LaserUpdate".into());
+        }
+        if template.get_client_update_module_info().iter().count() != 1 {
+            return Err("ray has additional unsupplied client-update callbacks".into());
+        }
+        for entry in template.get_draw_module_info().iter() {
+            if entry.name.as_str() != "W3DLaserDraw"
+                || !entry.data.as_any().is::<W3DLaserDrawModuleData>()
+            {
+                return Err("ray has unsupported authored draw callback/data".into());
+            }
+        }
+        let data = updates[0].data.as_any();
+        if !data.is::<LaserUpdateModuleData>()
+            && !data.is::<gamelogic::object::behavior::laser_update::LaserUpdateModuleData>()
+        {
+            return Err("ray LaserUpdate data type mismatch".into());
+        }
+        if !template
+            .get_draw_module_info()
+            .iter()
+            .any(|entry| entry.name.as_str() == "W3DLaserDraw")
+        {
+            return Err("ray requires actual W3DLaserDraw".into());
+        }
+        Ok(())
+    }
+    fn create_ray(&mut self, request: &crate::fx_list::FxRayRequest<'_>) -> Result<(), String> {
+        self.validate_ray(request.template)?;
+        let template = self
+            .definitions
+            .find_template(request.template, false)
+            .ok_or_else(|| format!("ray template unavailable: {}", request.template))?;
+        self.client
+            .create_owned_ray(&template, request.primary, request.secondary)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+    fn bone_transforms(
+        &mut self,
+        object: u32,
+        name: &str,
+        start: i32,
+        limit: usize,
+    ) -> Result<Vec<gamelogic::common::Matrix3D>, String> {
+        Ok(self
+            .client
+            .query_current_client_bone_positions(object, name, start, limit)
+            .into_iter()
+            .map(|(_, matrix)| matrix)
+            .collect())
+    }
+}
+
+impl GameClient {
+    pub fn reset_owned_lasers(
+        &mut self,
+        services: &mut ClientLaserServices<'_>,
+    ) -> GameClientResult<()> {
+        let owners = self.owned_laser_order.clone();
+        for owner in owners {
+            self.destroy_owned_laser(owner, services)?;
+        }
+        self.ray_effects.reset();
+        Ok(())
     }
 }

@@ -99,8 +99,10 @@ fn technical_residual_transport_and_salvage_weapon() {
         .create_object("TestInfantry", Team::USA, Vec3::new(82.0, 0.0, 0.0))
         .expect("splash");
     {
-        let t = game_logic.host_object_mut(tech_id).unwrap();
-        t.attack_target(enemy);
+        let (t, attack_events) = game_logic
+            .host_object_and_attack_events_mut(tech_id)
+            .unwrap();
+        t.attack_target(enemy, attack_events);
         if let Some(w) = t.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -342,8 +344,10 @@ fn toxin_tractor_residual_stream_spray_and_death_field() {
         .create_object("TestInfantry", Team::USA, Vec3::new(50.0, 0.0, 0.0))
         .expect("enemy");
     {
-        let t = game_logic.host_object_mut(toxin_id).unwrap();
-        t.attack_target(enemy);
+        let (t, attack_events) = game_logic
+            .host_object_and_attack_events_mut(toxin_id)
+            .unwrap();
+        t.attack_target(enemy, attack_events);
         if let Some(w) = t.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.05;
@@ -404,9 +408,11 @@ fn toxin_tractor_residual_stream_spray_and_death_field() {
         .create_object("TestInfantry", Team::USA, Vec3::new(10.0, 0.0, 0.0))
         .expect("spray victim");
     {
-        let t = game_logic.host_object_mut(toxin_id).unwrap();
+        let (t, attack_events) = game_logic
+            .host_object_and_attack_events_mut(toxin_id)
+            .unwrap();
         t.active_weapon_slot = 1;
-        t.attack_target(spray_victim);
+        t.attack_target(spray_victim, attack_events);
         if let Some(w) = t.secondary_weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.05;

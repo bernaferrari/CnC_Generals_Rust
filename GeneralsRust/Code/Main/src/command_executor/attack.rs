@@ -268,11 +268,13 @@ impl<'a> CommandExecutor<'a> {
             if !has_ai {
                 continue;
             }
-            if let Some(u) = self.game_logic.host_object_mut(unit_id) {
+            if let Some((u, attack_events)) =
+                self.game_logic.host_object_and_attack_events_mut(unit_id)
+            {
                 if forced {
                     u.set_force_attack(true);
                 }
-                u.set_target(Some(target_id));
+                u.set_target(Some(target_id), attack_events);
                 any_attacker = true;
             }
         }
@@ -995,7 +997,7 @@ impl crate::game_logic::GameLogic {
                 // and no member can be selected. It does not broaden to a
                 // faction or retain an obsolete victim after the team empties.
                 if let Some(unit) = self.host_object_mut(id) {
-                    unit.set_target(None);
+                    unit.clear_target();
                     unit.set_ai_state(AIState::Idle);
                     unit.attack_priority_set = None;
                 }

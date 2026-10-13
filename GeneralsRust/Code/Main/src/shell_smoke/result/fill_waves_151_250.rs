@@ -17,10 +17,7 @@ fn fill_waves_151_250(
     out.control_bar_scheme_names_wave156_ok = early.control_bar_scheme_names_wave156_ok;
     out.control_bar_scheme_method_names_wave156_ok = early.control_bar_scheme_method_names_wave156_ok;
     out.control_bar_scheme_nav_commands_wave156_ok = early.control_bar_scheme_nav_commands_wave156_ok;
-    out.presentation_boundary_method_names_wave157_ok = early.presentation_boundary_method_names_wave157_ok;
-    out.presentation_boundary_source_markers_wave157_ok = early.presentation_boundary_source_markers_wave157_ok;
-    out.presentation_boundary_nav_commands_wave157_ok = early.presentation_boundary_nav_commands_wave157_ok;
-    out.presentation_boundary_live_wave157_ok = early.presentation_boundary_live_wave157_ok;
+
     out.control_bar_print_names_wave158_ok = early.control_bar_print_names_wave158_ok;
     out.control_bar_print_nav_commands_wave158_ok = early.control_bar_print_nav_commands_wave158_ok;
     out.terrain_env_boundary_method_names_wave159_ok = early.terrain_env_boundary_method_names_wave159_ok;
@@ -39,9 +36,8 @@ fn fill_waves_151_250(
     out.shell_stack_push_method_names_wave163_ok = early.shell_stack_push_method_names_wave163_ok;
     out.shell_stack_push_nav_commands_wave163_ok = early.shell_stack_push_nav_commands_wave163_ok;
     out.shell_stack_push_live_wave163_ok = early.shell_stack_push_live_wave163_ok;
-    out.shell_skirmish_nav_method_names_wave164_ok = early.shell_skirmish_nav_method_names_wave164_ok;
-    out.shell_skirmish_nav_commands_wave164_ok = early.shell_skirmish_nav_commands_wave164_ok;
-    out.shell_skirmish_nav_live_wave164_ok = early.shell_skirmish_nav_live_wave164_ok;
+
+
     out.control_bar_materialise_method_names_wave165_ok = early.control_bar_materialise_method_names_wave165_ok;
     out.control_bar_materialise_nav_commands_wave165_ok = early.control_bar_materialise_nav_commands_wave165_ok;
     out.control_bar_materialise_live_wave165_ok = early.control_bar_materialise_live_wave165_ok;
@@ -89,9 +85,8 @@ fn fill_waves_151_250(
     out.live_presentation_gameworld_overlay_method_names_wave187_ok = early.live_presentation_gameworld_overlay_method_names_wave187_ok;
     out.live_presentation_gameworld_overlay_nav_commands_wave187_ok = early.live_presentation_gameworld_overlay_nav_commands_wave187_ok;
     out.live_presentation_gameworld_overlay_live_wave187_ok = early.live_presentation_gameworld_overlay_live_wave187_ok;
-    out.executable_gameworld_presentation_method_names_wave188_ok = early.executable_gameworld_presentation_method_names_wave188_ok;
-    out.executable_gameworld_presentation_nav_commands_wave188_ok = early.executable_gameworld_presentation_nav_commands_wave188_ok;
-    out.executable_gameworld_presentation_live_wave188_ok = early.executable_gameworld_presentation_live_wave188_ok;
+
+
     out.live_presentation_overlay_deepen_method_names_wave189_ok = early.live_presentation_overlay_deepen_method_names_wave189_ok;
     out.live_presentation_overlay_deepen_nav_commands_wave189_ok = early.live_presentation_overlay_deepen_nav_commands_wave189_ok;
     out.live_presentation_overlay_deepen_live_wave189_ok = early.live_presentation_overlay_deepen_live_wave189_ok;
@@ -175,30 +170,25 @@ fn fill_waves_151_250(
     out.live_ui_command_selection_presentation_only_method_names_wave219_ok = early.live_ui_command_selection_presentation_only_method_names_wave219_ok;
     out.live_ui_command_selection_presentation_only_nav_commands_wave219_ok = early.live_ui_command_selection_presentation_only_nav_commands_wave219_ok;
     out.live_ui_command_selection_presentation_only_live_wave219_ok = early.live_ui_command_selection_presentation_only_live_wave219_ok;
-    out.live_local_team_presentation_only_method_names_wave220_ok = early.live_local_team_presentation_only_method_names_wave220_ok;
-    out.live_local_team_presentation_only_nav_commands_wave220_ok = early.live_local_team_presentation_only_nav_commands_wave220_ok;
-    out.live_local_team_presentation_only_live_wave220_ok = early.live_local_team_presentation_only_live_wave220_ok;
+
+
     out.live_hotkey_move_attack_selection_presentation_only_method_names_wave221_ok = early.live_hotkey_move_attack_selection_presentation_only_method_names_wave221_ok;
     out.live_hotkey_move_attack_selection_presentation_only_nav_commands_wave221_ok = early.live_hotkey_move_attack_selection_presentation_only_nav_commands_wave221_ok;
     out.live_hotkey_move_attack_selection_presentation_only_live_wave221_ok = early.live_hotkey_move_attack_selection_presentation_only_live_wave221_ok;
     out.live_pick_object_presentation_only_method_names_wave222_ok = early.live_pick_object_presentation_only_method_names_wave222_ok;
     out.live_pick_object_presentation_only_nav_commands_wave222_ok = early.live_pick_object_presentation_only_nav_commands_wave222_ok;
     out.live_pick_object_presentation_only_live_wave222_ok = early.live_pick_object_presentation_only_live_wave222_ok;
-    out.live_bootstrap_camera_presentation_only_method_names_wave223_ok = early.live_bootstrap_camera_presentation_only_method_names_wave223_ok;
-    out.live_bootstrap_camera_presentation_only_nav_commands_wave223_ok = early.live_bootstrap_camera_presentation_only_nav_commands_wave223_ok;
-    out.live_bootstrap_camera_presentation_only_live_wave223_ok = early.live_bootstrap_camera_presentation_only_live_wave223_ok;
+
+
     out.live_force_complete_authority_api_method_names_wave224_ok = early.live_force_complete_authority_api_method_names_wave224_ok;
     out.live_force_complete_authority_api_nav_commands_wave224_ok = early.live_force_complete_authority_api_nav_commands_wave224_ok;
     out.live_force_complete_authority_api_live_wave224_ok = early.live_force_complete_authority_api_live_wave224_ok;
     out.live_path_guard_authority_api_method_names_wave225_ok = early.live_path_guard_authority_api_method_names_wave225_ok;
     out.live_path_guard_authority_api_nav_commands_wave225_ok = early.live_path_guard_authority_api_nav_commands_wave225_ok;
     out.live_path_guard_authority_api_live_wave225_ok = early.live_path_guard_authority_api_live_wave225_ok;
-    out.live_hotkey_selection_camera_presentation_only_method_names_wave226_ok = early.live_hotkey_selection_camera_presentation_only_method_names_wave226_ok;
-    out.live_hotkey_selection_camera_presentation_only_nav_commands_wave226_ok = early.live_hotkey_selection_camera_presentation_only_nav_commands_wave226_ok;
-    out.live_hotkey_selection_camera_presentation_only_live_wave226_ok = early.live_hotkey_selection_camera_presentation_only_live_wave226_ok;
-    out.live_construct_spawn_pose_authority_api_method_names_wave227_ok = early.live_construct_spawn_pose_authority_api_method_names_wave227_ok;
-    out.live_construct_spawn_pose_authority_api_nav_commands_wave227_ok = early.live_construct_spawn_pose_authority_api_nav_commands_wave227_ok;
-    out.live_construct_spawn_pose_authority_api_live_wave227_ok = early.live_construct_spawn_pose_authority_api_live_wave227_ok;
+
+
+
     out.live_rmb_target_presentation_only_method_names_wave228_ok = early.live_rmb_target_presentation_only_method_names_wave228_ok;
     out.live_rmb_target_presentation_only_nav_commands_wave228_ok = early.live_rmb_target_presentation_only_nav_commands_wave228_ok;
     out.live_rmb_target_presentation_only_live_wave228_ok = early.live_rmb_target_presentation_only_live_wave228_ok;
@@ -214,39 +204,29 @@ fn fill_waves_151_250(
     out.live_command_executor_authority_api_method_names_wave232_ok = early.live_command_executor_authority_api_method_names_wave232_ok;
     out.live_command_executor_authority_api_nav_commands_wave232_ok = early.live_command_executor_authority_api_nav_commands_wave232_ok;
     out.live_command_executor_authority_api_live_wave232_ok = early.live_command_executor_authority_api_live_wave232_ok;
-    out.live_command_executor_more_authority_api_method_names_wave233_ok = early.live_command_executor_more_authority_api_method_names_wave233_ok;
-    out.live_command_executor_more_authority_api_nav_commands_wave233_ok = early.live_command_executor_more_authority_api_nav_commands_wave233_ok;
-    out.live_command_executor_more_authority_api_live_wave233_ok = early.live_command_executor_more_authority_api_live_wave233_ok;
-    out.live_engine_presentation_player_ui_method_names_wave234_ok = early.live_engine_presentation_player_ui_method_names_wave234_ok;
-    out.live_engine_presentation_player_ui_nav_commands_wave234_ok = early.live_engine_presentation_player_ui_nav_commands_wave234_ok;
-    out.live_engine_presentation_player_ui_live_wave234_ok = early.live_engine_presentation_player_ui_live_wave234_ok;
+
+
     out.live_rmb_presentation_full_classify_method_names_wave235_ok = early.live_rmb_presentation_full_classify_method_names_wave235_ok;
     out.live_rmb_presentation_full_classify_nav_commands_wave235_ok = early.live_rmb_presentation_full_classify_nav_commands_wave235_ok;
     out.live_rmb_presentation_full_classify_live_wave235_ok = early.live_rmb_presentation_full_classify_live_wave235_ok;
     out.live_mouse_input_presentation_only_method_names_wave236_ok = early.live_mouse_input_presentation_only_method_names_wave236_ok;
     out.live_mouse_input_presentation_only_nav_commands_wave236_ok = early.live_mouse_input_presentation_only_nav_commands_wave236_ok;
     out.live_mouse_input_presentation_only_live_wave236_ok = early.live_mouse_input_presentation_only_live_wave236_ok;
-    out.live_engine_player_ui_boot_peel_method_names_wave237_ok = early.live_engine_player_ui_boot_peel_method_names_wave237_ok;
-    out.live_engine_player_ui_boot_peel_nav_commands_wave237_ok = early.live_engine_player_ui_boot_peel_nav_commands_wave237_ok;
-    out.live_engine_player_ui_boot_peel_live_wave237_ok = early.live_engine_player_ui_boot_peel_live_wave237_ok;
-    out.live_player_probe_api_method_names_wave238_ok = early.live_player_probe_api_method_names_wave238_ok;
-    out.live_player_probe_api_nav_commands_wave238_ok = early.live_player_probe_api_nav_commands_wave238_ok;
-    out.live_player_probe_api_live_wave238_ok = early.live_player_probe_api_live_wave238_ok;
-    out.live_player_team_probe_method_names_wave239_ok = early.live_player_team_probe_method_names_wave239_ok;
-    out.live_player_team_probe_nav_commands_wave239_ok = early.live_player_team_probe_nav_commands_wave239_ok;
-    out.live_player_team_probe_live_wave239_ok = early.live_player_team_probe_live_wave239_ok;
-    out.live_player_field_probe_method_names_wave240_ok = early.live_player_field_probe_method_names_wave240_ok;
-    out.live_player_field_probe_nav_commands_wave240_ok = early.live_player_field_probe_nav_commands_wave240_ok;
-    out.live_player_field_probe_live_wave240_ok = early.live_player_field_probe_live_wave240_ok;
+
+
+
+
+
+
     out.live_camera_height_probe_method_names_wave241_ok = early.live_camera_height_probe_method_names_wave241_ok;
     out.live_camera_height_probe_nav_commands_wave241_ok = early.live_camera_height_probe_nav_commands_wave241_ok;
     out.live_camera_height_probe_live_wave241_ok = early.live_camera_height_probe_live_wave241_ok;
     out.live_command_player_probe_method_names_wave242_ok = early.live_command_player_probe_method_names_wave242_ok;
     out.live_command_player_probe_nav_commands_wave242_ok = early.live_command_player_probe_nav_commands_wave242_ok;
     out.live_command_player_probe_live_wave242_ok = early.live_command_player_probe_live_wave242_ok;
-    out.live_construct_economy_probe_method_names_wave243_ok = early.live_construct_economy_probe_method_names_wave243_ok;
-    out.live_construct_economy_probe_nav_commands_wave243_ok = early.live_construct_economy_probe_nav_commands_wave243_ok;
-    out.live_construct_economy_probe_live_wave243_ok = early.live_construct_economy_probe_live_wave243_ok;
+
+
+
     out.live_command_unit_probe_method_names_wave244_ok = early.live_command_unit_probe_method_names_wave244_ok;
     out.live_command_unit_probe_nav_commands_wave244_ok = early.live_command_unit_probe_nav_commands_wave244_ok;
     out.live_command_unit_probe_live_wave244_ok = early.live_command_unit_probe_live_wave244_ok;

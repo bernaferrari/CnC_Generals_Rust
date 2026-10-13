@@ -209,7 +209,10 @@ End
             .damage,
         1.0
     );
-    world.host_object_mut(source).unwrap().attack_target(target);
+    world
+        .host_object_mut(source)
+        .unwrap()
+        .attack_target(target, &mut world.attack_events);
     assert!(world.host_object(source).unwrap().status.attacking);
     assert!(world.create_delivery_radius_decal(source, Vec3::new(40.0, 0.0, 0.0)));
     let decal = &world

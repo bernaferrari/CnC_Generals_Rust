@@ -781,7 +781,7 @@ impl GameLogic {
             return false;
         }
         if let Some(o) = self.objects.get_mut(&source_id) {
-            o.set_target(Some(target_id));
+            o.set_target(Some(target_id), &mut self.attack_events);
             let shots = o
                 .fire_weapon_power
                 .as_ref()

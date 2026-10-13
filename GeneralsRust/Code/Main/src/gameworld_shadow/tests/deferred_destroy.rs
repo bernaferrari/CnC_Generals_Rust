@@ -66,8 +66,8 @@ fn phase0_probe_pose_target_weapon_contain_fields() {
         .create_object("Mark", Team::China, Vec3::new(40.0, 0.0, 10.0))
         .expect("b");
     {
-        let o = logic.host_object_mut(a).expect("o");
-        o.attack_target(b);
+        let (o, attack_events) = logic.host_object_and_attack_events_mut(a).expect("o");
+        o.attack_target(b, attack_events);
         o.movement.target_position = Some(Vec3::new(12.0, 0.0, 11.0));
         if let Some(w) = o.weapon.as_mut() {
             w.clip_size = 5;

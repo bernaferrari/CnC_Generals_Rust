@@ -515,7 +515,7 @@ impl GameLogic {
                 unit.stop_moving();
                 unit.set_position(pos + offset);
                 {}
-                unit.set_target(None);
+                unit.clear_target();
                 {}
                 unit.set_contained_by(None);
                 unit.set_ai_state(AIState::Idle);
@@ -586,7 +586,7 @@ impl GameLogic {
                 unit.stop_moving();
                 unit.set_position(pos + offset);
                 {}
-                unit.set_target(None);
+                unit.clear_target();
                 unit.set_contained_by(None);
                 unit.set_ai_state(AIState::Idle);
                 {}
@@ -645,7 +645,7 @@ impl GameLogic {
                             unit.stop_moving();
                             unit.set_position(pos + offset);
                             {}
-                            unit.set_target(None);
+                            unit.clear_target();
                             unit.set_contained_by(None);
                             unit.set_ai_state(AIState::Idle);
                             {}
@@ -1109,7 +1109,7 @@ impl GameLogic {
             if let Some(dozer) = self.objects.get_mut(&dozer_id) {
                 dozer.target = Some(structure_id);
                 dozer.target_location = None;
-                dozer.record_host_target_location();
+
                 dozer.set_status_force_attack(false);
                 dozer.set_status_attacking(false);
             }
@@ -2051,7 +2051,7 @@ impl GameLogic {
                 if let Some(w) = self.objects.get_mut(&worker_id) {
                     w.target = Some(rid);
                     w.target_location = None;
-                    w.record_host_target_location();
+
                     w.set_status_force_attack(false);
                     w.set_status_attacking(false);
                 }
@@ -2123,7 +2123,7 @@ impl GameLogic {
                 // Construction target association stays host (not combat AttackTarget).
                 w.target = Some(new_id);
                 w.target_location = None;
-                w.record_host_target_location();
+
                 w.set_status_force_attack(false);
                 w.set_status_attacking(false);
             }

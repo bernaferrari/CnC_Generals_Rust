@@ -85,11 +85,11 @@ fn guard_enters_driving_object_at_current_position_with_normal_script_order() {
 fn guard_reentry_replaces_previous_object_area_and_route() {
     let (mut world, id, target) = world();
     guard(&mut world, "NamedUnit");
-    let unit = world.host_object_mut(id).unwrap();
+    let (unit, attack_events) = world.host_object_and_attack_events_mut(id).unwrap();
     unit.set_guard_target(Some(target));
     unit.guard_area_trigger = Some("PreviousArea".into());
     unit.set_guard_mode(GuardMode::FlyingUnitsOnly);
-    unit.set_target(Some(target));
+    unit.set_target(Some(target), attack_events);
     unit.set_target_location(Some(Vec3::splat(400.0)));
     unit.set_force_attack(true);
     unit.pending_move = Some(Vec3::splat(300.0));
@@ -201,7 +201,7 @@ fn guard_does_not_idle_passengers() {
     world
         .host_object_mut(passenger)
         .unwrap()
-        .set_target(Some(target));
+        .set_target(Some(target), &mut world.attack_events);
     world.host_object_mut(id).unwrap().occupants.push(passenger);
     guard(&mut world, "NamedUnit");
     assert_eq!(world.host_object(passenger).unwrap().target, Some(target));
@@ -261,9 +261,9 @@ fn guard_sleep_gate_uses_controller_instead_of_locality() {
 fn guard_exits_old_hunt_and_attack_submachine() {
     let (mut world, id, target) = world();
     assert!(world.unit_command_patrol(id));
-    let unit = world.host_object_mut(id).unwrap();
+    let (unit, attack_events) = world.host_object_and_attack_events_mut(id).unwrap();
     unit.set_ai_state(AIState::Attacking);
-    unit.set_target(Some(target));
+    unit.set_target(Some(target), attack_events);
     unit.status.is_firing_weapon = true;
     unit.status.is_aiming_weapon = true;
     unit.status.attacking = true;

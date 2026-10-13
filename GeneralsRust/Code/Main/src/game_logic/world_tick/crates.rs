@@ -1253,7 +1253,7 @@ impl GameLogic {
                     if let Some(unit) = self.objects.get_mut(&mid) {
                         unit.last_command_source = HUNT_CMD_FROM_PLAYER;
                         if !engaged {
-                            unit.set_target(Some(target_id));
+                            unit.set_target(Some(target_id), &mut self.attack_events);
                         }
                     }
                 }
@@ -1334,7 +1334,7 @@ impl GameLogic {
 
         let crawler_pos = self.objects.get(&crawler_id).map(|c| c.get_position());
         if let Some(unit) = self.objects.get_mut(&member_id) {
-            unit.set_order_target(Some(crawler_id));
+            unit.set_order_target(Some(crawler_id), &mut self.attack_events);
             unit.ignored_obstacle_id = Some(crawler_id);
             unit.last_command_source = HUNT_CMD_FROM_AI;
         }

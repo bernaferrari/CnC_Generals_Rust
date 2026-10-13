@@ -288,10 +288,7 @@ pub struct EarlyHonesty {
     pub control_bar_scheme_names_wave156_ok: bool,
     pub control_bar_scheme_method_names_wave156_ok: bool,
     pub control_bar_scheme_nav_commands_wave156_ok: bool,
-    pub presentation_boundary_method_names_wave157_ok: bool,
-    pub presentation_boundary_source_markers_wave157_ok: bool,
-    pub presentation_boundary_nav_commands_wave157_ok: bool,
-    pub presentation_boundary_live_wave157_ok: bool,
+
     pub control_bar_print_names_wave158_ok: bool,
     pub control_bar_print_nav_commands_wave158_ok: bool,
     pub terrain_env_boundary_method_names_wave159_ok: bool,
@@ -310,9 +307,8 @@ pub struct EarlyHonesty {
     pub shell_stack_push_method_names_wave163_ok: bool,
     pub shell_stack_push_nav_commands_wave163_ok: bool,
     pub shell_stack_push_live_wave163_ok: bool,
-    pub shell_skirmish_nav_method_names_wave164_ok: bool,
-    pub shell_skirmish_nav_commands_wave164_ok: bool,
-    pub shell_skirmish_nav_live_wave164_ok: bool,
+
+
     pub control_bar_materialise_method_names_wave165_ok: bool,
     pub control_bar_materialise_nav_commands_wave165_ok: bool,
     pub control_bar_materialise_live_wave165_ok: bool,
@@ -360,9 +356,8 @@ pub struct EarlyHonesty {
     pub live_presentation_gameworld_overlay_method_names_wave187_ok: bool,
     pub live_presentation_gameworld_overlay_nav_commands_wave187_ok: bool,
     pub live_presentation_gameworld_overlay_live_wave187_ok: bool,
-    pub executable_gameworld_presentation_method_names_wave188_ok: bool,
-    pub executable_gameworld_presentation_nav_commands_wave188_ok: bool,
-    pub executable_gameworld_presentation_live_wave188_ok: bool,
+
+
     pub live_presentation_overlay_deepen_method_names_wave189_ok: bool,
     pub live_presentation_overlay_deepen_nav_commands_wave189_ok: bool,
     pub live_presentation_overlay_deepen_live_wave189_ok: bool,
@@ -446,30 +441,25 @@ pub struct EarlyHonesty {
     pub live_ui_command_selection_presentation_only_method_names_wave219_ok: bool,
     pub live_ui_command_selection_presentation_only_nav_commands_wave219_ok: bool,
     pub live_ui_command_selection_presentation_only_live_wave219_ok: bool,
-    pub live_local_team_presentation_only_method_names_wave220_ok: bool,
-    pub live_local_team_presentation_only_nav_commands_wave220_ok: bool,
-    pub live_local_team_presentation_only_live_wave220_ok: bool,
+
+
     pub live_hotkey_move_attack_selection_presentation_only_method_names_wave221_ok: bool,
     pub live_hotkey_move_attack_selection_presentation_only_nav_commands_wave221_ok: bool,
     pub live_hotkey_move_attack_selection_presentation_only_live_wave221_ok: bool,
     pub live_pick_object_presentation_only_method_names_wave222_ok: bool,
     pub live_pick_object_presentation_only_nav_commands_wave222_ok: bool,
     pub live_pick_object_presentation_only_live_wave222_ok: bool,
-    pub live_bootstrap_camera_presentation_only_method_names_wave223_ok: bool,
-    pub live_bootstrap_camera_presentation_only_nav_commands_wave223_ok: bool,
-    pub live_bootstrap_camera_presentation_only_live_wave223_ok: bool,
+
+
     pub live_force_complete_authority_api_method_names_wave224_ok: bool,
     pub live_force_complete_authority_api_nav_commands_wave224_ok: bool,
     pub live_force_complete_authority_api_live_wave224_ok: bool,
     pub live_path_guard_authority_api_method_names_wave225_ok: bool,
     pub live_path_guard_authority_api_nav_commands_wave225_ok: bool,
     pub live_path_guard_authority_api_live_wave225_ok: bool,
-    pub live_hotkey_selection_camera_presentation_only_method_names_wave226_ok: bool,
-    pub live_hotkey_selection_camera_presentation_only_nav_commands_wave226_ok: bool,
-    pub live_hotkey_selection_camera_presentation_only_live_wave226_ok: bool,
-    pub live_construct_spawn_pose_authority_api_method_names_wave227_ok: bool,
-    pub live_construct_spawn_pose_authority_api_nav_commands_wave227_ok: bool,
-    pub live_construct_spawn_pose_authority_api_live_wave227_ok: bool,
+
+
+
     pub live_rmb_target_presentation_only_method_names_wave228_ok: bool,
     pub live_rmb_target_presentation_only_nav_commands_wave228_ok: bool,
     pub live_rmb_target_presentation_only_live_wave228_ok: bool,
@@ -485,39 +475,29 @@ pub struct EarlyHonesty {
     pub live_command_executor_authority_api_method_names_wave232_ok: bool,
     pub live_command_executor_authority_api_nav_commands_wave232_ok: bool,
     pub live_command_executor_authority_api_live_wave232_ok: bool,
-    pub live_command_executor_more_authority_api_method_names_wave233_ok: bool,
-    pub live_command_executor_more_authority_api_nav_commands_wave233_ok: bool,
-    pub live_command_executor_more_authority_api_live_wave233_ok: bool,
-    pub live_engine_presentation_player_ui_method_names_wave234_ok: bool,
-    pub live_engine_presentation_player_ui_nav_commands_wave234_ok: bool,
-    pub live_engine_presentation_player_ui_live_wave234_ok: bool,
+
+
     pub live_rmb_presentation_full_classify_method_names_wave235_ok: bool,
     pub live_rmb_presentation_full_classify_nav_commands_wave235_ok: bool,
     pub live_rmb_presentation_full_classify_live_wave235_ok: bool,
     pub live_mouse_input_presentation_only_method_names_wave236_ok: bool,
     pub live_mouse_input_presentation_only_nav_commands_wave236_ok: bool,
     pub live_mouse_input_presentation_only_live_wave236_ok: bool,
-    pub live_engine_player_ui_boot_peel_method_names_wave237_ok: bool,
-    pub live_engine_player_ui_boot_peel_nav_commands_wave237_ok: bool,
-    pub live_engine_player_ui_boot_peel_live_wave237_ok: bool,
-    pub live_player_probe_api_method_names_wave238_ok: bool,
-    pub live_player_probe_api_nav_commands_wave238_ok: bool,
-    pub live_player_probe_api_live_wave238_ok: bool,
-    pub live_player_team_probe_method_names_wave239_ok: bool,
-    pub live_player_team_probe_nav_commands_wave239_ok: bool,
-    pub live_player_team_probe_live_wave239_ok: bool,
-    pub live_player_field_probe_method_names_wave240_ok: bool,
-    pub live_player_field_probe_nav_commands_wave240_ok: bool,
-    pub live_player_field_probe_live_wave240_ok: bool,
+
+
+
+
+
+
     pub live_camera_height_probe_method_names_wave241_ok: bool,
     pub live_camera_height_probe_nav_commands_wave241_ok: bool,
     pub live_camera_height_probe_live_wave241_ok: bool,
     pub live_command_player_probe_method_names_wave242_ok: bool,
     pub live_command_player_probe_nav_commands_wave242_ok: bool,
     pub live_command_player_probe_live_wave242_ok: bool,
-    pub live_construct_economy_probe_method_names_wave243_ok: bool,
-    pub live_construct_economy_probe_nav_commands_wave243_ok: bool,
-    pub live_construct_economy_probe_live_wave243_ok: bool,
+
+
+
     pub live_command_unit_probe_method_names_wave244_ok: bool,
     pub live_command_unit_probe_nav_commands_wave244_ok: bool,
     pub live_command_unit_probe_live_wave244_ok: bool,
@@ -1228,10 +1208,7 @@ impl EarlyHonesty {
             control_bar_scheme_names_wave156_ok: waves_121_160.control_bar_scheme_names_wave156_ok,
             control_bar_scheme_method_names_wave156_ok: waves_121_160.control_bar_scheme_method_names_wave156_ok,
             control_bar_scheme_nav_commands_wave156_ok: waves_121_160.control_bar_scheme_nav_commands_wave156_ok,
-            presentation_boundary_method_names_wave157_ok: waves_121_160.presentation_boundary_method_names_wave157_ok,
-            presentation_boundary_source_markers_wave157_ok: waves_121_160.presentation_boundary_source_markers_wave157_ok,
-            presentation_boundary_nav_commands_wave157_ok: waves_121_160.presentation_boundary_nav_commands_wave157_ok,
-            presentation_boundary_live_wave157_ok: waves_121_160.presentation_boundary_live_wave157_ok,
+
             control_bar_print_names_wave158_ok: waves_121_160.control_bar_print_names_wave158_ok,
             control_bar_print_nav_commands_wave158_ok: waves_121_160.control_bar_print_nav_commands_wave158_ok,
             terrain_env_boundary_method_names_wave159_ok: waves_121_160.terrain_env_boundary_method_names_wave159_ok,
@@ -1250,9 +1227,8 @@ impl EarlyHonesty {
             shell_stack_push_method_names_wave163_ok: waves_161_200.shell_stack_push_method_names_wave163_ok,
             shell_stack_push_nav_commands_wave163_ok: waves_161_200.shell_stack_push_nav_commands_wave163_ok,
             shell_stack_push_live_wave163_ok: waves_161_200.shell_stack_push_live_wave163_ok,
-            shell_skirmish_nav_method_names_wave164_ok: waves_161_200.shell_skirmish_nav_method_names_wave164_ok,
-            shell_skirmish_nav_commands_wave164_ok: waves_161_200.shell_skirmish_nav_commands_wave164_ok,
-            shell_skirmish_nav_live_wave164_ok: waves_161_200.shell_skirmish_nav_live_wave164_ok,
+
+
             control_bar_materialise_method_names_wave165_ok: waves_161_200.control_bar_materialise_method_names_wave165_ok,
             control_bar_materialise_nav_commands_wave165_ok: waves_161_200.control_bar_materialise_nav_commands_wave165_ok,
             control_bar_materialise_live_wave165_ok: waves_161_200.control_bar_materialise_live_wave165_ok,
@@ -1300,9 +1276,8 @@ impl EarlyHonesty {
             live_presentation_gameworld_overlay_method_names_wave187_ok: waves_161_200.live_presentation_gameworld_overlay_method_names_wave187_ok,
             live_presentation_gameworld_overlay_nav_commands_wave187_ok: waves_161_200.live_presentation_gameworld_overlay_nav_commands_wave187_ok,
             live_presentation_gameworld_overlay_live_wave187_ok: waves_161_200.live_presentation_gameworld_overlay_live_wave187_ok,
-            executable_gameworld_presentation_method_names_wave188_ok: waves_161_200.executable_gameworld_presentation_method_names_wave188_ok,
-            executable_gameworld_presentation_nav_commands_wave188_ok: waves_161_200.executable_gameworld_presentation_nav_commands_wave188_ok,
-            executable_gameworld_presentation_live_wave188_ok: waves_161_200.executable_gameworld_presentation_live_wave188_ok,
+
+
             live_presentation_overlay_deepen_method_names_wave189_ok: waves_161_200.live_presentation_overlay_deepen_method_names_wave189_ok,
             live_presentation_overlay_deepen_nav_commands_wave189_ok: waves_161_200.live_presentation_overlay_deepen_nav_commands_wave189_ok,
             live_presentation_overlay_deepen_live_wave189_ok: waves_161_200.live_presentation_overlay_deepen_live_wave189_ok,
@@ -1386,30 +1361,25 @@ impl EarlyHonesty {
             live_ui_command_selection_presentation_only_method_names_wave219_ok: waves_201_240.live_ui_command_selection_presentation_only_method_names_wave219_ok,
             live_ui_command_selection_presentation_only_nav_commands_wave219_ok: waves_201_240.live_ui_command_selection_presentation_only_nav_commands_wave219_ok,
             live_ui_command_selection_presentation_only_live_wave219_ok: waves_201_240.live_ui_command_selection_presentation_only_live_wave219_ok,
-            live_local_team_presentation_only_method_names_wave220_ok: waves_201_240.live_local_team_presentation_only_method_names_wave220_ok,
-            live_local_team_presentation_only_nav_commands_wave220_ok: waves_201_240.live_local_team_presentation_only_nav_commands_wave220_ok,
-            live_local_team_presentation_only_live_wave220_ok: waves_201_240.live_local_team_presentation_only_live_wave220_ok,
+
+
             live_hotkey_move_attack_selection_presentation_only_method_names_wave221_ok: waves_201_240.live_hotkey_move_attack_selection_presentation_only_method_names_wave221_ok,
             live_hotkey_move_attack_selection_presentation_only_nav_commands_wave221_ok: waves_201_240.live_hotkey_move_attack_selection_presentation_only_nav_commands_wave221_ok,
             live_hotkey_move_attack_selection_presentation_only_live_wave221_ok: waves_201_240.live_hotkey_move_attack_selection_presentation_only_live_wave221_ok,
             live_pick_object_presentation_only_method_names_wave222_ok: waves_201_240.live_pick_object_presentation_only_method_names_wave222_ok,
             live_pick_object_presentation_only_nav_commands_wave222_ok: waves_201_240.live_pick_object_presentation_only_nav_commands_wave222_ok,
             live_pick_object_presentation_only_live_wave222_ok: waves_201_240.live_pick_object_presentation_only_live_wave222_ok,
-            live_bootstrap_camera_presentation_only_method_names_wave223_ok: waves_201_240.live_bootstrap_camera_presentation_only_method_names_wave223_ok,
-            live_bootstrap_camera_presentation_only_nav_commands_wave223_ok: waves_201_240.live_bootstrap_camera_presentation_only_nav_commands_wave223_ok,
-            live_bootstrap_camera_presentation_only_live_wave223_ok: waves_201_240.live_bootstrap_camera_presentation_only_live_wave223_ok,
+
+
             live_force_complete_authority_api_method_names_wave224_ok: waves_201_240.live_force_complete_authority_api_method_names_wave224_ok,
             live_force_complete_authority_api_nav_commands_wave224_ok: waves_201_240.live_force_complete_authority_api_nav_commands_wave224_ok,
             live_force_complete_authority_api_live_wave224_ok: waves_201_240.live_force_complete_authority_api_live_wave224_ok,
             live_path_guard_authority_api_method_names_wave225_ok: waves_201_240.live_path_guard_authority_api_method_names_wave225_ok,
             live_path_guard_authority_api_nav_commands_wave225_ok: waves_201_240.live_path_guard_authority_api_nav_commands_wave225_ok,
             live_path_guard_authority_api_live_wave225_ok: waves_201_240.live_path_guard_authority_api_live_wave225_ok,
-            live_hotkey_selection_camera_presentation_only_method_names_wave226_ok: waves_201_240.live_hotkey_selection_camera_presentation_only_method_names_wave226_ok,
-            live_hotkey_selection_camera_presentation_only_nav_commands_wave226_ok: waves_201_240.live_hotkey_selection_camera_presentation_only_nav_commands_wave226_ok,
-            live_hotkey_selection_camera_presentation_only_live_wave226_ok: waves_201_240.live_hotkey_selection_camera_presentation_only_live_wave226_ok,
-            live_construct_spawn_pose_authority_api_method_names_wave227_ok: waves_201_240.live_construct_spawn_pose_authority_api_method_names_wave227_ok,
-            live_construct_spawn_pose_authority_api_nav_commands_wave227_ok: waves_201_240.live_construct_spawn_pose_authority_api_nav_commands_wave227_ok,
-            live_construct_spawn_pose_authority_api_live_wave227_ok: waves_201_240.live_construct_spawn_pose_authority_api_live_wave227_ok,
+
+
+
             live_rmb_target_presentation_only_method_names_wave228_ok: waves_201_240.live_rmb_target_presentation_only_method_names_wave228_ok,
             live_rmb_target_presentation_only_nav_commands_wave228_ok: waves_201_240.live_rmb_target_presentation_only_nav_commands_wave228_ok,
             live_rmb_target_presentation_only_live_wave228_ok: waves_201_240.live_rmb_target_presentation_only_live_wave228_ok,
@@ -1425,39 +1395,29 @@ impl EarlyHonesty {
             live_command_executor_authority_api_method_names_wave232_ok: waves_201_240.live_command_executor_authority_api_method_names_wave232_ok,
             live_command_executor_authority_api_nav_commands_wave232_ok: waves_201_240.live_command_executor_authority_api_nav_commands_wave232_ok,
             live_command_executor_authority_api_live_wave232_ok: waves_201_240.live_command_executor_authority_api_live_wave232_ok,
-            live_command_executor_more_authority_api_method_names_wave233_ok: waves_201_240.live_command_executor_more_authority_api_method_names_wave233_ok,
-            live_command_executor_more_authority_api_nav_commands_wave233_ok: waves_201_240.live_command_executor_more_authority_api_nav_commands_wave233_ok,
-            live_command_executor_more_authority_api_live_wave233_ok: waves_201_240.live_command_executor_more_authority_api_live_wave233_ok,
-            live_engine_presentation_player_ui_method_names_wave234_ok: waves_201_240.live_engine_presentation_player_ui_method_names_wave234_ok,
-            live_engine_presentation_player_ui_nav_commands_wave234_ok: waves_201_240.live_engine_presentation_player_ui_nav_commands_wave234_ok,
-            live_engine_presentation_player_ui_live_wave234_ok: waves_201_240.live_engine_presentation_player_ui_live_wave234_ok,
+
+
             live_rmb_presentation_full_classify_method_names_wave235_ok: waves_201_240.live_rmb_presentation_full_classify_method_names_wave235_ok,
             live_rmb_presentation_full_classify_nav_commands_wave235_ok: waves_201_240.live_rmb_presentation_full_classify_nav_commands_wave235_ok,
             live_rmb_presentation_full_classify_live_wave235_ok: waves_201_240.live_rmb_presentation_full_classify_live_wave235_ok,
             live_mouse_input_presentation_only_method_names_wave236_ok: waves_201_240.live_mouse_input_presentation_only_method_names_wave236_ok,
             live_mouse_input_presentation_only_nav_commands_wave236_ok: waves_201_240.live_mouse_input_presentation_only_nav_commands_wave236_ok,
             live_mouse_input_presentation_only_live_wave236_ok: waves_201_240.live_mouse_input_presentation_only_live_wave236_ok,
-            live_engine_player_ui_boot_peel_method_names_wave237_ok: waves_201_240.live_engine_player_ui_boot_peel_method_names_wave237_ok,
-            live_engine_player_ui_boot_peel_nav_commands_wave237_ok: waves_201_240.live_engine_player_ui_boot_peel_nav_commands_wave237_ok,
-            live_engine_player_ui_boot_peel_live_wave237_ok: waves_201_240.live_engine_player_ui_boot_peel_live_wave237_ok,
-            live_player_probe_api_method_names_wave238_ok: waves_201_240.live_player_probe_api_method_names_wave238_ok,
-            live_player_probe_api_nav_commands_wave238_ok: waves_201_240.live_player_probe_api_nav_commands_wave238_ok,
-            live_player_probe_api_live_wave238_ok: waves_201_240.live_player_probe_api_live_wave238_ok,
-            live_player_team_probe_method_names_wave239_ok: waves_201_240.live_player_team_probe_method_names_wave239_ok,
-            live_player_team_probe_nav_commands_wave239_ok: waves_201_240.live_player_team_probe_nav_commands_wave239_ok,
-            live_player_team_probe_live_wave239_ok: waves_201_240.live_player_team_probe_live_wave239_ok,
-            live_player_field_probe_method_names_wave240_ok: waves_201_240.live_player_field_probe_method_names_wave240_ok,
-            live_player_field_probe_nav_commands_wave240_ok: waves_201_240.live_player_field_probe_nav_commands_wave240_ok,
-            live_player_field_probe_live_wave240_ok: waves_201_240.live_player_field_probe_live_wave240_ok,
+
+
+
+
+
+
             live_camera_height_probe_method_names_wave241_ok: waves_241_280.live_camera_height_probe_method_names_wave241_ok,
             live_camera_height_probe_nav_commands_wave241_ok: waves_241_280.live_camera_height_probe_nav_commands_wave241_ok,
             live_camera_height_probe_live_wave241_ok: waves_241_280.live_camera_height_probe_live_wave241_ok,
             live_command_player_probe_method_names_wave242_ok: waves_241_280.live_command_player_probe_method_names_wave242_ok,
             live_command_player_probe_nav_commands_wave242_ok: waves_241_280.live_command_player_probe_nav_commands_wave242_ok,
             live_command_player_probe_live_wave242_ok: waves_241_280.live_command_player_probe_live_wave242_ok,
-            live_construct_economy_probe_method_names_wave243_ok: waves_241_280.live_construct_economy_probe_method_names_wave243_ok,
-            live_construct_economy_probe_nav_commands_wave243_ok: waves_241_280.live_construct_economy_probe_nav_commands_wave243_ok,
-            live_construct_economy_probe_live_wave243_ok: waves_241_280.live_construct_economy_probe_live_wave243_ok,
+
+
+
             live_command_unit_probe_method_names_wave244_ok: waves_241_280.live_command_unit_probe_method_names_wave244_ok,
             live_command_unit_probe_nav_commands_wave244_ok: waves_241_280.live_command_unit_probe_nav_commands_wave244_ok,
             live_command_unit_probe_live_wave244_ok: waves_241_280.live_command_unit_probe_live_wave244_ok,

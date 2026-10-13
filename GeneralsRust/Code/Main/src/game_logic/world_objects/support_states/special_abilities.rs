@@ -183,7 +183,7 @@ impl GameLogic {
             object.ignored_obstacle_id = None;
             object.capture_channel = None;
             object.set_status_using_ability(false);
-            object.set_target(None);
+            object.clear_target();
             clear_raising_flag_model(object);
         }
         self.stop_lotus_prep_sound_loop(object_id);
@@ -202,7 +202,7 @@ impl GameLogic {
             object.ignored_obstacle_id = None;
             object.capture_channel = None;
             object.set_status_using_ability(false);
-            object.set_target(None);
+            object.clear_target();
             clear_raising_flag_model(object);
         }
         self.stop_lotus_prep_sound_loop(object_id);
@@ -1677,7 +1677,7 @@ impl GameLogic {
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         obj.stop_moving();
                         obj.set_status_using_ability(false);
-                        obj.set_target(None);
+                        obj.clear_target();
                         obj.set_ai_state(AIState::Idle);
                     }
                     LeftoverSaTick::Finished
@@ -1703,7 +1703,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.stop_moving();
                 obj.set_status_using_ability(false);
-                obj.set_target(None);
+                obj.clear_target();
                 obj.set_ai_state(AIState::Idle);
             }
             return;
@@ -2031,7 +2031,7 @@ impl GameLogic {
                 // fabricating a pseudo-random offset.
                 previous.set_position(plan.container_position);
                 previous.set_contained_by(None);
-                previous.set_target(None);
+                previous.clear_target();
                 previous.set_ai_state(AIState::Idle);
                 previous.set_status_moving(false);
                 previous.set_status_attacking(false);
@@ -2193,7 +2193,7 @@ impl GameLogic {
             rider.stop_moving();
             rider.set_position(position);
             rider.set_contained_by(None);
-            rider.set_target(None);
+            rider.clear_target();
             rider.set_ai_state(AIState::Idle);
             rider.set_status_moving(false);
             rider.set_status_attacking(false);
@@ -2464,7 +2464,7 @@ impl GameLogic {
             object.ignored_obstacle_id = None;
             object.hacker_disable_channel = None;
             object.set_status_using_ability(false);
-            object.set_target(None);
+            object.clear_target();
             object.set_ai_state(AIState::Idle);
         }
     }

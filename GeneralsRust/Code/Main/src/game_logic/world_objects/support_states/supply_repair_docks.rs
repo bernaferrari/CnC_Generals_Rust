@@ -607,7 +607,7 @@ impl GameLogic {
                     if next != dock_id {
                         if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
                             if let Some(obj) = self.objects.get_mut(&docker_id) {
-                                obj.set_target(Some(next));
+                                obj.set_target(Some(next), &mut self.attack_events);
                             }
                             self.path_approach_with_state(docker_id, dest, AIState::Gathering);
                             return;

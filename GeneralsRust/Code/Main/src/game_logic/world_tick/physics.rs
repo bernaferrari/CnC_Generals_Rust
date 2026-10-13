@@ -977,7 +977,7 @@ impl GameLogic {
         let faced = !matches!(u.ai_state, AIState::SpecialAbility | AIState::Capturing);
         if faced {
             u.target_location = None;
-            u.record_host_target_location();
+
             u.set_status_attacking(false);
             u.set_status_force_attack(false);
             u.set_ai_state(AIState::FacingObject);
@@ -1005,7 +1005,7 @@ impl GameLogic {
         if faced {
             u.target = None;
             u.target_location = None;
-            u.record_host_target_location();
+
             u.set_status_attacking(false);
             u.set_status_force_attack(false);
             u.set_ai_state(AIState::FacingPosition);
@@ -1028,7 +1028,7 @@ impl GameLogic {
             u.set_status_attacking(false);
             u.target = None;
             u.target_location = None;
-            u.record_host_target_location();
+
             u.set_status_force_attack(false);
             u.ignored_obstacle_id = None;
             if u.ai_state != AIState::Idle {

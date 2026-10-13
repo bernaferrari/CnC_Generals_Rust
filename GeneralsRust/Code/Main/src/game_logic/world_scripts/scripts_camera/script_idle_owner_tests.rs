@@ -8,8 +8,8 @@ use gamelogic::scripting::core::{
 use gamelogic::scripting::engine::ScriptEngine;
 
 fn attacking(owner: &mut GameLogic, unit: ObjectId, target: ObjectId) {
-    let object = owner.host_object_mut(unit).unwrap();
-    object.set_target(Some(target));
+    let (object, attack_events) = owner.host_object_and_attack_events_mut(unit).unwrap();
+    object.set_target(Some(target), attack_events);
     object.set_ai_state(AIState::Attacking);
     object.requested_destination = Some(Vec3::new(90.0, 0.0, 90.0));
 }

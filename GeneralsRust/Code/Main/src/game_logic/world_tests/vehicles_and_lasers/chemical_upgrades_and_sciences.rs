@@ -48,8 +48,10 @@ fn anthrax_gamma_residual_toxin_stream_and_field() {
 
     // Chem baseline stream residual (Anthrax Beta 12.5).
     {
-        let t = game_logic.host_object_mut(truck_id).unwrap();
-        t.attack_target(enemy);
+        let (t, attack_events) = game_logic
+            .host_object_and_attack_events_mut(truck_id)
+            .unwrap();
+        t.attack_target(enemy, attack_events);
         if let Some(w) = t.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.05;
@@ -162,9 +164,11 @@ fn anthrax_gamma_residual_toxin_stream_and_field() {
         .create_object("TestInfantry", Team::USA, Vec3::new(45.0, 0.0, 0.0))
         .expect("gamma enemy");
     {
-        let t = game_logic.host_object_mut(truck_id).unwrap();
+        let (t, attack_events) = game_logic
+            .host_object_and_attack_events_mut(truck_id)
+            .unwrap();
         t.active_weapon_slot = 0;
-        t.attack_target(gamma_enemy);
+        t.attack_target(gamma_enemy, attack_events);
         if let Some(w) = t.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.05;
@@ -222,9 +226,11 @@ fn anthrax_gamma_residual_toxin_stream_and_field() {
         .create_object("TestInfantry", Team::USA, Vec3::new(8.0, 0.0, 0.0))
         .expect("spray victim");
     {
-        let t = game_logic.host_object_mut(truck_id).unwrap();
+        let (t, attack_events) = game_logic
+            .host_object_and_attack_events_mut(truck_id)
+            .unwrap();
         t.active_weapon_slot = 1;
-        t.attack_target(spray_victim);
+        t.attack_target(spray_victim, attack_events);
         if let Some(w) = t.secondary_weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.05;
@@ -578,8 +584,10 @@ fn chem_terrorist_gamma_and_demo_death_weapon_residual() {
         .create_object("TestTank", Team::USA, Vec3::new(8.0, 0.0, 0.0))
         .expect("near");
     {
-        let t = game_logic.host_object_mut(chem_id).unwrap();
-        t.attack_target(near);
+        let (t, attack_events) = game_logic
+            .host_object_and_attack_events_mut(chem_id)
+            .unwrap();
+        t.attack_target(near, attack_events);
     }
     let hp_before = game_logic
         .host_object(near)
@@ -618,8 +626,10 @@ fn chem_terrorist_gamma_and_demo_death_weapon_residual() {
         .create_object("TestTank", Team::USA, Vec3::new(108.0, 0.0, 0.0))
         .expect("near2");
     {
-        let t = game_logic.host_object_mut(demo_id).unwrap();
-        t.attack_target(near2);
+        let (t, attack_events) = game_logic
+            .host_object_and_attack_events_mut(demo_id)
+            .unwrap();
+        t.attack_target(near2, attack_events);
         if let Some(w) = t.weapon.as_mut() {
             assert!(
                 (w.damage - SUICIDE_DYNAMITE_PRIMARY_DAMAGE_DEMO).abs() < 1.0,

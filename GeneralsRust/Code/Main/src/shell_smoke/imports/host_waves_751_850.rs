@@ -55,11 +55,6 @@ pub use crate::game_logic::host_live_host_skirmish_map_force_lone_eagle_residual
     honesty_host_skirmish_map_force_lone_eagle_nav_commands_residual_wave837,
     simulate_live_host_skirmish_map_force_lone_eagle_honesty,
 };
-pub use crate::game_logic::host_live_presentation_empty_shadow_failopen_residual_wave838::{
-    honesty_presentation_empty_shadow_failopen_method_names_residual_wave838,
-    honesty_presentation_empty_shadow_failopen_nav_commands_residual_wave838,
-    simulate_live_presentation_empty_shadow_failopen_honesty,
-};
 pub use crate::game_logic::host_live_host_vertical_render_mesh_gate_residual_wave839::{
     honesty_host_vertical_render_mesh_gate_method_names_residual_wave839,
     honesty_host_vertical_render_mesh_gate_nav_commands_residual_wave839,
@@ -114,9 +109,4 @@ pub use crate::game_logic::host_live_host_match_outcome_residuals_wave849::{
     honesty_host_match_outcome_residuals_method_names_residual_wave849,
     honesty_host_match_outcome_residuals_nav_commands_residual_wave849,
     simulate_live_host_match_outcome_residuals_honesty,
-};
-pub use crate::game_logic::host_live_host_match_selection_residuals_wave850::{
-    honesty_host_match_selection_residuals_method_names_residual_wave850,
-    honesty_host_match_selection_residuals_nav_commands_residual_wave850,
-    simulate_live_host_match_selection_residuals_honesty,
 };

@@ -144,9 +144,9 @@ fn do_command_button_dispatches_stop() {
     logic.templates.insert("DC_V".to_string(), tpl);
     let id = logic.create_object("DC_V", Team::USA, Vec3::ZERO).unwrap();
     {
-        let u = logic.host_object_mut(id).unwrap();
+        let (u, attack_events) = logic.host_object_and_attack_events_mut(id).unwrap();
         u.set_ai_state(AIState::Moving);
-        u.set_target(Some(id));
+        u.set_target(Some(id), attack_events);
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -480,7 +480,13 @@ fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
     assert_eq!(unit.active_weapon_slot, 2);
     assert_eq!(unit.weapon_lock_type, WeaponLockType::LockedTemporarily);
     assert_eq!(unit.weapon_lock_slot, 2);
-    assert!(unit.fire_at(target, 1.0, logic.frame, &mut logic.combat_system));
+    assert!(unit.fire_at(
+        target,
+        1.0,
+        logic.frame,
+        &mut logic.combat_system,
+        &mut logic.attack_events,
+    ));
     assert_eq!(unit.last_fire_slot, 2);
     assert!((unit.last_fire_damage - 73.0).abs() < f32::EPSILON);
     assert_eq!(
@@ -1235,7 +1241,7 @@ fn execute_stop_clears_guard_residual() {
     assert!(
         gbody.contains("set_guard_position(None)")
             && gbody.contains("end_guard_retaliate")
-            && gbody.contains("set_target(None)"),
+            && gbody.contains("clear_target()"),
         "unit_command_stop must clear guard anchors/targets"
     );
     let mood = command_source_method(
@@ -1488,8 +1494,8 @@ fn add_waypoint_breaks_off_attack() {
         .create_object("WP_VIC", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
         .unwrap();
     {
-        let u = logic.host_object_mut(a).unwrap();
-        u.set_target(Some(v));
+        let (u, attack_events) = logic.host_object_and_attack_events_mut(a).unwrap();
+        u.set_target(Some(v), attack_events);
         u.set_guard_target(Some(v));
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);

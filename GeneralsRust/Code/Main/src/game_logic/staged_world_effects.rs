@@ -7,14 +7,14 @@
 //! rollback, and clear the old world's events only once commit is certain.
 
 use super::{
-    host_ai_decision_log, host_attack_log, host_building_type_log, host_combat_attack_log,
-    host_command_set_log, host_contain_capacity_log, host_contain_log, host_continuous_fire_log,
+    host_building_type_log, host_command_set_log,
+    host_contain_capacity_log, host_contain_log, host_continuous_fire_log,
     host_demo_mine_cheer_log, host_detector_log, host_ground_height_log, host_hive_log,
     host_identity_log, host_kind_of_log, host_locomotor_log, host_max_health_log,
     host_model_mesh_log, host_movement_log, host_overlord_log, host_physics_motive_log,
     host_player_cooldown_log, host_player_meta_log, host_player_progress_log, host_spawn_log,
     host_special_power_log, host_status_log, host_stealth_flags_log, host_stored_supplies_log,
-    host_target_location_log, host_weapon_set_log,
+    host_weapon_set_log,
 };
 use std::cell::Cell;
 
@@ -51,10 +51,9 @@ pub(crate) struct WorldStageEffectsState {
     stored_supplies: Vec<host_stored_supplies_log::HostStoredSuppliesEvent>,
     contain: Vec<host_contain_log::HostContainEvent>,
     locomotor: Vec<host_locomotor_log::HostLocomotorEvent>,
-    combat_attack: Vec<host_combat_attack_log::HostCombatAttackEvent>,
-    attack: host_attack_log::HostAttackLogWorldStageState,
-    target_location: Vec<host_target_location_log::HostTargetLocationEvent>,
-    ai_decision: Vec<host_ai_decision_log::HostAiDecisionEvent>,
+
+
+
     command_set: Vec<host_command_set_log::HostCommandSetEvent>,
     continuous_fire: Vec<host_continuous_fire_log::HostContinuousFireEvent>,
     player_meta: Vec<host_player_meta_log::HostPlayerMetaEvent>,
@@ -86,10 +85,9 @@ impl WorldStageEffectsState {
             stored_supplies: host_stored_supplies_log::take_for_world_stage(),
             contain: host_contain_log::take_for_world_stage(),
             locomotor: host_locomotor_log::take_for_world_stage(),
-            combat_attack: host_combat_attack_log::take_for_world_stage(),
-            attack: host_attack_log::take_for_world_stage(),
-            target_location: host_target_location_log::take_for_world_stage(),
-            ai_decision: host_ai_decision_log::take_for_world_stage(),
+
+
+
             command_set: host_command_set_log::take_for_world_stage(),
             continuous_fire: host_continuous_fire_log::take_for_world_stage(),
             player_meta: host_player_meta_log::take_for_world_stage(),
@@ -129,12 +127,10 @@ impl WorldStageEffectsState {
             ),
             contain: host_contain_log::replace_for_world_stage(next.contain),
             locomotor: host_locomotor_log::replace_for_world_stage(next.locomotor),
-            combat_attack: host_combat_attack_log::replace_for_world_stage(next.combat_attack),
-            attack: host_attack_log::replace_for_world_stage(next.attack),
-            target_location: host_target_location_log::replace_for_world_stage(
-                next.target_location,
-            ),
-            ai_decision: host_ai_decision_log::replace_for_world_stage(next.ai_decision),
+
+
+
+
             command_set: host_command_set_log::replace_for_world_stage(next.command_set),
             continuous_fire: host_continuous_fire_log::replace_for_world_stage(
                 next.continuous_fire,
@@ -169,10 +165,9 @@ impl WorldStageEffectsState {
         host_stored_supplies_log::clear();
         host_contain_log::clear();
         host_locomotor_log::clear();
-        host_combat_attack_log::clear();
-        host_attack_log::clear();
-        host_target_location_log::clear();
-        host_ai_decision_log::clear();
+
+
+
         host_command_set_log::clear();
         host_continuous_fire_log::clear();
         host_player_meta_log::clear();

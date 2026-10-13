@@ -326,7 +326,7 @@ impl GameLogic {
                     let stored_action = obj.dozer_dock_action;
                     obj.target = None;
                     obj.target_location = None;
-                    obj.record_host_target_location();
+
                     obj.set_status_force_attack(false);
                     obj.set_status_attacking(false);
                     if let Some(bpos) = building_pos {
@@ -365,7 +365,7 @@ impl GameLogic {
                         if obj.target == Some(completed_id) {
                             obj.target = None;
                             obj.target_location = None;
-                            obj.record_host_target_location();
+
                             obj.set_status_force_attack(false);
                             obj.set_status_attacking(false);
                         }

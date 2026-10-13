@@ -184,7 +184,7 @@ impl GameLogic {
                     Some(id) => id,
                     None => {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
+                            obj.clear_target();
                         }
                         return;
                     }

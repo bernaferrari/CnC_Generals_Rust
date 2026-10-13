@@ -17,9 +17,9 @@ pub(super) struct Waves921941 {
     pub host_tick_logic_frame_boundary_method_names_wave923_ok: bool,
     pub host_tick_logic_frame_boundary_nav_commands_wave923_ok: bool,
     pub host_tick_logic_frame_boundary_live_wave923_ok: bool,
-    pub host_placement_legal_build_cache_method_names_wave924_ok: bool,
-    pub host_placement_legal_build_cache_nav_commands_wave924_ok: bool,
-    pub host_placement_legal_build_cache_live_wave924_ok: bool,
+
+
+
 
     pub host_presentation_build_boundary_method_names_wave926_ok: bool,
     pub host_presentation_build_boundary_nav_commands_wave926_ok: bool,
@@ -44,15 +44,9 @@ pub(super) struct Waves921941 {
     pub host_session_control_boundary_method_names_wave933_ok: bool,
     pub host_session_control_boundary_nav_commands_wave933_ok: bool,
     pub host_session_control_boundary_live_wave933_ok: bool,
-    pub host_support_boundary_method_names_wave934_ok: bool,
-    pub host_support_boundary_nav_commands_wave934_ok: bool,
-    pub host_support_boundary_live_wave934_ok: bool,
-    pub host_gamelogic_borrow_boundary_method_names_wave935_ok: bool,
-    pub host_gamelogic_borrow_boundary_nav_commands_wave935_ok: bool,
-    pub host_gamelogic_borrow_boundary_live_wave935_ok: bool,
-    pub host_sole_authority_surface_method_names_wave936_ok: bool,
-    pub host_sole_authority_surface_nav_commands_wave936_ok: bool,
-    pub host_sole_authority_surface_live_wave936_ok: bool,
+
+
+
     pub host_production_authority_boundary_method_names_wave937_ok: bool,
     pub host_production_authority_boundary_nav_commands_wave937_ok: bool,
     pub host_production_authority_boundary_live_wave937_ok: bool,
@@ -83,12 +77,9 @@ pub(super) fn evaluate() -> Waves921941 {
             honesty_host_tick_logic_frame_boundary_nav_commands_residual_wave923(),
         host_tick_logic_frame_boundary_live_wave923_ok:
             simulate_live_host_tick_logic_frame_boundary_honesty(),
-        host_placement_legal_build_cache_method_names_wave924_ok:
-            honesty_host_placement_legal_build_cache_method_names_residual_wave924(),
-        host_placement_legal_build_cache_nav_commands_wave924_ok:
-            honesty_host_placement_legal_build_cache_nav_commands_residual_wave924(),
-        host_placement_legal_build_cache_live_wave924_ok:
-            simulate_live_host_placement_legal_build_cache_honesty(),
+
+
+
 
         host_presentation_build_boundary_method_names_wave926_ok:
             honesty_host_presentation_build_boundary_method_names_residual_wave926(),
@@ -134,23 +125,9 @@ pub(super) fn evaluate() -> Waves921941 {
             honesty_host_session_control_boundary_nav_commands_residual_wave933(),
         host_session_control_boundary_live_wave933_ok:
             simulate_live_host_session_control_boundary_honesty(),
-        host_support_boundary_method_names_wave934_ok:
-            honesty_host_support_boundary_method_names_residual_wave934(),
-        host_support_boundary_nav_commands_wave934_ok:
-            honesty_host_support_boundary_nav_commands_residual_wave934(),
-        host_support_boundary_live_wave934_ok: simulate_live_host_support_boundary_honesty(),
-        host_gamelogic_borrow_boundary_method_names_wave935_ok:
-            honesty_host_gamelogic_borrow_boundary_method_names_residual_wave935(),
-        host_gamelogic_borrow_boundary_nav_commands_wave935_ok:
-            honesty_host_gamelogic_borrow_boundary_nav_commands_residual_wave935(),
-        host_gamelogic_borrow_boundary_live_wave935_ok:
-            simulate_live_host_gamelogic_borrow_boundary_honesty(),
-        host_sole_authority_surface_method_names_wave936_ok:
-            honesty_host_sole_authority_surface_method_names_residual_wave936(),
-        host_sole_authority_surface_nav_commands_wave936_ok:
-            honesty_host_sole_authority_surface_nav_commands_residual_wave936(),
-        host_sole_authority_surface_live_wave936_ok:
-            simulate_live_host_sole_authority_surface_honesty(),
+
+
+
         host_production_authority_boundary_method_names_wave937_ok:
             honesty_host_production_authority_boundary_method_names_residual_wave937(),
         host_production_authority_boundary_nav_commands_wave937_ok:

@@ -919,11 +919,11 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
         )
         .expect("surviving collector");
     {
-        let collector = logic
-            .host_object_mut(loose_collector)
+        let (collector, attack_events) = logic
+            .host_object_and_attack_events_mut(loose_collector)
             .expect("surviving collector live");
         collector.preferred_dock_id = Some(missing_former_dock);
-        collector.set_order_target(Some(source_id));
+        collector.set_order_target(Some(source_id), attack_events);
         collector.set_ai_state(crate::game_logic::AIState::Gathering);
     }
 
@@ -2230,8 +2230,7 @@ fn retain_queue_object_ids_drops_missing_pad_binding() {
 
 #[test]
 fn launch_attack_sets_target_and_logs_host_attack() {
-    use crate::game_logic::host_ai_decision_log;
-    use crate::game_logic::host_attack_log;
+
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 
@@ -2241,8 +2240,6 @@ fn launch_attack_sets_target_and_logs_host_attack() {
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     // Decision logs require coupled shadow writeback frame (live gate).
 
-    host_attack_log::clear();
-    host_ai_decision_log::clear();
     let mut logic = GameLogic::new();
 
     let cfg = golden_skirmish_config("AiAtk");
@@ -2284,7 +2281,8 @@ fn launch_attack_sets_target_and_logs_host_attack() {
         });
     }
     ai.launch_attack(&mut logic, 1000.0);
-    let decisions = host_ai_decision_log::drain();
+    logic.attack_events.complete_boundary();
+    let targeted = logic.attack_events.take_completed();
     let unit = logic
         .host_objects()
         .get(&usa_unit)
@@ -2294,27 +2292,17 @@ fn launch_attack_sets_target_and_logs_host_attack() {
         "under AI decision authority host target engages immediately"
     );
     assert!(
-        decisions.iter().any(|e| {
-            e.kind == host_ai_decision_log::AI_DECISION_ATTACK && e.host_object == usa_unit
-        }),
-        "launch_attack must log AttackTarget decision; got {decisions:?}"
+        targeted.iter().any(|event| event.attacker == usa_unit && Some(event.target) == unit.target),
+        "launch_attack must report its actual canonical target: {targeted:?}"
     );
-    assert!(
-        decisions.iter().any(|e| {
-            e.kind == host_ai_decision_log::AI_DECISION_SET_STATE
-                && e.host_object == usa_unit
-                && e.ai_state_ordinal == 3
-        }),
-        "launch_attack must log AttackMoving state; got {decisions:?}"
-    );
+    assert_eq!(unit.ai_state, crate::game_logic::AIState::AttackMoving);
     assert!(
         !unit.movement.path.is_empty() || unit.movement.target_position.is_some(),
         "launch_attack must still pathfind on host under decision authority"
     );
-    // Legacy residual path when decision authority is off (setter flip).
+    // A second accepted order produces its own receiving-match receipt.
+    logic.attack_events.clear();
 
-    host_attack_log::clear();
-    host_ai_decision_log::clear();
     if let Some(o) = logic.host_object_mut(usa_unit) {
         o.target = None;
         o.ai_state = AIState::Idle;
@@ -2322,14 +2310,18 @@ fn launch_attack_sets_target_and_logs_host_attack() {
         o.movement.target_position = None;
     }
     ai.launch_attack(&mut logic, 2000.0);
-    let logged = host_attack_log::drain();
+    logic.attack_events.complete_boundary();
+    let logged = logic.attack_events.take_completed();
     let unit = logic
         .host_objects()
         .get(&usa_unit)
         .expect("usa unit legacy");
     assert!(
-        unit.target.is_some() && !logged.is_empty(),
-        "legacy launch_attack must set_target and host_attack_log"
+        unit.target.is_some()
+            && logged
+                .iter()
+                .any(|event| event.attacker == usa_unit && Some(event.target) == unit.target),
+        "launch_attack must set its canonical target and produce its own receipt"
     );
     assert_eq!(unit.ai_state, AIState::AttackMoving);
 }

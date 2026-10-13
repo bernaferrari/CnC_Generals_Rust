@@ -463,6 +463,7 @@ fn production_completion_receipts_follow_actual_owner_fifo_across_peer_reset_and
             kind: ProductionKind::Unit,
         });
         world.host_object_mut(factory).unwrap().building_data = Some(building);
+        let previous = world.objects.keys().copied().collect::<Vec<_>>();
         world.update_production(1.0 / 30.0);
         assert!(
             world
@@ -477,7 +478,7 @@ fn production_completion_receipts_follow_actual_owner_fifo_across_peer_reset_and
         let spawned = world
             .objects
             .values()
-            .find(|object| object.producer_id == Some(factory))
+            .find(|object| object.producer_id == Some(factory) && !previous.contains(&object.id))
             .unwrap()
             .id;
         assert!(world.host_object(spawned).unwrap().is_alive());
@@ -518,6 +519,10 @@ fn production_completion_receipts_follow_actual_owner_fifo_across_peer_reset_and
     assert_eq!(first, peer_spawn);
     assert_eq!(peer.production_events.take_completed().len(), 1);
     peer.reset();
+    // Produce another actual completion so committed restore must discard a
+    // real stale output rather than merely clearing an already empty buffer.
+    let (mut peer, peer_factory) = production_world(name, false);
+    finish(&mut peer, peer_factory, name);
     let builder = crate::save_load::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&owner).unwrap();
     peer.templates = owner.templates.clone();

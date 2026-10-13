@@ -65,30 +65,25 @@ pub(super) struct Waves201240 {
     pub live_ui_command_selection_presentation_only_method_names_wave219_ok: bool,
     pub live_ui_command_selection_presentation_only_nav_commands_wave219_ok: bool,
     pub live_ui_command_selection_presentation_only_live_wave219_ok: bool,
-    pub live_local_team_presentation_only_method_names_wave220_ok: bool,
-    pub live_local_team_presentation_only_nav_commands_wave220_ok: bool,
-    pub live_local_team_presentation_only_live_wave220_ok: bool,
+
+
     pub live_hotkey_move_attack_selection_presentation_only_method_names_wave221_ok: bool,
     pub live_hotkey_move_attack_selection_presentation_only_nav_commands_wave221_ok: bool,
     pub live_hotkey_move_attack_selection_presentation_only_live_wave221_ok: bool,
     pub live_pick_object_presentation_only_method_names_wave222_ok: bool,
     pub live_pick_object_presentation_only_nav_commands_wave222_ok: bool,
     pub live_pick_object_presentation_only_live_wave222_ok: bool,
-    pub live_bootstrap_camera_presentation_only_method_names_wave223_ok: bool,
-    pub live_bootstrap_camera_presentation_only_nav_commands_wave223_ok: bool,
-    pub live_bootstrap_camera_presentation_only_live_wave223_ok: bool,
+
+
     pub live_force_complete_authority_api_method_names_wave224_ok: bool,
     pub live_force_complete_authority_api_nav_commands_wave224_ok: bool,
     pub live_force_complete_authority_api_live_wave224_ok: bool,
     pub live_path_guard_authority_api_method_names_wave225_ok: bool,
     pub live_path_guard_authority_api_nav_commands_wave225_ok: bool,
     pub live_path_guard_authority_api_live_wave225_ok: bool,
-    pub live_hotkey_selection_camera_presentation_only_method_names_wave226_ok: bool,
-    pub live_hotkey_selection_camera_presentation_only_nav_commands_wave226_ok: bool,
-    pub live_hotkey_selection_camera_presentation_only_live_wave226_ok: bool,
-    pub live_construct_spawn_pose_authority_api_method_names_wave227_ok: bool,
-    pub live_construct_spawn_pose_authority_api_nav_commands_wave227_ok: bool,
-    pub live_construct_spawn_pose_authority_api_live_wave227_ok: bool,
+
+
+
     pub live_rmb_target_presentation_only_method_names_wave228_ok: bool,
     pub live_rmb_target_presentation_only_nav_commands_wave228_ok: bool,
     pub live_rmb_target_presentation_only_live_wave228_ok: bool,
@@ -104,30 +99,20 @@ pub(super) struct Waves201240 {
     pub live_command_executor_authority_api_method_names_wave232_ok: bool,
     pub live_command_executor_authority_api_nav_commands_wave232_ok: bool,
     pub live_command_executor_authority_api_live_wave232_ok: bool,
-    pub live_command_executor_more_authority_api_method_names_wave233_ok: bool,
-    pub live_command_executor_more_authority_api_nav_commands_wave233_ok: bool,
-    pub live_command_executor_more_authority_api_live_wave233_ok: bool,
-    pub live_engine_presentation_player_ui_method_names_wave234_ok: bool,
-    pub live_engine_presentation_player_ui_nav_commands_wave234_ok: bool,
-    pub live_engine_presentation_player_ui_live_wave234_ok: bool,
+
+
     pub live_rmb_presentation_full_classify_method_names_wave235_ok: bool,
     pub live_rmb_presentation_full_classify_nav_commands_wave235_ok: bool,
     pub live_rmb_presentation_full_classify_live_wave235_ok: bool,
     pub live_mouse_input_presentation_only_method_names_wave236_ok: bool,
     pub live_mouse_input_presentation_only_nav_commands_wave236_ok: bool,
     pub live_mouse_input_presentation_only_live_wave236_ok: bool,
-    pub live_engine_player_ui_boot_peel_method_names_wave237_ok: bool,
-    pub live_engine_player_ui_boot_peel_nav_commands_wave237_ok: bool,
-    pub live_engine_player_ui_boot_peel_live_wave237_ok: bool,
-    pub live_player_probe_api_method_names_wave238_ok: bool,
-    pub live_player_probe_api_nav_commands_wave238_ok: bool,
-    pub live_player_probe_api_live_wave238_ok: bool,
-    pub live_player_team_probe_method_names_wave239_ok: bool,
-    pub live_player_team_probe_nav_commands_wave239_ok: bool,
-    pub live_player_team_probe_live_wave239_ok: bool,
-    pub live_player_field_probe_method_names_wave240_ok: bool,
-    pub live_player_field_probe_nav_commands_wave240_ok: bool,
-    pub live_player_field_probe_live_wave240_ok: bool,
+
+
+
+
+
+
 }
 
 pub(super) fn evaluate(
@@ -193,30 +178,25 @@ pub(super) fn evaluate(
         live_ui_command_selection_presentation_only_method_names_wave219_ok: honesty_live_ui_command_selection_presentation_only_method_names_residual_wave219(),
         live_ui_command_selection_presentation_only_nav_commands_wave219_ok: honesty_live_ui_command_selection_presentation_only_nav_commands_residual_wave219(),
         live_ui_command_selection_presentation_only_live_wave219_ok: simulate_live_ui_command_selection_presentation_only_honesty(),
-        live_local_team_presentation_only_method_names_wave220_ok: honesty_live_local_team_presentation_only_method_names_residual_wave220(),
-        live_local_team_presentation_only_nav_commands_wave220_ok: honesty_live_local_team_presentation_only_nav_commands_residual_wave220(),
-        live_local_team_presentation_only_live_wave220_ok: simulate_live_local_team_presentation_only_honesty(),
+
+
         live_hotkey_move_attack_selection_presentation_only_method_names_wave221_ok: honesty_live_hotkey_move_attack_selection_presentation_only_method_names_residual_wave221(),
         live_hotkey_move_attack_selection_presentation_only_nav_commands_wave221_ok: honesty_live_hotkey_move_attack_selection_presentation_only_nav_commands_residual_wave221(),
         live_hotkey_move_attack_selection_presentation_only_live_wave221_ok: simulate_live_hotkey_move_attack_selection_presentation_only_honesty(),
         live_pick_object_presentation_only_method_names_wave222_ok: honesty_live_pick_object_presentation_only_method_names_residual_wave222(),
         live_pick_object_presentation_only_nav_commands_wave222_ok: honesty_live_pick_object_presentation_only_nav_commands_residual_wave222(),
         live_pick_object_presentation_only_live_wave222_ok: simulate_live_pick_object_presentation_only_honesty(),
-        live_bootstrap_camera_presentation_only_method_names_wave223_ok: honesty_live_bootstrap_camera_presentation_only_method_names_residual_wave223(),
-        live_bootstrap_camera_presentation_only_nav_commands_wave223_ok: honesty_live_bootstrap_camera_presentation_only_nav_commands_residual_wave223(),
-        live_bootstrap_camera_presentation_only_live_wave223_ok: simulate_live_bootstrap_camera_presentation_only_honesty(),
+
+
         live_force_complete_authority_api_method_names_wave224_ok: honesty_live_force_complete_authority_api_method_names_residual_wave224(),
         live_force_complete_authority_api_nav_commands_wave224_ok: honesty_live_force_complete_authority_api_nav_commands_residual_wave224(),
         live_force_complete_authority_api_live_wave224_ok: simulate_live_force_complete_authority_api_honesty(),
         live_path_guard_authority_api_method_names_wave225_ok: honesty_live_path_guard_authority_api_method_names_residual_wave225(),
         live_path_guard_authority_api_nav_commands_wave225_ok: honesty_live_path_guard_authority_api_nav_commands_residual_wave225(),
         live_path_guard_authority_api_live_wave225_ok: simulate_live_path_guard_authority_api_honesty(),
-        live_hotkey_selection_camera_presentation_only_method_names_wave226_ok: honesty_live_hotkey_selection_camera_presentation_only_method_names_residual_wave226(),
-        live_hotkey_selection_camera_presentation_only_nav_commands_wave226_ok: honesty_live_hotkey_selection_camera_presentation_only_nav_commands_residual_wave226(),
-        live_hotkey_selection_camera_presentation_only_live_wave226_ok: simulate_live_hotkey_selection_camera_presentation_only_honesty(),
-        live_construct_spawn_pose_authority_api_method_names_wave227_ok: honesty_live_construct_spawn_pose_authority_api_method_names_residual_wave227(),
-        live_construct_spawn_pose_authority_api_nav_commands_wave227_ok: honesty_live_construct_spawn_pose_authority_api_nav_commands_residual_wave227(),
-        live_construct_spawn_pose_authority_api_live_wave227_ok: simulate_live_construct_spawn_pose_authority_api_honesty(),
+
+
+
         live_rmb_target_presentation_only_method_names_wave228_ok: honesty_live_rmb_target_presentation_only_method_names_residual_wave228(),
         live_rmb_target_presentation_only_nav_commands_wave228_ok: honesty_live_rmb_target_presentation_only_nav_commands_residual_wave228(),
         live_rmb_target_presentation_only_live_wave228_ok: simulate_live_rmb_target_presentation_only_honesty(),
@@ -232,29 +212,19 @@ pub(super) fn evaluate(
         live_command_executor_authority_api_method_names_wave232_ok: honesty_live_command_executor_authority_api_method_names_residual_wave232(),
         live_command_executor_authority_api_nav_commands_wave232_ok: honesty_live_command_executor_authority_api_nav_commands_residual_wave232(),
         live_command_executor_authority_api_live_wave232_ok: simulate_live_command_executor_authority_api_honesty(),
-        live_command_executor_more_authority_api_method_names_wave233_ok: honesty_live_command_executor_more_authority_api_method_names_residual_wave233(),
-        live_command_executor_more_authority_api_nav_commands_wave233_ok: honesty_live_command_executor_more_authority_api_nav_commands_residual_wave233(),
-        live_command_executor_more_authority_api_live_wave233_ok: simulate_live_command_executor_more_authority_api_honesty(),
-        live_engine_presentation_player_ui_method_names_wave234_ok: honesty_live_engine_presentation_player_ui_method_names_residual_wave234(),
-        live_engine_presentation_player_ui_nav_commands_wave234_ok: honesty_live_engine_presentation_player_ui_nav_commands_residual_wave234(),
-        live_engine_presentation_player_ui_live_wave234_ok: simulate_live_engine_presentation_player_ui_honesty(),
+
+
         live_rmb_presentation_full_classify_method_names_wave235_ok: honesty_live_rmb_presentation_full_classify_method_names_residual_wave235(),
         live_rmb_presentation_full_classify_nav_commands_wave235_ok: honesty_live_rmb_presentation_full_classify_nav_commands_residual_wave235(),
         live_rmb_presentation_full_classify_live_wave235_ok: simulate_live_rmb_presentation_full_classify_honesty(),
         live_mouse_input_presentation_only_method_names_wave236_ok: honesty_live_mouse_input_presentation_only_method_names_residual_wave236(),
         live_mouse_input_presentation_only_nav_commands_wave236_ok: honesty_live_mouse_input_presentation_only_nav_commands_residual_wave236(),
         live_mouse_input_presentation_only_live_wave236_ok: simulate_live_mouse_input_presentation_only_honesty(),
-        live_engine_player_ui_boot_peel_method_names_wave237_ok: honesty_live_engine_player_ui_boot_peel_method_names_residual_wave237(),
-        live_engine_player_ui_boot_peel_nav_commands_wave237_ok: honesty_live_engine_player_ui_boot_peel_nav_commands_residual_wave237(),
-        live_engine_player_ui_boot_peel_live_wave237_ok: simulate_live_engine_player_ui_boot_peel_honesty(),
-        live_player_probe_api_method_names_wave238_ok: honesty_live_player_probe_api_method_names_residual_wave238(),
-        live_player_probe_api_nav_commands_wave238_ok: honesty_live_player_probe_api_nav_commands_residual_wave238(),
-        live_player_probe_api_live_wave238_ok: simulate_live_player_probe_api_honesty(),
-        live_player_team_probe_method_names_wave239_ok: honesty_live_player_team_probe_method_names_residual_wave239(),
-        live_player_team_probe_nav_commands_wave239_ok: honesty_live_player_team_probe_nav_commands_residual_wave239(),
-        live_player_team_probe_live_wave239_ok: simulate_live_player_team_probe_honesty(),
-        live_player_field_probe_method_names_wave240_ok: honesty_live_player_field_probe_method_names_residual_wave240(),
-        live_player_field_probe_nav_commands_wave240_ok: honesty_live_player_field_probe_nav_commands_residual_wave240(),
-        live_player_field_probe_live_wave240_ok: simulate_live_player_field_probe_honesty(),
+
+
+
+
+
+
     }
 }

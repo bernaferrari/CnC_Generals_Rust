@@ -11,9 +11,8 @@ pub(super) struct Waves881920 {
     pub host_ui_framework_clippy_method_names_wave881_ok: bool,
     pub host_ui_framework_clippy_nav_commands_wave881_ok: bool,
     pub host_ui_framework_clippy_live_wave881_ok: bool,
-    pub host_assets_big_unpack_method_names_wave882_ok: bool,
-    pub host_assets_big_unpack_nav_commands_wave882_ok: bool,
-    pub host_assets_big_unpack_live_wave882_ok: bool,
+
+
     pub host_wwshade_clippy_method_names_wave883_ok: bool,
     pub host_wwshade_clippy_nav_commands_wave883_ok: bool,
     pub host_wwshade_clippy_live_wave883_ok: bool,
@@ -135,11 +134,8 @@ pub(super) fn evaluate() -> Waves881920 {
         host_ui_framework_clippy_nav_commands_wave881_ok:
             honesty_host_ui_framework_clippy_nav_commands_residual_wave881(),
         host_ui_framework_clippy_live_wave881_ok: simulate_live_host_ui_framework_clippy_honesty(),
-        host_assets_big_unpack_method_names_wave882_ok:
-            honesty_host_assets_big_unpack_method_names_residual_wave882(),
-        host_assets_big_unpack_nav_commands_wave882_ok:
-            honesty_host_assets_big_unpack_nav_commands_residual_wave882(),
-        host_assets_big_unpack_live_wave882_ok: simulate_live_host_assets_big_unpack_honesty(),
+
+
         host_wwshade_clippy_method_names_wave883_ok:
             honesty_host_wwshade_clippy_method_names_residual_wave883(),
         host_wwshade_clippy_nav_commands_wave883_ok:

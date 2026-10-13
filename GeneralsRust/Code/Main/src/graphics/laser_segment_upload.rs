@@ -1254,6 +1254,40 @@ mod tests {
     use crate::presentation_frame::PresentationLaserBeam;
 
     #[test]
+    fn cpp_scene_line_freezes_height_once_and_reaches_actual_vertex_upload() {
+        let line = crate::presentation_frame::PresentationSceneLine::from_cpp_desc(
+            game_engine::common::system::SceneLineDesc {
+                start: game_engine::common::system::geometry::Coord3D::new(13.0, 29.0, 47.0),
+                end: game_engine::common::system::geometry::Coord3D::new(17.0, 31.0, 53.0),
+                width: 2.0,
+                color_r: 0.25,
+                color_g: 0.5,
+                color_b: 0.75,
+                opacity: 0.8,
+                texture_name: Some("OwnedLaser.tga".into()),
+                tile_factor: 3.0,
+                visible: true,
+                scroll_rate: 0.25,
+            },
+        )
+        .unwrap();
+        assert_eq!(line.start, (13.0, 47.0, 29.0));
+        assert_eq!(line.end, (17.0, 53.0, 31.0));
+        let upload = LaserSegmentUpload::pack_beams_streams_and_scene_lines(&[], &[], &[line]);
+        let position = (0..3)
+            .map(|axis| {
+                f32::from_le_bytes(
+                    upload.vertex_bytes[axis * 4..axis * 4 + 4]
+                        .try_into()
+                        .unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(position, [13.0, 47.0, 29.0]);
+        assert_eq!(upload.honesty.beams_packed, 1);
+    }
+
+    #[test]
     fn empty_pack_is_honest_cpu_success() {
         let pack = LaserSegmentUpload::empty();
         assert!(pack.honesty.honesty_cpu_pack_ok());

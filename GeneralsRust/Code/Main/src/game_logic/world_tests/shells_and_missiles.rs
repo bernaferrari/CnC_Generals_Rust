@@ -940,7 +940,8 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
                 enemy_id,
                 0.0,
                 game_logic.frame,
-                &mut game_logic.combat_system
+                &mut game_logic.combat_system,
+                &mut game_logic.attack_events,
             ) || true
         );
         // fire_at may fail without weapon; force residual break path.
@@ -1065,8 +1066,10 @@ fn marauder_residual_salvage_fire_rate_tiers() {
         .create_object("TestInfantry", Team::USA, Vec3::new(102.0, 0.0, 0.0))
         .expect("splash");
     {
-        let m = game_logic.host_object_mut(marauder_id).unwrap();
-        m.attack_target(enemy);
+        let (m, attack_events) = game_logic
+            .host_object_and_attack_events_mut(marauder_id)
+            .unwrap();
+        m.attack_target(enemy, attack_events);
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -1276,9 +1279,11 @@ fn scorpion_residual_gun_salvage_and_rocket() {
         .create_object("TestInfantry", Team::USA, Vec3::new(102.0, 0.0, 0.0))
         .expect("splash");
     {
-        let s = game_logic.host_object_mut(scorp_id).unwrap();
+        let (s, attack_events) = game_logic
+            .host_object_and_attack_events_mut(scorp_id)
+            .unwrap();
         s.active_weapon_slot = 0;
-        s.attack_target(enemy);
+        s.attack_target(enemy, attack_events);
         if let Some(w) = s.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -1357,9 +1362,11 @@ fn scorpion_residual_gun_salvage_and_rocket() {
         .create_object("TestInfantry", Team::USA, Vec3::new(115.0, 0.0, 0.0))
         .expect("far splash");
     {
-        let s = game_logic.host_object_mut(scorp_id).unwrap();
+        let (s, attack_events) = game_logic
+            .host_object_and_attack_events_mut(scorp_id)
+            .unwrap();
         s.active_weapon_slot = 1;
-        s.attack_target(enemy);
+        s.attack_target(enemy, attack_events);
         if let Some(w) = s.secondary_weapon.as_mut() {
             w.last_fire_time = -100.0;
             w.reload_time = 0.1;
@@ -1471,8 +1478,10 @@ fn tomahawk_residual_dual_radius_missile() {
         .create_object("TestInfantry", Team::GLA, Vec3::new(218.0, 0.0, 0.0))
         .expect("secondary ring");
     {
-        let t = game_logic.host_object_mut(tom_id).unwrap();
-        t.attack_target(enemy);
+        let (t, attack_events) = game_logic
+            .host_object_and_attack_events_mut(tom_id)
+            .unwrap();
+        t.attack_target(enemy, attack_events);
         if let Some(w) = t.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.1;
@@ -1620,8 +1629,10 @@ fn mig_residual_napalm_and_black_napalm() {
         .create_object("TestInfantry", Team::GLA, Vec3::new(215.0, 0.0, 0.0))
         .expect("secondary ring");
     {
-        let m = game_logic.host_object_mut(mig_id).unwrap();
-        m.attack_target(enemy);
+        let (m, attack_events) = game_logic
+            .host_object_and_attack_events_mut(mig_id)
+            .unwrap();
+        m.attack_target(enemy, attack_events);
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.05;
@@ -1718,8 +1729,10 @@ fn mig_residual_napalm_and_black_napalm() {
     );
     assert!(game_logic.honesty_mig_black_napalm_ok());
     {
-        let m = game_logic.host_object_mut(mig_id).unwrap();
-        m.attack_target(enemy);
+        let (m, attack_events) = game_logic
+            .host_object_and_attack_events_mut(mig_id)
+            .unwrap();
+        m.attack_target(enemy, attack_events);
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.05;
@@ -1805,8 +1818,10 @@ fn mig_nuke_residual_tactical_nuke() {
         .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
         .expect("enemy");
     {
-        let m = game_logic.host_object_mut(mig_id).unwrap();
-        m.attack_target(enemy);
+        let (m, attack_events) = game_logic
+            .host_object_and_attack_events_mut(mig_id)
+            .unwrap();
+        m.attack_target(enemy, attack_events);
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.05;
@@ -1853,8 +1868,10 @@ fn mig_nuke_residual_tactical_nuke() {
         assert!((prim.damage - NUKE_TACTICAL_PRIMARY_DAMAGE).abs() < 0.01);
     }
     {
-        let m = game_logic.host_object_mut(mig_id).unwrap();
-        m.attack_target(enemy);
+        let (m, attack_events) = game_logic
+            .host_object_and_attack_events_mut(mig_id)
+            .unwrap();
+        m.attack_target(enemy, attack_events);
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.05;
@@ -2099,8 +2116,10 @@ fn raptor_residual_missiles_and_laser_missiles() {
         .create_object("TestInfantry", Team::GLA, Vec3::new(204.0, 0.0, 0.0))
         .expect("primary ring");
     {
-        let r = game_logic.host_object_mut(raptor_id).unwrap();
-        r.attack_target(enemy);
+        let (r, attack_events) = game_logic
+            .host_object_and_attack_events_mut(raptor_id)
+            .unwrap();
+        r.attack_target(enemy, attack_events);
         if let Some(w) = r.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.05;
@@ -2271,8 +2290,10 @@ fn stealth_fighter_residual_missiles_and_splash() {
         .create_object("TestInfantry", Team::GLA, Vec3::new(154.0, 0.0, 0.0))
         .expect("primary ring");
     {
-        let f = game_logic.host_object_mut(fighter_id).unwrap();
-        f.attack_target(enemy);
+        let (f, attack_events) = game_logic
+            .host_object_and_attack_events_mut(fighter_id)
+            .unwrap();
+        f.attack_target(enemy, attack_events);
         if let Some(w) = f.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.05;
@@ -2404,8 +2425,10 @@ fn comanche_residual_cannon_and_antitank() {
         .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
         .expect("enemy");
     {
-        let c = game_logic.host_object_mut(comanche_id).unwrap();
-        c.attack_target(enemy);
+        let (c, attack_events) = game_logic
+            .host_object_and_attack_events_mut(comanche_id)
+            .unwrap();
+        c.attack_target(enemy, attack_events);
         c.active_weapon_slot = 0;
         if let Some(w) = c.weapon.as_mut() {
             w.last_fire_time = -20.0;
@@ -2443,8 +2466,10 @@ fn comanche_residual_cannon_and_antitank() {
         .expect("at ring");
     {
         let frame_t = game_logic.frame as f32 * LOGIC_FRAME_TIMESTEP;
-        let c = game_logic.host_object_mut(comanche_id).unwrap();
-        c.attack_target(enemy);
+        let (c, attack_events) = game_logic
+            .host_object_and_attack_events_mut(comanche_id)
+            .unwrap();
+        c.attack_target(enemy, attack_events);
         c.active_weapon_slot = 1;
         if let Some(w) = c.secondary_weapon.as_mut() {
             w.last_fire_time = -20.0;
@@ -2554,8 +2579,10 @@ fn helix_minigun_residual_intended_only() {
     }
 
     {
-        let h = game_logic.host_object_mut(helix_id).expect("helix");
-        h.attack_target(enemy_id);
+        let (h, attack_events) = game_logic
+            .host_object_and_attack_events_mut(helix_id)
+            .expect("helix");
+        h.attack_target(enemy_id, attack_events);
         if let Some(w) = h.weapon.as_mut() {
             w.last_fire_time = -100.0;
             w.reload_time = 0.05;
@@ -2647,8 +2674,10 @@ fn inferno_black_napalm_upgraded_fire_field_residual() {
     }
 
     {
-        let c = game_logic.host_object_mut(cannon_id).expect("cannon");
-        c.attack_target(enemy_id);
+        let (c, attack_events) = game_logic
+            .host_object_and_attack_events_mut(cannon_id)
+            .expect("cannon");
+        c.attack_target(enemy_id, attack_events);
         if let Some(w) = c.weapon.as_mut() {
             w.last_fire_time = -100.0;
             w.reload_time = 0.1;
@@ -2836,8 +2865,10 @@ fn battle_drone_residual_attach_fire_and_repair() {
         .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
         .expect("enemy");
     {
-        let d = game_logic.host_object_mut(drone_id).unwrap();
-        d.attack_target(enemy);
+        let (d, attack_events) = game_logic
+            .host_object_and_attack_events_mut(drone_id)
+            .unwrap();
+        d.attack_target(enemy, attack_events);
         if let Some(w) = d.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.05;
@@ -2926,8 +2957,8 @@ fn overlord_gun_residual_dual_radius_and_uranium() {
         .create_object("TestInfantry", Team::USA, Vec3::new(108.0, 0.0, 0.0))
         .expect("secondary ring");
     {
-        let o = game_logic.host_object_mut(ov_id).unwrap();
-        o.attack_target(enemy);
+        let (o, attack_events) = game_logic.host_object_and_attack_events_mut(ov_id).unwrap();
+        o.attack_target(enemy, attack_events);
         if let Some(w) = o.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.1;
@@ -3081,8 +3112,10 @@ fn jarmen_kell_residual_sniper_and_ap_bullets() {
         .create_object("TestInfantry", Team::USA, Vec3::new(102.0, 0.0, 0.0))
         .expect("nearby non-splash");
     {
-        let k = game_logic.host_object_mut(kell_id).unwrap();
-        k.attack_target(enemy);
+        let (k, attack_events) = game_logic
+            .host_object_and_attack_events_mut(kell_id)
+            .unwrap();
+        k.attack_target(enemy, attack_events);
         if let Some(w) = k.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -3252,8 +3285,8 @@ fn battlemaster_residual_gun_uranium_and_horde_nationalism() {
         .create_object("TestInfantry", Team::USA, Vec3::new(82.0, 0.0, 0.0))
         .expect("splash");
     {
-        let bm = game_logic.host_object_mut(bm0).unwrap();
-        bm.attack_target(enemy);
+        let (bm, attack_events) = game_logic.host_object_and_attack_events_mut(bm0).unwrap();
+        bm.attack_target(enemy, attack_events);
         if let Some(w) = bm.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -3439,8 +3472,8 @@ fn red_guard_residual_gun_horde_nationalism_and_bayonet() {
         .create_object("TestInfantry", Team::USA, Vec3::new(50.0, 0.0, 0.0))
         .expect("enemy");
     {
-        let rg = game_logic.host_object_mut(rg0).unwrap();
-        rg.attack_target(enemy);
+        let (rg, attack_events) = game_logic.host_object_and_attack_events_mut(rg0).unwrap();
+        rg.attack_target(enemy, attack_events);
         if let Some(w) = rg.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -3473,9 +3506,9 @@ fn red_guard_residual_gun_horde_nationalism_and_bayonet() {
         .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .expect("melee");
     {
-        let rg = game_logic.host_object_mut(rg0).unwrap();
+        let (rg, attack_events) = game_logic.host_object_and_attack_events_mut(rg0).unwrap();
         rg.set_position(Vec3::new(0.0, 0.0, 0.0));
-        rg.attack_target(melee);
+        rg.attack_target(melee, attack_events);
         if let Some(w) = rg.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -3584,8 +3617,8 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
         .create_object("TestInfantry", Team::USA, Vec3::new(82.0, 0.0, 0.0))
         .expect("splash");
     {
-        let th = game_logic.host_object_mut(th0).unwrap();
-        th.attack_target(enemy);
+        let (th, attack_events) = game_logic.host_object_and_attack_events_mut(th0).unwrap();
+        th.attack_target(enemy, attack_events);
         if let Some(w) = th.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -3786,8 +3819,10 @@ fn rebel_residual_gun_and_ap_bullets() {
         .create_object("TestInfantry", Team::USA, Vec3::new(50.0, 0.0, 0.0))
         .expect("enemy");
     {
-        let rebel = game_logic.host_object_mut(rebel_id).unwrap();
-        rebel.attack_target(enemy);
+        let (rebel, attack_events) = game_logic
+            .host_object_and_attack_events_mut(rebel_id)
+            .unwrap();
+        rebel.attack_target(enemy, attack_events);
         if let Some(w) = rebel.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;

@@ -679,10 +679,7 @@ impl Object {
             );
     }
 
-    pub fn record_host_target_location(&self) {
-        let loc = self.target_location.map(|p| [p.x, p.y, p.z]);
-        crate::game_logic::host_target_location_log::record(self.id, loc);
-    }
+
 
     pub fn record_host_hijacker(&self) {
         crate::game_logic::host_hijacker_log::record(
@@ -760,22 +757,7 @@ impl Object {
         );
     }
 
-    pub fn record_host_combat_attack(&self) {
-        crate::game_logic::host_combat_attack_log::record(
-            self.id,
-            self.pre_attack_target.map(|id| id.0).unwrap_or(0),
-            self.pre_attack_ready_at,
-            self.consecutive_shots_at_target,
-            self.max_shots_to_fire,
-            self.attack_substate.to_ordinal(),
-            self.approach_timestamp,
-            self.continuous_fire_victim,
-            self.maintain_pos_valid,
-            self.maintain_pos.map(|p| [p.x, p.y, p.z]),
-            self.temporary_move_frames,
-            self.group_speed_factor,
-        );
-    }
+
 
     pub fn record_host_stealth_delay(&self) {
         crate::game_logic::host_stealth_delay_log::record(
@@ -894,7 +876,7 @@ impl Object {
     pub fn set_surrendered(&mut self, surrendered: bool) {
         self.is_surrendered = surrendered;
         if surrendered {
-            self.set_target(None);
+            self.clear_target();
             self.set_force_attack(false);
             self.stop_moving();
         }

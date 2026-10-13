@@ -260,8 +260,3 @@
     pub live_replace_object_upgrade_dual_world_empty_gate_method_names_wave446_ok: bool,
     pub live_replace_object_upgrade_dual_world_empty_gate_nav_commands_wave446_ok: bool,
     pub live_replace_object_upgrade_dual_world_empty_gate_live_wave446_ok: bool,
-
-
-    pub live_contain_module_overrides_fail_closed_method_names_wave449_ok: bool,
-    pub live_contain_module_overrides_fail_closed_nav_commands_wave449_ok: bool,
-    pub live_contain_module_overrides_fail_closed_live_wave449_ok: bool,

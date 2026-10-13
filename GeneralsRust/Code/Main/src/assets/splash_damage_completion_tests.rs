@@ -452,6 +452,8 @@ fn nested(kind: Splash) {
     assert_eq!(take_dispatched_fx_nuggets().len(), 2);
 }
 fn target_update(kind: Splash) {
+    let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+
     let (mut world, fx) = install();
     let source = source(&mut world, kind);
     let anchor = admit(
@@ -471,7 +473,7 @@ fn target_update(kind: Splash) {
         .objects
         .get_mut(&source)
         .unwrap()
-        .set_target(Some(anchor));
+        .set_target(Some(anchor), &mut _attack_output);
     world.update();
     let shooter = &world.objects[&source];
     assert_eq!(shooter.weapon.as_ref().unwrap().ammo, Some(7));

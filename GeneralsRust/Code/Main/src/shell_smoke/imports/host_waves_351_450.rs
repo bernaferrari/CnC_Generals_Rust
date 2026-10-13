@@ -390,8 +390,3 @@ pub use crate::game_logic::host_live_replace_object_upgrade_dual_world_empty_gat
     honesty_live_replace_object_upgrade_dual_world_empty_gate_nav_commands_residual_wave446,
     simulate_live_replace_object_upgrade_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_contain_module_overrides_fail_closed_residual_wave449::{
-    honesty_live_contain_module_overrides_fail_closed_method_names_residual_wave449,
-    honesty_live_contain_module_overrides_fail_closed_nav_commands_residual_wave449,
-    simulate_live_contain_module_overrides_fail_closed_honesty,
-};

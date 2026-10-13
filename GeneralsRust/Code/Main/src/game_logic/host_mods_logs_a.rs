@@ -17,8 +17,7 @@ use super::host_structure_topple;
 #[path = "host_a10_strike_drop_log.rs"]
 pub mod host_a10_strike_drop_log;
 
-#[path = "host_ai_decision_log.rs"]
-pub mod host_ai_decision_log;
+
 
 #[path = "host_ai_request_log.rs"]
 pub mod host_ai_request_log;
@@ -41,8 +40,7 @@ pub mod host_carpet_bomb_drop_log;
 #[path = "host_cluster_mines_drop_log.rs"]
 pub mod host_cluster_mines_drop_log;
 
-#[path = "host_combat_attack_log.rs"]
-pub mod host_combat_attack_log;
+
 
 #[path = "host_daisy_cutter_drop_log.rs"]
 pub mod host_daisy_cutter_drop_log;

@@ -253,7 +253,7 @@ fn ordinary_hit(world: &mut GameLogic, source: ObjectId, victim: ObjectId) {
         .objects
         .get_mut(&source)
         .unwrap()
-        .set_target(Some(victim));
+        .set_target(Some(victim), &mut world.attack_events);
     assert_eq!(world.objects[&source].target, Some(victim));
     assert_eq!(world.objects[&source].ai_state, AIState::Attacking);
     assert!(

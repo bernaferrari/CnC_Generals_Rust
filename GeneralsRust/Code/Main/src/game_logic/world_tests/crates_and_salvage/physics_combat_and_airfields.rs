@@ -2175,7 +2175,7 @@ fn airfield_takeoff_releases_parking_slot() {
         .and_then(|jet| jet.airfield_parking_space_index);
     {
         let jet = logic.objects.get_mut(&jet_id).unwrap();
-        jet.attack_target(ObjectId(777));
+        jet.attack_target(ObjectId(777), &mut logic.attack_events);
     }
     assert!(logic.release_jet_from_airfield_parking(jet_id));
     {

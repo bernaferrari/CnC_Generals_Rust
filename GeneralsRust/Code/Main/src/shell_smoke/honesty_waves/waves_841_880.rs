@@ -35,9 +35,7 @@ pub(super) struct Waves841880 {
     pub host_match_outcome_residuals_method_names_wave849_ok: bool,
     pub host_match_outcome_residuals_nav_commands_wave849_ok: bool,
     pub host_match_outcome_residuals_live_wave849_ok: bool,
-    pub host_match_selection_residuals_method_names_wave850_ok: bool,
-    pub host_match_selection_residuals_nav_commands_wave850_ok: bool,
-    pub host_match_selection_residuals_live_wave850_ok: bool,
+
     pub host_match_alive_object_residuals_method_names_wave851_ok: bool,
     pub host_match_alive_object_residuals_nav_commands_wave851_ok: bool,
     pub host_match_alive_object_residuals_live_wave851_ok: bool,
@@ -107,15 +105,12 @@ pub(super) struct Waves841880 {
     pub host_queue_stamp_method_names_wave874_ok: bool,
     pub host_queue_stamp_nav_commands_wave874_ok: bool,
     pub host_queue_stamp_live_wave874_ok: bool,
-    pub host_dual_read_zero_sole_tick_method_names_wave875_ok: bool,
-    pub host_dual_read_zero_sole_tick_nav_commands_wave875_ok: bool,
-    pub host_dual_read_zero_sole_tick_live_wave875_ok: bool,
+
     pub host_shell_no_dual_pace_method_names_wave876_ok: bool,
     pub host_shell_no_dual_pace_nav_commands_wave876_ok: bool,
     pub host_shell_no_dual_pace_live_wave876_ok: bool,
-    pub host_gw_flight_over_assign_method_names_wave877_ok: bool,
-    pub host_gw_flight_over_assign_nav_commands_wave877_ok: bool,
-    pub host_gw_flight_over_assign_live_wave877_ok: bool,
+
+
     pub host_ci_clippy_peel_method_names_wave878_ok: bool,
     pub host_ci_clippy_peel_nav_commands_wave878_ok: bool,
     pub host_ci_clippy_peel_live_wave878_ok: bool,
@@ -182,12 +177,7 @@ pub(super) fn evaluate() -> Waves841880 {
             honesty_host_match_outcome_residuals_nav_commands_residual_wave849(),
         host_match_outcome_residuals_live_wave849_ok:
             simulate_live_host_match_outcome_residuals_honesty(),
-        host_match_selection_residuals_method_names_wave850_ok:
-            honesty_host_match_selection_residuals_method_names_residual_wave850(),
-        host_match_selection_residuals_nav_commands_wave850_ok:
-            honesty_host_match_selection_residuals_nav_commands_residual_wave850(),
-        host_match_selection_residuals_live_wave850_ok:
-            simulate_live_host_match_selection_residuals_honesty(),
+
         host_match_alive_object_residuals_method_names_wave851_ok:
             honesty_host_match_alive_object_residuals_method_names_residual_wave851(),
         host_match_alive_object_residuals_nav_commands_wave851_ok:
@@ -318,23 +308,14 @@ pub(super) fn evaluate() -> Waves841880 {
         host_queue_stamp_nav_commands_wave874_ok:
             honesty_host_queue_stamp_nav_commands_residual_wave874(),
         host_queue_stamp_live_wave874_ok: simulate_live_host_queue_stamp_honesty(),
-        host_dual_read_zero_sole_tick_method_names_wave875_ok:
-            honesty_host_dual_read_zero_sole_tick_method_names_residual_wave875(),
-        host_dual_read_zero_sole_tick_nav_commands_wave875_ok:
-            honesty_host_dual_read_zero_sole_tick_nav_commands_residual_wave875(),
-        host_dual_read_zero_sole_tick_live_wave875_ok:
-            simulate_live_host_dual_read_zero_sole_tick_honesty(),
+
         host_shell_no_dual_pace_method_names_wave876_ok:
             honesty_host_shell_no_dual_pace_method_names_residual_wave876(),
         host_shell_no_dual_pace_nav_commands_wave876_ok:
             honesty_host_shell_no_dual_pace_nav_commands_residual_wave876(),
         host_shell_no_dual_pace_live_wave876_ok: simulate_live_host_shell_no_dual_pace_honesty(),
-        host_gw_flight_over_assign_method_names_wave877_ok:
-            honesty_host_gw_flight_over_assign_method_names_residual_wave877(),
-        host_gw_flight_over_assign_nav_commands_wave877_ok:
-            honesty_host_gw_flight_over_assign_nav_commands_residual_wave877(),
-        host_gw_flight_over_assign_live_wave877_ok:
-            simulate_live_host_gw_flight_over_assign_honesty(),
+
+
         host_ci_clippy_peel_method_names_wave878_ok:
             honesty_host_ci_clippy_peel_method_names_residual_wave878(),
         host_ci_clippy_peel_nav_commands_wave878_ok:

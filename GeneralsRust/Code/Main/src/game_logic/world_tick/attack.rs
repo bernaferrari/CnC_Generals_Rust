@@ -220,7 +220,7 @@ impl GameLogic {
             if u.max_shots_to_fire == 0 {
                 u.max_shots_to_fire = -1;
             }
-            u.note_attack_target(victim_id);
+            u.note_attack_target(victim_id, &mut self.attack_events);
             entered_attack = u.ai_state != AIState::Attacking;
             if entered_attack {
                 u.set_ai_state(AIState::Attacking);
@@ -487,7 +487,7 @@ impl GameLogic {
 
         let mut entered_attack = false;
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            u.note_attack_target(victim_id);
+            u.note_attack_target(victim_id, &mut self.attack_events);
             u.set_status_attacking(true);
             entered_attack = !matches!(
                 u.ai_state,
@@ -1704,7 +1704,7 @@ impl GameLogic {
                 return AttackAimResult::Failure;
             }
             u.set_status_aiming_weapon(true);
-            u.note_attack_target(victim_id);
+            u.note_attack_target(victim_id, &mut self.attack_events);
             {}
             let Some(slot) = u.selected_weapon_slot() else {
                 return AttackAimResult::Failure;
@@ -1835,7 +1835,7 @@ impl GameLogic {
                 return AttackFireResult::Failure;
             };
             u.set_status_firing_weapon(true);
-            u.note_attack_target(victim_id);
+            u.note_attack_target(victim_id, &mut self.attack_events);
             let entered_attack = !matches!(
                 u.ai_state,
                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
@@ -1853,6 +1853,7 @@ impl GameLogic {
                 victim_faerie,
                 self.frame,
                 &mut self.combat_system,
+                &mut self.attack_events,
             )
         };
 
@@ -2043,7 +2044,7 @@ impl GameLogic {
                 u.temporary_move_frames = 20
                     * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
             } else {
-                u.set_order_target(None);
+                u.clear_order_target();
                 u.set_status_attacking(false);
                 u.set_ai_state(AIState::Moving);
             }
@@ -2122,7 +2123,7 @@ impl GameLogic {
         u.set_status_attacking(false);
         u.target = None;
         u.target_location = None;
-        u.record_host_target_location();
+
         u.set_status_force_attack(false);
         u.ignored_obstacle_id = None;
         let left_attack = matches!(

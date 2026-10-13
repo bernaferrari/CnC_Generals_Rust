@@ -2611,6 +2611,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn fire_at_projectileless_weapon_skips_dummy_projectile() {
+        let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+
         let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
@@ -2645,7 +2647,7 @@ pub(in crate::game_logic) mod tests {
             last_fire_time: -10.0,
             ..Weapon::default()
         });
-        assert!(atk.fire_at(ObjectId(2), 1.0, 3, &mut combat));
+        assert!(atk.fire_at(ObjectId(2), 1.0, 3, &mut combat, &mut _attack_output,));
         let mut objects = HashMap::new();
         objects.insert(
             ObjectId(2),

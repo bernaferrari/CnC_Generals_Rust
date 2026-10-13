@@ -81,6 +81,8 @@ fn previous_acceleration_survives_clone_and_object_serde_round_trip() {
 
 #[test]
 fn return_to_base_blocks_fire_until_rearm() {
+    let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+
     let mut shot_combat = crate::game_logic::combat::CombatSystem::new();
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     use glam::Vec3;
@@ -103,12 +105,12 @@ fn return_to_base_blocks_fire_until_rearm() {
         ..Weapon::default()
     });
     let tgt = ObjectId(9);
-    assert!(jet.fire_at(tgt, 1.0, 0, &mut shot_combat));
+    assert!(jet.fire_at(tgt, 1.0, 0, &mut shot_combat, &mut _attack_output,));
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(1));
-    assert!(jet.fire_at(tgt, 1.0, 0, &mut shot_combat));
+    assert!(jet.fire_at(tgt, 1.0, 0, &mut shot_combat, &mut _attack_output,));
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(0));
     assert!(jet.needs_return_to_base_rearm());
-    assert!(!jet.fire_at(tgt, 2.0, 0, &mut shot_combat));
+    assert!(!jet.fire_at(tgt, 2.0, 0, &mut shot_combat, &mut _attack_output,));
     assert!(!Object::weapon_ready_named(
         jet.weapon.as_ref().unwrap(),
         2.0,
@@ -117,7 +119,7 @@ fn return_to_base_blocks_fire_until_rearm() {
     ));
     assert!(jet.rearm_return_to_base_weapons());
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(2));
-    assert!(jet.fire_at(tgt, 3.0, 0, &mut shot_combat));
+    assert!(jet.fire_at(tgt, 3.0, 0, &mut shot_combat, &mut _attack_output,));
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(1));
 }
 
@@ -277,6 +279,8 @@ fn empty_jet_circles_last_airfield_not_own_pos() {
 
 #[test]
 fn parked_jet_takeoff_on_attack_and_move() {
+    let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+
     use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     use glam::Vec3;
@@ -303,7 +307,7 @@ fn parked_jet_takeoff_on_attack_and_move() {
     jet.status.airborne_target = false;
     assert!(jet.is_parked_at_airfield());
     assert!(jet.can_attack()); // parked aircraft may sortie
-    jet.attack_target(ObjectId(7));
+    jet.attack_target(ObjectId(7), &mut _attack_output);
     assert!(jet.contained_by.is_none());
     assert_ne!(jet.ai_state, AIState::Docked);
     assert!(jet.status.airborne_target);
@@ -1754,6 +1758,8 @@ fn bounce_damps_pitch_roll_rates_not_zero() {
 
 #[test]
 fn shock_stun_blocks_attack_fire_and_flail_move() {
+    let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+
     let mut tmpl = ThingTemplate::new("StunBlock");
     tmpl.add_kind_of(KindOf::Vehicle);
     let mut o = Object::new(tmpl, ObjectId(42), Team::USA);
@@ -1783,7 +1789,7 @@ fn shock_stun_blocks_attack_fire_and_flail_move() {
     assert!(o.can_move(), "settled stun may stagger-move");
     // attack_target ignored while stunned.
     o.shock_stun_frames = 20;
-    o.attack_target(ObjectId(99));
+    o.attack_target(ObjectId(99), &mut _attack_output);
     assert!(o.target.is_none() || o.ai_state != AIState::Attacking || !o.can_attack());
     // After stun clears, combat again.
     o.shock_stun_frames = 0;
@@ -1795,6 +1801,8 @@ fn shock_stun_blocks_attack_fire_and_flail_move() {
 
 #[test]
 fn jet_stop_idle_timer_sneaky_and_lockon() {
+    let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+
     use crate::game_logic::object::{
         HostJetPendingResume, JetAiTickAction, STEALTH_FIGHTER_LOCKON_TIME_FRAMES,
     };
@@ -1889,7 +1897,7 @@ fn jet_stop_idle_timer_sneaky_and_lockon() {
     raptor.jet_ai.allow_interrupt_for_reload = false;
     raptor.jet_ai.has_pending_command = false;
     assert!(!raptor.jet_empty_clip_should_auto_rtb());
-    raptor.begin_guard_retaliate(ObjectId(9), Some(Vec3::ZERO), None);
+    raptor.begin_guard_retaliate(ObjectId(9), Some(Vec3::ZERO), None, &mut _attack_output);
     assert!(
         raptor.jet_ai.allow_interrupt_for_reload,
         "C++ GUARD_RETALIATE sets ALLOW_INTERRUPT_AND_RESUME_OF_CUR_STATE_FOR_RELOAD"

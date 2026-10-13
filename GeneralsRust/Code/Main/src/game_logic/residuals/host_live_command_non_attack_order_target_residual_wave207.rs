@@ -99,9 +99,9 @@ pub fn simulate_live_command_non_attack_order_target_honesty() -> bool {
         return false;
     };
 
-    if let Some(unit) = logic.host_object_mut(u) {
+    if let Some((unit, attack_events)) = logic.host_object_and_attack_events_mut(u) {
         unit.set_ai_state(AIState::Idle);
-        unit.set_order_target(Some(pad));
+        unit.set_order_target(Some(pad), attack_events);
         unit.set_ai_state(AIState::Docking);
         if unit.target != Some(pad) {
             return false;

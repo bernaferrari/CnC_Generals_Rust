@@ -4,10 +4,9 @@ use super::*;
 
 #[test]
 fn ai_decision_buffer_channel_via_push_ai_decision() {
-    use crate::game_logic::host_ai_decision_log;
+
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
 
     let mut logic = GameLogic::new();
 
@@ -48,14 +47,12 @@ fn ai_decision_buffer_channel_via_push_ai_decision() {
 
 #[test]
 fn ai_decision_authority_applies_attack_via_gameworld() {
-    use crate::game_logic::host_ai_decision_log;
+
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
 
     // Attack writeback must also be on for last-write.
-
-    host_ai_decision_log::clear();
 
     let cfg = golden_skirmish_config("AiDecAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -70,7 +67,10 @@ fn ai_decision_authority_applies_attack_via_gameworld() {
     let vid = logic
         .create_object("AdaU", Team::China, glam::Vec3::new(40.0, 0.0, 8.0))
         .expect("v");
-    logic.host_object_mut(oid).unwrap().set_target(Some(vid));
+    logic
+        .host_object_mut(oid)
+        .unwrap()
+        .set_target(Some(vid), &mut logic.attack_events);
     assert_eq!(logic.host_object(oid).unwrap().target, Some(vid));
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -84,10 +84,9 @@ fn ai_decision_authority_applies_attack_via_gameworld() {
 #[test]
 fn apply_ai_command_logs_and_host_applies_under_authority() {
     use crate::game_logic::game_logic::AICommand;
-    use crate::game_logic::host_ai_decision_log;
+
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
 
     let mut logic = GameLogic::new();
 
@@ -138,10 +137,9 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
 
 #[test]
 fn continue_attack_after_kill_decision_authority() {
-    use crate::game_logic::host_ai_decision_log;
+
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
 
     let mut logic = GameLogic::new();
 
@@ -187,10 +185,9 @@ fn continue_attack_after_kill_decision_authority() {
 
 #[test]
 fn assign_unit_attack_path_decision_authority() {
-    use crate::game_logic::host_ai_decision_log;
+
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
 
     let mut logic = GameLogic::new();
 
@@ -243,10 +240,9 @@ fn assign_unit_attack_path_decision_authority() {
 
 #[test]
 fn path_approach_with_state_decision_authority() {
-    use crate::game_logic::host_ai_decision_log;
+
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
 
     let mut logic = GameLogic::new();
 
@@ -281,10 +277,9 @@ fn path_approach_with_state_decision_authority() {
 
 #[test]
 fn troop_crawler_assault_decision_authority() {
-    use crate::game_logic::host_ai_decision_log;
+
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
 
     let mut logic = GameLogic::new();
 
@@ -350,10 +345,9 @@ fn troop_crawler_assault_decision_authority() {
 
 #[test]
 fn missile_defender_laser_guided_decision_authority() {
-    use crate::game_logic::host_ai_decision_log;
+
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
 
     let mut logic = GameLogic::new();
 
@@ -395,11 +389,14 @@ fn missile_defender_laser_guided_decision_authority() {
     assert!(ok, "laser guided should activate");
     // C++ SpecialAbilityUpdate advances startPreparation → continuePreparation
     // → triggerAbilityEffect on later updates (SpecialAbilityUpdate.cpp
-    // :1276-1293); the AttackTarget decision logs at the channel engage
-    // (engage_target_decision_aware), not at activation. Drive the channel
-    // (bounded, established facing/prep-slice pattern) until the decision lands.
+    // :1276-1293). Drive the actual preparation until it installs the
+    // secondary-weapon engagement on the canonical object.
     for _ in 0..600 {
-        if !host_ai_decision_log::snapshot().is_empty() {
+        if logic.host_object(mid).is_some_and(|object| {
+            object.target == Some(eid)
+                && object.ai_state == crate::game_logic::AIState::Attacking
+                && object.active_weapon_slot == 1
+        }) {
             break;
         }
         logic.update_support_states_for_test(&[mid, eid], 1.0 / 30.0);
@@ -425,10 +422,9 @@ fn missile_defender_laser_guided_decision_authority() {
 
 #[test]
 fn private_attack_object_decision_authority() {
-    use crate::game_logic::host_ai_decision_log;
+
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
 
     let mut logic = GameLogic::new();
 
@@ -480,10 +476,9 @@ fn private_attack_object_decision_authority() {
 
 #[test]
 fn transfer_attack_decision_authority() {
-    use crate::game_logic::host_ai_decision_log;
+
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
 
     let mut logic = GameLogic::new();
 
@@ -532,10 +527,9 @@ fn transfer_attack_decision_authority() {
 
 #[test]
 fn apply_engagement_decision_aware_writeback() {
-    use crate::game_logic::host_ai_decision_log;
+
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
 
     let mut logic = GameLogic::new();
 
@@ -577,10 +571,9 @@ fn apply_engagement_decision_aware_writeback() {
 
 #[test]
 fn mood_auto_acquire_logs_decision_under_authority() {
-    use crate::game_logic::host_ai_decision_log;
+
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
 
     let mut logic = GameLogic::new();
     logic.set_ai_definition_base(game_engine::common::ini::AIData {
@@ -673,10 +666,9 @@ fn mood_auto_acquire_logs_decision_under_authority() {
 
 #[test]
 fn support_guard_engage_uses_decision_authority() {
-    use crate::game_logic::host_ai_decision_log;
+
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
 
     let mut logic = GameLogic::new();
 
@@ -713,11 +705,10 @@ fn support_guard_engage_uses_decision_authority() {
 #[test]
 fn faction_ai_launch_attack_decision_authority_writeback() {
     use crate::ai::{AIDifficulty, AIPlayer};
-    use crate::game_logic::host_ai_decision_log;
+
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
 
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
 
     let mut logic = GameLogic::new();
 
@@ -792,10 +783,9 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
 
 #[test]
 fn stop_attack_decision_authority_clears_via_writeback() {
-    use crate::game_logic::host_ai_decision_log;
+
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
 
     let mut logic = GameLogic::new();
 
@@ -1012,8 +1002,6 @@ fn ai_decision_authority_applies_host_state_when_shadow_disabled() {
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
     let mut logic = GameLogic::new();
-
-    crate::game_logic::host_ai_decision_log::clear();
 
     let cfg = golden_skirmish_config("AiDecNoShadow");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");

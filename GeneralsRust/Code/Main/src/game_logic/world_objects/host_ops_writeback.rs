@@ -995,6 +995,25 @@ impl GameLogic {
         self.objects.get_mut(&id)
     }
 
+    /// Borrow the canonical subject and its receiving match's presentation
+    /// output together. Preserve named-unit history exactly as host_object_mut.
+    pub(crate) fn host_object_and_attack_events_mut(
+        &mut self,
+        id: ObjectId,
+    ) -> Option<(
+        &mut crate::game_logic::object::Object,
+        &mut crate::game_logic::host_attack_log::AttackEvents,
+    )> {
+        if let Some(object) = self.objects.get(&id) {
+            if !object.name.is_empty() {
+                self.named_unit_history.insert(object.name.clone());
+            }
+        }
+        self.objects
+            .get_mut(&id)
+            .map(|object| (object, &mut self.attack_events))
+    }
+
     pub(crate) fn set_host_object_name(&mut self, id: ObjectId, name: &str) -> bool {
         if name.is_empty() {
             return false;
@@ -1105,7 +1124,7 @@ impl GameLogic {
                 // Host attack channel (default production path — host ObjectIds only).
                 if let Some(obj_mut) = self.objects.get_mut(&object_id) {
                     obj_mut.set_force_attack(false);
-                    obj_mut.attack_target(target_id);
+                    obj_mut.attack_target(target_id, &mut self.attack_events);
                 }
                 // Host residual: path toward target, then ensure the unit is inside
                 // weapon range this command so combat can apply real HP damage on
@@ -1146,7 +1165,7 @@ impl GameLogic {
                                     let stand = glam::Vec3::new(stand.x, from.y, stand.z);
                                     if let Some(a) = self.objects.get_mut(&object_id) {
                                         a.set_position(stand);
-                                        a.attack_target(target_id);
+                                        a.attack_target(target_id, &mut self.attack_events);
                                         // Host-immediate engagement residual (host-only
                                         // path when movement auth is off).
                                         a.set_ai_state(AIState::Attacking);

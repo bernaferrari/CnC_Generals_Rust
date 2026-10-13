@@ -510,7 +510,7 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
     }
     logic.dozer_internal_task_complete(dozer, true);
     if let Some(dz) = logic.host_object_mut(dozer) {
-        dz.set_target(None);
+        dz.clear_target();
         dz.set_ai_state(AIState::Idle);
     }
     assert!(
@@ -576,7 +576,7 @@ fn same_frame_build_repair_tie_resumes_build() {
         assert_eq!(dz.dozer_task_repair_target, Some(damaged));
     }
     if let Some(dz) = logic.host_object_mut(dozer) {
-        dz.set_target(None);
+        dz.clear_target();
         dz.set_ai_state(AIState::Idle);
     }
     assert!(
@@ -617,7 +617,7 @@ fn idle_resumes_parked_repair_when_most_recent() {
     damage_for_fixture(&mut logic, damaged, 200.0);
     logic.dozer_new_task_repair(dozer, damaged);
     if let Some(dz) = logic.host_object_mut(dozer) {
-        dz.set_target(None);
+        dz.clear_target();
         dz.set_ai_state(AIState::Idle);
     }
     assert!(
@@ -674,7 +674,7 @@ fn idle_resumes_repair_parked_by_newer_build() {
     logic.frame = 9;
     logic.dozer_new_task_build(dozer, scaffold);
     if let Some(dz) = logic.host_object_mut(dozer) {
-        dz.set_target(None);
+        dz.clear_target();
         dz.set_ai_state(AIState::Idle);
     }
     assert!(
@@ -687,7 +687,7 @@ fn idle_resumes_repair_parked_by_newer_build() {
     );
     logic.dozer_internal_task_complete(dozer, false);
     if let Some(dz) = logic.host_object_mut(dozer) {
-        dz.set_target(None);
+        dz.clear_target();
         dz.set_ai_state(AIState::Idle);
     }
     assert!(
@@ -847,7 +847,7 @@ fn execute_build_records_build_slot_and_docks_off_center() {
         assert!(sc.status.under_construction);
     }
     if let Some(dz) = logic.host_object_mut(dozer) {
-        dz.set_target(None);
+        dz.clear_target();
         dz.set_ai_state(AIState::Idle);
         dz.set_position(Vec3::new(400.0, 0.0, 0.0));
     }

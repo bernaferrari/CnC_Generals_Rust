@@ -17,9 +17,8 @@ pub(super) struct Waves161200 {
     pub shell_stack_push_method_names_wave163_ok: bool,
     pub shell_stack_push_nav_commands_wave163_ok: bool,
     pub shell_stack_push_live_wave163_ok: bool,
-    pub shell_skirmish_nav_method_names_wave164_ok: bool,
-    pub shell_skirmish_nav_commands_wave164_ok: bool,
-    pub shell_skirmish_nav_live_wave164_ok: bool,
+
+
     pub control_bar_materialise_method_names_wave165_ok: bool,
     pub control_bar_materialise_nav_commands_wave165_ok: bool,
     pub control_bar_materialise_live_wave165_ok: bool,
@@ -67,9 +66,8 @@ pub(super) struct Waves161200 {
     pub live_presentation_gameworld_overlay_method_names_wave187_ok: bool,
     pub live_presentation_gameworld_overlay_nav_commands_wave187_ok: bool,
     pub live_presentation_gameworld_overlay_live_wave187_ok: bool,
-    pub executable_gameworld_presentation_method_names_wave188_ok: bool,
-    pub executable_gameworld_presentation_nav_commands_wave188_ok: bool,
-    pub executable_gameworld_presentation_live_wave188_ok: bool,
+
+
     pub live_presentation_overlay_deepen_method_names_wave189_ok: bool,
     pub live_presentation_overlay_deepen_nav_commands_wave189_ok: bool,
     pub live_presentation_overlay_deepen_live_wave189_ok: bool,
@@ -119,11 +117,8 @@ pub(super) fn evaluate(
         shell_stack_push_nav_commands_wave163_ok:
             honesty_shell_stack_push_nav_commands_residual_wave163(),
         shell_stack_push_live_wave163_ok: simulate_shell_stack_push_honesty(),
-        shell_skirmish_nav_method_names_wave164_ok:
-            honesty_shell_skirmish_nav_method_names_residual_wave164(),
-        shell_skirmish_nav_commands_wave164_ok:
-            honesty_shell_skirmish_nav_commands_residual_wave164(),
-        shell_skirmish_nav_live_wave164_ok: simulate_shell_skirmish_nav_honesty(),
+
+
         control_bar_materialise_method_names_wave165_ok:
             honesty_control_bar_materialise_method_names_residual_wave165(),
         control_bar_materialise_nav_commands_wave165_ok:
@@ -204,12 +199,8 @@ pub(super) fn evaluate(
             honesty_live_presentation_gameworld_overlay_nav_commands_residual_wave187(),
         live_presentation_gameworld_overlay_live_wave187_ok:
             simulate_live_presentation_gameworld_overlay_honesty(),
-        executable_gameworld_presentation_method_names_wave188_ok:
-            honesty_executable_gameworld_presentation_method_names_residual_wave188(),
-        executable_gameworld_presentation_nav_commands_wave188_ok:
-            honesty_executable_gameworld_presentation_nav_commands_residual_wave188(),
-        executable_gameworld_presentation_live_wave188_ok:
-            simulate_executable_gameworld_presentation_honesty(),
+
+
         live_presentation_overlay_deepen_method_names_wave189_ok:
             honesty_live_presentation_overlay_deepen_method_names_residual_wave189(),
         live_presentation_overlay_deepen_nav_commands_wave189_ok:

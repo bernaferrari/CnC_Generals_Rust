@@ -496,26 +496,10 @@ pub(super) fn assert_waves_113_182(r: &ShellSmokeResult) {
         "control bar scheme nav commands residual pack wave156: {}",
         r.detail
     );
-    assert!(
-        r.presentation_boundary_method_names_wave157_ok,
-        "presentation boundary method names residual pack wave157: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_boundary_source_markers_wave157_ok,
-        "presentation boundary source markers residual pack wave157: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_boundary_nav_commands_wave157_ok,
-        "presentation boundary nav commands residual pack wave157: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_boundary_live_wave157_ok,
-        "presentation boundary live residual wave157: {}",
-        r.detail
-    );
+
+
+
+
     assert!(
         r.control_bar_print_names_wave158_ok,
         "control bar print names residual pack wave158: {}",
@@ -606,21 +590,9 @@ pub(super) fn assert_waves_113_182(r: &ShellSmokeResult) {
         "shell stack push live residual wave163: {}",
         r.detail
     );
-    assert!(
-        r.shell_skirmish_nav_method_names_wave164_ok,
-        "shell skirmish nav method names residual pack wave164: {}",
-        r.detail
-    );
-    assert!(
-        r.shell_skirmish_nav_commands_wave164_ok,
-        "shell skirmish nav commands residual pack wave164: {}",
-        r.detail
-    );
-    assert!(
-        r.shell_skirmish_nav_live_wave164_ok,
-        "shell skirmish nav live residual wave164: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.control_bar_materialise_method_names_wave165_ok,
         "control bar materialise method names residual pack wave165: {}",

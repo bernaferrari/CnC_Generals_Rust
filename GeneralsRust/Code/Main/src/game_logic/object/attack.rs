@@ -8,8 +8,17 @@ impl Object {
         current_time: f32,
         logic_frame: u32,
         combat: &mut super::combat::CombatSystem,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
     ) -> bool {
-        self.fire_at_ex(target_id, current_time, false, false, logic_frame, combat)
+        self.fire_at_ex(
+            target_id,
+            current_time,
+            false,
+            false,
+            logic_frame,
+            combat,
+            attack_events,
+        )
     }
 
     /// Fire at target with KindOf-aware scatter residual.
@@ -22,6 +31,7 @@ impl Object {
         target_has_faerie_fire: bool,
         logic_frame: u32,
         combat: &mut super::combat::CombatSystem,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
     ) -> bool {
         let Some(slot) = self.fire_at_ex_defer_weapon_barrel_advance(
             target_id,
@@ -30,6 +40,7 @@ impl Object {
             target_has_faerie_fire,
             logic_frame,
             combat,
+            attack_events,
         ) else {
             return false;
         };
@@ -56,6 +67,7 @@ impl Object {
         target_has_faerie_fire: bool,
         logic_frame: u32,
         combat: &mut super::combat::CombatSystem,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
     ) -> Option<u8> {
         // C++ Weapon::getMaxShotCount residual — AI burst / scatter limits.
         if !self.has_max_shots_remaining() {
@@ -155,16 +167,16 @@ impl Object {
                 self.pre_attack_target != Some(target_id) || self.pre_attack_ready_at <= 0.0;
             if needs_arm {
                 self.pre_attack_target = Some(target_id);
-                self.record_host_combat_attack();
+
                 self.pre_attack_ready_at = current_time + pre_delay;
                 self.weapon_fire_status = WeaponFireStatus::PreAttack;
                 self.sync_weapon_model_conditions_from_status();
-                self.record_host_combat_attack();
+
                 // C++ Weapon::preFireWeapon LeechRange activate residual.
                 self.activate_leech_range_for_slot(slot);
             }
             if current_time + 1e-6 < self.pre_attack_ready_at {
-                self.note_attack_target(target_id);
+                self.note_attack_target(target_id, attack_events);
                 let entered_attack = !matches!(
                     self.ai_state,
                     AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
@@ -178,10 +190,10 @@ impl Object {
             // Delay complete — fall through to fire; record_shot clears ready_at.
         } else {
             self.pre_attack_target = Some(target_id);
-            self.record_host_combat_attack();
+
         }
 
-        self.note_attack_target(target_id);
+        self.note_attack_target(target_id, attack_events);
         let entered_attack = !matches!(
             self.ai_state,
             AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
@@ -588,7 +600,7 @@ impl Object {
         if self.is_kind_of(crate::game_logic::KindOf::Projectile) {
             self.set_precise_z_pos(false);
         }
-        self.record_host_combat_attack();
+
         self.is_blocked = false;
         self.is_blocked_and_stuck = false;
         // Only pure locomotion returns to Idle when the destination is reached.
@@ -601,7 +613,11 @@ impl Object {
         self.record_host_movement();
     }
 
-    pub fn attack_target(&mut self, target_id: ObjectId) {
+    pub fn attack_target(
+        &mut self,
+        target_id: ObjectId,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+    ) {
         if !self.is_alive() {
             return;
         }
@@ -615,16 +631,16 @@ impl Object {
             if self.pre_attack_target != Some(target_id) {
                 // New target — fire_at will start PRE_ATTACK clock.
                 self.pre_attack_target = None;
-                self.record_host_combat_attack();
+
                 self.pre_attack_ready_at = 0.0;
-                self.record_host_combat_attack();
+
             }
             self.target = Some(target_id);
             self.target_location = None;
             self.set_status_force_attack(false);
             self.set_ai_state(AIState::Attacking);
             self.status.attacking = true;
-            crate::game_logic::host_attack_log::record(self.id, Some(target_id));
+            attack_events.record(self.id, target_id);
         }
     }
 
@@ -715,21 +731,21 @@ impl Object {
         self.release_weapon_lock(WeaponLockType::LockedTemporarily);
         self.target = None;
         self.target_location = None;
-        self.record_host_target_location();
+
         self.set_status_force_attack(false);
         self.pre_attack_target = None;
-        self.record_host_combat_attack();
+
         self.pre_attack_ready_at = 0.0;
-        self.record_host_combat_attack();
+
         self.consecutive_shot_target = None;
         self.consecutive_shots_at_target = 0;
-        self.record_host_combat_attack();
+
         self.clear_leech_range_mode_for_all_weapons();
         self.status.attacking = false;
         self.set_status_aiming_weapon(false);
         self.set_status_firing_weapon(false);
         self.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
-        crate::game_logic::host_attack_log::record(self.id, None);
+
         // C++ parity: guard units return to guard; Hunt stays in AI_HUNT;
         // attack-move keeps AI_ATTACK_MOVE_TO so dest can resume.
         let stay_hunt = matches!(self.ai_state, AIState::Patrolling);
@@ -946,6 +962,8 @@ mod tests {
 
     #[test]
     fn explicit_tertiary_fire_uses_the_real_third_slot() {
+        let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+
         let mut shot_combat = crate::game_logic::combat::CombatSystem::new();
         let mut attacker = Object::new(
             ThingTemplate::new("ThreeSlotAttacker"),
@@ -969,7 +987,7 @@ mod tests {
         // authoritative and must retain tertiary identity while firing.
         attacker.set_active_weapon_slot(0);
 
-        assert!(attacker.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat));
+        assert!(attacker.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, &mut _attack_output,));
         assert_eq!(attacker.last_fire_slot, 2);
         assert!((attacker.last_fire_damage - 37.0).abs() < f32::EPSILON);
         assert_eq!(
@@ -988,6 +1006,8 @@ mod tests {
 
     #[test]
     fn fire_at_grant_stealth_keeps_can_stealth() {
+        let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+
         let mut shot_combat = crate::game_logic::combat::CombatSystem::new();
         // C++ StealthUpdate.cpp:198 receiveGrant stays CAN_STEALTH after fire.
         let mut unit = Object::new(ThingTemplate::new("TestTank"), ObjectId(1), Team::GLA);
@@ -1000,7 +1020,7 @@ mod tests {
         unit.apply_grant_stealth();
         unit.stealth_breaks_on_attack = true;
         unit.stealth_delay_frames = 30;
-        assert!(unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat));
+        assert!(unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, &mut _attack_output,));
         assert!(!unit.status.stealthed);
         assert!(
             unit.innate_stealth,
@@ -1020,6 +1040,8 @@ mod tests {
 
     #[test]
     fn fire_at_rejects_sold_and_under_construction() {
+        let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+
         let mut shot_combat = crate::game_logic::combat::CombatSystem::new();
         let mut unit = Object::new(ThingTemplate::new("PatriotBattery"), ObjectId(1), Team::USA);
         unit.weapon = Some(Weapon {
@@ -1029,11 +1051,11 @@ mod tests {
             ..Weapon::default()
         });
         unit.status.under_construction = true;
-        assert!(!unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat));
+        assert!(!unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, &mut _attack_output,));
         unit.status.under_construction = false;
         unit.status.sold = true;
-        assert!(!unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat));
+        assert!(!unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, &mut _attack_output,));
         unit.status.sold = false;
-        assert!(unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat));
+        assert!(unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, &mut _attack_output,));
     }
 }

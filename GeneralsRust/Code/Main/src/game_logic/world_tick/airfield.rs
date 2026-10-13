@@ -553,7 +553,7 @@ impl GameLogic {
                 if jet.target.is_some() || jet.target_location.is_some() {
                     jet.target = None;
                     jet.target_location = None;
-                    jet.record_host_target_location();
+
                     jet.set_status_attacking(false);
                 }
                 if jet.ai_state != AIState::Moving {

@@ -218,7 +218,7 @@ impl GameLogic {
             // holds AI_BUSY per AIUpdate.cpp:4006 privateBusy). Stamp only the
             // order target: Object::set_target would force AIState::Attacking
             // (orders.rs:30-47).
-            attacker.set_order_target(Some(target_id));
+            attacker.set_order_target(Some(target_id), &mut self.attack_events);
             {}
             // Kill XP awarded after this borrow via award_experience.
         }

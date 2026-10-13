@@ -264,7 +264,7 @@ impl GameLogic {
                 // Non-mood fire residual: ensure flag stays clear.
                 attacker.turret_mood_target = false;
             }
-            attacker.note_attack_target(target_id);
+            attacker.note_attack_target(target_id, &mut self.attack_events);
             let entered_attack = !matches!(
                 attacker.ai_state,
                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
@@ -618,7 +618,7 @@ impl GameLogic {
             {}
             // Track engagement for UI / subsequent frames without requiring
             // a player AttackObject. Structures stay immobile (no chase).
-            attacker.note_attack_target(target_id);
+            attacker.note_attack_target(target_id, &mut self.attack_events);
             let entered_attack = !matches!(
                 attacker.ai_state,
                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
@@ -1062,7 +1062,7 @@ impl GameLogic {
                 }
                 // AI attack authority: residual fire-intent for GameWorld last-writer.
                 {}
-                asst.note_attack_target(clip.victim_id);
+                asst.note_attack_target(clip.victim_id, &mut self.attack_events);
                 let entered_attack = !matches!(
                     asst.ai_state,
                     AIState::Patrolling | AIState::AttackMoving | AIState::Attacking

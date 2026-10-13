@@ -58,7 +58,7 @@ fn empty_resolved_team_clears_previous_attack_without_faction_fallback() {
     owner
         .host_object_mut(unit)
         .unwrap()
-        .set_target(Some(target));
+        .set_target(Some(target), &mut owner.attack_events);
     owner
         .host_object_mut(unit)
         .unwrap()
@@ -166,10 +166,10 @@ fn team_stop_disband_stops_then_recruits_and_merges_actual_owned_rosters() {
             .unwrap()
             .set_controlling_player_id(Some(1));
     }
-    let object = owner.host_object_mut(unit).unwrap();
+    let (object, attack_events) = owner.host_object_and_attack_events_mut(unit).unwrap();
     object.team_instance_name = "StopDisbandSource".into();
     object.is_recruitable = false;
-    object.set_target(Some(target));
+    object.set_target(Some(target), attack_events);
     object.set_ai_state(AIState::Attacking);
     let peer_name = foreign
         .host_object(peer)

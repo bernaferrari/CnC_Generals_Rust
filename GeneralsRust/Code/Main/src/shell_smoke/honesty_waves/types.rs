@@ -124,9 +124,7 @@ pub struct WaveHonesty {
     pub live_replace_object_upgrade_dual_world_empty_gate_live_wave446_ok: bool,
 
 
-    pub live_contain_module_overrides_fail_closed_method_names_wave449_ok: bool,
-    pub live_contain_module_overrides_fail_closed_nav_commands_wave449_ok: bool,
-    pub live_contain_module_overrides_fail_closed_live_wave449_ok: bool,
+
 
 
 
@@ -157,9 +155,9 @@ pub struct WaveHonesty {
     pub terrain_visual_presentation_only_method_names_wave459_ok: bool,
     pub terrain_visual_presentation_only_nav_commands_wave459_ok: bool,
     pub terrain_visual_presentation_only_live_wave459_ok: bool,
-    pub camera_center_presentation_height_method_names_wave460_ok: bool,
-    pub camera_center_presentation_height_nav_commands_wave460_ok: bool,
-    pub camera_center_presentation_height_live_wave460_ok: bool,
+
+
+
     pub presentation_world_bounds_probe_method_names_wave461_ok: bool,
     pub presentation_world_bounds_probe_nav_commands_wave461_ok: bool,
     pub presentation_world_bounds_probe_live_wave461_ok: bool,
@@ -175,66 +173,40 @@ pub struct WaveHonesty {
     pub presentation_env_seed_gameworld_method_names_wave466_ok: bool,
     pub presentation_env_seed_gameworld_nav_commands_wave466_ok: bool,
     pub presentation_env_seed_gameworld_live_wave466_ok: bool,
-    pub presentation_env_seed_mirror_last_method_names_wave467_ok: bool,
-    pub presentation_env_seed_mirror_last_nav_commands_wave467_ok: bool,
-    pub presentation_env_seed_mirror_last_live_wave467_ok: bool,
-    pub minimap_reinit_instance_presentation_method_names_wave468_ok: bool,
-    pub minimap_reinit_instance_presentation_nav_commands_wave468_ok: bool,
-    pub minimap_reinit_instance_presentation_live_wave468_ok: bool,
-    pub pathfind_midframe_stub_removed_method_names_wave469_ok: bool,
-    pub pathfind_midframe_stub_removed_nav_commands_wave469_ok: bool,
-    pub pathfind_midframe_stub_removed_live_wave469_ok: bool,
-    pub projectile_authority_flare_host_method_names_wave470_ok: bool,
-    pub projectile_authority_flare_host_nav_commands_wave470_ok: bool,
-    pub projectile_authority_flare_host_live_wave470_ok: bool,
-    pub engine_env_free_fn_game_logic_only_seed_method_names_wave471_ok: bool,
-    pub engine_env_free_fn_game_logic_only_seed_nav_commands_wave471_ok: bool,
-    pub engine_env_free_fn_game_logic_only_seed_live_wave471_ok: bool,
+
+
+
     pub dead_model_preload_removed_method_names_wave472_ok: bool,
     pub dead_model_preload_removed_nav_commands_wave472_ok: bool,
     pub dead_model_preload_removed_live_wave472_ok: bool,
     pub camera_bootstrap_presentation_only_method_names_wave473_ok: bool,
     pub camera_bootstrap_presentation_only_nav_commands_wave473_ok: bool,
     pub camera_bootstrap_presentation_only_live_wave473_ok: bool,
-    pub ensure_presentation_env_instance_method_names_wave474_ok: bool,
-    pub ensure_presentation_env_instance_nav_commands_wave474_ok: bool,
-    pub ensure_presentation_env_instance_live_wave474_ok: bool,
+
     pub map_ground_no_registry_pose_dual_write_method_names_wave475_ok: bool,
     pub map_ground_no_registry_pose_dual_write_nav_commands_wave475_ok: bool,
     pub map_ground_no_registry_pose_dual_write_live_wave475_ok: bool,
     pub named_shell_host_only_tracker_method_names_wave476_ok: bool,
     pub named_shell_host_only_tracker_nav_commands_wave476_ok: bool,
     pub named_shell_host_only_tracker_live_wave476_ok: bool,
-    pub production_sole_tick_no_progress_stomp_method_names_wave477_ok: bool,
-    pub production_sole_tick_no_progress_stomp_nav_commands_wave477_ok: bool,
-    pub production_sole_tick_no_progress_stomp_live_wave477_ok: bool,
+
     pub construction_sole_tick_no_progress_stomp_method_names_wave478_ok: bool,
     pub construction_sole_tick_no_progress_stomp_nav_commands_wave478_ok: bool,
     pub construction_sole_tick_no_progress_stomp_live_wave478_ok: bool,
-    pub special_power_sole_tick_no_cooldown_stomp_method_names_wave479_ok: bool,
-    pub special_power_sole_tick_no_cooldown_stomp_nav_commands_wave479_ok: bool,
-    pub special_power_sole_tick_no_cooldown_stomp_live_wave479_ok: bool,
-    pub production_sole_tick_exit_delay_arm_method_names_wave480_ok: bool,
-    pub production_sole_tick_exit_delay_arm_nav_commands_wave480_ok: bool,
-    pub production_sole_tick_exit_delay_arm_live_wave480_ok: bool,
+
+
+
     pub sell_deconstruction_sole_tick_no_stomp_method_names_wave481_ok: bool,
     pub sell_deconstruction_sole_tick_no_stomp_nav_commands_wave481_ok: bool,
     pub sell_deconstruction_sole_tick_no_stomp_live_wave481_ok: bool,
-    pub sell_finish_skips_topple_destroy_method_names_wave482_ok: bool,
-    pub sell_finish_skips_topple_destroy_nav_commands_wave482_ok: bool,
-    pub sell_finish_skips_topple_destroy_live_wave482_ok: bool,
-    pub production_upgrade_complete_queue_refresh_method_names_wave483_ok: bool,
-    pub production_upgrade_complete_queue_refresh_nav_commands_wave483_ok: bool,
-    pub production_upgrade_complete_queue_refresh_live_wave483_ok: bool,
-    pub cancel_all_production_queue_refresh_method_names_wave484_ok: bool,
-    pub cancel_all_production_queue_refresh_nav_commands_wave484_ok: bool,
-    pub cancel_all_production_queue_refresh_live_wave484_ok: bool,
+
+
+
     pub cancel_clears_exit_delay_method_names_wave485_ok: bool,
     pub cancel_clears_exit_delay_nav_commands_wave485_ok: bool,
     pub cancel_clears_exit_delay_live_wave485_ok: bool,
-    pub production_door_model_condition_log_method_names_wave486_ok: bool,
-    pub production_door_model_condition_log_nav_commands_wave486_ok: bool,
-    pub production_door_model_condition_log_live_wave486_ok: bool,
+
+
     pub combat_model_condition_channel_method_names_wave487_ok: bool,
     pub combat_model_condition_channel_nav_commands_wave487_ok: bool,
     pub combat_model_condition_channel_live_wave487_ok: bool,
@@ -247,9 +219,7 @@ pub struct WaveHonesty {
     pub entity_presentation_structure_ui_method_names_wave490_ok: bool,
     pub entity_presentation_structure_ui_nav_commands_wave490_ok: bool,
     pub entity_presentation_structure_ui_live_wave490_ok: bool,
-    pub presentation_mesh_sold_condition_method_names_wave491_ok: bool,
-    pub presentation_mesh_sold_condition_nav_commands_wave491_ok: bool,
-    pub presentation_mesh_sold_condition_live_wave491_ok: bool,
+
     pub entity_presentation_mesh_fow_method_names_wave492_ok: bool,
     pub entity_presentation_mesh_fow_nav_commands_wave492_ok: bool,
     pub entity_presentation_mesh_fow_live_wave492_ok: bool,
@@ -265,9 +235,8 @@ pub struct WaveHonesty {
     pub presentation_mesh_door_phase_method_names_wave496_ok: bool,
     pub presentation_mesh_door_phase_nav_commands_wave496_ok: bool,
     pub presentation_mesh_door_phase_live_wave496_ok: bool,
-    pub presentation_mesh_condition_resolve_method_names_wave497_ok: bool,
-    pub presentation_mesh_condition_resolve_nav_commands_wave497_ok: bool,
-    pub presentation_mesh_condition_resolve_live_wave497_ok: bool,
+
+
     pub presentation_host_fx_overlay_method_names_wave498_ok: bool,
     pub presentation_host_fx_overlay_nav_commands_wave498_ok: bool,
     pub presentation_host_fx_overlay_live_wave498_ok: bool,
@@ -310,9 +279,8 @@ pub struct WaveHonesty {
     pub presentation_burn_cheer_carry_method_names_wave511_ok: bool,
     pub presentation_burn_cheer_carry_nav_commands_wave511_ok: bool,
     pub presentation_burn_cheer_carry_live_wave511_ok: bool,
-    pub presentation_fire_prone_turret_method_names_wave512_ok: bool,
-    pub presentation_fire_prone_turret_nav_commands_wave512_ok: bool,
-    pub presentation_fire_prone_turret_live_wave512_ok: bool,
+
+
     pub presentation_jam_die_reload_pack_method_names_wave513_ok: bool,
     pub presentation_jam_die_reload_pack_nav_commands_wave513_ok: bool,
     pub presentation_jam_die_reload_pack_live_wave513_ok: bool,
@@ -370,9 +338,8 @@ pub struct WaveHonesty {
     pub command_integration_presentation_fill_method_names_wave531_ok: bool,
     pub command_integration_presentation_fill_nav_commands_wave531_ok: bool,
     pub command_integration_presentation_fill_live_wave531_ok: bool,
-    pub presentation_firesound_drain_sibling_method_names_wave532_ok: bool,
-    pub presentation_firesound_drain_sibling_nav_commands_wave532_ok: bool,
-    pub presentation_firesound_drain_sibling_live_wave532_ok: bool,
+
+
     pub presentation_eva_pulse_audio_method_names_wave533_ok: bool,
     pub presentation_eva_pulse_audio_nav_commands_wave533_ok: bool,
     pub presentation_eva_pulse_audio_live_wave533_ok: bool,
@@ -385,9 +352,7 @@ pub struct WaveHonesty {
     pub presentation_eva_client_dispatch_method_names_wave536_ok: bool,
     pub presentation_eva_client_dispatch_nav_commands_wave536_ok: bool,
     pub presentation_eva_client_dispatch_live_wave536_ok: bool,
-    pub presentation_eva_alert_counter_dedupe_method_names_wave537_ok: bool,
-    pub presentation_eva_alert_counter_dedupe_nav_commands_wave537_ok: bool,
-    pub presentation_eva_alert_counter_dedupe_live_wave537_ok: bool,
+
     pub presentation_alliance_notify_method_names_wave538_ok: bool,
     pub presentation_alliance_notify_nav_commands_wave538_ok: bool,
     pub presentation_alliance_notify_live_wave538_ok: bool,
@@ -409,9 +374,7 @@ pub struct WaveHonesty {
     pub ui_selection_seed_presentation_fail_closed_method_names_wave544_ok: bool,
     pub ui_selection_seed_presentation_fail_closed_nav_commands_wave544_ok: bool,
     pub ui_selection_seed_presentation_fail_closed_live_wave544_ok: bool,
-    pub save_restart_presentation_fail_closed_method_names_wave545_ok: bool,
-    pub save_restart_presentation_fail_closed_nav_commands_wave545_ok: bool,
-    pub save_restart_presentation_fail_closed_live_wave545_ok: bool,
+
     pub host_status_map_presentation_fail_closed_method_names_wave546_ok: bool,
     pub host_status_map_presentation_fail_closed_nav_commands_wave546_ok: bool,
     pub host_status_map_presentation_fail_closed_live_wave546_ok: bool,
@@ -430,9 +393,9 @@ pub struct WaveHonesty {
     pub time_frozen_presentation_helper_method_names_wave551_ok: bool,
     pub time_frozen_presentation_helper_nav_commands_wave551_ok: bool,
     pub time_frozen_presentation_helper_live_wave551_ok: bool,
-    pub shell_bypass_presentation_helper_method_names_wave552_ok: bool,
-    pub shell_bypass_presentation_helper_nav_commands_wave552_ok: bool,
-    pub shell_bypass_presentation_helper_live_wave552_ok: bool,
+
+
+
     pub play_time_local_player_presentation_helper_method_names_wave553_ok: bool,
     pub play_time_local_player_presentation_helper_nav_commands_wave553_ok: bool,
     pub play_time_local_player_presentation_helper_live_wave553_ok: bool,
@@ -442,9 +405,7 @@ pub struct WaveHonesty {
     pub science_team_presentation_helper_method_names_wave555_ok: bool,
     pub science_team_presentation_helper_nav_commands_wave555_ok: bool,
     pub science_team_presentation_helper_live_wave555_ok: bool,
-    pub victory_presentation_helper_method_names_wave556_ok: bool,
-    pub victory_presentation_helper_nav_commands_wave556_ok: bool,
-    pub victory_presentation_helper_live_wave556_ok: bool,
+
     pub replay_presentation_helper_method_names_wave557_ok: bool,
     pub replay_presentation_helper_nav_commands_wave557_ok: bool,
     pub replay_presentation_helper_live_wave557_ok: bool,
@@ -490,9 +451,9 @@ pub struct WaveHonesty {
     pub popup_music_helper_method_names_wave571_ok: bool,
     pub popup_music_helper_nav_commands_wave571_ok: bool,
     pub popup_music_helper_live_wave571_ok: bool,
-    pub boot_camera_helper_method_names_wave572_ok: bool,
-    pub boot_camera_helper_nav_commands_wave572_ok: bool,
-    pub boot_camera_helper_live_wave572_ok: bool,
+
+
+
     pub boot_player_info_helper_method_names_wave573_ok: bool,
     pub boot_player_info_helper_nav_commands_wave573_ok: bool,
     pub boot_player_info_helper_live_wave573_ok: bool,
@@ -523,12 +484,9 @@ pub struct WaveHonesty {
     pub host_enqueue_shell_cmd_helper_method_names_wave582_ok: bool,
     pub host_enqueue_shell_cmd_helper_nav_commands_wave582_ok: bool,
     pub host_enqueue_shell_cmd_helper_live_wave582_ok: bool,
-    pub host_runtime_cmd_helper_method_names_wave583_ok: bool,
-    pub host_runtime_cmd_helper_nav_commands_wave583_ok: bool,
-    pub host_runtime_cmd_helper_live_wave583_ok: bool,
-    pub host_tick_mutation_helper_method_names_wave584_ok: bool,
-    pub host_tick_mutation_helper_nav_commands_wave584_ok: bool,
-    pub host_tick_mutation_helper_live_wave584_ok: bool,
+
+
+
     pub host_ui_shell_world_helper_method_names_wave585_ok: bool,
     pub host_ui_shell_world_helper_nav_commands_wave585_ok: bool,
     pub host_ui_shell_world_helper_live_wave585_ok: bool,
@@ -541,33 +499,18 @@ pub struct WaveHonesty {
     pub host_game_client_menu_shell_helper_method_names_wave588_ok: bool,
     pub host_game_client_menu_shell_helper_nav_commands_wave588_ok: bool,
     pub host_game_client_menu_shell_helper_live_wave588_ok: bool,
-    pub host_presentation_finalize_helper_method_names_wave589_ok: bool,
-    pub host_presentation_finalize_helper_nav_commands_wave589_ok: bool,
-    pub host_presentation_finalize_helper_live_wave589_ok: bool,
-    pub host_presentation_seed_helper_method_names_wave590_ok: bool,
-    pub host_presentation_seed_helper_nav_commands_wave590_ok: bool,
-    pub host_presentation_seed_helper_live_wave590_ok: bool,
-    pub host_render_ui_presentation_helper_method_names_wave591_ok: bool,
-    pub host_render_ui_presentation_helper_nav_commands_wave591_ok: bool,
-    pub host_render_ui_presentation_helper_live_wave591_ok: bool,
-    pub host_render_ui_overlays_helper_method_names_wave592_ok: bool,
-    pub host_render_ui_overlays_helper_nav_commands_wave592_ok: bool,
-    pub host_render_ui_overlays_helper_live_wave592_ok: bool,
+
+
+
     pub host_render_ui_finalize_helper_method_names_wave593_ok: bool,
     pub host_render_ui_finalize_helper_nav_commands_wave593_ok: bool,
     pub host_render_ui_finalize_helper_live_wave593_ok: bool,
-    pub host_minimap_bounds_repair_helper_method_names_wave594_ok: bool,
-    pub host_minimap_bounds_repair_helper_nav_commands_wave594_ok: bool,
-    pub host_minimap_bounds_repair_helper_live_wave594_ok: bool,
-    pub host_production_complete_apply_helper_method_names_wave595_ok: bool,
-    pub host_production_complete_apply_helper_nav_commands_wave595_ok: bool,
-    pub host_production_complete_apply_helper_live_wave595_ok: bool,
+
+
     pub host_camera_queue_drain_helper_method_names_wave596_ok: bool,
     pub host_camera_queue_drain_helper_nav_commands_wave596_ok: bool,
     pub host_camera_queue_drain_helper_live_wave596_ok: bool,
-    pub host_gameworld_shadow_session_helper_method_names_wave597_ok: bool,
-    pub host_gameworld_shadow_session_helper_nav_commands_wave597_ok: bool,
-    pub host_gameworld_shadow_session_helper_live_wave597_ok: bool,
+
     pub host_ingame_hud_helper_method_names_wave598_ok: bool,
     pub host_ingame_hud_helper_nav_commands_wave598_ok: bool,
     pub host_ingame_hud_helper_live_wave598_ok: bool,
@@ -577,12 +520,8 @@ pub struct WaveHonesty {
     pub host_post_presentation_client_helper_method_names_wave600_ok: bool,
     pub host_post_presentation_client_helper_nav_commands_wave600_ok: bool,
     pub host_post_presentation_client_helper_live_wave600_ok: bool,
-    pub host_restart_pause_helper_method_names_wave601_ok: bool,
-    pub host_restart_pause_helper_nav_commands_wave601_ok: bool,
-    pub host_restart_pause_helper_live_wave601_ok: bool,
-    pub host_ingame_logic_shell_helper_method_names_wave602_ok: bool,
-    pub host_ingame_logic_shell_helper_nav_commands_wave602_ok: bool,
-    pub host_ingame_logic_shell_helper_live_wave602_ok: bool,
+
+
     pub host_paused_endgame_boot_ui_helper_method_names_wave603_ok: bool,
     pub host_paused_endgame_boot_ui_helper_nav_commands_wave603_ok: bool,
     pub host_paused_endgame_boot_ui_helper_live_wave603_ok: bool,
@@ -598,24 +537,19 @@ pub struct WaveHonesty {
     pub host_ui_presentation_drain_helper_method_names_wave607_ok: bool,
     pub host_ui_presentation_drain_helper_nav_commands_wave607_ok: bool,
     pub host_ui_presentation_drain_helper_live_wave607_ok: bool,
-    pub host_production_complete_host_apply_helper_method_names_wave608_ok: bool,
-    pub host_production_complete_host_apply_helper_nav_commands_wave608_ok: bool,
-    pub host_production_complete_host_apply_helper_live_wave608_ok: bool,
+
     pub host_ui_economy_mouse_mode_helper_method_names_wave609_ok: bool,
     pub host_ui_economy_mouse_mode_helper_nav_commands_wave609_ok: bool,
     pub host_ui_economy_mouse_mode_helper_live_wave609_ok: bool,
     pub host_ui_selection_startup_helper_method_names_wave610_ok: bool,
     pub host_ui_selection_startup_helper_nav_commands_wave610_ok: bool,
     pub host_ui_selection_startup_helper_live_wave610_ok: bool,
-    pub host_start_save_load_helper_method_names_wave611_ok: bool,
-    pub host_start_save_load_helper_nav_commands_wave611_ok: bool,
-    pub host_start_save_load_helper_live_wave611_ok: bool,
+
     pub host_combat_cursor_transition_helper_method_names_wave612_ok: bool,
     pub host_combat_cursor_transition_helper_nav_commands_wave612_ok: bool,
     pub host_combat_cursor_transition_helper_live_wave612_ok: bool,
-    pub host_production_complete_collect_helper_method_names_wave613_ok: bool,
-    pub host_production_complete_collect_helper_nav_commands_wave613_ok: bool,
-    pub host_production_complete_collect_helper_live_wave613_ok: bool,
+
+
 
 
 
@@ -763,9 +697,9 @@ pub struct WaveHonesty {
     pub host_skirmish_map_force_lone_eagle_method_names_wave837_ok: bool,
     pub host_skirmish_map_force_lone_eagle_nav_commands_wave837_ok: bool,
     pub host_skirmish_map_force_lone_eagle_live_wave837_ok: bool,
-    pub presentation_empty_shadow_failopen_method_names_wave838_ok: bool,
-    pub presentation_empty_shadow_failopen_nav_commands_wave838_ok: bool,
-    pub presentation_empty_shadow_failopen_live_wave838_ok: bool,
+
+
+
     pub host_vertical_render_mesh_gate_method_names_wave839_ok: bool,
     pub host_vertical_render_mesh_gate_nav_commands_wave839_ok: bool,
     pub host_vertical_render_mesh_gate_live_wave839_ok: bool,
@@ -799,9 +733,7 @@ pub struct WaveHonesty {
     pub host_match_outcome_residuals_method_names_wave849_ok: bool,
     pub host_match_outcome_residuals_nav_commands_wave849_ok: bool,
     pub host_match_outcome_residuals_live_wave849_ok: bool,
-    pub host_match_selection_residuals_method_names_wave850_ok: bool,
-    pub host_match_selection_residuals_nav_commands_wave850_ok: bool,
-    pub host_match_selection_residuals_live_wave850_ok: bool,
+
     pub host_match_alive_object_residuals_method_names_wave851_ok: bool,
     pub host_match_alive_object_residuals_nav_commands_wave851_ok: bool,
     pub host_match_alive_object_residuals_live_wave851_ok: bool,
@@ -871,15 +803,12 @@ pub struct WaveHonesty {
     pub host_queue_stamp_method_names_wave874_ok: bool,
     pub host_queue_stamp_nav_commands_wave874_ok: bool,
     pub host_queue_stamp_live_wave874_ok: bool,
-    pub host_dual_read_zero_sole_tick_method_names_wave875_ok: bool,
-    pub host_dual_read_zero_sole_tick_nav_commands_wave875_ok: bool,
-    pub host_dual_read_zero_sole_tick_live_wave875_ok: bool,
+
     pub host_shell_no_dual_pace_method_names_wave876_ok: bool,
     pub host_shell_no_dual_pace_nav_commands_wave876_ok: bool,
     pub host_shell_no_dual_pace_live_wave876_ok: bool,
-    pub host_gw_flight_over_assign_method_names_wave877_ok: bool,
-    pub host_gw_flight_over_assign_nav_commands_wave877_ok: bool,
-    pub host_gw_flight_over_assign_live_wave877_ok: bool,
+
+
     pub host_ci_clippy_peel_method_names_wave878_ok: bool,
     pub host_ci_clippy_peel_nav_commands_wave878_ok: bool,
     pub host_ci_clippy_peel_live_wave878_ok: bool,
@@ -892,9 +821,8 @@ pub struct WaveHonesty {
     pub host_ui_framework_clippy_method_names_wave881_ok: bool,
     pub host_ui_framework_clippy_nav_commands_wave881_ok: bool,
     pub host_ui_framework_clippy_live_wave881_ok: bool,
-    pub host_assets_big_unpack_method_names_wave882_ok: bool,
-    pub host_assets_big_unpack_nav_commands_wave882_ok: bool,
-    pub host_assets_big_unpack_live_wave882_ok: bool,
+
+
     pub host_wwshade_clippy_method_names_wave883_ok: bool,
     pub host_wwshade_clippy_nav_commands_wave883_ok: bool,
     pub host_wwshade_clippy_live_wave883_ok: bool,
@@ -1016,9 +944,9 @@ pub struct WaveHonesty {
     pub host_tick_logic_frame_boundary_method_names_wave923_ok: bool,
     pub host_tick_logic_frame_boundary_nav_commands_wave923_ok: bool,
     pub host_tick_logic_frame_boundary_live_wave923_ok: bool,
-    pub host_placement_legal_build_cache_method_names_wave924_ok: bool,
-    pub host_placement_legal_build_cache_nav_commands_wave924_ok: bool,
-    pub host_placement_legal_build_cache_live_wave924_ok: bool,
+
+
+
 
     pub host_presentation_build_boundary_method_names_wave926_ok: bool,
     pub host_presentation_build_boundary_nav_commands_wave926_ok: bool,
@@ -1043,15 +971,9 @@ pub struct WaveHonesty {
     pub host_session_control_boundary_method_names_wave933_ok: bool,
     pub host_session_control_boundary_nav_commands_wave933_ok: bool,
     pub host_session_control_boundary_live_wave933_ok: bool,
-    pub host_support_boundary_method_names_wave934_ok: bool,
-    pub host_support_boundary_nav_commands_wave934_ok: bool,
-    pub host_support_boundary_live_wave934_ok: bool,
-    pub host_gamelogic_borrow_boundary_method_names_wave935_ok: bool,
-    pub host_gamelogic_borrow_boundary_nav_commands_wave935_ok: bool,
-    pub host_gamelogic_borrow_boundary_live_wave935_ok: bool,
-    pub host_sole_authority_surface_method_names_wave936_ok: bool,
-    pub host_sole_authority_surface_nav_commands_wave936_ok: bool,
-    pub host_sole_authority_surface_live_wave936_ok: bool,
+
+
+
     pub host_production_authority_boundary_method_names_wave937_ok: bool,
     pub host_production_authority_boundary_nav_commands_wave937_ok: bool,
     pub host_production_authority_boundary_live_wave937_ok: bool,
@@ -1199,9 +1121,7 @@ impl WaveHonesty {
             live_replace_object_upgrade_dual_world_empty_gate_live_wave446_ok: waves_441_480.live_replace_object_upgrade_dual_world_empty_gate_live_wave446_ok,
 
 
-            live_contain_module_overrides_fail_closed_method_names_wave449_ok: waves_441_480.live_contain_module_overrides_fail_closed_method_names_wave449_ok,
-            live_contain_module_overrides_fail_closed_nav_commands_wave449_ok: waves_441_480.live_contain_module_overrides_fail_closed_nav_commands_wave449_ok,
-            live_contain_module_overrides_fail_closed_live_wave449_ok: waves_441_480.live_contain_module_overrides_fail_closed_live_wave449_ok,
+
 
 
 
@@ -1232,9 +1152,9 @@ impl WaveHonesty {
             terrain_visual_presentation_only_method_names_wave459_ok: waves_441_480.terrain_visual_presentation_only_method_names_wave459_ok,
             terrain_visual_presentation_only_nav_commands_wave459_ok: waves_441_480.terrain_visual_presentation_only_nav_commands_wave459_ok,
             terrain_visual_presentation_only_live_wave459_ok: waves_441_480.terrain_visual_presentation_only_live_wave459_ok,
-            camera_center_presentation_height_method_names_wave460_ok: waves_441_480.camera_center_presentation_height_method_names_wave460_ok,
-            camera_center_presentation_height_nav_commands_wave460_ok: waves_441_480.camera_center_presentation_height_nav_commands_wave460_ok,
-            camera_center_presentation_height_live_wave460_ok: waves_441_480.camera_center_presentation_height_live_wave460_ok,
+
+
+
             presentation_world_bounds_probe_method_names_wave461_ok: waves_441_480.presentation_world_bounds_probe_method_names_wave461_ok,
             presentation_world_bounds_probe_nav_commands_wave461_ok: waves_441_480.presentation_world_bounds_probe_nav_commands_wave461_ok,
             presentation_world_bounds_probe_live_wave461_ok: waves_441_480.presentation_world_bounds_probe_live_wave461_ok,
@@ -1250,66 +1170,40 @@ impl WaveHonesty {
             presentation_env_seed_gameworld_method_names_wave466_ok: waves_441_480.presentation_env_seed_gameworld_method_names_wave466_ok,
             presentation_env_seed_gameworld_nav_commands_wave466_ok: waves_441_480.presentation_env_seed_gameworld_nav_commands_wave466_ok,
             presentation_env_seed_gameworld_live_wave466_ok: waves_441_480.presentation_env_seed_gameworld_live_wave466_ok,
-            presentation_env_seed_mirror_last_method_names_wave467_ok: waves_441_480.presentation_env_seed_mirror_last_method_names_wave467_ok,
-            presentation_env_seed_mirror_last_nav_commands_wave467_ok: waves_441_480.presentation_env_seed_mirror_last_nav_commands_wave467_ok,
-            presentation_env_seed_mirror_last_live_wave467_ok: waves_441_480.presentation_env_seed_mirror_last_live_wave467_ok,
-            minimap_reinit_instance_presentation_method_names_wave468_ok: waves_441_480.minimap_reinit_instance_presentation_method_names_wave468_ok,
-            minimap_reinit_instance_presentation_nav_commands_wave468_ok: waves_441_480.minimap_reinit_instance_presentation_nav_commands_wave468_ok,
-            minimap_reinit_instance_presentation_live_wave468_ok: waves_441_480.minimap_reinit_instance_presentation_live_wave468_ok,
-            pathfind_midframe_stub_removed_method_names_wave469_ok: waves_441_480.pathfind_midframe_stub_removed_method_names_wave469_ok,
-            pathfind_midframe_stub_removed_nav_commands_wave469_ok: waves_441_480.pathfind_midframe_stub_removed_nav_commands_wave469_ok,
-            pathfind_midframe_stub_removed_live_wave469_ok: waves_441_480.pathfind_midframe_stub_removed_live_wave469_ok,
-            projectile_authority_flare_host_method_names_wave470_ok: waves_441_480.projectile_authority_flare_host_method_names_wave470_ok,
-            projectile_authority_flare_host_nav_commands_wave470_ok: waves_441_480.projectile_authority_flare_host_nav_commands_wave470_ok,
-            projectile_authority_flare_host_live_wave470_ok: waves_441_480.projectile_authority_flare_host_live_wave470_ok,
-            engine_env_free_fn_game_logic_only_seed_method_names_wave471_ok: waves_441_480.engine_env_free_fn_game_logic_only_seed_method_names_wave471_ok,
-            engine_env_free_fn_game_logic_only_seed_nav_commands_wave471_ok: waves_441_480.engine_env_free_fn_game_logic_only_seed_nav_commands_wave471_ok,
-            engine_env_free_fn_game_logic_only_seed_live_wave471_ok: waves_441_480.engine_env_free_fn_game_logic_only_seed_live_wave471_ok,
+
+
+
             dead_model_preload_removed_method_names_wave472_ok: waves_441_480.dead_model_preload_removed_method_names_wave472_ok,
             dead_model_preload_removed_nav_commands_wave472_ok: waves_441_480.dead_model_preload_removed_nav_commands_wave472_ok,
             dead_model_preload_removed_live_wave472_ok: waves_441_480.dead_model_preload_removed_live_wave472_ok,
             camera_bootstrap_presentation_only_method_names_wave473_ok: waves_441_480.camera_bootstrap_presentation_only_method_names_wave473_ok,
             camera_bootstrap_presentation_only_nav_commands_wave473_ok: waves_441_480.camera_bootstrap_presentation_only_nav_commands_wave473_ok,
             camera_bootstrap_presentation_only_live_wave473_ok: waves_441_480.camera_bootstrap_presentation_only_live_wave473_ok,
-            ensure_presentation_env_instance_method_names_wave474_ok: waves_441_480.ensure_presentation_env_instance_method_names_wave474_ok,
-            ensure_presentation_env_instance_nav_commands_wave474_ok: waves_441_480.ensure_presentation_env_instance_nav_commands_wave474_ok,
-            ensure_presentation_env_instance_live_wave474_ok: waves_441_480.ensure_presentation_env_instance_live_wave474_ok,
+
             map_ground_no_registry_pose_dual_write_method_names_wave475_ok: waves_441_480.map_ground_no_registry_pose_dual_write_method_names_wave475_ok,
             map_ground_no_registry_pose_dual_write_nav_commands_wave475_ok: waves_441_480.map_ground_no_registry_pose_dual_write_nav_commands_wave475_ok,
             map_ground_no_registry_pose_dual_write_live_wave475_ok: waves_441_480.map_ground_no_registry_pose_dual_write_live_wave475_ok,
             named_shell_host_only_tracker_method_names_wave476_ok: waves_441_480.named_shell_host_only_tracker_method_names_wave476_ok,
             named_shell_host_only_tracker_nav_commands_wave476_ok: waves_441_480.named_shell_host_only_tracker_nav_commands_wave476_ok,
             named_shell_host_only_tracker_live_wave476_ok: waves_441_480.named_shell_host_only_tracker_live_wave476_ok,
-            production_sole_tick_no_progress_stomp_method_names_wave477_ok: waves_441_480.production_sole_tick_no_progress_stomp_method_names_wave477_ok,
-            production_sole_tick_no_progress_stomp_nav_commands_wave477_ok: waves_441_480.production_sole_tick_no_progress_stomp_nav_commands_wave477_ok,
-            production_sole_tick_no_progress_stomp_live_wave477_ok: waves_441_480.production_sole_tick_no_progress_stomp_live_wave477_ok,
+
             construction_sole_tick_no_progress_stomp_method_names_wave478_ok: waves_441_480.construction_sole_tick_no_progress_stomp_method_names_wave478_ok,
             construction_sole_tick_no_progress_stomp_nav_commands_wave478_ok: waves_441_480.construction_sole_tick_no_progress_stomp_nav_commands_wave478_ok,
             construction_sole_tick_no_progress_stomp_live_wave478_ok: waves_441_480.construction_sole_tick_no_progress_stomp_live_wave478_ok,
-            special_power_sole_tick_no_cooldown_stomp_method_names_wave479_ok: waves_441_480.special_power_sole_tick_no_cooldown_stomp_method_names_wave479_ok,
-            special_power_sole_tick_no_cooldown_stomp_nav_commands_wave479_ok: waves_441_480.special_power_sole_tick_no_cooldown_stomp_nav_commands_wave479_ok,
-            special_power_sole_tick_no_cooldown_stomp_live_wave479_ok: waves_441_480.special_power_sole_tick_no_cooldown_stomp_live_wave479_ok,
-            production_sole_tick_exit_delay_arm_method_names_wave480_ok: waves_441_480.production_sole_tick_exit_delay_arm_method_names_wave480_ok,
-            production_sole_tick_exit_delay_arm_nav_commands_wave480_ok: waves_441_480.production_sole_tick_exit_delay_arm_nav_commands_wave480_ok,
-            production_sole_tick_exit_delay_arm_live_wave480_ok: waves_441_480.production_sole_tick_exit_delay_arm_live_wave480_ok,
+
+
+
             sell_deconstruction_sole_tick_no_stomp_method_names_wave481_ok: waves_481_520.sell_deconstruction_sole_tick_no_stomp_method_names_wave481_ok,
             sell_deconstruction_sole_tick_no_stomp_nav_commands_wave481_ok: waves_481_520.sell_deconstruction_sole_tick_no_stomp_nav_commands_wave481_ok,
             sell_deconstruction_sole_tick_no_stomp_live_wave481_ok: waves_481_520.sell_deconstruction_sole_tick_no_stomp_live_wave481_ok,
-            sell_finish_skips_topple_destroy_method_names_wave482_ok: waves_481_520.sell_finish_skips_topple_destroy_method_names_wave482_ok,
-            sell_finish_skips_topple_destroy_nav_commands_wave482_ok: waves_481_520.sell_finish_skips_topple_destroy_nav_commands_wave482_ok,
-            sell_finish_skips_topple_destroy_live_wave482_ok: waves_481_520.sell_finish_skips_topple_destroy_live_wave482_ok,
-            production_upgrade_complete_queue_refresh_method_names_wave483_ok: waves_481_520.production_upgrade_complete_queue_refresh_method_names_wave483_ok,
-            production_upgrade_complete_queue_refresh_nav_commands_wave483_ok: waves_481_520.production_upgrade_complete_queue_refresh_nav_commands_wave483_ok,
-            production_upgrade_complete_queue_refresh_live_wave483_ok: waves_481_520.production_upgrade_complete_queue_refresh_live_wave483_ok,
-            cancel_all_production_queue_refresh_method_names_wave484_ok: waves_481_520.cancel_all_production_queue_refresh_method_names_wave484_ok,
-            cancel_all_production_queue_refresh_nav_commands_wave484_ok: waves_481_520.cancel_all_production_queue_refresh_nav_commands_wave484_ok,
-            cancel_all_production_queue_refresh_live_wave484_ok: waves_481_520.cancel_all_production_queue_refresh_live_wave484_ok,
+
+
+
             cancel_clears_exit_delay_method_names_wave485_ok: waves_481_520.cancel_clears_exit_delay_method_names_wave485_ok,
             cancel_clears_exit_delay_nav_commands_wave485_ok: waves_481_520.cancel_clears_exit_delay_nav_commands_wave485_ok,
             cancel_clears_exit_delay_live_wave485_ok: waves_481_520.cancel_clears_exit_delay_live_wave485_ok,
-            production_door_model_condition_log_method_names_wave486_ok: waves_481_520.production_door_model_condition_log_method_names_wave486_ok,
-            production_door_model_condition_log_nav_commands_wave486_ok: waves_481_520.production_door_model_condition_log_nav_commands_wave486_ok,
-            production_door_model_condition_log_live_wave486_ok: waves_481_520.production_door_model_condition_log_live_wave486_ok,
+
+
             combat_model_condition_channel_method_names_wave487_ok: waves_481_520.combat_model_condition_channel_method_names_wave487_ok,
             combat_model_condition_channel_nav_commands_wave487_ok: waves_481_520.combat_model_condition_channel_nav_commands_wave487_ok,
             combat_model_condition_channel_live_wave487_ok: waves_481_520.combat_model_condition_channel_live_wave487_ok,
@@ -1322,9 +1216,7 @@ impl WaveHonesty {
             entity_presentation_structure_ui_method_names_wave490_ok: waves_481_520.entity_presentation_structure_ui_method_names_wave490_ok,
             entity_presentation_structure_ui_nav_commands_wave490_ok: waves_481_520.entity_presentation_structure_ui_nav_commands_wave490_ok,
             entity_presentation_structure_ui_live_wave490_ok: waves_481_520.entity_presentation_structure_ui_live_wave490_ok,
-            presentation_mesh_sold_condition_method_names_wave491_ok: waves_481_520.presentation_mesh_sold_condition_method_names_wave491_ok,
-            presentation_mesh_sold_condition_nav_commands_wave491_ok: waves_481_520.presentation_mesh_sold_condition_nav_commands_wave491_ok,
-            presentation_mesh_sold_condition_live_wave491_ok: waves_481_520.presentation_mesh_sold_condition_live_wave491_ok,
+
             entity_presentation_mesh_fow_method_names_wave492_ok: waves_481_520.entity_presentation_mesh_fow_method_names_wave492_ok,
             entity_presentation_mesh_fow_nav_commands_wave492_ok: waves_481_520.entity_presentation_mesh_fow_nav_commands_wave492_ok,
             entity_presentation_mesh_fow_live_wave492_ok: waves_481_520.entity_presentation_mesh_fow_live_wave492_ok,
@@ -1340,9 +1232,8 @@ impl WaveHonesty {
             presentation_mesh_door_phase_method_names_wave496_ok: waves_481_520.presentation_mesh_door_phase_method_names_wave496_ok,
             presentation_mesh_door_phase_nav_commands_wave496_ok: waves_481_520.presentation_mesh_door_phase_nav_commands_wave496_ok,
             presentation_mesh_door_phase_live_wave496_ok: waves_481_520.presentation_mesh_door_phase_live_wave496_ok,
-            presentation_mesh_condition_resolve_method_names_wave497_ok: waves_481_520.presentation_mesh_condition_resolve_method_names_wave497_ok,
-            presentation_mesh_condition_resolve_nav_commands_wave497_ok: waves_481_520.presentation_mesh_condition_resolve_nav_commands_wave497_ok,
-            presentation_mesh_condition_resolve_live_wave497_ok: waves_481_520.presentation_mesh_condition_resolve_live_wave497_ok,
+
+
             presentation_host_fx_overlay_method_names_wave498_ok: waves_481_520.presentation_host_fx_overlay_method_names_wave498_ok,
             presentation_host_fx_overlay_nav_commands_wave498_ok: waves_481_520.presentation_host_fx_overlay_nav_commands_wave498_ok,
             presentation_host_fx_overlay_live_wave498_ok: waves_481_520.presentation_host_fx_overlay_live_wave498_ok,
@@ -1385,9 +1276,8 @@ impl WaveHonesty {
             presentation_burn_cheer_carry_method_names_wave511_ok: waves_481_520.presentation_burn_cheer_carry_method_names_wave511_ok,
             presentation_burn_cheer_carry_nav_commands_wave511_ok: waves_481_520.presentation_burn_cheer_carry_nav_commands_wave511_ok,
             presentation_burn_cheer_carry_live_wave511_ok: waves_481_520.presentation_burn_cheer_carry_live_wave511_ok,
-            presentation_fire_prone_turret_method_names_wave512_ok: waves_481_520.presentation_fire_prone_turret_method_names_wave512_ok,
-            presentation_fire_prone_turret_nav_commands_wave512_ok: waves_481_520.presentation_fire_prone_turret_nav_commands_wave512_ok,
-            presentation_fire_prone_turret_live_wave512_ok: waves_481_520.presentation_fire_prone_turret_live_wave512_ok,
+
+
             presentation_jam_die_reload_pack_method_names_wave513_ok: waves_481_520.presentation_jam_die_reload_pack_method_names_wave513_ok,
             presentation_jam_die_reload_pack_nav_commands_wave513_ok: waves_481_520.presentation_jam_die_reload_pack_nav_commands_wave513_ok,
             presentation_jam_die_reload_pack_live_wave513_ok: waves_481_520.presentation_jam_die_reload_pack_live_wave513_ok,
@@ -1445,9 +1335,8 @@ impl WaveHonesty {
             command_integration_presentation_fill_method_names_wave531_ok: waves_521_560.command_integration_presentation_fill_method_names_wave531_ok,
             command_integration_presentation_fill_nav_commands_wave531_ok: waves_521_560.command_integration_presentation_fill_nav_commands_wave531_ok,
             command_integration_presentation_fill_live_wave531_ok: waves_521_560.command_integration_presentation_fill_live_wave531_ok,
-            presentation_firesound_drain_sibling_method_names_wave532_ok: waves_521_560.presentation_firesound_drain_sibling_method_names_wave532_ok,
-            presentation_firesound_drain_sibling_nav_commands_wave532_ok: waves_521_560.presentation_firesound_drain_sibling_nav_commands_wave532_ok,
-            presentation_firesound_drain_sibling_live_wave532_ok: waves_521_560.presentation_firesound_drain_sibling_live_wave532_ok,
+
+
             presentation_eva_pulse_audio_method_names_wave533_ok: waves_521_560.presentation_eva_pulse_audio_method_names_wave533_ok,
             presentation_eva_pulse_audio_nav_commands_wave533_ok: waves_521_560.presentation_eva_pulse_audio_nav_commands_wave533_ok,
             presentation_eva_pulse_audio_live_wave533_ok: waves_521_560.presentation_eva_pulse_audio_live_wave533_ok,
@@ -1460,9 +1349,7 @@ impl WaveHonesty {
             presentation_eva_client_dispatch_method_names_wave536_ok: waves_521_560.presentation_eva_client_dispatch_method_names_wave536_ok,
             presentation_eva_client_dispatch_nav_commands_wave536_ok: waves_521_560.presentation_eva_client_dispatch_nav_commands_wave536_ok,
             presentation_eva_client_dispatch_live_wave536_ok: waves_521_560.presentation_eva_client_dispatch_live_wave536_ok,
-            presentation_eva_alert_counter_dedupe_method_names_wave537_ok: waves_521_560.presentation_eva_alert_counter_dedupe_method_names_wave537_ok,
-            presentation_eva_alert_counter_dedupe_nav_commands_wave537_ok: waves_521_560.presentation_eva_alert_counter_dedupe_nav_commands_wave537_ok,
-            presentation_eva_alert_counter_dedupe_live_wave537_ok: waves_521_560.presentation_eva_alert_counter_dedupe_live_wave537_ok,
+
             presentation_alliance_notify_method_names_wave538_ok: waves_521_560.presentation_alliance_notify_method_names_wave538_ok,
             presentation_alliance_notify_nav_commands_wave538_ok: waves_521_560.presentation_alliance_notify_nav_commands_wave538_ok,
             presentation_alliance_notify_live_wave538_ok: waves_521_560.presentation_alliance_notify_live_wave538_ok,
@@ -1484,9 +1371,7 @@ impl WaveHonesty {
             ui_selection_seed_presentation_fail_closed_method_names_wave544_ok: waves_521_560.ui_selection_seed_presentation_fail_closed_method_names_wave544_ok,
             ui_selection_seed_presentation_fail_closed_nav_commands_wave544_ok: waves_521_560.ui_selection_seed_presentation_fail_closed_nav_commands_wave544_ok,
             ui_selection_seed_presentation_fail_closed_live_wave544_ok: waves_521_560.ui_selection_seed_presentation_fail_closed_live_wave544_ok,
-            save_restart_presentation_fail_closed_method_names_wave545_ok: waves_521_560.save_restart_presentation_fail_closed_method_names_wave545_ok,
-            save_restart_presentation_fail_closed_nav_commands_wave545_ok: waves_521_560.save_restart_presentation_fail_closed_nav_commands_wave545_ok,
-            save_restart_presentation_fail_closed_live_wave545_ok: waves_521_560.save_restart_presentation_fail_closed_live_wave545_ok,
+
             host_status_map_presentation_fail_closed_method_names_wave546_ok: waves_521_560.host_status_map_presentation_fail_closed_method_names_wave546_ok,
             host_status_map_presentation_fail_closed_nav_commands_wave546_ok: waves_521_560.host_status_map_presentation_fail_closed_nav_commands_wave546_ok,
             host_status_map_presentation_fail_closed_live_wave546_ok: waves_521_560.host_status_map_presentation_fail_closed_live_wave546_ok,
@@ -1505,9 +1390,9 @@ impl WaveHonesty {
             time_frozen_presentation_helper_method_names_wave551_ok: waves_521_560.time_frozen_presentation_helper_method_names_wave551_ok,
             time_frozen_presentation_helper_nav_commands_wave551_ok: waves_521_560.time_frozen_presentation_helper_nav_commands_wave551_ok,
             time_frozen_presentation_helper_live_wave551_ok: waves_521_560.time_frozen_presentation_helper_live_wave551_ok,
-            shell_bypass_presentation_helper_method_names_wave552_ok: waves_521_560.shell_bypass_presentation_helper_method_names_wave552_ok,
-            shell_bypass_presentation_helper_nav_commands_wave552_ok: waves_521_560.shell_bypass_presentation_helper_nav_commands_wave552_ok,
-            shell_bypass_presentation_helper_live_wave552_ok: waves_521_560.shell_bypass_presentation_helper_live_wave552_ok,
+
+
+
             play_time_local_player_presentation_helper_method_names_wave553_ok: waves_521_560.play_time_local_player_presentation_helper_method_names_wave553_ok,
             play_time_local_player_presentation_helper_nav_commands_wave553_ok: waves_521_560.play_time_local_player_presentation_helper_nav_commands_wave553_ok,
             play_time_local_player_presentation_helper_live_wave553_ok: waves_521_560.play_time_local_player_presentation_helper_live_wave553_ok,
@@ -1517,9 +1402,7 @@ impl WaveHonesty {
             science_team_presentation_helper_method_names_wave555_ok: waves_521_560.science_team_presentation_helper_method_names_wave555_ok,
             science_team_presentation_helper_nav_commands_wave555_ok: waves_521_560.science_team_presentation_helper_nav_commands_wave555_ok,
             science_team_presentation_helper_live_wave555_ok: waves_521_560.science_team_presentation_helper_live_wave555_ok,
-            victory_presentation_helper_method_names_wave556_ok: waves_521_560.victory_presentation_helper_method_names_wave556_ok,
-            victory_presentation_helper_nav_commands_wave556_ok: waves_521_560.victory_presentation_helper_nav_commands_wave556_ok,
-            victory_presentation_helper_live_wave556_ok: waves_521_560.victory_presentation_helper_live_wave556_ok,
+
             replay_presentation_helper_method_names_wave557_ok: waves_521_560.replay_presentation_helper_method_names_wave557_ok,
             replay_presentation_helper_nav_commands_wave557_ok: waves_521_560.replay_presentation_helper_nav_commands_wave557_ok,
             replay_presentation_helper_live_wave557_ok: waves_521_560.replay_presentation_helper_live_wave557_ok,
@@ -1565,9 +1448,9 @@ impl WaveHonesty {
             popup_music_helper_method_names_wave571_ok: waves_561_600.popup_music_helper_method_names_wave571_ok,
             popup_music_helper_nav_commands_wave571_ok: waves_561_600.popup_music_helper_nav_commands_wave571_ok,
             popup_music_helper_live_wave571_ok: waves_561_600.popup_music_helper_live_wave571_ok,
-            boot_camera_helper_method_names_wave572_ok: waves_561_600.boot_camera_helper_method_names_wave572_ok,
-            boot_camera_helper_nav_commands_wave572_ok: waves_561_600.boot_camera_helper_nav_commands_wave572_ok,
-            boot_camera_helper_live_wave572_ok: waves_561_600.boot_camera_helper_live_wave572_ok,
+
+
+
             boot_player_info_helper_method_names_wave573_ok: waves_561_600.boot_player_info_helper_method_names_wave573_ok,
             boot_player_info_helper_nav_commands_wave573_ok: waves_561_600.boot_player_info_helper_nav_commands_wave573_ok,
             boot_player_info_helper_live_wave573_ok: waves_561_600.boot_player_info_helper_live_wave573_ok,
@@ -1598,12 +1481,9 @@ impl WaveHonesty {
             host_enqueue_shell_cmd_helper_method_names_wave582_ok: waves_561_600.host_enqueue_shell_cmd_helper_method_names_wave582_ok,
             host_enqueue_shell_cmd_helper_nav_commands_wave582_ok: waves_561_600.host_enqueue_shell_cmd_helper_nav_commands_wave582_ok,
             host_enqueue_shell_cmd_helper_live_wave582_ok: waves_561_600.host_enqueue_shell_cmd_helper_live_wave582_ok,
-            host_runtime_cmd_helper_method_names_wave583_ok: waves_561_600.host_runtime_cmd_helper_method_names_wave583_ok,
-            host_runtime_cmd_helper_nav_commands_wave583_ok: waves_561_600.host_runtime_cmd_helper_nav_commands_wave583_ok,
-            host_runtime_cmd_helper_live_wave583_ok: waves_561_600.host_runtime_cmd_helper_live_wave583_ok,
-            host_tick_mutation_helper_method_names_wave584_ok: waves_561_600.host_tick_mutation_helper_method_names_wave584_ok,
-            host_tick_mutation_helper_nav_commands_wave584_ok: waves_561_600.host_tick_mutation_helper_nav_commands_wave584_ok,
-            host_tick_mutation_helper_live_wave584_ok: waves_561_600.host_tick_mutation_helper_live_wave584_ok,
+
+
+
             host_ui_shell_world_helper_method_names_wave585_ok: waves_561_600.host_ui_shell_world_helper_method_names_wave585_ok,
             host_ui_shell_world_helper_nav_commands_wave585_ok: waves_561_600.host_ui_shell_world_helper_nav_commands_wave585_ok,
             host_ui_shell_world_helper_live_wave585_ok: waves_561_600.host_ui_shell_world_helper_live_wave585_ok,
@@ -1616,33 +1496,18 @@ impl WaveHonesty {
             host_game_client_menu_shell_helper_method_names_wave588_ok: waves_561_600.host_game_client_menu_shell_helper_method_names_wave588_ok,
             host_game_client_menu_shell_helper_nav_commands_wave588_ok: waves_561_600.host_game_client_menu_shell_helper_nav_commands_wave588_ok,
             host_game_client_menu_shell_helper_live_wave588_ok: waves_561_600.host_game_client_menu_shell_helper_live_wave588_ok,
-            host_presentation_finalize_helper_method_names_wave589_ok: waves_561_600.host_presentation_finalize_helper_method_names_wave589_ok,
-            host_presentation_finalize_helper_nav_commands_wave589_ok: waves_561_600.host_presentation_finalize_helper_nav_commands_wave589_ok,
-            host_presentation_finalize_helper_live_wave589_ok: waves_561_600.host_presentation_finalize_helper_live_wave589_ok,
-            host_presentation_seed_helper_method_names_wave590_ok: waves_561_600.host_presentation_seed_helper_method_names_wave590_ok,
-            host_presentation_seed_helper_nav_commands_wave590_ok: waves_561_600.host_presentation_seed_helper_nav_commands_wave590_ok,
-            host_presentation_seed_helper_live_wave590_ok: waves_561_600.host_presentation_seed_helper_live_wave590_ok,
-            host_render_ui_presentation_helper_method_names_wave591_ok: waves_561_600.host_render_ui_presentation_helper_method_names_wave591_ok,
-            host_render_ui_presentation_helper_nav_commands_wave591_ok: waves_561_600.host_render_ui_presentation_helper_nav_commands_wave591_ok,
-            host_render_ui_presentation_helper_live_wave591_ok: waves_561_600.host_render_ui_presentation_helper_live_wave591_ok,
-            host_render_ui_overlays_helper_method_names_wave592_ok: waves_561_600.host_render_ui_overlays_helper_method_names_wave592_ok,
-            host_render_ui_overlays_helper_nav_commands_wave592_ok: waves_561_600.host_render_ui_overlays_helper_nav_commands_wave592_ok,
-            host_render_ui_overlays_helper_live_wave592_ok: waves_561_600.host_render_ui_overlays_helper_live_wave592_ok,
+
+
+
             host_render_ui_finalize_helper_method_names_wave593_ok: waves_561_600.host_render_ui_finalize_helper_method_names_wave593_ok,
             host_render_ui_finalize_helper_nav_commands_wave593_ok: waves_561_600.host_render_ui_finalize_helper_nav_commands_wave593_ok,
             host_render_ui_finalize_helper_live_wave593_ok: waves_561_600.host_render_ui_finalize_helper_live_wave593_ok,
-            host_minimap_bounds_repair_helper_method_names_wave594_ok: waves_561_600.host_minimap_bounds_repair_helper_method_names_wave594_ok,
-            host_minimap_bounds_repair_helper_nav_commands_wave594_ok: waves_561_600.host_minimap_bounds_repair_helper_nav_commands_wave594_ok,
-            host_minimap_bounds_repair_helper_live_wave594_ok: waves_561_600.host_minimap_bounds_repair_helper_live_wave594_ok,
-            host_production_complete_apply_helper_method_names_wave595_ok: waves_561_600.host_production_complete_apply_helper_method_names_wave595_ok,
-            host_production_complete_apply_helper_nav_commands_wave595_ok: waves_561_600.host_production_complete_apply_helper_nav_commands_wave595_ok,
-            host_production_complete_apply_helper_live_wave595_ok: waves_561_600.host_production_complete_apply_helper_live_wave595_ok,
+
+
             host_camera_queue_drain_helper_method_names_wave596_ok: waves_561_600.host_camera_queue_drain_helper_method_names_wave596_ok,
             host_camera_queue_drain_helper_nav_commands_wave596_ok: waves_561_600.host_camera_queue_drain_helper_nav_commands_wave596_ok,
             host_camera_queue_drain_helper_live_wave596_ok: waves_561_600.host_camera_queue_drain_helper_live_wave596_ok,
-            host_gameworld_shadow_session_helper_method_names_wave597_ok: waves_561_600.host_gameworld_shadow_session_helper_method_names_wave597_ok,
-            host_gameworld_shadow_session_helper_nav_commands_wave597_ok: waves_561_600.host_gameworld_shadow_session_helper_nav_commands_wave597_ok,
-            host_gameworld_shadow_session_helper_live_wave597_ok: waves_561_600.host_gameworld_shadow_session_helper_live_wave597_ok,
+
             host_ingame_hud_helper_method_names_wave598_ok: waves_561_600.host_ingame_hud_helper_method_names_wave598_ok,
             host_ingame_hud_helper_nav_commands_wave598_ok: waves_561_600.host_ingame_hud_helper_nav_commands_wave598_ok,
             host_ingame_hud_helper_live_wave598_ok: waves_561_600.host_ingame_hud_helper_live_wave598_ok,
@@ -1652,12 +1517,8 @@ impl WaveHonesty {
             host_post_presentation_client_helper_method_names_wave600_ok: waves_561_600.host_post_presentation_client_helper_method_names_wave600_ok,
             host_post_presentation_client_helper_nav_commands_wave600_ok: waves_561_600.host_post_presentation_client_helper_nav_commands_wave600_ok,
             host_post_presentation_client_helper_live_wave600_ok: waves_561_600.host_post_presentation_client_helper_live_wave600_ok,
-            host_restart_pause_helper_method_names_wave601_ok: waves_601_640.host_restart_pause_helper_method_names_wave601_ok,
-            host_restart_pause_helper_nav_commands_wave601_ok: waves_601_640.host_restart_pause_helper_nav_commands_wave601_ok,
-            host_restart_pause_helper_live_wave601_ok: waves_601_640.host_restart_pause_helper_live_wave601_ok,
-            host_ingame_logic_shell_helper_method_names_wave602_ok: waves_601_640.host_ingame_logic_shell_helper_method_names_wave602_ok,
-            host_ingame_logic_shell_helper_nav_commands_wave602_ok: waves_601_640.host_ingame_logic_shell_helper_nav_commands_wave602_ok,
-            host_ingame_logic_shell_helper_live_wave602_ok: waves_601_640.host_ingame_logic_shell_helper_live_wave602_ok,
+
+
             host_paused_endgame_boot_ui_helper_method_names_wave603_ok: waves_601_640.host_paused_endgame_boot_ui_helper_method_names_wave603_ok,
             host_paused_endgame_boot_ui_helper_nav_commands_wave603_ok: waves_601_640.host_paused_endgame_boot_ui_helper_nav_commands_wave603_ok,
             host_paused_endgame_boot_ui_helper_live_wave603_ok: waves_601_640.host_paused_endgame_boot_ui_helper_live_wave603_ok,
@@ -1673,24 +1534,19 @@ impl WaveHonesty {
             host_ui_presentation_drain_helper_method_names_wave607_ok: waves_601_640.host_ui_presentation_drain_helper_method_names_wave607_ok,
             host_ui_presentation_drain_helper_nav_commands_wave607_ok: waves_601_640.host_ui_presentation_drain_helper_nav_commands_wave607_ok,
             host_ui_presentation_drain_helper_live_wave607_ok: waves_601_640.host_ui_presentation_drain_helper_live_wave607_ok,
-            host_production_complete_host_apply_helper_method_names_wave608_ok: waves_601_640.host_production_complete_host_apply_helper_method_names_wave608_ok,
-            host_production_complete_host_apply_helper_nav_commands_wave608_ok: waves_601_640.host_production_complete_host_apply_helper_nav_commands_wave608_ok,
-            host_production_complete_host_apply_helper_live_wave608_ok: waves_601_640.host_production_complete_host_apply_helper_live_wave608_ok,
+
             host_ui_economy_mouse_mode_helper_method_names_wave609_ok: waves_601_640.host_ui_economy_mouse_mode_helper_method_names_wave609_ok,
             host_ui_economy_mouse_mode_helper_nav_commands_wave609_ok: waves_601_640.host_ui_economy_mouse_mode_helper_nav_commands_wave609_ok,
             host_ui_economy_mouse_mode_helper_live_wave609_ok: waves_601_640.host_ui_economy_mouse_mode_helper_live_wave609_ok,
             host_ui_selection_startup_helper_method_names_wave610_ok: waves_601_640.host_ui_selection_startup_helper_method_names_wave610_ok,
             host_ui_selection_startup_helper_nav_commands_wave610_ok: waves_601_640.host_ui_selection_startup_helper_nav_commands_wave610_ok,
             host_ui_selection_startup_helper_live_wave610_ok: waves_601_640.host_ui_selection_startup_helper_live_wave610_ok,
-            host_start_save_load_helper_method_names_wave611_ok: waves_601_640.host_start_save_load_helper_method_names_wave611_ok,
-            host_start_save_load_helper_nav_commands_wave611_ok: waves_601_640.host_start_save_load_helper_nav_commands_wave611_ok,
-            host_start_save_load_helper_live_wave611_ok: waves_601_640.host_start_save_load_helper_live_wave611_ok,
+
             host_combat_cursor_transition_helper_method_names_wave612_ok: waves_601_640.host_combat_cursor_transition_helper_method_names_wave612_ok,
             host_combat_cursor_transition_helper_nav_commands_wave612_ok: waves_601_640.host_combat_cursor_transition_helper_nav_commands_wave612_ok,
             host_combat_cursor_transition_helper_live_wave612_ok: waves_601_640.host_combat_cursor_transition_helper_live_wave612_ok,
-            host_production_complete_collect_helper_method_names_wave613_ok: waves_601_640.host_production_complete_collect_helper_method_names_wave613_ok,
-            host_production_complete_collect_helper_nav_commands_wave613_ok: waves_601_640.host_production_complete_collect_helper_nav_commands_wave613_ok,
-            host_production_complete_collect_helper_live_wave613_ok: waves_601_640.host_production_complete_collect_helper_live_wave613_ok,
+
+
 
 
 
@@ -1838,9 +1694,9 @@ impl WaveHonesty {
             host_skirmish_map_force_lone_eagle_method_names_wave837_ok: waves_801_840.host_skirmish_map_force_lone_eagle_method_names_wave837_ok,
             host_skirmish_map_force_lone_eagle_nav_commands_wave837_ok: waves_801_840.host_skirmish_map_force_lone_eagle_nav_commands_wave837_ok,
             host_skirmish_map_force_lone_eagle_live_wave837_ok: waves_801_840.host_skirmish_map_force_lone_eagle_live_wave837_ok,
-            presentation_empty_shadow_failopen_method_names_wave838_ok: waves_801_840.presentation_empty_shadow_failopen_method_names_wave838_ok,
-            presentation_empty_shadow_failopen_nav_commands_wave838_ok: waves_801_840.presentation_empty_shadow_failopen_nav_commands_wave838_ok,
-            presentation_empty_shadow_failopen_live_wave838_ok: waves_801_840.presentation_empty_shadow_failopen_live_wave838_ok,
+
+
+
             host_vertical_render_mesh_gate_method_names_wave839_ok: waves_801_840.host_vertical_render_mesh_gate_method_names_wave839_ok,
             host_vertical_render_mesh_gate_nav_commands_wave839_ok: waves_801_840.host_vertical_render_mesh_gate_nav_commands_wave839_ok,
             host_vertical_render_mesh_gate_live_wave839_ok: waves_801_840.host_vertical_render_mesh_gate_live_wave839_ok,
@@ -1874,9 +1730,7 @@ impl WaveHonesty {
             host_match_outcome_residuals_method_names_wave849_ok: waves_841_880.host_match_outcome_residuals_method_names_wave849_ok,
             host_match_outcome_residuals_nav_commands_wave849_ok: waves_841_880.host_match_outcome_residuals_nav_commands_wave849_ok,
             host_match_outcome_residuals_live_wave849_ok: waves_841_880.host_match_outcome_residuals_live_wave849_ok,
-            host_match_selection_residuals_method_names_wave850_ok: waves_841_880.host_match_selection_residuals_method_names_wave850_ok,
-            host_match_selection_residuals_nav_commands_wave850_ok: waves_841_880.host_match_selection_residuals_nav_commands_wave850_ok,
-            host_match_selection_residuals_live_wave850_ok: waves_841_880.host_match_selection_residuals_live_wave850_ok,
+
             host_match_alive_object_residuals_method_names_wave851_ok: waves_841_880.host_match_alive_object_residuals_method_names_wave851_ok,
             host_match_alive_object_residuals_nav_commands_wave851_ok: waves_841_880.host_match_alive_object_residuals_nav_commands_wave851_ok,
             host_match_alive_object_residuals_live_wave851_ok: waves_841_880.host_match_alive_object_residuals_live_wave851_ok,
@@ -1946,15 +1800,12 @@ impl WaveHonesty {
             host_queue_stamp_method_names_wave874_ok: waves_841_880.host_queue_stamp_method_names_wave874_ok,
             host_queue_stamp_nav_commands_wave874_ok: waves_841_880.host_queue_stamp_nav_commands_wave874_ok,
             host_queue_stamp_live_wave874_ok: waves_841_880.host_queue_stamp_live_wave874_ok,
-            host_dual_read_zero_sole_tick_method_names_wave875_ok: waves_841_880.host_dual_read_zero_sole_tick_method_names_wave875_ok,
-            host_dual_read_zero_sole_tick_nav_commands_wave875_ok: waves_841_880.host_dual_read_zero_sole_tick_nav_commands_wave875_ok,
-            host_dual_read_zero_sole_tick_live_wave875_ok: waves_841_880.host_dual_read_zero_sole_tick_live_wave875_ok,
+
             host_shell_no_dual_pace_method_names_wave876_ok: waves_841_880.host_shell_no_dual_pace_method_names_wave876_ok,
             host_shell_no_dual_pace_nav_commands_wave876_ok: waves_841_880.host_shell_no_dual_pace_nav_commands_wave876_ok,
             host_shell_no_dual_pace_live_wave876_ok: waves_841_880.host_shell_no_dual_pace_live_wave876_ok,
-            host_gw_flight_over_assign_method_names_wave877_ok: waves_841_880.host_gw_flight_over_assign_method_names_wave877_ok,
-            host_gw_flight_over_assign_nav_commands_wave877_ok: waves_841_880.host_gw_flight_over_assign_nav_commands_wave877_ok,
-            host_gw_flight_over_assign_live_wave877_ok: waves_841_880.host_gw_flight_over_assign_live_wave877_ok,
+
+
             host_ci_clippy_peel_method_names_wave878_ok: waves_841_880.host_ci_clippy_peel_method_names_wave878_ok,
             host_ci_clippy_peel_nav_commands_wave878_ok: waves_841_880.host_ci_clippy_peel_nav_commands_wave878_ok,
             host_ci_clippy_peel_live_wave878_ok: waves_841_880.host_ci_clippy_peel_live_wave878_ok,
@@ -1967,9 +1818,8 @@ impl WaveHonesty {
             host_ui_framework_clippy_method_names_wave881_ok: waves_881_920.host_ui_framework_clippy_method_names_wave881_ok,
             host_ui_framework_clippy_nav_commands_wave881_ok: waves_881_920.host_ui_framework_clippy_nav_commands_wave881_ok,
             host_ui_framework_clippy_live_wave881_ok: waves_881_920.host_ui_framework_clippy_live_wave881_ok,
-            host_assets_big_unpack_method_names_wave882_ok: waves_881_920.host_assets_big_unpack_method_names_wave882_ok,
-            host_assets_big_unpack_nav_commands_wave882_ok: waves_881_920.host_assets_big_unpack_nav_commands_wave882_ok,
-            host_assets_big_unpack_live_wave882_ok: waves_881_920.host_assets_big_unpack_live_wave882_ok,
+
+
             host_wwshade_clippy_method_names_wave883_ok: waves_881_920.host_wwshade_clippy_method_names_wave883_ok,
             host_wwshade_clippy_nav_commands_wave883_ok: waves_881_920.host_wwshade_clippy_nav_commands_wave883_ok,
             host_wwshade_clippy_live_wave883_ok: waves_881_920.host_wwshade_clippy_live_wave883_ok,
@@ -2091,9 +1941,9 @@ impl WaveHonesty {
             host_tick_logic_frame_boundary_method_names_wave923_ok: waves_921_941.host_tick_logic_frame_boundary_method_names_wave923_ok,
             host_tick_logic_frame_boundary_nav_commands_wave923_ok: waves_921_941.host_tick_logic_frame_boundary_nav_commands_wave923_ok,
             host_tick_logic_frame_boundary_live_wave923_ok: waves_921_941.host_tick_logic_frame_boundary_live_wave923_ok,
-            host_placement_legal_build_cache_method_names_wave924_ok: waves_921_941.host_placement_legal_build_cache_method_names_wave924_ok,
-            host_placement_legal_build_cache_nav_commands_wave924_ok: waves_921_941.host_placement_legal_build_cache_nav_commands_wave924_ok,
-            host_placement_legal_build_cache_live_wave924_ok: waves_921_941.host_placement_legal_build_cache_live_wave924_ok,
+
+
+
 
             host_presentation_build_boundary_method_names_wave926_ok: waves_921_941.host_presentation_build_boundary_method_names_wave926_ok,
             host_presentation_build_boundary_nav_commands_wave926_ok: waves_921_941.host_presentation_build_boundary_nav_commands_wave926_ok,
@@ -2118,15 +1968,9 @@ impl WaveHonesty {
             host_session_control_boundary_method_names_wave933_ok: waves_921_941.host_session_control_boundary_method_names_wave933_ok,
             host_session_control_boundary_nav_commands_wave933_ok: waves_921_941.host_session_control_boundary_nav_commands_wave933_ok,
             host_session_control_boundary_live_wave933_ok: waves_921_941.host_session_control_boundary_live_wave933_ok,
-            host_support_boundary_method_names_wave934_ok: waves_921_941.host_support_boundary_method_names_wave934_ok,
-            host_support_boundary_nav_commands_wave934_ok: waves_921_941.host_support_boundary_nav_commands_wave934_ok,
-            host_support_boundary_live_wave934_ok: waves_921_941.host_support_boundary_live_wave934_ok,
-            host_gamelogic_borrow_boundary_method_names_wave935_ok: waves_921_941.host_gamelogic_borrow_boundary_method_names_wave935_ok,
-            host_gamelogic_borrow_boundary_nav_commands_wave935_ok: waves_921_941.host_gamelogic_borrow_boundary_nav_commands_wave935_ok,
-            host_gamelogic_borrow_boundary_live_wave935_ok: waves_921_941.host_gamelogic_borrow_boundary_live_wave935_ok,
-            host_sole_authority_surface_method_names_wave936_ok: waves_921_941.host_sole_authority_surface_method_names_wave936_ok,
-            host_sole_authority_surface_nav_commands_wave936_ok: waves_921_941.host_sole_authority_surface_nav_commands_wave936_ok,
-            host_sole_authority_surface_live_wave936_ok: waves_921_941.host_sole_authority_surface_live_wave936_ok,
+
+
+
             host_production_authority_boundary_method_names_wave937_ok: waves_921_941.host_production_authority_boundary_method_names_wave937_ok,
             host_production_authority_boundary_nav_commands_wave937_ok: waves_921_941.host_production_authority_boundary_nav_commands_wave937_ok,
             host_production_authority_boundary_live_wave937_ok: waves_921_941.host_production_authority_boundary_live_wave937_ok,

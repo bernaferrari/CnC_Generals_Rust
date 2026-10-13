@@ -230,8 +230,8 @@ fn team_guard_reentry_exits_hunt_and_clears_previous_goal_immediately() {
     let (mut world, id, target) = world();
     team(&world, "GuardRoster", &[id], false, true);
     assert!(world.unit_command_patrol(id));
-    let unit = world.host_object_mut(id).unwrap();
-    unit.set_target(Some(target));
+    let (unit, attack_events) = world.host_object_and_attack_events_mut(id).unwrap();
+    unit.set_target(Some(target), attack_events);
     unit.pending_move = Some(Vec3::splat(300.0));
     unit.set_guard_target(Some(target));
     unit.guard_area_trigger = Some("OldGuardArea".into());

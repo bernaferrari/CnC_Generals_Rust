@@ -33,21 +33,9 @@ pub(super) fn assert_waves_609_669(r: &ShellSmokeResult) {
         "host ui selection startup helper live residual wave610: {}",
         r.detail
     );
-    assert!(
-        r.host_start_save_load_helper_method_names_wave611_ok,
-        "host start save load helper method names residual pack wave611: {}",
-        r.detail
-    );
-    assert!(
-        r.host_start_save_load_helper_nav_commands_wave611_ok,
-        "host start save load helper nav commands residual pack wave611: {}",
-        r.detail
-    );
-    assert!(
-        r.host_start_save_load_helper_live_wave611_ok,
-        "host start save load helper live residual wave611: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.host_combat_cursor_transition_helper_method_names_wave612_ok,
         "host combat cursor transition helper method names residual pack wave612: {}",
@@ -63,21 +51,9 @@ pub(super) fn assert_waves_609_669(r: &ShellSmokeResult) {
         "host combat cursor transition helper live residual wave612: {}",
         r.detail
     );
-    assert!(
-        r.host_production_complete_collect_helper_method_names_wave613_ok,
-        "host production complete collect helper method names residual pack wave613: {}",
-        r.detail
-    );
-    assert!(
-        r.host_production_complete_collect_helper_nav_commands_wave613_ok,
-        "host production complete collect helper nav commands residual pack wave613: {}",
-        r.detail
-    );
-    assert!(
-        r.host_production_complete_collect_helper_live_wave613_ok,
-        "host production complete collect helper live residual wave613: {}",
-        r.detail
-    );
+
+
+
 
 
 

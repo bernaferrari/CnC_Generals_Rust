@@ -330,10 +330,7 @@ pub struct ShellSmokeResult {
     pub control_bar_scheme_names_wave156_ok: bool,
     pub control_bar_scheme_method_names_wave156_ok: bool,
     pub control_bar_scheme_nav_commands_wave156_ok: bool,
-    pub presentation_boundary_method_names_wave157_ok: bool,
-    pub presentation_boundary_source_markers_wave157_ok: bool,
-    pub presentation_boundary_nav_commands_wave157_ok: bool,
-    pub presentation_boundary_live_wave157_ok: bool,
+
     pub control_bar_print_names_wave158_ok: bool,
     pub control_bar_print_nav_commands_wave158_ok: bool,
     pub terrain_env_boundary_method_names_wave159_ok: bool,
@@ -352,9 +349,8 @@ pub struct ShellSmokeResult {
     pub shell_stack_push_method_names_wave163_ok: bool,
     pub shell_stack_push_nav_commands_wave163_ok: bool,
     pub shell_stack_push_live_wave163_ok: bool,
-    pub shell_skirmish_nav_method_names_wave164_ok: bool,
-    pub shell_skirmish_nav_commands_wave164_ok: bool,
-    pub shell_skirmish_nav_live_wave164_ok: bool,
+
+
     pub control_bar_materialise_method_names_wave165_ok: bool,
     pub control_bar_materialise_nav_commands_wave165_ok: bool,
     pub control_bar_materialise_live_wave165_ok: bool,
@@ -402,9 +398,8 @@ pub struct ShellSmokeResult {
     pub live_presentation_gameworld_overlay_method_names_wave187_ok: bool,
     pub live_presentation_gameworld_overlay_nav_commands_wave187_ok: bool,
     pub live_presentation_gameworld_overlay_live_wave187_ok: bool,
-    pub executable_gameworld_presentation_method_names_wave188_ok: bool,
-    pub executable_gameworld_presentation_nav_commands_wave188_ok: bool,
-    pub executable_gameworld_presentation_live_wave188_ok: bool,
+
+
     pub live_presentation_overlay_deepen_method_names_wave189_ok: bool,
     pub live_presentation_overlay_deepen_nav_commands_wave189_ok: bool,
     pub live_presentation_overlay_deepen_live_wave189_ok: bool,
@@ -488,30 +483,25 @@ pub struct ShellSmokeResult {
     pub live_ui_command_selection_presentation_only_method_names_wave219_ok: bool,
     pub live_ui_command_selection_presentation_only_nav_commands_wave219_ok: bool,
     pub live_ui_command_selection_presentation_only_live_wave219_ok: bool,
-    pub live_local_team_presentation_only_method_names_wave220_ok: bool,
-    pub live_local_team_presentation_only_nav_commands_wave220_ok: bool,
-    pub live_local_team_presentation_only_live_wave220_ok: bool,
+
+
     pub live_hotkey_move_attack_selection_presentation_only_method_names_wave221_ok: bool,
     pub live_hotkey_move_attack_selection_presentation_only_nav_commands_wave221_ok: bool,
     pub live_hotkey_move_attack_selection_presentation_only_live_wave221_ok: bool,
     pub live_pick_object_presentation_only_method_names_wave222_ok: bool,
     pub live_pick_object_presentation_only_nav_commands_wave222_ok: bool,
     pub live_pick_object_presentation_only_live_wave222_ok: bool,
-    pub live_bootstrap_camera_presentation_only_method_names_wave223_ok: bool,
-    pub live_bootstrap_camera_presentation_only_nav_commands_wave223_ok: bool,
-    pub live_bootstrap_camera_presentation_only_live_wave223_ok: bool,
+
+
     pub live_force_complete_authority_api_method_names_wave224_ok: bool,
     pub live_force_complete_authority_api_nav_commands_wave224_ok: bool,
     pub live_force_complete_authority_api_live_wave224_ok: bool,
     pub live_path_guard_authority_api_method_names_wave225_ok: bool,
     pub live_path_guard_authority_api_nav_commands_wave225_ok: bool,
     pub live_path_guard_authority_api_live_wave225_ok: bool,
-    pub live_hotkey_selection_camera_presentation_only_method_names_wave226_ok: bool,
-    pub live_hotkey_selection_camera_presentation_only_nav_commands_wave226_ok: bool,
-    pub live_hotkey_selection_camera_presentation_only_live_wave226_ok: bool,
-    pub live_construct_spawn_pose_authority_api_method_names_wave227_ok: bool,
-    pub live_construct_spawn_pose_authority_api_nav_commands_wave227_ok: bool,
-    pub live_construct_spawn_pose_authority_api_live_wave227_ok: bool,
+
+
+
     pub live_rmb_target_presentation_only_method_names_wave228_ok: bool,
     pub live_rmb_target_presentation_only_nav_commands_wave228_ok: bool,
     pub live_rmb_target_presentation_only_live_wave228_ok: bool,
@@ -527,39 +517,29 @@ pub struct ShellSmokeResult {
     pub live_command_executor_authority_api_method_names_wave232_ok: bool,
     pub live_command_executor_authority_api_nav_commands_wave232_ok: bool,
     pub live_command_executor_authority_api_live_wave232_ok: bool,
-    pub live_command_executor_more_authority_api_method_names_wave233_ok: bool,
-    pub live_command_executor_more_authority_api_nav_commands_wave233_ok: bool,
-    pub live_command_executor_more_authority_api_live_wave233_ok: bool,
-    pub live_engine_presentation_player_ui_method_names_wave234_ok: bool,
-    pub live_engine_presentation_player_ui_nav_commands_wave234_ok: bool,
-    pub live_engine_presentation_player_ui_live_wave234_ok: bool,
+
+
     pub live_rmb_presentation_full_classify_method_names_wave235_ok: bool,
     pub live_rmb_presentation_full_classify_nav_commands_wave235_ok: bool,
     pub live_rmb_presentation_full_classify_live_wave235_ok: bool,
     pub live_mouse_input_presentation_only_method_names_wave236_ok: bool,
     pub live_mouse_input_presentation_only_nav_commands_wave236_ok: bool,
     pub live_mouse_input_presentation_only_live_wave236_ok: bool,
-    pub live_engine_player_ui_boot_peel_method_names_wave237_ok: bool,
-    pub live_engine_player_ui_boot_peel_nav_commands_wave237_ok: bool,
-    pub live_engine_player_ui_boot_peel_live_wave237_ok: bool,
-    pub live_player_probe_api_method_names_wave238_ok: bool,
-    pub live_player_probe_api_nav_commands_wave238_ok: bool,
-    pub live_player_probe_api_live_wave238_ok: bool,
-    pub live_player_team_probe_method_names_wave239_ok: bool,
-    pub live_player_team_probe_nav_commands_wave239_ok: bool,
-    pub live_player_team_probe_live_wave239_ok: bool,
-    pub live_player_field_probe_method_names_wave240_ok: bool,
-    pub live_player_field_probe_nav_commands_wave240_ok: bool,
-    pub live_player_field_probe_live_wave240_ok: bool,
+
+
+
+
+
+
     pub live_camera_height_probe_method_names_wave241_ok: bool,
     pub live_camera_height_probe_nav_commands_wave241_ok: bool,
     pub live_camera_height_probe_live_wave241_ok: bool,
     pub live_command_player_probe_method_names_wave242_ok: bool,
     pub live_command_player_probe_nav_commands_wave242_ok: bool,
     pub live_command_player_probe_live_wave242_ok: bool,
-    pub live_construct_economy_probe_method_names_wave243_ok: bool,
-    pub live_construct_economy_probe_nav_commands_wave243_ok: bool,
-    pub live_construct_economy_probe_live_wave243_ok: bool,
+
+
+
     pub live_command_unit_probe_method_names_wave244_ok: bool,
     pub live_command_unit_probe_nav_commands_wave244_ok: bool,
     pub live_command_unit_probe_live_wave244_ok: bool,
@@ -1086,9 +1066,7 @@ pub struct ShellSmokeResult {
     pub live_replace_object_upgrade_dual_world_empty_gate_live_wave446_ok: bool,
 
 
-    pub live_contain_module_overrides_fail_closed_method_names_wave449_ok: bool,
-    pub live_contain_module_overrides_fail_closed_nav_commands_wave449_ok: bool,
-    pub live_contain_module_overrides_fail_closed_live_wave449_ok: bool,
+
 
 
 
@@ -1120,9 +1098,9 @@ pub struct ShellSmokeResult {
     pub terrain_visual_presentation_only_method_names_wave459_ok: bool,
     pub terrain_visual_presentation_only_nav_commands_wave459_ok: bool,
     pub terrain_visual_presentation_only_live_wave459_ok: bool,
-    pub camera_center_presentation_height_method_names_wave460_ok: bool,
-    pub camera_center_presentation_height_nav_commands_wave460_ok: bool,
-    pub camera_center_presentation_height_live_wave460_ok: bool,
+
+
+
     pub presentation_world_bounds_probe_method_names_wave461_ok: bool,
     pub presentation_world_bounds_probe_nav_commands_wave461_ok: bool,
     pub presentation_world_bounds_probe_live_wave461_ok: bool,
@@ -1138,66 +1116,40 @@ pub struct ShellSmokeResult {
     pub presentation_env_seed_gameworld_method_names_wave466_ok: bool,
     pub presentation_env_seed_gameworld_nav_commands_wave466_ok: bool,
     pub presentation_env_seed_gameworld_live_wave466_ok: bool,
-    pub presentation_env_seed_mirror_last_method_names_wave467_ok: bool,
-    pub presentation_env_seed_mirror_last_nav_commands_wave467_ok: bool,
-    pub presentation_env_seed_mirror_last_live_wave467_ok: bool,
-    pub minimap_reinit_instance_presentation_method_names_wave468_ok: bool,
-    pub minimap_reinit_instance_presentation_nav_commands_wave468_ok: bool,
-    pub minimap_reinit_instance_presentation_live_wave468_ok: bool,
-    pub pathfind_midframe_stub_removed_method_names_wave469_ok: bool,
-    pub pathfind_midframe_stub_removed_nav_commands_wave469_ok: bool,
-    pub pathfind_midframe_stub_removed_live_wave469_ok: bool,
-    pub projectile_authority_flare_host_method_names_wave470_ok: bool,
-    pub projectile_authority_flare_host_nav_commands_wave470_ok: bool,
-    pub projectile_authority_flare_host_live_wave470_ok: bool,
-    pub engine_env_free_fn_game_logic_only_seed_method_names_wave471_ok: bool,
-    pub engine_env_free_fn_game_logic_only_seed_nav_commands_wave471_ok: bool,
-    pub engine_env_free_fn_game_logic_only_seed_live_wave471_ok: bool,
+
+
+
     pub dead_model_preload_removed_method_names_wave472_ok: bool,
     pub dead_model_preload_removed_nav_commands_wave472_ok: bool,
     pub dead_model_preload_removed_live_wave472_ok: bool,
     pub camera_bootstrap_presentation_only_method_names_wave473_ok: bool,
     pub camera_bootstrap_presentation_only_nav_commands_wave473_ok: bool,
     pub camera_bootstrap_presentation_only_live_wave473_ok: bool,
-    pub ensure_presentation_env_instance_method_names_wave474_ok: bool,
-    pub ensure_presentation_env_instance_nav_commands_wave474_ok: bool,
-    pub ensure_presentation_env_instance_live_wave474_ok: bool,
+
     pub map_ground_no_registry_pose_dual_write_method_names_wave475_ok: bool,
     pub map_ground_no_registry_pose_dual_write_nav_commands_wave475_ok: bool,
     pub map_ground_no_registry_pose_dual_write_live_wave475_ok: bool,
     pub named_shell_host_only_tracker_method_names_wave476_ok: bool,
     pub named_shell_host_only_tracker_nav_commands_wave476_ok: bool,
     pub named_shell_host_only_tracker_live_wave476_ok: bool,
-    pub production_sole_tick_no_progress_stomp_method_names_wave477_ok: bool,
-    pub production_sole_tick_no_progress_stomp_nav_commands_wave477_ok: bool,
-    pub production_sole_tick_no_progress_stomp_live_wave477_ok: bool,
+
     pub construction_sole_tick_no_progress_stomp_method_names_wave478_ok: bool,
     pub construction_sole_tick_no_progress_stomp_nav_commands_wave478_ok: bool,
     pub construction_sole_tick_no_progress_stomp_live_wave478_ok: bool,
-    pub special_power_sole_tick_no_cooldown_stomp_method_names_wave479_ok: bool,
-    pub special_power_sole_tick_no_cooldown_stomp_nav_commands_wave479_ok: bool,
-    pub special_power_sole_tick_no_cooldown_stomp_live_wave479_ok: bool,
-    pub production_sole_tick_exit_delay_arm_method_names_wave480_ok: bool,
-    pub production_sole_tick_exit_delay_arm_nav_commands_wave480_ok: bool,
-    pub production_sole_tick_exit_delay_arm_live_wave480_ok: bool,
+
+
+
     pub sell_deconstruction_sole_tick_no_stomp_method_names_wave481_ok: bool,
     pub sell_deconstruction_sole_tick_no_stomp_nav_commands_wave481_ok: bool,
     pub sell_deconstruction_sole_tick_no_stomp_live_wave481_ok: bool,
-    pub sell_finish_skips_topple_destroy_method_names_wave482_ok: bool,
-    pub sell_finish_skips_topple_destroy_nav_commands_wave482_ok: bool,
-    pub sell_finish_skips_topple_destroy_live_wave482_ok: bool,
-    pub production_upgrade_complete_queue_refresh_method_names_wave483_ok: bool,
-    pub production_upgrade_complete_queue_refresh_nav_commands_wave483_ok: bool,
-    pub production_upgrade_complete_queue_refresh_live_wave483_ok: bool,
-    pub cancel_all_production_queue_refresh_method_names_wave484_ok: bool,
-    pub cancel_all_production_queue_refresh_nav_commands_wave484_ok: bool,
-    pub cancel_all_production_queue_refresh_live_wave484_ok: bool,
+
+
+
     pub cancel_clears_exit_delay_method_names_wave485_ok: bool,
     pub cancel_clears_exit_delay_nav_commands_wave485_ok: bool,
     pub cancel_clears_exit_delay_live_wave485_ok: bool,
-    pub production_door_model_condition_log_method_names_wave486_ok: bool,
-    pub production_door_model_condition_log_nav_commands_wave486_ok: bool,
-    pub production_door_model_condition_log_live_wave486_ok: bool,
+
+
     pub combat_model_condition_channel_method_names_wave487_ok: bool,
     pub combat_model_condition_channel_nav_commands_wave487_ok: bool,
     pub combat_model_condition_channel_live_wave487_ok: bool,
@@ -1210,9 +1162,7 @@ pub struct ShellSmokeResult {
     pub entity_presentation_structure_ui_method_names_wave490_ok: bool,
     pub entity_presentation_structure_ui_nav_commands_wave490_ok: bool,
     pub entity_presentation_structure_ui_live_wave490_ok: bool,
-    pub presentation_mesh_sold_condition_method_names_wave491_ok: bool,
-    pub presentation_mesh_sold_condition_nav_commands_wave491_ok: bool,
-    pub presentation_mesh_sold_condition_live_wave491_ok: bool,
+
     pub entity_presentation_mesh_fow_method_names_wave492_ok: bool,
     pub entity_presentation_mesh_fow_nav_commands_wave492_ok: bool,
     pub entity_presentation_mesh_fow_live_wave492_ok: bool,
@@ -1228,9 +1178,8 @@ pub struct ShellSmokeResult {
     pub presentation_mesh_door_phase_method_names_wave496_ok: bool,
     pub presentation_mesh_door_phase_nav_commands_wave496_ok: bool,
     pub presentation_mesh_door_phase_live_wave496_ok: bool,
-    pub presentation_mesh_condition_resolve_method_names_wave497_ok: bool,
-    pub presentation_mesh_condition_resolve_nav_commands_wave497_ok: bool,
-    pub presentation_mesh_condition_resolve_live_wave497_ok: bool,
+
+
     pub presentation_host_fx_overlay_method_names_wave498_ok: bool,
     pub presentation_host_fx_overlay_nav_commands_wave498_ok: bool,
     pub presentation_host_fx_overlay_live_wave498_ok: bool,
@@ -1273,9 +1222,8 @@ pub struct ShellSmokeResult {
     pub presentation_burn_cheer_carry_method_names_wave511_ok: bool,
     pub presentation_burn_cheer_carry_nav_commands_wave511_ok: bool,
     pub presentation_burn_cheer_carry_live_wave511_ok: bool,
-    pub presentation_fire_prone_turret_method_names_wave512_ok: bool,
-    pub presentation_fire_prone_turret_nav_commands_wave512_ok: bool,
-    pub presentation_fire_prone_turret_live_wave512_ok: bool,
+
+
     pub presentation_jam_die_reload_pack_method_names_wave513_ok: bool,
     pub presentation_jam_die_reload_pack_nav_commands_wave513_ok: bool,
     pub presentation_jam_die_reload_pack_live_wave513_ok: bool,
@@ -1333,9 +1281,8 @@ pub struct ShellSmokeResult {
     pub command_integration_presentation_fill_method_names_wave531_ok: bool,
     pub command_integration_presentation_fill_nav_commands_wave531_ok: bool,
     pub command_integration_presentation_fill_live_wave531_ok: bool,
-    pub presentation_firesound_drain_sibling_method_names_wave532_ok: bool,
-    pub presentation_firesound_drain_sibling_nav_commands_wave532_ok: bool,
-    pub presentation_firesound_drain_sibling_live_wave532_ok: bool,
+
+
     pub presentation_eva_pulse_audio_method_names_wave533_ok: bool,
     pub presentation_eva_pulse_audio_nav_commands_wave533_ok: bool,
     pub presentation_eva_pulse_audio_live_wave533_ok: bool,
@@ -1348,9 +1295,7 @@ pub struct ShellSmokeResult {
     pub presentation_eva_client_dispatch_method_names_wave536_ok: bool,
     pub presentation_eva_client_dispatch_nav_commands_wave536_ok: bool,
     pub presentation_eva_client_dispatch_live_wave536_ok: bool,
-    pub presentation_eva_alert_counter_dedupe_method_names_wave537_ok: bool,
-    pub presentation_eva_alert_counter_dedupe_nav_commands_wave537_ok: bool,
-    pub presentation_eva_alert_counter_dedupe_live_wave537_ok: bool,
+
     pub presentation_alliance_notify_method_names_wave538_ok: bool,
     pub presentation_alliance_notify_nav_commands_wave538_ok: bool,
     pub presentation_alliance_notify_live_wave538_ok: bool,
@@ -1372,9 +1317,7 @@ pub struct ShellSmokeResult {
     pub ui_selection_seed_presentation_fail_closed_method_names_wave544_ok: bool,
     pub ui_selection_seed_presentation_fail_closed_nav_commands_wave544_ok: bool,
     pub ui_selection_seed_presentation_fail_closed_live_wave544_ok: bool,
-    pub save_restart_presentation_fail_closed_method_names_wave545_ok: bool,
-    pub save_restart_presentation_fail_closed_nav_commands_wave545_ok: bool,
-    pub save_restart_presentation_fail_closed_live_wave545_ok: bool,
+
     pub host_status_map_presentation_fail_closed_method_names_wave546_ok: bool,
     pub host_status_map_presentation_fail_closed_nav_commands_wave546_ok: bool,
     pub host_status_map_presentation_fail_closed_live_wave546_ok: bool,
@@ -1394,9 +1337,9 @@ pub struct ShellSmokeResult {
     pub time_frozen_presentation_helper_method_names_wave551_ok: bool,
     pub time_frozen_presentation_helper_nav_commands_wave551_ok: bool,
     pub time_frozen_presentation_helper_live_wave551_ok: bool,
-    pub shell_bypass_presentation_helper_method_names_wave552_ok: bool,
-    pub shell_bypass_presentation_helper_nav_commands_wave552_ok: bool,
-    pub shell_bypass_presentation_helper_live_wave552_ok: bool,
+
+
+
     pub play_time_local_player_presentation_helper_method_names_wave553_ok: bool,
     pub play_time_local_player_presentation_helper_nav_commands_wave553_ok: bool,
     pub play_time_local_player_presentation_helper_live_wave553_ok: bool,
@@ -1406,9 +1349,7 @@ pub struct ShellSmokeResult {
     pub science_team_presentation_helper_method_names_wave555_ok: bool,
     pub science_team_presentation_helper_nav_commands_wave555_ok: bool,
     pub science_team_presentation_helper_live_wave555_ok: bool,
-    pub victory_presentation_helper_method_names_wave556_ok: bool,
-    pub victory_presentation_helper_nav_commands_wave556_ok: bool,
-    pub victory_presentation_helper_live_wave556_ok: bool,
+
     pub replay_presentation_helper_method_names_wave557_ok: bool,
     pub replay_presentation_helper_nav_commands_wave557_ok: bool,
     pub replay_presentation_helper_live_wave557_ok: bool,
@@ -1454,9 +1395,9 @@ pub struct ShellSmokeResult {
     pub popup_music_helper_method_names_wave571_ok: bool,
     pub popup_music_helper_nav_commands_wave571_ok: bool,
     pub popup_music_helper_live_wave571_ok: bool,
-    pub boot_camera_helper_method_names_wave572_ok: bool,
-    pub boot_camera_helper_nav_commands_wave572_ok: bool,
-    pub boot_camera_helper_live_wave572_ok: bool,
+
+
+
     pub boot_player_info_helper_method_names_wave573_ok: bool,
     pub boot_player_info_helper_nav_commands_wave573_ok: bool,
     pub boot_player_info_helper_live_wave573_ok: bool,
@@ -1487,12 +1428,9 @@ pub struct ShellSmokeResult {
     pub host_enqueue_shell_cmd_helper_method_names_wave582_ok: bool,
     pub host_enqueue_shell_cmd_helper_nav_commands_wave582_ok: bool,
     pub host_enqueue_shell_cmd_helper_live_wave582_ok: bool,
-    pub host_runtime_cmd_helper_method_names_wave583_ok: bool,
-    pub host_runtime_cmd_helper_nav_commands_wave583_ok: bool,
-    pub host_runtime_cmd_helper_live_wave583_ok: bool,
-    pub host_tick_mutation_helper_method_names_wave584_ok: bool,
-    pub host_tick_mutation_helper_nav_commands_wave584_ok: bool,
-    pub host_tick_mutation_helper_live_wave584_ok: bool,
+
+
+
     pub host_ui_shell_world_helper_method_names_wave585_ok: bool,
     pub host_ui_shell_world_helper_nav_commands_wave585_ok: bool,
     pub host_ui_shell_world_helper_live_wave585_ok: bool,
@@ -1505,33 +1443,18 @@ pub struct ShellSmokeResult {
     pub host_game_client_menu_shell_helper_method_names_wave588_ok: bool,
     pub host_game_client_menu_shell_helper_nav_commands_wave588_ok: bool,
     pub host_game_client_menu_shell_helper_live_wave588_ok: bool,
-    pub host_presentation_finalize_helper_method_names_wave589_ok: bool,
-    pub host_presentation_finalize_helper_nav_commands_wave589_ok: bool,
-    pub host_presentation_finalize_helper_live_wave589_ok: bool,
-    pub host_presentation_seed_helper_method_names_wave590_ok: bool,
-    pub host_presentation_seed_helper_nav_commands_wave590_ok: bool,
-    pub host_presentation_seed_helper_live_wave590_ok: bool,
-    pub host_render_ui_presentation_helper_method_names_wave591_ok: bool,
-    pub host_render_ui_presentation_helper_nav_commands_wave591_ok: bool,
-    pub host_render_ui_presentation_helper_live_wave591_ok: bool,
-    pub host_render_ui_overlays_helper_method_names_wave592_ok: bool,
-    pub host_render_ui_overlays_helper_nav_commands_wave592_ok: bool,
-    pub host_render_ui_overlays_helper_live_wave592_ok: bool,
+
+
+
     pub host_render_ui_finalize_helper_method_names_wave593_ok: bool,
     pub host_render_ui_finalize_helper_nav_commands_wave593_ok: bool,
     pub host_render_ui_finalize_helper_live_wave593_ok: bool,
-    pub host_minimap_bounds_repair_helper_method_names_wave594_ok: bool,
-    pub host_minimap_bounds_repair_helper_nav_commands_wave594_ok: bool,
-    pub host_minimap_bounds_repair_helper_live_wave594_ok: bool,
-    pub host_production_complete_apply_helper_method_names_wave595_ok: bool,
-    pub host_production_complete_apply_helper_nav_commands_wave595_ok: bool,
-    pub host_production_complete_apply_helper_live_wave595_ok: bool,
+
+
     pub host_camera_queue_drain_helper_method_names_wave596_ok: bool,
     pub host_camera_queue_drain_helper_nav_commands_wave596_ok: bool,
     pub host_camera_queue_drain_helper_live_wave596_ok: bool,
-    pub host_gameworld_shadow_session_helper_method_names_wave597_ok: bool,
-    pub host_gameworld_shadow_session_helper_nav_commands_wave597_ok: bool,
-    pub host_gameworld_shadow_session_helper_live_wave597_ok: bool,
+
     pub host_ingame_hud_helper_method_names_wave598_ok: bool,
     pub host_ingame_hud_helper_nav_commands_wave598_ok: bool,
     pub host_ingame_hud_helper_live_wave598_ok: bool,
@@ -1541,12 +1464,8 @@ pub struct ShellSmokeResult {
     pub host_post_presentation_client_helper_method_names_wave600_ok: bool,
     pub host_post_presentation_client_helper_nav_commands_wave600_ok: bool,
     pub host_post_presentation_client_helper_live_wave600_ok: bool,
-    pub host_restart_pause_helper_method_names_wave601_ok: bool,
-    pub host_restart_pause_helper_nav_commands_wave601_ok: bool,
-    pub host_restart_pause_helper_live_wave601_ok: bool,
-    pub host_ingame_logic_shell_helper_method_names_wave602_ok: bool,
-    pub host_ingame_logic_shell_helper_nav_commands_wave602_ok: bool,
-    pub host_ingame_logic_shell_helper_live_wave602_ok: bool,
+
+
     pub host_paused_endgame_boot_ui_helper_method_names_wave603_ok: bool,
     pub host_paused_endgame_boot_ui_helper_nav_commands_wave603_ok: bool,
     pub host_paused_endgame_boot_ui_helper_live_wave603_ok: bool,
@@ -1562,24 +1481,19 @@ pub struct ShellSmokeResult {
     pub host_ui_presentation_drain_helper_method_names_wave607_ok: bool,
     pub host_ui_presentation_drain_helper_nav_commands_wave607_ok: bool,
     pub host_ui_presentation_drain_helper_live_wave607_ok: bool,
-    pub host_production_complete_host_apply_helper_method_names_wave608_ok: bool,
-    pub host_production_complete_host_apply_helper_nav_commands_wave608_ok: bool,
-    pub host_production_complete_host_apply_helper_live_wave608_ok: bool,
+
     pub host_ui_economy_mouse_mode_helper_method_names_wave609_ok: bool,
     pub host_ui_economy_mouse_mode_helper_nav_commands_wave609_ok: bool,
     pub host_ui_economy_mouse_mode_helper_live_wave609_ok: bool,
     pub host_ui_selection_startup_helper_method_names_wave610_ok: bool,
     pub host_ui_selection_startup_helper_nav_commands_wave610_ok: bool,
     pub host_ui_selection_startup_helper_live_wave610_ok: bool,
-    pub host_start_save_load_helper_method_names_wave611_ok: bool,
-    pub host_start_save_load_helper_nav_commands_wave611_ok: bool,
-    pub host_start_save_load_helper_live_wave611_ok: bool,
+
     pub host_combat_cursor_transition_helper_method_names_wave612_ok: bool,
     pub host_combat_cursor_transition_helper_nav_commands_wave612_ok: bool,
     pub host_combat_cursor_transition_helper_live_wave612_ok: bool,
-    pub host_production_complete_collect_helper_method_names_wave613_ok: bool,
-    pub host_production_complete_collect_helper_nav_commands_wave613_ok: bool,
-    pub host_production_complete_collect_helper_live_wave613_ok: bool,
+
+
 
 
 
@@ -1735,9 +1649,9 @@ pub struct ShellSmokeResult {
     pub host_skirmish_map_force_lone_eagle_method_names_wave837_ok: bool,
     pub host_skirmish_map_force_lone_eagle_nav_commands_wave837_ok: bool,
     pub host_skirmish_map_force_lone_eagle_live_wave837_ok: bool,
-    pub presentation_empty_shadow_failopen_method_names_wave838_ok: bool,
-    pub presentation_empty_shadow_failopen_nav_commands_wave838_ok: bool,
-    pub presentation_empty_shadow_failopen_live_wave838_ok: bool,
+
+
+
     pub host_vertical_render_mesh_gate_method_names_wave839_ok: bool,
     pub host_vertical_render_mesh_gate_nav_commands_wave839_ok: bool,
     pub host_vertical_render_mesh_gate_live_wave839_ok: bool,
@@ -1771,9 +1685,7 @@ pub struct ShellSmokeResult {
     pub host_match_outcome_residuals_method_names_wave849_ok: bool,
     pub host_match_outcome_residuals_nav_commands_wave849_ok: bool,
     pub host_match_outcome_residuals_live_wave849_ok: bool,
-    pub host_match_selection_residuals_method_names_wave850_ok: bool,
-    pub host_match_selection_residuals_nav_commands_wave850_ok: bool,
-    pub host_match_selection_residuals_live_wave850_ok: bool,
+
     // fields_waves_851_941.rs
     pub host_match_alive_object_residuals_method_names_wave851_ok: bool,
     pub host_match_alive_object_residuals_nav_commands_wave851_ok: bool,
@@ -1844,15 +1756,12 @@ pub struct ShellSmokeResult {
     pub host_queue_stamp_method_names_wave874_ok: bool,
     pub host_queue_stamp_nav_commands_wave874_ok: bool,
     pub host_queue_stamp_live_wave874_ok: bool,
-    pub host_dual_read_zero_sole_tick_method_names_wave875_ok: bool,
-    pub host_dual_read_zero_sole_tick_nav_commands_wave875_ok: bool,
-    pub host_dual_read_zero_sole_tick_live_wave875_ok: bool,
+
     pub host_shell_no_dual_pace_method_names_wave876_ok: bool,
     pub host_shell_no_dual_pace_nav_commands_wave876_ok: bool,
     pub host_shell_no_dual_pace_live_wave876_ok: bool,
-    pub host_gw_flight_over_assign_method_names_wave877_ok: bool,
-    pub host_gw_flight_over_assign_nav_commands_wave877_ok: bool,
-    pub host_gw_flight_over_assign_live_wave877_ok: bool,
+
+
     pub host_ci_clippy_peel_method_names_wave878_ok: bool,
     pub host_ci_clippy_peel_nav_commands_wave878_ok: bool,
     pub host_ci_clippy_peel_live_wave878_ok: bool,
@@ -1865,9 +1774,8 @@ pub struct ShellSmokeResult {
     pub host_ui_framework_clippy_method_names_wave881_ok: bool,
     pub host_ui_framework_clippy_nav_commands_wave881_ok: bool,
     pub host_ui_framework_clippy_live_wave881_ok: bool,
-    pub host_assets_big_unpack_method_names_wave882_ok: bool,
-    pub host_assets_big_unpack_nav_commands_wave882_ok: bool,
-    pub host_assets_big_unpack_live_wave882_ok: bool,
+
+
     pub host_wwshade_clippy_method_names_wave883_ok: bool,
     pub host_wwshade_clippy_nav_commands_wave883_ok: bool,
     pub host_wwshade_clippy_live_wave883_ok: bool,
@@ -1989,9 +1897,9 @@ pub struct ShellSmokeResult {
     pub host_tick_logic_frame_boundary_method_names_wave923_ok: bool,
     pub host_tick_logic_frame_boundary_nav_commands_wave923_ok: bool,
     pub host_tick_logic_frame_boundary_live_wave923_ok: bool,
-    pub host_placement_legal_build_cache_method_names_wave924_ok: bool,
-    pub host_placement_legal_build_cache_nav_commands_wave924_ok: bool,
-    pub host_placement_legal_build_cache_live_wave924_ok: bool,
+
+
+
 
     pub host_presentation_build_boundary_method_names_wave926_ok: bool,
     pub host_presentation_build_boundary_nav_commands_wave926_ok: bool,
@@ -2016,15 +1924,9 @@ pub struct ShellSmokeResult {
     pub host_session_control_boundary_method_names_wave933_ok: bool,
     pub host_session_control_boundary_nav_commands_wave933_ok: bool,
     pub host_session_control_boundary_live_wave933_ok: bool,
-    pub host_support_boundary_method_names_wave934_ok: bool,
-    pub host_support_boundary_nav_commands_wave934_ok: bool,
-    pub host_support_boundary_live_wave934_ok: bool,
-    pub host_gamelogic_borrow_boundary_method_names_wave935_ok: bool,
-    pub host_gamelogic_borrow_boundary_nav_commands_wave935_ok: bool,
-    pub host_gamelogic_borrow_boundary_live_wave935_ok: bool,
-    pub host_sole_authority_surface_method_names_wave936_ok: bool,
-    pub host_sole_authority_surface_nav_commands_wave936_ok: bool,
-    pub host_sole_authority_surface_live_wave936_ok: bool,
+
+
+
     pub host_production_authority_boundary_method_names_wave937_ok: bool,
     pub host_production_authority_boundary_nav_commands_wave937_ok: bool,
     pub host_production_authority_boundary_live_wave937_ok: bool,

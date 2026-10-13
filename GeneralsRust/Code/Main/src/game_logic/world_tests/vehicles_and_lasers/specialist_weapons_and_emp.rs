@@ -55,8 +55,10 @@ fn colonel_burton_residual_sniper_and_knife() {
         .create_object("TestInfantry", Team::GLA, Vec3::new(60.0, 0.0, 0.0))
         .expect("enemy");
     {
-        let b = game_logic.host_object_mut(burton_id).unwrap();
-        b.attack_target(enemy);
+        let (b, attack_events) = game_logic
+            .host_object_and_attack_events_mut(burton_id)
+            .unwrap();
+        b.attack_target(enemy, attack_events);
         if let Some(w) = b.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -95,9 +97,11 @@ fn colonel_burton_residual_sniper_and_knife() {
         .create_object("TestInfantry", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
         .expect("melee");
     {
-        let b = game_logic.host_object_mut(burton_id).unwrap();
+        let (b, attack_events) = game_logic
+            .host_object_and_attack_events_mut(burton_id)
+            .unwrap();
         b.set_position(Vec3::new(0.0, 0.0, 0.0));
-        b.attack_target(melee);
+        b.attack_target(melee, attack_events);
         if let Some(w) = b.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -131,8 +135,10 @@ fn colonel_burton_residual_sniper_and_knife() {
         .map(|t| t.health.current)
         .unwrap_or(0.0);
     {
-        let b = game_logic.host_object_mut(burton_id).unwrap();
-        b.attack_target(tank);
+        let (b, attack_events) = game_logic
+            .host_object_and_attack_events_mut(burton_id)
+            .unwrap();
+        b.attack_target(tank, attack_events);
         if let Some(w) = b.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;

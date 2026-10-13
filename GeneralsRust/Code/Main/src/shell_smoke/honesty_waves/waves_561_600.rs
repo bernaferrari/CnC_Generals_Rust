@@ -41,9 +41,9 @@ pub(super) struct Waves561600 {
     pub popup_music_helper_method_names_wave571_ok: bool,
     pub popup_music_helper_nav_commands_wave571_ok: bool,
     pub popup_music_helper_live_wave571_ok: bool,
-    pub boot_camera_helper_method_names_wave572_ok: bool,
-    pub boot_camera_helper_nav_commands_wave572_ok: bool,
-    pub boot_camera_helper_live_wave572_ok: bool,
+
+
+
     pub boot_player_info_helper_method_names_wave573_ok: bool,
     pub boot_player_info_helper_nav_commands_wave573_ok: bool,
     pub boot_player_info_helper_live_wave573_ok: bool,
@@ -74,12 +74,9 @@ pub(super) struct Waves561600 {
     pub host_enqueue_shell_cmd_helper_method_names_wave582_ok: bool,
     pub host_enqueue_shell_cmd_helper_nav_commands_wave582_ok: bool,
     pub host_enqueue_shell_cmd_helper_live_wave582_ok: bool,
-    pub host_runtime_cmd_helper_method_names_wave583_ok: bool,
-    pub host_runtime_cmd_helper_nav_commands_wave583_ok: bool,
-    pub host_runtime_cmd_helper_live_wave583_ok: bool,
-    pub host_tick_mutation_helper_method_names_wave584_ok: bool,
-    pub host_tick_mutation_helper_nav_commands_wave584_ok: bool,
-    pub host_tick_mutation_helper_live_wave584_ok: bool,
+
+
+
     pub host_ui_shell_world_helper_method_names_wave585_ok: bool,
     pub host_ui_shell_world_helper_nav_commands_wave585_ok: bool,
     pub host_ui_shell_world_helper_live_wave585_ok: bool,
@@ -92,33 +89,18 @@ pub(super) struct Waves561600 {
     pub host_game_client_menu_shell_helper_method_names_wave588_ok: bool,
     pub host_game_client_menu_shell_helper_nav_commands_wave588_ok: bool,
     pub host_game_client_menu_shell_helper_live_wave588_ok: bool,
-    pub host_presentation_finalize_helper_method_names_wave589_ok: bool,
-    pub host_presentation_finalize_helper_nav_commands_wave589_ok: bool,
-    pub host_presentation_finalize_helper_live_wave589_ok: bool,
-    pub host_presentation_seed_helper_method_names_wave590_ok: bool,
-    pub host_presentation_seed_helper_nav_commands_wave590_ok: bool,
-    pub host_presentation_seed_helper_live_wave590_ok: bool,
-    pub host_render_ui_presentation_helper_method_names_wave591_ok: bool,
-    pub host_render_ui_presentation_helper_nav_commands_wave591_ok: bool,
-    pub host_render_ui_presentation_helper_live_wave591_ok: bool,
-    pub host_render_ui_overlays_helper_method_names_wave592_ok: bool,
-    pub host_render_ui_overlays_helper_nav_commands_wave592_ok: bool,
-    pub host_render_ui_overlays_helper_live_wave592_ok: bool,
+
+
+
     pub host_render_ui_finalize_helper_method_names_wave593_ok: bool,
     pub host_render_ui_finalize_helper_nav_commands_wave593_ok: bool,
     pub host_render_ui_finalize_helper_live_wave593_ok: bool,
-    pub host_minimap_bounds_repair_helper_method_names_wave594_ok: bool,
-    pub host_minimap_bounds_repair_helper_nav_commands_wave594_ok: bool,
-    pub host_minimap_bounds_repair_helper_live_wave594_ok: bool,
-    pub host_production_complete_apply_helper_method_names_wave595_ok: bool,
-    pub host_production_complete_apply_helper_nav_commands_wave595_ok: bool,
-    pub host_production_complete_apply_helper_live_wave595_ok: bool,
+
+
     pub host_camera_queue_drain_helper_method_names_wave596_ok: bool,
     pub host_camera_queue_drain_helper_nav_commands_wave596_ok: bool,
     pub host_camera_queue_drain_helper_live_wave596_ok: bool,
-    pub host_gameworld_shadow_session_helper_method_names_wave597_ok: bool,
-    pub host_gameworld_shadow_session_helper_nav_commands_wave597_ok: bool,
-    pub host_gameworld_shadow_session_helper_live_wave597_ok: bool,
+
     pub host_ingame_hud_helper_method_names_wave598_ok: bool,
     pub host_ingame_hud_helper_nav_commands_wave598_ok: bool,
     pub host_ingame_hud_helper_live_wave598_ok: bool,
@@ -192,11 +174,9 @@ pub(super) fn evaluate() -> Waves561600 {
         popup_music_helper_nav_commands_wave571_ok:
             honesty_popup_music_helper_nav_commands_residual_wave571(),
         popup_music_helper_live_wave571_ok: simulate_live_popup_music_helper_honesty(),
-        boot_camera_helper_method_names_wave572_ok:
-            honesty_boot_camera_helper_method_names_residual_wave572(),
-        boot_camera_helper_nav_commands_wave572_ok:
-            honesty_boot_camera_helper_nav_commands_residual_wave572(),
-        boot_camera_helper_live_wave572_ok: simulate_live_boot_camera_helper_honesty(),
+
+
+
         boot_player_info_helper_method_names_wave573_ok:
             honesty_boot_player_info_helper_method_names_residual_wave573(),
         boot_player_info_helper_nav_commands_wave573_ok:
@@ -252,17 +232,9 @@ pub(super) fn evaluate() -> Waves561600 {
             honesty_host_enqueue_shell_cmd_helper_nav_commands_residual_wave582(),
         host_enqueue_shell_cmd_helper_live_wave582_ok:
             simulate_live_host_enqueue_shell_cmd_helper_honesty(),
-        host_runtime_cmd_helper_method_names_wave583_ok:
-            honesty_host_runtime_cmd_helper_method_names_residual_wave583(),
-        host_runtime_cmd_helper_nav_commands_wave583_ok:
-            honesty_host_runtime_cmd_helper_nav_commands_residual_wave583(),
-        host_runtime_cmd_helper_live_wave583_ok: simulate_live_host_runtime_cmd_helper_honesty(),
-        host_tick_mutation_helper_method_names_wave584_ok:
-            honesty_host_tick_mutation_helper_method_names_residual_wave584(),
-        host_tick_mutation_helper_nav_commands_wave584_ok:
-            honesty_host_tick_mutation_helper_nav_commands_residual_wave584(),
-        host_tick_mutation_helper_live_wave584_ok: simulate_live_host_tick_mutation_helper_honesty(
-        ),
+
+
+
         host_ui_shell_world_helper_method_names_wave585_ok:
             honesty_host_ui_shell_world_helper_method_names_residual_wave585(),
         host_ui_shell_world_helper_nav_commands_wave585_ok:
@@ -287,60 +259,24 @@ pub(super) fn evaluate() -> Waves561600 {
             honesty_host_game_client_menu_shell_helper_nav_commands_residual_wave588(),
         host_game_client_menu_shell_helper_live_wave588_ok:
             simulate_live_host_game_client_menu_shell_helper_honesty(),
-        host_presentation_finalize_helper_method_names_wave589_ok:
-            honesty_host_presentation_finalize_helper_method_names_residual_wave589(),
-        host_presentation_finalize_helper_nav_commands_wave589_ok:
-            honesty_host_presentation_finalize_helper_nav_commands_residual_wave589(),
-        host_presentation_finalize_helper_live_wave589_ok:
-            simulate_live_host_presentation_finalize_helper_honesty(),
-        host_presentation_seed_helper_method_names_wave590_ok:
-            honesty_host_presentation_seed_helper_method_names_residual_wave590(),
-        host_presentation_seed_helper_nav_commands_wave590_ok:
-            honesty_host_presentation_seed_helper_nav_commands_residual_wave590(),
-        host_presentation_seed_helper_live_wave590_ok:
-            simulate_live_host_presentation_seed_helper_honesty(),
-        host_render_ui_presentation_helper_method_names_wave591_ok:
-            honesty_host_render_ui_presentation_helper_method_names_residual_wave591(),
-        host_render_ui_presentation_helper_nav_commands_wave591_ok:
-            honesty_host_render_ui_presentation_helper_nav_commands_residual_wave591(),
-        host_render_ui_presentation_helper_live_wave591_ok:
-            simulate_live_host_render_ui_presentation_helper_honesty(),
-        host_render_ui_overlays_helper_method_names_wave592_ok:
-            honesty_host_render_ui_overlays_helper_method_names_residual_wave592(),
-        host_render_ui_overlays_helper_nav_commands_wave592_ok:
-            honesty_host_render_ui_overlays_helper_nav_commands_residual_wave592(),
-        host_render_ui_overlays_helper_live_wave592_ok:
-            simulate_live_host_render_ui_overlays_helper_honesty(),
+
+
+
         host_render_ui_finalize_helper_method_names_wave593_ok:
             honesty_host_render_ui_finalize_helper_method_names_residual_wave593(),
         host_render_ui_finalize_helper_nav_commands_wave593_ok:
             honesty_host_render_ui_finalize_helper_nav_commands_residual_wave593(),
         host_render_ui_finalize_helper_live_wave593_ok:
             simulate_live_host_render_ui_finalize_helper_honesty(),
-        host_minimap_bounds_repair_helper_method_names_wave594_ok:
-            honesty_host_minimap_bounds_repair_helper_method_names_residual_wave594(),
-        host_minimap_bounds_repair_helper_nav_commands_wave594_ok:
-            honesty_host_minimap_bounds_repair_helper_nav_commands_residual_wave594(),
-        host_minimap_bounds_repair_helper_live_wave594_ok:
-            simulate_live_host_minimap_bounds_repair_helper_honesty(),
-        host_production_complete_apply_helper_method_names_wave595_ok:
-            honesty_host_production_complete_apply_helper_method_names_residual_wave595(),
-        host_production_complete_apply_helper_nav_commands_wave595_ok:
-            honesty_host_production_complete_apply_helper_nav_commands_residual_wave595(),
-        host_production_complete_apply_helper_live_wave595_ok:
-            simulate_live_host_production_complete_apply_helper_honesty(),
+
+
         host_camera_queue_drain_helper_method_names_wave596_ok:
             honesty_host_camera_queue_drain_helper_method_names_residual_wave596(),
         host_camera_queue_drain_helper_nav_commands_wave596_ok:
             honesty_host_camera_queue_drain_helper_nav_commands_residual_wave596(),
         host_camera_queue_drain_helper_live_wave596_ok:
             simulate_live_host_camera_queue_drain_helper_honesty(),
-        host_gameworld_shadow_session_helper_method_names_wave597_ok:
-            honesty_host_gameworld_shadow_session_helper_method_names_residual_wave597(),
-        host_gameworld_shadow_session_helper_nav_commands_wave597_ok:
-            honesty_host_gameworld_shadow_session_helper_nav_commands_residual_wave597(),
-        host_gameworld_shadow_session_helper_live_wave597_ok:
-            simulate_live_host_gameworld_shadow_session_helper_honesty(),
+
         host_ingame_hud_helper_method_names_wave598_ok:
             honesty_host_ingame_hud_helper_method_names_residual_wave598(),
         host_ingame_hud_helper_nav_commands_wave598_ok:

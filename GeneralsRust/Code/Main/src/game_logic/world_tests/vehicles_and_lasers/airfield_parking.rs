@@ -64,7 +64,6 @@ fn airfield_parking_rearm_docks_and_heals() {
         jet.set_position(Vec3::ZERO);
     }
 
-    crate::game_logic::host_ai_decision_log::clear();
     assert!(logic.try_return_to_base_rearm(jet_id));
     {
         let jet = logic.objects.get(&jet_id).unwrap();

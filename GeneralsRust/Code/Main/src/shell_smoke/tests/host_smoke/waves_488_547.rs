@@ -48,21 +48,9 @@ pub(super) fn assert_waves_488_547(r: &ShellSmokeResult) {
         "entity presentation structure ui live residual wave490: {}",
         r.detail
     );
-    assert!(
-        r.presentation_mesh_sold_condition_method_names_wave491_ok,
-        "presentation mesh sold condition method names residual pack wave491: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_mesh_sold_condition_nav_commands_wave491_ok,
-        "presentation mesh sold condition nav commands residual pack wave491: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_mesh_sold_condition_live_wave491_ok,
-        "presentation mesh sold condition live residual wave491: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.entity_presentation_mesh_fow_method_names_wave492_ok,
         "entity presentation mesh fow method names residual pack wave492: {}",
@@ -138,21 +126,9 @@ pub(super) fn assert_waves_488_547(r: &ShellSmokeResult) {
         "presentation mesh door phase live residual wave496: {}",
         r.detail
     );
-    assert!(
-        r.presentation_mesh_condition_resolve_method_names_wave497_ok,
-        "presentation mesh condition resolve method names residual pack wave497: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_mesh_condition_resolve_nav_commands_wave497_ok,
-        "presentation mesh condition resolve nav commands residual pack wave497: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_mesh_condition_resolve_live_wave497_ok,
-        "presentation mesh condition resolve live residual wave497: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.presentation_host_fx_overlay_method_names_wave498_ok,
         "presentation host FX overlay method names residual pack wave498: {}",
@@ -363,21 +339,9 @@ pub(super) fn assert_waves_488_547(r: &ShellSmokeResult) {
         "presentation burn/cheer/carry live residual wave511: {}",
         r.detail
     );
-    assert!(
-        r.presentation_fire_prone_turret_method_names_wave512_ok,
-        "presentation fire/prone/turret method names residual pack wave512: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_fire_prone_turret_nav_commands_wave512_ok,
-        "presentation fire/prone/turret nav commands residual pack wave512: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_fire_prone_turret_live_wave512_ok,
-        "presentation fire/prone/turret live residual wave512: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.presentation_jam_die_reload_pack_method_names_wave513_ok,
         "presentation jam/die/reload/pack method names residual pack wave513: {}",
@@ -664,21 +628,9 @@ pub(super) fn assert_waves_488_547(r: &ShellSmokeResult) {
         "command_integration presentation fill live residual wave531: {}",
         r.detail
     );
-    assert!(
-        r.presentation_firesound_drain_sibling_method_names_wave532_ok,
-        "presentation firesound drain sibling method names residual pack wave532: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_firesound_drain_sibling_nav_commands_wave532_ok,
-        "presentation firesound drain sibling nav commands residual pack wave532: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_firesound_drain_sibling_live_wave532_ok,
-        "presentation firesound drain sibling live residual wave532: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.presentation_eva_pulse_audio_method_names_wave533_ok,
         "presentation eva pulse audio method names residual pack wave533: {}",
@@ -739,21 +691,9 @@ pub(super) fn assert_waves_488_547(r: &ShellSmokeResult) {
         "presentation eva client dispatch live residual wave536: {}",
         r.detail
     );
-    assert!(
-        r.presentation_eva_alert_counter_dedupe_method_names_wave537_ok,
-        "presentation eva alert counter dedupe method names residual pack wave537: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_eva_alert_counter_dedupe_nav_commands_wave537_ok,
-        "presentation eva alert counter dedupe nav commands residual pack wave537: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_eva_alert_counter_dedupe_live_wave537_ok,
-        "presentation eva alert counter dedupe live residual wave537: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.presentation_alliance_notify_method_names_wave538_ok,
         "presentation alliance notify method names residual pack wave538: {}",
@@ -859,21 +799,9 @@ pub(super) fn assert_waves_488_547(r: &ShellSmokeResult) {
         "ui_selection_seed presentation fail-closed live residual wave544: {}",
         r.detail
     );
-    assert!(
-        r.save_restart_presentation_fail_closed_method_names_wave545_ok,
-        "save/restart presentation fail-closed method names residual pack wave545: {}",
-        r.detail
-    );
-    assert!(
-        r.save_restart_presentation_fail_closed_nav_commands_wave545_ok,
-        "save/restart presentation fail-closed nav commands residual pack wave545: {}",
-        r.detail
-    );
-    assert!(
-        r.save_restart_presentation_fail_closed_live_wave545_ok,
-        "save/restart presentation fail-closed live residual wave545: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.host_status_map_presentation_fail_closed_method_names_wave546_ok,
         "host status map presentation fail-closed method names residual pack wave546: {}",

@@ -1713,9 +1713,9 @@ fn defector_idles_and_kicks_cargo() {
             Vec3::new(42.0, 0.0, 0.0),
         )
         .unwrap();
-    if let Some(v) = logic.host_object_mut(victim) {
+    if let Some((v, attack_events)) = logic.host_object_and_attack_events_mut(victim) {
         v.set_ai_state(AIState::Attacking);
-        v.set_target(Some(caster));
+        v.set_target(Some(caster), attack_events);
         v.set_status_attacking(true);
         v.occupants.push(cargo);
     }

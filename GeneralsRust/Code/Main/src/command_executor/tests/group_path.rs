@@ -988,10 +988,10 @@ fn stop_idles_ai_transport_occupants() {
         assert!(t.add_occupant(rider), "load rider");
     }
     {
-        let r = logic.host_object_mut(rider).unwrap();
+        let (r, attack_events) = logic.host_object_and_attack_events_mut(rider).unwrap();
         r.set_contained_by(Some(truck));
         r.set_ai_state(crate::game_logic::AIState::Attacking);
-        r.set_target(Some(ObjectId(99)));
+        r.set_target(Some(ObjectId(99)), attack_events);
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);

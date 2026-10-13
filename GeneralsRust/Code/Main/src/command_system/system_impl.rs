@@ -997,7 +997,7 @@ impl CommandSystem {
                 if let Some(dozer) = game_logic.host_object_mut(unit_id) {
                     dozer.target = Some(created_id);
                     dozer.target_location = None;
-                    dozer.record_host_target_location();
+
                     dozer.set_status_force_attack(false);
                     dozer.set_status_attacking(false);
                 }
@@ -1010,7 +1010,7 @@ impl CommandSystem {
                     if dozer.target == Some(created_id) {
                         dozer.target = None;
                         dozer.target_location = None;
-                        dozer.record_host_target_location();
+
                     }
                 }
                 return CommandResult::InvalidCommand;

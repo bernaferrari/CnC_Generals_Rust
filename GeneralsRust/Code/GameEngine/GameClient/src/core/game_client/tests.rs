@@ -4,6 +4,9 @@
 
 #[cfg(test)]
 mod tests {
+    mod owned_laser_tests {
+        include!("owned_laser_tests.rs");
+    }
     include!("specialized_draw_owner_tests.rs");
     use super::*;
     use crate::drawable::Drawable;
@@ -13,7 +16,7 @@ mod tests {
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use game_engine::common::thing::{
-        get_thing_factory, init_thing_factory, ThingFactory as CommonThingFactory,
+        ThingFactory as CommonThingFactory, get_thing_factory, init_thing_factory,
     };
     use game_engine::common::{
         global_data as runtime_global_data,
@@ -302,7 +305,10 @@ mod tests {
             0.0,
         );
         first.draw_module_names = std::sync::Arc::new(vec!["W3DTankDraw".to_string()]);
-        assert_eq!(client.sync_presentation_drawables([first.clone()]), (1, 0, 0));
+        assert_eq!(
+            client.sync_presentation_drawables([first.clone()]),
+            (1, 0, 0)
+        );
         let drawable_id = client
             .presentation_direct_drawable_state(1, 501)
             .expect("tank visual")
@@ -314,15 +320,18 @@ mod tests {
             .downcast_ref::<BasicDrawable>()
             .expect("BasicDrawable");
         assert!(
-            basic.get_draw_modules().iter().any(|module| {
-                module.snapshot_module_identifier() == Some("W3DTankDraw")
-            }),
+            basic
+                .get_draw_modules()
+                .iter()
+                .any(|module| { module.snapshot_module_identifier() == Some("W3DTankDraw") }),
             "live presentation drawable must attach W3DTankDraw residual"
         );
 
         first.position = [10.0, 0.0, 0.0];
         assert_eq!(client.sync_presentation_drawables([first]), (0, 1, 0));
-        let snap = client.presentation_specialized_draw_snapshot(501).expect("tank residual");
+        let snap = client
+            .presentation_specialized_draw_snapshot(501)
+            .expect("tank residual");
         assert_eq!(snap.kind, PresentationSpecializedDrawKind::Tank);
         assert!(
             snap.tread_uv > 0.0 || snap.tread_uv_for_mesh("HLOD.TREADSL").is_some(),
@@ -350,7 +359,9 @@ mod tests {
         );
         entry.draw_module_names = std::sync::Arc::new(vec!["W3DLaserDraw".to_string()]);
         assert_eq!(client.sync_presentation_drawables([entry]), (1, 0, 0));
-        let snap = client.presentation_specialized_draw_snapshot(777).expect("laser residual");
+        let snap = client
+            .presentation_specialized_draw_snapshot(777)
+            .expect("laser residual");
         assert!(snap.is_laser());
         assert!(
             snap.laser_width >= 0.5,
@@ -372,12 +383,17 @@ mod tests {
             0.0,
         );
         entry.draw_module_names = std::sync::Arc::new(vec!["W3DDebrisDraw".to_string()]);
-        assert_eq!(client.sync_presentation_drawables([entry.clone()]), (1, 0, 0));
+        assert_eq!(
+            client.sync_presentation_drawables([entry.clone()]),
+            (1, 0, 0)
+        );
         for frame in 0..40 {
             entry.position = [frame as f32 * 0.1, 0.0, 8.0];
             let _ = client.sync_presentation_drawables([entry.clone()]);
         }
-        let snap = client.presentation_specialized_draw_snapshot(808).expect("debris residual");
+        let snap = client
+            .presentation_specialized_draw_snapshot(808)
+            .expect("debris residual");
         assert!(snap.is_debris());
         assert!(
             snap.debris_state >= 1,
@@ -385,7 +401,6 @@ mod tests {
         );
         assert!(!snap.model_name.is_empty());
     }
-
 
     #[test]
     fn infer_draw_modules_match_cpp_w3d_factory_names() {
@@ -436,7 +451,6 @@ mod tests {
         assert_eq!(snap.tread_uv_for_mesh("AV.TREADSR"), Some([0.75, 0.0]));
         assert_eq!(snap.tread_uv_for_mesh("AV.HULL"), None);
     }
-
 
     #[test]
     fn test_create_drawable_from_template_attaches_client_update_snapshot_modules() {
@@ -802,7 +816,6 @@ mod tests {
             "SHOW_WEATHER=No must not stick after GameClient::reset"
         );
     }
-
 
     #[test]
     fn test_drawable_id_allocation() {
@@ -1695,8 +1708,6 @@ mod tests {
         assert_eq!(guard.presentation_world_anims()[0].0, "MoneyPickUp");
     }
 
-
-
     #[test]
     fn test_snapshot_serialization_is_deterministic_for_same_state() {
         let mut client = GameClient::new().unwrap();
@@ -1866,10 +1877,12 @@ mod tests {
                 .and_then(|d| d.get_template_name()),
             Some("FallbackTemplate")
         );
-        assert!(client
-            .drawable_toc
-            .iter()
-            .any(|entry| entry.name == "FallbackTemplate"));
+        assert!(
+            client
+                .drawable_toc
+                .iter()
+                .any(|entry| entry.name == "FallbackTemplate")
+        );
 
         OBJECT_REGISTRY.unregister_object(object_id);
     }
@@ -1932,10 +1945,12 @@ mod tests {
         );
 
         assert_eq!(loaded.drawable_map.len(), 2);
-        assert!(!loaded
-            .drawable_map
-            .values()
-            .any(|drawable| { drawable.get_template_name() == Some("SkippedTemplate") }));
+        assert!(
+            !loaded
+                .drawable_map
+                .values()
+                .any(|drawable| { drawable.get_template_name() == Some("SkippedTemplate") })
+        );
 
         OBJECT_REGISTRY.unregister_object(object_id);
     }
@@ -1996,14 +2011,18 @@ mod tests {
                 .and_then(|d| d.get_template_name()),
             Some("ExplicitTemplate")
         );
-        assert!(client
-            .drawable_toc
-            .iter()
-            .any(|entry| entry.name == "ExplicitTemplate"));
-        assert!(!client
-            .drawable_toc
-            .iter()
-            .any(|entry| entry.name == "FallbackTemplate"));
+        assert!(
+            client
+                .drawable_toc
+                .iter()
+                .any(|entry| entry.name == "ExplicitTemplate")
+        );
+        assert!(
+            !client
+                .drawable_toc
+                .iter()
+                .any(|entry| entry.name == "FallbackTemplate")
+        );
 
         OBJECT_REGISTRY.unregister_object(object_id);
     }
@@ -2112,9 +2131,11 @@ mod tests {
         });
         reader.set_command_cull(Some(command_cull));
 
-        assert!(reader
-            .playback_file(replay_name)
-            .expect("replay playback should start"));
+        assert!(
+            reader
+                .playback_file(replay_name)
+                .expect("replay playback should start")
+        );
         reader.set_current_frame(0);
         reader.update();
 
@@ -2123,15 +2144,21 @@ mod tests {
             .expect("command list lock should be readable")
             .snapshot_messages();
 
-        assert!(messages
-            .iter()
-            .all(|msg| !matches!(msg.get_type(), GameMessageType::DoMoveTo(_))));
-        assert!(messages
-            .iter()
-            .any(|msg| matches!(msg.get_type(), GameMessageType::LogicCRC(_))));
-        assert!(messages
-            .iter()
-            .any(|msg| matches!(msg.get_type(), GameMessageType::NewGame)));
+        assert!(
+            messages
+                .iter()
+                .all(|msg| !matches!(msg.get_type(), GameMessageType::DoMoveTo(_)))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|msg| matches!(msg.get_type(), GameMessageType::LogicCRC(_)))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|msg| matches!(msg.get_type(), GameMessageType::NewGame))
+        );
 
         reader.stop_playback();
         command_list_arc
@@ -2188,9 +2215,11 @@ mod tests {
         assert!(replay_path.exists());
 
         let mut reader = Recorder::new();
-        assert!(reader
-            .playback_file(replay_name)
-            .expect("recorded replay should be playable"));
+        assert!(
+            reader
+                .playback_file(replay_name)
+                .expect("recorded replay should be playable")
+        );
         reader.set_current_frame(9);
         reader.update();
 
@@ -2203,9 +2232,11 @@ mod tests {
                     && (coord.y - 22.0).abs() <= f32::EPSILON
             )
         }));
-        assert!(!pending
-            .iter()
-            .any(|msg| matches!(msg.get_type(), GameMessageType::MetaToggleControlBar)));
+        assert!(
+            !pending
+                .iter()
+                .any(|msg| matches!(msg.get_type(), GameMessageType::MetaToggleControlBar))
+        );
     }
 
     #[test]
@@ -2237,16 +2268,20 @@ mod tests {
         );
 
         let mut reader = Recorder::new();
-        assert!(reader
-            .playback_file(replay_name.clone())
-            .expect("first playback should start"));
+        assert!(
+            reader
+                .playback_file(replay_name.clone())
+                .expect("first playback should start")
+        );
         reader.set_current_frame(6);
         reader.update();
         reader.stop_playback();
 
-        assert!(reader
-            .playback_file(replay_name)
-            .expect("second playback should start"));
+        assert!(
+            reader
+                .playback_file(replay_name)
+                .expect("second playback should start")
+        );
         reader.set_current_frame(6);
         reader.update();
         let pending = reader.drain_pending_commands();
@@ -2308,9 +2343,11 @@ mod tests {
         );
 
         // Baseline: exact match must report no mismatch.
-        assert!(!Recorder::new()
-            .test_version_playback(base_name.clone())
-            .expect("baseline replay should be readable"));
+        assert!(
+            !Recorder::new()
+                .test_version_playback(base_name.clone())
+                .expect("baseline replay should be readable")
+        );
 
         let ext = writer.replay_extension();
 
@@ -2331,9 +2368,11 @@ mod tests {
             bytes[exe_crc_offset..exe_crc_offset + 4]
                 .copy_from_slice(&current.wrapping_add(1).to_le_bytes());
         });
-        assert!(Recorder::new()
-            .test_version_playback(version_and_exe_crc)
-            .expect("combined mismatch replay should be readable"));
+        assert!(
+            Recorder::new()
+                .test_version_playback(version_and_exe_crc)
+                .expect("combined mismatch replay should be readable")
+        );
 
         let version_number_and_ini_crc = format!("combined_version_number_ini_crc{ext}");
         write_variant(
@@ -2358,9 +2397,11 @@ mod tests {
                     .copy_from_slice(&ini_crc.wrapping_add(1).to_le_bytes());
             },
         );
-        assert!(Recorder::new()
-            .test_version_playback(version_number_and_ini_crc)
-            .expect("combined mismatch replay should be readable"));
+        assert!(
+            Recorder::new()
+                .test_version_playback(version_number_and_ini_crc)
+                .expect("combined mismatch replay should be readable")
+        );
     }
 
     #[test]
@@ -2417,12 +2458,7 @@ mod tests {
         use crate::drawable::drawable::DRAWABLE_FRAMES_PER_FLASH;
 
         let mut client = GameClient::new().expect("GameClient::new should succeed");
-        insert_basic_drawable_for_test(
-            &mut client,
-            7,
-            "FlashUnit",
-            Vector3::new(0.0, 0.0, 0.0),
-        );
+        insert_basic_drawable_for_test(&mut client, 7, "FlashUnit", Vector3::new(0.0, 0.0, 0.0));
         {
             let drawable = client
                 .drawable_map

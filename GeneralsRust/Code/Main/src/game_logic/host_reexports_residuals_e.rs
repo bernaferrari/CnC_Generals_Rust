@@ -83,13 +83,6 @@ pub use super::host_live_host_under_construction_catalog_residual_wave1028::{
     simulate_live_host_under_construction_catalog_residual_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_unit_caption_residual_wave1059::{
-    honesty_host_unit_caption_residual_method_names_residual_wave1059,
-    honesty_host_unit_caption_residual_nav_commands_residual_wave1059,
-    honesty_host_unit_caption_residual_residual_pack_wave1059,
-    simulate_live_host_unit_caption_residual_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_host_unit_control_presentation_peel_residual_wave951::{
     honesty_host_unit_control_presentation_peel_method_names_residual_wave951,
     honesty_host_unit_control_presentation_peel_nav_commands_residual_wave951,
@@ -163,13 +156,6 @@ pub use super::host_live_host_vision_shroud_crush_presentation_residual_wave994:
     simulate_live_host_vision_shroud_crush_presentation_residual_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_weapon_ui_text_residual_wave980::{
-    honesty_host_weapon_ui_text_residual_method_names_residual_wave980,
-    honesty_host_weapon_ui_text_residual_nav_commands_residual_wave980,
-    honesty_host_weapon_ui_text_residual_residual_pack_wave980,
-    simulate_live_host_weapon_ui_text_residual_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_host_world_bounds_ui_residual_wave862::{
     honesty_host_world_bounds_ui_residual_method_names_residual_wave862,
     honesty_host_world_bounds_ui_residual_nav_commands_residual_wave862,
@@ -223,13 +209,6 @@ pub use super::host_live_hotkey_move_attack_selection_presentation_only_residual
     simulate_live_hotkey_move_attack_selection_presentation_only_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_hotkey_selection_camera_presentation_only_residual_wave226::{
-    honesty_live_hotkey_selection_camera_presentation_only_method_names_residual_wave226,
-    honesty_live_hotkey_selection_camera_presentation_only_nav_commands_residual_wave226,
-    honesty_live_hotkey_selection_camera_presentation_only_residual_pack_wave226,
-    simulate_live_hotkey_selection_camera_presentation_only_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_ingame_ui_dual_world_empty_gate_residual_wave273::{
     honesty_live_ingame_ui_dual_world_empty_gate_method_names_residual_wave273,
     honesty_live_ingame_ui_dual_world_empty_gate_nav_commands_residual_wave273,
@@ -263,13 +242,6 @@ pub use super::host_live_lifetime_update_dual_world_empty_gate_residual_wave412:
     honesty_live_lifetime_update_dual_world_empty_gate_nav_commands_residual_wave412,
     honesty_live_lifetime_update_dual_world_empty_gate_residual_pack_wave412,
     simulate_live_lifetime_update_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_local_team_presentation_only_residual_wave220::{
-    honesty_live_local_team_presentation_only_method_names_residual_wave220,
-    honesty_live_local_team_presentation_only_nav_commands_residual_wave220,
-    honesty_live_local_team_presentation_only_residual_pack_wave220,
-    simulate_live_local_team_presentation_only_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_locomotor_core_dual_world_empty_gate_residual_wave423::{
@@ -389,22 +361,6 @@ pub use super::host_live_minimap_heightmap_repair_presentation_first_residual_wa
     MINIMAP_HEIGHTMAP_REPAIR_PRESENTATION_FIRST_NAV_STEPS_WAVE465,
     MINIMAP_HEIGHTMAP_REPAIR_PRESENTATION_FIRST_SOURCE_MARKERS_WAVE465,
     RUNTIME_HOST_MINIMAP_HEIGHTMAP_REPAIR_PRESENTATION_FIRST_CMD_NAMES_WAVE465,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_minimap_reinit_instance_presentation_residual_wave468::{
-    honesty_minimap_reinit_instance_presentation_method_names_residual_wave468,
-    honesty_minimap_reinit_instance_presentation_nav_commands_residual_wave468,
-    honesty_minimap_reinit_instance_presentation_residual_pack_wave468,
-    residual_minimap_reinit_instance_presentation_last_action,
-    residual_minimap_reinit_instance_presentation_ok,
-    simulate_live_minimap_reinit_instance_presentation_honesty,
-    simulate_minimap_reinit_instance_presentation_callsites,
-    simulate_minimap_reinit_instance_presentation_source,
-    ResidualMinimapReinitInstancePresentationAction,
-    MINIMAP_REINIT_INSTANCE_PRESENTATION_METHOD_NAMES_WAVE468,
-    MINIMAP_REINIT_INSTANCE_PRESENTATION_NAV_STEPS_WAVE468,
-    MINIMAP_REINIT_INSTANCE_PRESENTATION_SOURCE_MARKERS_WAVE468,
-    RUNTIME_HOST_MINIMAP_REINIT_INSTANCE_PRESENTATION_CMD_NAMES_WAVE468,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_missile_ai_dual_world_empty_gate_residual_wave350::{
@@ -567,21 +523,6 @@ pub use super::host_live_pathfind_dual_world_empty_gate_residual_wave426::{
     simulate_live_pathfind_dual_world_empty_gate_honesty_wave426,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_pathfind_midframe_stub_removed_residual_wave469::{
-    honesty_pathfind_midframe_stub_removed_method_names_residual_wave469,
-    honesty_pathfind_midframe_stub_removed_nav_commands_residual_wave469,
-    honesty_pathfind_midframe_stub_removed_residual_pack_wave469,
-    residual_pathfind_midframe_stub_removed_last_action,
-    residual_pathfind_midframe_stub_removed_ok,
-    simulate_live_pathfind_midframe_stub_removed_honesty,
-    simulate_pathfind_midframe_stub_removed_engine_source,
-    simulate_pathfind_midframe_stub_removed_host_source, ResidualPathfindMidframeStubRemovedAction,
-    PATHFIND_MIDFRAME_STUB_REMOVED_METHOD_NAMES_WAVE469,
-    PATHFIND_MIDFRAME_STUB_REMOVED_NAV_STEPS_WAVE469,
-    PATHFIND_MIDFRAME_STUB_REMOVED_SOURCE_MARKERS_WAVE469,
-    RUNTIME_HOST_PATHFIND_MIDFRAME_STUB_REMOVED_CMD_NAMES_WAVE469,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_pick_object_presentation_only_residual_wave222::{
     honesty_live_pick_object_presentation_only_method_names_residual_wave222,
     honesty_live_pick_object_presentation_only_nav_commands_residual_wave222,
@@ -604,25 +545,6 @@ pub use super::host_live_player_dual_world_empty_gate_residual_wave268::{
     honesty_live_player_dual_world_empty_gate_nav_commands_residual_wave268,
     honesty_live_player_dual_world_empty_gate_residual_pack_wave268,
     simulate_live_player_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_player_field_probe_residual_wave240::{
-    honesty_live_player_field_probe_method_names_residual_wave240,
-    honesty_live_player_field_probe_nav_commands_residual_wave240,
-    honesty_live_player_field_probe_residual_pack_wave240,
-    simulate_live_player_field_probe_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_player_probe_api_residual_wave238::{
-    honesty_live_player_probe_api_method_names_residual_wave238,
-    honesty_live_player_probe_api_nav_commands_residual_wave238,
-    honesty_live_player_probe_api_residual_pack_wave238, simulate_live_player_probe_api_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_player_team_probe_residual_wave239::{
-    honesty_live_player_team_probe_method_names_residual_wave239,
-    honesty_live_player_team_probe_nav_commands_residual_wave239,
-    honesty_live_player_team_probe_residual_pack_wave239, simulate_live_player_team_probe_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_player_upgrade_manager_dual_world_empty_gate_residual_wave444::{
@@ -844,13 +766,6 @@ pub use super::host_live_presentation_emoticon_float_residual_wave514::{
     RUNTIME_HOST_PRESENTATION_EMOTICON_FLOAT_CMD_NAMES_WAVE514,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_presentation_empty_shadow_failopen_residual_wave838::{
-    honesty_presentation_empty_shadow_failopen_method_names_residual_wave838,
-    honesty_presentation_empty_shadow_failopen_nav_commands_residual_wave838,
-    honesty_presentation_empty_shadow_failopen_residual_pack_wave838,
-    simulate_live_presentation_empty_shadow_failopen_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_presentation_env_only_residual_wave455::{
     honesty_live_presentation_env_only_method_names_residual_wave455,
     honesty_live_presentation_env_only_nav_commands_residual_wave455,
@@ -872,31 +787,6 @@ pub use super::host_live_presentation_env_seed_gameworld_residual_wave466::{
     PRESENTATION_ENV_SEED_GAMEWORLD_NAV_STEPS_WAVE466,
     PRESENTATION_ENV_SEED_GAMEWORLD_SOURCE_MARKERS_WAVE466,
     RUNTIME_HOST_PRESENTATION_ENV_SEED_GAMEWORLD_CMD_NAMES_WAVE466,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_presentation_env_seed_mirror_last_residual_wave467::{
-    honesty_presentation_env_seed_mirror_last_method_names_residual_wave467,
-    honesty_presentation_env_seed_mirror_last_nav_commands_residual_wave467,
-    honesty_presentation_env_seed_mirror_last_residual_pack_wave467,
-    residual_presentation_env_seed_mirror_last_last_action,
-    residual_presentation_env_seed_mirror_last_ok,
-    simulate_live_presentation_env_seed_mirror_last_honesty,
-    simulate_presentation_env_seed_mirror_last_callsites,
-    simulate_presentation_env_seed_mirror_last_source, ResidualPresentationEnvSeedMirrorLastAction,
-    PRESENTATION_ENV_SEED_MIRROR_LAST_METHOD_NAMES_WAVE467,
-    PRESENTATION_ENV_SEED_MIRROR_LAST_NAV_STEPS_WAVE467,
-    PRESENTATION_ENV_SEED_MIRROR_LAST_SOURCE_MARKERS_WAVE467,
-    RUNTIME_HOST_PRESENTATION_ENV_SEED_MIRROR_LAST_CMD_NAMES_WAVE467,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_presentation_eva_alert_counter_dedupe_residual_wave537::{
-    honesty_presentation_eva_alert_counter_dedupe_method_names_residual_wave537,
-    honesty_presentation_eva_alert_counter_dedupe_nav_commands_residual_wave537,
-    honesty_presentation_eva_alert_counter_dedupe_residual_pack_wave537,
-    honesty_presentation_eva_alert_counter_dedupe_source_markers_residual_wave537,
-    residual_presentation_eva_alert_counter_dedupe_last_action,
-    residual_presentation_eva_alert_counter_dedupe_ok,
-    simulate_live_presentation_eva_alert_counter_dedupe_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_presentation_eva_client_dispatch_residual_wave536::{
@@ -927,22 +817,6 @@ pub use super::host_live_presentation_eva_pulse_audio_residual_wave533::{
     simulate_live_presentation_eva_pulse_audio_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_presentation_fire_prone_turret_residual_wave512::{
-    honesty_presentation_fire_prone_turret_method_names_residual_wave512,
-    honesty_presentation_fire_prone_turret_nav_commands_residual_wave512,
-    honesty_presentation_fire_prone_turret_residual_pack_wave512,
-    honesty_presentation_fire_prone_turret_source_markers_residual_wave512,
-    residual_presentation_fire_prone_turret_last_action,
-    residual_presentation_fire_prone_turret_ok,
-    simulate_live_presentation_fire_prone_turret_honesty,
-    simulate_presentation_fire_prone_turret_freeze_source,
-    simulate_presentation_fire_prone_turret_stamp_source,
-    ResidualPresentationFireProneTurretAction, PRESENTATION_FIRE_PRONE_TURRET_METHOD_NAMES_WAVE512,
-    PRESENTATION_FIRE_PRONE_TURRET_NAV_STEPS_WAVE512,
-    PRESENTATION_FIRE_PRONE_TURRET_SOURCE_MARKERS_WAVE512,
-    RUNTIME_HOST_PRESENTATION_FIRE_PRONE_TURRET_CMD_NAMES_WAVE512,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_presentation_firesound_audio_residual_wave527::{
     honesty_presentation_firesound_audio_method_names_residual_wave527,
     honesty_presentation_firesound_audio_nav_commands_residual_wave527,
@@ -950,16 +824,6 @@ pub use super::host_live_presentation_firesound_audio_residual_wave527::{
     honesty_presentation_firesound_audio_source_markers_residual_wave527,
     residual_presentation_firesound_audio_last_action, residual_presentation_firesound_audio_ok,
     simulate_live_presentation_firesound_audio_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_presentation_firesound_drain_sibling_residual_wave532::{
-    honesty_presentation_firesound_drain_sibling_method_names_residual_wave532,
-    honesty_presentation_firesound_drain_sibling_nav_commands_residual_wave532,
-    honesty_presentation_firesound_drain_sibling_residual_pack_wave532,
-    honesty_presentation_firesound_drain_sibling_source_markers_residual_wave532,
-    residual_presentation_firesound_drain_sibling_last_action,
-    residual_presentation_firesound_drain_sibling_ok,
-    simulate_live_presentation_firesound_drain_sibling_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_presentation_firesound_stop_residual_wave528::{
@@ -1066,23 +930,6 @@ pub use super::host_live_presentation_mesh_combat_flags_residual_wave495::{
     RUNTIME_HOST_PRESENTATION_MESH_COMBAT_FLAGS_CMD_NAMES_WAVE495,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_presentation_mesh_condition_resolve_residual_wave497::{
-    honesty_presentation_mesh_condition_resolve_method_names_residual_wave497,
-    honesty_presentation_mesh_condition_resolve_nav_commands_residual_wave497,
-    honesty_presentation_mesh_condition_resolve_residual_pack_wave497,
-    honesty_presentation_mesh_condition_resolve_source_markers_residual_wave497,
-    residual_presentation_mesh_condition_resolve_last_action,
-    residual_presentation_mesh_condition_resolve_ok,
-    simulate_live_presentation_mesh_condition_resolve_honesty,
-    simulate_presentation_mesh_condition_resolve_render_source,
-    simulate_presentation_mesh_condition_resolve_resolve_source,
-    ResidualPresentationMeshConditionResolveAction,
-    PRESENTATION_MESH_CONDITION_RESOLVE_METHOD_NAMES_WAVE497,
-    PRESENTATION_MESH_CONDITION_RESOLVE_NAV_STEPS_WAVE497,
-    PRESENTATION_MESH_CONDITION_RESOLVE_SOURCE_MARKERS_WAVE497,
-    RUNTIME_HOST_PRESENTATION_MESH_CONDITION_RESOLVE_CMD_NAMES_WAVE497,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_presentation_mesh_deploy_radar_residual_wave501::{
     honesty_presentation_mesh_deploy_radar_method_names_residual_wave501,
     honesty_presentation_mesh_deploy_radar_nav_commands_residual_wave501,
@@ -1112,23 +959,6 @@ pub use super::host_live_presentation_mesh_door_phase_residual_wave496::{
     PRESENTATION_MESH_DOOR_PHASE_NAV_STEPS_WAVE496,
     PRESENTATION_MESH_DOOR_PHASE_SOURCE_MARKERS_WAVE496,
     RUNTIME_HOST_PRESENTATION_MESH_DOOR_PHASE_CMD_NAMES_WAVE496,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_presentation_mesh_sold_condition_residual_wave491::{
-    honesty_presentation_mesh_sold_condition_method_names_residual_wave491,
-    honesty_presentation_mesh_sold_condition_nav_commands_residual_wave491,
-    honesty_presentation_mesh_sold_condition_residual_pack_wave491,
-    honesty_presentation_mesh_sold_condition_source_markers_residual_wave491,
-    residual_presentation_mesh_sold_condition_last_action,
-    residual_presentation_mesh_sold_condition_ok,
-    simulate_live_presentation_mesh_sold_condition_honesty,
-    simulate_presentation_mesh_sold_condition_render_source,
-    simulate_presentation_mesh_sold_condition_resolve_source,
-    ResidualPresentationMeshSoldConditionAction,
-    PRESENTATION_MESH_SOLD_CONDITION_METHOD_NAMES_WAVE491,
-    PRESENTATION_MESH_SOLD_CONDITION_NAV_STEPS_WAVE491,
-    PRESENTATION_MESH_SOLD_CONDITION_SOURCE_MARKERS_WAVE491,
-    RUNTIME_HOST_PRESENTATION_MESH_SOLD_CONDITION_CMD_NAMES_WAVE491,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_presentation_mesh_turret_residual_wave494::{

@@ -491,7 +491,7 @@ impl GameLogic {
             };
             if let Some(o) = self.objects.get_mut(&uid) {
                 o.target = Some(best);
-                o.set_order_target(Some(best));
+                o.set_order_target(Some(best), &mut self.attack_events);
                 o.set_ai_state(AIState::Entering);
                 o.ignored_obstacle_id = Some(best);
             }
@@ -675,7 +675,7 @@ impl GameLogic {
                             || s.template_name.to_ascii_lowercase().contains("supplypile")
                     });
                     if let Some(obj) = self.objects.get_mut(&object_id) {
-                        obj.set_order_target(Some(next));
+                        obj.set_order_target(Some(next), &mut self.attack_events);
                         obj.supply_truck_state = SupplyTruckState::Wanting;
                     }
                     self.set_ai_state_decision_aware(object_id, AIState::Gathering);

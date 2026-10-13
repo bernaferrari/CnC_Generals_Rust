@@ -292,10 +292,10 @@ fn combat_drop_rappel_uses_roof_dest_not_y0() {
         .create_object("CD_P3", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
     {
-        let t = logic.host_object_mut(transport).unwrap();
+        let (t, attack_events) = logic.host_object_and_attack_events_mut(transport).unwrap();
         t.install_combat_chinook_transport();
         let _ = t.add_occupant(pax);
-        t.set_order_target(Some(bunker));
+        t.set_order_target(Some(bunker), attack_events);
         if let Some(ai) = t.chinook_ai.as_mut() {
             ai.command_combat_drop([10.0, 10.0, 0.0], Some(24.0));
             ai.arrive_for_combat_drop();
@@ -346,10 +346,10 @@ fn combat_drop_rappel_add_to_contain_on_roof() {
         .create_object("CD_P4", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
     {
-        let t = logic.host_object_mut(transport).unwrap();
+        let (t, attack_events) = logic.host_object_and_attack_events_mut(transport).unwrap();
         t.install_combat_chinook_transport();
         let _ = t.add_occupant(pax);
-        t.set_order_target(Some(bunker));
+        t.set_order_target(Some(bunker), attack_events);
         if let Some(ai) = t.chinook_ai.as_mut() {
             ai.command_combat_drop([10.0, 10.0, 0.0], Some(20.0));
             ai.arrive_for_combat_drop();
@@ -426,10 +426,10 @@ fn combat_drop_rappel_kills_two_and_dies() {
         o.set_contained_by(Some(bunker));
     }
     {
-        let t = logic.host_object_mut(transport).unwrap();
+        let (t, attack_events) = logic.host_object_and_attack_events_mut(transport).unwrap();
         t.install_combat_chinook_transport();
         let _ = t.add_occupant(pax);
-        t.set_order_target(Some(bunker));
+        t.set_order_target(Some(bunker), attack_events);
         if let Some(ai) = t.chinook_ai.as_mut() {
             ai.command_combat_drop([10.0, 10.0, 0.0], Some(16.0));
             ai.arrive_for_combat_drop();

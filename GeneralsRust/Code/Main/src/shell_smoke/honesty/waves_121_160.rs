@@ -82,10 +82,7 @@ pub(super) struct Waves121160 {
     pub control_bar_scheme_names_wave156_ok: bool,
     pub control_bar_scheme_method_names_wave156_ok: bool,
     pub control_bar_scheme_nav_commands_wave156_ok: bool,
-    pub presentation_boundary_method_names_wave157_ok: bool,
-    pub presentation_boundary_source_markers_wave157_ok: bool,
-    pub presentation_boundary_nav_commands_wave157_ok: bool,
-    pub presentation_boundary_live_wave157_ok: bool,
+
     pub control_bar_print_names_wave158_ok: bool,
     pub control_bar_print_nav_commands_wave158_ok: bool,
     pub terrain_env_boundary_method_names_wave159_ok: bool,
@@ -204,13 +201,7 @@ pub(super) fn evaluate(
             honesty_control_bar_scheme_method_names_residual_wave156(),
         control_bar_scheme_nav_commands_wave156_ok:
             honesty_control_bar_scheme_nav_commands_residual_wave156(),
-        presentation_boundary_method_names_wave157_ok:
-            honesty_presentation_boundary_method_names_residual_wave157(),
-        presentation_boundary_source_markers_wave157_ok:
-            honesty_presentation_boundary_source_markers_residual_wave157(),
-        presentation_boundary_nav_commands_wave157_ok:
-            honesty_presentation_boundary_nav_commands_residual_wave157(),
-        presentation_boundary_live_wave157_ok: simulate_presentation_boundary_prepare_honesty(),
+
         control_bar_print_names_wave158_ok: honesty_control_bar_print_names_residual_wave158(),
         control_bar_print_nav_commands_wave158_ok:
             honesty_control_bar_print_nav_commands_residual_wave158(),

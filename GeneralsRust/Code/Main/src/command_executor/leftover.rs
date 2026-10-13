@@ -1496,7 +1496,7 @@ impl GameLogic {
             obj.dozer_dock_action = action_dock;
             if obj.target_location.is_some() {
                 obj.target_location = None;
-                obj.record_host_target_location();
+
             }
         }
         if let Some(st) = self.objects.get_mut(&build_target) {
@@ -1523,7 +1523,7 @@ impl GameLogic {
             obj.dozer_task_repair_order_frame = frame;
             if obj.target_location.is_some() {
                 obj.target_location = None;
-                obj.record_host_target_location();
+
             }
         }
     }
@@ -1629,7 +1629,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&dozer_id) {
             let dropped = if cancel_build { build_id } else { repair_id };
             if obj.target.is_some() && obj.target == dropped {
-                obj.set_order_target(None);
+                obj.clear_order_target();
             }
             obj.set_actively_constructing(false);
         }

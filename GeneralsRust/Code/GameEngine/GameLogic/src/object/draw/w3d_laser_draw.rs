@@ -482,6 +482,13 @@ impl W3DLaserDraw {
         self.self_dirty
     }
 
+    fn ensure_lines_with_aspect(&mut self, aspect: Real) {
+        let total = (self.data.num_beams.max(1) * self.data.segments.max(1)) as usize;
+        if self.lines.len() != total {
+            self.lines = vec![LaserLine::default(); total];
+            self.init_lines_with_aspect(aspect);
+        }
+    }
     fn init_lines_with_aspect(&mut self, aspect: Real) {
         self.has_texture = !self.data.texture_name.is_empty();
         self.texture_aspect_ratio = aspect;
@@ -572,7 +579,7 @@ impl W3DLaserDraw {
         self.width_scale = input.width_scale;
         self.self_dirty = false;
 
-        self.init_lines_with_aspect(texture_aspect);
+        self.ensure_lines_with_aspect(texture_aspect);
         let mut output = Vec::new();
 
         let beams = self.data.num_beams.max(1);

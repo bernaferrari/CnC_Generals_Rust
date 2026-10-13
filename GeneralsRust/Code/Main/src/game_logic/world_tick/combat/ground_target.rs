@@ -407,7 +407,6 @@ impl GameLogic {
                     attacker.target_location = None;
                     attacker.set_force_attack(false);
                     attacker.set_ai_state(AIState::Idle);
-                    crate::game_logic::host_attack_log::record(attacker_id, None);
                 }
             }
             if self

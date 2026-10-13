@@ -185,6 +185,11 @@ impl LaserUpdateModule {
             update,
         }
     }
+    pub fn requires_owned_particle_retirement(&self) -> bool {
+        self.update.external_particle_lifetime
+            && (self.update.particle_system_id.is_some()
+                || self.update.target_particle_system_id.is_some())
+    }
     pub fn bind_owned_drawable(&mut self, owner: ThingId) {
         self.update.thing = owner;
     }
@@ -420,7 +425,11 @@ impl LaserUpdate {
     ) {
         if let Err(error) = self.init_laser_with_services(
             parent.map(owned::object_observation),
-            target.map(owned::object_observation),
+            target.map(|target| owned::LaserObjectObservation {
+                position: *target.get_position(),
+                drawable: target.get_drawable().map(|drawable| drawable.get_id()),
+                visible_to_local_player: true,
+            }),
             start_pos,
             end_pos,
             parent_bone_name,

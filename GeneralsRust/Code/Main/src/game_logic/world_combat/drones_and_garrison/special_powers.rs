@@ -575,7 +575,7 @@ impl GameLogic {
             let _ = self.choose_best_weapon_for_target(cid, Some(tid), current_time);
             let mut entered_attack = false;
             if let Some(o) = self.objects.get_mut(&cid) {
-                o.note_attack_target(tid);
+                o.note_attack_target(tid, &mut self.attack_events);
                 o.turret_mood_target = true;
                 o.turret_idle_scanning = false;
                 o.record_host_turret();

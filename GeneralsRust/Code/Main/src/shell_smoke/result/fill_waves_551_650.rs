@@ -7,9 +7,9 @@ fn fill_waves_551_650(
     out.time_frozen_presentation_helper_method_names_wave551_ok = waves.time_frozen_presentation_helper_method_names_wave551_ok;
     out.time_frozen_presentation_helper_nav_commands_wave551_ok = waves.time_frozen_presentation_helper_nav_commands_wave551_ok;
     out.time_frozen_presentation_helper_live_wave551_ok = waves.time_frozen_presentation_helper_live_wave551_ok;
-    out.shell_bypass_presentation_helper_method_names_wave552_ok = waves.shell_bypass_presentation_helper_method_names_wave552_ok;
-    out.shell_bypass_presentation_helper_nav_commands_wave552_ok = waves.shell_bypass_presentation_helper_nav_commands_wave552_ok;
-    out.shell_bypass_presentation_helper_live_wave552_ok = waves.shell_bypass_presentation_helper_live_wave552_ok;
+
+
+
     out.play_time_local_player_presentation_helper_method_names_wave553_ok = waves.play_time_local_player_presentation_helper_method_names_wave553_ok;
     out.play_time_local_player_presentation_helper_nav_commands_wave553_ok = waves.play_time_local_player_presentation_helper_nav_commands_wave553_ok;
     out.play_time_local_player_presentation_helper_live_wave553_ok = waves.play_time_local_player_presentation_helper_live_wave553_ok;
@@ -19,9 +19,7 @@ fn fill_waves_551_650(
     out.science_team_presentation_helper_method_names_wave555_ok = waves.science_team_presentation_helper_method_names_wave555_ok;
     out.science_team_presentation_helper_nav_commands_wave555_ok = waves.science_team_presentation_helper_nav_commands_wave555_ok;
     out.science_team_presentation_helper_live_wave555_ok = waves.science_team_presentation_helper_live_wave555_ok;
-    out.victory_presentation_helper_method_names_wave556_ok = waves.victory_presentation_helper_method_names_wave556_ok;
-    out.victory_presentation_helper_nav_commands_wave556_ok = waves.victory_presentation_helper_nav_commands_wave556_ok;
-    out.victory_presentation_helper_live_wave556_ok = waves.victory_presentation_helper_live_wave556_ok;
+
     out.replay_presentation_helper_method_names_wave557_ok = waves.replay_presentation_helper_method_names_wave557_ok;
     out.replay_presentation_helper_nav_commands_wave557_ok = waves.replay_presentation_helper_nav_commands_wave557_ok;
     out.replay_presentation_helper_live_wave557_ok = waves.replay_presentation_helper_live_wave557_ok;
@@ -67,9 +65,9 @@ fn fill_waves_551_650(
     out.popup_music_helper_method_names_wave571_ok = waves.popup_music_helper_method_names_wave571_ok;
     out.popup_music_helper_nav_commands_wave571_ok = waves.popup_music_helper_nav_commands_wave571_ok;
     out.popup_music_helper_live_wave571_ok = waves.popup_music_helper_live_wave571_ok;
-    out.boot_camera_helper_method_names_wave572_ok = waves.boot_camera_helper_method_names_wave572_ok;
-    out.boot_camera_helper_nav_commands_wave572_ok = waves.boot_camera_helper_nav_commands_wave572_ok;
-    out.boot_camera_helper_live_wave572_ok = waves.boot_camera_helper_live_wave572_ok;
+
+
+
     out.boot_player_info_helper_method_names_wave573_ok = waves.boot_player_info_helper_method_names_wave573_ok;
     out.boot_player_info_helper_nav_commands_wave573_ok = waves.boot_player_info_helper_nav_commands_wave573_ok;
     out.boot_player_info_helper_live_wave573_ok = waves.boot_player_info_helper_live_wave573_ok;
@@ -100,12 +98,9 @@ fn fill_waves_551_650(
     out.host_enqueue_shell_cmd_helper_method_names_wave582_ok = waves.host_enqueue_shell_cmd_helper_method_names_wave582_ok;
     out.host_enqueue_shell_cmd_helper_nav_commands_wave582_ok = waves.host_enqueue_shell_cmd_helper_nav_commands_wave582_ok;
     out.host_enqueue_shell_cmd_helper_live_wave582_ok = waves.host_enqueue_shell_cmd_helper_live_wave582_ok;
-    out.host_runtime_cmd_helper_method_names_wave583_ok = waves.host_runtime_cmd_helper_method_names_wave583_ok;
-    out.host_runtime_cmd_helper_nav_commands_wave583_ok = waves.host_runtime_cmd_helper_nav_commands_wave583_ok;
-    out.host_runtime_cmd_helper_live_wave583_ok = waves.host_runtime_cmd_helper_live_wave583_ok;
-    out.host_tick_mutation_helper_method_names_wave584_ok = waves.host_tick_mutation_helper_method_names_wave584_ok;
-    out.host_tick_mutation_helper_nav_commands_wave584_ok = waves.host_tick_mutation_helper_nav_commands_wave584_ok;
-    out.host_tick_mutation_helper_live_wave584_ok = waves.host_tick_mutation_helper_live_wave584_ok;
+
+
+
     out.host_ui_shell_world_helper_method_names_wave585_ok = waves.host_ui_shell_world_helper_method_names_wave585_ok;
     out.host_ui_shell_world_helper_nav_commands_wave585_ok = waves.host_ui_shell_world_helper_nav_commands_wave585_ok;
     out.host_ui_shell_world_helper_live_wave585_ok = waves.host_ui_shell_world_helper_live_wave585_ok;
@@ -118,33 +113,18 @@ fn fill_waves_551_650(
     out.host_game_client_menu_shell_helper_method_names_wave588_ok = waves.host_game_client_menu_shell_helper_method_names_wave588_ok;
     out.host_game_client_menu_shell_helper_nav_commands_wave588_ok = waves.host_game_client_menu_shell_helper_nav_commands_wave588_ok;
     out.host_game_client_menu_shell_helper_live_wave588_ok = waves.host_game_client_menu_shell_helper_live_wave588_ok;
-    out.host_presentation_finalize_helper_method_names_wave589_ok = waves.host_presentation_finalize_helper_method_names_wave589_ok;
-    out.host_presentation_finalize_helper_nav_commands_wave589_ok = waves.host_presentation_finalize_helper_nav_commands_wave589_ok;
-    out.host_presentation_finalize_helper_live_wave589_ok = waves.host_presentation_finalize_helper_live_wave589_ok;
-    out.host_presentation_seed_helper_method_names_wave590_ok = waves.host_presentation_seed_helper_method_names_wave590_ok;
-    out.host_presentation_seed_helper_nav_commands_wave590_ok = waves.host_presentation_seed_helper_nav_commands_wave590_ok;
-    out.host_presentation_seed_helper_live_wave590_ok = waves.host_presentation_seed_helper_live_wave590_ok;
-    out.host_render_ui_presentation_helper_method_names_wave591_ok = waves.host_render_ui_presentation_helper_method_names_wave591_ok;
-    out.host_render_ui_presentation_helper_nav_commands_wave591_ok = waves.host_render_ui_presentation_helper_nav_commands_wave591_ok;
-    out.host_render_ui_presentation_helper_live_wave591_ok = waves.host_render_ui_presentation_helper_live_wave591_ok;
-    out.host_render_ui_overlays_helper_method_names_wave592_ok = waves.host_render_ui_overlays_helper_method_names_wave592_ok;
-    out.host_render_ui_overlays_helper_nav_commands_wave592_ok = waves.host_render_ui_overlays_helper_nav_commands_wave592_ok;
-    out.host_render_ui_overlays_helper_live_wave592_ok = waves.host_render_ui_overlays_helper_live_wave592_ok;
+
+
+
     out.host_render_ui_finalize_helper_method_names_wave593_ok = waves.host_render_ui_finalize_helper_method_names_wave593_ok;
     out.host_render_ui_finalize_helper_nav_commands_wave593_ok = waves.host_render_ui_finalize_helper_nav_commands_wave593_ok;
     out.host_render_ui_finalize_helper_live_wave593_ok = waves.host_render_ui_finalize_helper_live_wave593_ok;
-    out.host_minimap_bounds_repair_helper_method_names_wave594_ok = waves.host_minimap_bounds_repair_helper_method_names_wave594_ok;
-    out.host_minimap_bounds_repair_helper_nav_commands_wave594_ok = waves.host_minimap_bounds_repair_helper_nav_commands_wave594_ok;
-    out.host_minimap_bounds_repair_helper_live_wave594_ok = waves.host_minimap_bounds_repair_helper_live_wave594_ok;
-    out.host_production_complete_apply_helper_method_names_wave595_ok = waves.host_production_complete_apply_helper_method_names_wave595_ok;
-    out.host_production_complete_apply_helper_nav_commands_wave595_ok = waves.host_production_complete_apply_helper_nav_commands_wave595_ok;
-    out.host_production_complete_apply_helper_live_wave595_ok = waves.host_production_complete_apply_helper_live_wave595_ok;
+
+
     out.host_camera_queue_drain_helper_method_names_wave596_ok = waves.host_camera_queue_drain_helper_method_names_wave596_ok;
     out.host_camera_queue_drain_helper_nav_commands_wave596_ok = waves.host_camera_queue_drain_helper_nav_commands_wave596_ok;
     out.host_camera_queue_drain_helper_live_wave596_ok = waves.host_camera_queue_drain_helper_live_wave596_ok;
-    out.host_gameworld_shadow_session_helper_method_names_wave597_ok = waves.host_gameworld_shadow_session_helper_method_names_wave597_ok;
-    out.host_gameworld_shadow_session_helper_nav_commands_wave597_ok = waves.host_gameworld_shadow_session_helper_nav_commands_wave597_ok;
-    out.host_gameworld_shadow_session_helper_live_wave597_ok = waves.host_gameworld_shadow_session_helper_live_wave597_ok;
+
     out.host_ingame_hud_helper_method_names_wave598_ok = waves.host_ingame_hud_helper_method_names_wave598_ok;
     out.host_ingame_hud_helper_nav_commands_wave598_ok = waves.host_ingame_hud_helper_nav_commands_wave598_ok;
     out.host_ingame_hud_helper_live_wave598_ok = waves.host_ingame_hud_helper_live_wave598_ok;
@@ -154,12 +134,8 @@ fn fill_waves_551_650(
     out.host_post_presentation_client_helper_method_names_wave600_ok = waves.host_post_presentation_client_helper_method_names_wave600_ok;
     out.host_post_presentation_client_helper_nav_commands_wave600_ok = waves.host_post_presentation_client_helper_nav_commands_wave600_ok;
     out.host_post_presentation_client_helper_live_wave600_ok = waves.host_post_presentation_client_helper_live_wave600_ok;
-    out.host_restart_pause_helper_method_names_wave601_ok = waves.host_restart_pause_helper_method_names_wave601_ok;
-    out.host_restart_pause_helper_nav_commands_wave601_ok = waves.host_restart_pause_helper_nav_commands_wave601_ok;
-    out.host_restart_pause_helper_live_wave601_ok = waves.host_restart_pause_helper_live_wave601_ok;
-    out.host_ingame_logic_shell_helper_method_names_wave602_ok = waves.host_ingame_logic_shell_helper_method_names_wave602_ok;
-    out.host_ingame_logic_shell_helper_nav_commands_wave602_ok = waves.host_ingame_logic_shell_helper_nav_commands_wave602_ok;
-    out.host_ingame_logic_shell_helper_live_wave602_ok = waves.host_ingame_logic_shell_helper_live_wave602_ok;
+
+
     out.host_paused_endgame_boot_ui_helper_method_names_wave603_ok = waves.host_paused_endgame_boot_ui_helper_method_names_wave603_ok;
     out.host_paused_endgame_boot_ui_helper_nav_commands_wave603_ok = waves.host_paused_endgame_boot_ui_helper_nav_commands_wave603_ok;
     out.host_paused_endgame_boot_ui_helper_live_wave603_ok = waves.host_paused_endgame_boot_ui_helper_live_wave603_ok;
@@ -175,24 +151,19 @@ fn fill_waves_551_650(
     out.host_ui_presentation_drain_helper_method_names_wave607_ok = waves.host_ui_presentation_drain_helper_method_names_wave607_ok;
     out.host_ui_presentation_drain_helper_nav_commands_wave607_ok = waves.host_ui_presentation_drain_helper_nav_commands_wave607_ok;
     out.host_ui_presentation_drain_helper_live_wave607_ok = waves.host_ui_presentation_drain_helper_live_wave607_ok;
-    out.host_production_complete_host_apply_helper_method_names_wave608_ok = waves.host_production_complete_host_apply_helper_method_names_wave608_ok;
-    out.host_production_complete_host_apply_helper_nav_commands_wave608_ok = waves.host_production_complete_host_apply_helper_nav_commands_wave608_ok;
-    out.host_production_complete_host_apply_helper_live_wave608_ok = waves.host_production_complete_host_apply_helper_live_wave608_ok;
+
     out.host_ui_economy_mouse_mode_helper_method_names_wave609_ok = waves.host_ui_economy_mouse_mode_helper_method_names_wave609_ok;
     out.host_ui_economy_mouse_mode_helper_nav_commands_wave609_ok = waves.host_ui_economy_mouse_mode_helper_nav_commands_wave609_ok;
     out.host_ui_economy_mouse_mode_helper_live_wave609_ok = waves.host_ui_economy_mouse_mode_helper_live_wave609_ok;
     out.host_ui_selection_startup_helper_method_names_wave610_ok = waves.host_ui_selection_startup_helper_method_names_wave610_ok;
     out.host_ui_selection_startup_helper_nav_commands_wave610_ok = waves.host_ui_selection_startup_helper_nav_commands_wave610_ok;
     out.host_ui_selection_startup_helper_live_wave610_ok = waves.host_ui_selection_startup_helper_live_wave610_ok;
-    out.host_start_save_load_helper_method_names_wave611_ok = waves.host_start_save_load_helper_method_names_wave611_ok;
-    out.host_start_save_load_helper_nav_commands_wave611_ok = waves.host_start_save_load_helper_nav_commands_wave611_ok;
-    out.host_start_save_load_helper_live_wave611_ok = waves.host_start_save_load_helper_live_wave611_ok;
+
     out.host_combat_cursor_transition_helper_method_names_wave612_ok = waves.host_combat_cursor_transition_helper_method_names_wave612_ok;
     out.host_combat_cursor_transition_helper_nav_commands_wave612_ok = waves.host_combat_cursor_transition_helper_nav_commands_wave612_ok;
     out.host_combat_cursor_transition_helper_live_wave612_ok = waves.host_combat_cursor_transition_helper_live_wave612_ok;
-    out.host_production_complete_collect_helper_method_names_wave613_ok = waves.host_production_complete_collect_helper_method_names_wave613_ok;
-    out.host_production_complete_collect_helper_nav_commands_wave613_ok = waves.host_production_complete_collect_helper_nav_commands_wave613_ok;
-    out.host_production_complete_collect_helper_live_wave613_ok = waves.host_production_complete_collect_helper_live_wave613_ok;
+
+
 
 
 

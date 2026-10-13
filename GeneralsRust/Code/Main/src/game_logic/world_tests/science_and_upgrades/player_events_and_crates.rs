@@ -2860,11 +2860,12 @@ fn guard_retaliate_returns_to_guard_not_idle() {
         e.set_position(glam::Vec3::new(200.0, 0.0, 0.0));
         e
     });
-    logic
-        .objects
-        .get_mut(&id)
-        .unwrap()
-        .begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None);
+    logic.objects.get_mut(&id).unwrap().begin_guard_retaliate(
+        vid,
+        Some(glam::Vec3::ZERO),
+        None,
+        &mut logic.attack_events,
+    );
     if let Some(e) = logic.objects.get_mut(&vid) {
         e.status.destroyed = true;
         e.health.current = 0.0;

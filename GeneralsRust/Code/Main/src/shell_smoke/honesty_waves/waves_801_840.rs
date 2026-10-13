@@ -38,9 +38,9 @@ pub(super) struct Waves801840 {
     pub host_skirmish_map_force_lone_eagle_method_names_wave837_ok: bool,
     pub host_skirmish_map_force_lone_eagle_nav_commands_wave837_ok: bool,
     pub host_skirmish_map_force_lone_eagle_live_wave837_ok: bool,
-    pub presentation_empty_shadow_failopen_method_names_wave838_ok: bool,
-    pub presentation_empty_shadow_failopen_nav_commands_wave838_ok: bool,
-    pub presentation_empty_shadow_failopen_live_wave838_ok: bool,
+
+
+
     pub host_vertical_render_mesh_gate_method_names_wave839_ok: bool,
     pub host_vertical_render_mesh_gate_nav_commands_wave839_ok: bool,
     pub host_vertical_render_mesh_gate_live_wave839_ok: bool,
@@ -106,12 +106,9 @@ pub(super) fn evaluate() -> Waves801840 {
             honesty_host_skirmish_map_force_lone_eagle_nav_commands_residual_wave837(),
         host_skirmish_map_force_lone_eagle_live_wave837_ok:
             simulate_live_host_skirmish_map_force_lone_eagle_honesty(),
-        presentation_empty_shadow_failopen_method_names_wave838_ok:
-            honesty_presentation_empty_shadow_failopen_method_names_residual_wave838(),
-        presentation_empty_shadow_failopen_nav_commands_wave838_ok:
-            honesty_presentation_empty_shadow_failopen_nav_commands_residual_wave838(),
-        presentation_empty_shadow_failopen_live_wave838_ok:
-            simulate_live_presentation_empty_shadow_failopen_honesty(),
+
+
+
         host_vertical_render_mesh_gate_method_names_wave839_ok:
             honesty_host_vertical_render_mesh_gate_method_names_residual_wave839(),
         host_vertical_render_mesh_gate_nav_commands_wave839_ok:

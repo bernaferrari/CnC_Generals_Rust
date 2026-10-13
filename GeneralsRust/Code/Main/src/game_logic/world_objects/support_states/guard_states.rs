@@ -722,7 +722,7 @@ impl GameLogic {
         } else if self.can_unit_enter_normal_target(object_id, target_id) {
             if let Some(o) = self.objects.get_mut(&object_id) {
                 o.target = Some(target_id);
-                o.set_order_target(Some(target_id));
+                o.set_order_target(Some(target_id), &mut self.attack_events);
                 o.set_ai_state(AIState::Entering);
                 // C++ AIEnterState::onEnter ignoreObstacle(goalObject).
                 o.ignored_obstacle_id = Some(target_id);

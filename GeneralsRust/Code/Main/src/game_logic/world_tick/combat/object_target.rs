@@ -248,7 +248,7 @@ impl GameLogic {
             // is within aim delta; turn in place toward the target instead.
             {
                 let aim_ok = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                    attacker.note_attack_target(target_id);
+                    attacker.note_attack_target(target_id, &mut self.attack_events);
                     if !matches!(
                         attacker.ai_state,
                         AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
@@ -312,7 +312,7 @@ impl GameLogic {
                     // (C++ AI continues aiming / repositioning).
                     let mut entered_attack = false;
                     if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                        attacker.note_attack_target(target_id);
+                        attacker.note_attack_target(target_id, &mut self.attack_events);
                         if !matches!(
                             attacker.ai_state,
                             AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
@@ -354,7 +354,7 @@ impl GameLogic {
                             attacker.activate_leech_range_for_slot(slot);
                         }
                         if current_time + 1e-6 < attacker.pre_attack_ready_at {
-                            attacker.note_attack_target(target_id);
+                            attacker.note_attack_target(target_id, &mut self.attack_events);
                             let entered_attack = !matches!(
                                 attacker.ai_state,
                                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking

@@ -85,8 +85,7 @@ pub mod host_stealth_flags_log;
 pub mod host_stored_supplies_log;
 
 
-#[path = "host_target_location_log.rs"]
-pub mod host_target_location_log;
+
 
 
 

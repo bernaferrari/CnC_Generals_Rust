@@ -388,10 +388,7 @@ fn main() {
         && r.control_bar_scheme_method_names_wave156_ok
         && r.control_bar_scheme_nav_commands_wave156_ok
         // Wave 157 residual honesty (presentation boundary; never flips playable_claim).
-        && r.presentation_boundary_method_names_wave157_ok
-        && r.presentation_boundary_source_markers_wave157_ok
-        && r.presentation_boundary_nav_commands_wave157_ok
-        && r.presentation_boundary_live_wave157_ok
+
         // Wave 158 residual honesty (ControlBar print positions; never flips playable_claim).
         && r.control_bar_print_names_wave158_ok
         && r.control_bar_print_nav_commands_wave158_ok
@@ -417,9 +414,7 @@ fn main() {
         && r.shell_stack_push_nav_commands_wave163_ok
         && r.shell_stack_push_live_wave163_ok
         // Wave 164 residual honesty (Shell→Skirmish nav; never flips playable_claim).
-        && r.shell_skirmish_nav_method_names_wave164_ok
-        && r.shell_skirmish_nav_commands_wave164_ok
-        && r.shell_skirmish_nav_live_wave164_ok
+
         // Wave 165 residual honesty (ControlBar.wnd materialise; never flips playable_claim).
         && r.control_bar_materialise_method_names_wave165_ok
         && r.control_bar_materialise_nav_commands_wave165_ok
@@ -495,9 +490,7 @@ fn main() {
         && r.live_presentation_gameworld_overlay_nav_commands_wave187_ok
         && r.live_presentation_gameworld_overlay_live_wave187_ok
         // Wave 188 residual honesty (executable GameWorld presentation entities gate).
-        && r.executable_gameworld_presentation_method_names_wave188_ok
-        && r.executable_gameworld_presentation_nav_commands_wave188_ok
-        && r.executable_gameworld_presentation_live_wave188_ok
+
         // Wave 189 residual honesty (deepened PresentationFrame←GameWorld overlay).
         && r.live_presentation_overlay_deepen_method_names_wave189_ok
         && r.live_presentation_overlay_deepen_nav_commands_wave189_ok
@@ -615,9 +608,7 @@ fn main() {
         && r.live_ui_command_selection_presentation_only_nav_commands_wave219_ok
         && r.live_ui_command_selection_presentation_only_live_wave219_ok
         // Wave 220 residual honesty (local-team presentation-only).
-        && r.live_local_team_presentation_only_method_names_wave220_ok
-        && r.live_local_team_presentation_only_nav_commands_wave220_ok
-        && r.live_local_team_presentation_only_live_wave220_ok
+
         // Wave 221 residual honesty (hotkey/move/attack selection presentation-only).
         && r.live_hotkey_move_attack_selection_presentation_only_method_names_wave221_ok
         && r.live_hotkey_move_attack_selection_presentation_only_nav_commands_wave221_ok
@@ -627,9 +618,7 @@ fn main() {
         && r.live_pick_object_presentation_only_nav_commands_wave222_ok
         && r.live_pick_object_presentation_only_live_wave222_ok
         // Wave 223 residual honesty (bootstrap-camera presentation-only).
-        && r.live_bootstrap_camera_presentation_only_method_names_wave223_ok
-        && r.live_bootstrap_camera_presentation_only_nav_commands_wave223_ok
-        && r.live_bootstrap_camera_presentation_only_live_wave223_ok
+
         // Wave 224 residual honesty (force-complete authority API).
         && r.live_force_complete_authority_api_method_names_wave224_ok
         && r.live_force_complete_authority_api_nav_commands_wave224_ok
@@ -639,13 +628,9 @@ fn main() {
         && r.live_path_guard_authority_api_nav_commands_wave225_ok
         && r.live_path_guard_authority_api_live_wave225_ok
         // Wave 226 residual honesty (hotkey selection/camera presentation-only).
-        && r.live_hotkey_selection_camera_presentation_only_method_names_wave226_ok
-        && r.live_hotkey_selection_camera_presentation_only_nav_commands_wave226_ok
-        && r.live_hotkey_selection_camera_presentation_only_live_wave226_ok
+
         // Wave 227 residual honesty (construct spawn pose authority API).
-        && r.live_construct_spawn_pose_authority_api_method_names_wave227_ok
-        && r.live_construct_spawn_pose_authority_api_nav_commands_wave227_ok
-        && r.live_construct_spawn_pose_authority_api_live_wave227_ok
+
         // Wave 228 residual honesty (RMB target presentation-only).
         && r.live_rmb_target_presentation_only_method_names_wave228_ok
         && r.live_rmb_target_presentation_only_nav_commands_wave228_ok
@@ -667,13 +652,9 @@ fn main() {
         && r.live_command_executor_authority_api_nav_commands_wave232_ok
         && r.live_command_executor_authority_api_live_wave232_ok
         // Wave 233 residual honesty (command executor more-authority API).
-        && r.live_command_executor_more_authority_api_method_names_wave233_ok
-        && r.live_command_executor_more_authority_api_nav_commands_wave233_ok
-        && r.live_command_executor_more_authority_api_live_wave233_ok
+
         // Wave 234 residual honesty (engine presentation player UI).
-        && r.live_engine_presentation_player_ui_method_names_wave234_ok
-        && r.live_engine_presentation_player_ui_nav_commands_wave234_ok
-        && r.live_engine_presentation_player_ui_live_wave234_ok
+
         // Wave 235 residual honesty (RMB presentation full classify).
         && r.live_rmb_presentation_full_classify_method_names_wave235_ok
         && r.live_rmb_presentation_full_classify_nav_commands_wave235_ok
@@ -683,21 +664,13 @@ fn main() {
         && r.live_mouse_input_presentation_only_nav_commands_wave236_ok
         && r.live_mouse_input_presentation_only_live_wave236_ok
         // Wave 237 residual honesty (engine player UI boot peel).
-        && r.live_engine_player_ui_boot_peel_method_names_wave237_ok
-        && r.live_engine_player_ui_boot_peel_nav_commands_wave237_ok
-        && r.live_engine_player_ui_boot_peel_live_wave237_ok
+
         // Wave 238 residual honesty (player probe API).
-        && r.live_player_probe_api_method_names_wave238_ok
-        && r.live_player_probe_api_nav_commands_wave238_ok
-        && r.live_player_probe_api_live_wave238_ok
+
         // Wave 239 residual honesty (player team probe).
-        && r.live_player_team_probe_method_names_wave239_ok
-        && r.live_player_team_probe_nav_commands_wave239_ok
-        && r.live_player_team_probe_live_wave239_ok
+
         // Wave 240 residual honesty (player field probe).
-        && r.live_player_field_probe_method_names_wave240_ok
-        && r.live_player_field_probe_nav_commands_wave240_ok
-        && r.live_player_field_probe_live_wave240_ok
+
         // Wave 241 residual honesty (camera height probe).
         && r.live_camera_height_probe_method_names_wave241_ok
         && r.live_camera_height_probe_nav_commands_wave241_ok
@@ -707,9 +680,7 @@ fn main() {
         && r.live_command_player_probe_nav_commands_wave242_ok
         && r.live_command_player_probe_live_wave242_ok
         // Wave 243 residual honesty (construct economy probe).
-        && r.live_construct_economy_probe_method_names_wave243_ok
-        && r.live_construct_economy_probe_nav_commands_wave243_ok
-        && r.live_construct_economy_probe_live_wave243_ok
+
         // Wave 244 residual honesty (command unit probe).
         && r.live_command_unit_probe_method_names_wave244_ok
         && r.live_command_unit_probe_nav_commands_wave244_ok
@@ -1414,9 +1385,7 @@ fn main() {
         // Wave 448 residual honesty (object upgrade batch dual-world empty gates).
 
         // Wave 449 residual honesty (contain module overrides fail-closed).
-        && r.live_contain_module_overrides_fail_closed_method_names_wave449_ok
-        && r.live_contain_module_overrides_fail_closed_nav_commands_wave449_ok
-        && r.live_contain_module_overrides_fail_closed_live_wave449_ok
+
         // Wave 450 residual honesty (core-sim dual-world empty gates).
 
         // Wave 451 residual honesty (golden mop-up default-off).

@@ -51,8 +51,8 @@ fn enter_rejected_noncontainer_preserves_ai_after_script_preparation() {
     let (b, foreign, _) = world();
     assert_eq!(id, foreign);
     let old = Vec3::new(250.0, 0.0, 250.0);
-    let unit = a.host_object_mut(id).unwrap();
-    unit.set_target(Some(target));
+    let (unit, attack_events) = a.host_object_and_attack_events_mut(id).unwrap();
+    unit.set_target(Some(target), attack_events);
     unit.set_ai_state(AIState::AttackMoving);
     unit.pending_move = Some(old);
     unit.last_command_source = 99;
@@ -215,7 +215,9 @@ fn malformed_exit_goal_cannot_remove_a_different_containers_passenger() {
     let container = transport(&mut a);
     load(&mut a, id, container);
     evacuate(&mut a);
-    a.host_object_mut(id).unwrap().set_target(Some(id));
+    a.host_object_mut(id)
+        .unwrap()
+        .set_target(Some(id), &mut a.attack_events);
     a.update_support_states(&[id], 1.0 / 30.0);
     assert_eq!(a.host_object(id).unwrap().contained_by, Some(container));
     assert_eq!(

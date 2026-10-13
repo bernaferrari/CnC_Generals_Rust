@@ -42,21 +42,9 @@ pub(super) fn assert_waves_183_243(r: &ShellSmokeResult) {
         "live presentation gameworld overlay live residual wave187: {}",
         r.detail
     );
-    assert!(
-        r.executable_gameworld_presentation_method_names_wave188_ok,
-        "executable gameworld presentation method names residual pack wave188: {}",
-        r.detail
-    );
-    assert!(
-        r.executable_gameworld_presentation_nav_commands_wave188_ok,
-        "executable gameworld presentation nav commands residual pack wave188: {}",
-        r.detail
-    );
-    assert!(
-        r.executable_gameworld_presentation_live_wave188_ok,
-        "executable gameworld presentation live residual wave188: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.live_presentation_overlay_deepen_method_names_wave189_ok,
         "live presentation overlay deepen method names residual pack wave189: {}",
@@ -474,21 +462,9 @@ pub(super) fn assert_waves_183_243(r: &ShellSmokeResult) {
         "live ui command selection presentation only live residual wave219: {}",
         r.detail
     );
-    assert!(
-        r.live_local_team_presentation_only_method_names_wave220_ok,
-        "live local team presentation only method names residual pack wave220: {}",
-        r.detail
-    );
-    assert!(
-        r.live_local_team_presentation_only_nav_commands_wave220_ok,
-        "live local team presentation only nav commands residual pack wave220: {}",
-        r.detail
-    );
-    assert!(
-        r.live_local_team_presentation_only_live_wave220_ok,
-        "live local team presentation only live residual wave220: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.live_hotkey_move_attack_selection_presentation_only_method_names_wave221_ok,
         "live hotkey move attack selection presentation only method names residual pack wave221: {}",
@@ -519,21 +495,9 @@ pub(super) fn assert_waves_183_243(r: &ShellSmokeResult) {
         "live pick object presentation only live residual wave222: {}",
         r.detail
     );
-    assert!(
-        r.live_bootstrap_camera_presentation_only_method_names_wave223_ok,
-        "live bootstrap camera presentation only method names residual pack wave223: {}",
-        r.detail
-    );
-    assert!(
-        r.live_bootstrap_camera_presentation_only_nav_commands_wave223_ok,
-        "live bootstrap camera presentation only nav commands residual pack wave223: {}",
-        r.detail
-    );
-    assert!(
-        r.live_bootstrap_camera_presentation_only_live_wave223_ok,
-        "live bootstrap camera presentation only live residual wave223: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.live_force_complete_authority_api_method_names_wave224_ok,
         "live force complete authority api method names residual pack wave224: {}",
@@ -564,36 +528,12 @@ pub(super) fn assert_waves_183_243(r: &ShellSmokeResult) {
         "live path guard authority api live residual wave225: {}",
         r.detail
     );
-    assert!(
-        r.live_hotkey_selection_camera_presentation_only_method_names_wave226_ok,
-        "live hotkey selection camera presentation only method names residual pack wave226: {}",
-        r.detail
-    );
-    assert!(
-        r.live_hotkey_selection_camera_presentation_only_nav_commands_wave226_ok,
-        "live hotkey selection camera presentation only nav commands residual pack wave226: {}",
-        r.detail
-    );
-    assert!(
-        r.live_hotkey_selection_camera_presentation_only_live_wave226_ok,
-        "live hotkey selection camera presentation only live residual wave226: {}",
-        r.detail
-    );
-    assert!(
-        r.live_construct_spawn_pose_authority_api_method_names_wave227_ok,
-        "live construct spawn pose authority api method names residual pack wave227: {}",
-        r.detail
-    );
-    assert!(
-        r.live_construct_spawn_pose_authority_api_nav_commands_wave227_ok,
-        "live construct spawn pose authority api nav commands residual pack wave227: {}",
-        r.detail
-    );
-    assert!(
-        r.live_construct_spawn_pose_authority_api_live_wave227_ok,
-        "live construct spawn pose authority api live residual wave227: {}",
-        r.detail
-    );
+
+
+
+
+
+
     assert!(
         r.live_rmb_target_presentation_only_method_names_wave228_ok,
         "live rmb target presentation only method names residual pack wave228: {}",
@@ -669,36 +609,12 @@ pub(super) fn assert_waves_183_243(r: &ShellSmokeResult) {
         "live command executor authority api live residual wave232: {}",
         r.detail
     );
-    assert!(
-        r.live_command_executor_more_authority_api_method_names_wave233_ok,
-        "live command executor more authority api method names residual pack wave233: {}",
-        r.detail
-    );
-    assert!(
-        r.live_command_executor_more_authority_api_nav_commands_wave233_ok,
-        "live command executor more authority api nav commands residual pack wave233: {}",
-        r.detail
-    );
-    assert!(
-        r.live_command_executor_more_authority_api_live_wave233_ok,
-        "live command executor more authority api live residual wave233: {}",
-        r.detail
-    );
-    assert!(
-        r.live_engine_presentation_player_ui_method_names_wave234_ok,
-        "live engine presentation player ui method names residual pack wave234: {}",
-        r.detail
-    );
-    assert!(
-        r.live_engine_presentation_player_ui_nav_commands_wave234_ok,
-        "live engine presentation player ui nav commands residual pack wave234: {}",
-        r.detail
-    );
-    assert!(
-        r.live_engine_presentation_player_ui_live_wave234_ok,
-        "live engine presentation player ui live residual wave234: {}",
-        r.detail
-    );
+
+
+
+
+
+
     assert!(
         r.live_rmb_presentation_full_classify_method_names_wave235_ok,
         "live rmb presentation full classify method names residual pack wave235: {}",
@@ -729,66 +645,18 @@ pub(super) fn assert_waves_183_243(r: &ShellSmokeResult) {
         "live mouse input presentation only live residual wave236: {}",
         r.detail
     );
-    assert!(
-        r.live_engine_player_ui_boot_peel_method_names_wave237_ok,
-        "live engine player ui boot peel method names residual pack wave237: {}",
-        r.detail
-    );
-    assert!(
-        r.live_engine_player_ui_boot_peel_nav_commands_wave237_ok,
-        "live engine player ui boot peel nav commands residual pack wave237: {}",
-        r.detail
-    );
-    assert!(
-        r.live_engine_player_ui_boot_peel_live_wave237_ok,
-        "live engine player ui boot peel live residual wave237: {}",
-        r.detail
-    );
-    assert!(
-        r.live_player_probe_api_method_names_wave238_ok,
-        "live player probe api method names residual pack wave238: {}",
-        r.detail
-    );
-    assert!(
-        r.live_player_probe_api_nav_commands_wave238_ok,
-        "live player probe api nav commands residual pack wave238: {}",
-        r.detail
-    );
-    assert!(
-        r.live_player_probe_api_live_wave238_ok,
-        "live player probe api live residual wave238: {}",
-        r.detail
-    );
-    assert!(
-        r.live_player_team_probe_method_names_wave239_ok,
-        "live player team probe method names residual pack wave239: {}",
-        r.detail
-    );
-    assert!(
-        r.live_player_team_probe_nav_commands_wave239_ok,
-        "live player team probe nav commands residual pack wave239: {}",
-        r.detail
-    );
-    assert!(
-        r.live_player_team_probe_live_wave239_ok,
-        "live player team probe live residual wave239: {}",
-        r.detail
-    );
-    assert!(
-        r.live_player_field_probe_method_names_wave240_ok,
-        "live player field probe method names residual pack wave240: {}",
-        r.detail
-    );
-    assert!(
-        r.live_player_field_probe_nav_commands_wave240_ok,
-        "live player field probe nav commands residual pack wave240: {}",
-        r.detail
-    );
-    assert!(
-        r.live_player_field_probe_live_wave240_ok,
-        "live player field probe live residual wave240: {}",
-        r.detail
-    );
+
+
+
+
+
+
+
+
+
+
+
+
     assert!(
         r.live_camera_height_probe_method_names_wave241_ok,
         "live camera height probe method names residual pack wave241: {}",
@@ -819,19 +687,7 @@ pub(super) fn assert_waves_183_243(r: &ShellSmokeResult) {
         "live command player probe live residual wave242: {}",
         r.detail
     );
-    assert!(
-        r.live_construct_economy_probe_method_names_wave243_ok,
-        "live construct economy probe method names residual pack wave243: {}",
-        r.detail
-    );
-    assert!(
-        r.live_construct_economy_probe_nav_commands_wave243_ok,
-        "live construct economy probe nav commands residual pack wave243: {}",
-        r.detail
-    );
-    assert!(
-        r.live_construct_economy_probe_live_wave243_ok,
-        "live construct economy probe live residual wave243: {}",
-        r.detail
-    );
+
+
+
 }

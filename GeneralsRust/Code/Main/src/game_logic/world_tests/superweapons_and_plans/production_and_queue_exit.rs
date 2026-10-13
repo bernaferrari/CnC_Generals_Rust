@@ -306,8 +306,10 @@ fn host_construction_completes_without_coupled_shadow() {
         barracks.builder_id = Some(dozer_id);
     }
     {
-        let dozer = game_logic.host_object_mut(dozer_id).expect("dozer");
-        dozer.set_target(Some(id));
+        let (dozer, attack_events) = game_logic
+            .host_object_and_attack_events_mut(dozer_id)
+            .expect("dozer");
+        dozer.set_target(Some(id), attack_events);
         dozer.set_ai_state(AIState::Constructing);
         dozer.status.moving = false;
         dozer.dozer_dock_action = Some(dozer.get_position());
@@ -375,8 +377,10 @@ fn host_construction_completes_when_sole_tick_unmapped() {
             barracks.builder_id = Some(dozer_id);
         }
         {
-            let dozer = game_logic.host_object_mut(dozer_id).expect("dozer");
-            dozer.set_target(Some(id));
+            let (dozer, attack_events) = game_logic
+                .host_object_and_attack_events_mut(dozer_id)
+                .expect("dozer");
+            dozer.set_target(Some(id), attack_events);
             dozer.set_ai_state(AIState::Constructing);
             dozer.status.moving = false;
             dozer.dozer_dock_action = Some(dozer.get_position());

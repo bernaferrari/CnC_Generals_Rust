@@ -659,10 +659,10 @@ mod tests {
             .create_object("TestComanche", Team::USA, glam::Vec3::new(5.0, 20.0, 0.0))
             .unwrap();
         {
-            let o = logic.host_object_mut(id).unwrap();
+            let (o, attack_events) = logic.host_object_and_attack_events_mut(id).unwrap();
             o.health.current = 40.0;
             o.status.airborne_target = true;
-            o.set_target(Some(af));
+            o.set_target(Some(af), attack_events);
             o.set_ai_state(AIState::SeekingRepair);
         }
         logic.update_support_states_for_test(&[id], 1.0);
@@ -699,9 +699,9 @@ mod tests {
             .create_object("TestBattleDrone", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0))
             .unwrap();
         {
-            let o = logic.host_object_mut(master).unwrap();
+            let (o, attack_events) = logic.host_object_and_attack_events_mut(master).unwrap();
             o.health.current = 40.0;
-            o.set_target(Some(pad_id));
+            o.set_target(Some(pad_id), attack_events);
             o.set_ai_state(AIState::SeekingRepair);
         }
         {
@@ -744,9 +744,9 @@ mod tests {
             .create_object("GLAInfantryWorker", Team::GLA, glam::Vec3::ZERO)
             .unwrap();
         {
-            let o = logic.host_object_mut(wid).unwrap();
+            let (o, attack_events) = logic.host_object_and_attack_events_mut(wid).unwrap();
             o.model_condition_bits |= 1u128 << moving_model_bit();
-            o.set_target(Some(dock));
+            o.set_target(Some(dock), attack_events);
             o.set_ai_state(AIState::Gathering);
         }
         assert!(logic.try_claim_dock_for_test(dock, wid));

@@ -196,7 +196,7 @@ impl GameLogic {
                 ),
             );
             if let Some(obj) = self.objects.get_mut(&object_id) {
-                obj.set_order_target(Some(target_id));
+                obj.set_order_target(Some(target_id), &mut self.attack_events);
                 obj.set_ai_state(AIState::SpecialAbility);
             }
             self.path_approach_with_state_ignoring(
@@ -1575,7 +1575,7 @@ impl GameLogic {
         // target is cleared through stop_attack_decision_aware before it can
         // become a stale post-deploy shot.
         if let Some(attacker) = self.objects.get_mut(&sentry_id) {
-            attacker.note_attack_target(target_id);
+            attacker.note_attack_target(target_id, &mut self.attack_events);
             let entered_attack = !matches!(
                 attacker.ai_state,
                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
@@ -1791,7 +1791,7 @@ impl GameLogic {
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
             {}
-            attacker.note_attack_target(target_id);
+            attacker.note_attack_target(target_id, &mut self.attack_events);
             let entered_attack = !matches!(
                 attacker.ai_state,
                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking

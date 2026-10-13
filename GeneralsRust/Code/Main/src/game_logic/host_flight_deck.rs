@@ -883,7 +883,7 @@ impl GameLogic {
                 if let Some(target_id) = target {
                     jet.status.airborne_target = true;
                     jet.set_force_attack(command == HostFlightDeckCommand::ForceAttackObject);
-                    jet.attack_target(target_id);
+                    jet.attack_target(target_id, &mut self.attack_events);
                 }
             }
             HostFlightDeckCommand::AttackMoveToPosition => {

@@ -171,8 +171,10 @@ fn dragon_tank_residual_flame_and_black_napalm() {
         .create_object("TestInfantry", Team::GLA, Vec3::new(48.0, 0.0, 0.0))
         .expect("splash_outer");
     {
-        let d = game_logic.host_object_mut(dragon_id).unwrap();
-        d.attack_target(enemy);
+        let (d, attack_events) = game_logic
+            .host_object_and_attack_events_mut(dragon_id)
+            .unwrap();
+        d.attack_target(enemy, attack_events);
         if let Some(w) = d.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -348,8 +350,10 @@ fn gattling_tank_residual_ramp_fire_rate_and_aa() {
 
     for i in 0..8u32 {
         {
-            let g = game_logic.host_object_mut(gattling_id).unwrap();
-            g.attack_target(enemy);
+            let (g, attack_events) = game_logic
+                .host_object_and_attack_events_mut(gattling_id)
+                .unwrap();
+            g.attack_target(enemy, attack_events);
             if let Some(w) = g.weapon.as_mut() {
                 w.last_fire_time = -10.0;
                 // Keep fireable each frame residual.
@@ -405,8 +409,10 @@ fn gattling_tank_residual_ramp_fire_rate_and_aa() {
         a.status.airborne_target = true;
     }
     {
-        let g = game_logic.host_object_mut(gattling_id).unwrap();
-        g.attack_target(aircraft_id);
+        let (g, attack_events) = game_logic
+            .host_object_and_attack_events_mut(gattling_id)
+            .unwrap();
+        g.attack_target(aircraft_id, attack_events);
         g.active_weapon_slot = 1;
         if let Some(w) = g.secondary_weapon.as_mut() {
             w.last_fire_time = -10.0;
@@ -544,8 +550,10 @@ fn combat_cycle_residual_rider_weapon_switch() {
         .create_object("TestTank", Team::USA, Vec3::new(80.0, 0.0, 0.0))
         .expect("enemy");
     {
-        let b = game_logic.host_object_mut(bike_id).unwrap();
-        b.attack_target(enemy);
+        let (b, attack_events) = game_logic
+            .host_object_and_attack_events_mut(bike_id)
+            .unwrap();
+        b.attack_target(enemy, attack_events);
         if let Some(w) = b.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -1814,8 +1822,8 @@ fn minigunner_residual_gun_ramp_aa_horde_and_chain_guns() {
 
     for i in 0..10u32 {
         {
-            let mg = game_logic.host_object_mut(mg0).unwrap();
-            mg.attack_target(enemy);
+            let (mg, attack_events) = game_logic.host_object_and_attack_events_mut(mg0).unwrap();
+            mg.attack_target(enemy, attack_events);
             if let Some(w) = mg.weapon.as_mut() {
                 w.last_fire_time = -10.0;
                 w.reload_time = 0.05;
@@ -1869,8 +1877,8 @@ fn minigunner_residual_gun_ramp_aa_horde_and_chain_guns() {
         a.status.airborne_target = true;
     }
     {
-        let mg = game_logic.host_object_mut(mg0).unwrap();
-        mg.attack_target(aircraft_id);
+        let (mg, attack_events) = game_logic.host_object_and_attack_events_mut(mg0).unwrap();
+        mg.attack_target(aircraft_id, attack_events);
         mg.active_weapon_slot = 1;
         if let Some(w) = mg.secondary_weapon.as_mut() {
             w.last_fire_time = -10.0;

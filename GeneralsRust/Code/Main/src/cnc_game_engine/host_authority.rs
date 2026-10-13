@@ -1700,9 +1700,16 @@ impl CnCGameEngine {
         // Wave 928: runtime-host GameWorld authority probe boundary.
 
         let (_, probe) = crate::gameworld_shadow::probe_host_vs_gameworld(&self.game_logic);
-        probe.counts_match && probe.economy_match && probe.health_match && probe.pose_match && probe.attack_target_match
-            && probe.move_target_match && probe.weapon_match && probe.contain_match
-            && probe.production_match && probe.destroy_visibility_match
+        probe.counts_match
+            && probe.economy_match
+            && probe.health_match
+            && probe.pose_match
+            && probe.attack_target_match
+            && probe.move_target_match
+            && probe.weapon_match
+            && probe.contain_match
+            && probe.production_match
+            && probe.destroy_visibility_match
     }
 
     pub(super) fn host_quick_save_from_hotkey(&mut self, source: &str) {
@@ -2058,12 +2065,7 @@ mod staged_restore_tests {
             47,
             48.0,
         );
-        crate::game_logic::host_attack_log::record(
-            object,
-            Some(crate::game_logic::ObjectId(0x00ff_ee14)),
-        );
-        let _ = crate::game_logic::host_attack_log::drain();
-        crate::game_logic::host_attack_log::record(object, None);
+
         crate::game_logic::host_target_location_log::record(object, Some([49.0, 50.0, 51.0]));
         crate::game_logic::host_ai_decision_log::record_set_state(object, 14);
         crate::game_logic::host_command_set_log::record(

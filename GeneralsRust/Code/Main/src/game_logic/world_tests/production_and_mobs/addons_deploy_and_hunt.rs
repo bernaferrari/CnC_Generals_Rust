@@ -34,9 +34,11 @@ fn plant_approach_ignores_the_structure() {
         },
     );
     {
-        let unit = logic.host_object_mut(planter).expect("planter");
+        let (unit, attack_events) = logic
+            .host_object_and_attack_events_mut(planter)
+            .expect("planter");
         unit.set_ai_state(AIState::SpecialAbility);
-        unit.set_order_target(Some(building));
+        unit.set_order_target(Some(building), attack_events);
         unit.ignored_obstacle_id = None;
     }
     let wall_x = {
@@ -105,9 +107,11 @@ fn successful_disguise_drops_the_vehicle_ignore() {
         PendingSpecialAbility::DisguiseAsVehicle { target_id: vehicle },
     );
     {
-        let unit = logic.host_object_mut(infantry).expect("infantry");
+        let (unit, attack_events) = logic
+            .host_object_and_attack_events_mut(infantry)
+            .expect("infantry");
         unit.set_ai_state(AIState::SpecialAbility);
-        unit.set_order_target(Some(vehicle));
+        unit.set_order_target(Some(vehicle), attack_events);
         unit.ignored_obstacle_id = Some(vehicle);
         unit.movement.path = vec![Vec3::ZERO];
         unit.set_status_moving(true);
@@ -210,8 +214,10 @@ fn recrew_enter_ignores_the_empty_vehicle() {
         .expect("vehicle")
         .set_status_disabled_unmanned(true);
     {
-        let unit = logic.host_object_mut(infantry).expect("infantry");
-        unit.set_order_target(Some(vehicle));
+        let (unit, attack_events) = logic
+            .host_object_and_attack_events_mut(infantry)
+            .expect("infantry");
+        unit.set_order_target(Some(vehicle), attack_events);
         unit.set_ai_state(AIState::Entering);
     }
     use crate::game_logic::pathfinding::GridPos;
@@ -521,8 +527,10 @@ fn reissued_build_stays_constructing() {
         );
     }
     {
-        let obj = logic.host_object_mut(dozer).expect("dozer");
-        obj.set_order_target(Some(pad_id));
+        let (obj, attack_events) = logic
+            .host_object_and_attack_events_mut(dozer)
+            .expect("dozer");
+        obj.set_order_target(Some(pad_id), attack_events);
         obj.set_ai_state(AIState::Constructing);
         obj.pending_move = Some(to);
         obj.shock_stun_frames = 0;
@@ -623,9 +631,11 @@ fn construction_complete_end_dock_uses_stored_action() {
         obj.builder_id = Some(dozer);
     }
     {
-        let obj = logic.host_object_mut(dozer).expect("dozer");
+        let (obj, attack_events) = logic
+            .host_object_and_attack_events_mut(dozer)
+            .expect("dozer");
         obj.set_position(off_line);
-        obj.set_target(Some(pad_id));
+        obj.set_target(Some(pad_id), attack_events);
         obj.set_ai_state(AIState::Constructing);
         obj.status.moving = false;
     }
@@ -833,9 +843,11 @@ fn overlord_gattling_addon_residual_install_and_fire() {
         .map(|i| i.health.current)
         .unwrap_or(0.0);
     {
-        let o = game_logic.host_object_mut(overlord_id).unwrap();
+        let (o, attack_events) = game_logic
+            .host_object_and_attack_events_mut(overlord_id)
+            .unwrap();
         o.active_weapon_slot = 0;
-        o.attack_target(victim_id);
+        o.attack_target(victim_id, attack_events);
         if let Some(w) = o.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -1220,8 +1232,10 @@ fn nuke_cannon_primary_residual_area_and_radiation() {
     let splash_hp = game_logic.host_object(splash_id).unwrap().health.current;
 
     {
-        let c = game_logic.host_object_mut(cannon_id).unwrap();
-        c.attack_target(primary_id);
+        let (c, attack_events) = game_logic
+            .host_object_and_attack_events_mut(cannon_id)
+            .unwrap();
+        c.attack_target(primary_id, attack_events);
     }
 
     game_logic.set_current_frame(30);

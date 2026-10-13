@@ -475,6 +475,14 @@ impl GameClient {
 
     /// Destroys a drawable and removes it from all systems
     pub fn destroy_drawable(&mut self, id: DrawableId) -> GameClientResult<()> {
+        if self.owned_laser_order.contains(&id)
+            && self
+                .with_owned_laser(id, |module| Ok(module.requires_owned_particle_retirement()))?
+        {
+            return Err(GameClientError::InvalidOperation(
+                "owned laser destruction requires its receiving particle services".into(),
+            ));
+        }
         self.ray_effects.delete(id);
         self.owned_laser_order.retain(|owner| *owner != id);
         if let Some(drawable) = self.drawable_map.get(&id) {

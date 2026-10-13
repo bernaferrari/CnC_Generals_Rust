@@ -1389,13 +1389,12 @@ fn move_ordered_freezes_only_completed_observations_from_its_producing_world() {
 
 #[test]
 fn attack_targeted_freezes_from_last_drain() {
-    crate::game_logic::host_attack_log::clear();
-    crate::game_logic::host_attack_log::record(
-        crate::game_logic::ObjectId(2),
-        Some(crate::game_logic::ObjectId(5)),
-    );
-    let _ = crate::game_logic::host_attack_log::drain();
     let mut logic = crate::game_logic::GameLogic::new();
+    logic.attack_events.record(
+        crate::game_logic::ObjectId(2),
+        crate::game_logic::ObjectId(5),
+    );
+    logic.attack_events.complete_boundary();
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame.events.iter().any(|e| {

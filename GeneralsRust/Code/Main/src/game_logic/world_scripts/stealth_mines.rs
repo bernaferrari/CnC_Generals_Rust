@@ -524,7 +524,7 @@ impl GameLogic {
                     ) {
                         continue;
                     }
-                    enemy.set_target(Some(rid));
+                    enemy.set_target(Some(rid), &mut self.attack_events);
                     {}
                     self.camo_netting_order_idle_enemies_count =
                         self.camo_netting_order_idle_enemies_count.saturating_add(1);
@@ -3773,7 +3773,7 @@ impl GameLogic {
                 {
                     continue;
                 }
-                enemy.set_target(Some(victim_id));
+                enemy.set_target(Some(victim_id), &mut self.attack_events);
                 {}
                 self.camo_netting_order_idle_enemies_count =
                     self.camo_netting_order_idle_enemies_count.saturating_add(1);

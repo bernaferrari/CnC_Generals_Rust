@@ -1906,13 +1906,11 @@ impl PresentationFrame {
                 team: ev.team,
             });
         }
-        for ev in crate::game_logic::host_attack_log::take_last_drain() {
-            if ev.target.is_some() {
-                events.push(PresentationEvent::AttackTargeted {
-                    attacker: ev.attacker,
-                    target: ev.target,
-                });
-            }
+        for ev in logic.attack_events.take_completed() {
+            events.push(PresentationEvent::AttackTargeted {
+                attacker: ev.attacker,
+                target: Some(ev.target),
+            });
         }
         // A presentation frame can follow several fixed logic steps. Freeze
         // every real accepted discharge in order; the renderer must never

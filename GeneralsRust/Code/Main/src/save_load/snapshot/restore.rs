@@ -303,13 +303,13 @@ impl SnapshotBuilder {
         if let Some(channel) = object.hacker_disable_channel {
             if object.thing().template.hacker_disable_building.is_some() && object.is_alive() {
                 object.set_ai_state(AIState::SpecialAbility);
-                object.set_order_target(Some(channel.target_id));
+                object.restore_order_target(Some(channel.target_id));
             } else {
                 // A malformed/current save must not revive a guessed hacker
                 // channel.  Clear it before the object becomes live.
                 object.hacker_disable_channel = None;
                 object.set_status_using_ability(false);
-                object.set_target(None);
+                object.clear_target();
             }
         }
 
@@ -815,7 +815,7 @@ impl SnapshotBuilder {
             } else if let Some(source) = game_logic.host_object_mut(snapshot.id) {
                 source.hacker_disable_channel = None;
                 source.set_status_using_ability(false);
-                source.set_target(None);
+                source.clear_target();
                 if source.ai_state == AIState::SpecialAbility {
                     source.set_ai_state(AIState::Idle);
                 }

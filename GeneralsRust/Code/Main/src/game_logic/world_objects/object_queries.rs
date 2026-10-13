@@ -3865,8 +3865,10 @@ mod dock_approach_owner_tests {
             )
             .expect("second repairer");
         for id in [first, second] {
-            let object = world.host_object_mut(id).expect("repairer object");
-            object.set_target(Some(dock));
+            let (object, attack_events) = world
+                .host_object_and_attack_events_mut(id)
+                .expect("repairer object");
+            object.set_target(Some(dock), attack_events);
             object.set_ai_state(AIState::SeekingRepair);
         }
 

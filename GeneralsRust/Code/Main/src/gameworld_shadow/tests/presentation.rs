@@ -238,8 +238,8 @@ fn residual_auto_fire_host_attack_log_source() {
     let src = GAME_LOGIC_HOST_SRC;
     let body = last_rust_fn_body(src, "residual_auto_fire_apply_damage").expect("helper");
     assert!(
-        body.contains("host_attack_log::record(attacker_id, Some(target_id))"),
-        "residual auto-fire helper must record host_attack_log for presentation AttackTargeted"
+        body.contains("self.attack_events.record(attacker_id, target_id)"),
+        "residual auto-fire helper must record receiving attack output for presentation AttackTargeted"
     );
     for name in [
         "try_garrison_residual_fire",
@@ -255,9 +255,9 @@ fn residual_auto_fire_host_attack_log_source() {
     }
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     assert!(
-        pf.contains("host_attack_log::take_last_drain")
+        pf.contains("logic.attack_events.take_completed")
             && pf.contains("PresentationEvent::AttackTargeted"),
-        "presentation must freeze AttackTargeted from host_attack_log"
+        "presentation must freeze AttackTargeted from the receiving owner output"
     );
 }
 

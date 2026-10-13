@@ -90,7 +90,7 @@ fn dozer_bored_mine_clear_assigns_enemy_mine() {
         o.set_ai_state(AIState::Idle);
         o.idle_since_frame = 1;
     }
-    crate::game_logic::host_ai_decision_log::clear();
+
     logic.frame = 1 + crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
     logic.update_dozer_bored_repair();
     let d = logic.host_object(did).expect("d");
@@ -152,7 +152,7 @@ fn dozer_bored_auto_repair_assigns_damaged_structure() {
     logic.update_dozer_bored_repair();
     assert_eq!(logic.host_object(did).unwrap().ai_state, AIState::Idle);
     // After bored time (150f).
-    crate::game_logic::host_ai_decision_log::clear();
+
     logic.frame = 1 + crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
     logic.update_dozer_bored_repair();
     let d = logic.host_object(did).expect("d");

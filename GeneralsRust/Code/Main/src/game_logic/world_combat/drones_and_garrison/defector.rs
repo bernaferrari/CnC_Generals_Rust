@@ -77,7 +77,7 @@ impl GameLogic {
 
         // C++ after switch: handlePartitionCellMaintenance + aiIdle.
         if let Some(victim) = self.objects.get_mut(&victim_id) {
-            victim.set_target(None);
+            victim.clear_target();
             victim.set_status_moving(false);
             victim.set_status_attacking(false);
             victim.stop_moving();

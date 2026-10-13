@@ -421,6 +421,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
                 0.0,
                 logic.frame,
                 &mut logic.combat_system,
+                &mut logic.attack_events,
             ) && !u.status.stealthed;
         }
 

@@ -1574,7 +1574,9 @@ End
             PendingSpecialAbility::PlantTimedDemoCharge { target_id },
         );
         {
-            let burton = logic.host_object_mut(burton_id).expect("burton mut");
+            let (burton, attack_events) = logic
+                .host_object_and_attack_events_mut(burton_id)
+                .expect("burton mut");
             // The probe must turn through PI before its 200ms unpack begins.
             // Keep a bounded turn capability, rather than snapping its yaw.
             assert_eq!(
@@ -1586,7 +1588,7 @@ End
             burton.set_ai_state(AIState::SpecialAbility);
             // set_target admits an ordinary attack and replaces the ability
             // state. The ability order owns its state and target separately.
-            burton.set_order_target(Some(target_id));
+            burton.set_order_target(Some(target_id), attack_events);
             assert_eq!(burton.ai_state, AIState::SpecialAbility);
         }
 

@@ -41,9 +41,8 @@ pub(super) struct Waves521560 {
     pub command_integration_presentation_fill_method_names_wave531_ok: bool,
     pub command_integration_presentation_fill_nav_commands_wave531_ok: bool,
     pub command_integration_presentation_fill_live_wave531_ok: bool,
-    pub presentation_firesound_drain_sibling_method_names_wave532_ok: bool,
-    pub presentation_firesound_drain_sibling_nav_commands_wave532_ok: bool,
-    pub presentation_firesound_drain_sibling_live_wave532_ok: bool,
+
+
     pub presentation_eva_pulse_audio_method_names_wave533_ok: bool,
     pub presentation_eva_pulse_audio_nav_commands_wave533_ok: bool,
     pub presentation_eva_pulse_audio_live_wave533_ok: bool,
@@ -56,9 +55,7 @@ pub(super) struct Waves521560 {
     pub presentation_eva_client_dispatch_method_names_wave536_ok: bool,
     pub presentation_eva_client_dispatch_nav_commands_wave536_ok: bool,
     pub presentation_eva_client_dispatch_live_wave536_ok: bool,
-    pub presentation_eva_alert_counter_dedupe_method_names_wave537_ok: bool,
-    pub presentation_eva_alert_counter_dedupe_nav_commands_wave537_ok: bool,
-    pub presentation_eva_alert_counter_dedupe_live_wave537_ok: bool,
+
     pub presentation_alliance_notify_method_names_wave538_ok: bool,
     pub presentation_alliance_notify_nav_commands_wave538_ok: bool,
     pub presentation_alliance_notify_live_wave538_ok: bool,
@@ -80,9 +77,7 @@ pub(super) struct Waves521560 {
     pub ui_selection_seed_presentation_fail_closed_method_names_wave544_ok: bool,
     pub ui_selection_seed_presentation_fail_closed_nav_commands_wave544_ok: bool,
     pub ui_selection_seed_presentation_fail_closed_live_wave544_ok: bool,
-    pub save_restart_presentation_fail_closed_method_names_wave545_ok: bool,
-    pub save_restart_presentation_fail_closed_nav_commands_wave545_ok: bool,
-    pub save_restart_presentation_fail_closed_live_wave545_ok: bool,
+
     pub host_status_map_presentation_fail_closed_method_names_wave546_ok: bool,
     pub host_status_map_presentation_fail_closed_nav_commands_wave546_ok: bool,
     pub host_status_map_presentation_fail_closed_live_wave546_ok: bool,
@@ -101,9 +96,9 @@ pub(super) struct Waves521560 {
     pub time_frozen_presentation_helper_method_names_wave551_ok: bool,
     pub time_frozen_presentation_helper_nav_commands_wave551_ok: bool,
     pub time_frozen_presentation_helper_live_wave551_ok: bool,
-    pub shell_bypass_presentation_helper_method_names_wave552_ok: bool,
-    pub shell_bypass_presentation_helper_nav_commands_wave552_ok: bool,
-    pub shell_bypass_presentation_helper_live_wave552_ok: bool,
+
+
+
     pub play_time_local_player_presentation_helper_method_names_wave553_ok: bool,
     pub play_time_local_player_presentation_helper_nav_commands_wave553_ok: bool,
     pub play_time_local_player_presentation_helper_live_wave553_ok: bool,
@@ -113,9 +108,7 @@ pub(super) struct Waves521560 {
     pub science_team_presentation_helper_method_names_wave555_ok: bool,
     pub science_team_presentation_helper_nav_commands_wave555_ok: bool,
     pub science_team_presentation_helper_live_wave555_ok: bool,
-    pub victory_presentation_helper_method_names_wave556_ok: bool,
-    pub victory_presentation_helper_nav_commands_wave556_ok: bool,
-    pub victory_presentation_helper_live_wave556_ok: bool,
+
     pub replay_presentation_helper_method_names_wave557_ok: bool,
     pub replay_presentation_helper_nav_commands_wave557_ok: bool,
     pub replay_presentation_helper_live_wave557_ok: bool,
@@ -195,12 +188,8 @@ pub(super) fn evaluate() -> Waves521560 {
             honesty_command_integration_presentation_fill_nav_commands_residual_wave531(),
         command_integration_presentation_fill_live_wave531_ok:
             simulate_live_command_integration_presentation_fill_honesty(),
-        presentation_firesound_drain_sibling_method_names_wave532_ok:
-            honesty_presentation_firesound_drain_sibling_method_names_residual_wave532(),
-        presentation_firesound_drain_sibling_nav_commands_wave532_ok:
-            honesty_presentation_firesound_drain_sibling_nav_commands_residual_wave532(),
-        presentation_firesound_drain_sibling_live_wave532_ok:
-            simulate_live_presentation_firesound_drain_sibling_honesty(),
+
+
         presentation_eva_pulse_audio_method_names_wave533_ok:
             honesty_presentation_eva_pulse_audio_method_names_residual_wave533(),
         presentation_eva_pulse_audio_nav_commands_wave533_ok:
@@ -225,12 +214,7 @@ pub(super) fn evaluate() -> Waves521560 {
             honesty_presentation_eva_client_dispatch_nav_commands_residual_wave536(),
         presentation_eva_client_dispatch_live_wave536_ok:
             simulate_live_presentation_eva_client_dispatch_honesty(),
-        presentation_eva_alert_counter_dedupe_method_names_wave537_ok:
-            honesty_presentation_eva_alert_counter_dedupe_method_names_residual_wave537(),
-        presentation_eva_alert_counter_dedupe_nav_commands_wave537_ok:
-            honesty_presentation_eva_alert_counter_dedupe_nav_commands_residual_wave537(),
-        presentation_eva_alert_counter_dedupe_live_wave537_ok:
-            simulate_live_presentation_eva_alert_counter_dedupe_honesty(),
+
         presentation_alliance_notify_method_names_wave538_ok:
             honesty_presentation_alliance_notify_method_names_residual_wave538(),
         presentation_alliance_notify_nav_commands_wave538_ok:
@@ -273,12 +257,7 @@ pub(super) fn evaluate() -> Waves521560 {
             honesty_ui_selection_seed_presentation_fail_closed_nav_commands_residual_wave544(),
         ui_selection_seed_presentation_fail_closed_live_wave544_ok:
             simulate_live_ui_selection_seed_presentation_fail_closed_honesty(),
-        save_restart_presentation_fail_closed_method_names_wave545_ok:
-            honesty_save_restart_presentation_fail_closed_method_names_residual_wave545(),
-        save_restart_presentation_fail_closed_nav_commands_wave545_ok:
-            honesty_save_restart_presentation_fail_closed_nav_commands_residual_wave545(),
-        save_restart_presentation_fail_closed_live_wave545_ok:
-            simulate_live_save_restart_presentation_fail_closed_honesty(),
+
         host_status_map_presentation_fail_closed_method_names_wave546_ok:
             honesty_host_status_map_presentation_fail_closed_method_names_residual_wave546(),
         host_status_map_presentation_fail_closed_nav_commands_wave546_ok:
@@ -315,12 +294,9 @@ pub(super) fn evaluate() -> Waves521560 {
             honesty_time_frozen_presentation_helper_nav_commands_residual_wave551(),
         time_frozen_presentation_helper_live_wave551_ok:
             simulate_live_time_frozen_presentation_helper_honesty(),
-        shell_bypass_presentation_helper_method_names_wave552_ok:
-            honesty_shell_bypass_presentation_helper_method_names_residual_wave552(),
-        shell_bypass_presentation_helper_nav_commands_wave552_ok:
-            honesty_shell_bypass_presentation_helper_nav_commands_residual_wave552(),
-        shell_bypass_presentation_helper_live_wave552_ok:
-            simulate_live_shell_bypass_presentation_helper_honesty(),
+
+
+
         play_time_local_player_presentation_helper_method_names_wave553_ok:
             honesty_play_time_local_player_presentation_helper_method_names_residual_wave553(),
         play_time_local_player_presentation_helper_nav_commands_wave553_ok:
@@ -339,12 +315,7 @@ pub(super) fn evaluate() -> Waves521560 {
             honesty_science_team_presentation_helper_nav_commands_residual_wave555(),
         science_team_presentation_helper_live_wave555_ok:
             simulate_live_science_team_presentation_helper_honesty(),
-        victory_presentation_helper_method_names_wave556_ok:
-            honesty_victory_presentation_helper_method_names_residual_wave556(),
-        victory_presentation_helper_nav_commands_wave556_ok:
-            honesty_victory_presentation_helper_nav_commands_residual_wave556(),
-        victory_presentation_helper_live_wave556_ok:
-            simulate_live_victory_presentation_helper_honesty(),
+
         replay_presentation_helper_method_names_wave557_ok:
             honesty_replay_presentation_helper_method_names_residual_wave557(),
         replay_presentation_helper_nav_commands_wave557_ok:

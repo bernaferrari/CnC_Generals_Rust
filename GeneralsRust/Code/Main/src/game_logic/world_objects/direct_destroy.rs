@@ -315,8 +315,7 @@ impl GameLogic {
         for other in targets {
             self.stop_attack_decision_aware(other);
         }
-        let mut idle = Vec::new();
-        for (other, object) in &mut self.objects {
+        for (_other, object) in &mut self.objects {
             if object.guard_target == Some(id) {
                 object.guard_target = None;
                 if object.ai_state == AIState::GuardingObject {
@@ -324,9 +323,6 @@ impl GameLogic {
                     {}
                 }
             }
-        }
-        for other in idle {
-            crate::game_logic::host_ai_decision_log::record_set_state(other, 0);
         }
     }
 }

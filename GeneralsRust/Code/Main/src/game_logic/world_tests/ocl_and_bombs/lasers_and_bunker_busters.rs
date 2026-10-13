@@ -1111,9 +1111,11 @@ fn neutron_shell_residual_upgrade_and_blast() {
 
     // Fire secondary at infantry location (slot lock residual).
     {
-        let c = game_logic.host_object_mut(cannon_id).expect("cannon");
+        let (c, attack_events) = game_logic
+            .host_object_and_attack_events_mut(cannon_id)
+            .expect("cannon");
         c.active_weapon_slot = 1;
-        c.attack_target(infantry_id);
+        c.attack_target(infantry_id, attack_events);
         if let Some(w) = c.secondary_weapon.as_mut() {
             w.last_fire_time = -100.0;
             w.reload_time = 0.1;
@@ -1244,8 +1246,10 @@ fn neutron_shell_residual_primary_does_not_blast() {
         .create_object("TestInfantry", Team::USA, Vec3::new(50.0, 0.0, 0.0))
         .expect("infantry");
     {
-        let c = game_logic.host_object_mut(cannon_id).unwrap();
-        c.attack_target(infantry_id);
+        let (c, attack_events) = game_logic
+            .host_object_and_attack_events_mut(cannon_id)
+            .unwrap();
+        c.attack_target(infantry_id, attack_events);
     }
 
     game_logic.set_current_frame(30);
@@ -1395,8 +1399,10 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
 
     // Fire residual missile at bunker (fighter at origin, bunker at 150).
     {
-        let f = game_logic.host_object_mut(fighter_id).unwrap();
-        f.attack_target(bunker_id);
+        let (f, attack_events) = game_logic
+            .host_object_and_attack_events_mut(fighter_id)
+            .unwrap();
+        f.attack_target(bunker_id, attack_events);
         if let Some(w) = f.weapon.as_mut() {
             w.last_fire_time = -20.0;
             w.reload_time = 0.05;
@@ -1525,8 +1531,10 @@ fn bunker_buster_residual_without_upgrade_does_not_bust() {
         u.set_ai_state(AIState::Garrisoned);
     }
     {
-        let f = game_logic.host_object_mut(fighter_id).unwrap();
-        f.attack_target(bunker_id);
+        let (f, attack_events) = game_logic
+            .host_object_and_attack_events_mut(fighter_id)
+            .unwrap();
+        f.attack_target(bunker_id, attack_events);
         if let Some(w) = f.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -1610,8 +1618,10 @@ fn kill_garrisoned_residual_microwave_clears_occupants() {
         .unwrap_or(0.0);
 
     {
-        let m = game_logic.host_object_mut(micro_id).unwrap();
-        m.attack_target(bunker_id);
+        let (m, attack_events) = game_logic
+            .host_object_and_attack_events_mut(micro_id)
+            .unwrap();
+        m.attack_target(bunker_id, attack_events);
         if let Some(w) = m.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -1696,8 +1706,10 @@ fn ordinary_weapon_leftover_damages_garrisoned_structure() {
         .unwrap_or(0.0);
 
     {
-        let r = game_logic.host_object_mut(rifle_id).unwrap();
-        r.attack_target(bunker_id);
+        let (r, attack_events) = game_logic
+            .host_object_and_attack_events_mut(rifle_id)
+            .unwrap();
+        r.attack_target(bunker_id, attack_events);
         if let Some(w) = r.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;

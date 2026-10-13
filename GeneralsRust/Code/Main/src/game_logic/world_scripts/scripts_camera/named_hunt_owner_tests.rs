@@ -58,7 +58,10 @@ fn hunt_reentry_clears_previous_route_target_and_scan() {
         .unwrap()
         .unit_ai_runtime
         .set_hunt_scan_deadline(Some(9000));
-    world.host_object_mut(id).unwrap().set_target(Some(target));
+    world
+        .host_object_mut(id)
+        .unwrap()
+        .set_target(Some(target), &mut world.attack_events);
     world.host_object_mut(id).unwrap().pending_move = Some(Vec3::splat(200.0));
     assert!(world.append_unit_waypoint(id, Vec3::new(200.0, 0.0, 200.0)));
     hunt(&mut world, "NamedUnit");
@@ -107,7 +110,7 @@ fn hunt_snapshot_continues_on_restored_owner() {
     // nested attack finishing: the real AI phase must resume its Hunt scan.
     for world in [&mut source, &mut restored] {
         let unit = world.host_object_mut(id).unwrap();
-        unit.set_target(None);
+        unit.clear_target();
         unit.set_ai_state(AIState::Idle);
         world.frame = 1;
         world.update_ai(&[id], 1.0 / 30.0);
@@ -233,9 +236,9 @@ fn nonmobile_and_projectile_units_reject_hunt() {
 fn hunt_exits_attack_submachine_before_reentering_parent() {
     let (mut world, id, target) = world();
     hunt(&mut world, "NamedUnit");
-    let unit = world.host_object_mut(id).unwrap();
+    let (unit, attack_events) = world.host_object_and_attack_events_mut(id).unwrap();
     unit.set_ai_state(AIState::Attacking);
-    unit.set_target(Some(target));
+    unit.set_target(Some(target), attack_events);
     unit.status.is_firing_weapon = true;
     unit.status.is_aiming_weapon = true;
     unit.status.attacking = true;

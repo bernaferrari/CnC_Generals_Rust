@@ -522,7 +522,7 @@ impl GameLogic {
         // call set_target(None) directly without this helper.
         self.remove_self_as_jet_targeter_from_current_victim(unit_id);
         if let Some(obj) = self.objects.get_mut(&unit_id) {
-            obj.set_target(None);
+            obj.clear_target();
         }
         {}
     }
@@ -595,7 +595,7 @@ impl GameLogic {
         // Presentation AttackTargeted residual (HUD observe only — C++ plays no
         // SFX on an attack order; per-shot audio is the authored FireSound via
         // FiringTracker::shotFired).
-        crate::game_logic::host_attack_log::record(attacker_id, Some(target_id));
+        self.attack_events.record(attacker_id, target_id);
 
         // Fire *decision* residual: under AI_DECISION_AUTHORITY, emit AttackTarget so
         // GameWorld last-writes host engagement target (parity with fire_at_ex).
@@ -614,7 +614,7 @@ impl GameLogic {
         // Object::fire_at_ex commits its firing target synchronously. Residual
         // firing uses the same canonical engagement observation before damage.
         if let Some(source) = self.objects.get_mut(&attacker_id) {
-            source.set_target(Some(target_id));
+            source.set_target(Some(target_id), &mut self.attack_events);
         }
 
         let mut destroyed = false;
@@ -797,7 +797,7 @@ impl GameLogic {
             // stays in AI_ATTACK_MOVE_TO while the nested attack machine runs.
             // Combat already fires from both parent states, and this block
             // owns the Attacking transition for every other parent.
-            u.set_order_target(Some(target_id));
+            u.set_order_target(Some(target_id), &mut self.attack_events);
             if !matches!(u.ai_state, AIState::Patrolling | AIState::AttackMoving) {
                 u.set_ai_state(AIState::Attacking);
             }
@@ -861,7 +861,7 @@ impl GameLogic {
         // Full host attack_target residual (weapon arming / force-attack clear).
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.set_force_attack(false);
-            obj.attack_target(target_id);
+            obj.attack_target(target_id, &mut self.attack_events);
         }
         {}
         true

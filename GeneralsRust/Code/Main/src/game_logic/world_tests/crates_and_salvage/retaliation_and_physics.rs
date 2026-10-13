@@ -1338,7 +1338,7 @@ fn player_attack_command_uses_weaponset_target_legality_before_stamping_target()
     // SECONDARY's ground capability just to obtain a targeting cursor; once
     // unlocked the same object may use SECONDARY normally.
     let attacker = logic.objects.get_mut(&attacker_id).unwrap();
-    attacker.set_target(None);
+    attacker.clear_target();
     attacker.weapon.as_mut().unwrap().can_target_ground = false;
     attacker.weapon.as_mut().unwrap().can_target_air = true;
     attacker.secondary_weapon = Some(Weapon {

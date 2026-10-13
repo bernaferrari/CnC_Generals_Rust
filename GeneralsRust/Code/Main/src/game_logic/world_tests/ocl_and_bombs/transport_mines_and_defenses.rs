@@ -806,7 +806,6 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
         d.set_weapon_set_mine_clearing_detail(true);
     }
 
-    crate::game_logic::host_ai_decision_log::clear();
     game_logic.update_mines_and_demo_traps();
     assert_eq!(
         game_logic.mine_residual_clears(),
@@ -1432,7 +1431,8 @@ fn stealth_residual_fire_breaks_stealth() {
             target_id,
             0.0,
             game_logic.frame,
-            &mut game_logic.combat_system
+            &mut game_logic.combat_system,
+            &mut game_logic.attack_events,
         ));
         assert!(!s.status.stealthed, "fire_at must break stealth");
     }
@@ -1573,10 +1573,8 @@ fn base_defense_residual_patriot_auto_fires_without_attack_object() {
 
 #[test]
 fn residual_auto_fire_commits_canonical_target_before_observation() {
-    use crate::game_logic::host_ai_decision_log;
-    let mut logic = GameLogic::new();
 
-    host_ai_decision_log::clear();
+    let mut logic = GameLogic::new();
 
     // Ordering hazard (R6): do NOT create a second GameLogic after this
     // point — a fresh instance republishes all-off defaults and would strip
