@@ -672,6 +672,10 @@ fn test_object_type_enum() {
 
 #[test]
 fn test_find_objects_in_radius_returns_empty_for_empty_world() {
+    // Radius discovery observes the shared classic registry. Match the other
+    // native weapon fixtures so no concurrent admission can alter this census.
+    let isolation = weapon_range_test_guard();
+    let _fixture = ScopedWeaponFixture::new(&isolation);
     // Given: An empty world with no objects
     // When: We query for objects in a radius
     // Then: We should get an empty result

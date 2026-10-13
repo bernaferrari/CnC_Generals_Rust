@@ -23,6 +23,16 @@ pub fn set_academy_peer_counts(local_mines: u32, neutral_vehicles_sniped: u32) {
     NEUTRAL_VEHICLES_SNIPED.store(neutral_vehicles_sniped, Ordering::Relaxed);
 }
 
+/// Immutable observations from the match whose advice is being displayed.
+/// C++ advice #31/#32 reads that match's local and reserved-neutral players.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AcademyAdviceContext {
+    pub frame: u32,
+    pub use_alternate_mouse: bool,
+    pub local_player_mines: u32,
+    pub neutral_vehicles_sniped: u32,
+}
+
 fn maybe_choose_tip(
     info: &mut AcademyAdviceInfo,
     choosing: bool,
@@ -733,6 +743,25 @@ impl AcademyStats {
     /// Calculate and provide academy advice based on player statistics
     /// Based on C++ AcademyStats.cpp:1034-1082
     pub fn calculate_academy_advice(&self, info: &mut AcademyAdviceInfo) -> bool {
+        self.calculate_academy_advice_with_context(
+            info,
+            AcademyAdviceContext {
+                frame: time::frame(),
+                use_alternate_mouse: crate::common::global_data::read_safe()
+                    .map(|data| data.use_alternate_mouse)
+                    .unwrap_or(false),
+                local_player_mines: LOCAL_PLAYER_MINES.load(Ordering::Relaxed),
+                neutral_vehicles_sniped: NEUTRAL_VEHICLES_SNIPED.load(Ordering::Relaxed),
+            },
+        )
+    }
+
+    /// Evaluate the original advice tiers using observations from one receiver.
+    pub fn calculate_academy_advice_with_context(
+        &self,
+        info: &mut AcademyAdviceInfo,
+        context: AcademyAdviceContext,
+    ) -> bool {
         // C++ lines 1044-1047: Early exit for unknown side
         if self.unknown_side {
             return false;
@@ -745,13 +774,13 @@ impl AcademyStats {
         }
 
         // C++ lines 1065-1078: Evaluate all tiers progressively
-        self.evaluate_tier1_advice(info, -1);
+        self.evaluate_tier1_advice(info, -1, context.frame);
 
         if (info.num_tips as usize) < MAX_ADVICE_TIPS {
             self.evaluate_tier2_advice(info, -1);
 
             if (info.num_tips as usize) < MAX_ADVICE_TIPS {
-                self.evaluate_tier3_advice(info, -1);
+                self.evaluate_tier3_advice(info, -1, context);
             }
         }
 
@@ -763,7 +792,12 @@ impl AcademyStats {
 
     /// Evaluate tier 1 (basic) advice
     /// Based on C++ AcademyStats.cpp:483-705
-    fn evaluate_tier1_advice(&self, info: &mut AcademyAdviceInfo, num_available_tips: i32) {
+    fn evaluate_tier1_advice(
+        &self,
+        info: &mut AcademyAdviceInfo,
+        num_available_tips: i32,
+        now: u32,
+    ) {
         let max_advice_tips = MAX_ADVICE_TIPS;
         let mut remaining = num_available_tips;
         let choosing = num_available_tips != -1;
@@ -839,7 +873,6 @@ impl AcademyStats {
                 "ACADEMY:TryGarrisoningAStructure",
             );
         }
-        let now = time::frame();
         let idle_frames = now.saturating_sub(self.last_unit_built_frame);
         let mut max_idle = self.idle_building_units_max_frames;
         if idle_frames > max_idle {
@@ -914,7 +947,7 @@ impl AcademyStats {
         }
 
         if !choosing && available_tips > 0 {
-            self.evaluate_tier1_advice(info, available_tips);
+            self.evaluate_tier1_advice(info, available_tips, now);
         }
     }
 
@@ -1006,18 +1039,20 @@ impl AcademyStats {
 
     /// Evaluate tier 3 (advanced) advice
     /// Based on C++ AcademyStats.cpp:854-1031
-    fn evaluate_tier3_advice(&self, info: &mut AcademyAdviceInfo, num_available_tips: i32) {
+    fn evaluate_tier3_advice(
+        &self,
+        info: &mut AcademyAdviceInfo,
+        num_available_tips: i32,
+        context: AcademyAdviceContext,
+    ) {
         let max_advice_tips = MAX_ADVICE_TIPS;
         let mut _num_available = num_available_tips;
         let choosing = num_available_tips != -1;
         let mut available_tips = 0;
-        let now = time::frame();
+        let now = context.frame;
 
         // C++ lines 871-883: Advice #25 - Use alternate mouse interface
-        let use_alternate_mouse = crate::common::global_data::read_safe()
-            .map(|data| data.use_alternate_mouse)
-            .unwrap_or(false);
-        if !use_alternate_mouse {
+        if !context.use_alternate_mouse {
             available_tips += 1;
             maybe_choose_tip(
                 info,
@@ -1094,7 +1129,7 @@ impl AcademyStats {
         }
 
         // C++ lines 960-972: Advice #31
-        if LOCAL_PLAYER_MINES.load(Ordering::Relaxed) > 0 && self.mines_cleared == 0 {
+        if context.local_player_mines > 0 && self.mines_cleared == 0 {
             available_tips += 1;
             maybe_choose_tip(
                 info,
@@ -1106,7 +1141,7 @@ impl AcademyStats {
         }
 
         // C++ lines 974-989: Advice #32
-        if NEUTRAL_VEHICLES_SNIPED.load(Ordering::Relaxed) > 0 && self.vehicles_recovered == 0 {
+        if context.neutral_vehicles_sniped > 0 && self.vehicles_recovered == 0 {
             available_tips += 1;
             maybe_choose_tip(
                 info,
@@ -1137,7 +1172,7 @@ impl AcademyStats {
 
         // C++ lines 1025-1030: Recursive call to randomly choose if we were just counting
         if !choosing && available_tips > 0 {
-            self.evaluate_tier3_advice(info, available_tips);
+            self.evaluate_tier3_advice(info, available_tips, context);
         }
     }
 }
@@ -1147,6 +1182,10 @@ impl Default for AcademyStats {
         Self::new()
     }
 }
+
+#[cfg(test)]
+#[path = "academy_advice_context_tests.rs"]
+mod advice_context_tests;
 
 // Serialization support (for save/load functionality)
 // Based on C++ AcademyStats.cpp:1087-1245
@@ -1564,7 +1603,7 @@ mod tests {
         let mut info = AcademyAdviceInfo::new();
 
         // Should get advice about building peons
-        stats.evaluate_tier1_advice(&mut info, -1);
+        stats.evaluate_tier1_advice(&mut info, -1, time::frame());
 
         // Should have at least one tip
         assert!(info.num_tips > 0);
@@ -1589,7 +1628,14 @@ mod tests {
         let mut info = AcademyAdviceInfo::new();
 
         // Should get advice about building barracks sooner
-        stats.evaluate_tier3_advice(&mut info, -1);
+        stats.evaluate_tier3_advice(
+            &mut info,
+            -1,
+            AcademyAdviceContext {
+                frame: time::frame(),
+                ..Default::default()
+            },
+        );
 
         assert!(info.num_tips > 0);
     }

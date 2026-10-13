@@ -443,9 +443,9 @@ impl AiWorld for BorrowedAiWorld<'_> {
             .read()
             .map_err(|_| "queue-path owner poisoned")?
             .installed_ai_update_proxy()?;
-        // A positive outside-update wake must synchronize the original saved
-        // wrapper clock as well as the heap. Standard AI owns that clock;
-        // the current derived Dozer shell has not yet implemented its Xfer.
+        // A positive outside-update wake must synchronize the receiving
+        // wrapper's owned inherited clock as well as its heap entry. Verify
+        // the actual installed derived wrapper without borrowing runtime AI.
         let is_current = self
             .services
             .current_update
@@ -453,9 +453,23 @@ impl AiWorld for BorrowedAiWorld<'_> {
             .is_some_and(|current| Arc::ptr_eq(current, &proxy));
         if frames > 0 && !is_current {
             let object = owner.read().map_err(|_| "queue-path owner poisoned")?;
-            let standard = object.find_update_module("AIUpdateInterface");
-            if standard.is_none() {
-                return Err("derived AI queue wake requires its saved update clock owner".into());
+            if object.find_update_module("AIUpdateInterface").is_none() {
+                let dozer = object
+                    .find_update_module("DozerAIUpdate")
+                    .ok_or("derived AI queue wake requires its saved update clock owner")?;
+                let runtime = dozer.try_with_module(|module| {
+                    module.as_any()
+                        .downcast_ref::<crate::object::update::ai_update::dozer_ai_update::DozerAIUpdateModule>()
+                        .and_then(|module| module.runtime_ai_owned())
+                }).ok_or("Dozer queue clock wrapper already borrowed")?
+                    .ok_or("Dozer queue clock runtime absent")?;
+                if !object
+                    .get_ai_update_interface()
+                    .as_ref()
+                    .is_some_and(|cached| Arc::ptr_eq(cached, &runtime))
+                {
+                    return Err("Dozer queue clock differs from canonical runtime".into());
+                }
             }
         }
         let now = self.services.frame;

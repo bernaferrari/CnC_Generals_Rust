@@ -6,6 +6,35 @@ mod tests {
     use std::rc::Rc as StdRc;
     use std::sync::{Mutex, OnceLock};
 
+    #[test]
+    fn score_push_payload_is_owned_while_deferred_and_plain_push_supersedes_it() {
+        let mut shell = Shell::new();
+        shell.initialized = true;
+        let events = StdRc::new(StdRefCell::new(Vec::new()));
+        let mut top = TestLayout::new("existing.wnd", false, events);
+        top.hidden = false;
+        shell.screen_stack.push(Box::new(top));
+        let snapshot = |frame| crate::gui::callbacks::score_screen::ScoreScreenAcademySnapshot {
+            end_frame: frame,
+            show_advice: true,
+            advice: game_engine::common::rts::AcademyAdviceInfo::default(),
+        };
+        shell.push_score_screen(snapshot(100), false).unwrap();
+        assert_eq!(
+            shell.pending_score_snapshot.as_ref().unwrap().end_frame,
+            100
+        );
+        shell.screen_stack.last_mut().unwrap().hide(false);
+        shell.push_score_screen(snapshot(700), false).unwrap();
+        assert_eq!(
+            shell.pending_score_snapshot.as_ref().unwrap().end_frame,
+            700
+        );
+        shell.screen_stack.last_mut().unwrap().hide(false);
+        shell.push("Menus/MainMenu.wnd", false).unwrap();
+        assert!(shell.pending_score_snapshot.is_none());
+    }
+
     fn shell_global_test_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))

@@ -409,14 +409,25 @@ impl CnCGameEngine {
 
     /// C++ `TheShell->push("Menus/ScoreScreen.wnd"); TheShell->showShell(FALSE)`
     /// (`GameLogicDispatch.cpp:248-249`).
-    pub(super) fn host_push_score_screen_like_cpp(&mut self) {
+    pub(super) fn host_push_score_screen_like_cpp(
+        &mut self,
+        end_frame: u32,
+        advice: game_engine::common::rts::academy_stats::AcademyAdviceInfo,
+        show_advice: bool,
+    ) {
         #[cfg(feature = "game_client")]
         {
+            let snapshot = game_client::gui::callbacks::score_screen::ScoreScreenAcademySnapshot {
+                end_frame,
+                advice,
+                show_advice,
+            };
+            let deferred_snapshot = snapshot.clone();
             let result = game_client::gui::with_shell_mut(|shell| {
                 if let Err(e) = game_client::system::SubsystemInterface::init(shell) {
                     return Err(e);
                 }
-                shell.push("Menus/ScoreScreen.wnd", false)?;
+                shell.push_score_screen(snapshot, false)?;
                 shell.show_shell(false)?;
                 Ok(shell.get_screen_count())
             });
@@ -428,8 +439,8 @@ impl CnCGameEngine {
                     warn!("clearGameData failed to push ScoreScreen.wnd: {e:?}");
                 }
                 None => {
-                    game_client::gui::queue_shell_operation(|shell| {
-                        if let Err(e) = shell.push("Menus/ScoreScreen.wnd", false) {
+                    game_client::gui::queue_shell_operation(move |shell| {
+                        if let Err(e) = shell.push_score_screen(deferred_snapshot, false) {
                             warn!("deferred ScoreScreen push failed: {e:?}");
                             return;
                         }
@@ -493,20 +504,20 @@ impl CnCGameEngine {
         // C++ pushes ScoreScreen then TheGameEngine->reset(). Rust Shell::reset
         // (if it runs via resetAll) pops the stack, so reset first then push
         // so the player still sees ScoreScreen. CampaignManager state survives.
-        // Snapshot the live end frame first: leftover get_frame and Eva reset to 0.
-        #[cfg(feature = "game_client")]
-        {
-            let frame = self.presentation_or_boot_logic_frame();
-            let frame = if frame != 0 {
-                frame
-            } else {
-                game_client::eva::eva_logic_frame()
-            };
-            game_client::gui::callbacks::publish_leftover_score_end_frame(frame);
-        }
+        // Freeze the receiving match before reset; the layout owns the result.
+        let end_frame = self.game_logic.frame;
+        let show_advice = matches!(
+            self.game_logic.game_mode(),
+            GameMode::Skirmish | GameMode::Internet
+        );
+        let advice = if show_score && show_advice {
+            self.game_logic.score_academy_advice()
+        } else {
+            Default::default()
+        };
         self.reset_match_state();
         if show_score {
-            self.host_push_score_screen_like_cpp();
+            self.host_push_score_screen_like_cpp(end_frame, advice, show_advice);
             self.transition_to_state(GameState::Menu);
             // show_shell_menu with a non-empty stack reveals ScoreScreen
             // instead of pushing MainMenu.wnd.

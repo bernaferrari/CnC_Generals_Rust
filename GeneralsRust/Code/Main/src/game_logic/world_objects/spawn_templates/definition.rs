@@ -257,6 +257,27 @@ impl GameLogic {
             }
         }
 
+        // ActiveBody is initialized before any onCreate/onBuildComplete callback.
+        // Retain the effective receiving module rather than discovering InitialHealth
+        // from whichever Core factory happens to be installed at construction.
+        if let Some(body) = definition.behavior_modules.iter().find(|module| {
+            [
+                "ActiveBody",
+                "StructureBody",
+                "HighlanderBody",
+                "ImmortalBody",
+                "HiveStructureBody",
+                "UndeadBody",
+            ]
+            .iter()
+            .any(|name| module.class_name.eq_ignore_ascii_case(name))
+        }) {
+            template.body_initial_health = body
+                .attribute("InitialHealth")
+                .and_then(|value| value.trim().parse::<f32>().ok())
+                .filter(|value| value.is_finite());
+        }
+
         if let Some(model_name) = definition.model_name.as_deref() {
             let model_name = model_name.trim();
             if !model_name.is_empty() && !model_name.eq_ignore_ascii_case("none") {

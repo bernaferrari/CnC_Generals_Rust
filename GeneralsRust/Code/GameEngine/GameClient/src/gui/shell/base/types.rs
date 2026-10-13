@@ -143,6 +143,9 @@ impl WindowLayout for BasicWindowLayout {
         let layout = self.ensure_layout()?;
         {
             let layout_ref = layout.borrow();
+            if let Some(snapshot) = data.and_then(|data| data.downcast_ref::<crate::gui::callbacks::score_screen::ScoreScreenAcademySnapshot>()) {
+                crate::gui::callbacks::score_screen::bind_score_screen_snapshot(&layout_ref, snapshot);
+            }
             layout_ref.run_init(data);
         }
 

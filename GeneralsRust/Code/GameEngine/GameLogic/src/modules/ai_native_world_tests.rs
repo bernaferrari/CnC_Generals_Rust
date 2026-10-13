@@ -1340,3 +1340,6 @@ mod airborne_locomotor;
 
 #[path = "ai_native_world_tests/queue_wake.rs"]
 mod queue_wake;
+
+#[path = "ai_native_world_tests/dozer_clock.rs"]
+mod dozer_clock;

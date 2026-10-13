@@ -1,5 +1,7 @@
 use super::*;
-fn row_is_empty(row: &LocomotorSetDefinition) -> bool { row.locomotor_names.is_empty() }
+fn row_is_empty(row: &LocomotorSetDefinition) -> bool {
+    row.locomotor_names.is_empty()
+}
 /// One C++ `ModelConditionInfo` weapon-bone field. Kept private because the
 /// public frozen record exposes the four exact base-name slots directly.
 #[derive(Clone, Copy)]
@@ -330,7 +332,7 @@ impl IniParser {
                     // Preserve every field under the active Behavior module
                     // before the generic object-level parser potentially
                     // overwrites a repeated raw key.
-                    if lower_key != "behavior" {
+                    if lower_key != "behavior" && lower_key != "body" {
                         if let Some(module) = active_behavior_module
                             .and_then(|index| obj.behavior_modules.get_mut(index))
                         {
@@ -569,7 +571,7 @@ impl IniParser {
                             active_behavior_module = None;
                             active_behavior_depth = 0;
                         }
-                        "behavior" => {
+                        "behavior" | "body" => {
                             active_draw_module = None;
                             active_condition_state = None;
                             if let Some(module) = BehaviorModuleDefinition::parse(value) {
@@ -671,20 +673,27 @@ impl IniParser {
                             ) {
                                 return Err(anyhow::anyhow!(
                                     "invalid Locomotor set token '{}' in {}",
-                                    set_name, filename
+                                    set_name,
+                                    filename
                                 ));
                             }
                             let locomotor_names = fields
-                                .filter(|name| !name.eq_ignore_ascii_case("none") && !name.is_empty())
+                                .filter(|name| {
+                                    !name.eq_ignore_ascii_case("none") && !name.is_empty()
+                                })
                                 .map(str::to_string)
                                 .collect::<Vec<_>>();
-                            if let Some(previous) = obj.locomotor_sets.iter().position(|row| {
-                                row.set_name.eq_ignore_ascii_case(set_name)
-                            }) {
-                                if !row_is_empty(&obj.locomotor_sets[previous]) && !create_overrides {
+                            if let Some(previous) = obj
+                                .locomotor_sets
+                                .iter()
+                                .position(|row| row.set_name.eq_ignore_ascii_case(set_name))
+                            {
+                                if !row_is_empty(&obj.locomotor_sets[previous]) && !create_overrides
+                                {
                                     return Err(anyhow::anyhow!(
                                         "duplicate Locomotor set '{}' in {}",
-                                        set_name, filename
+                                        set_name,
+                                        filename
                                     ));
                                 }
                                 obj.locomotor_sets.remove(previous);

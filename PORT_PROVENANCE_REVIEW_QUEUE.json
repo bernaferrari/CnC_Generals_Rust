@@ -10640,6 +10640,11 @@
           "candidate_destinations": [
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/rts/academy_advice_context_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/rts/academy_stats.rs"
             }
@@ -189512,7 +189517,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "c802584312826edf5d7e83eff4f2f6239bc6c253aec848edff4c8eca1511419d",
+  "provenance_input_digest": "24d864229681c01d86af25c08b228646f20400519318ad5e421fd32be09d57b9",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

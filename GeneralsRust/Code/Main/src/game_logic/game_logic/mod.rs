@@ -18,6 +18,8 @@ mod crate_tick;
 mod host;
 mod player;
 mod script_camera;
+#[path = "../score_academy.rs"]
+mod score_academy;
 
 pub(self) use ambient_sound_retries::AmbientSoundRetries;
 pub(self) use authority::DestructionEvent;

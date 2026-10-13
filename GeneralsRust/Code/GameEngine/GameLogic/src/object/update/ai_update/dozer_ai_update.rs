@@ -1676,18 +1676,50 @@ impl crate::modules::DozerAIUpdateInterface for DozerAIUpdate {
 pub struct DozerAIUpdateModule {
     module_name_key: NameKeyType,
     data: Arc<DozerAIUpdateModuleData>,
+    inherited: crate::object::update::AIUpdateInterfaceModule,
 }
 
 impl DozerAIUpdateModule {
     pub fn new(module_name_key: NameKeyType, data: Arc<DozerAIUpdateModuleData>) -> Self {
+        let inherited = crate::object::update::AIUpdateInterfaceModule::new(
+            module_name_key,
+            Arc::new(data.base.clone()),
+        );
         Self {
             module_name_key,
             data,
+            inherited,
         }
+    }
+
+    pub(crate) fn set_runtime_ai(&mut self, runtime: Arc<Mutex<dyn AIUpdateInterface>>) {
+        self.inherited.set_runtime_ai(runtime);
+    }
+    pub(crate) fn runtime_ai_owned(&self) -> Option<Arc<Mutex<dyn AIUpdateInterface>>> {
+        self.inherited.runtime_ai_owned()
+    }
+    /// Only the inherited AI/Update portion, not a complete Dozer snapshot.
+    #[cfg(test)]
+    pub(crate) fn xfer_inherited_with_locomotors(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
+    ) -> Result<(), String> {
+        self.inherited.xfer_with_locomotors(xfer, lookup)
     }
 }
 
 impl Module for DozerAIUpdateModule {
+    fn get_initial_wake_frame(&mut self) -> Option<u32> {
+        self.inherited.get_initial_wake_frame()
+    }
+    fn record_scheduled_wake(
+        &mut self,
+        frame: u32,
+        phase: game_engine::common::thing::update_module::SleepyUpdatePhase,
+    ) {
+        self.inherited.record_scheduled_wake(frame, phase);
+    }
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -1703,15 +1735,18 @@ impl Module for DozerAIUpdateModule {
 
 impl Snapshotable for DozerAIUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.data.crc(xfer)
+        // CPP DozerAIUpdate.cpp2421: CRC extends only AIUpdateInterface.
+        self.inherited.crc(xfer)
     }
 
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.data).xfer(xfer)
+    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        // CPP2432 requires the real primary/action machines after inherited AI.
+        // Definition fields are never a substitute for runtime continuation.
+        Err("Dozer snapshot requires owned primary/action state-machine continuation".into())
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.inherited.load_post_process()
     }
 }
 

@@ -124,12 +124,20 @@ impl GameLogic {
         use crate::game_logic::{KindOf, ThingTemplate};
 
         if !self.templates.contains_key(TECH_CANNON_SHELL_PROJECTILE) {
-            let mut t = ThingTemplate::new(TECH_CANNON_SHELL_PROJECTILE);
-            t.add_kind_of(KindOf::Projectile)
-                .set_health(TECH_CANNON_SHELL_MAX_HEALTH)
-                .set_cost(0, 0);
-            self.templates
-                .insert(TECH_CANNON_SHELL_PROJECTILE.to_string(), t);
+            if let Some(authored) =
+                Self::build_template_from_asset_definition(TECH_CANNON_SHELL_PROJECTILE)
+            {
+                self.templates
+                    .insert(TECH_CANNON_SHELL_PROJECTILE.to_string(), authored);
+            } else {
+                let mut t = ThingTemplate::new(TECH_CANNON_SHELL_PROJECTILE);
+                t.add_kind_of(KindOf::Projectile)
+                    .set_health(TECH_CANNON_SHELL_MAX_HEALTH)
+                    .set_cost(0, 0);
+                t.body_initial_health = Some(TECH_CANNON_SHELL_MAX_HEALTH);
+                self.templates
+                    .insert(TECH_CANNON_SHELL_PROJECTILE.to_string(), t);
+            }
         }
         let team = self
             .objects
@@ -197,10 +205,6 @@ impl GameLogic {
             o.technical_cannon_shell_flight_frames = flight;
             o.technical_cannon_shell_intended = intended.map(|id| id.0);
             o.note_producer(source_id);
-            o.set_body_max_health_with_mode(
-                TECH_CANNON_SHELL_MAX_HEALTH,
-                crate::game_logic::object::MaxHealthChange::FullyHeal,
-            );
         }
         self.technical_cannon_shells_spawned =
             self.technical_cannon_shells_spawned.saturating_add(1);

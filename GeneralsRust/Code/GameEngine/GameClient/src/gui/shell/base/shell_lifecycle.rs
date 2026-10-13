@@ -31,6 +31,7 @@ pub struct Shell {
     pending_pop: bool,
     /// Name of layout to push when pending operation completes
     pending_push_name: String,
+    pending_score_snapshot: Option<crate::gui::callbacks::score_screen::ScoreScreenAcademySnapshot>,
     /// Animation window manager
     animate_window_manager: AnimateWindowManager,
     /// Shell menu scheme manager
@@ -59,6 +60,7 @@ impl Shell {
             pending_push: false,
             pending_pop: false,
             pending_push_name: String::new(),
+            pending_score_snapshot: None,
             animate_window_manager: AnimateWindowManager::new(),
             scheme_manager: ShellMenuSchemeManager::new(),
             save_load_menu_layout: None,
@@ -75,7 +77,29 @@ impl Shell {
     /// # Arguments
     /// * `filename` - Path to the layout file to load
     /// * `shutdown_immediate` - Whether to shutdown the current top immediately
+    pub fn push_score_screen(
+        &mut self,
+        snapshot: crate::gui::callbacks::score_screen::ScoreScreenAcademySnapshot,
+        shutdown_immediate: bool,
+    ) -> Result<(), ShellError> {
+        self.pending_score_snapshot = Some(snapshot);
+        let result = self.push_internal("Menus/ScoreScreen.wnd", shutdown_immediate);
+        if result.is_err() {
+            self.pending_score_snapshot = None;
+        }
+        result
+    }
+
     pub fn push(&mut self, filename: &str, shutdown_immediate: bool) -> Result<(), ShellError> {
+        self.pending_score_snapshot = None;
+        self.push_internal(filename, shutdown_immediate)
+    }
+
+    fn push_internal(
+        &mut self,
+        filename: &str,
+        shutdown_immediate: bool,
+    ) -> Result<(), ShellError> {
         if !self.initialized {
             return Err(ShellError::NotInitialized);
         }
@@ -519,7 +543,12 @@ impl Shell {
 
         // Initialize the new screen
         if let Some(screen) = self.screen_stack.last_mut() {
-            screen.run_init(None)?;
+            let snapshot = self.pending_score_snapshot.take();
+            screen.run_init(
+                snapshot
+                    .as_ref()
+                    .map(|snapshot| snapshot as &dyn std::any::Any),
+            )?;
             screen.bring_forward();
         }
 
@@ -580,6 +609,7 @@ impl SubsystemInterface for Shell {
 
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         log::info!("Resetting shell system");
+        self.pending_score_snapshot = None;
 
         if let Ok(mut ime_manager) = get_ime_manager().lock() {
             ime_manager.detach();

@@ -10,6 +10,10 @@ pub struct ThingTemplate {
     #[serde(default)]
     pub(crate) default_draw_without_fog_memory: bool,
     pub max_health: f32,
+    /// Immutable authored ActiveBody InitialHealth, bound before factory callbacks.
+    /// Rebuild from receiving content; never change the historical template wire layout.
+    #[serde(skip)]
+    pub(crate) body_initial_health: Option<f32>,
     pub armor: f32,
     /// C++ `ThingTemplate::m_visionRange` from Object INI `VisionRange`.
     /// Default 0 = reveal nothing (ThingTemplate.cpp:976).
@@ -559,6 +563,7 @@ impl ThingTemplate {
             kind_of: HashSet::new(),
             default_draw_without_fog_memory: false,
             max_health: 100.0,
+            body_initial_health: None,
             armor: 0.0,
             sight_range: 0.0,
             shroud_clearing_range: default_template_shroud_clearing_range(),

@@ -1166,7 +1166,11 @@ fn leftover_single_alliance_remaining(local: &Player) -> bool {
     saw_local_alliance != saw_other_alliance
 }
 
-fn update_skirmish_battle_honors(stats: &mut SkirmishBattleHonors, player: &Player) {
+fn update_skirmish_battle_honors(
+    stats: &mut SkirmishBattleHonors,
+    player: &Player,
+    end_frame: u32,
+) {
     let score = player.get_score_keeper();
     if stats.get_win_streak() >= 5 {
         stats.set_honors(BATTLE_HONOR_STREAK as i32);
@@ -1206,7 +1210,7 @@ fn update_skirmish_battle_honors(stats: &mut SkirmishBattleHonors, player: &Play
 
     // C++ TheGameLogic->getFrame() is the live end frame. Leftover crate
     // clock stays 0; Eva already publishes the host logic frame.
-    let minutes = leftover_score_logic_frame() / LOGICFRAMES_PER_SECOND / 60;
+    let minutes = end_frame / LOGICFRAMES_PER_SECOND / 60;
     if minutes < 5 {
         stats.set_honors(BATTLE_HONOR_BLITZ5 as i32);
     }
@@ -1316,6 +1320,94 @@ fn include_in_campaign_side_row(
     }
 }
 
+/// Completed match advice owned by the receiving score-screen windows.
+#[derive(Clone)]
+pub struct ScoreScreenAcademySnapshot {
+    pub end_frame: u32,
+    pub show_advice: bool,
+    pub advice: game_engine::common::rts::AcademyAdviceInfo,
+}
+
+pub(crate) fn bind_score_screen_snapshot(
+    layout: &WindowLayout,
+    snapshot: &ScoreScreenAcademySnapshot,
+) {
+    let parent_id = name_to_id("ScoreScreen.wnd:ParentScoreScreen");
+    let advice_id = name_to_id("ScoreScreen.wnd:ListboxWarschoolAdvice");
+    for root in layout.windows() {
+        let mut targets = Vec::new();
+        for id in [parent_id, advice_id] {
+            if root.borrow().get_id() == id {
+                targets.push(root.clone());
+            } else if let Some(child) = root.borrow().find_child_by_id(id) {
+                targets.push(child);
+            }
+        }
+        for window in targets {
+            window.borrow_mut().set_user_data(snapshot.clone());
+        }
+    }
+}
+
+/// Populate the actual receiving widgets from completed match data. This
+/// remains valid after simulation reset has removed the legacy player roster.
+fn populate_owned_academy_widgets(layout: &WindowLayout) {
+    let advice_id = name_to_id("ScoreScreen.wnd:ListboxWarschoolAdvice");
+    let title_id = name_to_id("ScoreScreen.wnd:StaticTextWarSchool");
+    let find = |id| {
+        layout.windows().iter().find_map(|root| {
+            if root.borrow().get_id() == id {
+                Some(root.clone())
+            } else {
+                root.borrow().find_child_by_id(id)
+            }
+        })
+    };
+    let Some(listbox) = find(advice_id) else {
+        return;
+    };
+    let Some(snapshot) = listbox
+        .borrow()
+        .get_user_data::<ScoreScreenAcademySnapshot>()
+        .cloned()
+    else {
+        return;
+    };
+    let mut window = listbox.borrow_mut();
+    let _ = window.hide(!snapshot.show_advice);
+    if let Some(widget) = window.list_box_mut() {
+        widget.clear();
+        if snapshot.show_advice {
+            for key in snapshot
+                .advice
+                .advice
+                .iter()
+                .take(snapshot.advice.num_tips as usize)
+            {
+                if !key.is_empty() {
+                    widget.add_item(&GameText::fetch(key));
+                }
+            }
+        }
+    }
+    drop(window);
+    if let Some(title) = find(title_id) {
+        let _ = title.borrow_mut().hide(!snapshot.show_advice);
+    }
+}
+
+fn score_end_frame(parent: &Option<Rc<RefCell<GameWindow>>>) -> u32 {
+    parent
+        .as_ref()
+        .and_then(|window| {
+            window
+                .borrow()
+                .get_user_data::<ScoreScreenAcademySnapshot>()
+                .map(|snapshot| snapshot.end_frame)
+        })
+        .unwrap_or_else(leftover_score_logic_frame)
+}
+
 thread_local! {
     /// Live host end frame published before `reset_match_state` zeros Eva.
     static LEFTOVER_SCORE_END_FRAME: Cell<u32> = const { Cell::new(0) };
@@ -1349,6 +1441,13 @@ fn leftover_academy_from_live_notify(player: &Player) -> gamelogic::player::Acad
 }
 
 fn fill_academy_advice(listbox: &Rc<RefCell<GameWindow>>, player: &Player) {
+    if listbox
+        .borrow()
+        .get_user_data::<ScoreScreenAcademySnapshot>()
+        .is_some()
+    {
+        return;
+    }
     let mut info = game_engine::common::rts::AcademyAdviceInfo::default();
     let stats = leftover_academy_from_live_notify(player);
     if !stats.calculate_academy_advice(&mut info) {
@@ -1361,7 +1460,7 @@ fn fill_academy_advice(listbox: &Rc<RefCell<GameWindow>>, player: &Player) {
     for i in 0..info.num_tips.max(0) as usize {
         if let Some(tip) = info.advice.get(i) {
             if !tip.is_empty() {
-                widget.add_item(tip);
+                widget.add_item(&GameText::fetch(tip));
             }
         }
     }
@@ -1420,7 +1519,13 @@ fn populate_player_info(state: &mut ScoreScreenState, player: &Player, pos: i32)
         if let Some(listbox) = state.listbox_academy.as_ref() {
             let _ = listbox.borrow_mut().hide(false);
             hide_window(&state.static_text_academy_title, false);
-            if TheGameLogic::is_in_skirmish_game() || TheGameLogic::is_in_multiplayer_game() {
+            if listbox
+                .borrow()
+                .get_user_data::<ScoreScreenAcademySnapshot>()
+                .is_some()
+                || TheGameLogic::is_in_skirmish_game()
+                || TheGameLogic::is_in_multiplayer_game()
+            {
                 fill_academy_advice(listbox, player);
             }
         }
@@ -1450,7 +1555,7 @@ fn populate_player_info(state: &mut ScoreScreenState, player: &Player, pos: i32)
             stats.set_win_streak(stats.get_win_streak() + 1);
             let best = stats.get_best_win_streak().max(stats.get_win_streak());
             stats.set_best_win_streak(best);
-            update_skirmish_battle_honors(&mut stats, player);
+            update_skirmish_battle_honors(&mut stats, player, score_end_frame(&state.parent));
             let mut challenge_medals = stats.get_challenge_medals();
             update_challenge_medals(&mut challenge_medals);
             stats.set_challenge_medals(challenge_medals);
@@ -1650,10 +1755,11 @@ pub fn score_screen_init(layout: &WindowLayout, _user_data: Option<&mut dyn std:
         }
         set_replay_was_pressed(false);
     });
+    populate_owned_academy_widgets(layout);
 }
 
 pub fn score_screen_update(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    with_score_screen_state(|state| {
+    let completed_init = with_score_screen_state(|state| {
         if let Some(popup) = state.popup_replay_layout.as_ref() {
             if !popup.borrow().is_hidden() {
                 let popup_ref = popup.borrow();
@@ -1661,7 +1767,8 @@ pub fn score_screen_update(layout: &WindowLayout, _user_data: Option<&mut dyn st
             }
         }
 
-        if state.need_finish_singleplayer_init {
+        let completed_init = state.need_finish_singleplayer_init;
+        if completed_init {
             finish_single_player_init(state);
             state.need_finish_singleplayer_init = false;
         }
@@ -1669,8 +1776,11 @@ pub fn score_screen_update(layout: &WindowLayout, _user_data: Option<&mut dyn st
         update_final_victory_movie_wait(state);
         update_score_screen_music(state);
 
-        let _ = layout;
+        completed_init
     });
+    if completed_init {
+        populate_owned_academy_widgets(layout);
+    }
 }
 
 pub fn score_screen_shutdown(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
@@ -2277,5 +2387,124 @@ mod os_wnd_tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod owned_academy_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn actual_receiving_layouts_keep_independent_score_advice_and_end_frames() {
+        let make = |frame: u32, key: &str| {
+            let parent = Rc::new(RefCell::new(GameWindow::new()));
+            parent
+                .borrow_mut()
+                .set_id(name_to_id("ScoreScreen.wnd:ParentScoreScreen"));
+            let listbox = Rc::new(RefCell::new(GameWindow::new()));
+            listbox
+                .borrow_mut()
+                .set_id(name_to_id("ScoreScreen.wnd:ListboxWarschoolAdvice"));
+            listbox
+                .borrow_mut()
+                .set_widget(crate::gui::game_window::WindowWidget::ListBox(
+                    crate::gui::gadgets::ListBox::new(42, 0, 0, 200, 100),
+                ));
+            let mut layout = WindowLayout::new("Menus/ScoreScreen.wnd".into());
+            layout.add_window(parent.clone());
+            layout.add_window(listbox.clone());
+            let mut advice = game_engine::common::rts::AcademyAdviceInfo::default();
+            advice.num_tips = 1;
+            advice.advice[0] = key.into();
+            bind_score_screen_snapshot(
+                &layout,
+                &ScoreScreenAcademySnapshot {
+                    end_frame: frame,
+                    show_advice: true,
+                    advice,
+                },
+            );
+            // Same callback helper used after real ScoreScreen initialization;
+            // no PlayerList or Core mode is published by this fixture.
+            populate_owned_academy_widgets(&layout);
+            (layout, parent, listbox)
+        };
+        let (first_layout, first, first_list) = make(18000, "GUI:FirstAdvice");
+        let (second_layout, second, second_list) = make(700, "GUI:SecondAdvice");
+        assert_eq!(score_end_frame(&Some(first)), 18000);
+        assert_eq!(score_end_frame(&Some(second)), 700);
+        assert_eq!(
+            first_list
+                .borrow()
+                .get_user_data::<ScoreScreenAcademySnapshot>()
+                .unwrap()
+                .advice
+                .advice[0],
+            "GUI:FirstAdvice"
+        );
+        assert_eq!(
+            second_list
+                .borrow()
+                .get_user_data::<ScoreScreenAcademySnapshot>()
+                .unwrap()
+                .advice
+                .advice[0],
+            "GUI:SecondAdvice"
+        );
+        assert_eq!(
+            first_list.borrow_mut().list_box_mut().unwrap().items()[0].text,
+            GameText::fetch("GUI:FirstAdvice")
+        );
+        assert_eq!(
+            second_list.borrow_mut().list_box_mut().unwrap().items()[0].text,
+            GameText::fetch("GUI:SecondAdvice")
+        );
+        // Re-initialization is replacement, not duplicate append.
+        populate_owned_academy_widgets(&first_layout);
+        assert_eq!(
+            first_list
+                .borrow_mut()
+                .list_box_mut()
+                .unwrap()
+                .items()
+                .len(),
+            1
+        );
+        let mut hidden = second_list
+            .borrow()
+            .get_user_data::<ScoreScreenAcademySnapshot>()
+            .unwrap()
+            .clone();
+        hidden.show_advice = false;
+        bind_score_screen_snapshot(&second_layout, &hidden);
+        populate_owned_academy_widgets(&second_layout);
+        assert!(
+            second_list
+                .borrow_mut()
+                .list_box_mut()
+                .unwrap()
+                .items()
+                .is_empty()
+        );
+        assert!(second_list.borrow().is_hidden());
+        assert_eq!(
+            first_list
+                .borrow_mut()
+                .list_box_mut()
+                .unwrap()
+                .items()
+                .len(),
+            1
+        );
+        drop(second_layout);
+        assert_eq!(
+            first_list
+                .borrow()
+                .get_user_data::<ScoreScreenAcademySnapshot>()
+                .unwrap()
+                .end_frame,
+            18000
+        );
+        drop(first_layout);
     }
 }

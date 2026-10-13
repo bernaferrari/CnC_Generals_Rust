@@ -1717,12 +1717,20 @@ impl GameLogic {
         use crate::game_logic::{KindOf, ThingTemplate};
 
         if !self.templates.contains_key(HOST_CLEANUP_PROJECTILE) {
-            let mut t = ThingTemplate::new(HOST_CLEANUP_PROJECTILE);
-            t.add_kind_of(KindOf::Projectile)
-                .set_health(CLEANUP_STREAM_MISSILE_MAX_HEALTH)
-                .set_cost(0, 0);
-            self.templates
-                .insert(HOST_CLEANUP_PROJECTILE.to_string(), t);
+            if let Some(authored) =
+                Self::build_template_from_asset_definition(HOST_CLEANUP_PROJECTILE)
+            {
+                self.templates
+                    .insert(HOST_CLEANUP_PROJECTILE.to_string(), authored);
+            } else {
+                let mut t = ThingTemplate::new(HOST_CLEANUP_PROJECTILE);
+                t.add_kind_of(KindOf::Projectile)
+                    .set_health(CLEANUP_STREAM_MISSILE_MAX_HEALTH)
+                    .set_cost(0, 0);
+                t.body_initial_health = Some(CLEANUP_STREAM_MISSILE_MAX_HEALTH);
+                self.templates
+                    .insert(HOST_CLEANUP_PROJECTILE.to_string(), t);
+            }
         }
         let team = self
             .objects
@@ -1748,10 +1756,6 @@ impl GameLogic {
             o.cleanup_stream_shooter = Some(source_id.0);
             o.cleanup_stream_player_id = player_id;
             o.note_producer(source_id);
-            o.set_body_max_health_with_mode(
-                CLEANUP_STREAM_MISSILE_MAX_HEALTH,
-                crate::game_logic::object::MaxHealthChange::FullyHeal,
-            );
         }
         self.projectile_streams.add_projectile(
             source_id,
@@ -1885,11 +1889,16 @@ impl GameLogic {
 
         let name = kind.projectile_name();
         if !self.templates.contains_key(name) {
-            let mut t = ThingTemplate::new(name);
-            t.add_kind_of(KindOf::Projectile)
-                .set_health(ANGRY_MOB_PROJ_MAX_HEALTH)
-                .set_cost(0, 0);
-            self.templates.insert(name.to_string(), t);
+            if let Some(authored) = Self::build_template_from_asset_definition(name) {
+                self.templates.insert(name.to_string(), authored);
+            } else {
+                let mut t = ThingTemplate::new(name);
+                t.add_kind_of(KindOf::Projectile)
+                    .set_health(ANGRY_MOB_PROJ_MAX_HEALTH)
+                    .set_cost(0, 0);
+                t.body_initial_health = Some(ANGRY_MOB_PROJ_MAX_HEALTH);
+                self.templates.insert(name.to_string(), t);
+            }
         }
         let team = self
             .objects
@@ -1909,10 +1918,6 @@ impl GameLogic {
             o.angry_mob_projectile_flight_frames = flight;
             o.angry_mob_projectile_intended = intended.map(|id| id.0);
             o.note_producer(source_id);
-            o.set_body_max_health_with_mode(
-                ANGRY_MOB_PROJ_MAX_HEALTH,
-                crate::game_logic::object::MaxHealthChange::FullyHeal,
-            );
         }
         self.angry_mob_projectiles_spawned = self.angry_mob_projectiles_spawned.saturating_add(1);
         Some(pid)

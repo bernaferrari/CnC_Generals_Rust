@@ -357,8 +357,10 @@ impl Object {
         let template_name = template.name.clone();
         let max_health = template.max_health;
         // C++ ActiveBody ctor: current/prev/initial = INI InitialHealth; max = MaxHealth.
-        let initial_health =
-            leftover_factory_body_initial_health(&template_name).unwrap_or(max_health);
+        let initial_health = template
+            .body_initial_health
+            .or_else(|| leftover_factory_body_initial_health(&template_name))
+            .unwrap_or(max_health);
         let auto_acquire_idle_bits = leftover_factory_auto_acquire_bits(&template_name)
             .unwrap_or(template.auto_acquire_enemies_when_idle);
         let auto_acquire_when_idle = (auto_acquire_idle_bits

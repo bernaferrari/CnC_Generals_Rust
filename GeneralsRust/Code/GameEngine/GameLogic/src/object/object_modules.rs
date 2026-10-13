@@ -151,6 +151,10 @@ impl Object {
                     .downcast_mut::<crate::object::update::ai_update_interface::AIUpdateInterfaceModule>()
                 {
                     ai_module.set_runtime_ai(Arc::clone(&ai));
+                } else if let Some(dozer_module) = (module as &mut dyn Any)
+                    .downcast_mut::<crate::object::update::ai_update::dozer_ai_update::DozerAIUpdateModule>()
+                {
+                    dozer_module.set_runtime_ai(Arc::clone(&ai));
                 }
             });
         }
