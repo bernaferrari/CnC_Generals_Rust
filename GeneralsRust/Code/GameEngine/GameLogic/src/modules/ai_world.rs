@@ -89,6 +89,9 @@ pub trait AiWorld {
     }
 
     fn object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>>;
+    fn shorten_ai_queue_wake(&mut self, _owner: ObjectID, _frames: u32) -> Result<(), String> {
+        Err("supplied AI world has no receiving AI queue schedule".into())
+    }
     fn frame(&self) -> UnsignedInt;
     fn terrain_layer_height(&self, x: f32, y: f32, layer: crate::common::PathfindLayerEnum) -> f32;
     fn goal_layer_height(&self, x: f32, y: f32, layer: PathfindLayerEnum) -> f32;

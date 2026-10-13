@@ -618,7 +618,7 @@ impl CombatSystem {
                     let shooter = projectile.shooter_id;
                     let intended = projectile.target_id;
                     let pos = projectile.position;
-                    let sneak_now = crate::game_logic::host_historic_bonus::logic_frame();
+                    let sneak_now = frame;
                     let shooter_obj = objects.get(&shooter);
                     let proj_owner = shooter_obj
                         .and_then(|s| s.owner_player_id)
@@ -1210,49 +1210,6 @@ impl CombatSystem {
             });
         }
         events
-    }
-
-    /// Check if projectile collides with something
-    fn check_projectile_collision(
-        &self,
-        projectile: &Projectile,
-        objects: &HashMap<ObjectId, Object>,
-    ) -> Option<ProjectileHit> {
-        // Check target collision
-        if let Some(target_id) = projectile.target_id {
-            if let Some(target) = objects.get(&target_id) {
-                let now = crate::game_logic::host_historic_bonus::logic_frame();
-                if target.get_sneaky_targeting_offset(now).is_some() {
-                    return None;
-                }
-                let distance = projectile.position.distance(target.get_position());
-                if distance <= 5.0 {
-                    return Some(ProjectileHit::Direct {
-                        target_id,
-                        position: projectile.position,
-                        damage: projectile.damage,
-                        damage_type: projectile.damage_type,
-                        death_type: projectile.death_type,
-                    });
-                }
-            }
-        }
-
-        // Check ground collision
-        let distance = projectile.position.distance(projectile.target_position);
-        if distance <= 2.0 && projectile.explosion_radius > 0.0 {
-            return Some(ProjectileHit::Area {
-                position: projectile.target_position,
-                damage: projectile.damage,
-                damage_type: projectile.damage_type,
-                death_type: projectile.death_type,
-
-                radius: projectile.explosion_radius,
-                shooter_id: projectile.shooter_id,
-            });
-        }
-
-        None
     }
 
     /// Get all active projectiles

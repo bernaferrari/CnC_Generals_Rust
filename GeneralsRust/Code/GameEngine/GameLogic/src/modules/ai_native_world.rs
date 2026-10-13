@@ -433,6 +433,39 @@ impl AiWorld for BorrowedAiWorld<'_> {
     fn object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
         self.factory.get_object(id)?.get_base_object()
     }
+    fn shorten_ai_queue_wake(&mut self, owner_id: ObjectID, frames: u32) -> Result<(), String> {
+        let owner = self
+            .factory
+            .get_object(owner_id)
+            .and_then(|entry| entry.get_base_object())
+            .ok_or("queue-path owner absent from receiving factory")?;
+        let proxy = owner
+            .read()
+            .map_err(|_| "queue-path owner poisoned")?
+            .installed_ai_update_proxy()?;
+        // A positive outside-update wake must synchronize the original saved
+        // wrapper clock as well as the heap. Standard AI owns that clock;
+        // the current derived Dozer shell has not yet implemented its Xfer.
+        let is_current = self
+            .services
+            .current_update
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, &proxy));
+        if frames > 0 && !is_current {
+            let object = owner.read().map_err(|_| "queue-path owner poisoned")?;
+            let standard = object.find_update_module("AIUpdateInterface");
+            if standard.is_none() {
+                return Err("derived AI queue wake requires its saved update clock owner".into());
+            }
+        }
+        let now = self.services.frame;
+        self.services.update_scheduler.shorten_owned_update_wake(
+            &proxy,
+            self.services.current_update.as_ref(),
+            now,
+            now.wrapping_add(frames),
+        )
+    }
     fn frame(&self) -> u32 {
         self.services.frame
     }

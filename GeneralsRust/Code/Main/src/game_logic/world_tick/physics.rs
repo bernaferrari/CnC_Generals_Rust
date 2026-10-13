@@ -742,7 +742,6 @@ impl GameLogic {
         immobile_id: ObjectId,
         us_radius: f32,
     ) -> bool {
-        use crate::game_logic::host_partition_collision_physics_residual::PHYSICS_STRUCTURE_STIFFNESS_DEFAULT_RESIDUAL;
         let (mover_para, imm_center, imm_ok) = {
             let Some(m) = self.objects.get(&mover_id) else {
                 return false;
@@ -851,7 +850,6 @@ impl GameLogic {
             // they still stiffness-bounce. C++ isDestroyed() is remove-from-world.
             let _ = m.apply_structure_stiffness_bounce(
                 imm_center,
-                PHYSICS_STRUCTURE_STIFFNESS_DEFAULT_RESIDUAL,
                 crate::game_logic::Object::SHOCK_MASS,
             );
             return true;

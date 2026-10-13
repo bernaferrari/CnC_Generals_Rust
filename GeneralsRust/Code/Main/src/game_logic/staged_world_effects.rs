@@ -8,9 +8,9 @@
 
 use super::{
     host_building_type_log, host_command_set_log, host_continuous_fire_log,
-    host_demo_mine_cheer_log, host_ground_height_log, host_hive_log, host_locomotor_log,
-    host_max_health_log, host_model_mesh_log, host_movement_log, host_physics_motive_log,
-    host_spawn_log, host_stored_supplies_log, host_weapon_set_log,
+    host_demo_mine_cheer_log, host_ground_height_log, host_locomotor_log, host_max_health_log,
+    host_model_mesh_log, host_movement_log, host_physics_motive_log, host_spawn_log,
+    host_stored_supplies_log, host_weapon_set_log,
 };
 use std::cell::Cell;
 
@@ -35,7 +35,6 @@ pub(crate) struct WorldStageEffectsState {
     movement: Vec<host_movement_log::HostMovementEvent>,
     demo_mine_cheer: Vec<host_demo_mine_cheer_log::HostDemoMineCheerEvent>,
 
-    hive: Vec<host_hive_log::HostHiveEvent>,
     weapon_set: Vec<host_weapon_set_log::HostWeaponSetEvent>,
 
     stored_supplies: Vec<host_stored_supplies_log::HostStoredSuppliesEvent>,
@@ -60,7 +59,6 @@ impl WorldStageEffectsState {
             movement: host_movement_log::take_for_world_stage(),
             demo_mine_cheer: host_demo_mine_cheer_log::take_for_world_stage(),
 
-            hive: host_hive_log::take_for_world_stage(),
             weapon_set: host_weapon_set_log::take_for_world_stage(),
 
             stored_supplies: host_stored_supplies_log::take_for_world_stage(),
@@ -87,7 +85,6 @@ impl WorldStageEffectsState {
                 next.demo_mine_cheer,
             ),
 
-            hive: host_hive_log::replace_for_world_stage(next.hive),
             weapon_set: host_weapon_set_log::replace_for_world_stage(next.weapon_set),
 
             stored_supplies: host_stored_supplies_log::replace_for_world_stage(
@@ -115,7 +112,6 @@ impl WorldStageEffectsState {
         host_movement_log::clear();
         host_demo_mine_cheer_log::clear();
 
-        host_hive_log::clear();
         host_weapon_set_log::clear();
 
         host_stored_supplies_log::clear();

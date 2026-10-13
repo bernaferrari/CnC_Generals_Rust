@@ -1,10 +1,10 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 impl CnCGameEngine {
-    /// Same loose-file/archive resolver for both live session admissions.
-    pub(super) async fn load_production_energy_baseline()
-    -> Result<game_engine::common::ini::ini_game_data::ProductionEnergyRules, String> {
-        let mut rules = game_engine::common::ini::ini_game_data::ProductionEnergyRules::default();
+    /// One application-boundary loose-file/archive resolver; constructors
+    /// consume private parsed content and never select ambient game data.
+    async fn load_startup_game_data_texts() -> Result<Vec<(&'static str, String)>, String> {
+        let mut texts = Vec::new();
         let mut paths = vec!["Data/INI/Default/GameData.ini", "Data/INI/GameData.ini"];
         #[cfg(any(debug_assertions, feature = "internal"))]
         paths.push("Data/INI/GameDataDebug.ini");
@@ -27,12 +27,33 @@ impl CnCGameEngine {
                 }
             };
             if let Some(text) = text {
-                rules = rules
-                    .overlay_ini_text(&text)
-                    .map_err(|err| format!("{path}: {err}"))?;
+                texts.push((path, text));
             }
         }
+        Ok(texts)
+    }
+    pub(super) async fn load_production_energy_baseline()
+    -> Result<game_engine::common::ini::ini_game_data::ProductionEnergyRules, String> {
+        let mut rules = game_engine::common::ini::ini_game_data::ProductionEnergyRules::default();
+        for (path, text) in Self::load_startup_game_data_texts().await? {
+            rules = rules
+                .overlay_ini_text(&text)
+                .map_err(|err| format!("{path}: {err}"))?;
+        }
         Ok(rules)
+    }
+    pub(super) async fn load_physics_rules_baseline()
+    -> Result<game_engine::common::ini::ini_game_data::PhysicsContentRules, String> {
+        let mut rules =
+            game_engine::common::ini::ini_game_data::PhysicsContentRules::from_global_data(
+                &game_engine::common::global_data::GlobalData::default(),
+            );
+        for (path, text) in Self::load_startup_game_data_texts().await? {
+            rules = rules
+                .overlay_ini_text(&text)
+                .map_err(|err| format!("{path}: {err}"))?;
+        }
+        rules.validate()
     }
 
     pub async fn new(window: Arc<Window>, command_line: Arc<CommandLineArgs>) -> Result<Self> {
@@ -255,6 +276,13 @@ impl CnCGameEngine {
         // Initialize game systems.
         // CombatSystem + PathfindingSystem live on GameLogic (sole host authority).
         let mut game_logic = GameLogic::initialize();
+        game_logic
+            .admit_physics_rules_base(
+                Self::load_physics_rules_baseline()
+                    .await
+                    .map_err(|error| anyhow::anyhow!(error))?,
+            )
+            .map_err(|error| anyhow::anyhow!(error))?;
         game_logic.admit_production_energy_base(
             Self::load_production_energy_baseline()
                 .await

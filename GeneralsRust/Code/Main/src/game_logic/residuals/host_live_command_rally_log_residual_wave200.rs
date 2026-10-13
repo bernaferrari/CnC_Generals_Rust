@@ -9,17 +9,17 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 /// Rally-log residual method names.
 pub const LIVE_COMMAND_RALLY_LOG_METHOD_NAMES_WAVE200: &[&str] = &[
     "execute_set_rally_point",
-    "host_rally_log::record",
-    "WorldMutation::SetRallyPoint",
-    "apply_host_rally_events",
+    "BuildingData.rally_point",
+    "Entity.rally_point",
+    "sync_from_host",
     "playable_claim = false",
 ];
 
 /// Ordered residual navigation steps.
 pub const LIVE_COMMAND_RALLY_LOG_NAV_STEPS_WAVE200: &[&str] = &[
-    "REQUIRE_EXECUTE_RALLY_RECORDS",
-    "REQUIRE_SHADOW_DRAINS_RALLY_LOG",
-    "LIVE_RALLY_LOG_LATCHES",
+    "REQUIRE_EXECUTE_RALLY_POINT",
+    "REQUIRE_RECEIVING_RALLY_PROJECTION",
+    "LIVE_RALLY_POINT_PROJECTED",
     "LIVE_PLAYABLE_CLAIM_FALSE",
 ];
 
@@ -40,7 +40,7 @@ pub fn honesty_live_command_rally_log_method_names_residual_wave200() -> bool {
         ) == Some(0)
         && residual_name_index(
             LIVE_COMMAND_RALLY_LOG_METHOD_NAMES_WAVE200,
-            "WorldMutation::SetRallyPoint",
+            "Entity.rally_point",
         ) == Some(2)
         && residual_name_index(
             LIVE_COMMAND_RALLY_LOG_METHOD_NAMES_WAVE200,
@@ -53,11 +53,11 @@ pub fn honesty_live_command_rally_log_nav_commands_residual_wave200() -> bool {
     LIVE_COMMAND_RALLY_LOG_NAV_STEPS_WAVE200.len() == 4
         && residual_name_index(
             LIVE_COMMAND_RALLY_LOG_NAV_STEPS_WAVE200,
-            "REQUIRE_EXECUTE_RALLY_RECORDS",
+            "REQUIRE_EXECUTE_RALLY_POINT",
         ) == Some(0)
         && residual_name_index(
             LIVE_COMMAND_RALLY_LOG_NAV_STEPS_WAVE200,
-            "LIVE_RALLY_LOG_LATCHES",
+            "LIVE_RALLY_POINT_PROJECTED",
         ) == Some(2)
         && RUNTIME_HOST_LIVE_COMMAND_RALLY_LOG_CMD_NAMES_WAVE200.len() == 3
 }

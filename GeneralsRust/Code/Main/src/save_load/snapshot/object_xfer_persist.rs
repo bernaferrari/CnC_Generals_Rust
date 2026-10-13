@@ -36,7 +36,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXOB_MAGIC: &[u8; 4] = b"OXOB";
-const OXOB_VERSION: u32 = 16;
+const OXOB_VERSION: u32 = 17;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectXferPersistPayload {
@@ -46,6 +46,17 @@ struct ObjectXferPersistPayload {
     damage_info: Vec<ObjectDamageInfoPersist>,
     transport: Vec<TransportMovementPersist>,
     body_history: Vec<body_damage_history_persist::BodyDamageHistoryPersist>,
+}
+
+/// V16 retains its exact positional Body-history records.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistPayloadV16 {
+    objects: Vec<ObjectXferPersist>,
+    script_status: Vec<ObjectScriptStatusPersist>,
+    structures: Vec<StructureTopplePersist>,
+    damage_info: Vec<ObjectDamageInfoPersist>,
+    transport: Vec<TransportMovementPersist>,
+    body_history: Vec<body_damage_history_persist::BodyDamageHistoryPersistV16>,
 }
 
 /// v15 retains its exact transport/body-type positional bincode layout.
@@ -1625,6 +1636,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         && version != 13
         && version != 14
         && version != 15
+        && version != 16
         && version != OXOB_VERSION
     {
         return Err(SaveLoadError::Corrupted(format!(
@@ -1843,12 +1855,23 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             transport: old.transport,
             body_history: Vec::new(),
         }
+    } else if version == 16 {
+        let old: ObjectXferPersistPayloadV16 = bincode_legacy::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
+        ObjectXferPersistPayload {
+            objects: old.objects,
+            script_status: old.script_status,
+            structures: old.structures,
+            damage_info: old.damage_info,
+            transport: old.transport,
+            body_history: body_damage_history_persist::migrate_v16(game_logic, old.body_history)?,
+        }
     } else {
         bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?
     };
     body_damage_history_persist::validate(game_logic, &payload.body_history)?;
-    if version == OXOB_VERSION && payload.body_history.len() != game_logic.host_objects().len() {
+    if version >= 16 && payload.body_history.len() != game_logic.host_objects().len() {
         return Err(SaveLoadError::Corrupted(
             "incomplete saved body history owners".into(),
         ));
@@ -2205,6 +2228,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
             object.can_path_through_units = entry.can_path_through_units;
             object.last_command_source = entry.last_command_source;
             if entry.has_locomotor_template {
+                object.selected_locomotor_definition = None;
                 object.cur_locomotor_name = entry.cur_locomotor_name;
                 // Reuse the existing application catalog seam once. Facts are
                 // inert; transferred motion/arrival/pose below remain owners.

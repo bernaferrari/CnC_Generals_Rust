@@ -1,13 +1,10 @@
-use super::physics::{
-    leftover_ground_stiffness, leftover_loco_gravity, leftover_structure_stiffness,
-};
 use super::*;
 
 impl Object {
     /// C++ applyGravitationalForces residual (host world Y up).
     pub fn apply_gravitational_forces(&mut self) {
         // C++ TheGlobalData->m_gravity (parseAccelerationReal, retail -0.0711).
-        self.physics_accel.y += leftover_loco_gravity();
+        self.physics_accel.y += self.physics_gravity();
     }
 
     /// C++ AIUpdateInterface::privateMoveAwayFromUnit residual.
@@ -259,6 +256,7 @@ impl Object {
     #[cfg(test)]
     pub fn check_for_overlap_collision(
         &mut self,
+        frame: u32,
         other: &mut Object,
         is_ally: bool,
         health_events: &mut crate::game_logic::HostHealthEvents,
@@ -268,7 +266,7 @@ impl Object {
         let sources = super::PhysicsDamageSources::default();
         let mut services = super::PhysicsDamageServices {
             sources: &sources,
-            frame: crate::game_logic::host_historic_bonus::logic_frame(),
+            frame,
             health_events,
             repulsors: &repulsors,
             player_effects: &mut ignored,
@@ -534,7 +532,6 @@ impl Object {
     pub fn apply_structure_stiffness_bounce(
         &mut self,
         other_center: glam::Vec3,
-        _stiffness: f32,
         mass: f32,
     ) -> glam::Vec3 {
         use crate::game_logic::host_partition_collision_physics_residual::structure_immobile_bounce_factor;
@@ -558,7 +555,7 @@ impl Object {
             dist = 1.0;
         }
         let mag = self.movement.velocity.length();
-        let stiffness = leftover_structure_stiffness();
+        let stiffness = self.physics_structure_stiffness();
         let factor = structure_immobile_bounce_factor(mag, mass, stiffness);
         let dir = glam::Vec3::new(dx / dist, dy / dist, dz / dist);
         let force = dir * factor;
@@ -729,7 +726,7 @@ impl Object {
         let vy = self.movement.velocity.y;
         let mut desired_accel_y = 0.0;
         if old_y > ground_y && vy < 0.0 {
-            let stiffness = leftover_ground_stiffness();
+            let stiffness = self.physics_ground_stiffness();
             desired_accel_y = vy.abs() * stiffness;
         }
         self.apply_ypr_damping(Self::BOUNCE_YPR_DAMPING);
@@ -778,6 +775,7 @@ impl Object {
     #[cfg(test)]
     pub fn tick_physics_motion_step(
         &mut self,
+        frame: u32,
         ground_y: f32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
@@ -786,7 +784,7 @@ impl Object {
         let sources = super::PhysicsDamageSources::default();
         let mut services = super::PhysicsDamageServices {
             sources: &sources,
-            frame: crate::game_logic::host_historic_bonus::logic_frame(),
+            frame,
             health_events,
             repulsors: &repulsors,
             player_effects: &mut ignored,
@@ -984,6 +982,20 @@ impl Object {
         (self.locomotor_surfaces & surface) != 0
     }
 
+    /// CPP Object.cpp3336 reads the installed AI's actual selected template,
+    /// independently of altitude/targeting flags and object KindOf.
+    pub(crate) fn selected_locomotor_is_airborne(&self) -> bool {
+        self.thing.template.authored_ai_update_interface() == Some(true)
+            && self
+                .cur_locomotor_name
+                .as_deref()
+                .is_some_and(|name| !name.is_empty())
+            && self
+                .selected_locomotor_definition
+                .as_ref()
+                .is_some_and(|definition| (definition.locomotor_surfaces & LOCO_SURFACE_AIR) != 0)
+    }
+
     /// C++ `Object::getAI() != NULL` residual.
     ///
     /// Leftover thing-factory AIUpdate module when the template is loaded;
@@ -1017,13 +1029,17 @@ impl Object {
     /// locomotor, or underwater without water locomotor. Cliff/water kills
     /// require AIUpdateInterface (C++ PhysicsUpdate.cpp:1777-1779).
     #[cfg(test)]
-    pub fn tick_shock_stun(&mut self, health_events: &mut crate::game_logic::HostHealthEvents) {
+    pub fn tick_shock_stun(
+        &mut self,
+        frame: u32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) {
         let mut ignored = |_| {};
         let repulsors = false;
         let sources = super::PhysicsDamageSources::default();
         let mut services = super::PhysicsDamageServices {
             sources: &sources,
-            frame: crate::game_logic::host_historic_bonus::logic_frame(),
+            frame,
             health_events,
             repulsors: &repulsors,
             player_effects: &mut ignored,
@@ -1088,7 +1104,7 @@ impl Object {
         let old_y = self.get_position().y;
         // Gravity while airborne or still carrying vertical velocity.
         if old_y > ground_y + 0.01 || self.movement.velocity.y.abs() > 0.01 {
-            self.movement.velocity.y += leftover_loco_gravity();
+            self.movement.velocity.y += self.physics_gravity();
             let mut pos = self.get_position();
             let new_y = pos.y + self.movement.velocity.y;
             if new_y <= ground_y {

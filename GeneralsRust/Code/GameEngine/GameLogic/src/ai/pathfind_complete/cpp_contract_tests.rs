@@ -62,9 +62,9 @@ fn adjust_to_possible_destination_cpp_surface() {
         .find("pub fn adjust_to_possible_destination")
         .expect("adjustToPossibleDestination");
     let end = prod[i..]
-        .find("fn try_zone_adjust")
-        .map(|o| i + o + 1200)
-        .unwrap_or(prod.len().min(i + 5000));
+        .find("pub fn check_for_target(")
+        .map(|o| i + o)
+        .expect("adjustment and zone helper boundary");
     let w = &prod[i..end];
     assert!(
         w.contains("PATHFIND_CELL_SIZE_F * 0.5")
@@ -469,7 +469,11 @@ fn goal_position_and_path_destination_cpp_surface() {
     let src = PATHFIND_COMPLETE_SRC;
     let prod = src.split("#[cfg(test)]").next().expect("production");
     let i = prod.find("pub fn goal_position").expect("goalPosition");
-    let w = &prod[i..prod.len().min(i + 1200)];
+    let goal_end = prod[i..]
+        .find("pub fn check_path_cost(")
+        .map(|offset| i + offset)
+        .unwrap_or(prod.len());
+    let w = &prod[i..goal_end];
     assert!(
         w.contains("unit_goal_cells") && w.contains("adjust_coord_to_cell"),
         "goalPosition must read tracked goal cell"
@@ -477,7 +481,11 @@ fn goal_position_and_path_destination_cpp_surface() {
     let j = prod
         .find("pub fn path_destination")
         .expect("pathDestination");
-    let w2 = &prod[j..prod.len().min(j + 3500)];
+    let path_end = prod[j..]
+        .find("pub fn update_aircraft_goal(")
+        .map(|offset| j + offset)
+        .expect("pathDestination helper boundary");
+    let w2 = &prod[j..path_end];
     assert!(
         w2.contains("MAX_CELL_COUNT")
             && w2.contains("check_for_adjust")

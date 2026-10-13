@@ -102,6 +102,7 @@ fn another_armed_rider(game: &mut NativeMatch) -> Arc<RwLock<Object>> {
             .unwrap();
         game.spatial.update_object_position(id, pos);
     }
+    Object::admit_update_schedule_from_handle(&object, &mut game.scheduler).unwrap();
     let ai = object.read().unwrap().get_ai_update_interface().unwrap();
     let owner = game.target.read().unwrap().get_id();
     game.operate(147, |world| {

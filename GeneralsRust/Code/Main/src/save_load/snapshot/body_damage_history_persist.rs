@@ -4,12 +4,50 @@ use super::{GameLogic, ObjectId, SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub(super) struct BodyDamageHistoryPersistV16 {
+    pub(super) object_id: u32,
+    pub(super) source_id: Option<u32>,
+    pub(super) timestamp: Option<u32>,
+    pub(super) previous_health: f32,
+    pub(super) damage_state: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct BodyDamageHistoryPersist {
     pub(super) object_id: u32,
     pub(super) source_id: Option<u32>,
     pub(super) timestamp: Option<u32>,
     pub(super) previous_health: f32,
     pub(super) damage_state: u8,
+    /// CPP ActiveBody::xfer1532, independent of maximum/current health.
+    pub(super) initial_health: f32,
+    /// Rust once-only kill completion receipt, not a claimed C++ xfer field.
+    pub(super) kill_experience_awarded: bool,
+}
+
+pub(super) fn migrate_v16(
+    world: &GameLogic,
+    records: Vec<BodyDamageHistoryPersistV16>,
+) -> SaveLoadResult<Vec<BodyDamageHistoryPersist>> {
+    records
+        .into_iter()
+        .map(|entry| {
+            let object = world
+                .host_object(ObjectId(entry.object_id))
+                .ok_or_else(|| SaveLoadError::Corrupted("invalid V16 body history owner".into()))?;
+            Ok(BodyDamageHistoryPersist {
+                object_id: entry.object_id,
+                source_id: entry.source_id,
+                timestamp: entry.timestamp,
+                previous_health: entry.previous_health,
+                damage_state: entry.damage_state,
+                // V16 did not encode these facts. Retain reconstructed initialHP,
+                // and do not infer whether a kill award was consumed from death.
+                initial_health: object.initial_health,
+                kill_experience_awarded: false,
+            })
+        })
+        .collect()
 }
 
 pub(super) fn capture(world: &GameLogic) -> Vec<BodyDamageHistoryPersist> {
@@ -22,6 +60,8 @@ pub(super) fn capture(world: &GameLogic) -> Vec<BodyDamageHistoryPersist> {
             timestamp: object.last_damage_timestamp,
             previous_health: object.previous_health,
             damage_state: object.body_damage_state.ordinal(),
+            initial_health: object.initial_health,
+            kill_experience_awarded: object.kill_experience_awarded,
         })
         .collect();
     records.sort_by_key(|entry| entry.object_id);
@@ -40,6 +80,8 @@ pub(super) fn validate(
             || !entry.previous_health.is_finite()
             || entry.previous_health < 0.0
             || entry.damage_state > 3
+            || !entry.initial_health.is_finite()
+            || entry.initial_health < 0.0
         {
             return Err(SaveLoadError::Corrupted(
                 "invalid saved body history owner or source".into(),
@@ -58,6 +100,7 @@ pub(super) fn apply(world: &mut GameLogic, records: Vec<BodyDamageHistoryPersist
         object.last_damage_source = None;
         object.last_damage_timestamp = None;
         object.previous_health = object.health.current;
+        object.kill_experience_awarded = false;
         object.restore_body_observation(None);
     }
     for entry in records {
@@ -67,6 +110,8 @@ pub(super) fn apply(world: &mut GameLogic, records: Vec<BodyDamageHistoryPersist
         object.last_damage_source = entry.source_id.map(ObjectId);
         object.last_damage_timestamp = entry.timestamp;
         object.previous_health = entry.previous_health;
+        object.initial_health = entry.initial_health;
+        object.kill_experience_awarded = entry.kill_experience_awarded;
         object.restore_body_observation(Some(
             crate::game_logic::host_enum_table_residual::HostBodyDamageType::from_ordinal(
                 entry.damage_state,

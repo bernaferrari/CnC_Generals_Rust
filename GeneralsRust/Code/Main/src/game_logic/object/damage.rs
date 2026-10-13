@@ -1051,7 +1051,6 @@ impl Object {
         let (count, hp) = sync_hive_slave_mirrors(&self.hive_slaves);
         self.hive_slave_count = count;
         self.hive_slave_hp = hp;
-        self.record_host_hive();
         if result.slaves_killed > 0 {
             self.hive_slave_respawn_frame =
                 crate::game_logic::host_base_defense::next_stinger_slave_respawn_frame(

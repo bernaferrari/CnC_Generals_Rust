@@ -1774,6 +1774,7 @@ impl CnCGameEngine {
                     worker_stop_if_abandoned()?;
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
+                    game_logic.admit_physics_rules_base(runtime.block_on(Self::load_physics_rules_baseline())?)?;
                     game_logic.admit_production_energy_base(runtime.block_on(Self::load_production_energy_baseline())?);
                     // Explicit engine-content admission before this session loads a map.
                     let definitions = crate::game_logic::ai_definitions::AiDefinitions::from_engine_baseline();

@@ -140,6 +140,10 @@ impl SnapshotBuilder {
             snapshot.team,
             game_logic.get_current_frame() as u32,
         );
+        object.bind_physics_rules(
+            game_logic.physics_definitions.effective,
+            game_logic.physics_definitions.base.gravity,
+        );
         // C++ Object::xfer (`Object.cpp:4068`) persists `m_name` independently
         // of the template. Constructor leaves it empty; the v11 world tail
         // writes the instance name after every object exists.
@@ -182,6 +186,9 @@ impl SnapshotBuilder {
         self.restore_object_status(&snapshot.status, &mut object);
         object.selected = snapshot.status.selected;
         object.health = snapshot.health.clone();
+        // Canonical Body maximum comes from the saved runtime record, not the
+        // reconstructed ThingTemplate definition. No health callbacks replay.
+        object.max_health = snapshot.health.maximum;
         object.movement = snapshot.movement.clone();
         // C++ ExperienceTracker::xfer transfers XP/rank verbatim, and its
         // loadPostProcess is empty. This required object record is authoritative,

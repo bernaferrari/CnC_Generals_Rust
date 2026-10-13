@@ -1796,12 +1796,12 @@ impl GameLogic {
             o.marauder_shell_intended = intended.map(|id| id.0);
             o.marauder_shell_weapon_speed = weapon_speed;
             o.note_producer(source_id);
-            o.health.maximum = MARAUDER_SHELL_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 MARAUDER_SHELL_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
         }
         self.marauder_shells_spawned = self.marauder_shells_spawned.saturating_add(1);
         Some(pid)
@@ -2249,12 +2249,12 @@ impl GameLogic {
             o.scorpion_shell_flight_frames = frames;
             o.scorpion_shell_slot = slot;
             o.note_producer(source_id);
-            o.health.maximum = SCORPION_SHELL_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 SCORPION_SHELL_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
         }
         self.scorpion_shells_spawned = self.scorpion_shells_spawned.saturating_add(1);
         Some(pid)
@@ -2417,12 +2417,12 @@ impl GameLogic {
                 Some(self.frame.saturating_add(SCORPION_MISSILE_FUEL_FRAMES));
             o.scorpion_missile_slot = slot;
             o.note_producer(source_id);
-            o.health.maximum = SCORPION_MISSILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 SCORPION_MISSILE_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
             o.movement.velocity = dir * launch;
             o.set_orientation(dir.z.atan2(dir.x));
         }

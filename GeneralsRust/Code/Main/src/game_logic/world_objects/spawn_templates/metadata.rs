@@ -683,6 +683,10 @@ impl GameLogic {
                             .map(|percent| percent / 100.0)
                             .unwrap_or(0.0),
                     ),
+                    burned_death_to_units: module
+                        .attribute("BurnedDeathToUnits")
+                        .and_then(parse_bool)
+                        .unwrap_or(true),
                     destroy_riders_who_are_not_free_to_exit: module
                         .attribute("DestroyRidersWhoAreNotFreeToExit")
                         .and_then(parse_bool)
@@ -2642,21 +2646,14 @@ impl GameLogic {
         {
             template.kill_when_resting_on_ground = v;
         }
-        // Leftover parseHeightToSpeed: min_fall = sqrt(|2 * leftover_gravity * h|).
-        // Default height 40 → ~2.385 at retail Gravity -64/900, not sqrt(80).
-        if let Some(speed) = leftover_physics_min_fall_speed_for_damage(&template.name)
-            .or_else(|| leftover_physics_min_fall_speed_for_damage(&definition.name))
-            .filter(|v| leftover_min_fall_is_gravity_aware(*v))
-        {
-            template.min_fall_speed_for_damage = speed;
-        } else if let Some(h) = module
+        // Retain authored height so the receiving factory applies its own
+        // parsed gravity. No numeric-default guesses or other world's factory.
+        let height = module
             .attribute("MinFallHeightForDamage")
             .and_then(parse_real)
-        {
-            template.min_fall_speed_for_damage = Object::height_to_fall_speed(h);
-        } else {
-            template.min_fall_speed_for_damage = Object::min_fall_speed_for_damage();
-        }
+            .unwrap_or(40.0);
+        template.min_fall_height_for_damage = Some(height);
+        template.min_fall_speed_for_damage = Object::height_to_fall_speed(height);
         if let Some(f) = module
             .attribute("FallHeightDamageFactor")
             .and_then(parse_real)

@@ -11,7 +11,7 @@ fn explicit_primary_weapon_beats_store_and_default() {
         ..Weapon::default()
     });
     t.set_primary_weapon_name("DoesNotExistInStoreHopefully");
-    let w = t.resolve_primary_weapon().expect("weapon");
+    let w = t.resolve_primary_weapon(0).expect("weapon");
     assert!((w.damage - 40.0).abs() < 0.01);
     assert!((w.range - 80.0).abs() < 0.01);
 }
@@ -20,7 +20,7 @@ fn explicit_primary_weapon_beats_store_and_default() {
 fn infantry_without_weapon_gets_kind_fallback() {
     let mut t = ThingTemplate::new("BareInfantry");
     t.add_kind_of(KindOf::Infantry);
-    let w = t.resolve_primary_weapon().expect("fallback");
+    let w = t.resolve_primary_weapon(0).expect("fallback");
     assert!((w.damage - Weapon::default().damage).abs() < 0.01);
 }
 
@@ -28,7 +28,7 @@ fn infantry_without_weapon_gets_kind_fallback() {
 fn structure_without_weapon_stays_unarmed() {
     let mut t = ThingTemplate::new("BareStructure");
     t.add_kind_of(KindOf::Structure);
-    assert!(t.resolve_primary_weapon().is_none());
+    assert!(t.resolve_primary_weapon(0).is_none());
 }
 
 #[test]
@@ -38,7 +38,7 @@ fn primary_weapon_name_resolves_non_default_store_stats() {
     t.add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Attackable)
         .set_primary_weapon_name(super::super::weapon_bootstrap::RANGER_PRIMARY_WEAPON);
-    let w = t.resolve_primary_weapon().expect("store-bound weapon");
+    let w = t.resolve_primary_weapon(0).expect("store-bound weapon");
     assert!(
         (w.damage - Weapon::default().damage).abs() > 0.01,
         "store path must not yield host default damage; got {}",
@@ -55,7 +55,9 @@ fn secondary_weapon_name_resolves_non_default_store_stats() {
     t.add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Attackable)
         .set_secondary_weapon_name(super::super::weapon_bootstrap::RANGER_SECONDARY_WEAPON);
-    let w = t.resolve_secondary_weapon().expect("store-bound secondary");
+    let w = t
+        .resolve_secondary_weapon(0)
+        .expect("store-bound secondary");
     assert!(
         (w.damage - Weapon::default().damage).abs() > 0.01,
         "secondary store path must not yield host default damage; got {}",
@@ -72,7 +74,7 @@ fn secondary_without_name_stays_none_even_for_infantry() {
     // Fail-closed: no kind-based default for secondary slots.
     let mut t = ThingTemplate::new("BareInfantry");
     t.add_kind_of(KindOf::Infantry);
-    assert!(t.resolve_secondary_weapon().is_none());
+    assert!(t.resolve_secondary_weapon(0).is_none());
 }
 
 #[test]
@@ -84,7 +86,7 @@ fn unit_name_residual_map_binds_without_explicit_weapon_name() {
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Attackable);
     let tw = technical
-        .resolve_primary_weapon()
+        .resolve_primary_weapon(0)
         .expect("technical residual weapon");
     assert!(
         (tw.damage - Weapon::default().damage).abs() > 0.01,
@@ -100,7 +102,7 @@ fn unit_name_residual_map_binds_without_explicit_weapon_name() {
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Attackable);
     let bw = battle
-        .resolve_primary_weapon()
+        .resolve_primary_weapon(0)
         .expect("battlemaster residual weapon");
     assert!(
         (bw.damage - Weapon::default().damage).abs() > 0.01,
@@ -122,7 +124,7 @@ fn secondary_unit_name_residual_map_binds_ranger_flashbang() {
         ..Weapon::default()
     });
     t.set_secondary_weapon_name("DoesNotExistInStoreHopefully");
-    let w = t.resolve_secondary_weapon().expect("weapon");
+    let w = t.resolve_secondary_weapon(0).expect("weapon");
     assert!((w.damage - 99.0).abs() < 0.01);
     assert!((w.range - 50.0).abs() < 0.01);
 }

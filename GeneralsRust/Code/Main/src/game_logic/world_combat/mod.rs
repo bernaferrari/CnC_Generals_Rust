@@ -31,3 +31,6 @@ mod weapon_visual_freeze;
 mod temporary_weapon_fire_tests;
 #[cfg(test)]
 mod weapon_visual_dispatch_tests;
+
+#[cfg(test)]
+mod projectile_body_owner_tests;

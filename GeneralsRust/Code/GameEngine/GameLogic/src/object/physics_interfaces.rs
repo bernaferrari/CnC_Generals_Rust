@@ -42,6 +42,25 @@ impl super::Object {
         Ok(result)
     }
 
+    /// Resolve the one admitted AI descriptor by its authored primary data,
+    /// including the native Dozer primary. The operation never locks runtime AI.
+    pub(crate) fn installed_ai_update_proxy(
+        &self,
+    ) -> Result<game_engine::common::thing::update_module::UpdateModulePtr, String> {
+        let mut entries = self.modules.iter().filter(|entry| {
+            let data = entry.data().as_any();
+            data.is::<crate::object::update::ai_update_interface::AIUpdateModuleData>()
+                || data.is::<crate::object::update::ai_update::dozer_ai_update::DozerAIUpdateModuleData>()
+        });
+        let entry = entries
+            .next()
+            .ok_or("installed supported AI descriptor absent")?;
+        if entries.next().is_some() {
+            return Err("duplicate installed AI descriptors".into());
+        }
+        self.installed_update_proxy_named(entry.name().as_str())
+    }
+
     /// Resolve one installed update proxy from its exact module entry, rejecting
     /// duplicate descriptors and registrations that only share a class name.
     pub(crate) fn installed_update_proxy_named(

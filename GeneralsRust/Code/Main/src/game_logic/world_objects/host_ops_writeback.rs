@@ -692,7 +692,6 @@ impl GameLogic {
                         obj.hive_slaves[i].alive = slaves_alive[i];
                         obj.hive_slaves[i].hp = slaves_hp[i];
                     }
-                    obj.record_host_hive();
                 }
                 self.stinger_hive_residual_respawns =
                     self.stinger_hive_residual_respawns.saturating_add(1);

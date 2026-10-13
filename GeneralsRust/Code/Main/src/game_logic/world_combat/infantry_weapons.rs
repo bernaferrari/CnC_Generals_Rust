@@ -2332,12 +2332,12 @@ impl GameLogic {
             o.nuke_shell_launch_frame = Some(self.frame);
             o.nuke_shell_flight_frames = frames;
             o.note_producer(source_id);
-            o.health.maximum = NUKE_SHELL_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 NUKE_SHELL_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
         }
         self.nuke_cannon_shells_spawned = self.nuke_cannon_shells_spawned.saturating_add(1);
         Some(pid)

@@ -1382,12 +1382,12 @@ impl GameLogic {
             o.weapon_laser_beam = true;
             o.producer_id = Some(from_id);
             o.weapon_laser_beam_expires_frame = Some(expires);
-            o.health.maximum = WEAPON_LASER_BEAM_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 WEAPON_LASER_BEAM_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
         }
         let _ = to_id;
         self.weapon_laser_beams_spawned = self.weapon_laser_beams_spawned.saturating_add(1);
@@ -1469,12 +1469,12 @@ impl GameLogic {
             o.point_defense_laser_beam = true;
             o.producer_id = Some(carrier_id);
             o.point_defense_laser_beam_expires_frame = Some(expires);
-            o.health.maximum = PDL_LASER_BEAM_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 PDL_LASER_BEAM_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
         }
         self.weapon_lasers.push(ResidualWeaponLaser::new(
             beam_name,

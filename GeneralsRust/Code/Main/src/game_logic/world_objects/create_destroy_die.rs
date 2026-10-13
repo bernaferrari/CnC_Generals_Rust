@@ -864,7 +864,6 @@ impl GameLogic {
                     if count < STINGER_SPAWN_NUMBER as u8 && site.hive_slave_respawn_frame == 0 {
                         site.hive_slave_respawn_frame = next_stinger_slave_respawn_frame(frame, 0);
                     }
-                    site.record_host_hive();
                 }
             }
             let _ = count_alive_hive_slaves;
@@ -1335,10 +1334,11 @@ impl GameLogic {
             let counts_as_unit = Self::template_counts_as_unit(&template);
             let id = self.allocate_object_id();
             // Resolve weapons / locomotor before move into Object.
-            let weapon = template.resolve_primary_weapon();
-            let mine_clearing_primary_weapon = template.resolve_mine_clearing_primary_weapon();
-            let secondary_weapon = template.resolve_secondary_weapon();
-            let tertiary_weapon = template.resolve_tertiary_weapon();
+            let weapon = template.resolve_primary_weapon(self.frame);
+            let mine_clearing_primary_weapon =
+                template.resolve_mine_clearing_primary_weapon(self.frame);
+            let secondary_weapon = template.resolve_secondary_weapon(self.frame);
+            let tertiary_weapon = template.resolve_tertiary_weapon(self.frame);
             let movement_stats = template.resolve_movement();
             let loco_binding = template
                 .locomotor_name
@@ -1362,6 +1362,10 @@ impl GameLogic {
             }
             let mut object =
                 Object::new_with_initial_status(template, id, team, self.frame, initial_status);
+            object.bind_physics_rules(
+                self.physics_definitions.effective,
+                self.physics_definitions.base.gravity,
+            );
             object.attach_host_trigger_world(&self.host_trigger_world);
             object.owner_player_id = owner_player_id;
             if let Some(team_name) = initial_team {
@@ -1958,9 +1962,7 @@ impl GameLogic {
                 object.hive_slaves = roster;
                 let (slaves, slave_hp) = sync_hive_slave_mirrors(&roster);
                 object.hive_slave_count = slaves;
-                object.record_host_hive();
                 object.hive_slave_hp = slave_hp;
-                object.record_host_hive();
                 object.hive_slave_respawn_frame = 0;
                 if crate::game_logic::host_base_defense::stinger_site_spawn_is_detector(
                     template_name,

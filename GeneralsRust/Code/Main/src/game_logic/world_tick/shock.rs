@@ -1108,10 +1108,19 @@ impl GameLogic {
         let Some(victim) = self.objects.get(&victim_id) else {
             return;
         };
-        if victim.kill_experience_awarded {
+        if victim.is_alive() && victim.health.current > 0.0 && !victim.status.destroyed {
             return;
         }
-        if victim.is_alive() && victim.health.current > 0.0 && !victim.status.destroyed {
+        self.score_the_kill_experience(killer_id, victim_id);
+    }
+
+    /// Explicit CPP Object::scoreTheKill may precede Body death, as in
+    /// AIRappelState. Ordinary combat admission keeps its dead-victim gate.
+    pub(crate) fn score_the_kill_experience(&mut self, killer_id: ObjectId, victim_id: ObjectId) {
+        let Some(victim) = self.objects.get(&victim_id) else {
+            return;
+        };
+        if victim.kill_experience_awarded {
             return;
         }
         let xp = victim.kill_experience_value();

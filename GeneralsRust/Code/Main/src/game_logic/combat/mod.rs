@@ -17,3 +17,6 @@ include!("pending_snapshot.rs");
 
 #[cfg(test)]
 include!("tests.rs");
+
+#[cfg(test)]
+mod projectile_clock_owner_tests;

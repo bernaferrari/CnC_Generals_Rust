@@ -2911,6 +2911,13 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    // CPP VeterancyCrateCollide requires the receiving vehicle's authored
+    // IsTrainable fact; the generic TestTank fixture deliberately omits it.
+    game_logic
+        .templates
+        .get_mut("TestTank")
+        .expect("TestTank definition")
+        .is_trainable = true;
 
     game_logic
         .players

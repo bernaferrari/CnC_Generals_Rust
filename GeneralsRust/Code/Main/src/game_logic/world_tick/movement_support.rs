@@ -921,9 +921,8 @@ impl GameLogic {
                     // path advance, hover OVER_WATER, and arrival still run
                     // (hq-hq4t8).
                     let allow_2d_motive = obj.allow_motive_force_while_airborne
-                        || !Object::height_treats_as_airborne(
-                            obj.get_position().y - ground_y - deck_drop,
-                        );
+                        || !obj
+                            .height_treats_as_airborne(obj.get_position().y - ground_y - deck_drop);
                     if obj.is_rappelling() {
                         // C++ AIRappelState owns Z; handleBehaviorZ must not snap to Y=0.
                         Self::stamp_object_airborne_target(
@@ -1292,7 +1291,7 @@ impl GameLogic {
                                     & gamelogic::ai::pathfind_complete::SURFACE_AIR)
                                     != 0;
                                 if air
-                                    && Object::height_treats_as_airborne(
+                                    && obj.height_treats_as_airborne(
                                         current_pos.y - ground_y - deck_drop,
                                     )
                                 {

@@ -186,10 +186,10 @@ impl AIUpdateInterface for UnitAIUpdate {
         if machine.get_current_state_id() != previous {
             // Same callback as AIStateMachineDriver::set_state_with_ai, after
             // the actual terminal entry has completed synchronously.
-            crate::modules::ai_state_runtime::AiStateRuntime::set_queue_for_path_time(
+            crate::modules::ai_state_runtime::AiStateRuntime::set_queue_for_path_time_owned(
                 &mut runtime,
                 0,
-            );
+            )?;
         }
         Ok(())
     }
@@ -794,6 +794,24 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::set_queue_for_path_time(self, frames)
     }
 
+    fn set_queue_for_path_time_with_world(
+        &mut self,
+        frames: UnsignedInt,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_world_owner(world)
+            .map_err(|error| error.to_string())?;
+        let mut runtime = super::UnitAiStateRuntime {
+            runtime: &mut self.runtime,
+            parent_exists: self.ai_state_machine.is_some(),
+            parent_state_id: None,
+            world: Some(world),
+        };
+        crate::modules::ai_state_runtime::AiStateRuntime::set_queue_for_path_time_owned(
+            &mut runtime,
+            frames,
+        )
+    }
     fn ignore_obstacle(
         &mut self,
         obj_id: Option<ObjectID>,

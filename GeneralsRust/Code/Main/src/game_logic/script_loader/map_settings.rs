@@ -332,11 +332,28 @@ pub(crate) fn parse_map_settings_from_chunky_with_ai_data_from_source(
     definition_source: &str,
     production_energy: Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
 ) -> LoaderResult<MapMetadata> {
+    parse_map_settings_from_chunky_with_content_rules(
+        chunky,
+        draft,
+        definition_source,
+        production_energy,
+        None,
+    )
+}
+
+pub(crate) fn parse_map_settings_from_chunky_with_content_rules(
+    chunky: &ChunkyMap,
+    draft: std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    definition_source: &str,
+    production_energy: Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
+    physics_rules: Option<game_engine::common::ini::ini_game_data::PhysicsContentRules>,
+) -> LoaderResult<MapMetadata> {
     parse_map_settings_from_loaded_chunky(
         definition_source,
         chunky,
         MapMetadata {
             production_energy,
+            physics_rules,
             ..MapMetadata::default()
         },
         Some(draft),
@@ -414,6 +431,13 @@ fn parse_map_settings_from_loaded_chunky(
             if let Some((_, contents)) =
                 first_readable_map_ini_companion(dir, &["Map.ini", "map.ini"])
             {
+                if let Some(rules) = meta.physics_rules {
+                    meta.physics_rules = Some(
+                        rules
+                            .overlay_ini_text(&contents)
+                            .map_err(GameLogicError::Configuration)?,
+                    );
+                }
                 if let Some(rules) = meta.production_energy {
                     meta.production_energy = Some(
                         rules
@@ -477,6 +501,13 @@ fn parse_map_settings_from_loaded_chunky(
             if let Some((_, contents)) =
                 first_readable_map_ini_companion(dir, &["Solo.ini", "solo.ini"])
             {
+                if let Some(rules) = meta.physics_rules {
+                    meta.physics_rules = Some(
+                        rules
+                            .overlay_ini_text(&contents)
+                            .map_err(GameLogicError::Configuration)?,
+                    );
+                }
                 if let Some(rules) = meta.production_energy {
                     meta.production_energy = Some(
                         rules

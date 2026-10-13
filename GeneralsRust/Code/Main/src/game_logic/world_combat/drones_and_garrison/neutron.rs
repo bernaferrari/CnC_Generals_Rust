@@ -93,12 +93,12 @@ impl GameLogic {
             o.neutron_shell_launch_frame = Some(self.frame);
             o.neutron_shell_flight_frames = frames;
             o.note_producer(source_id);
-            o.health.maximum = NEUTRON_SHELL_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 NEUTRON_SHELL_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
             let dir = aim - start;
             o.set_orientation(dir.z.atan2(dir.x));
         }

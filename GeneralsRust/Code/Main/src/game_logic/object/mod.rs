@@ -374,6 +374,10 @@ fn default_adjust_destinations() -> bool {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Object {
+    /// Immutable definitions bound by the receiving factory/load candidate.
+    #[serde(skip, default = "crate::game_logic::physics_rules::default_host_physics_rules")]
+    pub(crate) physics_rules: crate::game_logic::physics_rules::PhysicsContentRules,
+
     /// Base Thing functionality
     // All pose mutation runs through Object operations; readers receive an immutable view.
     thing: Thing,
@@ -701,6 +705,10 @@ pub struct Object {
     /// C++ AIUpdate m_curLocomotor template name.
     #[serde(default)]
     pub cur_locomotor_name: Option<String>,
+    /// Immutable effective selected definition. Runtime template projections
+    /// and KindOf surface fallbacks cannot substitute for this owner.
+    #[serde(skip)]
+    pub(crate) selected_locomotor_definition: Option<crate::game_logic::locomotor_bootstrap::HostLocomotorBinding>,
     /// C++ AI panic state residual (AI_PANIC → bounce force allowed).
     #[serde(default)]
     pub is_panicking: bool,

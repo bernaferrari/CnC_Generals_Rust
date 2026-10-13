@@ -101,10 +101,11 @@ fn pose_physics_translation_notifies_own_trigger_before_census_case() {
     let (b, bid) = fixture(&area_b);
     assert_eq!(aid, bid, "same allocator-local identity in distinct owners");
     assert_eq!(trigger_pose(&a, aid), (90, 10));
+    let frame = a.frame;
     let position = {
         let (object, health_events) = a.host_object_and_health_events_mut(aid).unwrap();
         object.movement.velocity = Vec3::new(15.0, 0.0, 0.0);
-        let _ = object.tick_physics_motion_step(0.0, health_events);
+        let _ = object.tick_physics_motion_step(frame, 0.0, health_events);
         object.get_position()
     };
     assert!(

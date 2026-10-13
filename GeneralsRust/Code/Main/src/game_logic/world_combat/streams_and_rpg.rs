@@ -197,8 +197,10 @@ impl GameLogic {
             o.technical_cannon_shell_flight_frames = flight;
             o.technical_cannon_shell_intended = intended.map(|id| id.0);
             o.note_producer(source_id);
-            o.health.current = TECH_CANNON_SHELL_MAX_HEALTH;
-            o.health.maximum = TECH_CANNON_SHELL_MAX_HEALTH;
+            o.set_body_max_health_with_mode(
+                TECH_CANNON_SHELL_MAX_HEALTH,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
+            );
         }
         self.technical_cannon_shells_spawned =
             self.technical_cannon_shells_spawned.saturating_add(1);
@@ -1144,12 +1146,12 @@ impl GameLogic {
             o.rpg_trooper_missile_fuel_expires_frame =
                 Some(self.frame.saturating_add(RPG_MISSILE_FUEL_FRAMES));
             o.note_producer(source_id);
-            o.health.maximum = RPG_MISSILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 RPG_MISSILE_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
             o.movement.velocity = dir * launch;
             o.set_orientation(dir.z.atan2(dir.x));
         }
@@ -1668,12 +1670,12 @@ impl GameLogic {
                 Some(self.frame.saturating_add(MD_MISSILE_FUEL_FRAMES));
             o.missile_defender_missile_laser_slot = laser_slot;
             o.note_producer(source_id);
-            o.health.maximum = MD_MISSILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 MD_MISSILE_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
             o.movement.velocity = dir * launch;
             o.set_orientation(dir.z.atan2(dir.x));
         }

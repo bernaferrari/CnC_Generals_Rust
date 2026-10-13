@@ -885,8 +885,7 @@ impl GameLogic {
 
         // `RequiredKindOf`/`ForbiddenKindOf` are exact authored KindOf masks;
         // do not fall back to ObjectType, Worker, or a template basename.
-        let is_airborne_locomotor =
-            vehicle.is_kind_of(KindOf::Aircraft) || vehicle.status.airborne_target;
+        let is_airborne_locomotor = vehicle.selected_locomotor_is_airborne();
         let terrain_y = self
             .terrain_height_at(vehicle.get_position())
             .unwrap_or(0.0);
@@ -902,8 +901,7 @@ impl GameLogic {
         );
         recrewable
             && !significantly_above_terrain
-            // The compact host has no separate parsed IsTrainable record;
-            // its existing physical vehicle path is the bounded stand-in.
+            && vehicle.is_trainable()
             && vehicle_can_gain_exp_for_levels(
                 vehicle.experience.level,
                 pilot_levels_to_gain(pilot.experience.level),

@@ -379,7 +379,7 @@ fn avenger_air_laser_fallback_metadata_admits_aircraft_not_infantry() {
                 // Object::new owns runtime state; the factory separately binds
                 // the actual definition-selected weapon onto that state.
                 let weapon = shooter_template
-                    .resolve_primary_weapon()
+                    .resolve_primary_weapon(0)
                     .expect("actual seeded weapon binding");
                 let mut shooter = Object::new(shooter_template, ObjectId(801), Team::USA);
                 shooter.weapon = Some(weapon);
@@ -461,7 +461,7 @@ fn missile_defender_fallback_types_admit_temporary_locked_guided_vehicle_attack(
                 .add_kind_of(KindOf::Infantry)
                 .set_secondary_weapon_name(MISSILE_DEFENDER_LASER_GUIDED_WEAPON);
             let secondary = source_template
-                .resolve_secondary_weapon()
+                .resolve_secondary_weapon(0)
                 .expect("actual fallback binding");
             let mut source = Object::new(source_template, ObjectId(811), Team::USA);
             source.secondary_weapon = Some(secondary);

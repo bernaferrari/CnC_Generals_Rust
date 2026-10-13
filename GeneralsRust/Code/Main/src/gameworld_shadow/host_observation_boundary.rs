@@ -68,7 +68,6 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_fow_log::drain();
     let _ = crate::game_logic::host_ground_height_log::drain();
     let _ = crate::game_logic::host_hijacker_log::drain();
-    let _ = crate::game_logic::host_hive_log::drain();
 
     let _ = crate::game_logic::host_locomotor_log::drain();
     let _ = crate::game_logic::host_max_health_log::drain();
@@ -85,7 +84,6 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_production_progress_log::drain();
     let _ = crate::game_logic::host_projectile_log::drain();
 
-    let _ = crate::game_logic::host_rally_log::drain();
     let _ = crate::game_logic::host_rebuild_producer_log::drain();
 
     let _ = crate::game_logic::host_shock_stun_log::drain();

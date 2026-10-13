@@ -8,18 +8,19 @@ impl<'a> AIStateMachineDriver<'a> {
 
 impl AIStateMachineDriver<'_> {
     pub(crate) fn clear(&mut self) {
-        self.clear_impl(None);
+        // No runtime callback exists in the classic no-owner clear.
+        let _ = self.clear_impl(None);
     }
     pub(crate) fn clear_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
-    ) {
-        self.clear_impl(Some(ai));
+    ) -> Result<(), String> {
+        self.clear_impl(Some(ai))
     }
     fn clear_impl(
         &mut self,
         mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
-    ) {
+    ) -> Result<(), String> {
         // C++ AIStateMachine::clear() calls StateMachine::clear(), not reset().
         if let Some(ai) = ai.as_deref_mut() {
             self.base.clear_with_ai(ai);
@@ -34,10 +35,11 @@ impl AIStateMachineDriver<'_> {
         self.base.set_goal_squad(None);
         self.base.set_goal_polygon(None);
         if let Some(ai) = ai {
-            ai.set_queue_for_path_time(0);
+            ai.set_queue_for_path_time_owned(0)?;
         } else {
             self.notify_state_machine_changed();
         }
+        Ok(())
     }
     pub(crate) fn reset_to_default_state(&mut self) -> StateReturnType {
         let ret = self.base.reset_to_default_state();
@@ -67,7 +69,9 @@ impl AIStateMachineDriver<'_> {
         if old_id != Some(new_state_id) {
             // C++ AIStateMachine::setState calls onStateMachineChanged synchronously.
             // The caller already owns this AI, so do not try-lock the installed handle.
-            ai.set_queue_for_path_time(0);
+            if ai.set_queue_for_path_time_owned(0).is_err() {
+                return StateReturnType::Failure;
+            }
         }
 
         ret

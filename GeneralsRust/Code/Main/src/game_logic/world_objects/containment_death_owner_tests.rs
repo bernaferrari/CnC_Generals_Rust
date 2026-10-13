@@ -7,6 +7,15 @@ fn parsed_world(
     death_module: &str,
     percent: u32,
 ) -> (GameLogic, ObjectId, ObjectId) {
+    parsed_world_with_contain_attributes(container_module, death_module, percent, "")
+}
+
+fn parsed_world_with_contain_attributes(
+    container_module: &str,
+    death_module: &str,
+    percent: u32,
+    contain_attributes: &str,
+) -> (GameLogic, ObjectId, ObjectId) {
     let mut parser = crate::assets::IniParser::new();
     let input = format!(
         r#"
@@ -19,6 +28,7 @@ Object OwnedContainDeath
     Slots = 5
     DamagePercentToUnits = {percent}%
     AllowInsideKindOf = INFANTRY
+    {contain_attributes}
   End
   {death_module}
 End
@@ -94,12 +104,106 @@ End
 fn kill(owner: &mut GameLogic, id: ObjectId) {
     assert!(
         owner
-            .objects
-            .get_mut(&id)
+            .apply_owned_kill(
+                id,
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            )
             .unwrap()
-            .kill(&mut owner.health_events)
+            .destroyed()
     );
-    owner.mark_object_for_destruction(id, None);
+}
+
+#[test]
+fn authored_passenger_death_type_preserves_default_override_and_saved_continuation() {
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    for (attributes, expected) in [
+        ("", HostDeathType::Burned),
+        ("BurnedDeathToUnits = Yes", HostDeathType::Burned),
+        ("BurnedDeathToUnits = No", HostDeathType::Normal),
+    ] {
+        let (mut owner, container, rider) =
+            parsed_world_with_contain_attributes("TransportContain", "", 100, attributes);
+        let builder = crate::save_load::SnapshotBuilder::new();
+        let bytes =
+            bincode_legacy::serialize(&builder.create_world_snapshot(&owner).unwrap()).unwrap();
+        let saved = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        let (mut restored, _, _) =
+            parsed_world_with_contain_attributes("TransportContain", "", 100, attributes);
+        builder
+            .restore_from_snapshot(&saved, &mut restored)
+            .unwrap();
+        for receiving in [&mut owner, &mut restored] {
+            kill(receiving, container);
+            let passenger = receiving.host_object(rider).unwrap();
+            assert_eq!(passenger.health.current, 0.0);
+            assert_eq!(passenger.status.death_type, expected);
+            assert!(passenger.status.on_die_started);
+            assert!(
+                receiving
+                    .host_objects()
+                    .values()
+                    .any(|object| object.template_name == "OwnedRiderDeathWitness")
+            );
+        }
+    }
+}
+
+#[test]
+fn older_json_containment_definition_keeps_original_burned_default() {
+    let mut value = serde_json::to_value(ContainModuleMetadata::default()).unwrap();
+    value
+        .as_object_mut()
+        .unwrap()
+        .remove("burned_death_to_units");
+    let old: ContainModuleMetadata = serde_json::from_value(value).unwrap();
+    assert!(old.burned_death_to_units);
+}
+
+#[test]
+fn unfree_rider_kill_completes_receiving_callbacks_before_container_death_effect() {
+    let module = "Behavior = InstantDeathBehavior DeathTag\nOCL = OwnedContainerDeathWitness\nEnd";
+    let (mut owner, container, rider) = parsed_world("TransportContain", module, 0);
+    let (peer, peer_container, peer_rider) = parsed_world("TransportContain", module, 0);
+    assert_eq!((container, rider), (peer_container, peer_rider));
+    owner.frame = 42;
+    owner.host_object_mut(rider).unwrap().cur_locomotor_name = None;
+    kill(&mut owner, container);
+    let passenger = owner.host_object(rider).unwrap();
+    assert_eq!(passenger.health.current, 0.0);
+    assert_eq!(passenger.last_damage_timestamp, Some(42));
+    assert!(passenger.status.on_die_started);
+    assert_eq!(passenger.contained_by, None);
+    let witness = |name: &str| {
+        owner
+            .host_objects()
+            .values()
+            .find(|object| object.template_name == name)
+            .unwrap()
+            .id
+    };
+    assert!(witness("OwnedRiderDeathWitness").0 < witness("OwnedContainerDeathWitness").0);
+    assert_eq!(peer.host_object(rider).unwrap().health.current, 100.0);
+    assert!(!peer.host_object(container).unwrap().status.on_die_started);
+}
+
+#[test]
+fn unfree_rider_indestructible_kill_does_not_force_death_dispatch() {
+    let (mut owner, container, rider) = parsed_world("TransportContain", "", 0);
+    let passenger = owner.host_object_mut(rider).unwrap();
+    passenger.cur_locomotor_name = None;
+    passenger.indestructible = true;
+    kill(&mut owner, container);
+    let passenger = owner.host_object(rider).unwrap();
+    assert_eq!(passenger.health.current, 100.0);
+    assert!(!passenger.status.on_die_started);
+    assert_eq!(passenger.contained_by, None);
+    assert!(
+        !owner
+            .host_objects()
+            .values()
+            .any(|object| object.template_name == "OwnedRiderDeathWitness")
+    );
 }
 #[test]
 fn slow_death_observes_removed_damaged_rider_before_retained_owner_save_and_clone() {

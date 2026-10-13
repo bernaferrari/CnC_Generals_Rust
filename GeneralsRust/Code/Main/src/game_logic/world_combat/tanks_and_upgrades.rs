@@ -136,12 +136,12 @@ impl GameLogic {
             o.battlemaster_shell_flight_frames = frames;
             o.battlemaster_shell_intended = intended.map(|id| id.0);
             o.note_producer(source_id);
-            o.health.maximum = BM_SHELL_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 BM_SHELL_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
         }
         self.battlemaster_shells_spawned = self.battlemaster_shells_spawned.saturating_add(1);
         Some(pid)
@@ -914,12 +914,12 @@ impl GameLogic {
             o.tank_hunter_missile_fuel_expires_frame =
                 Some(self.frame.saturating_add(TANK_HUNTER_MISSILE_FUEL_FRAMES));
             o.note_producer(source_id);
-            o.health.maximum = TANK_HUNTER_MISSILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 TANK_HUNTER_MISSILE_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
             o.movement.velocity = dir * launch;
             o.set_orientation(dir.z.atan2(dir.x));
         }
@@ -1306,12 +1306,12 @@ impl GameLogic {
             o.flashbang_grenade_flight_frames = frames;
             o.flashbang_grenade_intended = intended.map(|id| id.0);
             o.note_producer(source_id);
-            o.health.maximum = FLASHBANG_GRENADE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 FLASHBANG_GRENADE_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
         }
         self.flashbang_grenades_spawned = self.flashbang_grenades_spawned.saturating_add(1);
         Some(pid)
@@ -1678,8 +1678,10 @@ impl GameLogic {
             o.dragon_flame_ignition_frame = Some(ignites);
             o.dragon_flame_shooter = Some(source_id.0);
             o.note_producer(source_id);
-            o.health.current = DRAGON_FLAME_MISSILE_MAX_HEALTH;
-            o.health.maximum = DRAGON_FLAME_MISSILE_MAX_HEALTH;
+            o.set_body_max_health_with_mode(
+                DRAGON_FLAME_MISSILE_MAX_HEALTH,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
+            );
         }
         // Seed stream with launch point residual.
         self.projectile_streams.add_projectile(
@@ -2037,8 +2039,10 @@ impl GameLogic {
             o.technical_rpg_missile_fuel_expires_frame = Some(expires);
             o.technical_rpg_missile_ignition_frame = Some(ignites);
             o.note_producer(source_id);
-            o.health.current = TECH_RPG_MISSILE_MAX_HEALTH;
-            o.health.maximum = TECH_RPG_MISSILE_MAX_HEALTH;
+            o.set_body_max_health_with_mode(
+                TECH_RPG_MISSILE_MAX_HEALTH,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
+            );
         }
         self.technical_rpg_missiles_spawned = self.technical_rpg_missiles_spawned.saturating_add(1);
         Some(pid)

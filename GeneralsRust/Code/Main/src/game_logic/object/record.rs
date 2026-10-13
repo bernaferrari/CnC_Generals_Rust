@@ -454,14 +454,6 @@ impl Object {
         }
     }
 
-    pub fn record_host_hive(&self) {
-        crate::game_logic::host_hive_log::record(
-            self.id,
-            self.hive_slave_count,
-            self.hive_slave_hp,
-        );
-    }
-
     pub fn set_overcharge_enabled(&mut self, enabled: bool) {
         if self.overcharge_enabled != enabled {
             self.overcharge_enabled = enabled;

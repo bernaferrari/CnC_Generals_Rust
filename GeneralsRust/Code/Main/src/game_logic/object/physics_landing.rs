@@ -1,11 +1,38 @@
 //! PhysicsUpdate landing Body effects, bounce and stunned destruction.
-use super::physics::leftover_ground_stiffness;
 use super::*;
+
+#[cfg(test)]
+mod supplied_fixture_clock_tests {
+    use super::*;
+
+    #[test]
+    fn resting_death_uses_supplied_frame_without_retiming_same_id_peer() {
+        fn body() -> Object {
+            let mut template = ThingTemplate::new("SuppliedRestingBody");
+            template.set_health(100.0).add_kind_of(KindOf::Vehicle);
+            let mut object = Object::new(template, ObjectId(7), Team::USA);
+            object.kill_when_resting_on_ground = true;
+            object
+        }
+        let mut owner = body();
+        let mut peer = body();
+        let mut owner_events = crate::game_logic::HostHealthEvents::default();
+        let mut peer_events = crate::game_logic::HostHealthEvents::default();
+        assert!(peer.maybe_kill_when_resting_on_ground(900, &mut peer_events));
+        assert_eq!(owner.health.current, 100.0);
+        assert_eq!(owner.last_damage_timestamp, None);
+        assert!(owner.maybe_kill_when_resting_on_ground(501, &mut owner_events));
+        assert_eq!(owner.health.current, 0.0);
+        assert_eq!(owner.last_damage_timestamp, Some(501));
+        assert_eq!(peer.last_damage_timestamp, Some(900));
+    }
+}
 
 impl Object {
     #[cfg(test)]
     pub fn maybe_kill_when_resting_on_ground(
         &mut self,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         let mut ignored = |_| {};
@@ -13,7 +40,7 @@ impl Object {
         let sources = super::PhysicsDamageSources::default();
         let mut services = super::PhysicsDamageServices {
             sources: &sources,
-            frame: crate::game_logic::host_historic_bonus::logic_frame(),
+            frame,
             health_events,
             repulsors: &repulsors,
             player_effects: &mut ignored,
@@ -74,6 +101,7 @@ impl Object {
     #[cfg(test)]
     pub fn apply_shock_fall_damage(
         &mut self,
+        frame: u32,
         impact_vy: f32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> f32 {
@@ -82,7 +110,7 @@ impl Object {
         let sources = super::PhysicsDamageSources::default();
         let mut services = super::PhysicsDamageServices {
             sources: &sources,
-            frame: crate::game_logic::host_historic_bonus::logic_frame(),
+            frame,
             health_events,
             repulsors: &repulsors,
             player_effects: &mut ignored,
@@ -100,7 +128,7 @@ impl Object {
         }
         // Leftover/C++: netSpeed = -activeVelZ - height_to_speed(minFallHeight).
         // Host Y-up. Compare leftover default ~2.385, not live sqrt(80).
-        let min_fall = Self::leftover_compare_min_fall_speed(self.min_fall_speed_for_damage);
+        let min_fall = self.fall_damage_speed_threshold(self.min_fall_speed_for_damage);
         let net_speed = (-impact_vy) - min_fall;
         if net_speed <= 0.0 {
             return 0.0;
@@ -168,6 +196,7 @@ impl Object {
     #[cfg(test)]
     pub fn handle_shock_ground_bounce(
         &mut self,
+        frame: u32,
         old_y: f32,
         new_y: f32,
         ground_y: f32,
@@ -178,7 +207,7 @@ impl Object {
         let sources = super::PhysicsDamageSources::default();
         let mut services = super::PhysicsDamageServices {
             sources: &sources,
-            frame: crate::game_logic::host_historic_bonus::logic_frame(),
+            frame,
             health_events,
             repulsors: &repulsors,
             player_effects: &mut ignored,
@@ -199,7 +228,7 @@ impl Object {
         let mut bounce_vy = 0.0;
         let vy = self.movement.velocity.y;
         if old_y > ground_y && vy < 0.0 {
-            let stiffness = leftover_ground_stiffness();
+            let stiffness = self.physics_ground_stiffness();
             // C++ desiredAccelZ = fabs(vz)*stiffness; mass≈1 → velocity kick.
             bounce_vy = vy.abs() * stiffness;
         }
@@ -232,6 +261,7 @@ impl Object {
     #[cfg(test)]
     pub fn test_stunned_unit_for_destruction(
         &mut self,
+        frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         let mut ignored = |_| {};
@@ -239,7 +269,7 @@ impl Object {
         let sources = super::PhysicsDamageSources::default();
         let mut services = super::PhysicsDamageServices {
             sources: &sources,
-            frame: crate::game_logic::host_historic_bonus::logic_frame(),
+            frame,
             health_events,
             repulsors: &repulsors,
             player_effects: &mut ignored,

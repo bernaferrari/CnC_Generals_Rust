@@ -10011,13 +10011,19 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
+            "unreviewed_symbol_ownership",
+            "unreviewed_source_range_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/physics_rules.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/INI/INIGameData.cpp",
@@ -189502,7 +189508,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "43411565c923f8690a471bef55c0f9c4f2542537ae6374587ea2327e3b4c935f",
+  "provenance_input_digest": "9beeeddff7932316dbc52e97ac17b3dd0825a665e8881ea3b5dd44b0536f3f58",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

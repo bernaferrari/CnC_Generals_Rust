@@ -437,6 +437,9 @@ pub struct ThingTemplate {
     /// C++ PhysicsBehaviorModuleData::m_killWhenRestingOnGround.
     #[serde(default)]
     pub kill_when_resting_on_ground: bool,
+    /// Authored height used to resolve the receiving Physics module definition.
+    #[serde(skip, default = "default_template_min_fall_height")]
+    pub min_fall_height_for_damage: Option<f32>,
     /// C++ m_minFallSpeedForDamage after parseHeightToSpeed.
     #[serde(default = "default_template_min_fall_speed")]
     pub min_fall_speed_for_damage: f32,
@@ -679,6 +682,7 @@ impl ThingTemplate {
             allow_bouncing: false,
             allow_collide_force: true,
             kill_when_resting_on_ground: false,
+            min_fall_height_for_damage: Some(40.0),
             min_fall_speed_for_damage: default_template_min_fall_speed(),
             fall_height_damage_factor: 1.0,
             crusher_level: 0,
@@ -971,7 +975,7 @@ impl ThingTemplate {
     /// 1) explicit host stats, 2) WeaponStore by primary_weapon_name,
     /// 3) host residual map by template name (`primary_weapon_name_for_unit`),
     /// 4) kind-based default fallback (fail-open last resort for Attackable kinds).
-    pub fn resolve_primary_weapon(&self) -> Option<Weapon> {
+    pub fn resolve_primary_weapon(&self, frame: u32) -> Option<Weapon> {
         if let Some(w) = &self.primary_weapon {
             return Some(w.clone());
         }
@@ -979,7 +983,7 @@ impl ThingTemplate {
             // Host residual: unit tests / early create often have an empty store
             // (no AssetManager archive load). Bootstrap seeds known weapons or
             // loads extracted Weapon.ini when present — see weapon_bootstrap.rs.
-            if let Some(w) = Self::weapon_from_host_store(name) {
+            if let Some(w) = Self::weapon_from_host_store_at(name, frame) {
                 return Some(w);
             }
         }
@@ -993,7 +997,7 @@ impl ThingTemplate {
         // setup_templates gaps) but have a known retail weapon for the unit name.
         // Prefer store residual over kind-based Weapon::default().
         if let Some(wname) = super::weapon_bootstrap::primary_weapon_name_for_unit(&self.name) {
-            if let Some(w) = Self::weapon_from_host_store(wname) {
+            if let Some(w) = Self::weapon_from_host_store_at(wname, frame) {
                 return Some(w);
             }
         }
@@ -1020,18 +1024,18 @@ impl ThingTemplate {
     /// 1) explicit host stats, 2) WeaponStore by secondary_weapon_name,
     /// 3) host residual map by template name (`secondary_weapon_name_for_unit`).
     /// No kind-based `Weapon::default()` fallback — units without SECONDARY stay unarmed there.
-    pub fn resolve_secondary_weapon(&self) -> Option<Weapon> {
+    pub fn resolve_secondary_weapon(&self, frame: u32) -> Option<Weapon> {
         if let Some(w) = &self.secondary_weapon {
             return Some(w.clone());
         }
         if let Some(name) = self.secondary_weapon_name.as_deref() {
-            if let Some(w) = Self::weapon_from_host_store(name) {
+            if let Some(w) = Self::weapon_from_host_store_at(name, frame) {
                 return Some(w);
             }
         }
         // Host residual map: secondary slot by unit template name when not set.
         if let Some(wname) = super::weapon_bootstrap::secondary_weapon_name_for_unit(&self.name) {
-            if let Some(w) = Self::weapon_from_host_store(wname) {
+            if let Some(w) = Self::weapon_from_host_store_at(wname, frame) {
                 return Some(w);
             }
         }
@@ -1043,12 +1047,12 @@ impl ThingTemplate {
     /// TERTIARY has no template-name or KindOf fallback: it is generally a
     /// manual/conditional WeaponSet slot, so inventing one would turn an
     /// unavailable ability into a primary shot.
-    pub fn resolve_tertiary_weapon(&self) -> Option<Weapon> {
+    pub fn resolve_tertiary_weapon(&self, frame: u32) -> Option<Weapon> {
         if let Some(w) = &self.tertiary_weapon {
             return Some(w.clone());
         }
         if let Some(name) = self.tertiary_weapon_name.as_deref() {
-            return Self::weapon_from_host_store(name);
+            return Self::weapon_from_host_store_at(name, frame);
         }
         None
     }
@@ -1056,12 +1060,12 @@ impl ThingTemplate {
     /// Resolve the exact supported `MINE_CLEARING_DETAIL` primary. Unlike the
     /// ordinary primary there is intentionally no template-name or KindOf
     /// fallback: an untyped unit may not acquire mine-clearing authority.
-    pub fn resolve_mine_clearing_primary_weapon(&self) -> Option<Weapon> {
+    pub fn resolve_mine_clearing_primary_weapon(&self, frame: u32) -> Option<Weapon> {
         if let Some(weapon) = &self.mine_clearing_primary_weapon {
             return Some(weapon.clone());
         }
         let name = self.mine_clearing_primary_weapon_name.as_deref()?;
-        Self::weapon_from_host_store(name)
+        Self::weapon_from_host_store_at(name, frame)
     }
 
     /// Convert a gamelogic WeaponStore template into Main host Weapon stats.
@@ -1081,6 +1085,24 @@ impl ThingTemplate {
         })
         .ok()??;
         Self::weapon_from_template(&template)
+    }
+
+    fn weapon_from_host_store_at(name: &str, frame: u32) -> Option<Weapon> {
+        let template = super::weapon_bootstrap::with_host_weapon_store(|store| {
+            store.find_weapon_template(name).cloned()
+        })
+        .ok()??;
+        Self::weapon_from_template_at(&template, frame)
+    }
+
+    fn weapon_from_template_at(
+        template: &gamelogic::weapon::WeaponTemplate,
+        frame: u32,
+    ) -> Option<Weapon> {
+        let mut weapon = Self::weapon_from_template(template)?;
+        // CPP Weapon.cpp1742: initialize only an actually installed Weapon.
+        weapon.suspend_fx_frame = frame.wrapping_add(template.suspend_fx_delay);
+        Some(weapon)
     }
 
     fn weapon_from_template(wt: &gamelogic::weapon::WeaponTemplate) -> Option<Weapon> {
@@ -1113,8 +1135,7 @@ impl ThingTemplate {
         } else {
             wt.weapon_speed
         };
-        let suspend_fx_frame = crate::game_logic::host_historic_bonus::logic_frame()
-            .saturating_add(wt.suspend_fx_delay);
+        let suspend_fx_frame = 0; // Immutable stat lookup has no installed owner deadline.
         // Keep authored range values, as WeaponTemplate does in C++.
         // Runtime applies RANGE first, then one quarter-cell deduction
         // (Weapon.cpp:437-462); pre-reducing here would deduct twice and
@@ -1391,4 +1412,38 @@ impl ThingTemplate {
             format!("{}.w3d", model_name)
         }
     }
+}
+
+#[cfg(test)]
+mod weapon_install_clock_tests {
+    use super::*;
+    #[test]
+    fn authored_suspend_delay_wraps_at_actual_install_but_lookup_is_inert() {
+        let mut definition = gamelogic::weapon::WeaponTemplate::new("OwnedSuspendDelay".into());
+        definition.primary_damage = 10.0;
+        definition.attack_range = 100.0;
+        definition.suspend_fx_delay = 10;
+        assert_eq!(
+            ThingTemplate::weapon_from_template(&definition)
+                .unwrap()
+                .suspend_fx_frame,
+            0
+        );
+        assert_eq!(
+            ThingTemplate::weapon_from_template_at(&definition, 100)
+                .unwrap()
+                .suspend_fx_frame,
+            110
+        );
+        assert_eq!(
+            ThingTemplate::weapon_from_template_at(&definition, u32::MAX - 2)
+                .unwrap()
+                .suspend_fx_frame,
+            7
+        );
+    }
+}
+
+fn default_template_min_fall_height() -> Option<f32> {
+    Some(40.0)
 }

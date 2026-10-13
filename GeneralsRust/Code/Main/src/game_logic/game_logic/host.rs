@@ -19,6 +19,7 @@ pub struct GameLogic {
         crate::game_logic::game_logic::world_objects::radar_live::HostRadarMapState,
     /// CPP GameLogic ctor/reset/Xfer: scoring permission belongs to this match.
     pub(super) is_scoring_enabled: bool,
+    pub(crate) physics_definitions: crate::game_logic::physics_rules::PhysicsDefinitions,
     pub(crate) production_energy: crate::game_logic::production_energy::ProductionEnergyDefinitions,
     /// Ordered movement observations and completed frame output for this match.
     pub(crate) eva_announcements: crate::game_logic::host_eva_log::HostEvaAnnouncements,

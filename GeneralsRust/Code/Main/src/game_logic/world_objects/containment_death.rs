@@ -341,6 +341,16 @@ impl GameLogic {
         }
         let riders = container.contained_units();
         let damage_percentage = damage_percent_to_units_from_ini(container);
+        let passenger_death_type = if container
+            .thing()
+            .template
+            .contain_module
+            .burned_death_to_units
+        {
+            crate::game_logic::host_usa_pilot::HostDeathType::Burned
+        } else {
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal
+        };
         let container_team = container.team;
         let kill_unfree = transport_contain_kills_unfree_riders(container);
         let destroy_unfree = container
@@ -352,7 +362,7 @@ impl GameLogic {
         for id in &riders {
             let mut died = false;
             if damage_percentage > 0.0 {
-                if let Some(rider) = self.objects.get_mut(id) {
+                if let Some(rider) = self.objects.get(id) {
                     let damage = rider.max_health * damage_percentage;
                     let receiving_damage_id = rider.id;
                     died = self.apply_residual_damage_owned(
@@ -360,15 +370,20 @@ impl GameLogic {
                         damage,
                         Some(container_id),
                         crate::game_logic::combat::DamageType::Unresistable,
-                        crate::game_logic::host_usa_pilot::HostDeathType::Burned,
+                        passenger_death_type,
                         None,
                     );
-                    let rider = self
-                        .objects
-                        .get_mut(&receiving_damage_id)
-                        .expect("bounded residual victim remains installed");
-                    if !died && damage_percentage == 1.0 && rider.is_alive() {
-                        died = rider.kill(&mut self.health_events);
+                    if !died
+                        && damage_percentage == 1.0
+                        && self.objects.get(id).is_some_and(Object::is_alive)
+                    {
+                        died = self
+                            .apply_owned_kill(
+                                *id,
+                                crate::game_logic::combat::DamageType::Unresistable,
+                                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                            )
+                            .is_some_and(|result| result.destroyed());
                     }
                 }
             }
@@ -395,10 +410,11 @@ impl GameLogic {
                     self.destroy_object(id);
                     continue;
                 }
-                if let Some(rider) = self.objects.get_mut(&id) {
-                    rider.kill(&mut self.health_events);
-                }
-                self.mark_object_for_destruction(id, None);
+                self.apply_owned_kill(
+                    id,
+                    crate::game_logic::combat::DamageType::Unresistable,
+                    crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                );
             }
         }
         for id in riders {

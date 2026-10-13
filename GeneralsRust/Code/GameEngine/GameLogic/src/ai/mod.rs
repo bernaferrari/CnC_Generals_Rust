@@ -3279,14 +3279,16 @@ mod tests {
             .find("pub fn valid_movement_terrain")
             .map(|o| i + o)
             .unwrap_or(prod.len().min(i + 5000));
-        let w = &prod[i..end];
+        let w = include_str!("pathfinder_attack_view.rs");
+        let adapter = &prod[i..end];
+        assert!(adapter.contains("is_attack_view_blocked_with_observations"));
         assert!(
             w.contains("AttackNeedsLineOfSight")
-                && w.contains("attack_uses_line_of_sight")
+                && adapter.contains("attack_uses_line_of_sight")
                 && w.contains("iterate_cells_along_line_world")
                 && w.contains("PathfindCellType::Obstacle")
-                && w.contains("is_view_blocked_by_obstacle")
-                && w.contains("is_attack_view_blocked_by_obstacle"),
+                && adapter.contains("is_view_blocked_by_obstacle")
+                && adapter.contains("is_attack_view_blocked_by_obstacle"),
             "isAttackViewBlockedByObstacle must gate LOS kindof + obstacle Bresenham like C++"
         );
     }
@@ -3298,13 +3300,15 @@ mod tests {
         let i = prod
             .find("pub fn is_attack_view_blocked_by_obstacle")
             .expect("isAttackViewBlocked");
-        let w = &prod[i..prod.len().min(i + 5000)];
+        let adapter = &prod[i..prod.len().min(i + 5000)];
+        assert!(adapter.contains("is_attack_view_blocked_with_observations"));
+        let w = include_str!("pathfinder_attack_view.rs");
         assert!(
             w.contains("victim_cell_obstacle") && w.contains("skip_count = 3"),
             "attack LOS must skipCount=3 off-ground and ignore victimCell obstacle"
         );
         assert!(
-            w.contains("is_clear_goal_firing_line_of_sight_terrain"),
+            adapter.contains("is_clear_goal_firing_line_of_sight_terrain"),
             "attack LOS must use Weapon::isClearGoalFiringLineOfSightTerrain"
         );
     }

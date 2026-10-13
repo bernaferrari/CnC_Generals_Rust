@@ -1727,7 +1727,7 @@ impl GameLogic {
         true
     }
 
-    /// Wave 233: set building rally point + host_rally_log.
+    /// Set the canonical building rally point at the receiving command phase.
     pub fn unit_command_set_rally_point(&mut self, id: ObjectId, location: glam::Vec3) -> bool {
         let Some(obj) = self.objects.get(&id) else {
             return false;
@@ -1759,7 +1759,6 @@ impl GameLogic {
             return false;
         };
         building.rally_point = Some(location);
-        crate::game_logic::host_rally_log::record(id, Some([location.x, location.y, location.z]));
         #[cfg(feature = "game_client")]
         {
             let formatted = format_rally_point_set_message(

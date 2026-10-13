@@ -2201,7 +2201,8 @@ impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
         data.waiting_for_path = true;
         data.ignore_obstacle_id = victim;
         if data.path_timestamp > now.saturating_sub(3) {
-            data.queue_for_path_frame = now.saturating_add(LOGICFRAMES_PER_SECOND * 2);
+            world.shorten_ai_queue_wake(self.runtime.unit_id, LOGICFRAMES_PER_SECOND * 2)?;
+            data.queue_for_path_frame = now.wrapping_add(LOGICFRAMES_PER_SECOND * 2);
             self.runtime.set_locomotor_goal_none();
             return Ok(());
         }
@@ -2327,6 +2328,24 @@ impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
             None => self.runtime.set_queue_for_path_time(frames),
         }
     }
+    fn set_queue_for_path_time_owned(&mut self, frames: UnsignedInt) -> Result<(), String> {
+        if let Some(world) = self.world.as_deref_mut() {
+            let owner = self
+                .runtime
+                .owner_object_id()
+                .ok_or("queue-path AI has no owner")?;
+            world.shorten_ai_queue_wake(owner, frames)?;
+            self.runtime.data.queue_for_path_frame = if frames == 0 {
+                0
+            } else {
+                world.frame().wrapping_add(frames)
+            };
+            Ok(())
+        } else {
+            self.runtime.set_queue_for_path_time(frames);
+            Ok(())
+        }
+    }
     fn is_temporarily_preventing_aim_success(&self) -> bool {
         self.runtime.is_temporarily_preventing_aim_success()
     }
@@ -2420,7 +2439,8 @@ impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
         }
         self.runtime.data.waiting_for_path = true;
         if self.runtime.data.path_timestamp > now.saturating_sub(3) {
-            self.runtime.data.queue_for_path_frame = now.saturating_add(LOGICFRAMES_PER_SECOND);
+            world.shorten_ai_queue_wake(self.runtime.unit_id, LOGICFRAMES_PER_SECOND)?;
+            self.runtime.data.queue_for_path_frame = now.wrapping_add(LOGICFRAMES_PER_SECOND);
             if self.runtime.data.blocked_and_stuck {
                 self.runtime.data.ignore_collisions_until =
                     now.saturating_add(LOGICFRAMES_PER_SECOND * 2);

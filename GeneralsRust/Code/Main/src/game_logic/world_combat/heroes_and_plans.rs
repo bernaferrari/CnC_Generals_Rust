@@ -1758,8 +1758,10 @@ impl GameLogic {
             o.cleanup_stream_shooter = Some(source_id.0);
             o.cleanup_stream_player_id = player_id;
             o.note_producer(source_id);
-            o.health.current = CLEANUP_STREAM_MISSILE_MAX_HEALTH;
-            o.health.maximum = CLEANUP_STREAM_MISSILE_MAX_HEALTH;
+            o.set_body_max_health_with_mode(
+                CLEANUP_STREAM_MISSILE_MAX_HEALTH,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
+            );
         }
         self.projectile_streams.add_projectile(
             source_id,
@@ -1917,8 +1919,10 @@ impl GameLogic {
             o.angry_mob_projectile_flight_frames = flight;
             o.angry_mob_projectile_intended = intended.map(|id| id.0);
             o.note_producer(source_id);
-            o.health.current = ANGRY_MOB_PROJ_MAX_HEALTH;
-            o.health.maximum = ANGRY_MOB_PROJ_MAX_HEALTH;
+            o.set_body_max_health_with_mode(
+                ANGRY_MOB_PROJ_MAX_HEALTH,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
+            );
         }
         self.angry_mob_projectiles_spawned = self.angry_mob_projectiles_spawned.saturating_add(1);
         Some(pid)

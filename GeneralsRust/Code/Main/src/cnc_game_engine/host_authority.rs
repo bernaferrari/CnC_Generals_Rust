@@ -1412,6 +1412,7 @@ impl CnCGameEngine {
         template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
+        physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
         live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
     ) -> Result<StagedRestoreWorld, String> {
         // A previous aborted decode cannot lend its client chunk to this save.
@@ -1430,6 +1431,7 @@ impl CnCGameEngine {
             template_catalog,
             ai_definition_base,
             production_energy_base,
+            physics_rules_base,
             live_services,
             |snapshot, staged| {
                 save_file_manager
@@ -1454,6 +1456,7 @@ impl CnCGameEngine {
         template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
+        physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
         live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
         restore_snapshot: F,
     ) -> Result<StagedRestoreWorld, String>
@@ -1502,6 +1505,7 @@ impl CnCGameEngine {
         let mut staged = crate::game_logic::GameLogic::new();
         staged.set_ai_definition_base(ai_definition_base.clone());
         staged.admit_production_energy_base(production_energy_base);
+        staged.admit_physics_rules_base(physics_rules_base)?;
         staged.start_new_game_for_restore(mode);
         // Map object restoration needs the live INI/template catalog.  Keep
         // custom/mod templates from the source match while retaining the fresh
@@ -1588,6 +1592,7 @@ impl CnCGameEngine {
             &template_catalog,
             self.game_logic.ai_definitions.baseline(),
             self.game_logic.production_energy_baseline(),
+            self.game_logic.physics_rules_baseline(),
             &self.game_logic.world_services,
         ) {
             Ok(staged) => staged,
@@ -2017,7 +2022,6 @@ mod staged_restore_tests {
         );
         crate::game_logic::host_demo_mine_cheer_log::record(object, true, true, 14.0);
 
-        crate::game_logic::host_hive_log::record(object, 18, 19.0);
         crate::game_logic::host_weapon_set_log::record(object, true, false);
 
         crate::game_logic::host_stored_supplies_log::record(object, 26);
@@ -2207,6 +2211,7 @@ mod staged_restore_tests {
             &catalog,
             source.ai_definitions.baseline(),
             source.production_energy_baseline(),
+            source.physics_rules_baseline(),
             &source.world_services,
         ) {
             Ok(_) => panic!("missing saved map must reject before a false InGame restore"),
@@ -2243,6 +2248,7 @@ mod staged_restore_tests {
                     &catalog,
                     logic.ai_definitions.baseline(),
                     logic.production_energy_baseline(),
+                    logic.physics_rules_baseline(),
                     &logic.world_services,
                     |_snapshot, _staged| {
                         panic!("invalid client chunk must fail before stage restore")
@@ -2345,6 +2351,7 @@ mod staged_restore_tests {
                     &catalog,
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
+                    source.physics_rules_baseline(),
                     &source.world_services,
                 )
                 .expect("saved map should load before restore");
@@ -2596,6 +2603,7 @@ mod staged_restore_tests {
                     &catalog,
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
+                    source.physics_rules_baseline(),
                     &source.world_services,
                     |_snapshot, staged| {
                         assert!(staged.isInGame(), "failure is injected after map load");
@@ -2874,6 +2882,7 @@ mod staged_restore_tests {
                             &catalog,
                             source.ai_definitions.baseline(),
                             source.production_energy_baseline(),
+                            source.physics_rules_baseline(),
                             &source.world_services,
                             |snapshot, candidate| {
                                 saves
@@ -3104,6 +3113,7 @@ mod staged_restore_tests {
                     &catalog,
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
+                    source.physics_rules_baseline(),
                     &source.world_services,
                 )
                 .expect("stage RNG continuation save");
@@ -3361,6 +3371,7 @@ mod staged_restore_tests {
                         &catalog,
                         source.ai_definitions.baseline(),
                         source.production_energy_baseline(),
+                        source.physics_rules_baseline(),
                         &source.world_services,
                         |_, candidate| {
                             assert!(candidate.isInGame());
@@ -3396,6 +3407,7 @@ mod staged_restore_tests {
                         &catalog,
                         source.ai_definitions.baseline(),
                         source.production_energy_baseline(),
+                        source.physics_rules_baseline(),
                         &source.world_services,
                     )
                     .expect("successful native owned-service staging");

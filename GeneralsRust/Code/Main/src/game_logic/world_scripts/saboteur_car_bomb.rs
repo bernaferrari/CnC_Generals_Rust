@@ -212,7 +212,7 @@ impl GameLogic {
                 // RequiredKindOf/ForbiddenKindOf use the authored KindOf
                 // bank, not an ObjectType or basename approximation.
                 let is_vehicle = vehicle.is_kind_of(KindOf::Vehicle);
-                let is_air = vehicle.is_kind_of(KindOf::Aircraft) || vehicle.status.airborne_target;
+                let is_air = vehicle.selected_locomotor_is_airborne();
                 let under_construction =
                     vehicle.status.under_construction || vehicle.construction_percent + 0.001 < 1.0;
                 let is_dozer = vehicle.is_kind_of(KindOf::Dozer);
@@ -237,7 +237,7 @@ impl GameLogic {
                         vpos.y - terrain_y,
                     );
                 let airborne_locomotor = is_air;
-                let is_trainable = is_vehicle && !is_air;
+                let is_trainable = vehicle.is_trainable();
                 let can_gain =
                     vehicle_can_gain_exp_for_levels(vehicle.experience.level, levels_to_gain);
                 let collide_ok = pilot_collide_would_like_to_collide_with(
@@ -1125,9 +1125,7 @@ impl GameLogic {
                 );
                 let (new_count, new_hp) = sync_hive_slave_mirrors(&obj.hive_slaves);
                 obj.hive_slave_count = new_count;
-                obj.record_host_hive();
                 obj.hive_slave_hp = new_hp;
-                obj.record_host_hive();
                 if result.slaves_killed > 0 {
                     obj.hive_slave_respawn_frame =
                         next_stinger_slave_respawn_frame(frame, respawn_frame);
@@ -1284,9 +1282,7 @@ impl GameLogic {
             if respawn_one_hive_slave(&mut obj.hive_slaves) {
                 let (c, h) = sync_hive_slave_mirrors(&obj.hive_slaves);
                 obj.hive_slave_count = c;
-                obj.record_host_hive();
                 obj.hive_slave_hp = h;
-                obj.record_host_hive();
             } else {
                 // Count-only fallback residual.
                 obj.hive_slave_count = obj
@@ -1295,7 +1291,6 @@ impl GameLogic {
                     .min(STINGER_SPAWN_NUMBER as u8);
                 if obj.hive_slave_count == 1 {
                     obj.hive_slave_hp = STINGER_SOLDIER_MAX_HEALTH;
-                    obj.record_host_hive();
                 }
             }
             respawned = respawned.saturating_add(1);

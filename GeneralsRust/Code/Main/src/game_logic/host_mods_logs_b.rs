@@ -35,9 +35,6 @@ pub mod host_heal_log;
 #[path = "host_hijacker_log.rs"]
 pub mod host_hijacker_log;
 
-#[path = "host_hive_log.rs"]
-pub mod host_hive_log;
-
 #[path = "host_leaflet_b52_drop_log.rs"]
 pub mod host_leaflet_b52_drop_log;
 

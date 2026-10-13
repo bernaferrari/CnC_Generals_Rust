@@ -410,7 +410,7 @@ impl UnitAiStateRuntime<'_, '_> {
                     } else {
                         let mut params = command.clone();
                         params.pos = clipped;
-                        machine.clear_with_ai(self);
+                        machine.clear_with_ai(self)?;
                         self.runtime.data.blocked_frames = 0;
                         self.runtime.data.is_blocked = false;
                         self.runtime.data.blocked_and_stuck = false;
@@ -431,7 +431,7 @@ impl UnitAiStateRuntime<'_, '_> {
 
                     let mut params = command.clone();
                     params.pos = clipped;
-                    machine.clear_with_ai(self);
+                    machine.clear_with_ai(self)?;
                     machine.ai_do_command_with_ai(&params, self)?;
                     return Ok(());
                 }
@@ -444,7 +444,7 @@ impl UnitAiStateRuntime<'_, '_> {
                     return Ok(());
                 }
 
-                machine.clear_with_ai(self);
+                machine.clear_with_ai(self)?;
                 self.runtime.data.blocked_frames = 0;
                 self.runtime.data.is_blocked = false;
                 self.runtime.data.blocked_and_stuck = false;
@@ -527,7 +527,7 @@ impl UnitAiStateRuntime<'_, '_> {
                 {
                     let mut machine = &mut *native_driver;
 
-                    machine.clear_with_ai(self);
+                    machine.clear_with_ai(self)?;
                     machine.ai_do_command_with_ai(command, self)?;
                     return Ok(());
                 }
@@ -557,7 +557,7 @@ impl UnitAiStateRuntime<'_, '_> {
                             let mut params = command.clone();
                             params.cmd = crate::ai::AiCommandType::FollowPath;
                             params.coords = vec![goal, command.pos];
-                            machine.clear_with_ai(self);
+                            machine.clear_with_ai(self)?;
                             machine.ai_do_command_with_ai(&params, self)?;
                         }
                         return Ok(());
@@ -565,7 +565,7 @@ impl UnitAiStateRuntime<'_, '_> {
                     let mut params = command.clone();
                     params.cmd = crate::ai::AiCommandType::FollowPath;
                     params.coords = vec![command.pos];
-                    machine.clear_with_ai(self);
+                    machine.clear_with_ai(self)?;
                     machine.ai_do_command_with_ai(&params, self)?;
                     return Ok(());
                 }
@@ -582,7 +582,7 @@ impl UnitAiStateRuntime<'_, '_> {
                     }
                     let mut params = command.clone();
                     params.pos = clipped;
-                    machine.clear_with_ai(self);
+                    machine.clear_with_ai(self)?;
                     machine.ai_do_command_with_ai(&params, self)?;
                     if let Ok(mut obj_guard) = guard.base_arc().write() {
                         obj_guard.set_current_weapon_max_shot_count(command.int_value);
@@ -645,7 +645,7 @@ impl UnitAiStateRuntime<'_, '_> {
                             );
                             attack_params.obj = Some(target_id);
                             attack_params.int_value = max_shots;
-                            machine.clear_with_ai(self);
+                            machine.clear_with_ai(self)?;
                             machine.ai_do_command_with_ai(&attack_params, self)?;
                             if let Ok(mut obj_guard) = guard.base_arc().write() {
                                 obj_guard.set_current_weapon_max_shot_count(max_shots);
@@ -752,7 +752,7 @@ impl UnitAiStateRuntime<'_, '_> {
                     let mut params = command.clone();
                     params.pos = local_pos;
                     params.int_value = max_shots;
-                    machine.clear_with_ai(self);
+                    machine.clear_with_ai(self)?;
                     machine.ai_do_command_with_ai(&params, self)?;
                     if let Ok(mut obj_guard) = guard.base_arc().write() {
                         obj_guard.set_current_weapon_max_shot_count(max_shots);
@@ -790,7 +790,7 @@ impl UnitAiStateRuntime<'_, '_> {
                     {
                         let mut machine = &mut *native_driver;
 
-                        machine.clear_with_ai(self);
+                        machine.clear_with_ai(self)?;
                         machine.ai_do_command_with_ai(command, self)?;
                         self.finish_attack_object_command(target_id, command, guard);
                         return Ok(());
@@ -800,7 +800,7 @@ impl UnitAiStateRuntime<'_, '_> {
             crate::ai::AiCommandType::AttackTeam => {
                 let mut machine = &mut *native_driver;
 
-                machine.clear_with_ai(self);
+                machine.clear_with_ai(self)?;
                 machine.ai_do_command_with_ai(command, self)?;
                 if let Ok(mut obj_guard) = guard.base_arc().write() {
                     obj_guard.set_current_weapon_max_shot_count(command.int_value);
@@ -824,7 +824,7 @@ impl UnitAiStateRuntime<'_, '_> {
                     return Ok(());
                 }
                 drop(guard);
-                machine.clear_with_ai(self);
+                machine.clear_with_ai(self)?;
                 machine.ai_do_command_with_ai(command, self)?;
                 return Ok(());
             }
@@ -845,7 +845,7 @@ impl UnitAiStateRuntime<'_, '_> {
                     return Ok(());
                 }
                 drop(guard);
-                machine.clear_with_ai(self);
+                machine.clear_with_ai(self)?;
                 machine.ai_do_command_with_ai(command, self)?;
                 return Ok(());
             }
@@ -866,7 +866,7 @@ impl UnitAiStateRuntime<'_, '_> {
                     return Ok(());
                 }
                 drop(guard);
-                machine.clear_with_ai(self);
+                machine.clear_with_ai(self)?;
                 machine.ai_do_command_with_ai(command, self)?;
                 return Ok(());
             }
@@ -886,7 +886,7 @@ impl UnitAiStateRuntime<'_, '_> {
                 if is_projectile {
                     return Ok(());
                 }
-                machine.clear_with_ai(self);
+                machine.clear_with_ai(self)?;
                 machine.ai_do_command_with_ai(command, self)?;
                 return Ok(());
             }
@@ -895,7 +895,7 @@ impl UnitAiStateRuntime<'_, '_> {
                     {
                         let mut machine = &mut *native_driver;
 
-                        machine.clear_with_ai(self);
+                        machine.clear_with_ai(self)?;
                         machine.ai_do_command_with_ai(command, self)?;
                         if let Ok(mut obj_guard) = guard.base_arc().write() {
                             obj_guard.set_current_weapon_max_shot_count(command.int_value);
@@ -914,7 +914,7 @@ impl UnitAiStateRuntime<'_, '_> {
                         return Ok(());
                     }
                     if command.obj.is_some() {
-                        machine.clear_with_ai(self);
+                        machine.clear_with_ai(self)?;
                         machine.ai_do_command_with_ai(command, self)?;
                         return Ok(());
                     }
@@ -942,7 +942,7 @@ impl UnitAiStateRuntime<'_, '_> {
                 {
                     let mut machine = &mut *native_driver;
 
-                    machine.clear_with_ai(self);
+                    machine.clear_with_ai(self)?;
                     let mut exit_command = command.clone();
                     exit_command.obj = Some(exit_container);
                     machine.ai_do_command_with_ai(&exit_command, self)?;
@@ -971,7 +971,7 @@ impl UnitAiStateRuntime<'_, '_> {
                 {
                     let mut machine = &mut *native_driver;
 
-                    machine.clear_with_ai(self);
+                    machine.clear_with_ai(self)?;
                     let mut exit_command = command.clone();
                     exit_command.obj = Some(exit_container);
                     machine.ai_do_command_with_ai(&exit_command, self)?;
@@ -999,7 +999,7 @@ impl UnitAiStateRuntime<'_, '_> {
                         return Ok(());
                     }
                     if command.obj.is_some() {
-                        machine.clear_with_ai(self);
+                        machine.clear_with_ai(self)?;
                         machine.ai_do_command_with_ai(command, self)?;
                         return Ok(());
                     }
@@ -1132,7 +1132,7 @@ impl UnitAiStateRuntime<'_, '_> {
                             return Ok(());
                         }
                         if enter_params.obj.is_some() {
-                            machine.clear_with_ai(self);
+                            machine.clear_with_ai(self)?;
                             machine.ai_do_command_with_ai(&enter_params, self)?;
                             return Ok(());
                         }
@@ -1214,7 +1214,7 @@ impl UnitAiStateRuntime<'_, '_> {
                             return Ok(());
                         }
                         if dock_params.obj.is_some() {
-                            machine.clear_with_ai(self);
+                            machine.clear_with_ai(self)?;
                             machine.ai_do_command_with_ai(&dock_params, self)?;
                             return Ok(());
                         }
@@ -1292,7 +1292,7 @@ impl UnitAiStateRuntime<'_, '_> {
             }
             crate::ai::AiCommandType::FaceObject => {
                 drop(guard);
-                native_driver.clear_with_ai(self);
+                native_driver.clear_with_ai(self)?;
                 self.runtime.data.blocked_frames = 0;
                 self.runtime.data.is_blocked = false;
                 self.runtime.data.blocked_and_stuck = false;
@@ -1305,7 +1305,7 @@ impl UnitAiStateRuntime<'_, '_> {
                 let owner_arc = guard.base_arc();
                 let clipped = self.clip_goal_position(&owner_arc, command.pos, command.cmd_source);
                 drop(guard);
-                native_driver.clear_with_ai(self);
+                native_driver.clear_with_ai(self)?;
                 native_driver.set_goal_position(clipped);
                 self.runtime.data.blocked_frames = 0;
                 self.runtime.data.is_blocked = false;
@@ -1338,14 +1338,14 @@ impl UnitAiStateRuntime<'_, '_> {
             crate::ai::AiCommandType::Idle => {
                 let mut machine = &mut *native_driver;
 
-                machine.clear_with_ai(self);
+                machine.clear_with_ai(self)?;
                 machine.ai_do_command_with_ai(command, self)?;
                 return Ok(());
             }
             crate::ai::AiCommandType::Busy => {
                 let mut machine = &mut *native_driver;
 
-                machine.clear_with_ai(self);
+                machine.clear_with_ai(self)?;
                 machine.ai_do_command_with_ai(command, self)?;
                 return Ok(());
             }
@@ -1358,7 +1358,7 @@ impl UnitAiStateRuntime<'_, '_> {
                 {
                     let mut machine = &mut *native_driver;
 
-                    machine.clear_with_ai(self);
+                    machine.clear_with_ai(self)?;
                     machine.ai_do_command_with_ai(command, self)?;
                     return Ok(());
                 }
@@ -1379,7 +1379,7 @@ impl UnitAiStateRuntime<'_, '_> {
                 if is_projectile {
                     return Ok(());
                 }
-                machine.clear_with_ai(self);
+                machine.clear_with_ai(self)?;
                 machine.ai_do_command_with_ai(command, self)?;
                 return Ok(());
             }
@@ -1399,7 +1399,7 @@ impl UnitAiStateRuntime<'_, '_> {
                 if is_projectile {
                     return Ok(());
                 }
-                machine.clear_with_ai(self);
+                machine.clear_with_ai(self)?;
                 machine.ai_do_command_with_ai(command, self)?;
                 return Ok(());
             }
@@ -1415,7 +1415,7 @@ impl UnitAiStateRuntime<'_, '_> {
                 if !is_mobile {
                     return Ok(());
                 }
-                machine.clear_with_ai(self);
+                machine.clear_with_ai(self)?;
                 machine.ai_do_command_with_ai(command, self)?;
                 if matches!(
                     command.cmd,

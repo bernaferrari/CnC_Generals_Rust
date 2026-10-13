@@ -333,6 +333,13 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Queue a pathfinding request after a delay (matches AIUpdateInterface::setQueueForPathTime).
     fn set_queue_for_path_time(&mut self, _frames: UnsignedInt) {}
 
+    fn set_queue_for_path_time_with_world(
+        &mut self,
+        _frames: UnsignedInt,
+        _world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("installed AI has no supplied queue-path scheduling operation".into())
+    }
     /// Re-evaluate horde/nationalism/fanaticism morale bonuses (matches C++ evaluateMoraleBonus).
     fn evaluate_morale_bonus(&mut self) {
         let _ = self.get_current_victim();

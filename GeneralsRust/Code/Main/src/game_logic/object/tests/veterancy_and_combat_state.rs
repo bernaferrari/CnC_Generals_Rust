@@ -1290,7 +1290,7 @@ fn squish_requires_velocity_toward_victim() {
     inf.health.maximum = 100.0;
 
     assert!(
-        tank.check_for_overlap_collision(&mut inf, false, &mut health_events),
+        tank.check_for_overlap_collision(0, &mut inf, false, &mut health_events),
         "squish must kill when moving toward infantry in tight radius"
     );
     assert!(inf.front_crushed && inf.back_crushed);

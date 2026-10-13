@@ -7,6 +7,7 @@ pub(crate) fn apply_host_locomotor_template_facts(
     object: &mut crate::game_logic::object::Object,
     binding: &HostLocomotorBinding,
 ) {
+    object.selected_locomotor_definition = Some(*binding);
     object.min_speed = binding.min_speed;
     object.min_turn_speed = binding.min_turn_speed;
     object.loco_behavior_z = binding.behavior_z;

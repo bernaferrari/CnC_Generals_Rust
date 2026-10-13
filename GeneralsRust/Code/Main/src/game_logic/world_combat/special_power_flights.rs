@@ -1098,12 +1098,12 @@ impl GameLogic {
                     o.firewall_segment_expires_frame = Some(expires);
                     o.firewall_segment_wall_id = Some(wall_id);
                     o.firewall_segment_dir = Some([dir_x, dir_z]);
-                    o.health.maximum = FIREWALL_SEGMENT_MAX_HEALTH;
-                    Self::write_object_health_authority_aware(
-                        o,
+                    o.set_body_max_health_with_mode(
                         FIREWALL_SEGMENT_MAX_HEALTH,
-                        &mut self.health_events,
+                        crate::game_logic::object::MaxHealthChange::FullyHeal,
                     );
+                    self.health_events
+                        .record_applied_heal(o.id, o.health.current);
                 }
                 spawned = spawned.saturating_add(1);
             }

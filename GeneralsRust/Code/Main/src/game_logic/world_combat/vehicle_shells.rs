@@ -403,12 +403,12 @@ impl GameLogic {
             o.tomahawk_missile_fuel_expires_frame =
                 Some(self.frame.saturating_add(TOMAHAWK_FUEL_LIFETIME_FRAMES));
             o.note_producer(source_id);
-            o.health.maximum = TOMAHAWK_MISSILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 TOMAHAWK_MISSILE_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
             o.movement.velocity = vel;
             o.set_orientation(dir.z.atan2(dir.x));
             o.height_die = Some(HostHeightDieData::with_target(
@@ -862,12 +862,12 @@ impl GameLogic {
                     .saturating_add(RAPTOR_MISSILE_IGNITION_DELAY_FRAMES),
             );
             o.note_producer(source_id);
-            o.health.maximum = RAPTOR_MISSILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 RAPTOR_MISSILE_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
             o.movement.velocity = dir * launch;
             o.set_orientation(dir.z.atan2(dir.x));
         }
@@ -1294,12 +1294,12 @@ impl GameLogic {
             o.mig_missile_ignition_frame =
                 Some(self.frame.saturating_add(MIG_MISSILE_IGNITION_DELAY_FRAMES));
             o.note_producer(source_id);
-            o.health.maximum = MIG_MISSILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 MIG_MISSILE_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
             o.movement.velocity = dir * launch;
             o.set_orientation(dir.z.atan2(dir.x));
         }
@@ -1703,12 +1703,12 @@ impl GameLogic {
             o.fire_base_shell_flight_frames = frames;
             o.fire_base_shell_intended = intended.map(|id| id.0);
             o.note_producer(source_id);
-            o.health.maximum = FIRE_BASE_SHELL_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 FIRE_BASE_SHELL_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
         }
         self.fire_base_shells_spawned = self.fire_base_shells_spawned.saturating_add(1);
         Some(pid)

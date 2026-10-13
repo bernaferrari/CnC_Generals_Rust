@@ -126,6 +126,11 @@ pub(crate) trait AiStateRuntime {
     fn is_in_rappel_state(&self) -> bool;
     fn is_doing_combat_drop(&self) -> bool;
     fn set_queue_for_path_time(&mut self, _frames: UnsignedInt);
+    fn set_queue_for_path_time_owned(&mut self, frames: UnsignedInt) -> Result<(), String> {
+        self.set_queue_for_path_time(frames);
+        Ok(())
+    }
+
     fn is_temporarily_preventing_aim_success(&self) -> bool;
     fn add_targeter(&mut self, _id: ObjectID, _add: bool);
     fn clear_guard_target_type(&mut self);

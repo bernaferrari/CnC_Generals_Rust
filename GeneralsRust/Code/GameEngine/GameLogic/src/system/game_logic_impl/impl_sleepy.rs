@@ -368,6 +368,34 @@ impl GameLogic {
         Ok(())
     }
 
+    /// CPP AIUpdate.cpp936: only shorten an admitted owner's schedule,
+    /// and never change the currently executing update's returned sleep.
+    pub(crate) fn shorten_owned_update_wake(
+        &mut self,
+        module: &UpdateModulePtr,
+        current: Option<&UpdateModulePtr>,
+        now: UnsignedInt,
+        wake: UnsignedInt,
+    ) -> Result<(), String> {
+        let entry = self
+            .sleepy_updates
+            .entry_for(module)
+            .ok_or("update proxy belongs to another scheduler or is unregistered")?;
+        // UpdateModule::getWakeFrame returns a delay, or UPDATE_SLEEP_NONE
+        // (one) for an already-due entry. Comparing wrapped absolute deadlines
+        // here would incorrectly wake a due module near unsigned rollover.
+        let delay = wake.wrapping_sub(now);
+        let existing_delay = if entry.wake_frame > now {
+            entry.wake_frame - now
+        } else {
+            1
+        };
+        if delay >= 1 && existing_delay > delay {
+            self.awaken_update_module_with_current(module, current, now, wake)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn awaken_update_module_with_current(
         &mut self,
         module: &UpdateModulePtr,

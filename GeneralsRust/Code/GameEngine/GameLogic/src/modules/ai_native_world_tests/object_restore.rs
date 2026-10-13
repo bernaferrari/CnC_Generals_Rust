@@ -324,6 +324,7 @@ fn fresh_with_templates(
             transfer(&mut game, catalog, 17, |services| {
                 services.admit_prepared_object(&owner, team.clone())
             })?;
+            Object::admit_update_schedule_from_handle(&owner, &mut game.scheduler)?;
         }
     }
     Ok(game)

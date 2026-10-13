@@ -313,21 +313,32 @@ impl ProductionUpdateBehavior {
             return CanMakeType::Other;
         };
 
+        let Ok(owner) = owner.read() else {
+            return CanMakeType::Other;
+        };
+        self.can_queue_create_unit_with_owner(&owner, template.as_ref())
+    }
+
+    /// Same queue/parking admission with the actual receiving owner and definition.
+    pub(crate) fn can_queue_create_unit_with_owner(
+        &self,
+        owner: &crate::object::Object,
+        template: &dyn crate::common::ThingTemplate,
+    ) -> CanMakeType {
+        if self.production_count >= self.data.max_queue_entries {
+            return CanMakeType::QueueFull;
+        }
         let parking_full = owner
-            .read()
-            .ok()
-            .and_then(|guard| {
-                guard.with_parking_place_behavior(|parking_place| {
-                    parking_place.should_reserve_door_when_queued(template.as_ref())
-                        && !parking_place.has_available_space_for(template.as_ref())
-                })
+            .with_parking_place_behavior(|parking_place| {
+                parking_place.should_reserve_door_when_queued(template)
+                    && !parking_place.has_available_space_for(template)
             })
             .unwrap_or(false);
         if parking_full {
-            return CanMakeType::ParkingPlacesFull;
+            CanMakeType::ParkingPlacesFull
+        } else {
+            CanMakeType::Ok
         }
-
-        CanMakeType::Ok
     }
 
     /// Check if can queue an upgrade
@@ -360,6 +371,27 @@ impl ProductionUpdateBehavior {
             return Err("Cannot queue unit".to_string());
         }
 
+        self.enqueue_unit(unit_type, production_id)
+    }
+
+    pub(crate) fn queue_create_unit_with_owner(
+        &mut self,
+        unit_type: String,
+        production_id: ProductionID,
+        owner: &crate::object::Object,
+        template: &dyn crate::common::ThingTemplate,
+    ) -> Result<(), String> {
+        if self.can_queue_create_unit_with_owner(owner, template) != CanMakeType::Ok {
+            return Err("Cannot queue unit".to_string());
+        }
+        self.enqueue_unit(unit_type, production_id)
+    }
+
+    fn enqueue_unit(
+        &mut self,
+        unit_type: String,
+        production_id: ProductionID,
+    ) -> Result<(), String> {
         // Check for quantity modifier
         // Matches C++ lines 415-425
         let quantity = self
@@ -620,8 +652,7 @@ impl ProductionUpdateBehavior {
                                 .and_then(|obj| {
                                     obj.read().ok().and_then(|guard| {
                                         guard.with_controlling_player(|player_guard| {
-                                            template.calc_time_to_build(player_guard).max(1)
-                                                as u32
+                                            template.calc_time_to_build(player_guard).max(1) as u32
                                         })
                                     })
                                 })
@@ -835,7 +866,8 @@ mod tests {
     #[test]
     fn test_quantity_modifier() {
         let owner_id = 1002;
-        let _owner = setup_owner(owner_id, &["ChinaInfantryRedGuard"]);
+        let owner = Object::new_test(owner_id, 100.0);
+        let template = crate::common::DefaultThingTemplate::new("ChinaInfantryRedGuard".into());
         let mut data = ProductionUpdateModuleData::default();
         data.quantity_modifiers.push(QuantityModifier {
             template_name: "ChinaInfantryRedGuard".to_string(),
@@ -846,12 +878,16 @@ mod tests {
 
         let id = production.request_unique_unit_id();
         production
-            .queue_create_unit("ChinaInfantryRedGuard".to_string(), id)
+            .queue_create_unit_with_owner(
+                "ChinaInfantryRedGuard".to_string(),
+                id,
+                &owner,
+                &template,
+            )
             .unwrap();
 
         let entry = production.first_production().unwrap();
         assert_eq!(entry.production_quantity_total, 4);
-        OBJECT_REGISTRY.unregister_object(owner_id);
     }
 
     #[test]

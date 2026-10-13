@@ -54,7 +54,7 @@ fn ranger_primary_admission_authored_none_stays_unarmed() {
             assert!(template.primary_weapon_name.is_none());
             assert!(template.primary_weapon.is_none());
             assert!(
-                template.resolve_primary_weapon().is_none(),
+                template.resolve_primary_weapon(0).is_none(),
                 "resolution is already correctly unarmed"
             );
             let (world, id) = ordinary_create(template);
@@ -98,7 +98,7 @@ fn ranger_primary_admission_named_auto_choose_none_keeps_real_weapon() {
             assert_eq!(template.primary_weapon_name.as_deref(), Some(RULE));
             assert!(template.primary_weapon.is_none());
             let resolved = template
-                .resolve_primary_weapon()
+                .resolve_primary_weapon(0)
                 .expect("real named rule resolves before auto-choose suppression");
             assert_eq!(resolved.damage, 37.0);
             assert_eq!(resolved.range, 123.0);

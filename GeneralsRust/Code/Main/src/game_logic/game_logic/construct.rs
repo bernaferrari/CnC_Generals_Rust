@@ -57,6 +57,7 @@ impl GameLogic {
             host_ghosts: Default::default(),
             radar: game_engine::common::system::radar::RadarSystem::new(),
             radar_map: Default::default(),
+            physics_definitions: Default::default(),
             production_energy: Default::default(),
             ai_definitions,
             map_definition_source: None,
@@ -769,6 +770,7 @@ impl GameLogic {
         self.host_ghosts = Default::default();
         self.ai_definitions.reset();
         self.production_energy.effective = self.production_energy.base;
+        self.physics_definitions.effective = self.physics_definitions.base;
         self.apply_aidata_enable_repulsors();
         self.refresh_pathfinding_ai_definitions();
         Self::register_leftover_object_create_overrides_overlay();

@@ -403,7 +403,7 @@ fn shock_stun_ticks_clear_model_bits() {
         if o.shock_stun_frames == 0 {
             break;
         }
-        o.tick_shock_stun(&mut health_events);
+        o.tick_shock_stun(0, &mut health_events);
     }
     assert_eq!(o.shock_stun_frames, 0);
     assert!(!host_model_condition_has(
@@ -486,7 +486,7 @@ fn crush_selects_front_or_back_by_approach() {
 
     // With front selection + past front point, front_crushed set.
     // Use huge HP so we can observe flags before death if total.
-    assert!(tank.check_for_overlap_collision(&mut inf, false, &mut health_events));
+    assert!(tank.check_for_overlap_collision(0, &mut inf, false, &mut health_events));
     // Either front crushed or total (if selector picked total and killed).
     assert!(
         inf.front_crushed || inf.back_crushed || inf.status.destroyed,
@@ -520,7 +520,7 @@ fn crush_overlap_collision_kills_infantry() {
     tank.set_position(glam::Vec3::new(6.0, 0.0, 0.0));
 
     assert!(tank.can_crush_only(&inf, false));
-    assert!(tank.check_for_overlap_collision(&mut inf, false, &mut health_events));
+    assert!(tank.check_for_overlap_collision(0, &mut inf, false, &mut health_events));
     assert!(inf.status.destroyed || inf.health.current <= 0.0);
     if inf.status.destroyed {
         assert_eq!(inf.status.death_type, HostDeathType::Crushed);
@@ -540,7 +540,7 @@ fn crush_overlap_collision_kills_infantry() {
     tank.physics_current_overlap = None;
     tank.physics_previous_overlap = None;
     assert!(!tank.can_crush_only(&a, true));
-    assert!(!tank.check_for_overlap_collision(&mut a, true, &mut health_events));
+    assert!(!tank.check_for_overlap_collision(0, &mut a, true, &mut health_events));
 }
 
 #[test]
@@ -609,7 +609,7 @@ fn crushable_car_uses_front_back_not_instant_squish() {
     car.health.maximum = 200.0;
 
     assert!(tank.can_crush_only(&car, false));
-    assert!(tank.check_for_overlap_collision(&mut car, false, &mut health_events));
+    assert!(tank.check_for_overlap_collision(0, &mut car, false, &mut health_events));
     assert!(
         car.is_alive() && car.health.current > 0.0,
         "first overlap is 0-damage; car must not instant-squish"
@@ -654,7 +654,7 @@ fn squish_module_crushes_default_crushable_level() {
         "TEST_CRUSH_OR_SQUISH includes SquishCollide"
     );
     assert!(!tank.ai_blocked_by(&inf, false));
-    assert!(tank.check_for_overlap_collision(&mut inf, false, &mut health_events));
+    assert!(tank.check_for_overlap_collision(0, &mut inf, false, &mut health_events));
     assert!(inf.status.destroyed || inf.health.current <= 0.0);
     if inf.status.destroyed {
         assert_eq!(inf.status.death_type, HostDeathType::Crushed);
@@ -697,7 +697,7 @@ fn crush_points_use_authored_major_radius() {
     car.health.maximum = 200.0;
 
     assert!(tank.can_crush_only(&car, false));
-    assert!(tank.check_for_overlap_collision(&mut car, false, &mut health_events));
+    assert!(tank.check_for_overlap_collision(0, &mut car, false, &mut health_events));
     assert!(
         car.is_alive() && car.health.current > 0.0,
         "center is 5wu behind; major/2 window is 4.5wu so no HUGE crush"
@@ -738,7 +738,7 @@ fn overlap_crush_aims_with_facing_not_velocity() {
     car.health.maximum = 200.0;
 
     assert!(tank.can_crush_only(&car, false));
-    assert!(tank.check_for_overlap_collision(&mut car, false, &mut health_events));
+    assert!(tank.check_for_overlap_collision(0, &mut car, false, &mut health_events));
     assert!(
         car.status.destroyed || car.health.current <= 0.0,
         "facing past-point must crush even when velocity points the other way"
@@ -778,7 +778,7 @@ fn first_crush_of_car_is_not_always_total() {
     car.health.current = 200.0;
     car.health.maximum = 200.0;
 
-    assert!(tank.check_for_overlap_collision(&mut car, false, &mut health_events));
+    assert!(tank.check_for_overlap_collision(0, &mut car, false, &mut health_events));
     assert!(car.status.destroyed || car.health.current <= 0.0);
     assert!(
         car.front_crushed && !car.back_crushed,
@@ -820,11 +820,7 @@ fn scrub_velocity_and_structure_stiffness_bounce() {
     // Structure stiffness bounce.
     o.set_position(glam::Vec3::new(0.0, 2.0, 0.0));
     o.movement.velocity = glam::Vec3::new(6.0, -2.0, 0.0);
-    let f = o.apply_structure_stiffness_bounce(
-        glam::Vec3::new(5.0, 2.0, 0.0),
-        PHYSICS_STRUCTURE_STIFFNESS_DEFAULT_RESIDUAL,
-        1.0,
-    );
+    let f = o.apply_structure_stiffness_bounce(glam::Vec3::new(5.0, 2.0, 0.0), 1.0);
     assert!(f.x < 0.0, "push back -X force={f:?}");
     assert!(
         (o.movement.velocity.x - f.x).abs() < 1e-4,
@@ -891,7 +887,7 @@ fn kill_when_resting_and_bounce_land_residual() {
     o.shock_stun_frames = 5;
     o.set_position(glam::Vec3::ZERO);
     o.movement.velocity = glam::Vec3::ZERO;
-    assert!(o.maybe_kill_when_resting_on_ground(&mut health_events));
+    assert!(o.maybe_kill_when_resting_on_ground(0, &mut health_events));
     assert!(o.status.destroyed);
 
     // Drone alive with KINDOF_DRONE does not kill (name substring is not the gate).
@@ -903,11 +899,11 @@ fn kill_when_resting_and_bounce_land_residual() {
     d.shock_stun_frames = 5;
     d.set_position(glam::Vec3::ZERO);
     d.movement.velocity = glam::Vec3::ZERO;
-    assert!(!d.maybe_kill_when_resting_on_ground(&mut health_events));
+    assert!(!d.maybe_kill_when_resting_on_ground(0, &mut health_events));
     assert!(!d.status.destroyed);
     // Unmanned drone does kill.
     d.status.disabled_unmanned = true;
-    assert!(d.maybe_kill_when_resting_on_ground(&mut health_events));
+    assert!(d.maybe_kill_when_resting_on_ground(0, &mut health_events));
     assert!(d.status.destroyed);
 
     // KINDOF_DRONE without "drone" in the name is still spared.
@@ -917,7 +913,7 @@ fn kill_when_resting_and_bounce_land_residual() {
     u.kill_when_resting_on_ground = true;
     u.set_position(glam::Vec3::ZERO);
     u.movement.velocity = glam::Vec3::ZERO;
-    assert!(!u.maybe_kill_when_resting_on_ground(&mut health_events));
+    assert!(!u.maybe_kill_when_resting_on_ground(0, &mut health_events));
     // Name contains "drone" but no KINDOF_DRONE → kill.
     let mut tn = ThingTemplate::new("FakeDroneProp");
     tn.add_kind_of(KindOf::Vehicle);
@@ -925,7 +921,7 @@ fn kill_when_resting_and_bounce_land_residual() {
     n.kill_when_resting_on_ground = true;
     n.set_position(glam::Vec3::ZERO);
     n.movement.velocity = glam::Vec3::ZERO;
-    assert!(n.maybe_kill_when_resting_on_ground(&mut health_events));
+    assert!(n.maybe_kill_when_resting_on_ground(0, &mut health_events));
 
     // Bounce land event on airborne ground hit.
     let mut tb = ThingTemplate::new("BounceSnd");
@@ -938,7 +934,7 @@ fn kill_when_resting_and_bounce_land_residual() {
     b.movement.velocity = glam::Vec3::new(0.0, -5.0, 0.0);
     b.immune_to_falling_damage = true; // isolate bounce event
     for _ in 0..20 {
-        b.tick_shock_stun(&mut health_events);
+        b.tick_shock_stun(0, &mut health_events);
         if b.bounce_land_events > 0 {
             break;
         }
@@ -968,7 +964,7 @@ fn kill_when_resting_and_bounce_land_residual() {
     let mut i = Object::new(ti, ObjectId(44), Team::USA);
     i.health.current = 100.0;
     i.immune_to_falling_damage = true;
-    assert_eq!(i.apply_shock_fall_damage(-30.0, &mut health_events), 0.0);
+    assert_eq!(i.apply_shock_fall_damage(0, -30.0, &mut health_events), 0.0);
     assert_eq!(i.health.current, 100.0);
 }
 
@@ -988,7 +984,7 @@ fn physics_wave10_held_wreck_friction_stun_shock() {
     held.set_contained_by(Some(ObjectId(99)));
     held.set_position(Vec3::new(0.0, 2.0, 0.0));
     held.movement.velocity = Vec3::new(4.0, -1.0, 0.0);
-    let _ = held.tick_physics_motion_step(0.0, &mut health_events);
+    let _ = held.tick_physics_motion_step(0, 0.0, &mut health_events);
     assert!(
         (held.get_position().x).abs() < 1e-4,
         "HELD must not integrate pos+=vel; x={}",
@@ -1005,7 +1001,7 @@ fn physics_wave10_held_wreck_friction_stun_shock() {
     wreck.movement.velocity = Vec3::new(0.0, -2.0, 0.0);
     wreck.allow_to_fall = true;
     wreck.immune_to_falling_damage = true;
-    let _ = wreck.tick_physics_motion_step(0.0, &mut health_events);
+    let _ = wreck.tick_physics_motion_step(0, 0.0, &mut health_events);
     assert!(
         wreck.get_position().y < 5.0,
         "dead wreck must keep Euler; y={}",
@@ -1046,7 +1042,7 @@ fn physics_wave10_held_wreck_friction_stun_shock() {
     stun.set_position(Vec3::new(0.0, 4.0, 0.0));
     stun.ground_height = 0.0;
     stun.movement.velocity = Vec3::new(2.0, -1.0, 0.0);
-    stun.tick_shock_stun(&mut health_events);
+    stun.tick_shock_stun(0, &mut health_events);
     assert_eq!(
         stun.shock_stun_frames, 20,
         "height 4 (2.93 after tick) is significantly airborne: stun persists"
@@ -1054,7 +1050,7 @@ fn physics_wave10_held_wreck_friction_stun_shock() {
     // Just under the 0.64wu 3-frame band (not the old 5cm rule): relief clears.
     stun.set_position(Vec3::new(0.0, 0.5, 0.0));
     stun.movement.velocity = Vec3::new(2.0, -1.0, 0.0);
-    stun.tick_shock_stun(&mut health_events);
+    stun.tick_shock_stun(0, &mut health_events);
     assert_eq!(
         stun.shock_stun_frames, 0,
         "under the 3-frame height band relief clears"
@@ -1084,7 +1080,7 @@ fn physics_wave10_held_wreck_friction_stun_shock() {
     land.health.current = 10_000.0;
     land.was_airborne_last_frame = true;
     land.immune_to_falling_damage = false;
-    let _ = land.tick_physics_motion_step(0.0, &mut health_events);
+    let _ = land.tick_physics_motion_step(0, 0.0, &mut health_events);
     assert!(land.bounce_land_events > 0);
     assert_eq!(land.bounce_audio_pending, 0);
     assert!(land.pending_ground_collide);
@@ -1104,7 +1100,7 @@ fn tick_physics_motion_step_destroys_nan_position() {
     o.movement.target_position = None;
     o.movement.path.clear();
     o.movement.velocity = Vec3::new(f32::NAN, 0.0, 0.0);
-    let _ = o.tick_physics_motion_step(0.0, &mut health_events);
+    let _ = o.tick_physics_motion_step(0, 0.0, &mut health_events);
     assert!(o.status.destroyed, "NaN translation must destroyObject");
     let p = o.get_position();
     assert!(
@@ -1134,7 +1130,7 @@ fn airborne_target_uses_airborne_targeting_height_not_5cm() {
     tank.movement.target_position = Some(Vec3::new(10.0, 1.0, 0.0));
     tank.movement.velocity = Vec3::ZERO;
     tank.was_airborne_last_frame = false;
-    let _ = tank.tick_physics_motion_step(0.0, &mut health_events);
+    let _ = tank.tick_physics_motion_step(0, 0.0, &mut health_events);
     assert!(
         !tank.status.airborne_target,
         "physics 5cm airborne must not set AIRBORNE_TARGET"
@@ -1177,7 +1173,7 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     assert!(!o.has_locomotor_for_surface(LOCO_SURFACE_WATER));
     o.set_position(glam::Vec3::new(RESIDUAL_MAP_EXTENT_MAX_X + 50.0, 0.0, 0.0));
     assert!(is_off_map_default_residual(o.get_position()));
-    assert!(o.test_stunned_unit_for_destruction(&mut health_events));
+    assert!(o.test_stunned_unit_for_destruction(0, &mut health_events));
     assert!(o.status.destroyed);
     assert_eq!(
         o.status.death_type,
@@ -1191,7 +1187,7 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     c.shock_stun_frames = 20;
     c.cell_is_cliff = true;
     c.set_position(glam::Vec3::ZERO);
-    assert!(c.test_stunned_unit_for_destruction(&mut health_events));
+    assert!(c.test_stunned_unit_for_destruction(0, &mut health_events));
     assert!(c.status.destroyed);
 
     let mut t3 = ThingTemplate::new("WaterVictim");
@@ -1200,7 +1196,7 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     w.shock_stun_frames = 20;
     w.cell_is_underwater = true;
     w.set_position(glam::Vec3::ZERO);
-    assert!(w.test_stunned_unit_for_destruction(&mut health_events));
+    assert!(w.test_stunned_unit_for_destruction(0, &mut health_events));
     assert!(w.status.destroyed);
 
     let mut th = ThingTemplate::new("AmphibHover");
@@ -1210,12 +1206,12 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     h.locomotor_surfaces = LOCO_SURFACE_GROUND | LOCO_SURFACE_WATER;
     h.cell_is_underwater = true;
     h.set_position(glam::Vec3::ZERO);
-    assert!(!h.test_stunned_unit_for_destruction(&mut health_events));
+    assert!(!h.test_stunned_unit_for_destruction(0, &mut health_events));
     assert!(!h.status.destroyed);
     h.cell_is_underwater = false;
     h.cell_is_cliff = true;
     h.locomotor_surfaces |= LOCO_SURFACE_CLIFF;
-    assert!(!h.test_stunned_unit_for_destruction(&mut health_events));
+    assert!(!h.test_stunned_unit_for_destruction(0, &mut health_events));
 }
 
 #[test]
@@ -1230,12 +1226,12 @@ fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
     debris.cell_is_cliff = true;
     debris.set_position(glam::Vec3::ZERO);
     assert!(!debris.has_ai_update_interface());
-    assert!(!debris.test_stunned_unit_for_destruction(&mut health_events));
+    assert!(!debris.test_stunned_unit_for_destruction(0, &mut health_events));
     assert!(!debris.status.destroyed);
 
     debris.cell_is_cliff = false;
     debris.cell_is_underwater = true;
-    assert!(!debris.test_stunned_unit_for_destruction(&mut health_events));
+    assert!(!debris.test_stunned_unit_for_destruction(0, &mut health_events));
     assert!(!debris.status.destroyed);
 
     let mut crate_t = ThingTemplate::new("SalvageCrate");
@@ -1246,13 +1242,13 @@ fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
     crate_obj.cell_is_underwater = true;
     crate_obj.set_position(glam::Vec3::ZERO);
     assert!(!crate_obj.has_ai_update_interface());
-    assert!(!crate_obj.test_stunned_unit_for_destruction(&mut health_events));
+    assert!(!crate_obj.test_stunned_unit_for_destruction(0, &mut health_events));
     assert!(!crate_obj.status.destroyed);
 
     // C++ still kills AI-less stunned debris when upside-down or off-map.
     debris.cell_is_underwater = false;
     debris.apply_physics_ypr(0.0, 0.0, std::f32::consts::PI);
-    assert!(debris.test_stunned_unit_for_destruction(&mut health_events));
+    assert!(debris.test_stunned_unit_for_destruction(0, &mut health_events));
     assert!(debris.status.destroyed);
 
     let mut off = Object::new(
@@ -1262,7 +1258,7 @@ fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
     );
     off.shock_stun_frames = 20;
     off.set_position(glam::Vec3::new(RESIDUAL_MAP_EXTENT_MAX_X + 50.0, 0.0, 0.0));
-    assert!(off.test_stunned_unit_for_destruction(&mut health_events));
+    assert!(off.test_stunned_unit_for_destruction(0, &mut health_events));
     assert!(off.status.destroyed);
 }
 
@@ -1299,8 +1295,8 @@ fn stunned_center_of_mass_offset_scales_pitch() {
     };
     let o0 = pitch(o.get_transform_matrix());
     let r0 = pitch(raw.get_transform_matrix());
-    o.tick_shock_stun(&mut health_events);
-    raw.tick_shock_stun(&mut health_events);
+    o.tick_shock_stun(0, &mut health_events);
+    raw.tick_shock_stun(0, &mut health_events);
     let o_dpitch = (pitch(o.get_transform_matrix()) - o0).abs();
     let r_dpitch = (pitch(raw.get_transform_matrix()) - r0).abs();
     assert!(
@@ -1367,7 +1363,7 @@ fn motion_step_bounce_keeps_inverted_roll_for_stun_kill() {
     stunned.shock_stun_frames = 40;
     stunned.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
     stunned.immune_to_falling_damage = true;
-    let _ = stunned.tick_physics_motion_step(0.0, &mut health_events);
+    let _ = stunned.tick_physics_motion_step(0, 0.0, &mut health_events);
     assert!(
         stunned.status.destroyed,
         "hq-p6amn: inverted stunned must die on motion-step bounce"
@@ -1382,7 +1378,7 @@ fn motion_step_bounce_keeps_inverted_roll_for_stun_kill() {
     wreck.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
     wreck.immune_to_falling_damage = true;
     wreck.kill_when_resting_on_ground = false;
-    let bounced = wreck.tick_physics_motion_step(0.0, &mut health_events);
+    let bounced = wreck.tick_physics_motion_step(0, 0.0, &mut health_events);
     assert!(bounced, "hq-p6amn: inverted wreck must bounce");
     assert!(
         wreck.physics_transform_up_y() < 0.0,
@@ -1409,7 +1405,7 @@ fn shock_bounce_keep_flip_before_stun_test() {
     o.shock_allow_bounce = true;
     o.shock_stun_frames = 40;
     o.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
-    let bounced = o.handle_shock_ground_bounce(2.0, -0.1, 0.0, &mut health_events);
+    let bounced = o.handle_shock_ground_bounce(0, 2.0, -0.1, 0.0, &mut health_events);
     assert!(
         o.status.destroyed,
         "inverted stunned must die after keep_flip"
@@ -1423,7 +1419,7 @@ fn shock_bounce_keep_flip_before_stun_test() {
     w.apply_physics_ypr(0.0, 0.0, std::f32::consts::PI);
     w.shock_allow_bounce = true;
     w.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
-    assert!(w.handle_shock_ground_bounce(2.0, -0.1, 0.0, &mut health_events) > 0.0);
+    assert!(w.handle_shock_ground_bounce(0, 2.0, -0.1, 0.0, &mut health_events) > 0.0);
     assert!(
         w.physics_transform_up_y() < 0.0,
         "hq-p6amn: shock bounce must keep inverted roll, up={}",
@@ -1448,7 +1444,7 @@ fn stunned_upside_down_bounce_kills_and_freefall_disables() {
     // Invert integrated pose (C++ Get_Z_Vector().Z < 0) after set_position.
     o.apply_physics_ypr(0.0, 0.0, std::f32::consts::PI);
     o.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
-    let bounced = o.handle_shock_ground_bounce(2.0, -0.1, 0.0, &mut health_events);
+    let bounced = o.handle_shock_ground_bounce(0, 2.0, -0.1, 0.0, &mut health_events);
     assert!(o.status.destroyed, "upside-down stunned must die on bounce");
     assert_eq!(bounced, 0.0);
     // Freefall disable residual while airborne.
@@ -1462,7 +1458,7 @@ fn stunned_upside_down_bounce_kills_and_freefall_disables() {
         if a.get_position().y > 0.2 {
             break;
         }
-        a.tick_shock_stun(&mut health_events);
+        a.tick_shock_stun(0, &mut health_events);
     }
     if a.get_position().y > 0.05 {
         assert!(a.status.disabled_freefall || a.is_disabled());
@@ -1470,7 +1466,7 @@ fn stunned_upside_down_bounce_kills_and_freefall_disables() {
     }
     // Land fully.
     for _ in 0..80 {
-        a.tick_shock_stun(&mut health_events);
+        a.tick_shock_stun(0, &mut health_events);
         if a.shock_stun_frames == 0 && a.get_position().y <= 0.01 {
             break;
         }
@@ -1507,14 +1503,14 @@ fn shock_fall_damage_splats_on_hard_landing() {
     o.shock_stun_frames = 20;
     // Hard downward impact residual (steep fall, no lateral).
     o.movement.velocity = glam::Vec3::new(0.0, -20.0, 0.0);
-    let dmg = o.apply_shock_fall_damage(-20.0, &mut health_events);
+    let dmg = o.apply_shock_fall_damage(0, -20.0, &mut health_events);
     assert!(dmg > 0.0, "expected fall damage, got {dmg}");
     // net = 20 - leftover ~2.385 ≈ 17.6 → wounds 50hp unit with mass1 factor1
     assert!(o.health.current < 50.0);
     // Stronger impact to splat.
     o.health.current = 5.0;
     o.status.destroyed = false;
-    let dmg2 = o.apply_shock_fall_damage(-30.0, &mut health_events);
+    let dmg2 = o.apply_shock_fall_damage(0, -30.0, &mut health_events);
     assert!(dmg2 > 5.0);
     assert!(o.status.destroyed || o.health.current <= 0.0);
     if o.status.destroyed {
@@ -1536,10 +1532,10 @@ fn shock_fall_damage_splats_on_hard_landing() {
     );
     s.health.current = 100.0;
     s.movement.velocity = glam::Vec3::new(50.0, -5.0, 0.0);
-    let d0 = s.apply_shock_fall_damage(-5.0, &mut health_events);
+    let d0 = s.apply_shock_fall_damage(0, -5.0, &mut health_events);
     assert_eq!(d0, 0.0, "below min fall speed");
     // Above min speed but shallow angle.
-    let d1 = s.apply_shock_fall_damage(-20.0, &mut health_events);
+    let d1 = s.apply_shock_fall_damage(0, -20.0, &mut health_events);
     // |20/50|=0.4 < 3 → not steep
     assert_eq!(d1, 0.0, "shallow fall must not damage");
     let _ = DamageType::Falling;
@@ -1576,9 +1572,9 @@ fn shock_bounce_settles_freefall_and_switches_to_stunned() {
     // tick_shock_stun alone freezes the fall at the relief band.
     for i in 0..2000 {
         if o.shock_stun_frames > 0 || o.bounce_audio_pending > 0 {
-            o.tick_shock_stun(&mut health_events);
+            o.tick_shock_stun(0, &mut health_events);
         }
-        let _ = o.tick_physics_motion_step(0.0, &mut health_events);
+        let _ = o.tick_physics_motion_step(0, 0.0, &mut health_events);
         let y = o.get_position().y;
         max_y = max_y.max(y);
         if y > 0.5 {
@@ -1688,7 +1684,7 @@ fn handle_shock_ground_bounce_restores_original_allow_bounce() {
     o.shock_allow_bounce = true;
     o.original_allow_bounce = true;
     o.movement.velocity = glam::Vec3::ZERO;
-    let bounced = o.handle_shock_ground_bounce(0.0, -0.1, 0.0, &mut health_events);
+    let bounced = o.handle_shock_ground_bounce(0, 0.0, -0.1, 0.0, &mut health_events);
     assert_eq!(bounced, 0.0);
     assert!(
         o.shock_allow_bounce,
@@ -1707,7 +1703,8 @@ fn handle_shock_ground_bounce_restores_original_allow_bounce() {
     authored_off.shock_allow_bounce = true;
     authored_off.original_allow_bounce = false;
     authored_off.movement.velocity = glam::Vec3::ZERO;
-    let bounced_off = authored_off.handle_shock_ground_bounce(0.0, -0.1, 0.0, &mut health_events);
+    let bounced_off =
+        authored_off.handle_shock_ground_bounce(0, 0.0, -0.1, 0.0, &mut health_events);
     assert_eq!(bounced_off, 0.0);
     assert!(
         !authored_off.shock_allow_bounce,
@@ -1750,7 +1747,7 @@ fn bounce_damps_pitch_roll_rates_not_zero() {
     s.shock_roll_rate = 1.0;
     s.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
     s.immune_to_falling_damage = true;
-    assert!(s.handle_shock_ground_bounce(2.0, -0.1, 0.0, &mut health_events) > 0.0);
+    assert!(s.handle_shock_ground_bounce(0, 2.0, -0.1, 0.0, &mut health_events) > 0.0);
     assert!((s.shock_yaw_rate - 0.7).abs() < 1e-5);
     assert!((s.shock_pitch_rate - 0.7).abs() < 1e-5);
     assert!((s.shock_roll_rate - 0.7).abs() < 1e-5);
@@ -2417,7 +2414,7 @@ fn extra_friction_overlap_force_and_rest_kill() {
     prop.set_position(Vec3::ZERO);
     prop.ground_height = 0.0;
     prop.movement.velocity = Vec3::ZERO;
-    assert!(prop.maybe_kill_when_resting_on_ground(&mut health_events));
+    assert!(prop.maybe_kill_when_resting_on_ground(0, &mut health_events));
     assert!(prop.status.destroyed);
     assert!(prop.health.current <= 0.0);
 
@@ -2429,9 +2426,9 @@ fn extra_friction_overlap_force_and_rest_kill() {
     air.set_position(Vec3::new(0.0, 0.04, 0.0));
     air.ground_height = 0.0;
     air.movement.velocity = Vec3::ZERO;
-    assert!(!air.maybe_kill_when_resting_on_ground(&mut health_events));
+    assert!(!air.maybe_kill_when_resting_on_ground(0, &mut health_events));
     air.set_position(Vec3::ZERO);
-    assert!(air.maybe_kill_when_resting_on_ground(&mut health_events));
+    assert!(air.maybe_kill_when_resting_on_ground(0, &mut health_events));
 }
 
 #[test]

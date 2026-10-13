@@ -153,7 +153,7 @@ fn malformed_saved_history_is_rejected_before_receiving_state_mutation() {
         .host_object(victim)
         .unwrap()
         .get_transform_matrix();
-    for corrupt in 0..5 {
+    for corrupt in 0..7 {
         let mut payload = capture(&receiving);
         if corrupt == 0 {
             payload.body_history[0].source_id = Some(0);
@@ -163,8 +163,12 @@ fn malformed_saved_history_is_rejected_before_receiving_state_mutation() {
             payload.body_history[0].previous_health = f32::NAN;
         } else if corrupt == 3 {
             payload.body_history[0].previous_health = -1.0;
-        } else {
+        } else if corrupt == 4 {
             payload.body_history[0].damage_state = 99;
+        } else if corrupt == 5 {
+            payload.body_history[0].initial_health = f32::NAN;
+        } else {
+            payload.body_history[0].initial_health = -1.0;
         }
         let encoded = bincode_legacy::serialize(&payload).unwrap();
         let mut bytes = OXOB_MAGIC.to_vec();
@@ -209,5 +213,114 @@ fn normal_encoded_world_preserves_same_current_health_body_enum_and_ai_dead_flag
     assert!(
         object.status.effectively_dead,
         "saved AI-dead with positive HP must not be cleared"
+    );
+}
+
+#[test]
+fn normal_save_preserves_distinct_initial_health_and_both_kill_receipt_values() {
+    let (mut original, [victim, unit, _]) = world();
+    original.host_object_mut(victim).unwrap().initial_health = 333.0;
+    original
+        .host_object_mut(victim)
+        .unwrap()
+        .kill_experience_awarded = true;
+    original
+        .host_object_mut(unit)
+        .unwrap()
+        .kill_experience_awarded = false;
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&original).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let (mut restored, _) = world();
+    // Reused owner state must not survive the authoritative saved false.
+    restored
+        .host_object_mut(unit)
+        .unwrap()
+        .kill_experience_awarded = true;
+    builder
+        .restore_from_snapshot(&decoded, &mut restored)
+        .unwrap();
+    assert_eq!(restored.host_object(victim).unwrap().initial_health, 333.0);
+    assert_eq!(restored.host_object(victim).unwrap().health.maximum, 1000.0);
+    assert!(
+        restored
+            .host_object(victim)
+            .unwrap()
+            .kill_experience_awarded
+    );
+    assert!(!restored.host_object(unit).unwrap().kill_experience_awarded);
+    for world in [&mut original, &mut restored] {
+        world
+            .host_object_mut(victim)
+            .unwrap()
+            .set_initial_health_percent(50);
+        let object = world.host_object(victim).unwrap();
+        assert_eq!(object.health.current, 166.5);
+        assert_eq!(object.previous_health, 1000.0);
+        assert!(object.kill_experience_awarded);
+        assert!(!object.status.on_die_started);
+    }
+}
+
+#[test]
+fn exact_v16_predecessor_bytes_decode_without_inventing_new_body_facts() {
+    let (mut receiving, [victim, _, _]) = world();
+    let current = capture(&receiving);
+    let old_history: Vec<_> = current
+        .body_history
+        .into_iter()
+        .map(
+            |entry| body_damage_history_persist::BodyDamageHistoryPersistV16 {
+                object_id: entry.object_id,
+                source_id: entry.source_id,
+                timestamp: entry.timestamp,
+                previous_health: entry.previous_health,
+                damage_state: entry.damage_state,
+            },
+        )
+        .collect();
+    let first = &old_history[0];
+    assert_eq!(
+        bincode_legacy::serialize(first).unwrap(),
+        bincode_legacy::serialize(&(
+            first.object_id,
+            first.source_id,
+            first.timestamp,
+            first.previous_health,
+            first.damage_state
+        ))
+        .unwrap()
+    );
+    let old = ObjectXferPersistPayloadV16 {
+        objects: current.objects,
+        script_status: current.script_status,
+        structures: current.structures,
+        damage_info: current.damage_info,
+        transport: current.transport,
+        body_history: old_history,
+    };
+    let encoded = bincode_legacy::serialize(&old).unwrap();
+    let mut bytes = OXOB_MAGIC.to_vec();
+    append_u32(&mut bytes, 16);
+    append_u32(&mut bytes, encoded.len() as u32);
+    bytes.extend_from_slice(&encoded);
+    receiving.host_object_mut(victim).unwrap().initial_health = 777.0;
+    receiving
+        .host_object_mut(victim)
+        .unwrap()
+        .kill_experience_awarded = true;
+    apply_from_lifecycle_tail(&bytes, &mut receiving).unwrap();
+    assert_eq!(
+        receiving.host_object(victim).unwrap().initial_health,
+        777.0,
+        "V16 has no original initialHealth to recover"
+    );
+    assert!(
+        !receiving
+            .host_object(victim)
+            .unwrap()
+            .kill_experience_awarded,
+        "V16 has no consumed kill receipt, not inferred from dead state"
     );
 }

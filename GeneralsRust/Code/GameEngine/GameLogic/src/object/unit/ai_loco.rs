@@ -1620,7 +1620,7 @@ impl UnitAIUpdate {
         if let Some(machine) = self.ai_state_machine.as_mut() {
             let mut runtime = super::UnitAiStateRuntime::new(&mut self.runtime, true);
             let mut driver = machine.driver();
-            driver.clear_with_ai(&mut runtime);
+            driver.clear_with_ai(&mut runtime)?;
             let params = crate::ai::AiCommandParams::new(
                 crate::ai::AiCommandType::Idle,
                 CommandSourceType::FromAi,

@@ -654,7 +654,7 @@ impl AIStateMachine {
     pub(crate) fn clear_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
-    ) {
+    ) -> Result<(), String> {
         self.driver().clear_with_ai(ai)
     }
 

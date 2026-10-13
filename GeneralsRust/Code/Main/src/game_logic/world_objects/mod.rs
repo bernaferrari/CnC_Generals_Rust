@@ -38,3 +38,6 @@ mod bridge_body_callback_tests;
 
 #[cfg(test)]
 mod fog_ghost_tests;
+
+#[cfg(test)]
+mod pilot_locomotor_owner_tests;

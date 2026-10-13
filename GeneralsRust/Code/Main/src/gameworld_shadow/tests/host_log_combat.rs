@@ -357,8 +357,8 @@ fn canonical_stealth_flags_projects_without_writeback() {
 }
 
 #[test]
-fn host_hive_log_drives_set_hive_slaves_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_hive_log};
+fn canonical_hive_state_is_projected_without_observer_writeback() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HiveCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");

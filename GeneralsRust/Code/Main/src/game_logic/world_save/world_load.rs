@@ -82,6 +82,7 @@ impl GameLogic {
         self.map_loaded = false;
         self.finish_all_building_sounds();
         self.objects.clear();
+        self.physics_definitions.effective = self.physics_definitions.base;
         self.named_unit_history.clear();
         self.construction_events.reset();
         self.map_name = map_name.to_string();
@@ -153,15 +154,22 @@ impl GameLogic {
                 report_progress(0.36, "Reading map settings");
                 let ai_draft = self.ai_definitions.map_override_draft();
                 let parsed =
-                    super::script_loader::parse_map_settings_from_chunky_with_ai_data_from_source(
+                    super::script_loader::parse_map_settings_from_chunky_with_content_rules(
                         &chunky,
                         std::sync::Arc::clone(&ai_draft),
                         &definition_source,
                         Some(*self.production_energy_rules()),
+                        Some(self.physics_definitions.effective),
                     );
                 let parsed_settings = match parsed {
                     Ok(meta) => match self.admit_ai_map_overrides(ai_draft) {
                         Ok(()) => {
+                            if let Some(rules) = meta.physics_rules {
+                                if let Err(error) = self.admit_physics_map_rules(rules) {
+                                    log::warn!("Map Physics admission failed: {error}");
+                                    return false;
+                                }
+                            }
                             if let Some(rules) = meta.production_energy {
                                 self.production_energy.effective = rules;
                             }

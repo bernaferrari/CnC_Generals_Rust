@@ -178,6 +178,12 @@ fn installed_active_spy_power_edges_change_only_driving_vision_and_preserve_save
 fn absent_scheduler_rejects_before_mask_and_current_proxy_preserves_its_returned_wake() {
     let mut game =
         NativeMatch::with_source_template(150.0, container_template(), true, spy_template());
+    // This negative requires a genuinely absent receiving schedule, rather
+    // than the now correctly admitted ordinary NativeMatch birth schedule.
+    let actual_scheduler = std::mem::replace(
+        &mut game.scheduler,
+        crate::system::game_logic::GameLogic::new(),
+    );
     let before = saved(&game);
     assert!(power(&mut game, 20, true).is_err());
     assert_eq!(saved(&game), before);
@@ -188,6 +194,7 @@ fn absent_scheduler_rejects_before_mask_and_current_proxy_preserves_its_returned
             .unwrap()
             .is_disabled_by_type(DisabledType::DisabledUnderpowered)
     );
+    game.scheduler = actual_scheduler;
     register(&mut game);
     let entry = installed_spy(&game);
     let before = saved(&game);

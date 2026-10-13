@@ -1325,6 +1325,10 @@ impl ProductionEnergyRules {
     }
 }
 
+#[path = "ini_game_data/physics_rules.rs"]
+mod physics_rules;
+pub use physics_rules::PhysicsContentRules;
+
 fn parse_game_data_block(ini: &mut INI, data: &mut GlobalData) -> INIResult<()> {
     loop {
         ini.read_line()?;

@@ -68,12 +68,12 @@ impl GameLogic {
             o.missile_defender_laser_beam = true;
             o.producer_id = Some(shooter_id);
             o.missile_defender_laser_beam_expires_frame = Some(expires);
-            o.health.maximum = LASER_GUIDED_BEAM_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 LASER_GUIDED_BEAM_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
         }
         self.weapon_lasers
             .retain(|laser| laser.from_id != shooter_id || laser.laser_name != beam_name);
@@ -1312,12 +1312,12 @@ impl GameLogic {
             o.comanche_rocket_pod_projectile = true;
             o.comanche_rocket_pod_projectile_expires_frame = Some(expires);
             o.note_producer(source_id);
-            o.health.maximum = COMANCHE_ROCKET_POD_PROJECTILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 COMANCHE_ROCKET_POD_PROJECTILE_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
             let dir = to - from;
             let dist = dir.length().max(0.001);
             let life = COMANCHE_ROCKET_POD_PROJECTILE_LIFETIME_FRAMES.max(1) as f32;

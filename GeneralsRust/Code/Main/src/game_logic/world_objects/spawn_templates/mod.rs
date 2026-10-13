@@ -124,33 +124,6 @@ fn leftover_thing_template_for_prereq(
 }
 
 /// Leftover `parseHeightToSpeed` / `height_to_speed`: `sqrt(|2*g*h|)`.
-/// A leftover factory parse that ran before GameData Gravity (g=-1) stores
-/// `sqrt(80)` — treat that as unparsed and re-convert with leftover gravity.
-fn leftover_g1_min_fall_speed() -> f32 {
-    (2.0 * 40.0_f32).sqrt()
-}
-
-fn leftover_min_fall_is_gravity_aware(speed: f32) -> bool {
-    speed.is_finite() && speed > 0.0 && (speed - leftover_g1_min_fall_speed()).abs() > 1e-2
-}
-
-fn leftover_physics_min_fall_speed_for_damage(name: &str) -> Option<f32> {
-    let leftover = leftover_thing_template_for_prereq(name)?;
-    for entry in leftover.get_behavior_module_info().iter() {
-        if !entry.name.as_str().eq_ignore_ascii_case("PhysicsBehavior") {
-            continue;
-        }
-        if let Some(data) = entry
-            .data
-            .downcast_ref::<gamelogic::object::behavior::PhysicsBehaviorModuleData>()
-        {
-            return Some(data.min_fall_speed_for_damage);
-        }
-    }
-    None
-}
-
-/// Leftover factory `m_prereqInfo` wins; else leftover parse_prerequisites_block.
 fn apply_production_prerequisites_from_definition(
     template: &mut crate::game_logic::ThingTemplate,
     definition: &crate::assets::ObjectDefinition,

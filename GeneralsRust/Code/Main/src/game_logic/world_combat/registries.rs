@@ -3,6 +3,10 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+#[cfg(test)]
+#[path = "rappel_kill_owner_tests.rs"]
+mod rappel_kill_owner_tests;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TransportEvacuationMode {
     Command,
@@ -1305,9 +1309,11 @@ impl GameLogic {
             }
         }
         if num_killed == MAX_TO_KILL {
-            if let Some(p) = self.objects.get_mut(&pid) {
-                p.kill(&mut self.health_events);
-            }
+            self.apply_owned_kill(
+                pid,
+                DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            );
             return;
         }
         let can_enter = self.objects.get(&bldg_id).is_some_and(|b| {
@@ -1337,12 +1343,12 @@ impl GameLogic {
                 .get(&bldg_id)
                 .map(|b| b.contained_units())
                 .unwrap_or_default();
-            let killer_team = self.objects.get(&killer_id).map(|k| k.team);
             let Some(enemy_id) = occupants.into_iter().find(|&id| {
                 self.objects.get(&id).is_some_and(|e| {
                     e.is_alive()
-                        && killer_team.is_some_and(|kt| {
-                            kt != e.team && kt != Team::Neutral && e.team != Team::Neutral
+                        && self.objects.get(&killer_id).is_some_and(|killer| {
+                            self.object_relationship(killer, e)
+                                == gamelogic::common::Relationship::Enemies
                         })
                 })
             }) else {
@@ -1353,9 +1359,15 @@ impl GameLogic {
             }
             if let Some(e) = self.objects.get_mut(&enemy_id) {
                 e.set_contained_by(None);
-                e.kill(&mut self.health_events);
             }
-            self.award_score_the_kill_experience(killer_id, enemy_id);
+            // CPP AIStates.cpp435 scores while the enemy is still alive,
+            // before the receiving Body/onDie continuation can change it.
+            self.score_the_kill_experience(killer_id, enemy_id);
+            self.apply_owned_kill(
+                enemy_id,
+                DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            );
             num_killed += 1;
         }
         num_killed

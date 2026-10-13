@@ -583,10 +583,11 @@ impl GameLogic {
             if let Some(outer) = self.objects.get_mut(&id) {
                 outer.overlord_redirection_active = false;
             }
-            if let Some(child) = self.objects.get_mut(&redirected) {
-                child.kill(&mut self.health_events);
-            }
-            self.mark_object_for_destruction(redirected, None);
+            self.apply_owned_kill(
+                redirected,
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            );
             // Base TransportContain::onDie now sees the physical payload in
             // the hull's literal roster, not the redirected infantry list.
             self.remove_direct_contained_child(id, redirected);

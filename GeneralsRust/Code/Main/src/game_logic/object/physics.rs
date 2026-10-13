@@ -125,7 +125,7 @@ impl Object {
 
     /// C++ heightToSpeed(height) = sqrt(|2*g*h|) with parsed GlobalData gravity.
     pub fn height_to_fall_speed(height: f32) -> f32 {
-        (2.0 * leftover_loco_gravity().abs() * height.abs()).sqrt()
+        (2.0 * Self::SHOCK_GRAVITY.abs() * height.abs()).sqrt()
     }
 
     /// C++ PhysicsBehaviorModuleData::m_minFallSpeedForDamage default (height 40).
@@ -133,17 +133,12 @@ impl Object {
         Self::height_to_fall_speed(40.0)
     }
 
-    /// Leftover `height_to_speed(40)` with leftover/retail gravity (~2.385).
-    /// Remaps the old live g=1 default `sqrt(80)` so tosses can splat.
-    pub(super) fn leftover_compare_min_fall_speed(stored: f32) -> f32 {
-        let leftover_default = Self::min_fall_speed_for_damage();
-        if !stored.is_finite() || stored <= 0.0 {
-            return leftover_default;
-        }
-        if (stored - (80.0f32).sqrt()).abs() < 1e-2 {
-            leftover_default
-        } else {
+    /// Already-resolved module data stays exact; no numeric default guessing.
+    pub(super) fn fall_damage_speed_threshold(&self, stored: f32) -> f32 {
+        if stored.is_finite() && stored >= 0.0 {
             stored
+        } else {
+            (2.0 * self.physics_gravity().abs() * 40.0).sqrt()
         }
     }
 
@@ -1217,7 +1212,7 @@ impl Object {
     /// Gravity is leftover `TheGlobalData->m_gravity` (host world-Y).
     /// Returns lift accel to apply (not force).
     pub fn calc_lift_to_use_at_pt(&self, cur_y: f32, preferred_height: f32) -> f32 {
-        let gravity = leftover_loco_gravity();
+        let gravity = self.physics_gravity();
         let max_gross = self.get_max_lift();
         let mut max_net = max_gross + gravity;
         if max_net < 0.0 {
@@ -1739,6 +1734,7 @@ impl Object {
             local_goal,
             max_accel,
             forward,
+            self.physics_gravity(),
         );
         let max_thrust_angle = if max_turn_rate > 0.0 {
             self.max_thrust_angle
@@ -1956,12 +1952,12 @@ impl Object {
 
     /// C++ Thing::isSignificantlyAboveTerrain — height > -(3*3)*gravity.
     pub fn is_significantly_above_terrain(&self) -> bool {
-        Self::height_treats_as_airborne(self.get_position().y - self.ground_height)
+        self.height_treats_as_airborne(self.get_position().y - self.ground_height)
     }
 
     /// C++ Locomotor.cpp:1005-1008 treatAsAirborne — 3 frames of gravity.
-    pub fn height_treats_as_airborne(height_above_surface: f32) -> bool {
-        height_above_surface > -(3.0 * 3.0) * leftover_loco_gravity()
+    pub fn height_treats_as_airborne(&self, height_above_surface: f32) -> bool {
+        height_above_surface > -(3.0 * 3.0) * self.physics_gravity()
     }
 
     /// C++ DISABLED_HELD: garrisoned / parachute-cargo / prison / Battle Bus hulk.
@@ -2054,67 +2050,6 @@ fn thrust_vel_nearly_zero(v: f32) -> bool {
     v.abs() < 0.001
 }
 
-/// Leftover `TheGlobalData->m_gravity` (parseAccelerationReal). Host Y-up == C++ Z.
-/// Ctor defaults (-1.0 / leftover INI -9.8) are unparsed; retail GameData.ini is -64/900.
-pub(super) fn leftover_loco_gravity() -> f32 {
-    leftover_physics_gravity()
-}
-
-fn leftover_physics_gravity() -> f32 {
-    const RETAIL: f32 = Object::SHOCK_GRAVITY;
-    let raw = leftover_global_gravity();
-    match raw {
-        Some(g) if g.is_finite() && g < 0.0 && (g + 1.0).abs() > 1e-4 && (g + 9.8).abs() > 1e-3 => {
-            g
-        }
-        _ => RETAIL,
-    }
-}
-
-fn leftover_global_gravity() -> Option<f32> {
-    if let Some(data) = game_engine::common::ini::get_global_data() {
-        return Some(data.read().gravity);
-    }
-    game_engine::common::global_data::read_safe()
-        .ok()
-        .map(|data| data.gravity)
-}
-
-/// Leftover `TheGlobalData->m_groundStiffness`. Ctor 0.5 → retail 0.8.
-pub(super) fn leftover_ground_stiffness() -> f32 {
-    sanitize_stiffness(leftover_global_stiffness_pair().0, Object::GROUND_STIFFNESS)
-}
-
-/// Leftover `TheGlobalData->m_structureStiffness`. Ctor 0.5 / leftover 1.0 → retail 0.3.
-pub(super) fn leftover_structure_stiffness() -> f32 {
-    sanitize_stiffness(
-        leftover_global_stiffness_pair().1,
-        Object::STRUCTURE_STIFFNESS,
-    )
-}
-
-fn leftover_global_stiffness_pair() -> (Option<f32>, Option<f32>) {
-    if let Ok(data) = game_engine::common::global_data::read_safe() {
-        return (Some(data.ground_stiffness), Some(data.structure_stiffness));
-    }
-    if let Some(data) = game_engine::common::ini::get_global_data() {
-        let data = data.read();
-        return (Some(data.ground_stiffness), Some(data.structure_stiffness));
-    }
-    (None, None)
-}
-
-fn sanitize_stiffness(raw: Option<f32>, retail: f32) -> f32 {
-    match raw {
-        Some(s) if s.is_finite() && (s - 0.5).abs() > 1e-6 && (s - 1.0).abs() > 1e-6 => {
-            s.clamp(0.01, 0.99)
-        }
-        _ => retail.clamp(0.01, 0.99),
-    }
-}
-
-/// C++ `Locomotor::getSurfaceHtAtPt` via leftover `TheTerrainLogic`.
-/// Host XZ maps to leftover XY. Empty leftover terrain keeps `ground_y`.
 fn leftover_surface_ht_at_pt(pos: glam::Vec3, ground_y: f32) -> f32 {
     let Some(terrain) = gamelogic::helpers::TheTerrainLogic::get() else {
         return ground_y;
@@ -2174,6 +2109,7 @@ fn leftover_calc_direction_to_apply_thrust(
     goal_pos: glam::Vec3,
     max_accel: f32,
     forward: glam::Vec3,
+    gravity: f32,
 ) -> glam::Vec3 {
     let vec_to_goal = goal_pos - obj_pos;
     if thrust_vel_nearly_zero(vec_to_goal.length_squared()) {
@@ -2186,7 +2122,7 @@ fn leftover_calc_direction_to_apply_thrust(
     }
 
     let mut cur_vel = cur_vel;
-    cur_vel.y += leftover_loco_gravity();
+    cur_vel.y += gravity;
 
     let dist_to_goal = vec_to_goal.length();
     let cur_vel_mag_sqr = cur_vel.length_squared();

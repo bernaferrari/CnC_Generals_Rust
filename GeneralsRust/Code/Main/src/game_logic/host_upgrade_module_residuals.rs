@@ -789,6 +789,7 @@ pub fn apply_locomotor_set_kind_for_surfaces(
             })
         };
         obj.locomotor_set_names = names;
+        obj.selected_locomotor_definition = None;
         obj.cur_locomotor_name = selected.clone();
         obj.jet_ai.cur_locomotor_set = Some(token.to_string());
         if let Some(name) = selected {
@@ -824,6 +825,8 @@ pub fn apply_locomotor_set_kind_for_surfaces(
     apply_swap_fields(obj, &swap);
     obj.locomotor_set_names = vec![swap.locomotor_name.to_string()];
     obj.cur_locomotor_name = Some(swap.locomotor_name.to_string());
+    obj.selected_locomotor_definition =
+        crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(swap.locomotor_name);
     obj.jet_ai.cur_locomotor_set = Some(token.to_string());
     true
 }
@@ -912,6 +915,7 @@ fn apply_locomotor_set_for_cell_change(
         _ => true,
     };
     obj.locomotor_set_names = names;
+    obj.selected_locomotor_definition = None;
     obj.cur_locomotor_name = selected.clone();
     obj.jet_ai.cur_locomotor_set = Some(token.to_string());
     if let Some(name) = selected {

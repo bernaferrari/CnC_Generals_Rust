@@ -246,6 +246,9 @@ pub struct ContainModuleMetadata {
     /// C++ parsePercentToReal; None retains synthesized adapter defaults.
     #[serde(default)]
     pub damage_percent_to_units: Option<f32>,
+    /// CPP OpenContainModuleData defaults true, independently of damage amount.
+    #[serde(default = "default_burned_death_to_units")]
+    pub burned_death_to_units: bool,
     /// TransportContain default false: kill rather than direct destruction.
     #[serde(default)]
     pub destroy_riders_who_are_not_free_to_exit: bool,
@@ -363,6 +366,10 @@ const fn default_allow_inside() -> bool {
     true
 }
 
+const fn default_burned_death_to_units() -> bool {
+    true
+}
+
 const fn default_enclosing_container() -> bool {
     true
 }
@@ -381,6 +388,7 @@ impl Default for ContainModuleMetadata {
             kind: ContainModuleKind::None,
             slots: None,
             damage_percent_to_units: None,
+            burned_death_to_units: true,
             destroy_riders_who_are_not_free_to_exit: false,
             death_rules: None,
             admission: ContainAdmission::Unsupported,

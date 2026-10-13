@@ -352,6 +352,12 @@ impl NativeMatch {
         );
         assert!(source.read().unwrap().get_ai_update_interface().is_some());
         assert!(target.read().unwrap().get_contain().is_some());
+        // Preparation installs inert proxies. Admit their actual descriptors
+        // and saved clocks, including derived AI classes, at this birth boundary.
+        for owner in [&source, &target] {
+            Object::admit_update_schedule_from_handle(owner, &mut scheduler).unwrap();
+        }
+
         let mut terrain = crate::terrain::TerrainLogic::new();
         let mut map = crate::system::map_loader::MapData::new();
         map.width = 32;
@@ -1331,3 +1337,6 @@ fn held_enter_completion_rejects_wrong_container_missing_roster_and_non_held() {
 
 #[path = "ai_native_world_tests/airborne_locomotor.rs"]
 mod airborne_locomotor;
+
+#[path = "ai_native_world_tests/queue_wake.rs"]
+mod queue_wake;

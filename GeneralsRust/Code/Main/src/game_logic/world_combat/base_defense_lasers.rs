@@ -1289,12 +1289,12 @@ impl GameLogic {
             o.rocket_buggy_missile_fuel_expires_frame =
                 Some(self.frame.saturating_add(BUGGY_MISSILE_FUEL_FRAMES));
             o.note_producer(source_id);
-            o.health.maximum = BUGGY_MISSILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 BUGGY_MISSILE_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
             o.movement.velocity = vel;
             o.set_orientation(dir.z.atan2(dir.x));
         }
@@ -1670,12 +1670,12 @@ impl GameLogic {
             o.scud_launcher_missile_fuel_expires_frame =
                 Some(self.frame.saturating_add(SCUD_MISSILE_FUEL_FRAMES));
             o.note_producer(source_id);
-            o.health.maximum = SCUD_MISSILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(
-                o,
+            o.set_body_max_health_with_mode(
                 SCUD_MISSILE_MAX_HEALTH,
-                &mut self.health_events,
+                crate::game_logic::object::MaxHealthChange::FullyHeal,
             );
+            self.health_events
+                .record_applied_heal(o.id, o.health.current);
             o.movement.velocity = vel;
             o.set_orientation(dir.z.atan2(dir.x));
             o.height_die = Some(HostHeightDieData::with_target(
