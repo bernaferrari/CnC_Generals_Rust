@@ -3551,7 +3551,7 @@ mod tests {
         owner: Arc<RwLock<Object>>,
         rider: Arc<RwLock<Object>>,
         physics: crate::object::PhysicsInterfaceHandle,
-        calls: Arc<Mutex<Vec<DoorExitCall>>>,
+        calls: Vec<DoorExitCall>,
         adjustment: Coord3D,
     }
 
@@ -3592,25 +3592,16 @@ mod tests {
             obj_id: Option<ObjectID>,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             self.allow_to_fall_at_callback();
-            self.calls
-                .lock()
-                .expect("calls")
-                .push(DoorExitCall::Ignore(obj_id));
+            self.calls.push(DoorExitCall::Ignore(obj_id));
             Ok(())
         }
         fn set_ignore_collision_time(&mut self, duration_frames: UnsignedInt) {
             self.allow_to_fall_at_callback();
-            self.calls
-                .lock()
-                .expect("calls")
-                .push(DoorExitCall::Collision(duration_frames));
+            self.calls.push(DoorExitCall::Collision(duration_frames));
         }
         fn adjust_destination(&mut self, goal: &mut Coord3D) -> bool {
             let allow = self.allow_to_fall_at_callback();
-            self.calls
-                .lock()
-                .expect("calls")
-                .push(DoorExitCall::Adjust(*goal, allow));
+            self.calls.push(DoorExitCall::Adjust(*goal, allow));
             *goal += self.adjustment;
             true
         }
@@ -3621,7 +3612,7 @@ mod tests {
             assert_eq!(command.cmd, crate::ai::AiCommandType::FollowPath);
             assert_eq!(command.cmd_source, CommandSourceType::FromAi);
             let allow = self.allow_to_fall_at_callback();
-            self.calls.lock().expect("calls").push(DoorExitCall::Follow(
+            self.calls.push(DoorExitCall::Follow(
                 command.coords.clone(),
                 command.obj,
                 allow,
@@ -3630,10 +3621,7 @@ mod tests {
         }
         fn do_quick_exit(&mut self, path: &[Coord3D]) {
             let allow = self.allow_to_fall_at_callback();
-            self.calls
-                .lock()
-                .expect("calls")
-                .push(DoorExitCall::Quick(path.to_vec(), allow));
+            self.calls.push(DoorExitCall::Quick(path.to_vec(), allow));
         }
         fn update_goal_position(
             &mut self,
@@ -3641,10 +3629,7 @@ mod tests {
             _layer: crate::common::PathfindLayerEnum,
         ) -> Result<(), String> {
             let allow = self.allow_to_fall_at_callback();
-            self.calls
-                .lock()
-                .expect("calls")
-                .push(DoorExitCall::Goal(*goal, allow));
+            self.calls.push(DoorExitCall::Goal(*goal, allow));
             Ok(())
         }
     }
@@ -3692,19 +3677,17 @@ mod tests {
             )
         };
         physics.access().expect("physics").set_allow_to_fall(true);
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let ai: Arc<Mutex<dyn crate::modules::AIUpdateInterface>> =
-            Arc::new(Mutex::new(DoorExitAi {
-                owner: Arc::clone(&owner),
-                rider: Arc::clone(&rider),
-                physics: physics.clone(),
-                calls: Arc::clone(&calls),
-                adjustment,
-            }));
+        let ai = Arc::new(Mutex::new(DoorExitAi {
+            owner: Arc::clone(&owner),
+            rider: Arc::clone(&rider),
+            physics: physics.clone(),
+            calls: Vec::new(),
+            adjustment,
+        }));
         {
             let mut rider_guard = rider.write().expect("rider write");
             rider_guard.set_physics(Some(physics.clone()));
-            rider_guard.set_ai_update_interface(Some(ai));
+            rider_guard.set_ai_update_interface(Some(ai.clone()));
         }
 
         let mut contain =
@@ -3746,7 +3729,7 @@ mod tests {
             ]
         };
         assert_eq!(
-            *calls.lock().expect("calls"),
+            ai.lock().expect("AI receiver").calls,
             expected,
             "C++ exit callback ordering"
         );

@@ -47,33 +47,24 @@ pub(crate) fn run_owned_host_boundary(
 fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_ai_request_log::drain();
     logic.attack_events.complete_boundary();
-    let _ = crate::game_logic::host_bounce_land_log::drain();
 
-    let _ = crate::game_logic::host_crush_vision_log::drain();
     let _ = crate::game_logic::host_demo_mine_cheer_log::drain();
     let _ = crate::game_logic::host_destroy_log::drain();
 
-    let _ = crate::game_logic::host_faerie_fire_log::drain();
     let _ = crate::game_logic::host_fire_intent_log::drain();
     logic
         .combat_system
         .fire_sound_loop_events
         .complete_boundary();
-    let _ = crate::game_logic::host_hijacker_log::drain();
 
     let _ = logic.movement_events.drain_for_host_boundary();
     let _ = crate::game_logic::host_movement_log::drain();
 
     logic.ownership_events.complete_boundary();
 
-    let _ = crate::game_logic::host_production_door_log::drain();
     logic.production_events.complete_boundary();
     let _ = crate::game_logic::host_production_progress_log::drain();
 
-    let _ = crate::game_logic::host_rebuild_producer_log::drain();
-
-    let _ = crate::game_logic::host_shock_stun_log::drain();
-    let _ = crate::game_logic::host_sole_healing_log::drain();
     let _ = crate::game_logic::host_spawn_log::drain();
 
     logic.economy_events.complete_boundary();

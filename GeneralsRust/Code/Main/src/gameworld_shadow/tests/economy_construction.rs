@@ -693,8 +693,7 @@ fn weapon_clip_size_channel_via_set_weapon_stats() {
 }
 
 #[test]
-fn front_crushed_channel_via_set_crush_vision() {
-    use crate::game_logic::host_crush_vision_log;
+fn canonical_front_crushed_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
@@ -820,8 +819,7 @@ fn locomotor_path_flags_channel_via_set_movement() {
 }
 
 #[test]
-fn shock_stun_channel_via_set_shock_stun() {
-    use crate::game_logic::host_shock_stun_log;
+fn canonical_shock_stun_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
@@ -922,8 +920,7 @@ fn blocked_path_channel_via_set_movement() {
 }
 
 #[test]
-fn rebuild_producer_channel_via_set_rebuild_producer() {
-    use crate::game_logic::host_rebuild_producer_log;
+fn canonical_rebuild_producer_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();

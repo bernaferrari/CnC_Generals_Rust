@@ -1060,7 +1060,7 @@ mod tests {
 
     #[derive(Default)]
     struct RecordingNugget {
-        positions: Arc<Mutex<Vec<Vec3>>>,
+        positions: Mutex<Vec<Vec3>>,
     }
 
     impl FXNugget for RecordingNugget {
@@ -1140,6 +1140,15 @@ mod tests {
 
     #[test]
     fn fx_list_at_bone_pos_uses_current_client_bones() {
+        if matches!(
+            crate::test_process::run_bounded(
+                module_path!(),
+                "fx_list_at_bone_pos_uses_current_client_bones"
+            ),
+            crate::test_process::TestProcess::ParentVerified
+        ) {
+            return;
+        }
         let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
         {
             let mut shroud = shroud_manager.lock().expect("shroud");
@@ -1156,11 +1165,9 @@ mod tests {
             );
         }
 
-        let positions = Arc::new(Mutex::new(Vec::new()));
+        let recorder = Arc::new(RecordingNugget::default());
         let mut nested = FXList::new();
-        nested.add_nugget(Arc::new(RecordingNugget {
-            positions: Arc::clone(&positions),
-        }));
+        nested.add_nugget(recorder.clone());
         let nugget = FXListAtBonePosFXNugget::new(Arc::new(nested), "MUZZLE".to_string());
 
         let mut manager = ParticleSystemManager::new();
@@ -1172,7 +1179,7 @@ mod tests {
         *shroud_manager.lock().expect("shroud") =
             gamelogic::system::shroud_manager::ShroudManager::new();
 
-        let positions = positions.lock().unwrap();
+        let positions = recorder.positions.lock().unwrap();
         assert_eq!(positions.len(), 3);
         assert_eq!(positions[0], Vec3::new(1.0, 2.0, 3.0));
         assert_eq!(positions[1], Vec3::new(4.0, 5.0, 6.0));
@@ -1181,6 +1188,15 @@ mod tests {
 
     #[test]
     fn execute_fx_pos_skips_nuggets_unless_cellshroud_clear() {
+        if matches!(
+            crate::test_process::run_bounded(
+                module_path!(),
+                "execute_fx_pos_skips_nuggets_unless_cellshroud_clear"
+            ),
+            crate::test_process::TestProcess::ParentVerified
+        ) {
+            return;
+        }
         let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
         {
             let mut shroud = shroud_manager.lock().expect("shroud");
@@ -1188,18 +1204,16 @@ mod tests {
             shroud.init_shroud_grid(500.0, 500.0);
         }
 
-        let positions = Arc::new(Mutex::new(Vec::new()));
+        let recorder = Arc::new(RecordingNugget::default());
         let mut list = FXList::new();
-        list.add_nugget(Arc::new(RecordingNugget {
-            positions: Arc::clone(&positions),
-        }));
+        list.add_nugget(recorder.clone());
         let mut manager = ParticleSystemManager::new();
         let mut context = test_context(&mut manager, None);
         let primary = Vec3::new(100.0, 100.0, 0.0);
 
         list.execute_fx_pos(primary, None, 0.0, None, 0.0, &mut context);
         assert!(
-            positions.lock().unwrap().is_empty(),
+            recorder.positions.lock().unwrap().is_empty(),
             "unexplored CELLSHROUD_SHROUDED must not leak FXList integration nuggets"
         );
 
@@ -1217,7 +1231,7 @@ mod tests {
         }
         list.execute_fx_pos(primary, None, 0.0, None, 0.0, &mut context);
         assert_eq!(
-            positions.lock().unwrap().len(),
+            recorder.positions.lock().unwrap().len(),
             1,
             "CELLSHROUD_CLEAR must play FXList integration nuggets"
         );
@@ -1228,17 +1242,15 @@ mod tests {
 
     #[test]
     fn execute_fx_obj_fail_closes_when_local_player_invalid() {
-        let positions = Arc::new(Mutex::new(Vec::new()));
+        let recorder = Arc::new(RecordingNugget::default());
         let mut list = FXList::new();
-        list.add_nugget(Arc::new(RecordingNugget {
-            positions: Arc::clone(&positions),
-        }));
+        list.add_nugget(recorder.clone());
         let mut manager = ParticleSystemManager::new();
         let mut context = test_context(&mut manager, None);
         context.local_player_index = -1;
         list.execute_fx_obj(Some(Vec3::new(10.0, 10.0, 0.0)), None, None, &mut context);
         assert!(
-            positions.lock().unwrap().is_empty(),
+            recorder.positions.lock().unwrap().is_empty(),
             "hq-nyjgg: invalid local player must fail-close doFXObj"
         );
     }

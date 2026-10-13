@@ -55,7 +55,6 @@ impl Object {
         self.apply_physics_ypr(0.0, dpitch * pryf, droll * pryf);
         // C++ applyRandomRotation: setAllowBouncing(true) after stick gate.
         self.shock_allow_bounce = true;
-        self.record_host_shock_stun();
     }
 
     pub fn apply_shock_wave_impulse(&mut self, force: glam::Vec3) -> bool {

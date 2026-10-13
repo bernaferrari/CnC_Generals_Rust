@@ -14,18 +14,6 @@ use super::combat;
 
 use super::host_structure_topple;
 
-#[path = "host_production_door_log.rs"]
-pub mod host_production_door_log;
-
-#[path = "host_rebuild_producer_log.rs"]
-pub mod host_rebuild_producer_log;
-
-#[path = "host_shock_stun_log.rs"]
-pub mod host_shock_stun_log;
-
-#[path = "host_sole_healing_log.rs"]
-pub mod host_sole_healing_log;
-
 #[path = "host_production_log.rs"]
 pub mod host_production_log;
 

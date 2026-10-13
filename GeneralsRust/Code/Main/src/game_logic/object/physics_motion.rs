@@ -215,7 +215,6 @@ impl Object {
         // Do not invent KindOf vehicle=1 / infantry=0 — that left cars/props at
         // CrushableLevel 255 and collapsed Overlord==tank. INI is stamped at
         // Object::new from the parsed template.
-        self.record_host_crush_vision();
     }
 
     /// C++ Object::canCrushOrSquish TEST_CRUSH_ONLY residual.
@@ -616,7 +615,6 @@ impl Object {
         if !self.bounce_sound_name.is_empty() {
             self.bounce_audio_pending = self.bounce_audio_pending.saturating_add(1);
         }
-        self.record_host_bounce_land();
     }
 
     /// Drain one pending bounce audio emit for GameLogic → TheAudio queue.
@@ -626,7 +624,6 @@ impl Object {
             return None;
         }
         self.bounce_audio_pending = self.bounce_audio_pending.saturating_sub(1);
-        self.record_host_bounce_land();
         Some((self.bounce_sound_name.clone(), self.last_bounce_volume))
     }
 
@@ -910,7 +907,6 @@ impl Object {
             self.invalidate_velocity_magnitude();
             return false;
         }
-
         self.set_position_keep_rotation(new_pos);
 
         if let Some(force) = bounce_force {
@@ -1199,7 +1195,6 @@ impl Object {
         if vel_settled || (!self.is_significantly_above_terrain() && v.y.abs() < EPS) {
             self.shock_stun_frames = 0;
             self.set_status_disabled_freefall(false);
-            self.record_host_shock_stun();
         }
     }
 

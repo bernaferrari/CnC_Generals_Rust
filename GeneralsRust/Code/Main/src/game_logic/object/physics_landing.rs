@@ -253,7 +253,6 @@ impl Object {
         }
         // C++ handleBounce bounceForce.z==0: setAllowBouncing(m_originalAllowBounce).
         self.shock_allow_bounce = self.original_allow_bounce;
-        self.record_host_bounce_land();
         0.0
     }
 

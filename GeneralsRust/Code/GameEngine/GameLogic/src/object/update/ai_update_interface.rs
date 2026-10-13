@@ -2914,7 +2914,7 @@ mod tests {
 
     #[derive(Debug)]
     struct RecordingAi {
-        calls: Arc<Mutex<u32>>,
+        calls: u32,
     }
 
     impl crate::modules::AIUpdateInterface for RecordingAi {
@@ -2923,7 +2923,7 @@ mod tests {
         }
 
         fn xfer_ai_update_state(&mut self, _xfer: &mut dyn Xfer) -> Result<bool, String> {
-            *self.calls.lock().unwrap() += 1;
+            self.calls += 1;
             Ok(true)
         }
 
@@ -3020,11 +3020,8 @@ mod tests {
     fn ai_update_module_xfer_forwards_to_runtime_ai() {
         let data = Arc::new(AIUpdateModuleData::default());
         let mut module = AIUpdateInterfaceModule::new(1, data);
-        let calls = Arc::new(Mutex::new(0));
-        let runtime_ai = Arc::new(Mutex::new(RecordingAi {
-            calls: Arc::clone(&calls),
-        }));
-        module.set_runtime_ai(runtime_ai);
+        let runtime_ai = Arc::new(Mutex::new(RecordingAi { calls: 0 }));
+        module.set_runtime_ai(runtime_ai.clone());
 
         let writer = Cursor::new(Vec::new());
         let mut xfer = XferSave::new(writer, 1);
@@ -3032,7 +3029,7 @@ mod tests {
             .xfer(&mut xfer)
             .expect("AIUpdate module xfer should forward to runtime AI");
 
-        assert_eq!(*calls.lock().unwrap(), 1);
+        assert_eq!(runtime_ai.lock().unwrap().calls, 1);
     }
 
     #[test]

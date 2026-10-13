@@ -185,8 +185,7 @@ impl CaveContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -210,8 +209,7 @@ impl CaveContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -293,7 +291,8 @@ impl CaveContain {
             return Ok(());
         }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        let obj = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .ok_or("Contain object not found")?;
         let tracker = if let Some(cave_system) = &self.cave_system {
             let system = cave_system.lock().map_err(|_| GameError::LockError)?;
@@ -318,7 +317,8 @@ impl CaveContain {
             return Ok(());
         }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        let obj = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .ok_or("Contain object not found")?;
         if super::should_cancel_containment_after_booby_trap(
             {
@@ -421,7 +421,8 @@ impl CaveContain {
             return Ok(());
         }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        let obj = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .ok_or("Contain object not found")?;
         let tracker = if let Some(cave_system) = &self.cave_system {
             let system = cave_system.lock().map_err(|_| GameError::LockError)?;
@@ -779,7 +780,8 @@ impl CaveContain {
         if self.get_contain_count()? == 1 {
             if let Ok(ids) = self.get_contained_item_ids() {
                 if let Some(&rider_id) = ids.first() {
-                    if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
+                    if let Some(rider) =
+                        crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
                     {
                         if let Ok(rider_obj) = rider.read() {
                             if let Some(controlling_player) = rider_obj.get_controlling_player() {
@@ -990,7 +992,7 @@ impl ContainModuleInterface for CaveContain {
             return self
                 .is_valid_container_for(&*obj_guard, true)
                 .unwrap_or(false);
-            });
+        });
         false
     }
 
@@ -1096,8 +1098,7 @@ impl ContainModuleInterface for CaveContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-        else {
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
             return Ok(());
         };
         let valid = other
@@ -1240,7 +1241,7 @@ mod tests {
 
     #[derive(Debug)]
     struct RecordingContain {
-        original_team_calls: Arc<Mutex<Vec<bool>>>,
+        original_team_calls: Vec<bool>,
     }
 
     impl ContainModuleInterface for RecordingContain {
@@ -1269,10 +1270,7 @@ mod tests {
         }
 
         fn set_original_team(&mut self, old_team: Option<Weak<RwLock<Team>>>) {
-            self.original_team_calls
-                .lock()
-                .expect("calls lock")
-                .push(old_team.is_some());
+            self.original_team_calls.push(old_team.is_some());
         }
     }
 
@@ -1448,20 +1446,20 @@ mod tests {
             .set_team(Some(Arc::clone(&team)))
             .expect("set cave b team");
 
-        let calls_a = Arc::new(Mutex::new(Vec::new()));
-        let calls_b = Arc::new(Mutex::new(Vec::new()));
+        let receiver_a = Arc::new(Mutex::new(RecordingContain {
+            original_team_calls: Vec::new(),
+        }));
+        let receiver_b = Arc::new(Mutex::new(RecordingContain {
+            original_team_calls: Vec::new(),
+        }));
         cave_a
             .write()
             .expect("cave a write")
-            .set_contain(Some(Arc::new(Mutex::new(RecordingContain {
-                original_team_calls: Arc::clone(&calls_a),
-            }))));
+            .set_contain(Some(receiver_a.clone()));
         cave_b
             .write()
             .expect("cave b write")
-            .set_contain(Some(Arc::new(Mutex::new(RecordingContain {
-                original_team_calls: Arc::clone(&calls_b),
-            }))));
+            .set_contain(Some(receiver_b.clone()));
 
         let tracker = cave_system
             .lock()
@@ -1485,8 +1483,20 @@ mod tests {
             .change_team_on_all_connected_caves(None, false)
             .expect("uncapture team change");
 
-        assert_eq!(*calls_a.lock().expect("calls a lock"), vec![true, false]);
-        assert_eq!(*calls_b.lock().expect("calls b lock"), vec![true, false]);
+        assert_eq!(
+            receiver_a
+                .lock()
+                .expect("contain a receiver")
+                .original_team_calls,
+            vec![true, false]
+        );
+        assert_eq!(
+            receiver_b
+                .lock()
+                .expect("contain b receiver")
+                .original_team_calls,
+            vec![true, false]
+        );
 
         OBJECT_REGISTRY.unregister_object(93005);
         OBJECT_REGISTRY.unregister_object(93006);

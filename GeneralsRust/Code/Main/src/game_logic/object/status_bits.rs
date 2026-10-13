@@ -626,19 +626,6 @@ impl Object {
             );
     }
 
-    pub fn record_host_hijacker(&self) {
-        crate::game_logic::host_hijacker_log::record(
-            self.id,
-            self.hijack_vehicle_id.map(|id| id.0).unwrap_or(0),
-            self.hijacker_in_vehicle,
-            self.hijacker_update_active,
-            self.hijacker_was_airborne,
-            self.hijacker_eject_pos.map(|p| [p.x, p.y, p.z]),
-            self.hive_slave_respawn_frame,
-            self.next_detection_scan_frame,
-        );
-    }
-
     pub fn record_host_ai_request(&self) {
         let pending_team = self
             .disguise_pending_team

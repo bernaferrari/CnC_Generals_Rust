@@ -3,8 +3,7 @@
 use super::*;
 
 #[test]
-fn sole_healing_channel_via_set_sole_healing() {
-    use crate::game_logic::host_sole_healing_log;
+fn canonical_sole_healing_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
@@ -136,8 +135,7 @@ fn guard_radius_is_owned_and_shadow_only_observes() {
 }
 
 #[test]
-fn production_door_channel_via_set_production_door() {
-    use crate::game_logic::host_production_door_log;
+fn canonical_production_door_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
@@ -241,8 +239,7 @@ fn physics_motive_channel_via_set_physics_motive() {
 }
 
 #[test]
-fn bounce_land_channel_via_set_bounce_land() {
-    use crate::game_logic::host_bounce_land_log;
+fn canonical_bounce_land_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
@@ -603,8 +600,7 @@ fn ai_request_channel_via_set_ai_request() {
 }
 
 #[test]
-fn hijacker_channel_via_set_hijacker() {
-    use crate::game_logic::host_hijacker_log;
+fn canonical_hijacker_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();

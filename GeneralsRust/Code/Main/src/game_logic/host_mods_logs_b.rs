@@ -32,9 +32,6 @@ pub mod host_fire_spawn_log;
 #[path = "host_heal_log.rs"]
 pub mod host_heal_log;
 
-#[path = "host_hijacker_log.rs"]
-pub mod host_hijacker_log;
-
 #[path = "host_leaflet_b52_drop_log.rs"]
 pub mod host_leaflet_b52_drop_log;
 
@@ -43,9 +40,6 @@ pub mod host_paradrop_cargo_drop_log;
 
 #[path = "host_eva_log.rs"]
 pub mod host_eva_log;
-
-#[path = "host_faerie_fire_log.rs"]
-pub mod host_faerie_fire_log;
 
 #[path = "movement_events.rs"]
 pub(crate) mod movement_events;

@@ -236,7 +236,6 @@ impl GameLogic {
         if let Some(visual_range) = get_int(well_known_keys::key_object_visual_range()) {
             if let Some(created) = self.objects.get_mut(&id) {
                 created.vision_range = (visual_range as f32).max(0.0);
-                created.record_host_crush_vision();
             }
         }
 
@@ -244,7 +243,6 @@ impl GameLogic {
         {
             if let Some(created) = self.objects.get_mut(&id) {
                 created.shroud_clearing_range = (shroud_range as f32).max(0.0);
-                created.record_host_crush_vision();
             }
         }
 

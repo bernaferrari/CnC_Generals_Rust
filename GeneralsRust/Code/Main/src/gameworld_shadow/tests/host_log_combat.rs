@@ -1004,8 +1004,8 @@ fn canonical_weapon_bonus_is_projected_from_receiving_owner() {
 }
 
 #[test]
-fn host_faerie_fire_log_drives_set_faerie_fire_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_faerie_fire_log};
+fn canonical_faerie_fire_is_projected_from_receiving_owner() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("FfCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");

@@ -1513,7 +1513,6 @@ impl GameLogic {
                     if door == 0 {
                         prod.production_door_phase_end_frame = now.saturating_add(wait);
                     }
-                    prod.record_host_production_door();
                 } else if door_count > 0 && prod.production_door_phases[door] == 0 {
                     prod.start_production_door_cycle_at(self.frame, door);
                     self.production_door_cycles = self.production_door_cycles.saturating_add(1);
@@ -1573,7 +1572,6 @@ impl GameLogic {
                         unit.apply_motive_force(vel * mass);
                         const STARTING_PITCH_COEFF: f32 = 0.04;
                         unit.shock_pitch_rate = unit.center_of_mass_offset * STARTING_PITCH_COEFF;
-                        unit.record_host_shock_stun();
                     }
                 }
             }

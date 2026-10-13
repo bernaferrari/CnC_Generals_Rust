@@ -692,12 +692,12 @@ mod tests {
     struct EmittingTranslator {
         emit_on: GameMessageType,
         emitted: GameMessageType,
-        seen: std::sync::Mutex<Vec<GameMessageType>>,
+        seen: Vec<GameMessageType>,
     }
 
     impl GameMessageTranslator for EmittingTranslator {
         fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
-            self.seen.lock().unwrap().push(msg.get_type().clone());
+            self.seen.push(msg.get_type().clone());
             if std::mem::discriminant(msg.get_type()) == std::mem::discriminant(&self.emit_on) {
                 emit_message(GameMessage::new(self.emitted.clone()));
             }
@@ -714,12 +714,12 @@ mod tests {
         let first = Arc::new(RwLock::new(EmittingTranslator {
             emit_on: GameMessageType::Invalid,
             emitted: GameMessageType::NewGame,
-            seen: std::sync::Mutex::new(Vec::new()),
+            seen: Vec::new(),
         }));
         let second = Arc::new(RwLock::new(EmittingTranslator {
             emit_on: GameMessageType::ClearGameData,
             emitted: GameMessageType::ClearGameData,
-            seen: std::sync::Mutex::new(Vec::new()),
+            seen: Vec::new(),
         }));
         stream.attach_translator(first.clone(), 10);
         stream.attach_translator(second.clone(), 20);
@@ -728,8 +728,8 @@ mod tests {
         let survivors = stream.propagate_messages().unwrap();
         assert_eq!(survivors.len(), 2);
 
-        let first_seen = first.read().unwrap().seen.lock().unwrap().clone();
-        let second_seen = second.read().unwrap().seen.lock().unwrap().clone();
+        let first_seen = first.read().unwrap().seen.clone();
+        let second_seen = second.read().unwrap().seen.clone();
         assert_eq!(
             first_seen,
             vec![GameMessageType::Invalid, GameMessageType::NewGame],
@@ -744,6 +744,15 @@ mod tests {
 
     #[test]
     fn propagate_delivers_survivors_to_registered_command_list() {
+        if matches!(
+            crate::test_process::run_bounded(
+                module_path!(),
+                "propagate_delivers_survivors_to_registered_command_list"
+            ),
+            crate::test_process::TestProcess::ParentVerified
+        ) {
+            return;
+        }
         use std::sync::Mutex;
         static DELIVERED: Mutex<Vec<GameMessageType>> = Mutex::new(Vec::new());
         {

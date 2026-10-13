@@ -794,8 +794,8 @@ fn canonical_building_type_is_projected_from_receiving_owner() {
 }
 
 #[test]
-fn host_crush_vision_log_drives_set_crush_vision_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_crush_vision_log};
+fn canonical_crush_vision_is_projected_from_receiving_owner() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CvCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");

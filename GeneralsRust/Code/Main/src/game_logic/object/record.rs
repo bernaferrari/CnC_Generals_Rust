@@ -121,18 +121,6 @@ impl Object {
         }
     }
 
-    pub fn record_host_crush_vision(&self) {
-        crate::game_logic::host_crush_vision_log::record(
-            self.id,
-            self.crusher_level,
-            self.crushable_level,
-            self.vision_range,
-            self.shroud_clearing_range,
-            self.front_crushed,
-            self.back_crushed,
-        );
-    }
-
     pub fn record_host_demo_mine_cheer(&self) {
         crate::game_logic::host_demo_mine_cheer_log::record(
             self.id,
@@ -164,68 +152,6 @@ impl Object {
         if (self.selection_radius - selection_radius).abs() > f32::EPSILON {
             self.selection_radius = selection_radius;
         }
-    }
-
-    pub fn record_host_shock_stun(&self) {
-        crate::game_logic::host_shock_stun_log::record(
-            self.id,
-            self.shock_stun_frames,
-            self.shock_yaw_rate,
-            self.shock_pitch_rate,
-            self.shock_roll_rate,
-            self.shock_up_z,
-            self.shock_allow_bounce,
-            self.shock_grounded_once,
-            self.shock_was_airborne,
-            self.cell_is_cliff,
-            self.cell_is_underwater,
-        );
-    }
-
-    pub fn record_host_production_door(&self) {
-        crate::game_logic::host_production_door_log::record(
-            self.id,
-            self.production_door_phase,
-            self.production_door_phase_end_frame,
-            self.production_door_hold_open,
-        );
-    }
-
-    pub fn record_host_sole_healing(&self) {
-        crate::game_logic::host_sole_healing_log::record(
-            self.id,
-            self.sole_healing_benefactor.map(|id| id.0),
-            self.sole_healing_benefactor_expiration_frame,
-        );
-    }
-
-    pub fn record_host_rebuild_producer(&self) {
-        crate::game_logic::host_rebuild_producer_log::record(
-            self.id,
-            self.is_rebuild_hole,
-            self.rebuild_template_name.clone().unwrap_or_default(),
-            self.rebuild_ready_frame,
-            self.rebuild_spawner_id.map(|id| id.0),
-            self.rebuild_worker_id.map(|id| id.0),
-            self.rebuild_reconstructing_id.map(|id| id.0),
-            self.producer_id.map(|id| id.0),
-            self.construction_complete_clear_frame,
-        );
-    }
-
-    pub fn record_host_bounce_land(&self) {
-        crate::game_logic::host_bounce_land_log::record(
-            self.id,
-            self.kill_when_resting_on_ground,
-            self.bounce_land_events,
-            self.last_bounce_fall_dy,
-            self.bounce_sound_name.clone(),
-            self.last_bounce_volume,
-            self.bounce_audio_pending,
-            self.allow_collide_force,
-            self.last_collidee.map(|id| id.0),
-            self.ignore_collisions_with.map(|id| id.0),
-        );
     }
 
     pub fn record_host_movement(&self) {

@@ -532,18 +532,12 @@ impl Object {
         if until_frame > self.faerie_fire_until_frame {
             self.faerie_fire_until_frame = until_frame;
         }
-        crate::game_logic::host_faerie_fire_log::record(
-            self.id,
-            true,
-            self.faerie_fire_until_frame,
-        );
     }
 
     /// Clear FAERIE_FIRE residual status.
     pub fn clear_faerie_fire(&mut self) {
         self.set_status_faerie_fire(false);
         self.faerie_fire_until_frame = 0;
-        crate::game_logic::host_faerie_fire_log::record(self.id, false, 0);
     }
 
     /// Expire FAERIE_FIRE residual when host frame passes the residual timer.
@@ -687,7 +681,6 @@ impl Object {
                 }
             }
         }
-        self.record_host_crush_vision();
     }
 
     /// Apply Hijack residual ownership mark (caller sets team).
@@ -696,11 +689,8 @@ impl Object {
     /// C++ HijackerUpdate enter-vehicle residual (hide hijacker with vehicle).
     pub fn begin_hijacker_in_vehicle(&mut self, vehicle_id: ObjectId) {
         self.hijack_vehicle_id = Some(vehicle_id);
-        self.record_host_hijacker();
         self.hijacker_in_vehicle = true;
-        self.record_host_hijacker();
         self.hijacker_update_active = true;
-        self.record_host_hijacker();
         self.set_status_no_collisions(true);
         self.set_status_masked(true);
         self.set_status_unselectable(true);
@@ -718,18 +708,13 @@ impl Object {
     /// C++ HijackerUpdate exit when vehicle dies residual.
     pub fn end_hijacker_in_vehicle(&mut self, eject_pos: glam::Vec3, was_airborne: bool) {
         self.hijack_vehicle_id = None;
-        self.record_host_hijacker();
         self.hijacker_in_vehicle = false;
-        self.record_host_hijacker();
         self.hijacker_update_active = false;
-        self.record_host_hijacker();
         self.set_status_no_collisions(false);
         self.set_status_masked(false);
         self.set_status_unselectable(false);
         self.hijacker_was_airborne = was_airborne;
-        self.record_host_hijacker();
         self.hijacker_eject_pos = Some(eject_pos);
-        self.record_host_hijacker();
         self.set_position(eject_pos);
         // C++ HijackerUpdate eject: setDrawableHidden(false) + registerObject.
         self.set_drawable_hidden(false);
@@ -750,9 +735,8 @@ impl Object {
         }
         self.set_position(vehicle_pos);
         self.hijacker_was_airborne = vehicle_airborne;
-        self.record_host_hijacker();
         self.hijacker_eject_pos = Some(vehicle_pos);
-        self.record_host_hijacker();
+
         // MAX veterancy residual between jacker and vehicle.
         use crate::game_logic::VeterancyLevel;
         let rank = |l: VeterancyLevel| -> u8 {
@@ -825,7 +809,6 @@ impl Object {
             // ("since we are driving"). Exact copy, not MAX.
             self.vision_range = d.vision_range;
             self.shroud_clearing_range = d.shroud_clearing_range;
-            self.record_host_crush_vision();
 
             use crate::game_logic::VeterancyLevel;
             // MAX of target and jacker veterancy residual.

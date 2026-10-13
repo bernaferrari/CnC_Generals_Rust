@@ -279,7 +279,6 @@ impl Object {
             now.saturating_add(producer_door_phase_duration(&self.template_name, 1));
         self.sync_primary_production_door();
         self.refresh_model_condition_bits();
-        self.record_host_production_door();
     }
 
     /// C++ ProductionUpdate.cpp:762-776: a completed unit whose reserved door
@@ -299,7 +298,7 @@ impl Object {
             now.saturating_add(producer_door_phase_duration(&self.template_name, 2));
         self.sync_primary_production_door();
         self.refresh_model_condition_bits();
-        self.record_host_production_door();
+
         true
     }
 
@@ -332,7 +331,6 @@ impl Object {
             }
         }
         self.sync_primary_production_door();
-        self.record_host_production_door();
     }
 
     /// C++ DoorInfo::m_holdOpen for this ExitDoorType index.
@@ -356,7 +354,7 @@ impl Object {
             self.production_door_phase_end_frames[door] = 0;
         }
         self.sync_primary_production_door();
-        self.record_host_production_door();
+
         self.refresh_model_condition_bits();
         true
     }
@@ -431,7 +429,7 @@ impl Object {
                 self.production_door_phases[door] = 2;
                 self.production_door_phase_end_frames[door] =
                     now.saturating_add(producer_door_phase_duration(name.as_str(), 2));
-                self.record_host_production_door();
+
                 self.refresh_model_condition_bits();
                 false
             }
@@ -447,7 +445,7 @@ impl Object {
                 self.production_door_phases[door] = 4;
                 self.production_door_phase_end_frames[door] =
                     now.saturating_add(producer_door_phase_duration(name.as_str(), 4));
-                self.record_host_production_door();
+
                 self.refresh_model_condition_bits();
                 false
             }
@@ -458,21 +456,21 @@ impl Object {
                     self.production_door_phases[door] = 2;
                     self.production_door_phase_end_frames[door] =
                         now.saturating_add(producer_door_phase_duration(name.as_str(), 2));
-                    self.record_host_production_door();
+
                     self.refresh_model_condition_bits();
                     return false;
                 }
                 self.clear_production_door_bits(door);
                 self.production_door_phases[door] = 0;
                 self.production_door_phase_end_frames[door] = 0;
-                self.record_host_production_door();
+
                 self.refresh_model_condition_bits();
                 true
             }
             _ => {
                 self.production_door_phases[door] = 0;
                 self.production_door_phase_end_frames[door] = 0;
-                self.record_host_production_door();
+
                 false
             }
         }
@@ -677,14 +675,12 @@ impl Object {
     ) -> bool {
         let claim_open = now > self.sole_healing_benefactor_expiration_frame
             || self.sole_healing_benefactor == Some(source_id);
-        self.record_host_sole_healing();
+
         if !claim_open {
             return false;
         }
         self.sole_healing_benefactor = Some(source_id);
-        self.record_host_sole_healing();
         self.sole_healing_benefactor_expiration_frame = now.wrapping_add(duration_frames);
-        self.record_host_sole_healing();
         true
     }
 
@@ -761,12 +757,10 @@ impl Object {
         if now > 0 {
             self.construction_complete_clear_frame =
                 now.saturating_add(self.construction_complete_duration_frames());
-            self.record_host_rebuild_producer();
         } else {
             // Structure build-complete path: clear after residual duration from next tick
             // when caller supplies frame via arm helper.
             self.construction_complete_clear_frame = 0;
-            self.record_host_rebuild_producer();
         }
         self.refresh_model_condition_bits();
     }
@@ -778,7 +772,6 @@ impl Object {
         }
         self.construction_complete_clear_frame =
             now.saturating_add(self.construction_complete_duration_frames());
-        self.record_host_rebuild_producer();
     }
 
     /// C++ ProductionUpdate clear CONSTRUCTION_COMPLETE after duration.
@@ -796,7 +789,7 @@ impl Object {
         }
         self.model_condition_bits &= !(1u128 << bit);
         self.construction_complete_clear_frame = 0;
-        self.record_host_rebuild_producer();
+
         self.refresh_model_condition_bits();
         true
     }
@@ -812,7 +805,7 @@ impl Object {
         let bit = construction_complete_model_bit();
         self.model_condition_bits &= !(1u128 << bit);
         self.construction_complete_clear_frame = 0;
-        self.record_host_rebuild_producer();
+
         self.refresh_model_condition_bits();
         true
     }
