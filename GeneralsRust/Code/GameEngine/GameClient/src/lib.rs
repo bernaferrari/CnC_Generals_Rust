@@ -37,6 +37,9 @@
 #![allow(unused_assignments)]
 #![cfg_attr(test, cfg(feature = "internal"))]
 
+#[cfg(test)]
+mod test_process;
+
 // Core modules
 pub mod audio;
 pub mod core;

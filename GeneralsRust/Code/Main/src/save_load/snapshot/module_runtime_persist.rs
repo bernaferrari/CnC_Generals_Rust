@@ -17,7 +17,7 @@ use crate::game_logic::host_checkpoint_update::HostCheckpointUpdateData;
 use crate::game_logic::host_countermeasures::{
     HostCountermeasuresState, PendingCountermeasureFlareSpawn,
 };
-use crate::game_logic::host_enemy_near::{HostEnemyNearData, ENEMY_NEAR_MODEL_CONDITION};
+use crate::game_logic::host_enemy_near::{ENEMY_NEAR_MODEL_CONDITION, HostEnemyNearData};
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
@@ -179,7 +179,6 @@ fn apply_checkpoint_door_bits(
             object.model_condition_bits |= 1u128 << bit;
         }
     }
-    object.record_host_model_condition();
 }
 
 fn apply_enemy_near_bits(object: &mut crate::game_logic::Object, data: &HostEnemyNearData) {
@@ -192,7 +191,6 @@ fn apply_enemy_near_bits(object: &mut crate::game_logic::Object, data: &HostEnem
     } else {
         object.model_condition_bits &= !(1u128 << bit);
     }
-    object.record_host_model_condition();
 }
 
 fn find_msrt_suffix(bytes: &[u8]) -> Option<&[u8]> {

@@ -74,7 +74,6 @@ impl Object {
                 {
                     self.model_condition_bits &= !(1u128 << bit);
                     // Wave 487: clear prone model bit into GW.
-                    self.record_host_model_condition();
                 }
             }
         }
@@ -191,7 +190,6 @@ impl Object {
         let wait_b = door_1_waiting_open_model_bit();
         let wait_close_b = door_1_waiting_to_close_model_bit();
         let close_b = door_1_closing_model_bit();
-        let before = self.model_condition_bits;
         self.model_condition_bits &= !(1u128 << open_b);
         self.model_condition_bits &= !(1u128 << wait_b);
         self.model_condition_bits &= !(1u128 << wait_close_b);
@@ -210,9 +208,6 @@ impl Object {
                 self.model_condition_bits |= 1u128 << close_b;
             }
             HostMissileLauncherDoorState::Closed => {}
-        }
-        if self.model_condition_bits != before {
-            self.record_host_model_condition();
         }
     }
 
@@ -530,11 +525,9 @@ impl Object {
                     && angle_diff.abs() > std::f32::consts::FRAC_PI_2
                 {
                     self.moving_backwards = true;
-                    self.record_host_locomotor();
                 }
                 if self.moving_backwards && angle_diff.abs() < std::f32::consts::FRAC_PI_2 {
                     self.moving_backwards = false;
-                    self.record_host_locomotor();
                 }
             }
 
@@ -616,7 +609,6 @@ impl Object {
                 // Arm motive window so collide forces stay lateral while driving.
                 if goal_speed.abs() > 0.1 {
                     self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL;
-                    self.record_host_physics_motive();
                 }
 
                 // Position integrate (host dt seconds).
@@ -698,7 +690,6 @@ impl Object {
         } else {
             self.model_condition_bits |= 1u128 << one;
         }
-        self.record_host_model_condition();
         // C++ SalvageCrateCollide::doWeaponSet → setWeaponSetFlag → updateWeaponSet.
         let crate_condition = if self.weapon_crate_upgrade >= 2 {
             "CRATEUPGRADE_TWO"
@@ -751,7 +742,6 @@ impl Object {
             n if n >= 2 => self.model_condition_bits |= 1u128 << two,
             _ => {}
         }
-        self.record_host_model_condition();
     }
 
     /// C++ ActiveBody::onVeterancyLevelChanged armor-set flag switch.
@@ -798,7 +788,6 @@ impl Object {
         } else if self.weapon_set_veteran {
             self.model_condition_bits |= 1u128 << vet_b;
         }
-        self.record_host_model_condition();
     }
 
     /// C++ WeaponSet::updateWeaponSet: unless the incoming set has

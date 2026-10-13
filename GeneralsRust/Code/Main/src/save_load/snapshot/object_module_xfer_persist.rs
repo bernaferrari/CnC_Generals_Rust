@@ -358,7 +358,6 @@ fn apply_stun_bits(object: &mut crate::game_logic::Object) {
             object.model_condition_bits |= 1u128 << flailing;
         }
     }
-    object.record_host_model_condition();
 }
 
 fn apply_second_life_bits(object: &mut crate::game_logic::Object) {
@@ -374,7 +373,6 @@ fn apply_second_life_bits(object: &mut crate::game_logic::Object) {
     } else {
         object.model_condition_bits &= !(1u128 << bit);
     }
-    object.record_host_model_condition();
 }
 
 fn apply_radar_bits(object: &mut crate::game_logic::Object) {
@@ -391,7 +389,6 @@ fn apply_radar_bits(object: &mut crate::game_logic::Object) {
         object.model_condition_bits |= 1u128 << extending;
     }
     object.refresh_model_condition_bits();
-    object.record_host_model_condition();
 }
 
 fn find_oxfr_suffix(bytes: &[u8]) -> Option<&[u8]> {

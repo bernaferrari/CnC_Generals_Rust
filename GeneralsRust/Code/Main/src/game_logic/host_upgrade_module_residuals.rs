@@ -726,7 +726,6 @@ fn apply_swap_fields(obj: &mut crate::game_logic::object::Object, swap: &Locomot
     obj.movement.turn_rate_damaged = swap.turn_rate_damaged;
     obj.braking = swap.braking;
     obj.locomotor_surfaces = swap.locomotor_surfaces;
-    obj.record_host_locomotor();
     obj.record_host_movement();
 }
 
@@ -845,7 +844,6 @@ pub fn apply_choose_locomotor_set(
     } else {
         obj.model_condition_bits &= !(1u128 << bit);
     }
-    obj.record_host_model_condition();
     applied
 }
 
@@ -868,7 +866,6 @@ pub fn apply_choose_locomotor_set_for_cell(
     } else {
         obj.model_condition_bits &= !(1u128 << bit);
     }
-    obj.record_host_model_condition();
     applied
 }
 

@@ -571,16 +571,6 @@ impl Object {
         self.force_attack = v;
     }
 
-    pub fn record_host_continuous_fire(&self) {
-        let consecutive = self.consecutive_shots_at_target.min(u16::MAX as u32) as u16;
-        crate::game_logic::host_continuous_fire_log::record(
-            self.id,
-            self.continuous_fire_level,
-            consecutive,
-            self.continuous_fire_coast_until_frame,
-        );
-    }
-
     pub fn set_detector_state(
         &mut self,
         is_detector: bool,
@@ -676,29 +666,6 @@ impl Object {
         );
     }
 
-    pub fn record_host_locomotor(&self) {
-        crate::game_logic::host_locomotor_log::record(
-            self.id,
-            self.is_approach_path,
-            self.on_invalid_movement_terrain,
-            self.was_airborne_last_frame,
-            self.can_move_backward,
-            self.moving_backwards,
-            self.no_slow_down_as_approaching_dest,
-            self.turn_pivot_offset,
-            self.wander_width_factor,
-            self.loco_apply_2d_friction_airborne,
-            self.allow_motive_force_while_airborne,
-            self.loco_extra_2d_friction,
-            self.loco_preferred_height,
-            self.loco_preferred_height_damping,
-            self.loco_appearance.to_ordinal(),
-            self.loco_behavior_z.to_ordinal(),
-            self.min_turn_speed,
-            self.physics_turning.to_ordinal(),
-        );
-    }
-
     pub fn record_host_fire_intent(&self) {
         crate::game_logic::host_fire_intent_log::record(
             self.id,
@@ -709,31 +676,6 @@ impl Object {
             self.last_fire_sim_time,
             self.last_fire_frame,
             self.fire_intent_count,
-        );
-    }
-
-    pub fn record_host_turret(&self) {
-        crate::game_logic::host_turret_log::record(
-            self.id,
-            self.turret_angle_deg,
-            self.turret_pitch_deg,
-            self.turret_holding,
-            self.turret_idle_scanning,
-            self.turret_turn_rate_rad,
-            self.turret_recenter_frames,
-            self.turret_hold_until_frame,
-            self.turret_idle_recentering,
-            self.turret_enabled,
-            self.turret_rotating,
-            self.turret_natural_angle_deg,
-            self.turret_natural_pitch_deg,
-            self.turret_target_id.map(|id| id.0).unwrap_or(0),
-            self.turret_force_attacking,
-            self.turret_mood_target,
-            self.turret_idle_scan_next_frame,
-            self.turret_idle_scan_desired_angle_deg,
-            self.turret_idle_scan_index,
-            self.turret_substate.ordinal(),
         );
     }
 
@@ -866,7 +808,6 @@ impl Object {
 
     pub fn set_stored_supplies(&mut self, supplies: u32) {
         self.stored_resources.supplies = supplies;
-        crate::game_logic::host_stored_supplies_log::record(self.id, supplies);
         if self.thing.template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse {
             let (max_boxes, current_boxes) =
                 crate::game_logic::host_supply_gather::drawable_supply_status_from_cash(
@@ -889,7 +830,7 @@ impl Object {
     }
 
     /// Set the AI state for autonomous behavior
-    /// Wave 630: apply combat-status residual after GW AI-state writeback.
+    /// Apply the canonical combat-status state.
     ///
     /// Does not re-log host_ai_state (state already last-written). Syncs
     /// moving/attacking status bits from the authoritative ordinal.

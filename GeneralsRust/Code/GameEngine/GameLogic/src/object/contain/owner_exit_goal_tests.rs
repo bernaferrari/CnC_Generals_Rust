@@ -12,7 +12,7 @@ use crate::object::registry::OBJECT_REGISTRY;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
-type GoalCalls = Arc<Mutex<Vec<(ObjectID, Coord3D)>>>;
+type GoalCalls = Vec<(ObjectID, Coord3D)>;
 
 #[derive(Debug)]
 struct OwnerGoalAi {
@@ -48,7 +48,7 @@ impl AIUpdateInterface for OwnerGoalAi {
             "C++ refreshes owner goal at owner position"
         );
         owner.set_destination_layer(layer);
-        self.calls.lock().unwrap().push((owner.get_id(), *goal));
+        self.calls.push((owner.get_id(), *goal));
         Ok(())
     }
 }
@@ -119,16 +119,15 @@ fn owner_exit_goal_releases_object_borrow_and_preserves_cpp_gates() {
                 },
             );
             let rider = registered_object("RiderGoalWitness", rider_id, "INFANTRY");
-            let calls: GoalCalls = Arc::new(Mutex::new(Vec::new()));
-            let owner_ai: Arc<Mutex<dyn AIUpdateInterface>> = Arc::new(Mutex::new(OwnerGoalAi {
+            let owner_ai = Arc::new(Mutex::new(OwnerGoalAi {
                 owner: Arc::clone(&owner),
                 idle: owner_idle,
-                calls: Arc::clone(&calls),
+                calls: Vec::new(),
             }));
             {
                 let mut owner = owner.write().unwrap();
                 owner.set_position(&owner_pos).unwrap();
-                owner.set_ai_update_interface(Some(owner_ai));
+                owner.set_ai_update_interface(Some(owner_ai.clone()));
             }
             if rider_has_ai {
                 let ai: Arc<Mutex<dyn AIUpdateInterface>> = Arc::new(Mutex::new(RiderExitAi));
@@ -151,7 +150,7 @@ fn owner_exit_goal_releases_object_borrow_and_preserves_cpp_gates() {
                 Vec::new()
             };
             assert_eq!(
-                *calls.lock().unwrap(),
+                owner_ai.lock().unwrap().calls,
                 expected,
                 "hurry={hurry}, rider_ai={rider_has_ai}, idle={owner_idle}, vehicle={owner_vehicle}"
             );

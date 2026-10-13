@@ -594,7 +594,6 @@ impl Object {
         self.waiting_for_path = false;
         self.is_attack_path = false;
         self.is_approach_path = false;
-        self.record_host_locomotor();
         self.is_safe_path = false;
         self.path_extra_distance = 0.0;
         if self.is_kind_of(crate::game_logic::KindOf::Projectile) {

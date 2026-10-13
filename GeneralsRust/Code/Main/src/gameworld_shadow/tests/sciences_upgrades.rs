@@ -615,8 +615,8 @@ fn canonical_effective_model_mesh_is_projected_from_receiving_owner() {
 }
 
 #[test]
-fn host_fow_log_drives_set_fow_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_fow_log};
+fn canonical_fow_is_projected_from_receiving_owner() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("FowCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -903,8 +903,8 @@ fn host_demo_mine_cheer_log_drives_set_demo_mine_cheer_channel() {
 }
 
 #[test]
-fn host_model_condition_log_drives_set_model_condition_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_model_condition_log};
+fn canonical_model_condition_is_projected_from_receiving_owner() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("McCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");

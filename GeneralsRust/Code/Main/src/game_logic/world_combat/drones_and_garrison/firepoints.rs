@@ -283,5 +283,4 @@ pub(crate) fn apply_leftover_open_contain_door_pulse(
         obj.model_condition_bits &= !(1u128 << open_b);
         obj.model_condition_bits |= 1u128 << close_b;
     }
-    obj.record_host_model_condition();
 }

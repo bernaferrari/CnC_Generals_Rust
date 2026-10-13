@@ -222,7 +222,6 @@ impl GameLogic {
                             unit.turret_idle_recentering = true;
                             unit.turret_target_id = None;
                             unit.turret_holding = false;
-                            unit.record_host_turret();
                         } else if started && !now_aligning {
                             started_undeploy = true;
                             unit.set_deployed(false);

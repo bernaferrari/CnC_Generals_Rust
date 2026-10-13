@@ -57,21 +57,6 @@ impl Object {
         self.ground_height_from_terrain = from_terrain;
     }
 
-    /// FOW visibility residual → GameWorld SetFow (presentation last-writer channel).
-    pub fn set_fow_residual(
-        &mut self,
-        visibility_alpha: f32,
-        is_explored: f32,
-        visibility_falloff: f32,
-    ) {
-        crate::game_logic::host_fow_log::record(
-            self.id,
-            visibility_alpha,
-            is_explored,
-            visibility_falloff,
-        );
-    }
-
     /// Presentation kind_of ORDER bits residual (same ORDER as GameWorldShadow::host_kind_of_bits).
     pub fn presentation_kind_of_bits(&self) -> u32 {
         use crate::game_logic::KindOf;
@@ -125,7 +110,6 @@ impl Object {
         use crate::game_logic::host_neutron_missile_slow_death::{
             MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
         };
-        let before = self.model_condition_bits;
         // Clear then set like C++ clearAndSetModelConditionFlags.
         self.model_condition_bits &= !(1u128 << MC_BIT_FRONTCRUSHED);
         self.model_condition_bits &= !(1u128 << MC_BIT_BACKCRUSHED);
@@ -134,10 +118,6 @@ impl Object {
         }
         if self.back_crushed {
             self.model_condition_bits |= 1u128 << MC_BIT_BACKCRUSHED;
-        }
-        // Wave 487: crush model bits must reach GW before model-condition writeback.
-        if self.model_condition_bits != before {
-            self.record_host_model_condition();
         }
     }
 
@@ -166,11 +146,6 @@ impl Object {
         self.formation_id = formation_id;
         self.formation_offset = formation_offset;
         // Wave 204: last-write SetFormation.
-        crate::game_logic::host_formation_log::record(
-            self.id,
-            self.formation_id,
-            [self.formation_offset.x, self.formation_offset.y],
-        );
     }
 
     pub fn begin_cheer(&mut self, duration_secs: f32, cheer_bit: Option<usize>) {
@@ -179,7 +154,6 @@ impl Object {
         if let Some(bit) = cheer_bit {
             if bit < 128 {
                 self.model_condition_bits |= 1u128 << bit;
-                self.record_host_model_condition();
             }
         }
         // Wave 202: last-write SetDemoMineCheer (cheer_timer residual).
@@ -190,10 +164,6 @@ impl Object {
         if (self.selection_radius - selection_radius).abs() > f32::EPSILON {
             self.selection_radius = selection_radius;
         }
-    }
-
-    pub fn record_host_model_condition(&self) {
-        crate::game_logic::host_model_condition_log::record(self.id, self.model_condition_bits);
     }
 
     pub fn record_host_shock_stun(&self) {
@@ -258,36 +228,6 @@ impl Object {
         );
     }
 
-    pub fn record_host_physics_motive(&self) {
-        crate::game_logic::host_physics_motive_log::record(
-            self.id,
-            self.motive_frames_remaining,
-            self.physics_mass,
-            [
-                self.physics_accel.x,
-                self.physics_accel.y,
-                self.physics_accel.z,
-            ],
-            self.forward_friction,
-            self.lateral_friction,
-            self.z_friction,
-            self.can_path_through_units,
-            self.ignore_collisions_until_frame,
-            self.is_panicking,
-            self.move_away_frames,
-            self.aerodynamic_friction,
-            self.extra_friction,
-            self.apply_friction_2d_when_airborne,
-            self.center_of_mass_offset,
-            self.pitch_roll_yaw_factor,
-            self.move_away_destination.map(|p| [p.x, p.y, p.z]),
-            self.request_other_move_away.map(|id| id.0),
-            self.immune_to_falling_damage,
-            self.physics_current_overlap.map(|id| id.0),
-            self.physics_previous_overlap.map(|id| id.0),
-        );
-    }
-
     pub fn record_host_movement(&self) {
         crate::game_logic::host_movement_log::record(
             self.id,
@@ -311,7 +251,6 @@ impl Object {
             self.move_away_from.map(|id| id.0),
             self.requested_victim_id.map(|id| id.0),
         );
-        self.record_host_physics_motive();
     }
 
     pub fn set_command_set_override(&mut self, command_set: Option<String>) {
@@ -408,7 +347,6 @@ impl Object {
         {
             self.model_condition_bits |= 1u128 << bit;
             // Wave 487: prone model bit must reach GW before model-condition writeback.
-            self.record_host_model_condition();
         }
         // Stay in Idle while prone so orders can break it; timer clears the bit.
         if !matches!(
@@ -420,7 +358,6 @@ impl Object {
         ) {
             self.set_ai_state(AIState::Idle);
         }
-        self.record_host_locomotor();
     }
 
     pub fn set_ai_attitude_i8(&mut self, attitude: i8) {

@@ -435,10 +435,6 @@ impl Object {
                         self.status.effectively_dead = true;
                         self.status.destroyed = true;
                         self.status.death_type = death_type;
-                        crate::game_logic::host_death_type_log::record(
-                            self.id,
-                            self.status.death_type.ordinal(),
-                        );
                         self.refresh_model_condition_bits_with_source(context.source(), frame);
                         self.set_ai_state(AIState::Idle);
                         self.target = None;
@@ -795,10 +791,6 @@ impl Object {
             if !self.status.destroyed {
                 self.status.destroyed = true;
                 self.status.death_type = death_type;
-                crate::game_logic::host_death_type_log::record(
-                    self.id,
-                    self.status.death_type.ordinal(),
-                );
                 self.set_ai_state(AIState::Idle);
                 self.target = None;
             }

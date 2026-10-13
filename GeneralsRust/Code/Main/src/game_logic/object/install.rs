@@ -1114,7 +1114,6 @@ impl Object {
         self.movement.velocity = glam::Vec3::ZERO;
         let bit = crate::game_logic::host_enum_table_residual::rappelling_model_bit();
         self.model_condition_bits |= 1u128 << bit;
-        self.record_host_model_condition();
     }
 
     /// C++ `AIRappelState::onExit`: clear RAPPELLING, restore FAST_AS_POSSIBLE.
@@ -1131,7 +1130,6 @@ impl Object {
         }
         let bit = crate::game_logic::host_enum_table_residual::rappelling_model_bit();
         self.model_condition_bits &= !(1u128 << bit);
-        self.record_host_model_condition();
     }
 
     pub fn tick_eject_invulnerable(&mut self, current_frame: u32) {

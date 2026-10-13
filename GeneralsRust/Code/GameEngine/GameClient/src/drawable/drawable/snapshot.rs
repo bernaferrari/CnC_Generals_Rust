@@ -27,6 +27,26 @@ use parking_lot::Mutex;
 use std::error::Error;
 use std::sync::Arc;
 
+/// CPP Drawable.cpp:5330-5355 copies the base definition before applying
+/// saved overrides. Missing definitions still consume the complete payload.
+fn load_custom_ambient_info(
+    xfer: &mut dyn Xfer,
+    base: Option<&game_engine::common::audio::audio_event_rts::AudioEventInfo>,
+    drawable: DrawableId,
+) -> Result<Option<DynamicAudioEventInfo>, String> {
+    let mut info = base
+        .map(DynamicAudioEventInfo::from_base_info)
+        .unwrap_or_default();
+    let customized_name = format!(
+        " CUSTOM {} {}",
+        drawable.0 as i32,
+        info.get_audio_event_info().audio_name
+    );
+    info.override_audio_name(&customized_name);
+    info.xfer_no_name(xfer).map_err(|error| error.to_string())?;
+    Ok(base.map(|_| info))
+}
+
 impl Snapshotable for BasicDrawable {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         // PARITY_NOTE: C++ Drawable::crc (Drawable.cpp line 4757) is intentionally empty.
@@ -550,12 +570,31 @@ impl Snapshotable for BasicDrawable {
                         xfer.xfer_ascii_string(&mut base_info_name)
                             .map_err(|e| format!("{:?}", e))?;
 
-                        let mut custom_info = DynamicAudioEventInfo::new();
-                        custom_info
-                            .xfer_no_name(xfer)
-                            .map_err(|e| format!("{:?}", e))?;
-                        self.custom_sound_ambient_base_name = Some(base_info_name);
-                        self.custom_sound_ambient_dynamic_info = Some(custom_info);
+                        let manager = get_global_audio_manager();
+                        let base = match manager.as_ref() {
+                            Some(manager) => manager
+                                .lock()
+                                .map_err(|_| "ambient audio catalog lock poisoned".to_string())?
+                                .find_audio_event_info(&base_info_name),
+                            None => None,
+                        };
+                        // No native catalog borrow survives Xfer or callbacks.
+                        let custom_info = load_custom_ambient_info(xfer, base.as_deref(), self.id)?;
+                        if let Some(custom_info) = custom_info {
+                            manager
+                                .as_ref()
+                                .expect("resolved native audio catalog")
+                                .lock()
+                                .map_err(|_| "ambient audio catalog lock poisoned".to_string())?
+                                .register_audio_event_info(
+                                    custom_info.get_audio_event_info().clone(),
+                                );
+                            self.custom_sound_ambient_base_name = Some(base_info_name);
+                            self.custom_sound_ambient_dynamic_info = Some(custom_info);
+                        } else {
+                            self.custom_sound_ambient_base_name = None;
+                            self.custom_sound_ambient_dynamic_info = None;
+                        }
                     } else {
                         self.custom_sound_ambient_base_name = None;
                         self.custom_sound_ambient_dynamic_info = None;
@@ -666,3 +705,7 @@ impl Snapshotable for BasicDrawable {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "ambient_load_tests.rs"]
+mod ambient_load_tests;

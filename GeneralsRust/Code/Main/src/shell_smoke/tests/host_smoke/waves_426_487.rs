@@ -199,8 +199,6 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         r.detail
     );
 
-
-
     assert!(
         r.live_stealth_integration_dual_world_empty_gate_method_names_wave443_ok,
         "live stealth integration dual-world empty gate method names residual pack wave443: {}",
@@ -261,17 +259,6 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         "live replace object upgrade dual-world empty gate live residual wave446: {}",
         r.detail
     );
-
-
-
-
-
-
-
-
-
-
-
 
     assert!(
         r.live_golden_mopup_honesty_method_names_wave451_ok,
@@ -404,8 +391,6 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         r.detail
     );
 
-
-
     assert!(
         r.presentation_world_bounds_probe_method_names_wave461_ok,
         "presentation world bounds probe method names residual pack wave461: {}",
@@ -436,11 +421,6 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         "render ui pipeline presentation live residual wave462: {}",
         r.detail
     );
-
-
-
-
-
 
     assert!(
         r.minimap_heightmap_repair_presentation_first_method_names_wave465_ok,
@@ -473,20 +453,6 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         r.detail
     );
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     assert!(
         r.dead_model_preload_removed_method_names_wave472_ok,
         "dead model preload removed method names residual pack wave472: {}",
@@ -517,8 +483,6 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         "camera bootstrap presentation only live residual wave473: {}",
         r.detail
     );
-
-
 
     assert!(
         r.map_ground_no_registry_pose_dual_write_method_names_wave475_ok,
@@ -551,8 +515,6 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         r.detail
     );
 
-
-
     assert!(
         r.construction_sole_tick_no_progress_stomp_method_names_wave478_ok,
         "construction sole tick no progress stomp method names residual pack wave478: {}",
@@ -568,11 +530,6 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         "construction sole tick no progress stomp live residual wave478: {}",
         r.detail
     );
-
-
-
-
-
 
     assert!(
         r.sell_deconstruction_sole_tick_no_stomp_method_names_wave481_ok,
@@ -590,14 +547,6 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         r.detail
     );
 
-
-
-
-
-
-
-
-
     assert!(
         r.cancel_clears_exit_delay_method_names_wave485_ok,
         "cancel clears exit delay method names residual pack wave485: {}",
@@ -611,24 +560,6 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
     assert!(
         r.cancel_clears_exit_delay_live_wave485_ok,
         "cancel clears exit delay live residual wave485: {}",
-        r.detail
-    );
-
-
-
-    assert!(
-        r.combat_model_condition_channel_method_names_wave487_ok,
-        "combat model condition channel method names residual pack wave487: {}",
-        r.detail
-    );
-    assert!(
-        r.combat_model_condition_channel_nav_commands_wave487_ok,
-        "combat model condition channel nav commands residual pack wave487: {}",
-        r.detail
-    );
-    assert!(
-        r.combat_model_condition_channel_live_wave487_ok,
-        "combat model condition channel live residual wave487: {}",
         r.detail
     );
 }

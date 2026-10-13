@@ -526,7 +526,6 @@ impl GameLogic {
                     obj.model_condition_bits &= !(1u128 << active);
                     obj.model_condition_bits |= 1u128 << ending;
                 }
-                obj.record_host_model_condition();
             }
         }
         if entering {
@@ -554,7 +553,6 @@ impl GameLogic {
         if obj.is_kind_of(KindOf::Dozer) && obj.is_kind_of(KindOf::Harvester) {
             if (obj.model_condition_bits & (1u128 << beginning)) != 0 {
                 obj.model_condition_bits &= !(1u128 << moving);
-                obj.record_host_model_condition();
             }
         }
     }

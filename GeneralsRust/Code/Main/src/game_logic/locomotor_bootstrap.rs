@@ -1003,7 +1003,6 @@ pub fn apply_host_locomotor_binding(
     object.close_enough_dist_3d = binding.close_enough_dist_3d;
     seed_wander_phase(object, binding.wander_length_factor);
     object.set_locomotor_physics_options();
-    object.record_host_locomotor();
     object.record_host_movement();
 }
 

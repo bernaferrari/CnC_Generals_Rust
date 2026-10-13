@@ -903,7 +903,6 @@ impl Object {
             !(1u128 << crate::game_logic::host_enum_table_residual::rubble_model_bit());
         self.model_condition_bits |=
             1u128 << crate::game_logic::host_enum_table_residual::post_collapse_model_bit();
-        self.record_host_model_condition();
         if let Some(bfx) = self.bone_fx_damage.as_mut() {
             bfx.stop_all_bone_fx();
         }

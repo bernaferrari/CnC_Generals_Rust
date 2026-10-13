@@ -44,12 +44,6 @@ pub mod host_spawn_log;
 #[path = "host_status_log.rs"]
 pub mod host_status_log;
 
-#[path = "host_stored_supplies_log.rs"]
-pub mod host_stored_supplies_log;
-
-#[path = "host_turret_log.rs"]
-pub mod host_turret_log;
-
 #[path = "host_power_plant_rods_log.rs"]
 pub mod host_power_plant_rods_log;
 

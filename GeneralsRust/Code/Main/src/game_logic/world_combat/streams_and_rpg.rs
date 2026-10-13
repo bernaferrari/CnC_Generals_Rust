@@ -848,7 +848,6 @@ impl GameLogic {
         );
 
         obj.continuous_fire_level = new_level.as_u8();
-        obj.record_host_continuous_fire();
         obj.consecutive_shots_at_target = consecutive;
         // C++ coolDown resets the victim together with the count
         // (FiringTracker.cpp:319-321); consecutive == 0 marks that reset.

@@ -826,7 +826,6 @@ impl GameLogic {
                 });
             }
         }
-        u.record_host_turret();
     }
 
     /// C++ TurretAI::notifyFired → 3-frame sweep window (TurretAI.cpp:697-702).
@@ -944,9 +943,7 @@ impl GameLogic {
             } else {
                 u.model_condition_bits &= !(1u128 << bit);
             }
-            if u.model_condition_bits != before {
-                u.record_host_model_condition();
-            }
+            if u.model_condition_bits != before {}
         }
         // C++ TurretAI ctor: getPerUnitSound("TurretMoveLoop") — INI value, not slot key.
         let authored = crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
@@ -1179,7 +1176,6 @@ impl GameLogic {
                         u.turret_hold_until_frame =
                             logic_frame.saturating_add(u.turret_recenter_frames.max(1));
                         u.turret_holding = true;
-                        u.record_host_turret();
                     }
                     return AttackAimResult::Continue;
                 }
@@ -1359,7 +1355,6 @@ impl GameLogic {
                 if done {
                     if let Some(u) = self.objects.get_mut(&unit_id) {
                         u.turret_holding = false;
-                        u.record_host_turret();
                         u.turret_hold_until_frame = 0;
                         u.turret_substate = TurretSubState::Recenter;
                         u.turret_idle_recentering = true;

@@ -321,7 +321,45 @@ impl BasicDrawable {
     pub(super) fn render_condition_flags_from_bits(
         condition_bits: u128,
     ) -> crate::render_bridge::RenderConditionFlags {
-        crate::render_bridge::RenderConditionFlags::from_bits_truncate(condition_bits as u64)
+        use crate::render_bridge::RenderConditionFlags as Render;
+        use gamelogic::common::ModelConditionFlags as Model;
+
+        // ModelDrawState transports the original ModelConditionType bitset.
+        // RenderConditionFlags is a compact renderer vocabulary, not its wire layout.
+        let conditions = Model::from_bits_retain(condition_bits);
+        let mut flags = Render::empty();
+        for (model, render) in [
+            (Model::DAMAGED, Render::DAMAGED),
+            (Model::REALLYDAMAGED, Render::REALLY_DAMAGED),
+            (Model::RUBBLE, Render::RUBBLE),
+            (Model::MOVING, Render::MOVING),
+            (Model::FIRING_A, Render::FIRING_PRIMARY),
+            (Model::FIRING_B, Render::FIRING_SECONDARY),
+            (Model::NIGHT, Render::NIGHT),
+            (Model::SNOW, Render::SNOW),
+            (
+                Model::ACTIVELY_BEING_CONSTRUCTED,
+                Render::ACTIVELY_CONSTRUCTED,
+            ),
+            (Model::PARTIALLY_CONSTRUCTED, Render::PARTIALLY_CONSTRUCTED),
+            (Model::AWAITING_CONSTRUCTION, Render::AWAITING_CONSTRUCTION),
+            (Model::CONSTRUCTION_COMPLETE, Render::CONSTRUCTION_COMPLETE),
+            (Model::DOOR_1_OPENING, Render::DOOR_1_OPENING),
+            (Model::DOOR_1_CLOSING, Render::DOOR_1_CLOSING),
+            (Model::DOOR_2_OPENING, Render::DOOR_2_OPENING),
+            (Model::DOOR_2_CLOSING, Render::DOOR_2_CLOSING),
+            (Model::DISGUISED, Render::DISGUISED),
+            (Model::TOPPLED, Render::TOPPLED),
+            (Model::FLOODED, Render::FLOODED),
+            (Model::AFLAME, Render::AFLAME),
+            (Model::SMOLDERING, Render::SMOLDERING),
+        ] {
+            if conditions.contains(model) {
+                flags |= render;
+            }
+        }
+        // Selection is supplied separately by the receiving presentation owner.
+        flags
     }
 
     pub(super) fn animation_mode_from_model_draw(
@@ -418,6 +456,78 @@ impl BasicDrawable {
             drop_color,
             drop_shadow_offset_x,
             drop_shadow_offset_y,
+        );
+    }
+}
+
+#[cfg(test)]
+mod model_draw_condition_mapping_tests {
+    use super::BasicDrawable;
+    use crate::render_bridge::RenderConditionFlags as Render;
+    use gamelogic::common::ModelConditionFlags as Model;
+
+    #[test]
+    fn original_model_bits_map_by_meaning_not_integer_layout() {
+        let cases = [
+            (Model::DAMAGED, Render::DAMAGED),
+            (Model::REALLYDAMAGED, Render::REALLY_DAMAGED),
+            (Model::RUBBLE, Render::RUBBLE),
+            (Model::MOVING, Render::MOVING),
+            (Model::FIRING_A, Render::FIRING_PRIMARY),
+            (Model::FIRING_B, Render::FIRING_SECONDARY),
+            (Model::NIGHT, Render::NIGHT),
+            (Model::SNOW, Render::SNOW),
+            (
+                Model::ACTIVELY_BEING_CONSTRUCTED,
+                Render::ACTIVELY_CONSTRUCTED,
+            ),
+            (Model::PARTIALLY_CONSTRUCTED, Render::PARTIALLY_CONSTRUCTED),
+            (Model::AWAITING_CONSTRUCTION, Render::AWAITING_CONSTRUCTION),
+            (Model::CONSTRUCTION_COMPLETE, Render::CONSTRUCTION_COMPLETE),
+            (Model::DOOR_1_OPENING, Render::DOOR_1_OPENING),
+            (Model::DOOR_1_CLOSING, Render::DOOR_1_CLOSING),
+            (Model::DOOR_2_OPENING, Render::DOOR_2_OPENING),
+            (Model::DOOR_2_CLOSING, Render::DOOR_2_CLOSING),
+            (Model::DISGUISED, Render::DISGUISED),
+            (Model::TOPPLED, Render::TOPPLED),
+            (Model::FLOODED, Render::FLOODED),
+            (Model::AFLAME, Render::AFLAME),
+            (Model::SMOLDERING, Render::SMOLDERING),
+        ];
+        let mut input = Model::empty();
+        let mut expected = Render::empty();
+        for (model, render) in cases {
+            assert_eq!(
+                BasicDrawable::render_condition_flags_from_bits(model.bits()),
+                render
+            );
+            input |= model;
+            expected |= render;
+        }
+        assert_eq!(
+            BasicDrawable::render_condition_flags_from_bits(input.bits()),
+            expected
+        );
+    }
+
+    #[test]
+    fn unrelated_model_conditions_never_become_selected_or_damage() {
+        let input = Model::FRONTCRUSHED
+            | Model::BACKCRUSHED
+            | Model::WEAPONSET_VETERAN
+            | Model::PREATTACK_A
+            | Model::FIRING_C;
+        assert_eq!(
+            BasicDrawable::render_condition_flags_from_bits(input.bits()),
+            Render::empty()
+        );
+        assert_eq!(
+            BasicDrawable::render_condition_flags_from_bits(0),
+            Render::empty()
+        );
+        assert_eq!(
+            BasicDrawable::render_condition_flags_from_bits(1u128 << 127),
+            Render::empty()
         );
     }
 }

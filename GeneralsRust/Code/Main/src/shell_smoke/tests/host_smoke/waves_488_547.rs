@@ -49,8 +49,6 @@ pub(super) fn assert_waves_488_547(r: &ShellSmokeResult) {
         r.detail
     );
 
-
-
     assert!(
         r.entity_presentation_mesh_fow_method_names_wave492_ok,
         "entity presentation mesh fow method names residual pack wave492: {}",
@@ -126,8 +124,6 @@ pub(super) fn assert_waves_488_547(r: &ShellSmokeResult) {
         "presentation mesh door phase live residual wave496: {}",
         r.detail
     );
-
-
 
     assert!(
         r.presentation_host_fx_overlay_method_names_wave498_ok,
@@ -310,21 +306,6 @@ pub(super) fn assert_waves_488_547(r: &ShellSmokeResult) {
         r.detail
     );
     assert!(
-        r.presentation_capture_load_overcharge_method_names_wave510_ok,
-        "presentation capture/load/overcharge method names residual pack wave510: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_capture_load_overcharge_nav_commands_wave510_ok,
-        "presentation capture/load/overcharge nav commands residual pack wave510: {}",
-        r.detail
-    );
-    assert!(
-        r.presentation_capture_load_overcharge_live_wave510_ok,
-        "presentation capture/load/overcharge live residual wave510: {}",
-        r.detail
-    );
-    assert!(
         r.presentation_burn_cheer_carry_method_names_wave511_ok,
         "presentation burn/cheer/carry method names residual pack wave511: {}",
         r.detail
@@ -339,8 +320,6 @@ pub(super) fn assert_waves_488_547(r: &ShellSmokeResult) {
         "presentation burn/cheer/carry live residual wave511: {}",
         r.detail
     );
-
-
 
     assert!(
         r.presentation_jam_die_reload_pack_method_names_wave513_ok,
@@ -629,8 +608,6 @@ pub(super) fn assert_waves_488_547(r: &ShellSmokeResult) {
         r.detail
     );
 
-
-
     assert!(
         r.presentation_eva_pulse_audio_method_names_wave533_ok,
         "presentation eva pulse audio method names residual pack wave533: {}",
@@ -691,8 +668,6 @@ pub(super) fn assert_waves_488_547(r: &ShellSmokeResult) {
         "presentation eva client dispatch live residual wave536: {}",
         r.detail
     );
-
-
 
     assert!(
         r.presentation_alliance_notify_method_names_wave538_ok,
@@ -799,8 +774,6 @@ pub(super) fn assert_waves_488_547(r: &ShellSmokeResult) {
         "ui_selection_seed presentation fail-closed live residual wave544: {}",
         r.detail
     );
-
-
 
     assert!(
         r.host_status_map_presentation_fail_closed_method_names_wave546_ok,

@@ -83,9 +83,6 @@ fn fill_waves_451_550(
     out.cancel_clears_exit_delay_live_wave485_ok = waves.cancel_clears_exit_delay_live_wave485_ok;
 
 
-    out.combat_model_condition_channel_method_names_wave487_ok = waves.combat_model_condition_channel_method_names_wave487_ok;
-    out.combat_model_condition_channel_nav_commands_wave487_ok = waves.combat_model_condition_channel_nav_commands_wave487_ok;
-    out.combat_model_condition_channel_live_wave487_ok = waves.combat_model_condition_channel_live_wave487_ok;
     out.entity_presentation_model_condition_method_names_wave488_ok = waves.entity_presentation_model_condition_method_names_wave488_ok;
     out.entity_presentation_model_condition_nav_commands_wave488_ok = waves.entity_presentation_model_condition_nav_commands_wave488_ok;
     out.entity_presentation_model_condition_live_wave488_ok = waves.entity_presentation_model_condition_live_wave488_ok;
@@ -149,9 +146,6 @@ fn fill_waves_451_550(
     out.presentation_topple_freefall_weather_method_names_wave509_ok = waves.presentation_topple_freefall_weather_method_names_wave509_ok;
     out.presentation_topple_freefall_weather_nav_commands_wave509_ok = waves.presentation_topple_freefall_weather_nav_commands_wave509_ok;
     out.presentation_topple_freefall_weather_live_wave509_ok = waves.presentation_topple_freefall_weather_live_wave509_ok;
-    out.presentation_capture_load_overcharge_method_names_wave510_ok = waves.presentation_capture_load_overcharge_method_names_wave510_ok;
-    out.presentation_capture_load_overcharge_nav_commands_wave510_ok = waves.presentation_capture_load_overcharge_nav_commands_wave510_ok;
-    out.presentation_capture_load_overcharge_live_wave510_ok = waves.presentation_capture_load_overcharge_live_wave510_ok;
     out.presentation_burn_cheer_carry_method_names_wave511_ok = waves.presentation_burn_cheer_carry_method_names_wave511_ok;
     out.presentation_burn_cheer_carry_nav_commands_wave511_ok = waves.presentation_burn_cheer_carry_nav_commands_wave511_ok;
     out.presentation_burn_cheer_carry_live_wave511_ok = waves.presentation_burn_cheer_carry_live_wave511_ok;

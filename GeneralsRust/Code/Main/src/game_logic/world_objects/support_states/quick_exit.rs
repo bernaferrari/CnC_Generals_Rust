@@ -98,7 +98,6 @@ impl GameLogic {
             unit.set_locomotor_goal_none();
             unit.model_condition_bits &=
                 !(1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_MOVING);
-            unit.record_host_model_condition();
         }
     }
 }

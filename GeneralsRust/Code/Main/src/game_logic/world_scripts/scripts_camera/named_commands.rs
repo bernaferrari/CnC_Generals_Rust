@@ -96,7 +96,6 @@ impl GameLogic {
             unit.set_status_ignoring_stealth(false);
             unit.model_condition_bits &=
                 !(1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_ATTACKING);
-            unit.record_host_model_condition();
             unit.clear_leech_range_mode_for_all_weapons();
             unit.set_turret_target_object(None, false);
         }

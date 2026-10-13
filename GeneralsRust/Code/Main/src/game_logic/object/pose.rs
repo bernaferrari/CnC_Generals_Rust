@@ -279,7 +279,6 @@ impl Object {
             now.saturating_add(producer_door_phase_duration(&self.template_name, 1));
         self.sync_primary_production_door();
         self.refresh_model_condition_bits();
-        self.record_host_model_condition();
         self.record_host_production_door();
     }
 
@@ -300,7 +299,6 @@ impl Object {
             now.saturating_add(producer_door_phase_duration(&self.template_name, 2));
         self.sync_primary_production_door();
         self.refresh_model_condition_bits();
-        self.record_host_model_condition();
         self.record_host_production_door();
         true
     }
@@ -360,7 +358,6 @@ impl Object {
         self.sync_primary_production_door();
         self.record_host_production_door();
         self.refresh_model_condition_bits();
-        self.record_host_model_condition();
         true
     }
 
@@ -368,7 +365,6 @@ impl Object {
         self.ensure_primary_door_array_sync();
         let count = self.production_door_count();
         let mut closed_any = false;
-        let mut advanced = false;
         for i in 0..count {
             if self.production_door_phases[i] == 0 {
                 continue;
@@ -376,15 +372,11 @@ impl Object {
             if now <= self.production_door_phase_end_frames[i] {
                 continue;
             }
-            advanced = true;
             if self.tick_one_production_door(i, now) {
                 closed_any = true;
             }
         }
         self.sync_primary_production_door();
-        if advanced {
-            self.record_host_model_condition();
-        }
         closed_any && self.production_door_phases.iter().all(|&p| p == 0)
     }
 
@@ -441,7 +433,6 @@ impl Object {
                     now.saturating_add(producer_door_phase_duration(name.as_str(), 2));
                 self.record_host_production_door();
                 self.refresh_model_condition_bits();
-                self.record_host_model_condition();
                 false
             }
             2 => {
@@ -458,7 +449,6 @@ impl Object {
                     now.saturating_add(producer_door_phase_duration(name.as_str(), 4));
                 self.record_host_production_door();
                 self.refresh_model_condition_bits();
-                self.record_host_model_condition();
                 false
             }
             3 | 4 => {
@@ -470,7 +460,6 @@ impl Object {
                         now.saturating_add(producer_door_phase_duration(name.as_str(), 2));
                     self.record_host_production_door();
                     self.refresh_model_condition_bits();
-                    self.record_host_model_condition();
                     return false;
                 }
                 self.clear_production_door_bits(door);
@@ -478,7 +467,6 @@ impl Object {
                 self.production_door_phase_end_frames[door] = 0;
                 self.record_host_production_door();
                 self.refresh_model_condition_bits();
-                self.record_host_model_condition();
                 true
             }
             _ => {
@@ -557,7 +545,6 @@ impl Object {
         self.radar_active = true;
 
         self.refresh_model_condition_bits();
-        self.record_host_model_condition();
     }
 
     /// C++ RadarUpdate::update extend completion residual.
@@ -574,8 +561,6 @@ impl Object {
         self.model_condition_bits &= !(1u128 << radar_extending_model_bit());
         self.model_condition_bits |= 1u128 << radar_upgraded_model_bit();
         self.refresh_model_condition_bits();
-
-        self.record_host_model_condition();
     }
 
     pub fn tick_radar_extend(&mut self, current_frame: u32) -> bool {
@@ -593,8 +578,6 @@ impl Object {
         self.model_condition_bits &= !(1u128 << radar_extending_model_bit());
         self.model_condition_bits |= 1u128 << radar_upgraded_model_bit();
         self.refresh_model_condition_bits();
-
-        self.record_host_model_condition();
         true
     }
 
@@ -620,7 +603,6 @@ impl Object {
             self.model_condition_bits &= !(1u128 << bit);
         }
         self.refresh_model_condition_bits();
-        self.record_host_model_condition();
     }
 
     pub fn has_captured_model_condition(&self) -> bool {
@@ -643,7 +625,6 @@ impl Object {
         self.model_condition_bits |= 1u128 << part_b;
         self.model_condition_bits |= 1u128 << active_b;
         self.refresh_model_condition_bits();
-        self.record_host_model_condition();
     }
 
     /// C++ BuildAssistant: when construction percent crosses to <= 0 during sell.
@@ -661,7 +642,6 @@ impl Object {
         self.model_condition_bits &= !(1u128 << active_b);
         self.model_condition_bits |= 1u128 << sold_b;
         self.refresh_model_condition_bits();
-        self.record_host_model_condition();
     }
 
     /// C++ Object::attemptHealingFromSoleBenefactor residual.
@@ -717,7 +697,6 @@ impl Object {
             self.model_condition_bits &= !(1u128 << bit);
         }
         self.refresh_model_condition_bits();
-        self.record_host_model_condition();
     }
 
     pub fn set_under_construction_model_conditions(&mut self, actively_built: bool) {
@@ -741,7 +720,6 @@ impl Object {
             self.model_condition_bits |= 1u128 << await_b;
         }
         self.refresh_model_condition_bits();
-        self.record_host_model_condition();
     }
 
     /// C++ clear construction model conditions on finish (before CONSTRUCTION_COMPLETE).
@@ -757,7 +735,6 @@ impl Object {
         self.model_condition_bits &= !(1u128 << part_b);
         self.model_condition_bits &= !(1u128 << active_b);
         self.refresh_model_condition_bits();
-        self.record_host_model_condition();
     }
 
     /// Legacy 45f residual name. Live deadline uses INI ConstructionCompleteDuration
@@ -1120,6 +1097,5 @@ impl Object {
         }
         self.model_condition_bits = bits;
         self.sync_overlord_addon_body_damage();
-        self.record_host_model_condition();
     }
 }

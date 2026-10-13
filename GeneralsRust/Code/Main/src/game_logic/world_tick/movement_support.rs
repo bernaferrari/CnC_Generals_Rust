@@ -1654,13 +1654,11 @@ impl GameLogic {
                                     {
                                         obj.moving_backwards = true;
                                         obj.doing_three_point_turn = on_path > 5.0 * major;
-                                        obj.record_host_locomotor();
                                     }
                                 }
                                 if obj.moving_backwards {
                                     if delta.abs() < std::f32::consts::FRAC_PI_2 {
                                         obj.moving_backwards = false;
-                                        obj.record_host_locomotor();
                                     } else {
                                         move_backwards = true;
                                         // C++ Locomotor.cpp:1306-1310. Far goals keep

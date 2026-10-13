@@ -906,7 +906,6 @@ impl GameLogic {
                 &mut obj.model_condition_bits,
                 state,
             );
-            obj.record_host_model_condition();
         }
     }
 
@@ -960,7 +959,6 @@ impl GameLogic {
                                     state,
                                 );
                             }
-                            obj.record_host_model_condition();
                         } else {
                             blocked = true;
                         }

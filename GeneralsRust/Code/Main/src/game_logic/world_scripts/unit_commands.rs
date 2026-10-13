@@ -1450,7 +1450,6 @@ impl GameLogic {
                         unit.turret_idle_recentering = true;
                         unit.turret_target_id = None;
                         unit.turret_holding = false;
-                        unit.record_host_turret();
                     } else {
                         // C++ setMyState(UNDEPLOY) clears OBJECT_STATUS_DEPLOYED
                         // before the pack timer elapses.
@@ -1463,7 +1462,6 @@ impl GameLogic {
                         state,
                     );
                 }
-                unit.record_host_model_condition();
             }
             transitioned
         };

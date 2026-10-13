@@ -6,10 +6,7 @@
 //! never `clear` the active world at stage entry, discard candidate events on
 //! rollback, and clear the old world's events only once commit is certain.
 
-use super::{
-    host_continuous_fire_log, host_demo_mine_cheer_log, host_locomotor_log, host_movement_log,
-    host_physics_motive_log, host_spawn_log, host_stored_supplies_log,
-};
+use super::{host_demo_mine_cheer_log, host_movement_log, host_spawn_log};
 use std::cell::Cell;
 
 thread_local! {
@@ -30,14 +27,6 @@ pub(crate) struct WorldStageEffectsState {
 
     movement: Vec<host_movement_log::HostMovementEvent>,
     demo_mine_cheer: Vec<host_demo_mine_cheer_log::HostDemoMineCheerEvent>,
-
-    stored_supplies: Vec<host_stored_supplies_log::HostStoredSuppliesEvent>,
-
-    locomotor: Vec<host_locomotor_log::HostLocomotorEvent>,
-
-    continuous_fire: Vec<host_continuous_fire_log::HostContinuousFireEvent>,
-
-    physics_motive: Vec<host_physics_motive_log::HostPhysicsMotiveEvent>,
 }
 
 impl WorldStageEffectsState {
@@ -47,14 +36,6 @@ impl WorldStageEffectsState {
 
             movement: host_movement_log::take_for_world_stage(),
             demo_mine_cheer: host_demo_mine_cheer_log::take_for_world_stage(),
-
-            stored_supplies: host_stored_supplies_log::take_for_world_stage(),
-
-            locomotor: host_locomotor_log::take_for_world_stage(),
-
-            continuous_fire: host_continuous_fire_log::take_for_world_stage(),
-
-            physics_motive: host_physics_motive_log::take_for_world_stage(),
         }
     }
 
@@ -66,18 +47,6 @@ impl WorldStageEffectsState {
             demo_mine_cheer: host_demo_mine_cheer_log::replace_for_world_stage(
                 next.demo_mine_cheer,
             ),
-
-            stored_supplies: host_stored_supplies_log::replace_for_world_stage(
-                next.stored_supplies,
-            ),
-
-            locomotor: host_locomotor_log::replace_for_world_stage(next.locomotor),
-
-            continuous_fire: host_continuous_fire_log::replace_for_world_stage(
-                next.continuous_fire,
-            ),
-
-            physics_motive: host_physics_motive_log::replace_for_world_stage(next.physics_motive),
         }
     }
 
@@ -86,14 +55,6 @@ impl WorldStageEffectsState {
 
         host_movement_log::clear();
         host_demo_mine_cheer_log::clear();
-
-        host_stored_supplies_log::clear();
-
-        host_locomotor_log::clear();
-
-        host_continuous_fire_log::clear();
-
-        host_physics_motive_log::clear();
     }
 
     #[cfg(test)]

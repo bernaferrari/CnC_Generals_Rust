@@ -656,8 +656,8 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
 }
 
 #[test]
-fn host_continuous_fire_log_drives_set_continuous_fire_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_continuous_fire_log};
+fn canonical_continuous_fire_is_projected_from_receiving_owner() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CFireCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -796,8 +796,8 @@ fn host_target_location_log_drives_set_target_location_channel() {
 }
 
 #[test]
-fn host_turret_log_drives_set_turret_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_turret_log};
+fn canonical_turret_is_projected_from_receiving_owner() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("TurretCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");

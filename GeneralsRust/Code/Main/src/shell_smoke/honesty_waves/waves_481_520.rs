@@ -12,16 +12,10 @@ pub(super) struct Waves481520 {
     pub sell_deconstruction_sole_tick_no_stomp_nav_commands_wave481_ok: bool,
     pub sell_deconstruction_sole_tick_no_stomp_live_wave481_ok: bool,
 
-
-
     pub cancel_clears_exit_delay_method_names_wave485_ok: bool,
     pub cancel_clears_exit_delay_nav_commands_wave485_ok: bool,
     pub cancel_clears_exit_delay_live_wave485_ok: bool,
 
-
-    pub combat_model_condition_channel_method_names_wave487_ok: bool,
-    pub combat_model_condition_channel_nav_commands_wave487_ok: bool,
-    pub combat_model_condition_channel_live_wave487_ok: bool,
     pub entity_presentation_model_condition_method_names_wave488_ok: bool,
     pub entity_presentation_model_condition_nav_commands_wave488_ok: bool,
     pub entity_presentation_model_condition_live_wave488_ok: bool,
@@ -47,7 +41,6 @@ pub(super) struct Waves481520 {
     pub presentation_mesh_door_phase_method_names_wave496_ok: bool,
     pub presentation_mesh_door_phase_nav_commands_wave496_ok: bool,
     pub presentation_mesh_door_phase_live_wave496_ok: bool,
-
 
     pub presentation_host_fx_overlay_method_names_wave498_ok: bool,
     pub presentation_host_fx_overlay_nav_commands_wave498_ok: bool,
@@ -85,13 +78,9 @@ pub(super) struct Waves481520 {
     pub presentation_topple_freefall_weather_method_names_wave509_ok: bool,
     pub presentation_topple_freefall_weather_nav_commands_wave509_ok: bool,
     pub presentation_topple_freefall_weather_live_wave509_ok: bool,
-    pub presentation_capture_load_overcharge_method_names_wave510_ok: bool,
-    pub presentation_capture_load_overcharge_nav_commands_wave510_ok: bool,
-    pub presentation_capture_load_overcharge_live_wave510_ok: bool,
     pub presentation_burn_cheer_carry_method_names_wave511_ok: bool,
     pub presentation_burn_cheer_carry_nav_commands_wave511_ok: bool,
     pub presentation_burn_cheer_carry_live_wave511_ok: bool,
-
 
     pub presentation_jam_die_reload_pack_method_names_wave513_ok: bool,
     pub presentation_jam_die_reload_pack_nav_commands_wave513_ok: bool,
@@ -128,21 +117,12 @@ pub(super) fn evaluate() -> Waves481520 {
         sell_deconstruction_sole_tick_no_stomp_live_wave481_ok:
             simulate_live_sell_deconstruction_sole_tick_no_stomp_honesty(),
 
-
-
         cancel_clears_exit_delay_method_names_wave485_ok:
             honesty_cancel_clears_exit_delay_method_names_residual_wave485(),
         cancel_clears_exit_delay_nav_commands_wave485_ok:
             honesty_cancel_clears_exit_delay_nav_commands_residual_wave485(),
         cancel_clears_exit_delay_live_wave485_ok: simulate_live_cancel_clears_exit_delay_honesty(),
 
-
-        combat_model_condition_channel_method_names_wave487_ok:
-            honesty_combat_model_condition_channel_method_names_residual_wave487(),
-        combat_model_condition_channel_nav_commands_wave487_ok:
-            honesty_combat_model_condition_channel_nav_commands_residual_wave487(),
-        combat_model_condition_channel_live_wave487_ok:
-            simulate_live_combat_model_condition_channel_honesty(),
         entity_presentation_model_condition_method_names_wave488_ok:
             honesty_entity_presentation_model_condition_method_names_residual_wave488(),
         entity_presentation_model_condition_nav_commands_wave488_ok:
@@ -191,7 +171,6 @@ pub(super) fn evaluate() -> Waves481520 {
             honesty_presentation_mesh_door_phase_nav_commands_residual_wave496(),
         presentation_mesh_door_phase_live_wave496_ok:
             simulate_live_presentation_mesh_door_phase_honesty(),
-
 
         presentation_host_fx_overlay_method_names_wave498_ok:
             honesty_presentation_host_fx_overlay_method_names_residual_wave498(),
@@ -264,19 +243,12 @@ pub(super) fn evaluate() -> Waves481520 {
             honesty_presentation_topple_freefall_weather_nav_commands_residual_wave509(),
         presentation_topple_freefall_weather_live_wave509_ok:
             simulate_live_presentation_topple_freefall_weather_honesty(),
-        presentation_capture_load_overcharge_method_names_wave510_ok:
-            honesty_presentation_capture_load_overcharge_method_names_residual_wave510(),
-        presentation_capture_load_overcharge_nav_commands_wave510_ok:
-            honesty_presentation_capture_load_overcharge_nav_commands_residual_wave510(),
-        presentation_capture_load_overcharge_live_wave510_ok:
-            simulate_live_presentation_capture_load_overcharge_honesty(),
         presentation_burn_cheer_carry_method_names_wave511_ok:
             honesty_presentation_burn_cheer_carry_method_names_residual_wave511(),
         presentation_burn_cheer_carry_nav_commands_wave511_ok:
             honesty_presentation_burn_cheer_carry_nav_commands_residual_wave511(),
         presentation_burn_cheer_carry_live_wave511_ok:
             simulate_live_presentation_burn_cheer_carry_honesty(),
-
 
         presentation_jam_die_reload_pack_method_names_wave513_ok:
             honesty_presentation_jam_die_reload_pack_method_names_residual_wave513(),

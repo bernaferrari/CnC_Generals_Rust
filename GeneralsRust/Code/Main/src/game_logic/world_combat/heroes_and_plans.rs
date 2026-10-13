@@ -163,18 +163,14 @@ impl GameLogic {
 
             if let Some(obj) = self.objects.get_mut(&cid) {
                 obj.turret_idle_scanning = scanning;
-                obj.record_host_turret();
                 obj.turret_holding = holding;
-                obj.record_host_turret();
                 obj.turret_idle_recentering = idle_recentering;
                 obj.turret_hold_until_frame = hold_until;
                 obj.turret_idle_scan_desired_angle_deg = desired;
                 obj.turret_idle_scan_next_frame = next_frame;
                 obj.turret_idle_scan_index = scan_index;
                 obj.turret_angle_deg = angle;
-                obj.record_host_turret();
                 obj.turret_pitch_deg = pitch;
-                obj.record_host_turret();
             }
         }
         for _ in 0..scan_started {
@@ -551,16 +547,12 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&cid) {
                 // Pack recenter cancels idle-scan / Hold / idle-recenter residual.
                 obj.turret_idle_scanning = false;
-                obj.record_host_turret();
                 obj.turret_holding = false;
-                obj.record_host_turret();
                 obj.turret_hold_until_frame = 0;
                 obj.turret_idle_recentering = false;
                 let (a, p) = step_turret_toward_natural(obj.turret_angle_deg, obj.turret_pitch_deg);
                 obj.turret_angle_deg = a;
-                obj.record_host_turret();
                 obj.turret_pitch_deg = p;
-                obj.record_host_turret();
             }
         }
 
@@ -678,7 +670,6 @@ impl GameLogic {
             if let Some(bit) = set_bit {
                 obj.model_condition_bits |= 1u128 << bit;
             }
-            obj.record_host_model_condition();
         }
     }
 

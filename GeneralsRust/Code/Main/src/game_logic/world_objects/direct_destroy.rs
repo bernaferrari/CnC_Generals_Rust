@@ -184,7 +184,6 @@ impl GameLogic {
                 if container.contained_units().is_empty() {
                     let bit = crate::game_logic::host_enum_table_residual::loaded_model_bit();
                     container.model_condition_bits &= !(1u128 << bit);
-                    container.record_host_model_condition();
                 }
             }
             self.refresh_battle_bus_armed_riders_weapon_set(container_id);

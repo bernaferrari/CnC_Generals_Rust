@@ -49,9 +49,7 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     logic.attack_events.complete_boundary();
     let _ = crate::game_logic::host_bounce_land_log::drain();
 
-    let _ = crate::game_logic::host_continuous_fire_log::drain();
     let _ = crate::game_logic::host_crush_vision_log::drain();
-    let _ = crate::game_logic::host_death_type_log::drain();
     let _ = crate::game_logic::host_demo_mine_cheer_log::drain();
     let _ = crate::game_logic::host_destroy_log::drain();
 
@@ -61,17 +59,12 @@ fn freeze_host_observations(logic: &mut GameLogic) {
         .combat_system
         .fire_sound_loop_events
         .complete_boundary();
-    let _ = crate::game_logic::host_formation_log::drain();
-    let _ = crate::game_logic::host_fow_log::drain();
     let _ = crate::game_logic::host_hijacker_log::drain();
 
-    let _ = crate::game_logic::host_locomotor_log::drain();
-    let _ = crate::game_logic::host_model_condition_log::drain();
     let _ = logic.movement_events.drain_for_host_boundary();
     let _ = crate::game_logic::host_movement_log::drain();
 
     logic.ownership_events.complete_boundary();
-    let _ = crate::game_logic::host_physics_motive_log::drain();
 
     let _ = crate::game_logic::host_production_door_log::drain();
     logic.production_events.complete_boundary();
@@ -82,10 +75,6 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_shock_stun_log::drain();
     let _ = crate::game_logic::host_sole_healing_log::drain();
     let _ = crate::game_logic::host_spawn_log::drain();
-
-    let _ = crate::game_logic::host_stored_supplies_log::drain();
-
-    let _ = crate::game_logic::host_turret_log::drain();
 
     logic.economy_events.complete_boundary();
 }

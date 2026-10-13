@@ -344,23 +344,34 @@ impl BoneData {
         positions: &mut [Vector3],
         transforms: &mut [Matrix4],
     ) -> i32 {
-        let bones = match self.current_bones.get(bone_name_prefix) {
-            Some(b) => b,
-            None => return 0,
-        };
-        if start_index <= 0 {
+        // C++ W3DModelDraw.cpp:3553-3603: 0 names the bare bone; positive
+        // indices name prefix01..prefix99 and stop at the first absent bone.
+        if !(0..=99).contains(&start_index) {
             return 0;
         }
-        let start = (start_index as usize) - 1;
-        if start >= bones.len() {
+        let max_write = positions.len().min(transforms.len()).min(64);
+        if max_write == 0 {
             return 0;
         }
-        let max_write = positions.len().min(transforms.len());
-        let available = &bones[start..];
-        let count = available.len().min(max_write);
-        for i in 0..count {
-            positions[i] = available[i].0;
-            transforms[i] = available[i].1;
+        let end_index = if start_index == 0 { 0 } else { 99 };
+        let mut count = 0;
+        for index in start_index..=end_index {
+            let name = if index == 0 {
+                bone_name_prefix.to_owned()
+            } else {
+                format!("{bone_name_prefix}{index:02}")
+            };
+            let Some(&(position, transform)) =
+                self.current_bones.get(&name).and_then(|b| b.first())
+            else {
+                break;
+            };
+            positions[count] = position;
+            transforms[count] = transform;
+            count += 1;
+            if count == max_write {
+                break;
+            }
         }
         count as i32
     }
@@ -396,3 +407,76 @@ impl BoneData {
 /// When the W3D draw module system is fully ported, this will be replaced
 /// by the real FXList reference.
 pub type FXListRef = str;
+
+#[cfg(test)]
+mod current_bone_lookup_tests {
+    use super::*;
+
+    fn add(bones: &mut BoneData, name: &str, x: f32) {
+        let position = Vector3::new(x, 2.0, 3.0);
+        bones.add_current_bone(name, position, Matrix4::translation(position));
+    }
+
+    #[test]
+    fn exact_zero_and_numbered_indices_have_distinct_original_names() {
+        let mut bones = BoneData::default();
+        add(&mut bones, "Fire", 10.0);
+        add(&mut bones, "Fire01", 11.0);
+        add(&mut bones, "Fire02", 12.0);
+        add(&mut bones, "Fire04", 14.0);
+        let mut positions = [Vector3::zero(); 4];
+        let mut transforms = [Matrix4::identity(); 4];
+        assert_eq!(
+            bones.query_current_bones("Fire", 0, &mut positions, &mut transforms),
+            1
+        );
+        assert_eq!(positions[0].x, 10.0);
+        assert_eq!(
+            bones.query_current_bones("Fire", 1, &mut positions, &mut transforms),
+            2
+        );
+        assert_eq!(positions[0].x, 11.0);
+        assert_eq!(positions[1].x, 12.0);
+        assert_eq!(transforms[1], Matrix4::translation(positions[1]));
+        assert_eq!(
+            bones.query_current_bones("Fire", 2, &mut positions, &mut transforms),
+            1
+        );
+        assert_eq!(positions[0].x, 12.0);
+        assert_eq!(
+            bones.query_current_bones("Fire", 3, &mut positions, &mut transforms),
+            0
+        );
+    }
+
+    #[test]
+    fn absent_invalid_and_bounded_queries_preserve_untouched_outputs() {
+        let mut bones = BoneData::default();
+        add(&mut bones, "Fire01", 1.0);
+        add(&mut bones, "Fire02", 2.0);
+        let sentinel = Vector3::new(-1.0, -2.0, -3.0);
+        let mut positions = [sentinel; 2];
+        let mut transforms = [Matrix4::identity(); 1];
+        for index in [-1, 0, 100, i32::MAX] {
+            assert_eq!(
+                bones.query_current_bones("Fire", index, &mut positions, &mut transforms),
+                0
+            );
+            assert_eq!(positions, [sentinel; 2]);
+        }
+        assert_eq!(
+            bones.query_current_bones("Fire", 1, &mut positions, &mut transforms),
+            1
+        );
+        assert_eq!(positions[0].x, 1.0);
+        assert_eq!(positions[1], sentinel);
+        assert_eq!(
+            bones.query_current_bones("Fire", 1, &mut [], &mut transforms),
+            0
+        );
+        assert_eq!(
+            bones.query_current_bones("Absent", 1, &mut positions, &mut transforms),
+            0
+        );
+    }
+}

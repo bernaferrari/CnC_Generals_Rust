@@ -275,9 +275,7 @@ impl GameLogic {
             {}
             // Turret already aligned by tick_turret_aim (no snap).
             attacker.turret_idle_scanning = false;
-            attacker.record_host_turret();
             attacker.turret_holding = false;
-            attacker.record_host_turret();
             attacker.turret_hold_until_frame = 0;
             attacker.turret_idle_recentering = false;
             attacker.turret_idle_scan_next_frame = self.frame.saturating_add(

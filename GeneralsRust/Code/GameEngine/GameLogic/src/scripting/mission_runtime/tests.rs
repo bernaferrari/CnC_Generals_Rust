@@ -4,9 +4,9 @@ use crate::scripting::core::{
     ScriptActionType, ScriptGroup,
 };
 use crate::scripting::engine::{ScriptActionHandler, ScriptEngine, ScriptEngineHandle};
-#[derive(Clone)]
+#[derive(Default)]
 struct RecordingScriptHandler {
-    events: Arc<Mutex<Vec<String>>>,
+    events: Mutex<Vec<String>>,
     enabled_updates: Option<Arc<Mutex<Vec<(String, bool)>>>>,
 }
 
@@ -31,14 +31,11 @@ impl ScriptActionHandler for RecordingScriptHandler {
 }
 
 fn private_runtime_recording_into(
-    events: Arc<Mutex<Vec<String>>>,
+    handler: Arc<RecordingScriptHandler>,
     lists: &[ScriptList],
 ) -> MissionScriptRuntime {
     let mut private_engine = ScriptEngine::new().expect("private script engine should initialize");
-    private_engine.set_action_handler(Some(Arc::new(RecordingScriptHandler {
-        events,
-        enabled_updates: None,
-    })));
+    private_engine.set_action_handler(Some(handler));
     for (side_index, list) in lists.iter().enumerate() {
         private_engine
             .set_script_list_for_player(side_index, Some(Box::new(list.clone())))
@@ -102,7 +99,7 @@ fn dense_host_lists_keep_attack_random_and_cinematic_scripts_in_cxx_order() {
     // a density/name filter.  Keep this list above the old 48-script
     // threshold and include the campaign patterns that the host used to
     // erase before frame zero.
-    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = Arc::new(RecordingScriptHandler::default());
     let mut list = ScriptList::new();
 
     list.append_script(one_shot_script(
@@ -158,13 +155,14 @@ fn dense_host_lists_keep_attack_random_and_cinematic_scripts_in_cxx_order() {
     ));
     list.append_group(Box::new(subroutine_group));
 
-    let mut runtime = private_runtime_recording_into(Arc::clone(&events), &[list.clone()]);
+    let mut runtime = private_runtime_recording_into(Arc::clone(&handler), &[list.clone()]);
     runtime.install_lists(&[list]);
     runtime
         .update(9001)
         .expect("a dense non-shell list should complete one ordered frame walk");
 
-    let events = events
+    let events = handler
+        .events
         .lock()
         .expect("recording script handler mutex should not be poisoned")
         .clone();
@@ -212,7 +210,7 @@ fn shell_named_attack_scripts_use_the_same_complete_frame_walk() {
     // warm-up, or continuation interpreter.  In particular, a script name
     // that used to trigger the Rust-only shell throttle must not change
     // whether every declared script runs on this logic frame.
-    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = Arc::new(RecordingScriptHandler::default());
     let mut list = ScriptList::new();
     for name in [
         "Spawn Bikes And Attack",
@@ -229,14 +227,15 @@ fn shell_named_attack_scripts_use_the_same_complete_frame_walk() {
         list.append_script(one_shot_script(name, display_text_action(name)));
     }
 
-    let mut runtime = private_runtime_recording_into(Arc::clone(&events), &[list.clone()]);
+    let mut runtime = private_runtime_recording_into(Arc::clone(&handler), &[list.clone()]);
     runtime.install_lists(&[list]);
     runtime
         .update(1)
         .expect("shell-equivalent script frame should complete");
 
     assert_eq!(
-        events
+        handler
+            .events
             .lock()
             .expect("recording event mutex should not be poisoned")
             .as_slice(),
@@ -262,8 +261,11 @@ fn group_name_toggles_apply_at_cxx_group_boundaries_without_skipping_siblings() 
     // (ScriptEngine.cpp:6797-6823).  A root action can enable a later
     // group in this same update; once a group has been entered, disabling
     // it takes effect next frame rather than skipping its remaining chain.
-    let events = Arc::new(Mutex::new(Vec::new()));
     let pending_enabled_updates = Arc::new(Mutex::new(Vec::new()));
+    let handler = Arc::new(RecordingScriptHandler {
+        events: Mutex::new(Vec::new()),
+        enabled_updates: Some(Arc::clone(&pending_enabled_updates)),
+    });
     let mut list = ScriptList::new();
     list.append_script(one_shot_script(
         "Enable Dormant Attack Group",
@@ -299,10 +301,7 @@ fn group_name_toggles_apply_at_cxx_group_boundaries_without_skipping_siblings() 
     list.append_group(Box::new(self_disabling_group));
 
     let mut private_engine = ScriptEngine::new().expect("private script engine should initialize");
-    private_engine.set_action_handler(Some(Arc::new(RecordingScriptHandler {
-        events: Arc::clone(&events),
-        enabled_updates: Some(Arc::clone(&pending_enabled_updates)),
-    })));
+    private_engine.set_action_handler(Some(handler.clone()));
     private_engine
         .set_script_list_for_player(0, Some(Box::new(list.clone())))
         .expect("private script engine should accept the test ScriptList");
@@ -317,7 +316,8 @@ fn group_name_toggles_apply_at_cxx_group_boundaries_without_skipping_siblings() 
         .update(17)
         .expect("first C++-ordered group frame should run");
     assert_eq!(
-        events
+        handler
+            .events
             .lock()
             .expect("recording event mutex should not be poisoned")
             .as_slice(),
@@ -331,7 +331,8 @@ fn group_name_toggles_apply_at_cxx_group_boundaries_without_skipping_siblings() 
         .update(18)
         .expect("second C++-ordered group frame should run");
     assert_eq!(
-        events
+        handler
+            .events
             .lock()
             .expect("recording event mutex should not be poisoned")
             .as_slice(),

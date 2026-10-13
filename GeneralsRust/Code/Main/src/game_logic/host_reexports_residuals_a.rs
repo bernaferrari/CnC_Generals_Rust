@@ -453,22 +453,6 @@ pub use super::host_live_collision_system_dual_world_empty_gate_residual_wave313
     simulate_live_collision_system_dual_world_empty_gate_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_combat_model_condition_channel_residual_wave487::{
-    honesty_combat_model_condition_channel_method_names_residual_wave487,
-    honesty_combat_model_condition_channel_nav_commands_residual_wave487,
-    honesty_combat_model_condition_channel_residual_pack_wave487,
-    honesty_combat_model_condition_channel_source_markers_residual_wave487,
-    residual_combat_model_condition_channel_last_action,
-    residual_combat_model_condition_channel_ok,
-    simulate_combat_model_condition_channel_combat_log_source,
-    simulate_combat_model_condition_channel_refresh_source,
-    simulate_live_combat_model_condition_channel_honesty,
-    ResidualCombatModelConditionChannelAction, COMBAT_MODEL_CONDITION_CHANNEL_METHOD_NAMES_WAVE487,
-    COMBAT_MODEL_CONDITION_CHANNEL_NAV_STEPS_WAVE487,
-    COMBAT_MODEL_CONDITION_CHANNEL_SOURCE_MARKERS_WAVE487,
-    RUNTIME_HOST_COMBAT_MODEL_CONDITION_CHANNEL_CMD_NAMES_WAVE487,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_command_attack_log_residual_wave197::{
     honesty_live_command_attack_log_method_names_residual_wave197,
     honesty_live_command_attack_log_nav_commands_residual_wave197,

@@ -361,7 +361,6 @@ impl Object {
             MC_BIT_BETWEEN_FIRING_SHOTS_C,
             MC_BIT_RELOADING_C,
         ];
-        let before = self.model_condition_bits;
         for b in WEAPON_MC_BITS {
             self.model_condition_bits &= !(1u128 << b);
         }
@@ -386,10 +385,6 @@ impl Object {
             self.model_condition_bits |= 1u128 << WEAPON_MC_BITS[i];
         } else if self.status.is_firing_weapon {
             self.model_condition_bits |= 1u128 << WEAPON_MC_BITS[base + 1];
-        }
-        // Wave 487: weapon fire model bits must reach GW before model-condition writeback.
-        if self.model_condition_bits != before {
-            self.record_host_model_condition();
         }
     }
 
@@ -457,7 +452,7 @@ impl Object {
     /// C++ Weapon::getStatus residual refresh for the active/primary slot.
     pub fn refresh_weapon_fire_status(&mut self, current_time: f32) {
         self.apply_weapon_bonus_rof_restart(current_time);
-        if self.complete_elapsed_auto_reload_clips(current_time) {}
+        self.complete_elapsed_auto_reload_clips(current_time);
         // Pre-attack wind-up wins while armed.
         if self.pre_attack_ready_at > current_time + 1e-6 {
             self.weapon_fire_status = WeaponFireStatus::PreAttack;
@@ -1162,7 +1157,6 @@ impl Object {
         }
         self.turret_angle_deg = actual.to_degrees();
         let aligned = Self::normalize_angle_rad(actual - desired).abs() <= rel_thresh.max(0.0);
-        self.record_host_turret();
         aligned
     }
 
@@ -1187,7 +1181,6 @@ impl Object {
         }
         self.turret_pitch_deg = actual.to_degrees();
         let aligned = Self::normalize_angle_rad(actual - desired).abs() <= 1e-4;
-        self.record_host_turret();
         aligned
     }
 
@@ -1411,7 +1404,6 @@ impl Object {
             self.consecutive_shots_at_target = 0;
             self.consecutive_shot_target = None;
         }
-        self.record_host_continuous_fire();
     }
 
     /// Stamp ContinuousFireCoast deadline after a shot (C++ m_frameToStartCoolDown).
@@ -1452,7 +1444,6 @@ impl Object {
         } else {
             0
         };
-        self.record_host_continuous_fire();
     }
 
     /// Stamp AutoReloadWhenIdle deadline after a shot (C++ m_frameToForceReload).

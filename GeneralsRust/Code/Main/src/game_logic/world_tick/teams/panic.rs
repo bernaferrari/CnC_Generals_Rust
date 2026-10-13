@@ -55,7 +55,6 @@ impl GameLogic {
             unit.is_panicking = false;
             let panicking_bit = crate::game_logic::host_enum_table_residual::panicking_model_bit();
             unit.model_condition_bits &= !(1u128 << panicking_bit);
-            unit.record_host_model_condition();
             unit.set_status_moving(false);
             unit.set_locomotor_goal_none();
         }

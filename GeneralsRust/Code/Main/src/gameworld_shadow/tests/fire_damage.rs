@@ -352,10 +352,8 @@ fn set_ai_state_decision_aware_writeback() {
 
 #[test]
 fn death_type_channel_via_set_death_type() {
-    use crate::game_logic::host_death_type_log;
     use crate::game_logic::host_usa_pilot::HostDeathType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_death_type_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DeathTy");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -372,7 +370,6 @@ fn death_type_channel_via_set_death_type() {
         o.status.destroyed = true;
         o.status.death_type = HostDeathType::Burned;
     }
-    host_death_type_log::record(oid, HostDeathType::Burned.ordinal());
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");

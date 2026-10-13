@@ -945,7 +945,6 @@ impl Object {
             let _ = self.apply_shock_fall_damage_with_services(impact_vy, services);
         }
         self.was_airborne_last_frame = airborne_end;
-        self.record_host_locomotor();
         self.stamp_airborne_target_from_locomotor();
         let _ = airborne_start; // reserved for future free-fall start residual
         // C++ killWhenRestingOnGround residual after landing.

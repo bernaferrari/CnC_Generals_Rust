@@ -77,9 +77,6 @@
         cancel_clears_exit_delay_live_wave485_ok,
 
 
-        combat_model_condition_channel_method_names_wave487_ok,
-        combat_model_condition_channel_nav_commands_wave487_ok,
-        combat_model_condition_channel_live_wave487_ok,
         entity_presentation_model_condition_method_names_wave488_ok,
         entity_presentation_model_condition_nav_commands_wave488_ok,
         entity_presentation_model_condition_live_wave488_ok,
@@ -143,9 +140,6 @@
         presentation_topple_freefall_weather_method_names_wave509_ok,
         presentation_topple_freefall_weather_nav_commands_wave509_ok,
         presentation_topple_freefall_weather_live_wave509_ok,
-        presentation_capture_load_overcharge_method_names_wave510_ok,
-        presentation_capture_load_overcharge_nav_commands_wave510_ok,
-        presentation_capture_load_overcharge_live_wave510_ok,
         presentation_burn_cheer_carry_method_names_wave511_ok,
         presentation_burn_cheer_carry_nav_commands_wave511_ok,
         presentation_burn_cheer_carry_live_wave511_ok,

@@ -100,11 +100,6 @@ pub use crate::game_logic::host_live_cancel_clears_exit_delay_residual_wave485::
     honesty_cancel_clears_exit_delay_nav_commands_residual_wave485,
     simulate_live_cancel_clears_exit_delay_honesty,
 };
-pub use crate::game_logic::host_live_combat_model_condition_channel_residual_wave487::{
-    honesty_combat_model_condition_channel_method_names_residual_wave487,
-    honesty_combat_model_condition_channel_nav_commands_residual_wave487,
-    simulate_live_combat_model_condition_channel_honesty,
-};
 pub use crate::game_logic::host_live_entity_presentation_model_condition_residual_wave488::{
     honesty_entity_presentation_model_condition_method_names_residual_wave488,
     honesty_entity_presentation_model_condition_nav_commands_residual_wave488,
@@ -204,11 +199,6 @@ pub use crate::game_logic::host_live_presentation_topple_freefall_weather_residu
     honesty_presentation_topple_freefall_weather_method_names_residual_wave509,
     honesty_presentation_topple_freefall_weather_nav_commands_residual_wave509,
     simulate_live_presentation_topple_freefall_weather_honesty,
-};
-pub use crate::game_logic::host_live_presentation_capture_load_overcharge_residual_wave510::{
-    honesty_presentation_capture_load_overcharge_method_names_residual_wave510,
-    honesty_presentation_capture_load_overcharge_nav_commands_residual_wave510,
-    simulate_live_presentation_capture_load_overcharge_honesty,
 };
 pub use crate::game_logic::host_live_presentation_burn_cheer_carry_residual_wave511::{
     honesty_presentation_burn_cheer_carry_method_names_residual_wave511,

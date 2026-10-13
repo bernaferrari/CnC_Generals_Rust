@@ -728,7 +728,6 @@ impl GameLogic {
         } else {
             carrier.model_condition_bits |= 1u128 << close_bit;
         }
-        carrier.record_host_model_condition();
     }
 
     fn flight_deck_update_no_attack(&mut self, carrier_id: ObjectId) {

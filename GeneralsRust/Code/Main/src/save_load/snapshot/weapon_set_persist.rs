@@ -185,7 +185,6 @@ fn stamp_crate_weaponset_model_bits(object: &mut crate::game_logic::Object) {
     } else if object.weapon_crate_upgrade == 1 {
         object.model_condition_bits |= 1u128 << one;
     }
-    object.record_host_model_condition();
 }
 
 fn stamp_veterancy_weaponset_model_bits(object: &mut crate::game_logic::Object) {
@@ -202,7 +201,6 @@ fn stamp_veterancy_weaponset_model_bits(object: &mut crate::game_logic::Object) 
     } else if object.weapon_set_veteran {
         object.model_condition_bits |= 1u128 << vet_b;
     }
-    object.record_host_model_condition();
 }
 
 fn find_wsfl_suffix(bytes: &[u8]) -> Option<&[u8]> {

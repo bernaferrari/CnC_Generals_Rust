@@ -60,7 +60,6 @@ fn clear_rider_change_runtime_state(
     container.combat_cycle_rider = 0;
     let _ = container.replace_weapon_set_slot(0, None);
     let _ = container.replace_weapon_set_slot(1, None);
-    container.record_host_model_condition();
 }
 
 /// Apply every Locomotor.ini field for which the live host Object has an
@@ -81,7 +80,6 @@ pub(super) fn clear_raising_flag_model(object: &mut Object) {
     let bit = 1u128 << raising_flag_model_bit();
     if object.model_condition_bits & bit != 0 {
         object.model_condition_bits &= !bit;
-        object.record_host_model_condition();
     }
 }
 
@@ -434,9 +432,7 @@ impl GameLogic {
         if firing_a {
             object.model_condition_bits |= 1u128 << firing_a_model_bit();
         }
-        if object.model_condition_bits != before {
-            object.record_host_model_condition();
-        }
+        if object.model_condition_bits != before {}
     }
 
     fn leftover_sa_queue_pack_unpack_sound(
@@ -2074,7 +2070,6 @@ impl GameLogic {
                 container.set_status_detected(true);
             }
             container.occupants.push(rider_id);
-            container.record_host_model_condition();
             apply_rider_change_locomotor_binding(container, &plan.active_locomotor);
         }
         {
@@ -2215,7 +2210,6 @@ impl GameLogic {
             if !was_moving {
                 let _ = container.apply_status_bits_upgrade_masks(&["IMMOBILE"], &[]);
             }
-            container.record_host_model_condition();
             if transfer_selection {
                 container.deselect();
             }
@@ -2421,7 +2415,6 @@ impl GameLogic {
             };
             object.model_condition_bits &= !(1u128 << unpacking_model_bit());
             object.model_condition_bits |= 1u128 << raising_flag_model_bit();
-            object.record_host_model_condition();
         }
         drop(object);
         if lotus {

@@ -2019,38 +2019,6 @@ mod staged_restore_tests {
             Some(13),
         );
         crate::game_logic::host_demo_mine_cheer_log::record(object, true, true, 14.0);
-
-        crate::game_logic::host_stored_supplies_log::record(object, 26);
-
-        crate::game_logic::host_locomotor_log::record(
-            object, false, false, true, false, true, false, 29.0, 30.0, true, false, 31.0, 32.0,
-            33.0, 34, 35, 36.0, -1,
-        );
-        crate::game_logic::host_continuous_fire_log::record(object, 52, 53, 54);
-
-        crate::game_logic::host_physics_motive_log::record(
-            object,
-            63,
-            64.0,
-            [65.0, 66.0, 67.0],
-            68.0,
-            69.0,
-            70.0,
-            true,
-            71,
-            false,
-            72,
-            73.0,
-            74.0,
-            true,
-            75.0,
-            76.0,
-            Some([77.0, 78.0, 79.0]),
-            Some(80),
-            true,
-            Some(81),
-            Some(82),
-        );
     }
 
     fn retail_map_path_for_test() -> Option<String> {

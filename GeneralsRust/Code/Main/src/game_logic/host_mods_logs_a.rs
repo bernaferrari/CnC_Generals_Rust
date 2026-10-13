@@ -45,17 +45,11 @@ pub use host_damage_log::HostDamageEvent;
 #[path = "host_voice_fear_log.rs"]
 pub mod host_voice_fear_log;
 
-#[path = "host_death_type_log.rs"]
-pub mod host_death_type_log;
-
 #[path = "host_attack_log.rs"]
 pub mod host_attack_log;
 
 #[path = "host_construction_log.rs"]
 pub mod host_construction_log;
-
-#[path = "host_continuous_fire_log.rs"]
-pub mod host_continuous_fire_log;
 
 #[path = "host_crush_vision_log.rs"]
 pub mod host_crush_vision_log;

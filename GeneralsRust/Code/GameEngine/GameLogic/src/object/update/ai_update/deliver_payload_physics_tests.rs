@@ -294,7 +294,7 @@ fn delivery_strafe_releases_physics_before_real_firing_tracker_scan() {
 #[derive(Debug)]
 struct DeathReceiver {
     physics: PhysicsInterfaceHandle,
-    deaths: Arc<Mutex<usize>>,
+    deaths: usize,
 }
 
 impl ContainModuleInterface for DeathReceiver {
@@ -330,7 +330,7 @@ impl ContainModuleInterface for DeathReceiver {
             self.physics.try_access().is_ok(),
             "delivery death must release canonical physics before synchronous callbacks"
         );
-        *self.deaths.lock().unwrap() += 1;
+        self.deaths += 1;
         Ok(())
     }
 }
@@ -340,15 +340,15 @@ fn delivery_head_off_map_releases_physics_before_real_death_callback() {
     let _lock = crate::test_sync::lock();
     let aircraft = RegisteredAircraft::new(93_542);
     aircraft.physics.access().unwrap().set_turning(1);
-    let deaths = Arc::new(Mutex::new(0));
+    let receiver = Arc::new(Mutex::new(DeathReceiver {
+        physics: aircraft.physics.clone(),
+        deaths: 0,
+    }));
     aircraft
         .owner
         .write()
         .unwrap()
-        .set_contain(Some(Arc::new(Mutex::new(DeathReceiver {
-            physics: aircraft.physics.clone(),
-            deaths: deaths.clone(),
-        }))));
+        .set_contain(Some(receiver.clone()));
     // CPP DeliverPayloadAIUpdate.cpp:1182–1191: nonzero turning and an
     // opposing delivery heading kill immediately, before returning CONTINUE.
     let mut delivery =
@@ -357,7 +357,7 @@ fn delivery_head_off_map_releases_physics_before_real_death_callback() {
     assert_eq!(delivery.update_head_off_map(), StateReturnType::Continue);
     assert!(aircraft.owner.read().unwrap().is_effectively_dead());
     assert_eq!(
-        *deaths.lock().unwrap(),
+        receiver.lock().unwrap().deaths,
         1,
         "real Object::on_die callback ran synchronously"
     );

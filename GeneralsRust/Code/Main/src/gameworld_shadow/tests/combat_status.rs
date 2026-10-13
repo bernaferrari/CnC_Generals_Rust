@@ -685,8 +685,8 @@ fn canonical_special_power_projects_without_writeback() {
 }
 
 #[test]
-fn host_stored_supplies_log_drives_set_stored_supplies_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_stored_supplies_log};
+fn canonical_stored_supplies_is_projected_from_receiving_owner() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("StoreSupCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");

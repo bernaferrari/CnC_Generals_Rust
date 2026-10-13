@@ -560,7 +560,6 @@ impl Object {
         }
         self.ultra_accurate = ultra;
         self.set_locomotor_physics_options();
-        self.record_host_locomotor();
     }
 
     /// C++ `Locomotor::setUsePreciseZPos` (PRECISE_Z_POS).
@@ -569,7 +568,6 @@ impl Object {
             return;
         }
         self.precise_z_pos = precise;
-        self.record_host_locomotor();
     }
 
     /// C++ `Locomotor::setAllowInvalidPosition` (ALLOW_INVALID_POSITION).
@@ -578,7 +576,6 @@ impl Object {
             return;
         }
         self.allow_invalid_position = allow;
-        self.record_host_locomotor();
     }
 
     /// C++ JetTaxi / JetTakeoffOrLanding / HeliTakeoffOrLanding /
@@ -629,7 +626,6 @@ impl Object {
             let dz = goal.z - turn_pos.z;
             if dx.abs() < 0.1 && dz.abs() < 0.1 {
                 self.physics_turning = PhysicsTurningType::TurnNone;
-                self.record_host_locomotor();
                 return (PhysicsTurningType::TurnNone, 0.0);
             }
             (dx, dz, Some(turn_pos))
@@ -638,7 +634,6 @@ impl Object {
             let dz = goal.z - us.z;
             if dx * dx + dz * dz < 1.0e-8 {
                 self.physics_turning = PhysicsTurningType::TurnNone;
-                self.record_host_locomotor();
                 return (PhysicsTurningType::TurnNone, 0.0);
             }
             (dx, dz, None)
@@ -673,7 +668,6 @@ impl Object {
         }
         self.set_orientation(angle + amount);
         self.physics_turning = turning;
-        self.record_host_locomotor();
         (turning, rel)
     }
 
@@ -853,7 +847,6 @@ impl Object {
         self.start_move();
         self.is_braking = false;
         self.physics_turning = PhysicsTurningType::TurnNone;
-        self.record_host_locomotor();
 
         // Appearance-specific maintain residual.
         match self.loco_appearance {
@@ -976,7 +969,6 @@ impl Object {
             if self.over_water {
                 self.over_water = false;
                 self.refresh_model_condition_bits();
-                self.record_host_locomotor();
             }
             return;
         }
@@ -985,7 +977,6 @@ impl Object {
         }
         self.over_water = underwater;
         self.refresh_model_condition_bits();
-        self.record_host_locomotor();
     }
 
     /// C++ `AIUpdateInterface::needToRotate` (AIUpdate.cpp:1380-1403).
@@ -1085,18 +1076,15 @@ impl Object {
         if self.is_kind_of(crate::game_logic::KindOf::Infantry) {
             if matches!(self.loco_appearance, LocomotorAppearance::Other) {
                 self.loco_appearance = LocomotorAppearance::LegsTwo;
-                self.record_host_locomotor();
             }
         } else if self.is_kind_of(crate::game_logic::KindOf::Aircraft) {
             if matches!(self.loco_appearance, LocomotorAppearance::Other) {
                 self.loco_appearance = LocomotorAppearance::Wings;
-                self.record_host_locomotor();
             }
         } else if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
             if matches!(self.loco_appearance, LocomotorAppearance::Other) {
                 // Fail-closed: vehicles default treads-like (tanks common in host).
                 self.loco_appearance = LocomotorAppearance::Treads;
-                self.record_host_locomotor();
             }
         }
     }
@@ -1274,7 +1262,6 @@ impl Object {
         self.record_host_ai_request();
         self.is_attack_path = true;
         self.is_approach_path = false;
-        self.record_host_locomotor();
         self.is_safe_path = false;
         self.waiting_for_path = true;
         if self.path_timestamp > 0 && current_frame.saturating_sub(self.path_timestamp) < 3 {
@@ -1314,7 +1301,6 @@ impl Object {
         self.record_host_ai_request();
         self.is_attack_path = false;
         self.is_approach_path = false;
-        self.record_host_locomotor();
         self.is_safe_path = false;
         self.is_final_goal = true;
         if allow_quick && self.try_non_aircraft_quick_path(destination, current_frame) {
@@ -1378,7 +1364,6 @@ impl Object {
             self.queue_for_path_frames = 2
                 * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
         }
-        self.record_host_locomotor();
         ok
     }
 
@@ -1865,10 +1850,8 @@ impl Object {
     pub fn apply_motive_force(&mut self, force: glam::Vec3) {
         let prev = self.motive_frames_remaining;
         self.motive_frames_remaining = 0;
-        self.record_host_physics_motive();
         self.apply_physics_force(force);
         self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL.max(prev);
-        self.record_host_physics_motive();
     }
 
     /// C++ PhysicsBehavior::resetDynamicPhysics residual.
@@ -1881,7 +1864,6 @@ impl Object {
         self.shock_pitch_rate = 0.0;
         self.shock_roll_rate = 0.0;
         self.motive_frames_remaining = 0;
-        self.record_host_physics_motive();
         self.record_host_movement();
     }
 

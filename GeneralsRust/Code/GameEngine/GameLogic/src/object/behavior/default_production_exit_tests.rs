@@ -184,7 +184,7 @@ struct CallbackWitness {
     owner: Arc<RwLock<Object>>,
     ground: bool,
     accepts_rally: bool,
-    calls: Arc<Mutex<Vec<Call>>>,
+    calls: Mutex<Vec<Call>>,
 }
 
 impl CallbackWitness {
@@ -264,17 +264,17 @@ fn authored_default_exit_releases_passenger_before_cpp_callback_sequence() {
                     .set_rally_point(&Coord3D::new(250.0, 300.0, 0.0))
             );
         }
-        let calls = Arc::new(Mutex::new(Vec::new()));
+        let witness = Arc::new(Mutex::new(CallbackWitness {
+            owner: Arc::clone(&fixture.passenger),
+            ground,
+            accepts_rally: accepts,
+            calls: Mutex::new(Vec::new()),
+        }));
         fixture
             .passenger
             .write()
             .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(CallbackWitness {
-                owner: Arc::clone(&fixture.passenger),
-                ground,
-                accepts_rally: accepts,
-                calls: Arc::clone(&calls),
-            }))));
+            .set_ai_update_interface(Some(witness.clone()));
         fixture.exit();
         let mut expected = Vec::new();
         let mut path = vec![natural];
@@ -292,7 +292,8 @@ fn authored_default_exit_releases_passenger_before_cpp_callback_sequence() {
             Some(producer_id),
             CommandSourceType::FromAi,
         ));
-        let actual = calls.lock().unwrap();
+        let receiver = witness.lock().unwrap();
+        let actual = receiver.calls.lock().unwrap();
         assert_eq!(actual.len(), expected.len());
         for (actual, expected) in actual.iter().zip(&expected) {
             match (actual, expected) {

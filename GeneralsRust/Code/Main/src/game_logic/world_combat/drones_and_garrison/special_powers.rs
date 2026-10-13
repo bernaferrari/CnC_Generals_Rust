@@ -578,9 +578,7 @@ impl GameLogic {
                 o.note_attack_target(tid, &mut self.attack_events);
                 o.turret_mood_target = true;
                 o.turret_idle_scanning = false;
-                o.record_host_turret();
                 o.turret_holding = false;
-                o.record_host_turret();
                 o.turret_hold_until_frame = 0;
                 o.turret_idle_recentering = false;
                 entered_attack = !matches!(

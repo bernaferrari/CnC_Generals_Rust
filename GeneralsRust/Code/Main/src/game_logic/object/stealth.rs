@@ -516,7 +516,6 @@ impl Object {
         if self.drawable_tint_status & TINT_STATUS_FRENZY_BIT != 0 {
             return;
         }
-        let before = self.camo_heat_vision_opacity;
         if !self.is_alive() {
             self.camo_heat_vision_opacity = 0.0;
         } else if self.camo_heat_vision_opacity > VERY_TRANSPARENT_MATERIAL_PASS_OPACITY {
@@ -524,7 +523,6 @@ impl Object {
         } else {
             self.camo_heat_vision_opacity = 0.0;
         }
-        if (self.camo_heat_vision_opacity - before).abs() > f32::EPSILON {}
     }
 
     /// C++ StealthUpdate.cpp:739 — `m_stealthAllowedFrame = now + stealthDelay`.

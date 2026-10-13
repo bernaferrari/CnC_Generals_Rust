@@ -51,10 +51,15 @@ impl DrawModule for SnapshotTestDrawModule {
     }
 }
 
+#[derive(Debug, Default)]
+struct IndicatorDispatchObservation {
+    color: Option<(u8, u8, u8)>,
+    bind_count: u32,
+}
+
 #[derive(Debug)]
 struct IndicatorDispatchTestDrawModule {
-    observed_color: Arc<Mutex<Option<(u8, u8, u8)>>>,
-    bind_count: Arc<std::sync::atomic::AtomicU32>,
+    observed: Arc<Mutex<IndicatorDispatchObservation>>,
 }
 
 #[derive(Debug)]
@@ -70,19 +75,16 @@ impl DrawModule for ShroudDispatchTestDrawModule {
 
 impl DrawModule for IndicatorDispatchTestDrawModule {
     fn replace_indicator_color(&mut self, color: Option<(u8, u8, u8)>) {
-        *self.observed_color.lock() = color;
+        self.observed.lock().color = color;
     }
 
     fn on_drawable_bound_to_object(&mut self) {
-        self.bind_count
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.observed.lock().bind_count += 1;
     }
 }
 
 #[derive(Debug)]
-struct ProjectileLaunchTestDrawModule {
-    observed_pitch_pointer: Arc<Mutex<bool>>,
-}
+struct ProjectileLaunchTestDrawModule;
 
 impl DrawModule for ProjectileLaunchTestDrawModule {
     fn get_projectile_launch_offset(
@@ -100,10 +102,8 @@ impl DrawModule for ProjectileLaunchTestDrawModule {
 
         *launch_pos = Matrix4::translation(Vector3::new(10.0, 20.0, 30.0));
         *turret_rot_pos = Vector3::new(1.0, 2.0, 3.0);
-        if let Some(pitch) = turret_pitch_pos {
-            *self.observed_pitch_pointer.lock() = true;
-            *pitch = Vector3::new(4.0, 5.0, 6.0);
-        }
+        let pitch = turret_pitch_pos.expect("Drawable forwards the supplied pitch output");
+        *pitch = Vector3::new(4.0, 5.0, 6.0);
         true
     }
 }
@@ -111,7 +111,7 @@ impl DrawModule for ProjectileLaunchTestDrawModule {
 #[derive(Debug)]
 struct WeaponFireDispatchTestDrawModule {
     handled: bool,
-    calls: Arc<Mutex<u32>>,
+    calls: Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl DrawModule for WeaponFireDispatchTestDrawModule {
@@ -124,7 +124,7 @@ impl DrawModule for WeaponFireDispatchTestDrawModule {
         _victim_pos: Option<&Vector3>,
         _damage_radius: f32,
     ) -> bool {
-        *self.calls.lock() += 1;
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.handled
     }
 }
@@ -407,34 +407,30 @@ fn draw_caption_clears_stale_overlay_without_caption_text() {
 
 #[test]
 fn indicator_color_is_dispatched_to_draw_modules() {
-    let observed_color = Arc::new(Mutex::new(None));
-    let bind_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let observed = Arc::new(Mutex::new(IndicatorDispatchObservation::default()));
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.add_draw_module(Box::new(IndicatorDispatchTestDrawModule {
-        observed_color: Arc::clone(&observed_color),
-        bind_count: Arc::clone(&bind_count),
+        observed: Arc::clone(&observed),
     }));
 
     drawable.set_indicator_color(Some((10, 20, 30)));
 
-    assert_eq!(*observed_color.lock(), Some((10, 20, 30)));
-    assert_eq!(bind_count.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(observed.lock().color, Some((10, 20, 30)));
+    assert_eq!(observed.lock().bind_count, 0);
 }
 
 #[test]
 fn object_binding_notifies_draw_modules() {
-    let observed_color = Arc::new(Mutex::new(None));
-    let bind_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let observed = Arc::new(Mutex::new(IndicatorDispatchObservation::default()));
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.add_draw_module(Box::new(IndicatorDispatchTestDrawModule {
-        observed_color,
-        bind_count: Arc::clone(&bind_count),
+        observed: Arc::clone(&observed),
     }));
 
     drawable.friend_bind_to_object(123);
 
     assert_eq!(drawable.object_id, Some(123));
-    assert_eq!(bind_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(observed.lock().bind_count, 1);
 }
 
 #[test]
@@ -487,12 +483,10 @@ fn model_draw_bridge_uses_bound_object_not_client_drawable_id() {
 
 #[test]
 fn set_object_id_uses_binding_side_effects_once_per_object() {
-    let observed_color = Arc::new(Mutex::new(None));
-    let bind_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let observed = Arc::new(Mutex::new(IndicatorDispatchObservation::default()));
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.add_draw_module(Box::new(IndicatorDispatchTestDrawModule {
-        observed_color,
-        bind_count: Arc::clone(&bind_count),
+        observed: Arc::clone(&observed),
     }));
 
     drawable.set_object_id(Some(123));
@@ -500,7 +494,7 @@ fn set_object_id_uses_binding_side_effects_once_per_object() {
     drawable.set_object_id(None);
 
     assert_eq!(drawable.object_id, None);
-    assert_eq!(bind_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(observed.lock().bind_count, 1);
 }
 
 #[test]
@@ -531,16 +525,31 @@ fn test_tint_envelope() {
     assert!(envelope.is_effective);
     assert_eq!(envelope.state, EnvelopeState::Attack);
 
-    // Simulate updates
+    // CPP Drawable.cpp:5536 checks the remaining distance before adding the
+    // attack rate. Reaching the peak on update 2 transitions on update 3.
     envelope.update();
+    envelope.update();
+    assert_eq!(envelope.state, EnvelopeState::Attack);
+    assert_eq!(envelope.color(), Vector3::new(1.0, 0.5, 0.0));
+
     envelope.update();
     assert_eq!(envelope.state, EnvelopeState::Sustain);
 
     envelope.update();
     assert_eq!(envelope.state, EnvelopeState::Sustain);
+    assert_eq!(envelope.sustain_counter, 0);
 
     envelope.update();
     assert_eq!(envelope.state, EnvelopeState::Decay);
+    envelope.update();
+    assert_eq!(envelope.state, EnvelopeState::Decay);
+    assert_eq!(envelope.color(), Vector3::new(0.5, 0.25, 0.0));
+    envelope.update();
+    assert_eq!(envelope.state, EnvelopeState::Decay);
+    assert_eq!(envelope.color(), Vector3::zero());
+    envelope.update();
+    assert_eq!(envelope.state, EnvelopeState::Rest);
+    assert!(!envelope.is_effective);
 }
 
 #[test]
@@ -753,11 +762,14 @@ fn test_logic_draw_module_adapter_saves_concrete_w3d_snapshot_block() {
     load.xfer_ascii_string(&mut draw_identifier).unwrap();
     assert_eq!(draw_identifier, "W3DTreeDraw");
     let draw_block_size = load.begin_block().unwrap();
-    assert_eq!(draw_block_size, 1);
-    let mut tree_draw_version = 0;
-    load.xfer_version(&mut tree_draw_version, 1).unwrap();
+    // CPP W3DTreeDraw.cpp:156 -> DrawModule.cpp:27 -> Module.cpp:188,67.
+    assert_eq!(draw_block_size, 4);
+    let mut derived_and_base_versions = [0; 4];
+    for version in &mut derived_and_base_versions {
+        load.xfer_version(version, 1).unwrap();
+    }
     load.end_block().unwrap();
-    assert_eq!(tree_draw_version, 1);
+    assert_eq!(derived_and_base_versions, [1; 4]);
 
     let mut client_update_count = 0u16;
     load.xfer_unsigned_short(&mut client_update_count).unwrap();
@@ -787,8 +799,10 @@ fn test_logic_draw_module_adapter_loads_matching_w3d_snapshot_block() {
         let mut module_identifier = "W3DTreeDraw".to_string();
         save.xfer_ascii_string(&mut module_identifier).unwrap();
         save.begin_block().unwrap();
-        let mut tree_draw_version = 1;
-        save.xfer_version(&mut tree_draw_version, 1).unwrap();
+        // Each derived/base Snapshot layer writes its own version byte.
+        for mut version in [1; 4] {
+            save.xfer_version(&mut version, 1).unwrap();
+        }
         save.end_block().unwrap();
 
         let mut client_update_count = 0u16;
@@ -987,16 +1001,14 @@ fn test_tint_envelope_xfer_order_matches_cpp() {
         save.close().unwrap();
     }
 
-    assert_eq!(
-        bytes.len(),
-        1 + 12 * std::mem::size_of::<f32>() + 4 + std::mem::size_of::<i32>() + 1
-    );
+    assert_eq!(bytes.len(), 1 + 12 * std::mem::size_of::<f32>() + 4 + 1 + 1);
     assert_eq!(bytes[0], 1);
     assert_eq!(&bytes[1..5], &1.0f32.to_le_bytes());
     assert_eq!(&bytes[45..49], &12.0f32.to_le_bytes());
     assert_eq!(&bytes[49..53], &13u32.to_le_bytes());
-    assert_eq!(&bytes[53..57], &1i32.to_le_bytes());
-    assert_eq!(bytes[57], 3);
+    // CPP Drawable.cpp:5612 xferBool uses Bool (BaseType.h:114), one byte.
+    assert_eq!(bytes[53], 1);
+    assert_eq!(bytes[54], 3);
 
     let mut loaded = TintEnvelope::new();
     let mut load = XferLoad::new(Cursor::new(bytes), 1);
@@ -1222,11 +1234,27 @@ fn test_drawable_xfer_preserves_ambient_sound_flags() {
 
 #[test]
 fn test_drawable_xfer_preserves_custom_ambient_sound_info() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "test_drawable_xfer_preserves_custom_ambient_sound_info",
+    ) {
+        return;
+    }
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
 
-    let mut custom_info = DynamicAudioEventInfo::new();
+    // C++ reconstructs customized sound from the actual named base definition.
+    let base = game_engine::common::audio::audio_event_rts::AudioEventInfo {
+        audio_name: "UnitAmbientBase".into(),
+        ..Default::default()
+    };
+    game_engine::common::audio::game_audio::initialize_global_audio_manager()
+        .lock()
+        .unwrap()
+        .register_audio_event_info(base.clone());
+    let mut custom_info = DynamicAudioEventInfo::from_base_info(&base);
+    custom_info.override_audio_name(" CUSTOM 100 UnitAmbientBase");
     custom_info.override_volume(0.75);
     custom_info.override_loop_count(4);
 
@@ -1262,14 +1290,30 @@ fn test_drawable_xfer_preserves_custom_ambient_sound_info() {
 
 #[test]
 fn drawable_load_post_process_restarts_only_permanent_ambient() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "drawable_load_post_process_restarts_only_permanent_ambient",
+    ) {
+        return;
+    }
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
 
-    let mut permanent = DynamicAudioEventInfo::new();
-    permanent.override_audio_name("PermanentAmbient");
-    permanent.override_loop_flag(true);
-    permanent.override_loop_count(0);
+    // These non-overridden permanent-loop facts must survive via the catalog,
+    // rather than being invented by the loader or repeated in XferNoName.
+    let base = game_engine::common::audio::audio_event_rts::AudioEventInfo {
+        audio_name: "PermanentAmbient".into(),
+        control: 1,
+        loop_count: 0,
+        ..Default::default()
+    };
+    game_engine::common::audio::game_audio::initialize_global_audio_manager()
+        .lock()
+        .unwrap()
+        .register_audio_event_info(base.clone());
+    let mut permanent = DynamicAudioEventInfo::from_base_info(&base);
+    permanent.override_audio_name(" CUSTOM 101 PermanentAmbient");
 
     let mut saved = BasicDrawable::new(DrawableId(101));
     saved.custom_sound_ambient_base_name = Some("PermanentAmbient".to_string());
@@ -1393,6 +1437,12 @@ fn is_object_kind_of_fail_closed_when_dual_world_empty_and_no_presentation_kinds
 
 #[test]
 fn draw_construct_percent_fail_closed_on_sold_not_dead_health() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "draw_construct_percent_fail_closed_on_sold_not_dead_health",
+    ) {
+        return;
+    }
     // C++ drawConstructPercent: OBJECT_STATUS_SOLD clears the overlay;
     // isEffectivelyDead is commented out, so 0 health still shows UC text.
     let region = IRegion2D::new(ICoord2D::new(10, 20), ICoord2D::new(74, 32));
@@ -1445,6 +1495,12 @@ fn draw_construct_percent_fail_closed_on_sold_not_dead_health() {
 
 #[test]
 fn compute_health_region_falls_back_to_seeded_region_without_object() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "compute_health_region_falls_back_to_seeded_region_without_object",
+    ) {
+        return;
+    }
     let mut drawable = BasicDrawable::new(DrawableId(7));
     assert!(drawable.compute_health_region().is_none());
 
@@ -1691,8 +1747,8 @@ fn weapon_fire_recoil_subtracts_bound_object_orientation() {
 
 #[test]
 fn weapon_fire_dispatch_reports_first_handled_draw_module_index() {
-    let first_calls = Arc::new(Mutex::new(0));
-    let second_calls = Arc::new(Mutex::new(0));
+    let first_calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let second_calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
     let mut drawable = BasicDrawable::new(DrawableId(900_003));
     drawable.add_draw_module(Box::new(WeaponFireDispatchTestDrawModule {
         handled: false,
@@ -1716,14 +1772,14 @@ fn weapon_fire_dispatch_reports_first_handled_draw_module_index() {
     );
 
     assert_eq!(handled_by, Some(1));
-    assert_eq!(*first_calls.lock(), 1);
-    assert_eq!(*second_calls.lock(), 1);
+    assert_eq!(first_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(second_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
 #[test]
 fn weapon_fire_dispatch_without_handler_visits_all_modules_in_order() {
-    let first_calls = Arc::new(Mutex::new(0));
-    let second_calls = Arc::new(Mutex::new(0));
+    let first_calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let second_calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
     let mut drawable = BasicDrawable::new(DrawableId(900_004));
     drawable.add_draw_module(Box::new(WeaponFireDispatchTestDrawModule {
         handled: false,
@@ -1746,8 +1802,8 @@ fn weapon_fire_dispatch_without_handler_visits_all_modules_in_order() {
     );
 
     assert_eq!(handled_by, None);
-    assert_eq!(*first_calls.lock(), 1);
-    assert_eq!(*second_calls.lock(), 1);
+    assert_eq!(first_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(second_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
 #[test]
@@ -1792,11 +1848,8 @@ fn render_does_not_apply_persisted_loco_info_without_exact_frozen_source() {
 
 #[test]
 fn projectile_launch_offset_forwards_pitch_pointer_to_draw_module() {
-    let observed_pitch_pointer = Arc::new(Mutex::new(false));
     let mut drawable = BasicDrawable::new(DrawableId(1));
-    drawable.add_draw_module(Box::new(ProjectileLaunchTestDrawModule {
-        observed_pitch_pointer: observed_pitch_pointer.clone(),
-    }));
+    drawable.add_draw_module(Box::new(ProjectileLaunchTestDrawModule));
 
     let mut launch_pos = Matrix4::identity();
     let mut turret_rot_pos = Vector3::zero();
@@ -1811,7 +1864,6 @@ fn projectile_launch_offset_forwards_pitch_pointer_to_draw_module() {
         Some(&mut turret_pitch_pos),
     ));
 
-    assert!(*observed_pitch_pointer.lock());
     assert_eq!(
         launch_pos,
         Matrix4::translation(Vector3::new(10.0, 20.0, 30.0))
@@ -1978,22 +2030,27 @@ fn legacy_matrix4_bridge_conversion_preserves_cpp_affine_semantics() {
     );
 }
 
+#[derive(Debug, Default)]
+struct ConditionAndHiddenObservation {
+    hidden: Option<bool>,
+    conditions: Option<u32>,
+}
+
 #[derive(Debug)]
 struct ConditionAndHiddenTestModule {
-    hidden: Arc<Mutex<Option<bool>>>,
-    conditions: Arc<Mutex<Option<u32>>>,
+    observed: Arc<Mutex<ConditionAndHiddenObservation>>,
 }
 
 impl DrawModule for ConditionAndHiddenTestModule {
     fn set_hidden(&mut self, hidden: bool) {
-        *self.hidden.lock() = Some(hidden);
+        self.observed.lock().hidden = Some(hidden);
     }
 
     fn replace_model_condition_state(
         &mut self,
         flags: &game_engine::common::bit_flags::ModelConditionBitFlags,
     ) {
-        *self.conditions.lock() = Some(flags.count() as u32);
+        self.observed.lock().conditions = Some(flags.count() as u32);
     }
 }
 
@@ -2017,12 +2074,10 @@ fn detected_stealth_does_not_invent_first_pass_opacity() {
 
 #[test]
 fn stealth_invisible_hides_modules_and_deselects() {
-    let hidden = Arc::new(Mutex::new(None));
-    let conditions = Arc::new(Mutex::new(None));
+    let observed = Arc::new(Mutex::new(ConditionAndHiddenObservation::default()));
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.add_draw_module(Box::new(ConditionAndHiddenTestModule {
-        hidden: Arc::clone(&hidden),
-        conditions: Arc::clone(&conditions),
+        observed: Arc::clone(&observed),
     }));
     drawable.set_selected(true);
     assert!(drawable.is_selected());
@@ -2030,17 +2085,15 @@ fn stealth_invisible_hides_modules_and_deselects() {
     drawable.apply_stealth_look(StealthLook::Invisible);
     assert!(drawable.hidden_by_stealth);
     assert!(!drawable.is_selected());
-    assert_eq!(*hidden.lock(), Some(true));
+    assert_eq!(observed.lock().hidden, Some(true));
 }
 
 #[test]
 fn condition_flags_dirty_apply_to_draw_modules() {
-    let hidden = Arc::new(Mutex::new(None));
-    let conditions = Arc::new(Mutex::new(None));
+    let observed = Arc::new(Mutex::new(ConditionAndHiddenObservation::default()));
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.add_draw_module(Box::new(ConditionAndHiddenTestModule {
-        hidden: Arc::clone(&hidden),
-        conditions: Arc::clone(&conditions),
+        observed: Arc::clone(&observed),
     }));
 
     let mut set = game_engine::common::bit_flags::create_model_condition_flags();
@@ -2050,14 +2103,14 @@ fn condition_flags_dirty_apply_to_draw_modules() {
         &game_engine::common::bit_flags::create_model_condition_flags(),
         &set,
     );
-    assert!(conditions.lock().is_none());
+    assert!(observed.lock().conditions.is_none());
 
     let _ = drawable.get_draw_modules_mut();
-    assert_eq!(*conditions.lock(), Some(2));
+    assert_eq!(observed.lock().conditions, Some(2));
 
     drawable.clear_model_condition_state(ModelConditionFlags::NIGHT);
     let _ = drawable.get_draw_modules_mut();
-    assert_eq!(*conditions.lock(), Some(1));
+    assert_eq!(observed.lock().conditions, Some(1));
 }
 
 #[test]
@@ -2207,6 +2260,12 @@ fn set_time_of_day_queues_ambient_restart() {
 
 #[test]
 fn health_bar_requires_selected_and_show_object_health() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "health_bar_requires_selected_and_show_object_health",
+    ) {
+        return;
+    }
     game_engine::common::ini::init_global_data();
 
     // C++ Drawable::drawHealthBar (`Drawable.cpp:3834-3849`).
@@ -2241,6 +2300,12 @@ fn health_bar_requires_selected_and_show_object_health() {
 
 #[test]
 fn presentation_health_region_reprojects_after_zoom_and_camera_motion() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "presentation_health_region_reprojects_after_zoom_and_camera_motion",
+    ) {
+        return;
+    }
     use crate::display::view::{Point3, with_tactical_view};
     with_tactical_view(|view| {
         view.set_width(640);
@@ -2285,6 +2350,11 @@ fn presentation_health_region_reprojects_after_zoom_and_camera_motion() {
 
 #[test]
 fn health_bar_force_attackable_is_hidden() {
+    if let crate::test_process::TestProcess::ParentVerified =
+        crate::test_process::run_bounded(module_path!(), "health_bar_force_attackable_is_hidden")
+    {
+        return;
+    }
     game_engine::common::ini::init_global_data();
 
     if let Some(data) = game_engine::common::ini::get_global_data() {
@@ -2333,6 +2403,12 @@ fn construct_percent_uses_under_construction_desc() {
 
 #[test]
 fn ammo_pips_require_show_object_health_and_local() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "ammo_pips_require_show_object_health_and_local",
+    ) {
+        return;
+    }
     game_engine::common::ini::init_global_data();
 
     let region = IRegion2D::new(ICoord2D::new(10, 20), ICoord2D::new(74, 32));
@@ -2359,6 +2435,11 @@ fn ammo_pips_require_show_object_health_and_local() {
 
 #[test]
 fn draw_icon_ui_honors_draw_icon_ui_gate() {
+    if let crate::test_process::TestProcess::ParentVerified =
+        crate::test_process::run_bounded(module_path!(), "draw_icon_ui_honors_draw_icon_ui_gate")
+    {
+        return;
+    }
     // C++ Drawable::drawIconUI (`Drawable.cpp:2740`).
     let region = IRegion2D::new(ICoord2D::new(10, 20), ICoord2D::new(74, 32));
     let mut drawable = BasicDrawable::new(DrawableId(12));
@@ -2376,12 +2457,23 @@ fn draw_icon_ui_honors_draw_icon_ui_gate() {
 
 #[test]
 fn draws_any_ui_text_for_selected_hotkey_group() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "draws_any_ui_text_for_selected_hotkey_group",
+    ) {
+        return;
+    }
     // C++ Drawable::drawsAnyUIText (`Drawable.cpp:2709-2729`).
     let mut drawable = BasicDrawable::new(DrawableId(13));
     drawable.selected = true;
     drawable.presentation_selected = true;
     drawable.set_presentation_hotkey_group(2);
     assert!(drawable.draws_any_ui_text());
+    // C++ Drawable.cpp:2762–2776 permits this predicate on a selected
+    // drawable but queues text only for an alive, GUI-visible object.
+    drawable.draw_icon_ui();
+    assert!(!drawable.overlay_data.queue_ui_text);
+    drawable.presentation_health_pct = 1.0;
     drawable.draw_icon_ui();
     assert!(drawable.overlay_data.queue_ui_text);
     assert_eq!(drawable.overlay_data.group_numeral.as_deref(), Some("2"));
@@ -2389,6 +2481,12 @@ fn draws_any_ui_text_for_selected_hotkey_group() {
 
 #[test]
 fn status_icons_are_submitted_on_overlay_data() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "status_icons_are_submitted_on_overlay_data",
+    ) {
+        return;
+    }
     // C++ drawHealing/drawDisabled/drawEnthusiastic/drawBombed/drawEmoticon.
     let region = IRegion2D::new(ICoord2D::new(10, 20), ICoord2D::new(74, 32));
     let mut drawable = BasicDrawable::new(DrawableId(14));

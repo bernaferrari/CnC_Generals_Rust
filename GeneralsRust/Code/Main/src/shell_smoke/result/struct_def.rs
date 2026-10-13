@@ -1150,9 +1150,6 @@ pub struct ShellSmokeResult {
     pub cancel_clears_exit_delay_live_wave485_ok: bool,
 
 
-    pub combat_model_condition_channel_method_names_wave487_ok: bool,
-    pub combat_model_condition_channel_nav_commands_wave487_ok: bool,
-    pub combat_model_condition_channel_live_wave487_ok: bool,
     pub entity_presentation_model_condition_method_names_wave488_ok: bool,
     pub entity_presentation_model_condition_nav_commands_wave488_ok: bool,
     pub entity_presentation_model_condition_live_wave488_ok: bool,
@@ -1216,9 +1213,6 @@ pub struct ShellSmokeResult {
     pub presentation_topple_freefall_weather_method_names_wave509_ok: bool,
     pub presentation_topple_freefall_weather_nav_commands_wave509_ok: bool,
     pub presentation_topple_freefall_weather_live_wave509_ok: bool,
-    pub presentation_capture_load_overcharge_method_names_wave510_ok: bool,
-    pub presentation_capture_load_overcharge_nav_commands_wave510_ok: bool,
-    pub presentation_capture_load_overcharge_live_wave510_ok: bool,
     pub presentation_burn_cheer_carry_method_names_wave511_ok: bool,
     pub presentation_burn_cheer_carry_nav_commands_wave511_ok: bool,
     pub presentation_burn_cheer_carry_live_wave511_ok: bool,

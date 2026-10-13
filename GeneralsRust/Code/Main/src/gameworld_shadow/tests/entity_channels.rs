@@ -177,7 +177,6 @@ fn production_door_channel_via_set_production_door() {
 
 #[test]
 fn physics_motive_channel_via_set_physics_motive() {
-    use crate::game_logic::host_physics_motive_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
@@ -298,7 +297,6 @@ fn bounce_land_channel_via_set_bounce_land() {
 
 #[test]
 fn turret_extended_channel_via_set_turret() {
-    use crate::game_logic::host_turret_log;
     use crate::game_logic::object::TurretSubState;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
@@ -474,7 +472,6 @@ fn combat_attack_channel_via_set_combat_attack() {
 
 #[test]
 fn locomotor_channel_via_set_locomotor() {
-    use crate::game_logic::host_locomotor_log;
     use crate::game_logic::{KindOf, LocomotorAppearance, LocomotorBehaviorZ, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();

@@ -379,7 +379,12 @@ async fn test_flag_condition() {
 
 #[test]
 fn player_science_points_resolves_local_player_token_like_cpp() {
-    let _test_lock = crate::test_sync::lock();
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        "scripting::evaluator::tests::player_science_points_resolves_local_player_token_like_cpp",
+        "GENERALS_EVALUATOR_PLAYER_SCIENCE_POINTS_RESOLVES_LOCAL_PLAYER_TOKEN_LIKE_CPP_CHILD",
+    ) {
+        return;
+    }
     const SENTINEL_ID: u32 = 0xE7A1_2001;
     const PLAYER_NAME: &str = "EvaluatorScienceLocalPlayer";
 
@@ -430,7 +435,12 @@ fn player_science_points_resolves_local_player_token_like_cpp() {
 
 #[test]
 fn player_all_destroyed_resolves_local_player_token_like_cpp() {
-    let _test_lock = crate::test_sync::lock();
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        "scripting::evaluator::tests::player_all_destroyed_resolves_local_player_token_like_cpp",
+        "GENERALS_EVALUATOR_PLAYER_ALL_DESTROYED_RESOLVES_LOCAL_PLAYER_TOKEN_LIKE_CPP_CHILD",
+    ) {
+        return;
+    }
     const UNIT_ID: u32 = 0xE7A1_2002;
 
     let mut fixture = PlayerScienceTokenConditionFixture {
@@ -590,6 +600,12 @@ async fn player_has_credits_compares_threshold_to_player_money_like_cxx() {
 
 #[test]
 fn player_money_actions_mutate_player_money_like_cxx() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        "scripting::evaluator::tests::player_money_actions_mutate_player_money_like_cxx",
+        "GENERALS_EVALUATOR_PLAYER_MONEY_ACTIONS_MUTATE_PLAYER_MONEY_LIKE_CXX_CHILD",
+    ) {
+        return;
+    }
     initialize_script_engine().unwrap();
     player_list().write().unwrap().clear();
     let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
@@ -781,7 +797,12 @@ fn team_reached_waypoints_end_requires_the_requested_path_like_cpp() {
 
 #[test]
 fn enemy_and_type_sighted_honor_cxx_relation_and_stealth_filters() {
-    let _test_lock = crate::test_sync::lock();
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        "scripting::evaluator::tests::enemy_and_type_sighted_honor_cxx_relation_and_stealth_filters",
+        "GENERALS_EVALUATOR_ENEMY_AND_TYPE_SIGHTED_HONOR_CXX_RELATION_AND_STEALTH_FILTERS_CHILD",
+    ) {
+        return;
+    }
     const SOURCE_ID: u32 = 0xE7A1_1001;
     const CANDIDATE_ID: u32 = 0xE7A1_1002;
     const REGISTRY_SENTINEL_ID: u32 = 0xE7A1_1003;

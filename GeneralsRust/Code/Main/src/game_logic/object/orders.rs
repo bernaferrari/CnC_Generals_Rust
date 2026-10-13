@@ -1321,8 +1321,6 @@ impl Object {
         self.continuous_fire_level = 0;
         self.continuous_fire_coast_until_frame = 0;
 
-        self.record_host_continuous_fire();
-
         self.sync_overlord_addon_body_damage();
     }
 
