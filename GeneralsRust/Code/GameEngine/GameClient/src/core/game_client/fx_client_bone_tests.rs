@@ -8,7 +8,7 @@ fn client_with_bone(x: f32) -> GameClient {
     drawable.set_object_id(Some(73));
     let mut bones = BoneData::default();
     bones.add_current_bone(
-        "WeaponFireFXBone",
+        "WeaponFireFXBone01",
         Vector3::new(x, 2.0, 3.0),
         Matrix4::translation(Vector3::new(x, 2.0, 3.0)),
     );

@@ -4956,13 +4956,20 @@
         "destinations": [
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/ambient_load_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/snapshot.rs"
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/snapshot.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -8324,6 +8331,13 @@
       "mapping": {
         "candidate_status": "reachable_implementation_candidate",
         "destinations": [
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/ambient_load_tests.rs"
+          },
           {
             "cargo_reachable": true,
             "classification": "implementation",
@@ -40254,8 +40268,7 @@
       "blockers": [
         "unreviewed_mapping",
         "unreviewed_symbol_ownership",
-        "unreviewed_source_range_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/system/radar/snapshot.rs"
+        "unreviewed_source_range_ownership"
       ],
       "id": "game_engine:Source/Common/System/Radar.cpp",
       "inventory_class": "required_runtime",
@@ -40484,7 +40497,7 @@
       "blockers": [
         "unreviewed_mapping",
         "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/system/radar/snapshot.rs"
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/snapshot.rs"
       ],
       "id": "game_engine:Source/Common/System/Snapshot.cpp",
       "inventory_class": "required_runtime",
@@ -40493,13 +40506,20 @@
         "destinations": [
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/ambient_load_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/snapshot.rs"
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/snapshot.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -42527,13 +42547,21 @@
       "blockers": [
         "unreviewed_symbol_ownership",
         "ownership_symbol:unresolved_cpp_syntax",
-        "unreviewed_source_range_ownership"
+        "unreviewed_source_range_ownership",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/snapshot.rs"
       ],
       "id": "game_engine:Source/GameClient/Drawable.cpp",
       "inventory_class": "required_runtime",
       "mapping": {
         "candidate_status": "reachable_implementation_candidate",
         "destinations": [
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/ambient_load_tests.rs"
+          },
           {
             "cargo_reachable": true,
             "classification": "implementation",
@@ -159093,7 +159121,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "9beeeddff7932316dbc52e97ac17b3dd0825a665e8881ea3b5dd44b0536f3f58",
+  "input_digest": "90eb4c8c5d950008af922d7af4e658f9840106c5a9ae4d65450ccc4059abb54a",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -164917,7 +164945,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/fx_client_bone_tests.rs",
-      "sha256": "547d9b803a8ee909974c564fb0b040ba37e8ce6292bf30b159395c8220182a4c",
+      "sha256": "55de57b325b3860bb503b1b71c83da12ad8af838d8c04e571fa9b4683f7b7e85",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -165328,6 +165356,49 @@
       "sha256": "cdaa748af34c62131a080cc8930731a2239fe245b58a1e4e792ea8563166b340",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 100,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/ambient_load_tests.rs",
+      "sha256": "46afb15794640b3b611fe45769878a15cbf15275497dc127074a5ed01dfb8c49",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "fn",
+          "line": 7,
+          "name": "definition"
+        },
+        {
+          "kind": "fn",
+          "line": 17,
+          "name": "overrides"
+        },
+        {
+          "kind": "fn",
+          "line": 29,
+          "name": "base_definition_preserves_unoverridden_permanent_loop_and_custom_name"
+        },
+        {
+          "kind": "fn",
+          "line": 43,
+          "name": "missing_base_consumes_overrides_and_preserves_following_xfer_field"
+        },
+        {
+          "kind": "fn",
+          "line": 57,
+          "name": "malformed_override_does_not_produce_custom_definition"
+        },
+        {
+          "kind": "fn",
+          "line": 67,
+          "name": "real_drawable_snapshot_missing_definition_suppresses_custom_restart"
+        }
+      ]
     },
     {
       "cargo_reachable": true,
@@ -166270,11 +166341,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 424,
+        "end_line": 534,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/basic_visual.rs",
-      "sha256": "6158bbc7a063d318ec794476d01111f821b890586c6923f79592e5cea2105d08",
+      "sha256": "91824a49b6e36e868053292177912ecf47d762c4689355d7d5efd9b6ab45d042",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -166364,38 +166435,48 @@
         },
         {
           "kind": "fn",
-          "line": 326,
+          "line": 364,
           "name": "animation_mode_from_model_draw"
         },
         {
           "kind": "fn",
-          "line": 340,
+          "line": 378,
           "name": "bone_override_from_model_draw"
         },
         {
           "kind": "fn",
-          "line": 350,
+          "line": 388,
           "name": "render_state_from_flags"
         },
         {
           "kind": "fn",
-          "line": 369,
+          "line": 407,
           "name": "matrix4_from_model_draw"
         },
         {
           "kind": "fn",
-          "line": 377,
+          "line": 415,
           "name": "model_draw_states"
         },
         {
           "kind": "fn",
-          "line": 384,
+          "line": 422,
           "name": "find_hotkey_squad_number"
         },
         {
           "kind": "fn",
-          "line": 396,
+          "line": 434,
           "name": "draw_caption_string"
+        },
+        {
+          "kind": "fn",
+          "line": 470,
+          "name": "original_model_bits_map_by_meaning_not_integer_layout"
+        },
+        {
+          "kind": "fn",
+          "line": 514,
+          "name": "unrelated_model_conditions_never_become_selected_or_damage"
         }
       ]
     },
@@ -166461,11 +166542,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 399,
+        "end_line": 483,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/draw_module.rs",
-      "sha256": "e7c2c6c9915b942a219b4f788aad310e2c5cb5787874e7aeaf95e50e81bb9188",
+      "sha256": "28ef57a95d9ef29d4c3835936ba052b9044a6df42d29dc272d000bf1c5445a72",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -166680,18 +166761,33 @@
         },
         {
           "kind": "fn",
-          "line": 370,
+          "line": 381,
           "name": "query_worldspace_bone"
         },
         {
           "kind": "fn",
-          "line": 381,
+          "line": 392,
           "name": "barrel_count_for_slot"
         },
         {
           "kind": "type",
-          "line": 398,
+          "line": 409,
           "name": "FXListRef"
+        },
+        {
+          "kind": "fn",
+          "line": 414,
+          "name": "add"
+        },
+        {
+          "kind": "fn",
+          "line": 421,
+          "name": "exact_zero_and_numbered_indices_have_distinct_original_names"
+        },
+        {
+          "kind": "fn",
+          "line": 453,
+          "name": "absent_invalid_and_bounded_queries_preserve_untouched_outputs"
         }
       ]
     },
@@ -167247,31 +167343,36 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 669,
+        "end_line": 712,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/snapshot.rs",
-      "sha256": "cfbc1c0cc062abdabf6d43516e95eaf896fb534d70c72260fa95107248a292c1",
+      "sha256": "bcd122442a8fd9be1405874ee91d94238ccd8704a2bbe118316f0d4ef473909b",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "fn",
-          "line": 31,
+          "line": 32,
+          "name": "load_custom_ambient_info"
+        },
+        {
+          "kind": "fn",
+          "line": 51,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 204,
+          "line": 224,
           "name": "xfer"
         },
         {
           "kind": "const",
-          "line": 212,
+          "line": 232,
           "name": "CURRENT_VERSION"
         },
         {
           "kind": "fn",
-          "line": 640,
+          "line": 679,
           "name": "load_post_process"
         }
       ]
@@ -167280,11 +167381,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 2407,
+        "end_line": 2505,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/tests.rs",
-      "sha256": "aeb32b8a66a2986ae052fd324c2415485d68311305f238f6495aa8910d91bbb0",
+      "sha256": "75136b75eb50b011ab7def26c8f5a6c15887ba7a12061a107e3f64b28f014140",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -167315,36 +167416,41 @@
         {
           "kind": "struct",
           "line": 55,
-          "name": "IndicatorDispatchTestDrawModule"
+          "name": "IndicatorDispatchObservation"
         },
         {
           "kind": "struct",
           "line": 61,
+          "name": "IndicatorDispatchTestDrawModule"
+        },
+        {
+          "kind": "struct",
+          "line": 66,
           "name": "ShroudDispatchTestDrawModule"
         },
         {
           "kind": "fn",
-          "line": 66,
+          "line": 71,
           "name": "set_fully_obscured_by_shroud"
         },
         {
           "kind": "fn",
-          "line": 72,
+          "line": 77,
           "name": "replace_indicator_color"
         },
         {
           "kind": "fn",
-          "line": 75,
+          "line": 80,
           "name": "on_drawable_bound_to_object"
         },
         {
           "kind": "struct",
-          "line": 83,
+          "line": 87,
           "name": "ProjectileLaunchTestDrawModule"
         },
         {
           "kind": "fn",
-          "line": 88,
+          "line": 90,
           "name": "get_projectile_launch_offset"
         },
         {
@@ -167429,432 +167535,437 @@
         },
         {
           "kind": "fn",
-          "line": 425,
+          "line": 423,
           "name": "object_binding_notifies_draw_modules"
         },
         {
           "kind": "fn",
-          "line": 441,
+          "line": 437,
           "name": "model_draw_bridge_uses_bound_object_not_client_drawable_id"
         },
         {
           "kind": "fn",
-          "line": 489,
+          "line": 485,
           "name": "set_object_id_uses_binding_side_effects_once_per_object"
         },
         {
           "kind": "fn",
-          "line": 507,
+          "line": 501,
           "name": "test_hotkey_squad_resolution"
         },
         {
           "kind": "fn",
-          "line": 527,
+          "line": 521,
           "name": "test_tint_envelope"
         },
         {
           "kind": "fn",
-          "line": 547,
+          "line": 556,
           "name": "test_drawable_status_flags"
         },
         {
           "kind": "fn",
-          "line": 560,
+          "line": 569,
           "name": "test_icon_info"
         },
         {
           "kind": "struct",
-          "line": 565,
+          "line": 574,
           "name": "MockIcon"
         },
         {
           "kind": "fn",
-          "line": 567,
+          "line": 576,
           "name": "render"
         },
         {
           "kind": "fn",
-          "line": 568,
+          "line": 577,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 588,
+          "line": 597,
           "name": "test_icon_xfer_order_matches_cpp_slot_order"
         },
         {
           "kind": "fn",
-          "line": 615,
+          "line": 624,
           "name": "test_icon_info_cpp_layout_empty_writes_only_count"
         },
         {
           "kind": "fn",
-          "line": 633,
+          "line": 642,
           "name": "test_drawable_modules_save_writes_cpp_empty_type_buckets"
         },
         {
           "kind": "fn",
-          "line": 651,
+          "line": 660,
           "name": "test_drawable_modules_save_writes_named_snapshot_blocks"
         },
         {
           "kind": "fn",
-          "line": 719,
+          "line": 728,
           "name": "test_logic_draw_module_adapter_saves_concrete_w3d_snapshot_block"
         },
         {
           "kind": "fn",
-          "line": 769,
+          "line": 781,
           "name": "test_logic_draw_module_adapter_loads_matching_w3d_snapshot_block"
         },
         {
           "kind": "fn",
-          "line": 812,
+          "line": 826,
           "name": "test_drawable_modules_load_applies_matching_snapshot_block"
         },
         {
           "kind": "fn",
-          "line": 859,
+          "line": 873,
           "name": "test_drawable_modules_load_skips_unknown_module_blocks"
         },
         {
           "kind": "fn",
-          "line": 904,
+          "line": 918,
           "name": "test_matrix3d_save_layout_matches_cpp_xfer_matrix3d"
         },
         {
           "kind": "fn",
-          "line": 930,
+          "line": 944,
           "name": "test_matrix3d_user_load_restores_identity_bottom_row"
         },
         {
           "kind": "fn",
-          "line": 966,
+          "line": 980,
           "name": "test_tint_envelope_xfer_order_matches_cpp"
         },
         {
           "kind": "fn",
-          "line": 1015,
+          "line": 1027,
           "name": "test_drawable_enum_fields_use_cpp_u32_layout"
         },
         {
           "kind": "fn",
-          "line": 1060,
+          "line": 1072,
           "name": "test_loco_info_uses_inline_cpp_layout"
         },
         {
           "kind": "fn",
-          "line": 1130,
+          "line": 1142,
           "name": "test_drawable_xfer_preserves_instance_matrix"
         },
         {
           "kind": "fn",
-          "line": 1162,
+          "line": 1174,
           "name": "test_drawable_xfer_preserves_shroud_status_object_id"
         },
         {
           "kind": "fn",
-          "line": 1192,
+          "line": 1204,
           "name": "test_drawable_xfer_preserves_ambient_sound_flags"
         },
         {
           "kind": "fn",
-          "line": 1224,
+          "line": 1236,
           "name": "test_drawable_xfer_preserves_custom_ambient_sound_info"
         },
         {
           "kind": "fn",
-          "line": 1264,
+          "line": 1292,
           "name": "drawable_load_post_process_restarts_only_permanent_ambient"
         },
         {
           "kind": "fn",
-          "line": 1309,
+          "line": 1353,
           "name": "drawable_load_post_process_stops_when_ambient_disabled"
         },
         {
           "kind": "fn",
-          "line": 1338,
+          "line": 1382,
           "name": "test_model_condition_flags_flow_into_render_flags"
         },
         {
           "kind": "fn",
-          "line": 1354,
+          "line": 1398,
           "name": "react_to_body_damage_sets_exclusive_damage_condition_bits"
         },
         {
           "kind": "fn",
-          "line": 1382,
+          "line": 1426,
           "name": "is_object_kind_of_fail_closed_when_dual_world_empty_and_no_presentation_kinds"
         },
         {
           "kind": "fn",
-          "line": 1395,
+          "line": 1439,
           "name": "draw_construct_percent_fail_closed_on_sold_not_dead_health"
         },
         {
           "kind": "fn",
-          "line": 1447,
+          "line": 1497,
           "name": "compute_health_region_falls_back_to_seeded_region_without_object"
         },
         {
           "kind": "fn",
-          "line": 1467,
+          "line": 1523,
           "name": "test_model_draw_bits_flow_into_render_flags"
         },
         {
           "kind": "fn",
-          "line": 1479,
+          "line": 1535,
           "name": "test_model_draw_animation_mode_mapping_matches_logic_discriminants"
         },
         {
           "kind": "fn",
-          "line": 1508,
+          "line": 1564,
           "name": "test_model_draw_bone_override_preserves_index_and_transform"
         },
         {
           "kind": "fn",
-          "line": 1522,
+          "line": 1578,
           "name": "test_render_state_from_flags_preserves_condition_overrides"
         },
         {
           "kind": "fn",
-          "line": 1546,
+          "line": 1602,
           "name": "test_shadow_status_enabled_after_create"
         },
         {
           "kind": "fn",
-          "line": 1557,
+          "line": 1613,
           "name": "test_shadow_toggle_helpers"
         },
         {
           "kind": "fn",
-          "line": 1586,
+          "line": 1642,
           "name": "test_model_condition_change_preserves_shadow_status"
         },
         {
           "kind": "fn",
-          "line": 1610,
+          "line": 1666,
           "name": "test_set_shadows_enabled_dispatches_to_draw_modules"
         },
         {
           "kind": "static",
-          "line": 1612,
+          "line": 1668,
           "name": "ENABLED"
         },
         {
           "kind": "static",
-          "line": 1614,
+          "line": 1670,
           "name": "ALLOC_CALLS"
         },
         {
           "kind": "static",
-          "line": 1615,
+          "line": 1671,
           "name": "RELEASE_CALLS"
         },
         {
           "kind": "struct",
-          "line": 1622,
+          "line": 1678,
           "name": "ShadowDispatchModule"
         },
         {
           "kind": "fn",
-          "line": 1624,
+          "line": 1680,
           "name": "set_shadows_enabled"
         },
         {
           "kind": "fn",
-          "line": 1627,
+          "line": 1683,
           "name": "allocate_shadows"
         },
         {
           "kind": "fn",
-          "line": 1630,
+          "line": 1686,
           "name": "release_shadows"
         },
         {
           "kind": "fn",
-          "line": 1655,
+          "line": 1711,
           "name": "weapon_fire_recoil_subtracts_bound_object_orientation"
         },
         {
           "kind": "fn",
-          "line": 1693,
+          "line": 1749,
           "name": "weapon_fire_dispatch_reports_first_handled_draw_module_index"
         },
         {
           "kind": "fn",
-          "line": 1724,
+          "line": 1780,
           "name": "weapon_fire_dispatch_without_handler_visits_all_modules_in_order"
         },
         {
           "kind": "fn",
-          "line": 1754,
+          "line": 1810,
           "name": "render_does_not_apply_persisted_loco_info_without_exact_frozen_source"
         },
         {
           "kind": "struct",
-          "line": 1756,
+          "line": 1812,
           "name": "TransformCaptureModule"
         },
         {
           "kind": "fn",
-          "line": 1761,
+          "line": 1817,
           "name": "do_draw"
         },
         {
           "kind": "fn",
-          "line": 1794,
+          "line": 1850,
           "name": "projectile_launch_offset_forwards_pitch_pointer_to_draw_module"
         },
         {
           "kind": "fn",
-          "line": 1824,
+          "line": 1876,
           "name": "draw_bombed_carbomb_icon_requires_local_player_not_status"
         },
         {
           "kind": "fn",
-          "line": 1858,
+          "line": 1910,
           "name": "visible_friendly_stealth_uses_module_friendly_opacity_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 1891,
+          "line": 1943,
           "name": "disguised_friendly_stealth_leaves_opacity_and_second_pass_like_cpp_break"
         },
         {
           "kind": "fn",
-          "line": 1925,
+          "line": 1977,
           "name": "test_vector3_operations"
         },
         {
           "kind": "fn",
-          "line": 1936,
+          "line": 1988,
           "name": "test_matrix4_operations"
         },
         {
           "kind": "fn",
-          "line": 1964,
+          "line": 2016,
           "name": "legacy_matrix4_bridge_conversion_preserves_cpp_affine_semantics"
         },
         {
           "kind": "struct",
-          "line": 1982,
+          "line": 2034,
+          "name": "ConditionAndHiddenObservation"
+        },
+        {
+          "kind": "struct",
+          "line": 2040,
           "name": "ConditionAndHiddenTestModule"
         },
         {
           "kind": "fn",
-          "line": 1988,
+          "line": 2045,
           "name": "set_hidden"
         },
         {
           "kind": "fn",
-          "line": 1991,
+          "line": 2048,
           "name": "replace_model_condition_state"
         },
         {
           "kind": "fn",
-          "line": 2001,
+          "line": 2058,
           "name": "set_effective_opacity_does_not_overwrite_explicit_opacity"
         },
         {
           "kind": "fn",
-          "line": 2010,
+          "line": 2067,
           "name": "detected_stealth_does_not_invent_first_pass_opacity"
         },
         {
           "kind": "fn",
-          "line": 2019,
+          "line": 2076,
           "name": "stealth_invisible_hides_modules_and_deselects"
         },
         {
           "kind": "fn",
-          "line": 2037,
+          "line": 2092,
           "name": "condition_flags_dirty_apply_to_draw_modules"
         },
         {
           "kind": "fn",
-          "line": 2064,
+          "line": 2117,
           "name": "signed_disabled_tint_fades_in_instead_of_snapping"
         },
         {
           "kind": "fn",
-          "line": 2085,
+          "line": 2138,
           "name": "selection_flash_uses_saturated_white_and_survives_deselect"
         },
         {
           "kind": "fn",
-          "line": 2101,
+          "line": 2154,
           "name": "color_tint_envelope_ticks_and_is_sampled_by_get_tint_color"
         },
         {
           "kind": "fn",
-          "line": 2111,
+          "line": 2164,
           "name": "frenzy_status_plays_vehicle_frenzy_color_without_infantry_kind"
         },
         {
           "kind": "fn",
-          "line": 2122,
+          "line": 2175,
           "name": "frenzy_infantry_color_matches_cpp_authored_values"
         },
         {
           "kind": "fn",
-          "line": 2129,
+          "line": 2182,
           "name": "start_ambient_sound_uses_template_when_custom_info_absent"
         },
         {
           "kind": "fn",
-          "line": 2148,
+          "line": 2201,
           "name": "local_ambient_range_uses_cpp_ground_axes_and_strict_boundary"
         },
         {
           "kind": "fn",
-          "line": 2188,
+          "line": 2241,
           "name": "set_time_of_day_queues_ambient_restart"
         },
         {
           "kind": "fn",
-          "line": 2209,
+          "line": 2262,
           "name": "health_bar_requires_selected_and_show_object_health"
         },
         {
           "kind": "fn",
-          "line": 2243,
+          "line": 2302,
           "name": "presentation_health_region_reprojects_after_zoom_and_camera_motion"
         },
         {
           "kind": "fn",
-          "line": 2287,
+          "line": 2352,
           "name": "health_bar_force_attackable_is_hidden"
         },
         {
           "kind": "fn",
-          "line": 2308,
+          "line": 2378,
           "name": "health_bar_construction_uses_cyan_channel"
         },
         {
           "kind": "fn",
-          "line": 2321,
+          "line": 2391,
           "name": "construct_percent_uses_under_construction_desc"
         },
         {
           "kind": "fn",
-          "line": 2335,
+          "line": 2405,
           "name": "ammo_pips_require_show_object_health_and_local"
         },
         {
           "kind": "fn",
-          "line": 2361,
+          "line": 2437,
           "name": "draw_icon_ui_honors_draw_icon_ui_gate"
         },
         {
           "kind": "fn",
-          "line": 2378,
+          "line": 2459,
           "name": "draws_any_ui_text_for_selected_hotkey_group"
         },
         {
           "kind": "fn",
-          "line": 2391,
+          "line": 2483,
           "name": "status_icons_are_submitted_on_overlay_data"
         }
       ]
@@ -199731,11 +199842,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 312,
+        "end_line": 313,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/default_production_exit_tests.rs",
-      "sha256": "0587fc3278041323e845298bab32921f02feac754ca01492f6957fa7a3529465",
+      "sha256": "94ffd558d508975bb60acfd6d2d7bd9b5116f502d47f83a3626e1938da206700",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -201711,11 +201822,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 167,
+        "end_line": 166,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/owner_exit_goal_tests.rs",
-      "sha256": "131afd61e8a58b3fc95b81c56582213bd46f0500b39f85d17c991056ff841233",
+      "sha256": "745e728f513433f865e817ccbf9128b7c2e62b5837345f0a5df8fdcf20fc7a05",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205315,7 +205426,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deliver_payload_physics_tests.rs",
-      "sha256": "2a0a3c103ded702f03d396427f2cceb08908823dd61f09ef4c4cfc1ef0de5cec",
+      "sha256": "0b9c5bac3f9f77f1498d4d7fec678bfe21a524a2b15a27104989ffa651350e00",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

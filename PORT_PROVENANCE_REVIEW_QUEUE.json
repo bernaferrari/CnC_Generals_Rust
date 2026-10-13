@@ -16462,8 +16462,7 @@
           "blockers": [
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
-            "unreviewed_source_range_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/system/radar/snapshot.rs"
+            "unreviewed_source_range_ownership"
           ],
           "candidate_destinations": [
             {
@@ -16967,13 +16966,18 @@
           "blockers": [
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/system/radar/snapshot.rs"
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/snapshot.rs"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/ambient_load_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/snapshot.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/snapshot.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/System/Snapshot.cpp",
@@ -189508,7 +189512,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "9beeeddff7932316dbc52e97ac17b3dd0825a665e8881ea3b5dd44b0536f3f58",
+  "provenance_input_digest": "90eb4c8c5d950008af922d7af4e658f9840106c5a9ae4d65450ccc4059abb54a",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,
