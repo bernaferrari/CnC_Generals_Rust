@@ -221,6 +221,8 @@ impl GameLogic {
                                 crate::game_logic::object::TurretSubState::Recenter;
                             unit.turret_idle_recentering = true;
                             unit.turret_target_id = None;
+                            unit.turret_runtime.target_pos = None;
+                            unit.turret_runtime.victim_team = None;
                             unit.turret_holding = false;
                         } else if started && !now_aligning {
                             started_undeploy = true;

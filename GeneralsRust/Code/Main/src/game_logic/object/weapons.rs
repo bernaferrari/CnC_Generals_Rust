@@ -1188,6 +1188,8 @@ impl Object {
         if !self.turret_enabled {
             return;
         }
+        self.turret_runtime.target_pos = None;
+        self.turret_runtime.victim_team = None;
         match victim {
             None => {
                 self.turret_target_id = None;

@@ -132,6 +132,12 @@ pub(crate) fn collect_module_states(
     railroad: Option<&crate::game_logic::host_railroad::HostRailroadCar>,
 ) -> Result<Vec<EntityModuleState>, EntityLifecycleCodecError> {
     let mut out = Vec::new();
+    if object.turret_enabled || object.turret_runtime.seeded {
+        out.push(EntityModuleState {
+            tag: TAG_TURRET_RUNTIME.to_owned(),
+            payload: super::turret_runtime_persist::encode(object)?,
+        });
+    }
     push_opt(&mut out, TAG_UPGRADE_DIE, &object.upgrade_die)?;
     push_opt(
         &mut out,

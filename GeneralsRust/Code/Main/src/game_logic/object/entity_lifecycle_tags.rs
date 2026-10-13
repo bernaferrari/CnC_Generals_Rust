@@ -108,6 +108,8 @@ pub const TAG_MINE: &str = "MinefieldBehavior";
 pub const TAG_SPAWN_BEHAVIOR: &str = "SpawnBehavior";
 /// C++ FiringTracker residual (consecutive shots / gattling spin).
 pub const TAG_FIRING_TRACKER: &str = "FiringTracker";
+/// Additional canonical TurretAI target/sweep/audio continuation.
+pub const TAG_TURRET_RUNTIME: &str = "TurretRuntime";
 /// C++ FireOCLAfterWeaponCooldownUpdate residual.
 pub const TAG_FIRE_OCL_AFTER_COOLDOWN: &str = "FireOclAfterCooldown";
 /// C++ AssaultTransportAIUpdate residual.
@@ -187,6 +189,7 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_MINE,
     TAG_SPAWN_BEHAVIOR,
     TAG_FIRING_TRACKER,
+    TAG_TURRET_RUNTIME,
     TAG_FIRE_OCL_AFTER_COOLDOWN,
     TAG_ASSAULT_TRANSPORT,
     TAG_DEPLOY_STYLE,

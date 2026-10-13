@@ -167,6 +167,8 @@ pub(crate) fn default_turret_turn_rate() -> f32 {
     0.01
 }
 
+pub(crate) mod turret_runtime;
+pub(crate) mod turret_runtime_persist;
 mod turret_spawn;
 pub(crate) use turret_spawn::{
     TurretSpawnSpec, turret_deg_per_sec_to_rad_per_frame, turret_ms_to_frames,
@@ -2733,6 +2735,8 @@ pub struct Object {
     /// authors NaturalTurretAngle **-90**.
     #[serde(default)]
     pub turret_angle_deg: f32,
+    #[serde(skip)]
+    pub(crate) turret_runtime: turret_runtime::HostTurretExtra,
     /// Host residual: TurretAI pitch (deg). Defaults **0**; Strategy Center
     /// authors NaturalTurretPitch **45**.
     #[serde(default)]

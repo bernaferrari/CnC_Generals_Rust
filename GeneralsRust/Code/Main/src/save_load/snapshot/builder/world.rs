@@ -678,6 +678,9 @@ impl SnapshotBuilder {
         for object in game_logic.host_objects_mut().values_mut() {
             object.restore_body_observation(Some(object.body_damage_state));
         }
+        // CPP TurretAI::loadPostProcess361–365 derives the initial team
+        // from the loaded target rather than saving a stale team surrogate.
+        game_logic.resolve_owned_turret_targets_after_load()?;
         log::info!("World restoration complete");
         Ok(())
     }

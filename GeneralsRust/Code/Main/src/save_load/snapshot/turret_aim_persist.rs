@@ -13,8 +13,8 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 //! Restore writes clocks/flags only; it never re-runs aim or notifyFired.
-//! Sweep extras live in the per-tick attack cache (3-frame window) and are
-//! rebuilt on the next fire.
+//! Additional owned sweep/target/audio continuation is transferred by the
+//! TurretRuntime entity lifecycle component; it never waits for another shot.
 
 use crate::game_logic::object::TurretSubState;
 use crate::game_logic::{GameLogic, ObjectId};

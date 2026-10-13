@@ -1163,8 +1163,11 @@ impl GameLogic {
             }
             if had_turret {
                 // Turret aim residual stays host (not AI decision channel).
+                let initial_team = self.objects.get(&to_id).map(|victim| victim.team);
                 if let Some(u) = self.objects.get_mut(&id) {
                     u.turret_target_id = Some(to_id);
+                    u.turret_runtime.target_pos = None;
+                    u.turret_runtime.victim_team = initial_team;
                     u.turret_force_attacking = true;
                     if matches!(
                         u.turret_substate,

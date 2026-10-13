@@ -1449,6 +1449,8 @@ impl GameLogic {
                         unit.turret_substate = crate::game_logic::object::TurretSubState::Recenter;
                         unit.turret_idle_recentering = true;
                         unit.turret_target_id = None;
+                        unit.turret_runtime.target_pos = None;
+                        unit.turret_runtime.victim_team = None;
                         unit.turret_holding = false;
                     } else {
                         // C++ setMyState(UNDEPLOY) clears OBJECT_STATUS_DEPLOYED
