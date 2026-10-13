@@ -13,58 +13,19 @@
 
 use super::*;
 mod terrain_decal_cadence;
-use crate::gameworld_shadow::{
-    GameWorldShadow, begin_shadow_coupled_tick, eager_apply_all_host_residuals_after_logic,
-    end_shadow_coupled_tick, shadow_session_after_host_tick, with_coupled_shadow,
-    with_gameworld_authority,
-};
+use crate::gameworld_shadow::GameWorldShadow;
 
 /// Serialize against tests that mutate `GENERALS_GAMEWORLD_*` env and pin the
 /// shadow gate on for the duration (prior value restored on drop).
-struct ShadowEnvPin {
-    prior: Option<String>,
-    _lock: std::sync::MutexGuard<'static, ()>,
-}
-
-impl ShadowEnvPin {
-    fn new() -> Self {
-        let lock = crate::gameworld_shadow::authority_env_lock();
-        let prior = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
-        assert!(
-            crate::gameworld_shadow::gameworld_shadow_enabled(),
-            "shadow gate must be on for the coupled-parity tests"
-        );
-        Self { prior, _lock: lock }
-    }
-}
-
-impl Drop for ShadowEnvPin {
-    fn drop(&mut self) {
-        match &self.prior {
-            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-        }
-        crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
-    }
-}
 
 /// One engine-parity logic frame with the shadow coupled: the host tick runs
 /// inside `begin/end_shadow_coupled_tick` with the instance's authority
 /// context published (all channels off in these tests), then the post-logic
 /// eager residual batch and the shadow session boundary run exactly like
 /// `host_run_fast_forward_loop`.
-fn coupled_frame(shadow: &mut GameWorldShadow, logic: &mut GameLogic) {
-    begin_shadow_coupled_tick();
-    with_coupled_shadow(shadow, || {
-        with_gameworld_authority(*logic.gameworld_authority(), || {
-            logic.tick_logic_frame(LOGIC_FRAME_TIMESTEP, None, None);
-        });
-    });
-    eager_apply_all_host_residuals_after_logic(shadow, logic);
-    let _probe = shadow_session_after_host_tick(shadow, logic);
-    end_shadow_coupled_tick();
+fn owned_frame(shadow: &mut GameWorldShadow, logic: &mut GameLogic) {
+    logic.tick_logic_frame(LOGIC_FRAME_TIMESTEP, None, None);
+    crate::gameworld_shadow::run_owned_host_boundary(Some(shadow), logic);
 }
 
 /// Wave 780 / Fix A: a damaged BaseRegenerateUpdate structure must self-repair
@@ -72,8 +33,6 @@ fn coupled_frame(shadow: &mut GameWorldShadow, logic: &mut GameLogic) {
 /// and the shadow health probe must stay green (no GW dual-peel heal re-apply).
 #[test]
 fn coupled_shadow_base_regen_heals_on_host_and_probe_stays_green() {
-    let _env = ShadowEnvPin::new();
-
     let mut logic = GameLogic::new();
     let mut tpl = ThingTemplate::new("AmericaCommandCenter");
     tpl.add_kind_of(KindOf::Structure).set_health(1000.0);
@@ -96,7 +55,7 @@ fn coupled_shadow_base_regen_heals_on_host_and_probe_stays_green() {
     let mut shadow = GameWorldShadow::new(64);
     // 95 coupled frames cross the 90-frame damage-delay wake (heal rate: 3).
     for _ in 0..95 {
-        coupled_frame(&mut shadow, &mut logic);
+        owned_frame(&mut shadow, &mut logic);
     }
     let hp = logic.host_object(id).unwrap().health.current;
     assert!(
@@ -116,8 +75,6 @@ fn coupled_shadow_base_regen_heals_on_host_and_probe_stays_green() {
 /// must expire on the HOST tick while the shadow is coupled.
 #[test]
 fn coupled_shadow_crate_lifetime_expires_on_host() {
-    let _env = ShadowEnvPin::new();
-
     let mut logic = GameLogic::new();
     let mut t = ThingTemplate::new("SalvageCrate");
     t.set_health(50.0);
@@ -133,7 +90,7 @@ fn coupled_shadow_crate_lifetime_expires_on_host() {
 
     let mut shadow = GameWorldShadow::new(64);
     for _ in 0..4 {
-        coupled_frame(&mut shadow, &mut logic);
+        owned_frame(&mut shadow, &mut logic);
     }
     assert!(
         !logic.host_money_crates.contains(cid),
@@ -149,8 +106,6 @@ fn coupled_shadow_crate_lifetime_expires_on_host() {
 /// fire-spread pass on the HOST tick while the shadow is coupled.
 #[test]
 fn coupled_shadow_fire_spread_runs_on_host() {
-    let _env = ShadowEnvPin::new();
-
     let mut logic = GameLogic::new();
     for name in ["DogwoodTreeA", "DogwoodTreeB"] {
         let mut tpl = ThingTemplate::new(name);
@@ -186,7 +141,7 @@ fn coupled_shadow_fire_spread_runs_on_host() {
     let mut shadow = GameWorldShadow::new(64);
     // Cross frame 30 (the direct-call precedent's spread-due frame).
     for _ in 0..35 {
-        coupled_frame(&mut shadow, &mut logic);
+        owned_frame(&mut shadow, &mut logic);
     }
     assert!(
         logic.fire_spread_reg.spreads > 0,
@@ -207,8 +162,6 @@ fn coupled_shadow_fire_spread_runs_on_host() {
 /// coupled.
 #[test]
 fn coupled_shadow_scud_poison_dot_ticks_on_host() {
-    let _env = ShadowEnvPin::new();
-
     let mut logic = GameLogic::new();
     let mut t = ThingTemplate::new("PoisonSponge");
     t.set_health(5000.0);
@@ -234,7 +187,7 @@ fn coupled_shadow_scud_poison_dot_ticks_on_host() {
     let mut shadow = GameWorldShadow::new(64);
     // Zone ticks roughly every 15 frames after activation.
     for _ in 0..50 {
-        coupled_frame(&mut shadow, &mut logic);
+        owned_frame(&mut shadow, &mut logic);
     }
     let after = logic.host_object(inf).unwrap().health.current;
     assert!(

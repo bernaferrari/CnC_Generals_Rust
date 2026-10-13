@@ -60,44 +60,22 @@ pub mod host_voice_fear_log;
 #[path = "host_death_type_log.rs"]
 pub mod host_death_type_log;
 
-#[path = "host_ai_attitude_log.rs"]
-pub mod host_ai_attitude_log;
-
-#[path = "host_ai_attitude_ready_log.rs"]
-pub mod host_ai_attitude_ready_log;
-
-#[path = "host_ai_request_ready_log.rs"]
-pub mod host_ai_request_ready_log;
 
 #[path = "host_attack_log.rs"]
 pub mod host_attack_log;
 
-#[path = "host_attack_target_ready_log.rs"]
-pub mod host_attack_target_ready_log;
 
-#[path = "host_body_damage_ready_log.rs"]
-pub mod host_body_damage_ready_log;
 
-#[path = "host_bounce_land_ready_log.rs"]
-pub mod host_bounce_land_ready_log;
 
 #[path = "host_building_type_log.rs"]
 pub mod host_building_type_log;
 
-#[path = "host_building_type_ready_log.rs"]
-pub mod host_building_type_ready_log;
 
-#[path = "host_combat_attack_ready_log.rs"]
-pub mod host_combat_attack_ready_log;
 
-#[path = "host_combat_status_ready_log.rs"]
-pub mod host_combat_status_ready_log;
 
 #[path = "host_command_set_log.rs"]
 pub mod host_command_set_log;
 
-#[path = "host_command_set_ready_log.rs"]
-pub mod host_command_set_ready_log;
 
 #[path = "host_construction_log.rs"]
 pub mod host_construction_log;
@@ -108,53 +86,35 @@ pub mod host_contain_capacity_log;
 #[path = "host_contain_log.rs"]
 pub mod host_contain_log;
 
-#[path = "host_contain_ready_log.rs"]
-pub mod host_contain_ready_log;
 
 #[path = "host_continuous_fire_log.rs"]
 pub mod host_continuous_fire_log;
 
-#[path = "host_continuous_fire_ready_log.rs"]
-pub mod host_continuous_fire_ready_log;
 
 #[path = "host_crush_vision_log.rs"]
 pub mod host_crush_vision_log;
 
-#[path = "host_crush_vision_ready_log.rs"]
-pub mod host_crush_vision_ready_log;
 
-#[path = "host_death_type_ready_log.rs"]
-pub mod host_death_type_ready_log;
 
 #[path = "host_demo_mine_cheer_log.rs"]
 pub mod host_demo_mine_cheer_log;
 
-#[path = "host_demo_mine_cheer_ready_log.rs"]
-pub mod host_demo_mine_cheer_ready_log;
 
 #[path = "host_destroy_log.rs"]
 pub mod host_destroy_log;
 
-#[path = "host_destroy_ready_log.rs"]
-pub mod host_destroy_ready_log;
 
 #[path = "host_detector_log.rs"]
 pub mod host_detector_log;
 
-#[path = "host_detector_ready_log.rs"]
-pub mod host_detector_ready_log;
 
 #[path = "host_disable_timers_log.rs"]
 pub mod host_disable_timers_log;
 
-#[path = "host_disable_timers_ready_log.rs"]
-pub mod host_disable_timers_ready_log;
 
 #[path = "host_disguise_log.rs"]
 pub mod host_disguise_log;
 
-#[path = "host_disguise_ready_log.rs"]
-pub mod host_disguise_ready_log;
 
 #[path = "host_economy_log.rs"]
 pub mod host_economy_log;

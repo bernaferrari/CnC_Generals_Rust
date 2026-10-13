@@ -108,9 +108,7 @@ impl GameLogic {
         } else {
             (false, false)
         };
-        if entered_move && self.ai_decision_authority_live() {
-            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
-        }
+        {}
         if started {
             let stamp = self
                 .objects
@@ -392,9 +390,7 @@ impl GameLogic {
                 unit_id,
                 Some([destination.x, destination.y, destination.z]),
             );
-            if entered_move && self.ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
-            }
+            {}
             self.start_move_sound(unit_id);
             return true;
         }
@@ -782,7 +778,6 @@ impl GameLogic {
         full_path: Vec<Vec3>,
         after_ground_search: bool,
     ) -> bool {
-        let decision_auth = self.ai_decision_authority_live();
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return false;
         };
@@ -857,9 +852,7 @@ impl GameLogic {
         if entered_move {
             unit.set_ai_state(AIState::Moving);
         }
-        if entered_move && decision_auth {
-            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
-        }
+        {}
         unit.set_status_moving(true);
         unit.path_goal_position = Some(destination);
         let last_node = unit.movement.path.last().copied();
@@ -1762,7 +1755,7 @@ impl GameLogic {
                 }
             }
         }
-        let decision_auth = self.ai_decision_authority_live();
+
         if let Some(mut full_path) = path {
             if full_path.len() >= 2 {
                 if contact {
@@ -1824,7 +1817,7 @@ impl GameLogic {
                         }
                     }
                     unit.set_status_attacking(true);
-                    if !decision_auth {
+                    {
                         if let Some(tid) = target_id {
                             unit.target = Some(tid);
                         }
@@ -1835,12 +1828,7 @@ impl GameLogic {
                         Some([target_pos.x, target_pos.y, target_pos.z]),
                     );
                 }
-                if decision_auth {
-                    if let Some(tid) = target_id {
-                        crate::game_logic::host_ai_decision_log::record_attack(unit_id, tid);
-                    }
-                    crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
-                }
+                {}
                 if let Some(last) = last_node {
                     self.register_ground_path_goal(unit_id, last);
                 }
@@ -1860,11 +1848,7 @@ impl GameLogic {
             }
         }
         if self.assign_unit_path_ignoring(unit_id, dest, &[], target_id) {
-            if decision_auth {
-                if let Some(tid) = target_id {
-                    crate::game_logic::host_ai_decision_log::record_attack(unit_id, tid);
-                }
-            }
+            {}
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 if contact {
                     unit.is_attack_path = true;
@@ -1878,15 +1862,13 @@ impl GameLogic {
                     }
                 }
                 unit.set_status_attacking(true);
-                if !decision_auth {
+                {
                     if let Some(tid) = target_id {
                         unit.target = Some(tid);
                     }
                 }
             }
-            if decision_auth {
-                crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
-            }
+            {}
             return true;
         }
         false
@@ -2040,7 +2022,7 @@ impl GameLogic {
         approach_path: bool,
     ) -> bool {
         let state = self.mood_adjusted_move_state(object_id, state);
-        let decision_auth = self.ai_decision_authority_live();
+
         let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
         let attack_moving = matches!(state, AIState::AttackMoving);
         let already = self
@@ -2066,9 +2048,7 @@ impl GameLogic {
                 .objects
                 .get(&object_id)
                 .is_some_and(|obj| obj.ai_state == state);
-            if decision_auth {
-                crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
-            }
+            {}
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 if !already {
                     obj.set_ai_state(state.clone());
@@ -2081,20 +2061,6 @@ impl GameLogic {
                 }
             }
             assigned = true;
-        } else if decision_auth {
-            if let Some(obj) = self.objects.get_mut(&object_id) {
-                if !already {
-                    obj.set_ai_state(state.clone());
-                }
-                if obj.is_alive() && !obj.can_move() {
-                    obj.pending_move = Some(goal);
-                    obj.movement.target_position = None;
-                    obj.movement.path.clear();
-                }
-            }
-            if !already {
-                crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
-            }
         } else if let Some(obj) = self.objects.get_mut(&object_id) {
             if !already {
                 obj.set_ai_state(state);
@@ -2124,7 +2090,6 @@ impl GameLogic {
     }
 
     pub fn append_unit_waypoint(&mut self, unit_id: ObjectId, waypoint: Vec3) -> bool {
-        let decision_auth = self.ai_decision_authority_live();
         let (unit_pos, current_path, can_move) = match self.objects.get(&unit_id) {
             Some(unit) => (
                 unit.get_position(),
@@ -2210,9 +2175,7 @@ impl GameLogic {
         if entered_move {
             unit.set_ai_state(AIState::Moving);
         }
-        if entered_move && decision_auth {
-            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
-        }
+        {}
         unit.set_status_moving(true);
         drop(unit);
         if let Some(last) = last_node {

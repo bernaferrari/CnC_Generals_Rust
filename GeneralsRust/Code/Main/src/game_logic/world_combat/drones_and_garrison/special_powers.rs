@@ -591,12 +591,7 @@ impl GameLogic {
                     o.set_ai_state(AIState::Attacking);
                 }
             }
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_attack(cid, tid);
-                if entered_attack {
-                    crate::game_logic::host_ai_decision_log::record_set_state(cid, 2);
-                }
-            }
+            {}
             self.battle_plans.record_turret_mood_target_acquire();
         }
     }
@@ -704,14 +699,10 @@ impl GameLogic {
                         o.target = None;
                         if matches!(o.ai_state, AIState::Attacking) {
                             o.set_ai_state(AIState::Idle);
-                            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                                crate::game_logic::host_ai_decision_log::record_set_state(cid, 0);
-                            }
+                            {}
                         }
                     }
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                        crate::game_logic::host_ai_decision_log::record_stop_attack(cid);
-                    }
+                    {}
                     clears = clears.saturating_add(1);
                 } else {
                     // AIM owns continuous rate-limited rotation. Keep only the
@@ -722,11 +713,7 @@ impl GameLogic {
                         if entered_attack {
                             o.set_ai_state(AIState::Attacking);
                         }
-                        if entered_attack
-                            && crate::gameworld_shadow::gameworld_ai_decision_authority_live()
-                        {
-                            crate::game_logic::host_ai_decision_log::record_set_state(cid, 2);
-                        }
+                        {}
                     }
                 }
             }

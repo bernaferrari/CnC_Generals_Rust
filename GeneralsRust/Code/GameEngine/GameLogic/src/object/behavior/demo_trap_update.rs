@@ -326,11 +326,18 @@ impl DemoTrapUpdate {
 
         if !under_construction && !sold {
             let weapon_name = self.module_data.detonation_weapon_name.clone();
-            let _ = with_weapon_store(|store| {
-                if let Some(template) = store.find_weapon_template(&weapon_name) {
-                    let _ = store.create_and_fire_temp_weapon(template, me_id, None, Some(&me_pos));
-                }
-            });
+            let template =
+                with_weapon_store(|store| store.find_weapon_template(&weapon_name).cloned())
+                    .ok()
+                    .flatten();
+            if let Some(template) = template {
+                let _ = crate::weapon::WeaponStore::create_and_fire_temp_weapon(
+                    &template,
+                    me_id,
+                    None,
+                    Some(&me_pos),
+                );
+            }
         }
 
         let mut me = me_arc

@@ -197,9 +197,7 @@ mod tests {
     #[test]
     fn mouse_game_logic_for_process_mouse_input_splits_frame_vs_boot() {
         use crate::game_logic::GameLogic;
-        use crate::gameworld_shadow::ensure_gate_damage_authority;
 
-        ensure_gate_damage_authority();
         let logic = GameLogic::new();
         assert!(
             mouse_game_logic_for_process_mouse_input(true, &logic).is_none(),
@@ -218,9 +216,7 @@ mod tests {
             PresentationSelectedUnitHint, PresentationTargetHint,
         };
         use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
-        use crate::gameworld_shadow::ensure_gate_damage_authority;
 
-        ensure_gate_damage_authority();
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(0, Team::USA, "USA", true));
         let mut ranger_t = ThingTemplate::new("Wave236Ranger");
@@ -344,9 +340,7 @@ mod tests {
             CommandSystem, CommandType, ModifierKeys, MouseButton, MouseCommandContext,
         };
         use crate::game_logic::{GameLogic, ObjectId};
-        use crate::gameworld_shadow::ensure_gate_damage_authority;
 
-        ensure_gate_damage_authority();
         let logic = GameLogic::new();
         let a = ObjectId(11);
         let b = ObjectId(22);
@@ -391,9 +385,7 @@ mod tests {
             CommandSystem, CommandType, ModifierKeys, MouseButton, MouseCommandContext,
         };
         use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
-        use crate::gameworld_shadow::ensure_gate_damage_authority;
 
-        ensure_gate_damage_authority();
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(0, Team::USA, "USA", true));
         let mut ranger_t = ThingTemplate::new("Wave236BootRanger");

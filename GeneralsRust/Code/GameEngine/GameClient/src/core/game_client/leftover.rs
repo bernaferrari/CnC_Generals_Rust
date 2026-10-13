@@ -477,6 +477,7 @@ impl GameClient {
 
     /// Destroys a drawable and removes it from all systems
     pub fn destroy_drawable(&mut self, id: DrawableId) -> GameClientResult<()> {
+        self.ray_effects.delete(id);
         if let Some(drawable) = self.drawable_map.get(&id) {
             // Notify UI systems
             if let Some(ref ui) = self.subsystem_manager.in_game_ui {
@@ -1651,6 +1652,7 @@ impl Snapshotable for GameClient {
             self.collect_saveable_drawables_sorted()?
         } else {
             self.drawable_map.clear();
+        self.ray_effects.reset();
             self.drawable_object_map.clear();
             self.presentation_direct_drawable_bindings.clear();
             Vec::new()
@@ -1879,6 +1881,7 @@ impl Drop for GameClient {
 
         // Clear all drawables (they'll be dropped automatically)
         self.drawable_map.clear();
+        self.ray_effects.reset();
 
         if owned_live_slot {
             crate::effects::clear_live_effects_after_drawables();

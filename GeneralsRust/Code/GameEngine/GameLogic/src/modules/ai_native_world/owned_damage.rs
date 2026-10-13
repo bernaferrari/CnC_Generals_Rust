@@ -235,8 +235,6 @@ impl BorrowedAiWorld<'_> {
                 return Err("foreign damage owner".into());
             }
             if object.is_effectively_dead()
-                || object.get_contain().is_some()
-                || object.get_contained_by().is_some()
                 || object.get_drawable().is_some()
                 || object.is_kind_of(KindOf::Structure)
             {
@@ -268,6 +266,7 @@ impl BorrowedAiWorld<'_> {
                 ),
             )
         };
+        self.validate_damage_containment_owned(owner)?;
         self.validate_damage_shock(owner, damage)?;
         let mut auto_heals = Vec::new();
         for handle in handles {

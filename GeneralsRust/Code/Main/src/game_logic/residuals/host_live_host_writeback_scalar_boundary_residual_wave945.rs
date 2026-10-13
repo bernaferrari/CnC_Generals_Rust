@@ -1,6 +1,6 @@
 //! Wave 945: shadow→host scalar writeback authority boundary.
 //!
-//! Eighteen high-traffic scalar writebacks (AI state/attitude, owner, SP,
+//! Remaining scalar writebacks (owner, SP,
 //! overcharge, weapon slot, selection radius, entity power, target location,
 //! command set, ground height, body damage, death type, stored supplies,
 //! faerie fire, repulsor, detector, guard) route through
@@ -20,7 +20,6 @@ pub const LIVE_HOST_WRITEBACK_SCALAR_BOUNDARY_METHOD_NAMES_WAVE945: &[&str] = &[
     "apply_host_writeback_op",
     "HostWritebackOp",
     "AiState",
-    "AiAttitude",
     "Owner",
     "SpecialPower",
     "Overcharge",
@@ -36,7 +35,6 @@ pub const LIVE_HOST_WRITEBACK_SCALAR_BOUNDARY_METHOD_NAMES_WAVE945: &[&str] = &[
     "FaerieFire",
     "Repulsor",
     "Detector",
-    "Guard",
     "Wave 945",
     "playable_claim = false",
 ];
@@ -77,7 +75,13 @@ fn shadow_source() -> &'static str {
 
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {
     match src.find(marker) {
-        Some(i) => &src[i..src.len().min(i + len)],
+        Some(i) => {
+            let mut end = src.len().min(i.saturating_add(len));
+            while !src.is_char_boundary(end) {
+                end -= 1;
+            }
+            &src[i..end]
+        }
         None => "",
     }
 }
@@ -117,7 +121,6 @@ fn fn_window<'a>(src: &'a str, marker: &str) -> &'a str {
 }
 
 const WRITEBACKS: &[(&str, &str)] = &[
-    ("pub fn writeback_ai_attitude_to_host", "AiAttitude"),
     ("pub fn writeback_owner_to_host", "Owner"),
     ("pub fn writeback_special_power_to_host", "SpecialPower"),
     ("pub fn writeback_overcharge_to_host", "Overcharge"),
@@ -136,14 +139,13 @@ const WRITEBACKS: &[(&str, &str)] = &[
     ("pub fn writeback_faerie_fire_to_host", "FaerieFire"),
     ("pub fn writeback_repulsor_to_host", "Repulsor"),
     ("pub fn writeback_detector_to_host", "Detector"),
-    ("pub fn writeback_guard_to_host", "Guard"),
 ];
 
 pub fn honesty_host_writeback_scalar_boundary_method_names_residual_wave945() -> bool {
     let names = LIVE_HOST_WRITEBACK_SCALAR_BOUNDARY_METHOD_NAMES_WAVE945;
     let ok = residual_name_index(names, "apply_host_writeback_op").is_some()
         && residual_name_index(names, "AiState").is_some()
-        && residual_name_index(names, "Guard").is_some()
+        && residual_name_index(names, "Detector").is_some()
         && residual_name_index(names, "Wave 945").is_some();
     residual_action_store(ResidualHostWritebackScalarBoundaryAction::MethodNames);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);

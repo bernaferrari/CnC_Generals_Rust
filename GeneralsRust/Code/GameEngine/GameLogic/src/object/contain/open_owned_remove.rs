@@ -49,8 +49,8 @@ impl OpenContain {
             let member_guard = member
                 .read()
                 .map_err(|_| "remaining contain member poisoned")?;
-            member_guard.validate_native_leaf_enter_effects()?;
             drop(member_guard);
+            world.validate_containment_member(&member)?;
             drop(
                 member
                     .write()
@@ -98,10 +98,17 @@ impl OpenContain {
             .expect("admitted remove passenger poisoned");
         if prepared.enclosing {
             world.add_to_world(&mut rider);
+        }
+        drop(rider);
+        if prepared.enclosing {
             world
-                .set_object_position(&mut rider, &position)
+                .set_object_position_handle(&prepared.passenger, &position)
                 .expect("admitted remove position effects");
         }
+        let mut rider = prepared
+            .passenger
+            .write()
+            .expect("admitted remove passenger poisoned");
         world.set_object_layer(&mut rider, layer);
         drop(rider);
         if self.last_unload_sound_frame != world.frame() {
@@ -192,10 +199,10 @@ impl OpenContain {
             let rider = passenger
                 .read()
                 .map_err(|_| "contained postload object poisoned")?;
-            rider.validate_native_leaf_enter_effects()?;
             rider.controlling_player_id_from_pin()?;
             let enclosing = self.is_enclosing_container_for(&rider);
             drop(rider);
+            world.validate_containment_member(&passenger)?;
             drop(
                 passenger
                     .write()

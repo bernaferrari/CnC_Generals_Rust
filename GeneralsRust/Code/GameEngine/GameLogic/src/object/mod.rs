@@ -7,6 +7,7 @@
 mod ai_locomotor_queries;
 #[cfg(test)]
 mod exit_interface_owner_tests;
+mod object_native_ai_update;
 
 mod exit_interfaces;
 pub use exit_interfaces::ExitInterfaceHandle;
@@ -2454,6 +2455,7 @@ mod object_team_power;
 mod object_tests;
 mod object_thing;
 mod object_triggers;
+pub(crate) use object_triggers::OwnedObjectTransform;
 mod object_update;
 mod object_upgrade;
 #[cfg(test)]

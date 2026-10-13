@@ -288,9 +288,7 @@ impl AIPlayer {
                     unit.requested_destination = Some(enemy_base);
                 }
                 game_logic.set_ai_state_decision_aware_for_ai(unit_id, AIState::AttackMoving);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_move_to(unit_id, enemy_base);
-                }
+                {}
             }
         }
         self.attack_in_progress = true;

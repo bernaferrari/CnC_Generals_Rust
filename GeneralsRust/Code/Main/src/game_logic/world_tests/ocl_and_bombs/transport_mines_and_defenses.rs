@@ -819,20 +819,7 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
             dozer.movement.target_position.is_some(),
             "must have move target toward mine"
         );
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-            assert_eq!(dozer.ai_state, AIState::Idle);
-            let moving =
-                crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&AIState::Moving);
-            let events = crate::game_logic::host_ai_decision_log::snapshot();
-            assert!(
-                events.iter().any(|e| {
-                    e.host_object == dozer_id
-                        && e.kind == crate::game_logic::host_ai_decision_log::AI_DECISION_SET_STATE
-                        && e.ai_state_ordinal == moving
-                }),
-                "mine approach must log SetAIState(Moving) under decision authority"
-            );
-        } else {
+        {
             assert_eq!(dozer.ai_state, AIState::Moving, "must approach mine");
         }
     }
@@ -1445,8 +1432,7 @@ fn stealth_residual_fire_breaks_stealth() {
             target_id,
             0.0,
             game_logic.frame,
-            &mut game_logic.combat_system,
-            false
+            &mut game_logic.combat_system
         ));
         assert!(!s.status.stealthed, "fire_at must break stealth");
     }
@@ -1586,23 +1572,11 @@ fn base_defense_residual_patriot_auto_fires_without_attack_object() {
 }
 
 #[test]
-fn residual_auto_fire_ai_decision_writeback_sets_host_target() {
+fn residual_auto_fire_commits_canonical_target_before_observation() {
     use crate::game_logic::host_ai_decision_log;
-    use crate::gameworld_shadow::{
-        GameWorldShadow, authority_env_lock, begin_shadow_coupled_tick, end_shadow_coupled_tick,
-        gameworld_ai_attack_authority_enabled, gameworld_ai_decision_authority_enabled,
-    };
-
-    let _env_guard = authority_env_lock();
-    // Authority opted in via GameLogic setters (env channel retired): the
-    // scratch instance publishes the snapshot the asserts below consult.
     let mut logic = GameLogic::new();
-    logic.set_ai_decision_authority(true);
-    logic.set_ai_attack_authority(true);
-    assert!(gameworld_ai_decision_authority_enabled());
-    assert!(gameworld_ai_attack_authority_enabled());
+
     host_ai_decision_log::clear();
-    begin_shadow_coupled_tick();
 
     // Ordering hazard (R6): do NOT create a second GameLogic after this
     // point — a fresh instance republishes all-off defaults and would strip
@@ -1640,21 +1614,14 @@ fn residual_auto_fire_ai_decision_writeback_sets_host_target() {
     let weapon = logic.host_object(attacker).and_then(|o| o.weapon.clone());
     let pos = logic.host_object(attacker).unwrap().get_position();
     let _ = logic.residual_auto_fire_apply_damage(attacker, victim, 10.0, pos, weapon.as_ref(), 0);
-    // Decision channel logged; host target still empty until shadow writeback.
-    let events = host_ai_decision_log::drain();
-    assert!(
-        !events.is_empty(),
-        "residual auto-fire must emit AI decision events under AI_DECISION_AUTHORITY"
-    );
-    assert!(logic.host_object(attacker).unwrap().target.is_none());
-
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-    assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
     assert_eq!(logic.host_object(attacker).unwrap().target, Some(victim));
-
-    end_shadow_coupled_tick();
+    let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    let entity = shadow.entity_for_host(attacker).unwrap();
+    assert_eq!(
+        shadow.world().entity(entity).unwrap().attack_target,
+        shadow.entity_for_host(victim)
+    );
 }
 
 #[test]

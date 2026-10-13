@@ -731,36 +731,26 @@ impl GameLogic {
 
         // NuclearMissile residual radiation field ticks (after impact blasts).
         // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.update_nuclear_radiation_fields();
         }
         // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.update_neutron_slow_death_fields();
         }
         self.update_wave_guides();
         // AnthraxBomb residual toxin field ticks (after impact blasts).
         // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.update_anthrax_toxin_fields();
         }
         // SpectreGunship residual orbit damage ticks (after insertion).
         // Wave 825: under coupled shadow, zone/field damage sole-ticks after GW writeback.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.update_spectre_orbit_fields();
         }
         self.spawn_spectre_howitzer_shell_objects_for_new_spawns();
         // Wave 806: under coupled shadow, lifetime owned by GW expire + logs.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.update_spectre_howitzer_shell_objects();
         }
@@ -769,22 +759,16 @@ impl GameLogic {
         self.spawn_particle_orbital_laser_objects_for_new_beams();
         self.spawn_particle_connector_laser_objects_for_new_beams();
         // Wave 808: under coupled shadow, lifetime owned by GW expire + logs.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.update_particle_orbital_laser_objects();
         }
         // Wave 808: under coupled shadow, lifetime owned by GW expire + logs.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.update_particle_connector_laser_objects();
         }
         // Particle Uplink DamagePulseRemnant trail residual ticks.
         self.spawn_particle_trail_remnant_objects_for_new_fields();
         // Wave 808: under coupled shadow, lifetime owned by GW expire + logs.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.update_particle_trail_remnant_objects();
         }
@@ -1303,8 +1287,6 @@ impl GameLogic {
         // NukeRadiationFieldWeapon Object residual (spawn + DeletionUpdate lifetime).
         self.spawn_nuke_radiation_field_objects_for_new_fields();
         // Wave 820: under coupled shadow, field-object lifetime owned by GW expire.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.update_nuke_radiation_field_objects();
         }
@@ -1377,8 +1359,6 @@ impl GameLogic {
 
         self.spawn_anthrax_toxin_field_objects_for_new_fields();
         // Wave 820: under coupled shadow, field-object lifetime owned by GW expire.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.update_anthrax_toxin_field_objects();
         }
@@ -2278,11 +2258,7 @@ impl GameLogic {
                 o.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Detonated;
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -2398,11 +2374,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -2499,11 +2471,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -2617,11 +2585,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -2711,11 +2675,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -2796,11 +2756,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;

@@ -264,8 +264,7 @@ mod restrict_a_tests {
 
     #[test]
     fn from_logic_stamps_strategy_center_and_dock() {
-        crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
-        let mut logic = GameLogic::new();
+            let mut logic = GameLogic::new();
         let mut center = ThingTemplate::new("AmericaStrategyCenter");
         center.add_kind_of(KindOf::Structure);
         center.add_kind_of(KindOf::FSStrategyCenter);
@@ -374,8 +373,7 @@ mod restrict_a_tests {
 
     fn panic_empty_ro() -> RenderableObject {
         // Empty world still builds a default-shaped frame; fall back via a dummy unit.
-        crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
-        let mut logic = GameLogic::new();
+            let mut logic = GameLogic::new();
         let mut t = ThingTemplate::new("RestrictADummy");
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Selectable);

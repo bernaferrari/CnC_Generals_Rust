@@ -98,9 +98,8 @@ impl Object {
         let freeze_special_power = self.is_disabled();
         // Under SPECIAL_POWER_AUTHORITY+shadow, GameWorld sole-ticks countdown;
         // host only refreshes ready aggregate after writeback (Wave 618 ready-log).
-        let sole_sp = crate::gameworld_shadow::gameworld_special_power_sole_tick_enabled();
-        if dt > 0.0 && !freeze_special_power && !sole_sp && !self.special_power_cooldowns.is_empty()
-        {
+
+        if dt > 0.0 && !freeze_special_power && !self.special_power_cooldowns.is_empty() {
             let paused: Vec<_> = self
                 .special_power_cooldowns
                 .keys()
@@ -114,11 +113,7 @@ impl Object {
             }
         }
         // Legacy single-timer residual (older paths / saves).
-        if dt > 0.0
-            && !freeze_special_power
-            && !sole_sp
-            && self.special_power_cooldown_remaining > 0.0
-        {
+        if dt > 0.0 && !freeze_special_power && self.special_power_cooldown_remaining > 0.0 {
             self.special_power_cooldown_remaining =
                 (self.special_power_cooldown_remaining - dt).max(0.0);
         }
@@ -934,20 +929,6 @@ impl Object {
         gained
     }
 
-    pub fn record_host_experience(&self) {
-        crate::game_logic::host_experience_log::record(self.id, self.experience.current.max(0.0));
-    }
-
-    pub(super) fn record_host_veterancy_level(&self) {
-        let ordinal = match self.experience.level {
-            crate::game_logic::VeterancyLevel::Rookie => 0u8,
-            crate::game_logic::VeterancyLevel::Veteran => 1,
-            crate::game_logic::VeterancyLevel::Elite => 2,
-            crate::game_logic::VeterancyLevel::Heroic => 3,
-        };
-        crate::game_logic::host_veterancy_log::record(self.id, ordinal);
-    }
-
     /// C++ ThingTemplate::isTrainable.
     pub fn is_trainable(&self) -> bool {
         self.thing.template.is_trainable
@@ -1029,12 +1010,15 @@ impl Object {
             return;
         }
         let projected = self.experience.current + amount;
+        // ExperienceTracker.cpp updates points before onVeterancyLevelChanged.
+        // This object's ledger is authoritative at every callback observation.
+        self.experience.current = projected;
 
         // C++ parity: veterancy thresholds are per-template (Object::ExperienceValues
         // in INI).  Use template-defined thresholds, falling back to defaults.
         let thresholds = self.thing.template.veterancy_xp_thresholds;
 
-        // Check for level up against projected XP (even when HP/XP authority defers current).
+        // Check for level up against the points already committed to this owner.
         let previous_level = self.experience.level;
         let new_level = if projected >= thresholds[2] {
             VeterancyLevel::Heroic
@@ -1050,15 +1034,6 @@ impl Object {
             self.experience.level = new_level;
             // Apply veterancy bonuses
             self.apply_veterancy_bonuses(previous_level, new_level);
-            self.record_host_veterancy_level();
-        }
-
-        // GameWorld residual authority: log absolute XP; defer host current mutate.
-        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-            crate::game_logic::host_experience_log::record(self.id, projected.max(0.0));
-        } else {
-            self.experience.current = projected;
-            self.record_host_experience();
         }
     }
 
@@ -1210,7 +1185,7 @@ impl Object {
                 weapon.reload_time *= rof_scale;
             }
         }
-        self.record_host_veterancy_level();
+
         self.set_body_max_health(self.health.maximum.max(1.0));
         self.record_host_max_health();
         self.set_veterancy_armor_set_flags(new_level);
@@ -1315,8 +1290,6 @@ impl Object {
         if previous != level {
             self.apply_veterancy_bonuses_with_feedback(previous, level, false);
         } else {
-            self.record_host_veterancy_level();
-            self.record_host_experience();
         }
     }
 }

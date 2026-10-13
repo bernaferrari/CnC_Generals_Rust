@@ -260,224 +260,198 @@ fn repeated_alive_direct_destroy_queues_once_without_entering_die() {
 
 #[test]
 fn coupled_default_authority_keeps_host_slow_death_timer_until_original_deadline() {
-    use crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority;
     use crate::game_logic::game_logic::world_tick::heli_motion_tests::isolated_at;
     isolated_at(
         module_path!(),
         "coupled_default_authority_keeps_host_slow_death_timer_until_original_deadline",
         || {
-            crate::gameworld_shadow::with_gameworld_authority(
-                GameWorldAuthority::DEFAULT_OFF,
-                || {
-                    let (mut world, id, due) = parsed_slow_death_owner();
+            {
+                let (mut world, id, due) = parsed_slow_death_owner();
+
+                assert!(crate::gameworld_shadow::gameworld_shadow_enabled());
+                let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
+                shadow.sync_from_host(&world);
+                // Ordinary update evaluates its current frame, then advances it.
+                // At frame9 the original deadline executes; the exposed clock is10.
+                while world.getFrame() <= due {
+                    let before = world.getFrame();
+
+                    world.update();
+                    assert_eq!(world.getFrame(), before + 1);
                     assert_eq!(
-                        *world.gameworld_authority(),
-                        GameWorldAuthority::DEFAULT_OFF
+                        world.host_object(id).is_some(),
+                        before < due,
+                        "default host owns final deletion before the shadow boundary"
                     );
-                    assert!(crate::gameworld_shadow::gameworld_shadow_enabled());
-                    let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
-                    shadow.sync_from_host(&world);
-                    // Ordinary update evaluates its current frame, then advances it.
-                    // At frame9 the original deadline executes; the exposed clock is10.
-                    while world.getFrame() <= due {
-                        let before = world.getFrame();
-                        let _coupled = crate::gameworld_shadow::CoupledTickGuard::enter();
-                        assert!(!crate::gameworld_shadow::gameworld_movement_authority_live());
-                        world.update();
-                        assert_eq!(world.getFrame(), before + 1);
-                        assert_eq!(
-                            world.host_object(id).is_some(),
-                            before < due,
-                            "default host owns final deletion before the shadow boundary"
+                    let _ = crate::gameworld_shadow::run_owned_host_boundary(
+                        Some(&mut shadow),
+                        &mut world,
+                    );
+                    if before < due {
+                        let owner = world
+                            .host_object(id)
+                            .expect("host survives before its original execution deadline");
+                        assert!(owner.status.on_die_started);
+                        assert!(!owner.status.destroyed);
+                        assert_eq!(owner.slow_death.as_ref().unwrap().destroy_at_frame, due);
+                        assert!(
+                            owner.health.current > 0.0,
+                            "diagnostic mirror must not consume final-death ForceKill with authority off"
                         );
-                        let _ = crate::gameworld_shadow::shadow_session_after_host_tick(
-                            &mut shadow,
-                            &mut world,
+                        assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
+                    } else {
+                        assert!(
+                            world.host_object(id).is_none(),
+                            "coupling with default authority must not disable the host final-death timer"
                         );
-                        if before < due {
-                            let owner = world
-                                .host_object(id)
-                                .expect("host survives before its original execution deadline");
-                            assert!(owner.status.on_die_started);
-                            assert!(!owner.status.destroyed);
-                            assert_eq!(owner.slow_death.as_ref().unwrap().destroy_at_frame, due);
-                            assert!(
-                                owner.health.current > 0.0,
-                                "diagnostic mirror must not consume final-death ForceKill with authority off"
-                            );
-                            assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
-                        } else {
-                            assert!(
-                                world.host_object(id).is_none(),
-                                "coupling with default authority must not disable the host final-death timer"
-                            );
-                        }
                     }
-                    assert_eq!(world.getFrame(), due + 1);
-                    assert!(shadow.entity_for_host(id).is_none());
-                },
-            );
+                }
+                assert_eq!(world.getFrame(), due + 1);
+                assert!(shadow.entity_for_host(id).is_none());
+            };
         },
     );
 }
 
 #[test]
 fn declared_movement_authority_shadow_final_deletion_does_not_reenter_death_start() {
-    use crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority;
     use crate::game_logic::game_logic::world_tick::heli_motion_tests::isolated_at;
     isolated_at(
         module_path!(),
         "declared_movement_authority_shadow_final_deletion_does_not_reenter_death_start",
         || {
-            crate::gameworld_shadow::with_gameworld_authority(
-                GameWorldAuthority::DEFAULT_OFF,
-                || {
-                    let (mut world, id, due) = parsed_slow_death_owner();
-                    let body_before_final_timer = world.host_object(id).unwrap().health.current;
-                    // Existing actual world declaration plus synchronous borrowed
-                    // context, matching the real engine's authority dispatch boundary.
-                    world.set_movement_authority(true);
-                    let authority = *world.gameworld_authority();
-                    assert!(authority.movement);
-                    crate::gameworld_shadow::with_gameworld_authority(authority, || {
-                        assert!(crate::gameworld_shadow::gameworld_shadow_enabled());
-                        let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
-                        shadow.sync_from_host(&world);
-                        while world.getFrame() < due {
-                            let before = world.getFrame();
-                            let _coupled = crate::gameworld_shadow::CoupledTickGuard::enter();
-                            assert!(crate::gameworld_shadow::gameworld_movement_authority_live());
-                            world.update();
-                            assert_eq!(world.getFrame(), before + 1);
-                            assert!(
-                                world
-                                    .host_object(id)
-                                    .unwrap()
-                                    .slow_death
-                                    .as_ref()
-                                    .unwrap()
-                                    .is_active(),
-                                "declared mirror authority peels the local timer"
-                            );
-                            let _ = crate::gameworld_shadow::shadow_session_after_host_tick(
-                                &mut shadow,
-                                &mut world,
-                            );
-                            if world.getFrame() < due {
-                                assert!(world.host_object(id).is_some());
-                                assert!(
-                                    world.objects_to_destroy.iter().all(|event| event.id != id)
-                                );
-                            }
+            {
+                let (mut world, id, due) = parsed_slow_death_owner();
+                let body_before_final_timer = world.host_object(id).unwrap().health.current;
+                // Existing actual world declaration plus synchronous borrowed
+                // context, matching the real engine's authority dispatch boundary.
+
+                {
+                    assert!(crate::gameworld_shadow::gameworld_shadow_enabled());
+                    let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
+                    shadow.sync_from_host(&world);
+                    while world.getFrame() < due {
+                        let before = world.getFrame();
+
+                        world.update();
+                        assert_eq!(world.getFrame(), before + 1);
+                        assert!(
+                            world
+                                .host_object(id)
+                                .unwrap()
+                                .slow_death
+                                .as_ref()
+                                .unwrap()
+                                .is_active(),
+                            "declared mirror authority peels the local timer"
+                        );
+                        let _ = crate::gameworld_shadow::run_owned_host_boundary(
+                            Some(&mut shadow),
+                            &mut world,
+                        );
+                        if world.getFrame() < due {
+                            assert!(world.host_object(id).is_some());
+                            assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
                         }
-                        let owner = world.host_object(id).unwrap();
-                        assert!(owner.status.on_die_started);
-                        assert_eq!(
-                            owner.health.current, body_before_final_timer,
-                            "CPP final destroyObject preserves earlier body state"
-                        );
-                        assert_eq!(owner.slow_death.as_ref().unwrap().destroy_at_frame, due);
-                        assert_eq!(
-                            world
-                                .objects_to_destroy
-                                .iter()
-                                .filter(|event| event.id == id)
-                                .count(),
-                            1,
-                            "actual mirror completion queues final destruction despite the onDie latch"
-                        );
-                        world.destroy_object(id);
-                        assert_eq!(
-                            world
-                                .objects_to_destroy
-                                .iter()
-                                .filter(|event| event.id == id)
-                                .count(),
-                            1
-                        );
-                        world.process_destroy_list();
-                        assert!(world.host_object(id).is_none());
-                    });
-                },
-            );
+                    }
+                    let owner = world.host_object(id).unwrap();
+                    assert!(owner.status.on_die_started);
+                    assert_eq!(
+                        owner.health.current, body_before_final_timer,
+                        "CPP final destroyObject preserves earlier body state"
+                    );
+                    assert_eq!(owner.slow_death.as_ref().unwrap().destroy_at_frame, due);
+                    assert_eq!(
+                        world
+                            .objects_to_destroy
+                            .iter()
+                            .filter(|event| event.id == id)
+                            .count(),
+                        1,
+                        "actual mirror completion queues final destruction despite the onDie latch"
+                    );
+                    world.destroy_object(id);
+                    assert_eq!(
+                        world
+                            .objects_to_destroy
+                            .iter()
+                            .filter(|event| event.id == id)
+                            .count(),
+                        1
+                    );
+                    world.process_destroy_list();
+                    assert!(world.host_object(id).is_none());
+                };
+            };
         },
     );
 }
 
 #[test]
 fn parsed_active_slow_death_snapshot_preserves_latch_and_original_deadline_continuation() {
-    use crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority;
     use crate::game_logic::game_logic::world_tick::heli_motion_tests::isolated_at;
     use crate::save_load::snapshot::SnapshotBuilder;
     isolated_at(
         module_path!(),
         "parsed_active_slow_death_snapshot_preserves_latch_and_original_deadline_continuation",
         || {
-            crate::gameworld_shadow::with_gameworld_authority(
-                GameWorldAuthority::DEFAULT_OFF,
-                || {
-                    let (mut source, id, due) = parsed_slow_death_owner();
-                    for _ in 0..4 {
-                        let before = source.getFrame();
-                        source.update();
-                        assert_eq!(source.getFrame(), before + 1);
-                    }
-                    assert_eq!(source.getFrame(), 4);
-                    let before = source.host_object(id).unwrap();
-                    assert!(before.status.on_die_started);
-                    assert!(!before.status.destroyed);
-                    let captured_death =
-                        serde_json::to_value(before.slow_death.as_ref().unwrap()).unwrap();
-                    assert_eq!(before.slow_death.as_ref().unwrap().destroy_at_frame, due);
-                    let builder = SnapshotBuilder::new();
-                    let snapshot = builder
-                        .create_world_snapshot(&source)
-                        .expect("capture actual active death");
-                    let mut loaded = GameLogic::new();
-                    loaded.templates = source.templates.clone();
-                    builder
-                        .restore_from_snapshot(&snapshot, &mut loaded)
-                        .expect("restore actual active death");
+            {
+                let (mut source, id, due) = parsed_slow_death_owner();
+                for _ in 0..4 {
+                    let before = source.getFrame();
+                    source.update();
+                    assert_eq!(source.getFrame(), before + 1);
+                }
+                assert_eq!(source.getFrame(), 4);
+                let before = source.host_object(id).unwrap();
+                assert!(before.status.on_die_started);
+                assert!(!before.status.destroyed);
+                let captured_death =
+                    serde_json::to_value(before.slow_death.as_ref().unwrap()).unwrap();
+                assert_eq!(before.slow_death.as_ref().unwrap().destroy_at_frame, due);
+                let builder = SnapshotBuilder::new();
+                let snapshot = builder
+                    .create_world_snapshot(&source)
+                    .expect("capture actual active death");
+                let mut loaded = GameLogic::new();
+                loaded.templates = source.templates.clone();
+                builder
+                    .restore_from_snapshot(&snapshot, &mut loaded)
+                    .expect("restore actual active death");
+                assert_eq!(loaded.getFrame(), source.getFrame());
+                let restored = loaded.host_object(id).unwrap();
+                assert_eq!(
+                    serde_json::to_value(restored.slow_death.as_ref().unwrap()).unwrap(),
+                    captured_death,
+                    "actual runtime phase/rules/absolute deadlines survive the native snapshot"
+                );
+                assert!(!restored.status.destroyed);
+                assert!(
+                    restored.status.on_die_started,
+                    "native continuation must retain the once-only death-start latch, not rerun onDie after load"
+                );
+                while source.getFrame() <= due {
+                    let before = source.getFrame();
+                    source.update();
+                    loaded.update();
+                    assert_eq!(source.getFrame(), before + 1);
                     assert_eq!(loaded.getFrame(), source.getFrame());
-                    let restored = loaded.host_object(id).unwrap();
-                    assert_eq!(
-                        serde_json::to_value(restored.slow_death.as_ref().unwrap()).unwrap(),
-                        captured_death,
-                        "actual runtime phase/rules/absolute deadlines survive the native snapshot"
-                    );
-                    assert!(!restored.status.destroyed);
-                    assert!(
-                        restored.status.on_die_started,
-                        "native continuation must retain the once-only death-start latch, not rerun onDie after load"
-                    );
-                    while source.getFrame() <= due {
-                        let before = source.getFrame();
-                        source.update();
-                        loaded.update();
-                        assert_eq!(source.getFrame(), before + 1);
-                        assert_eq!(loaded.getFrame(), source.getFrame());
-                        if before < due {
-                            for world in [&source, &loaded] {
-                                let owner = world
-                                    .host_object(id)
-                                    .expect("no early deletion after snapshot");
-                                assert!(owner.status.on_die_started);
-                                assert_eq!(
-                                    owner.slow_death.as_ref().unwrap().destroy_at_frame,
-                                    due
-                                );
-                                assert!(
-                                    world.objects_to_destroy.iter().all(|event| event.id != id)
-                                );
-                            }
-                        } else {
-                            assert!(source.host_object(id).is_none());
-                            assert!(loaded.host_object(id).is_none());
+                    if before < due {
+                        for world in [&source, &loaded] {
+                            let owner = world
+                                .host_object(id)
+                                .expect("no early deletion after snapshot");
+                            assert!(owner.status.on_die_started);
+                            assert_eq!(owner.slow_death.as_ref().unwrap().destroy_at_frame, due);
+                            assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
                         }
+                    } else {
+                        assert!(source.host_object(id).is_none());
+                        assert!(loaded.host_object(id).is_none());
                     }
-                    assert_eq!(source.getFrame(), due + 1);
-                },
-            );
+                }
+                assert_eq!(source.getFrame(), due + 1);
+            };
         },
     );
 }
@@ -582,70 +556,64 @@ End
 
 #[test]
 fn coupled_default_structure_completion_retains_objects_until_explicit_delete() {
-    use crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority;
     use crate::game_logic::game_logic::world_tick::heli_motion_tests::isolated_at;
     isolated_at(
         module_path!(),
         "coupled_default_structure_completion_retains_objects_until_explicit_delete",
         || {
-            crate::gameworld_shadow::with_gameworld_authority(
-                GameWorldAuthority::DEFAULT_OFF,
-                || {
-                    for collapse in [false, true] {
-                        let mut world = GameLogic::new();
-                        let mut template = ThingTemplate::new("AuthoredCompletedStructure");
-                        template.add_kind_of(KindOf::Structure).set_health(100.0);
-                        template.authored_structure_topple = !collapse;
-                        template.authored_structure_collapse = collapse;
-                        world.templates.insert(template.name.clone(), template);
-                        let id = world
-                            .create_object("AuthoredCompletedStructure", Team::Neutral, Vec3::ZERO)
-                            .unwrap();
-                        world.mark_object_for_destruction(id, None);
-                        let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
-                        let mut completed = false;
-                        for frame in 1..=800 {
-                            world.frame = frame;
-                            {
-                                let _coupled = crate::gameworld_shadow::CoupledTickGuard::enter();
-                                world.update_ai(&[id], 1.0 / 30.0);
-                            }
-                            shadow.sync_from_host(&world);
-                            let _ = crate::gameworld_shadow::shadow_session_after_host_tick(
-                                &mut shadow,
-                                &mut world,
-                            );
-                            let object =
-                                world.host_object(id).expect("structure survives animation");
-                            assert!(!object.status.destroyed);
-                            assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
-                            completed = if collapse {
-                                object.structure_collapse_data.as_ref().unwrap().state == crate::game_logic::host_structure_collapse::HostStructureCollapseState::Done
-                            } else {
-                                object.structure_topple_data.as_ref().unwrap().state == crate::game_logic::host_structure_topple::HostStructureToppleState::Done
-                            };
-                            if completed {
-                                break;
-                            }
+            {
+                for collapse in [false, true] {
+                    let mut world = GameLogic::new();
+                    let mut template = ThingTemplate::new("AuthoredCompletedStructure");
+                    template.add_kind_of(KindOf::Structure).set_health(100.0);
+                    template.authored_structure_topple = !collapse;
+                    template.authored_structure_collapse = collapse;
+                    world.templates.insert(template.name.clone(), template);
+                    let id = world
+                        .create_object("AuthoredCompletedStructure", Team::Neutral, Vec3::ZERO)
+                        .unwrap();
+                    world.mark_object_for_destruction(id, None);
+                    let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
+                    let mut completed = false;
+                    for frame in 1..=800 {
+                        world.frame = frame;
+                        {
+                            world.update_ai(&[id], 1.0 / 30.0);
                         }
-                        assert!(completed, "authored structure reaches C++ DONE");
-                        // A duplicate onDie request cannot turn completion into deletion.
-                        world.mark_object_for_destruction(id, None);
-                        assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
-                        world.destroy_object(id);
-                        assert_eq!(
-                            world
-                                .objects_to_destroy
-                                .iter()
-                                .filter(|event| event.id == id)
-                                .count(),
-                            1
+                        shadow.sync_from_host(&world);
+                        let _ = crate::gameworld_shadow::run_owned_host_boundary(
+                            Some(&mut shadow),
+                            &mut world,
                         );
-                        world.process_destroy_list();
-                        assert!(world.host_object(id).is_none());
+                        let object = world.host_object(id).expect("structure survives animation");
+                        assert!(!object.status.destroyed);
+                        assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
+                        completed = if collapse {
+                            object.structure_collapse_data.as_ref().unwrap().state == crate::game_logic::host_structure_collapse::HostStructureCollapseState::Done
+                        } else {
+                            object.structure_topple_data.as_ref().unwrap().state == crate::game_logic::host_structure_topple::HostStructureToppleState::Done
+                        };
+                        if completed {
+                            break;
+                        }
                     }
-                },
-            );
+                    assert!(completed, "authored structure reaches C++ DONE");
+                    // A duplicate onDie request cannot turn completion into deletion.
+                    world.mark_object_for_destruction(id, None);
+                    assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
+                    world.destroy_object(id);
+                    assert_eq!(
+                        world
+                            .objects_to_destroy
+                            .iter()
+                            .filter(|event| event.id == id)
+                            .count(),
+                        1
+                    );
+                    world.process_destroy_list();
+                    assert!(world.host_object(id).is_none());
+                }
+            };
         },
     );
 }

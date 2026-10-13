@@ -674,15 +674,10 @@ impl Object {
         );
     }
 
-    pub fn record_host_ai_attitude(&self) {
-        crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
-    }
-
     pub fn set_ai_attitude_i8(&mut self, attitude: i8) {
         let a = attitude.clamp(-2, 2);
         if self.ai_attitude != a {
             self.ai_attitude = a;
-            self.record_host_ai_attitude();
         }
     }
 

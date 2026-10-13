@@ -1448,7 +1448,7 @@ fn seed_exact_aircraft_set_switch_locomotors() -> usize {
 }
 
 /// Authored Aurora flight definitions share their physical/presentation fields.
-/// Source: retail Locomotor.ini AuroraJet{,Sluggish,Supersonic}Locomotor.
+/// Source: retail Locomotor.ini AuroraJet{Sluggish,Supersonic}Locomotor.
 fn seed_aurora_flight_locomotors() -> usize {
     let mut added = 0;
     for (

@@ -47,6 +47,47 @@ pub trait AiWorld {
         Err("supplied AI world has no group motion owner".into())
     }
 
+    fn adjust_exit_destination(
+        &self,
+        _owner: &Object,
+        _locomotors: &crate::locomotor::LocomotorSet,
+        _position: &mut Coord3D,
+    ) -> Result<bool, String> {
+        Err("supplied AI world has no exit destination owner".into())
+    }
+
+    fn idle_goal_position(
+        &self,
+        _owner: &Object,
+        _goal_cell: ICoord2D,
+    ) -> Result<Option<Coord3D>, String> {
+        Err("supplied AI world has no idle goal owner".into())
+    }
+    fn closest_repulsor(&self, _source: &Object, _range: Real) -> Result<Option<ObjectID>, String> {
+        Err("supplied AI world has no repulsor search owner".into())
+    }
+    fn mood_vision_range(
+        &self,
+        _source: &Object,
+        _attitude: crate::modules::AIAttitudeType,
+    ) -> Result<Real, String> {
+        Err("supplied AI world has no mood vision rules".into())
+    }
+    fn mood_search_rules(&self) -> Result<(bool, bool), String> {
+        Err("supplied AI world has no mood search rules".into())
+    }
+    fn closest_mood_enemy(
+        &self,
+        _source: &Object,
+        _range: Real,
+        _qualifiers: u32,
+    ) -> Result<Option<ObjectID>, String> {
+        Err("supplied AI world has no ordered enemy search owner".into())
+    }
+    fn mood_random_offset(&mut self, _minimum: i32, _maximum: i32) -> Result<i32, String> {
+        Err("supplied AI world has no session random stream".into())
+    }
+
     fn object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>>;
     fn frame(&self) -> UnsignedInt;
     fn terrain_layer_height(&self, x: f32, y: f32, layer: crate::common::PathfindLayerEnum) -> f32;
@@ -101,6 +142,23 @@ pub trait AiWorld {
         object: &mut Object,
         position: &Coord3D,
     ) -> Result<(), String>;
+    /// Release the caller's Object loan before synchronous containment pose callbacks.
+    fn set_object_position_handle(
+        &mut self,
+        object: &Arc<RwLock<Object>>,
+        position: &Coord3D,
+    ) -> Result<(), String> {
+        let mut object = object.write().map_err(|_| "owned pose object poisoned")?;
+        self.set_object_position(&mut object, position)
+    }
+    fn set_object_orientation_handle(
+        &mut self,
+        object: &Arc<RwLock<Object>>,
+        angle: f32,
+    ) -> Result<(), String> {
+        let mut object = object.write().map_err(|_| "owned pose object poisoned")?;
+        self.set_object_orientation(&mut object, angle)
+    }
     fn set_object_orientation(&mut self, _object: &mut Object, _angle: f32) -> Result<(), String> {
         Err("owned orientation service not admitted".into())
     }
@@ -136,6 +194,49 @@ pub trait AiWorld {
     ) -> Option<Arc<crate::waypoint::Waypoint>> {
         None
     }
+    fn update_inactive_locomotor_tail(
+        &mut self,
+        _owner: &Arc<RwLock<Object>>,
+        _locomotor: &crate::locomotor::Locomotor,
+    ) -> Result<(), String> {
+        Err("supplied inactive locomotor tail unavailable".into())
+    }
+    fn validate_owned_maintenance_step(
+        &self,
+        _owner: &Arc<RwLock<Object>>,
+        _locomotor: &crate::locomotor::Locomotor,
+    ) -> Result<(), String> {
+        Err("supplied locomotor maintenance owner unavailable".into())
+    }
+    fn validate_dead_ai(&self, _owner: &Arc<RwLock<Object>>) -> Result<(), String> {
+        Err("supplied Dead AI callback owner unavailable".into())
+    }
+    fn enter_dead_ai(
+        &mut self,
+        _owner: &Arc<RwLock<Object>>,
+        _clear: crate::common::ModelConditionFlags,
+    ) -> Result<(), String> {
+        Err("supplied Dead AI entry unavailable".into())
+    }
+    fn update_dead_ai(&mut self, _owner: &Arc<RwLock<Object>>) -> Result<(), String> {
+        Err("supplied Dead AI update unavailable".into())
+    }
+    fn exit_dead_ai(&mut self, _owner: &Arc<RwLock<Object>>) -> Result<(), String> {
+        Err("supplied Dead AI exit unavailable".into())
+    }
+    fn locomotor_surfaces_at(
+        &self,
+        _layer: crate::common::PathfindLayerEnum,
+        _position: &Coord3D,
+    ) -> Result<crate::locomotor::LocomotorSurfaceTypeMask, String> {
+        Err("supplied locomotor cell observation unavailable".into())
+    }
+    fn validate_group_speed_recompute(&self, _id: u32) -> Result<(), String> {
+        Err("supplied locomotor group owner unavailable".into())
+    }
+    fn recompute_group_speed(&mut self, _id: u32) -> Result<(), String> {
+        Err("supplied locomotor group owner unavailable".into())
+    }
     fn has_pathfinder(&self) -> bool {
         false
     }
@@ -165,6 +266,15 @@ pub trait AiWorld {
         _penalty: crate::locomotor::BodyDamageType,
     ) -> Result<(Coord3D, Real, Real), String> {
         Err("supplied owner does not admit native locomotion".into())
+    }
+
+    fn maintain_owned_locomotor_step(
+        &mut self,
+        _owner: &Arc<RwLock<Object>>,
+        _locomotor: &mut crate::locomotor::Locomotor,
+        _final_position: Option<Coord3D>,
+    ) -> Result<(Coord3D, bool, bool), String> {
+        Err("supplied owner does not admit native position maintenance".into())
     }
 
     /// Combines actual source/inherited container flags and this session's
@@ -300,6 +410,40 @@ pub trait AiWorld {
         matrix: crate::common::Matrix3D,
         enclosing: bool,
     );
+    fn physics_mass_for_owner(&self, owner: &Arc<RwLock<Object>>) -> Result<Real, String> {
+        let object = owner.read().map_err(|_| "mass owner poisoned")?;
+        let physics = object.get_physics().ok_or("mass owner has no Physics")?;
+        let physics = physics.access().map_err(|_| "mass Physics poisoned")?;
+        Ok(physics.get_mass_with_object(&object))
+    }
+    fn validate_containment_attachment(
+        &self,
+        passenger: &Arc<RwLock<Object>>,
+        owner: &Arc<RwLock<Object>>,
+    ) -> Result<(), String> {
+        if Arc::ptr_eq(passenger, owner) {
+            Err("self containment attachment".into())
+        } else {
+            Ok(())
+        }
+    }
+    fn validate_containment_member(&self, passenger: &Arc<RwLock<Object>>) -> Result<(), String> {
+        passenger
+            .read()
+            .map_err(|_| "contained member poisoned")?
+            .validate_native_leaf_enter_effects()
+    }
+    fn place_contained_handle(
+        &mut self,
+        passenger: &Arc<RwLock<Object>>,
+        matrix: crate::common::Matrix3D,
+        enclosing: bool,
+    ) {
+        let mut passenger = passenger
+            .write()
+            .expect("admitted contained object poisoned");
+        self.place_contained(&mut passenger, matrix, enclosing);
+    }
     fn maintain_contained_partition(
         &mut self,
         passenger: &mut Object,

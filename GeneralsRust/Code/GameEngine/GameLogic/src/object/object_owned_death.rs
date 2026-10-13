@@ -3,6 +3,19 @@ use super::*;
 use crate::object::die::DieModuleWrapper;
 
 impl Object {
+    /// Shared original authored visitation, including containment's DIE callback
+    /// even when a Rust template supplies only its CONTAIN interface bit.
+    pub(crate) fn death_callback_entries(&self) -> Vec<BehaviorModuleHandle> {
+        self.behavior_modules()
+            .into_iter()
+            .filter(|entry| {
+                entry.interface_mask().0 & ModuleInterfaceType::DIE.0 != 0
+                    || entry.with_module(|module| {
+                        crate::contain_module_overrides::contain_handle_for_module(module).is_some()
+                    })
+            })
+            .collect()
+    }
     pub(crate) fn validate_owned_death_callbacks(&self, slow_scale: f32) -> Result<(), String> {
         for entry in self.behavior_modules() {
             if entry.interface_mask().0 & ModuleInterfaceType::DIE.0 == 0 {
@@ -10,6 +23,13 @@ impl Object {
             }
             entry
                 .try_with_module(|module| {
+                    if let Some(contain) = crate::contain_module_overrides::contain_handle_for_module(module) {
+                        if { let contain = contain.try_lock().map_err(|_| "native containment DIE borrowed")?;
+                            contain.supports_owned_lifecycle() || contain.owned_tunnel_registered().is_some() } {
+                            return Ok(());
+                        }
+                        return Err("native containment DIE family not supplied".into());
+                    }
                     if let Some(slow) = module.as_any_mut().downcast_mut::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>() {
                         return slow.validate_owned_die(self, slow_scale);
                     }

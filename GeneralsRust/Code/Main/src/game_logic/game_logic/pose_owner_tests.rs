@@ -173,11 +173,7 @@ fn pose_setter_clone_and_current_snapshot_are_inert_controls_case() {
 fn pose_default_public_update_keeps_transform_and_saved_geometry_coherent_case() {
     let area = trigger(27104, "PosePublicUpdate");
     let (mut logic, id) = fixture(&area);
-    assert_eq!(
-        *logic.gameworld_authority(),
-        Default::default(),
-        "ordinary Main is authoritative"
-    );
+
     let _ = logic.update_with_dt(1.0 / 30.0);
     let object = logic.host_object(id).unwrap();
     assert_eq!(
@@ -199,10 +195,7 @@ fn pose_translation_keeps_physics_rotation_axes() {
         module_path!(),
         "pose_translation_keeps_physics_rotation_axes",
         || {
-            crate::gameworld_shadow::with_gameworld_authority(
-                crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF,
-                pose_translation_keeps_physics_rotation_axes_case,
-            );
+            pose_translation_keeps_physics_rotation_axes_case();
         },
     );
 }
@@ -213,10 +206,7 @@ fn pose_physics_translation_notifies_own_trigger_before_census() {
         module_path!(),
         "pose_physics_translation_notifies_own_trigger_before_census",
         || {
-            crate::gameworld_shadow::with_gameworld_authority(
-                crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF,
-                pose_physics_translation_notifies_own_trigger_before_census_case,
-            );
+            pose_physics_translation_notifies_own_trigger_before_census_case();
         },
     );
 }
@@ -227,10 +217,7 @@ fn pose_setter_clone_and_current_snapshot_are_inert_controls() {
         module_path!(),
         "pose_setter_clone_and_current_snapshot_are_inert_controls",
         || {
-            crate::gameworld_shadow::with_gameworld_authority(
-                crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF,
-                pose_setter_clone_and_current_snapshot_are_inert_controls_case,
-            );
+            pose_setter_clone_and_current_snapshot_are_inert_controls_case();
         },
     );
 }
@@ -241,10 +228,7 @@ fn pose_default_public_update_keeps_transform_and_saved_geometry_coherent() {
         module_path!(),
         "pose_default_public_update_keeps_transform_and_saved_geometry_coherent",
         || {
-            crate::gameworld_shadow::with_gameworld_authority(
-                crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF,
-                pose_default_public_update_keeps_transform_and_saved_geometry_coherent_case,
-            );
+            pose_default_public_update_keeps_transform_and_saved_geometry_coherent_case();
         },
     );
 }

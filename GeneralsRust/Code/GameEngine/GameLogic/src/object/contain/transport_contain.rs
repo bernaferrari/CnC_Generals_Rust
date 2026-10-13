@@ -1994,6 +1994,37 @@ impl ContainModuleInterface for TransportContain {
         self.base.on_selling().map_err(|e| e.into())
     }
 
+    fn supports_owned_lifecycle(&self) -> bool {
+        true
+    }
+    fn owned_physical_members(&self) -> Option<Vec<ObjectID>> {
+        Some(self.base.get_contained_object_ids().to_vec())
+    }
+    fn owned_death_policy(
+        &self,
+        owner: &Object,
+        damage: &DamageInfo,
+    ) -> Option<crate::modules::OwnedContainDeathPolicy> {
+        let mut policy =
+            crate::modules::ContainModuleInterface::owned_death_policy(&self.base, owner, damage)?;
+        policy.destroy_blocked = Some(self.module_data.destroy_riders_who_are_not_free_to_exit);
+        Some(policy)
+    }
+    fn supports_owned_redeployment(&self) -> bool {
+        true
+    }
+    fn begin_owned_redeployment(&mut self) -> Vec<ObjectID> {
+        self.base.begin_owned_redeployment()
+    }
+    fn owned_next_firepoint(&mut self, bones: &[Matrix3D]) -> Option<Matrix3D> {
+        self.base.owned_next_firepoint(bones)
+    }
+    fn owned_firepoint_index(&self) -> usize {
+        self.base.owned_firepoint_index()
+    }
+    fn advance_owned_firepoint(&mut self) {
+        self.base.advance_owned_firepoint();
+    }
     fn redeploy_riders_at(&mut self, owner_pos: &Coord3D, fire_points: &[Matrix3D]) {
         self.base.redeploy_riders_at(owner_pos, fire_points);
     }

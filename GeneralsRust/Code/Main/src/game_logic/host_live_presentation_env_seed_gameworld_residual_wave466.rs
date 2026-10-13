@@ -293,13 +293,12 @@ mod tests {
     #[test]
     fn seed_presentation_env_frame_includes_gameworld_shadow_objects() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-        use crate::gameworld_shadow::{GameWorldShadow, ensure_gate_damage_authority};
+        use crate::gameworld_shadow::GameWorldShadow;
         use crate::presentation_frame::presentation_from_gameworld_enabled;
         use gamelogic::world::PlayerId;
         use gamelogic::world::entities::TemplateRef;
         use glam::Vec3;
 
-        ensure_gate_damage_authority();
         let mut logic = GameLogic::new();
         let mut t = ThingTemplate::new("EnvSeedRanger466");
         t.set_health(100.0);
@@ -370,11 +369,10 @@ mod tests {
     #[test]
     fn seed_presentation_env_frame_matches_build_for_engine() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-        use crate::gameworld_shadow::{GameWorldShadow, ensure_gate_damage_authority};
+        use crate::gameworld_shadow::GameWorldShadow;
         use crate::presentation_frame::PresentationFrame;
         use glam::Vec3;
 
-        ensure_gate_damage_authority();
         let mut logic = GameLogic::new();
         let mut t = ThingTemplate::new("EnvSeedEq466");
         t.set_health(80.0);

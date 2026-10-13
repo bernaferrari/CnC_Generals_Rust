@@ -21,6 +21,15 @@ pub enum ContainAdmissionTarget {
     ActiveFirstChild(ObjectID),
 }
 
+/// Literal OpenContain onDie policy evaluated against the actual receiving owner.
+#[derive(Debug, Clone, Copy)]
+pub struct OwnedContainDeathPolicy {
+    pub applicable: bool,
+    pub damage_percent: Real,
+    pub burned: bool,
+    pub destroy_blocked: Option<bool>,
+}
+
 /// Evaluate admission against exact store-selected objects. Missing payload or
 /// payload contain falls back to the literal owner's algorithm, as in C++.
 pub fn contain_admission_with_lookup(
@@ -152,6 +161,53 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     /// Parachute: drawable stays hidden until opened. None means no change.
     fn drawable_hidden_after_transform(&self) -> Option<bool> {
         None
+    }
+
+    fn owned_tunnel_registered(&self) -> Option<bool> {
+        None
+    }
+    fn owned_tunnel_creation_needed(&self) -> Option<bool> {
+        None
+    }
+    fn finish_owned_tunnel_creation(&mut self, _registered: bool) {
+        panic!("not a tunnel")
+    }
+    fn finish_owned_tunnel_retirement(&mut self) {
+        panic!("not a tunnel")
+    }
+    fn owned_tunnel_die_applicable(&self, _owner: &Object, _damage: &DamageInfo) -> Option<bool> {
+        None
+    }
+    fn supports_owned_lifecycle(&self) -> bool {
+        false
+    }
+    fn owned_physical_members(&self) -> Option<Vec<ObjectID>> {
+        None
+    }
+    fn owned_death_policy(
+        &self,
+        _owner: &Object,
+        _damage: &DamageInfo,
+    ) -> Option<OwnedContainDeathPolicy> {
+        None
+    }
+    fn supports_owned_redeployment(&self) -> bool {
+        false
+    }
+    fn begin_owned_redeployment(&mut self) -> Vec<ObjectID> {
+        panic!("owned containment pose unsupported")
+    }
+    fn owned_next_firepoint(
+        &mut self,
+        _bones: &[crate::common::Matrix3D],
+    ) -> Option<crate::common::Matrix3D> {
+        panic!("owned containment pose unsupported")
+    }
+    fn owned_firepoint_index(&self) -> usize {
+        0
+    }
+    fn advance_owned_firepoint(&mut self) {
+        panic!("owned containment pose unsupported")
     }
 
     fn redeploy_riders_at(
@@ -688,7 +744,11 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     /// Get contain max as i32 (matches legacy API).
     fn get_contain_max(&self) -> i32 {
         let max = self.get_max_capacity();
-        if max == usize::MAX { -1 } else { max as i32 }
+        if max == usize::MAX {
+            -1
+        } else {
+            max as i32
+        }
     }
 
     /// Return container pip display data for selected-object UI.

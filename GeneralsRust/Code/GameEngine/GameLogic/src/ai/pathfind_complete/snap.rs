@@ -298,6 +298,16 @@ impl PathfindingSystem {
     ///
     /// Returns world position for a unit's tracked pathfind goal cell.
     pub fn goal_position(&self, unit_id: ObjectID, unit_radius: f32, out: &mut Coord3D) -> bool {
+        self.goal_position_with_observations(unit_id, unit_radius, out, None)
+    }
+
+    pub(crate) fn goal_position_with_observations(
+        &self,
+        unit_id: ObjectID,
+        unit_radius: f32,
+        out: &mut Coord3D,
+        observations: Option<&PathfindObservations<'_>>,
+    ) -> bool {
         let cell = {
             let goals = &self.unit_goal_cells;
             match goals.get(&unit_id).copied() {
@@ -305,16 +315,31 @@ impl PathfindingSystem {
                 _ => return false,
             }
         };
+        self.goal_position_for_cell_with_observations(cell, unit_radius, out, observations)
+    }
+
+    /// AIPathfind.cpp:5162-5174 reads the installed AI's saved goal cell.
+    pub(crate) fn goal_position_for_cell_with_observations(
+        &self,
+        cell: ICoord2D,
+        unit_radius: f32,
+        out: &mut Coord3D,
+        observations: Option<&PathfindObservations<'_>>,
+    ) -> bool {
+        if cell.x < 0 || cell.y < 0 {
+            return false;
+        }
         let (_radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
         out.x = 0.0;
         out.y = 0.0;
         out.z = 0.0;
-        self.adjust_coord_to_cell(
+        self.adjust_coord_to_cell_with_observations(
             cell.x,
             cell.y,
             center_in_cell,
             out,
             PathfindLayerEnum::Ground,
+            observations,
         );
         true
     }

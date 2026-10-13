@@ -2,7 +2,7 @@
 //! same-ID comparison session is published on the calling thread.
 use super::pose_owner_tests::isolated_at;
 use super::*;
-use crate::gameworld_shadow::{CoupledTickGuard, GameWorldShadow, with_coupled_shadow};
+use crate::gameworld_shadow::GameWorldShadow;
 
 fn fixture(health: f32, cash: u32, x: f32) -> (GameLogic, ObjectId, ObjectId) {
     let mut parser = crate::assets::IniParser::new();
@@ -106,14 +106,23 @@ fn all_object_and_player_queries_use_the_receiving_owner() {
             let (world, id, target) = fixture(80.0, 101, 1.0);
             let (_foreign, foreign_id, foreign_target, mut shadow) = conflicting_shadow();
             assert_eq!((id, target), (foreign_id, foreign_target));
-            let _couple = CoupledTickGuard::enter();
-            with_coupled_shadow(&mut shadow, || {
+
+            {
                 assert_eq!(
-                    crate::gameworld_shadow::coupled_entity_health(id),
+                    shadow
+                        .world()
+                        .entity(shadow.entity_for_host(id).unwrap())
+                        .map(|entity| entity.health),
                     Some(0.0),
                     "positive control observes the foreign entity"
                 );
-                assert_eq!(crate::gameworld_shadow::coupled_player_cash(0), Some(901));
+                assert_eq!(
+                    shadow
+                        .world()
+                        .player(shadow.player_for_host(0).unwrap())
+                        .map(|player| player.supplies),
+                    Some(901)
+                );
                 let object = world.host_object(id).unwrap();
                 assert!(
                     object.is_alive(),
@@ -160,7 +169,7 @@ fn all_object_and_player_queries_use_the_receiving_owner() {
                     None,
                     "a foreign mapping cannot admit a missing host object"
                 );
-            });
+            };
         },
     );
 }
@@ -175,8 +184,8 @@ fn ordinary_mutable_borrows_never_overlay_or_publish_a_foreign_world() {
             let (foreign, foreign_id, _, mut shadow) = conflicting_shadow();
             assert_eq!(id, foreign_id);
             let eid = shadow.entity_for_host(id).unwrap();
-            let _couple = CoupledTickGuard::enter();
-            with_coupled_shadow(&mut shadow, || {
+
+            {
                 let object = world.host_object_mut(id).unwrap();
                 assert_eq!(
                     object.health.current, 80.0,
@@ -198,10 +207,13 @@ fn ordinary_mutable_borrows_never_overlay_or_publish_a_foreign_world() {
                 assert!(events.snapshot_damage().is_empty());
                 assert_eq!(world.host_authoritative_health(id), Some(55.0));
                 assert_eq!(
-                    crate::gameworld_shadow::coupled_entity_health(id),
+                    shadow
+                        .world()
+                        .entity(shadow.entity_for_host(id).unwrap())
+                        .map(|entity| entity.health),
                     Some(0.0)
                 );
-            });
+            };
             assert_eq!(shadow.world().entity(eid).unwrap().health, 0.0);
             assert_eq!(foreign.objects[&id].health.current, 0.0);
             assert_eq!(world.objects[&id].health.current, 55.0);
@@ -219,8 +231,8 @@ fn a_completed_logic_step_cannot_ingress_same_id_foreign_shadow_values() {
             let (mut foreign, foreign_id, _, mut shadow) = conflicting_shadow();
             assert_eq!(id, foreign_id);
             let before = world.objects[&id].get_position();
-            let _couple = CoupledTickGuard::enter();
-            with_coupled_shadow(&mut shadow, || {
+
+            {
                 let result = world.update_with_dt(1.0 / 30.0);
                 assert_eq!(result.steps_run, 1, "actual Main fixed step ran");
                 assert_eq!(
@@ -230,7 +242,7 @@ fn a_completed_logic_step_cannot_ingress_same_id_foreign_shadow_values() {
                 assert!(!world.objects[&id].status.destroyed);
                 assert_eq!(world.objects[&id].get_position(), before);
                 assert_eq!(world.host_authoritative_health(id), Some(80.0));
-            });
+            };
             foreign.reset();
             assert_eq!(world.objects[&id].health.current, 80.0);
             assert_eq!(world.get_frame(), 1);
@@ -250,10 +262,13 @@ fn victory_phase_updates_the_receiving_players_from_owned_objects() {
             let (_foreign, foreign_id, _, mut shadow) = conflicting_shadow();
             assert_eq!(id, foreign_id);
             world.players.get_mut(&0).unwrap().is_alive = false;
-            let _couple = CoupledTickGuard::enter();
-            with_coupled_shadow(&mut shadow, || {
+
+            {
                 assert_eq!(
-                    crate::gameworld_shadow::coupled_entity_health(id),
+                    shadow
+                        .world()
+                        .entity(shadow.entity_for_host(id).unwrap())
+                        .map(|entity| entity.health),
                     Some(0.0)
                 );
                 world.evaluate_victory_condition();
@@ -262,7 +277,7 @@ fn victory_phase_updates_the_receiving_players_from_owned_objects() {
                     "victory derives life from this world's actual objects"
                 );
                 assert_eq!(world.objects[&id].health.current, 80.0);
-            });
+            };
         },
     );
 }

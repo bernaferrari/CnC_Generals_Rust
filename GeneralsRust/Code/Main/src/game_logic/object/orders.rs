@@ -605,12 +605,10 @@ impl Object {
         if position.is_some() {
             self.set_ai_state(AIState::GuardingArea);
         }
-        self.record_host_guard();
     }
 
     pub fn set_guard_mode(&mut self, mode: GuardMode) {
         self.guard_mode = mode;
-        self.record_host_guard();
     }
 
     pub fn set_guard_target(&mut self, target: Option<ObjectId>) {
@@ -619,7 +617,6 @@ impl Object {
         if target.is_some() {
             self.set_ai_state(AIState::GuardingObject);
         }
-        self.record_host_guard();
     }
 
     /// Drop AIGuard inner/outer/aggressor chase exits (player order or return).
@@ -684,7 +681,6 @@ impl Object {
             self.record_host_combat_attack();
         }
         crate::game_logic::host_attack_log::record(self.id, Some(victim));
-        self.record_host_guard();
     }
 
     /// Clear GuardRetaliate residual and return to guard/idle.

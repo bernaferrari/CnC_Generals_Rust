@@ -1,4 +1,4 @@
-//! Fire-intent/spawn, damage writeback, residual auto-fire, AI stop.
+//! Canonical Main fire, damage, timers and AI state; projections only observe.
 
 use super::*;
 
@@ -9,16 +9,11 @@ fn owner_damage(logic: &mut GameLogic, id: ObjectId, amount: f32) -> bool {
 
 #[test]
 fn fire_at_records_fire_intent_residual() {
-    let _env_guard = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_SHADOW", "1")
-        .couple();
-
     use crate::game_logic::host_fire_intent_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     host_fire_intent_log::clear();
-    crate::game_logic::host_historic_bonus::set_logic_frame(77);
     let mut logic = GameLogic::new();
-    logic.set_ai_attack_authority(true);
+
     let cfg = golden_skirmish_config("FireAtRec");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     logic.set_current_frame(77);
@@ -43,11 +38,11 @@ fn fire_at_records_fire_intent_residual() {
             ..Weapon::default()
         });
         o.status.weapons_jammed = false;
-        let fired = o.fire_at(vid, 1.0, logic.frame, &mut logic.combat_system, false);
+        let fired = o.fire_at(vid, 1.0, logic.frame, &mut logic.combat_system);
         assert!(fired, "close-range fire_at should discharge");
-        // Host last_fire_* deferred under AI attack authority.
-        assert_eq!(o.last_fire_victim_host, 0);
-        assert_eq!(o.last_fire_frame, 0);
+        // The shot commits its durable fields before any observer refresh.
+        assert_eq!(o.last_fire_victim_host, vid.0);
+        assert_eq!(o.last_fire_frame, 77);
         assert!(o.fire_intent_count >= 1, "counter still advances");
     }
     let evs = host_fire_intent_log::drain();
@@ -59,16 +54,14 @@ fn fire_at_records_fire_intent_residual() {
     );
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert!(shadow.apply_host_fire_intent_events(&evs) >= 1);
-    assert!(shadow.writeback_fire_intent_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_fire_intent_ready_log::drain();
+
     let o = logic.host_objects().get(&oid).unwrap();
     assert_eq!(o.last_fire_victim_host, vid.0);
     assert_eq!(o.last_fire_frame, 77);
     assert!((o.last_fire_damage - 15.0).abs() < 1e-5);
 
-    // Legacy path: authority off — host last_fire_* applied same-frame.
-    logic.set_ai_attack_authority(false);
+    // A subsequent ordinary shot has the same immediate owner semantics.
+
     host_fire_intent_log::clear();
     {
         let _ = logic.host_object_mut(oid).expect("o");
@@ -81,7 +74,7 @@ fn fire_at_records_fire_intent_residual() {
         if let Some(w) = o.weapon.as_mut() {
             w.last_fire_time = 0.0;
         }
-        let fired = o.fire_at(vid, 2.0, logic.frame, &mut logic.combat_system, false);
+        let fired = o.fire_at(vid, 2.0, logic.frame, &mut logic.combat_system);
         assert!(fired);
         assert_eq!(o.last_fire_victim_host, vid.0);
         assert!(o.fire_intent_count >= 1);
@@ -91,16 +84,10 @@ fn fire_at_records_fire_intent_residual() {
 
 #[test]
 fn assign_unit_path_decision_authority() {
-    let _env_guard = authority_env_lock();
-
-    use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
 
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
-    let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
-    logic.set_ai_decision_authority(true);
+
     let cfg = golden_skirmish_config("PathMv");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("PmU") {
@@ -118,15 +105,7 @@ fn assign_unit_path_decision_authority() {
     }
     let ok = logic.assign_unit_path_for_test(oid, glam::Vec3::new(50.0, 0.0, 0.0), &[]);
     assert!(ok, "path assign should succeed");
-    let events = host_ai_decision_log::drain();
-    assert!(
-        events.iter().any(|e| {
-            e.kind == host_ai_decision_log::AI_DECISION_SET_STATE
-                && e.host_object == oid
-                && e.ai_state_ordinal == 1
-        }),
-        "assign_unit_path must log Moving; got {events:?}"
-    );
+
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Moving,
@@ -152,7 +131,7 @@ fn assign_unit_path_decision_authority() {
     );
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Moving
@@ -161,17 +140,10 @@ fn assign_unit_path_decision_authority() {
 
 #[test]
 fn private_idle_decision_authority() {
-    let _env_guard = authority_env_lock();
-
-    use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
 
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
-    let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
-    logic.set_ai_decision_authority(true);
-    logic.set_ai_attack_authority(true);
+
     let cfg = golden_skirmish_config("IdleAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["IdU", "IdE"] {
@@ -194,31 +166,34 @@ fn private_idle_decision_authority() {
         o.set_ai_state(AIState::Attacking);
     }
     assert!(logic.private_idle_for_test(oid));
-    let events = host_ai_decision_log::drain();
-    assert!(
-        events
-            .iter()
-            .any(|e| e.kind == host_ai_decision_log::AI_DECISION_STOP_ATTACK),
-        "private_idle must log StopAttack; got {events:?}"
-    );
-    assert!(
-        events.iter().any(|e| {
-            e.kind == host_ai_decision_log::AI_DECISION_SET_STATE && e.ai_state_ordinal == 0
-        }),
-        "private_idle must log Idle; got {events:?}"
-    );
+
     // AIUpdate.cpp:3067 clears the state machine and enters Idle immediately.
     let idle = logic.host_objects().get(&oid).unwrap();
     assert!(idle.target.is_none());
     assert_eq!(idle.ai_state, AIState::Idle);
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-    // Perturb the diagnostic input only after validating the host result.
-    logic.host_object_mut(oid).unwrap().target = Some(vid);
-    assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_attack_target_ready_log::drain();
-    // set_target(None) residual also idles host; either writeback path is enough.
+
+    let entity = shadow.entity_for_host(oid).unwrap();
+    let target = shadow.entity_for_host(vid).unwrap();
+    shadow
+        .world_mut()
+        .world_mut()
+        .entity_mut(entity)
+        .unwrap()
+        .attack_target = Some(target);
+    assert!(logic.host_object(oid).unwrap().target.is_none());
+    shadow.sync_from_host(&logic);
+    assert!(
+        shadow
+            .world()
+            .entity(entity)
+            .unwrap()
+            .attack_target
+            .is_none()
+    );
+
+    // The canonical command has already entered Idle.
     let o = logic.host_objects().get(&oid).unwrap();
     assert!(o.target.is_none());
     assert_eq!(o.ai_state, AIState::Idle);
@@ -298,15 +273,10 @@ fn residual_ai_state_paths_use_owned_state_writers() {
 
 #[test]
 fn append_unit_waypoint_decision_authority() {
-    let _env_guard = authority_env_lock();
-
-    use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
-    let _couple = super::ShadowCoupleGuard::enter();
+
     let mut logic = GameLogic::new();
-    logic.set_ai_decision_authority(true);
+
     let cfg = golden_skirmish_config("WpAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("WpU") {
@@ -321,15 +291,7 @@ fn append_unit_waypoint_decision_authority() {
         o.movement.max_speed = 20.0;
     }
     assert!(logic.append_unit_waypoint_for_test(oid, glam::Vec3::new(30.0, 0.0, 0.0)));
-    let events = host_ai_decision_log::drain();
-    assert!(
-        events.iter().any(|e| {
-            e.kind == host_ai_decision_log::AI_DECISION_SET_STATE
-                && e.host_object == oid
-                && e.ai_state_ordinal == 1
-        }),
-        "waypoint must log Moving; got {events:?}"
-    );
+
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Moving,
@@ -337,7 +299,7 @@ fn append_unit_waypoint_decision_authority() {
     );
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Moving
@@ -346,15 +308,10 @@ fn append_unit_waypoint_decision_authority() {
 
 #[test]
 fn set_ai_state_decision_aware_writeback() {
-    let _env_guard = authority_env_lock();
-
-    use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
-    let _couple = super::ShadowCoupleGuard::enter();
+
     let mut logic = GameLogic::new();
-    logic.set_ai_decision_authority(true);
+
     let cfg = golden_skirmish_config("StateAw");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("SaU") {
@@ -366,24 +323,15 @@ fn set_ai_state_decision_aware_writeback() {
         .create_object("SaU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
     logic.set_ai_state_decision_aware_for_test(oid, AIState::Gathering);
-    let events = host_ai_decision_log::drain();
-    let ord = GameWorldShadow::host_ai_state_ordinal(&AIState::Gathering);
-    assert!(
-        events.iter().any(|e| {
-            e.kind == host_ai_decision_log::AI_DECISION_SET_STATE
-                && e.host_object == oid
-                && e.ai_state_ordinal == ord
-        }),
-        "must log Gathering; got {events:?}"
-    );
-    // C++ AIUpdate applies state same-frame; host is last-writer input, GW writeback confirms.
+
+    // C++ AIUpdate applies this state synchronously to the receiving owner.
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Gathering
     );
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Gathering
@@ -416,32 +364,25 @@ fn death_type_channel_via_set_death_type() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    assert!(shadow.apply_host_death_type_events(&host_death_type_log::drain()) >= 1);
+
     assert_eq!(
         shadow.world().entity(eid).unwrap().death_type,
         HostDeathType::Burned.ordinal()
     );
     {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.status.death_type = HostDeathType::Normal;
+        let observer = shadow.world_mut().world_mut().entity_mut(eid).unwrap();
+        observer.death_type = HostDeathType::Normal.ordinal();
     }
-    assert!(shadow.writeback_death_type_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_death_type_ready_log::drain();
-    let _ = shadow.writeback_radar_extend_to_host(&mut logic);
-    let _ = shadow.writeback_shock_stun_to_host(&mut logic);
-    let _ = crate::game_logic::host_shock_stun_ready_log::drain();
-    let _ = shadow.compare_rebuild_producer_to_host(&logic);
-    let _ = shadow.writeback_sole_healing_to_host(&mut logic);
-    let _ = crate::game_logic::host_sole_healing_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_ai_request_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_request_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
+
+    shadow.sync_from_host(&logic);
+
     assert_eq!(
-        logic.host_objects().get(&oid).unwrap().status.death_type,
+        logic.host_object(oid).unwrap().status.death_type,
         HostDeathType::Burned
+    );
+    assert_eq!(
+        shadow.world().entity(eid).unwrap().death_type,
+        HostDeathType::Burned.ordinal()
     );
 }
 
@@ -471,31 +412,26 @@ fn radar_extend_channel_via_set_radar_extend() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    assert!(shadow.apply_host_radar_extend_events(&host_radar_extend_log::drain()) >= 1);
+
     let e = shadow.world().entity(eid).unwrap();
     assert_eq!(e.radar_extend_done_frame, 120);
     assert!(e.radar_active);
     assert!(!e.radar_extend_complete);
     {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.radar_active = false;
-        o.radar_extend_done_frame = 0;
+        let observer = shadow.world_mut().world_mut().entity_mut(eid).unwrap();
+        observer.radar_active = false;
+        observer.radar_extend_done_frame = 0;
     }
-    assert!(shadow.writeback_radar_extend_to_host(&mut logic) >= 1);
-    let _ = shadow.writeback_shock_stun_to_host(&mut logic);
-    let _ = crate::game_logic::host_shock_stun_ready_log::drain();
-    let _ = shadow.compare_rebuild_producer_to_host(&logic);
-    let _ = shadow.writeback_sole_healing_to_host(&mut logic);
-    let _ = crate::game_logic::host_sole_healing_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_ai_request_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_request_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
+
+    shadow.sync_from_host(&logic);
+
     let o = logic.host_objects().get(&oid).unwrap();
     assert!(o.radar_active);
     assert_eq!(o.radar_extend_done_frame, 120);
+    assert_eq!(
+        shadow.world().entity(eid).unwrap().radar_extend_done_frame,
+        120
+    );
 }
 
 #[test]
@@ -534,7 +470,7 @@ fn special_power_tick_records_host_special_power_log() {
 }
 
 #[test]
-fn special_power_session_writeback_after_tick() {
+fn special_power_timer_belongs_to_owner_not_projection() {
     use crate::game_logic::{KindOf, Team, ThingTemplate, host_special_power_log};
     host_special_power_log::clear();
     let mut logic = GameLogic::new();
@@ -558,21 +494,34 @@ fn special_power_session_writeback_after_tick() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let events = host_special_power_log::drain();
-    assert!(shadow.apply_host_special_power_events(&events) >= 1);
-    // Desync host after GameWorld apply so writeback has work.
+    assert!(!events.is_empty());
+    // A stale or corrupt observation cannot change the owner timer.
     {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.special_power_cooldown_remaining = 9.0;
+        let entity = shadow.entity_for_host(oid).unwrap();
+        shadow
+            .world_mut()
+            .world_mut()
+            .entity_mut(entity)
+            .unwrap()
+            .special_power_cooldown_remaining = 9.0;
     }
-    assert!(shadow.writeback_special_power_to_host(&mut logic) >= 1);
+
     let o = logic.host_objects().get(&oid).expect("o");
     assert!((o.special_power_cooldown_remaining - 2.0).abs() < 1e-3);
+    shadow.sync_from_host(&logic);
+    let entity = shadow.entity_for_host(oid).unwrap();
+    assert_eq!(
+        shadow
+            .world()
+            .entity(entity)
+            .unwrap()
+            .special_power_cooldown_remaining,
+        2.0
+    );
 }
 
 #[test]
-fn damage_authority_writeback_is_last_writer() {
-    let _env_guard = authority_env_lock();
-
+fn damage_is_immediate_and_projection_cannot_reapply_it() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DmgAuthority");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -585,20 +534,17 @@ fn damage_authority_writeback_is_last_writer() {
     shadow.sync_from_host(&logic);
     let pre = logic.host_objects().get(&id).unwrap().health.current;
 
-    logic.set_damage_authority(true);
-    assert!(gameworld_damage_authority_enabled());
     // Wave 758: couple for damage_authority_live.
-    let _couple = ShadowCoupleGuard::enter();
-    with_coupled_shadow(&mut shadow, || {
+
+    {
         if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(id) {
             let _ = obj.take_damage(25.0, health_events);
         }
-    });
-    drop(_couple);
+    };
+
     let host_mid = logic.host_objects().get(&id).unwrap().health.current;
     // C++ ActiveBody::internalChangeHealth writes HP the same frame.
-    // Host still logs for the shadow channel; writeback remains last-writer
-    // after a deliberate host desync below.
+    // The observer cannot change the result of this owner write.
     assert!(
         (host_mid - (pre - 25.0)).abs() < 0.01,
         "host HP must apply same frame (C++ internalChangeHealth); mid={host_mid} pre={pre}"
@@ -606,47 +552,28 @@ fn damage_authority_writeback_is_last_writer() {
 
     let events = logic.health_events.drain_damage();
     assert!(!events.is_empty());
-    shadow.sync_from_host_with(&logic, false);
     let eid = shadow.entity_for_host(id).unwrap();
-    let shadow_pre_mut = shadow.world().entity(eid).unwrap().health;
-    assert!(
-        (shadow_pre_mut - pre).abs() < 0.01,
-        "expected pre-tick shadow hp {pre} got {shadow_pre_mut}"
-    );
-    let _ = shadow.apply_host_damage_events(&events);
-    // Deliberately desync host so writeback must run.
-    if let Some(obj) = logic.host_object_mut(id) {
-        obj.health.current = pre; // restore pre-damage on host
-        obj.status.destroyed = false;
+    shadow
+        .world_mut()
+        .world_mut()
+        .entity_mut(eid)
+        .unwrap()
+        .health = 999.0;
+    for _ in 0..2 {
+        shadow.sync_from_host(&logic);
+        let host_final = logic.host_object(id).unwrap().health.current;
+        let observed = shadow.world().entity(eid).unwrap().health;
+        assert!((host_final - (pre - 25.0)).abs() < 0.01);
+        assert!((observed - host_final).abs() < 0.01);
+        assert!(host_final < pre);
     }
-    let wb = shadow.writeback_health_to_host(&mut logic);
-    assert!(wb >= 1, "expected writeback after host desync");
-    let host_final = logic.host_objects().get(&id).unwrap().health.current;
-    let shadow_final = shadow.world().entity(eid).unwrap().health;
-    assert!(
-        (host_final - shadow_final).abs() < 0.05,
-        "writeback mismatch host={host_final} shadow={shadow_final}"
-    );
-    assert!(
-        (host_final - (pre - 25.0)).abs() < 0.05,
-        "authority final {host_final} expected ~{}",
-        pre - 25.0
-    );
-    assert!(host_final < pre);
 }
 
 #[test]
 fn damage_authority_applies_host_hp_when_shadow_disabled() {
-    let _env_guard = authority_env_lock();
-
     // Without a live shadow session, deferred damage would never write back.
     // Authority must couple to shadow_enabled so host-only combat still hits.
-    let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
-    assert!(!gameworld_shadow_enabled());
     let mut logic = GameLogic::new();
-    logic.set_damage_authority(true);
-    assert!(gameworld_damage_authority_enabled());
 
     logic.health_events.clear_damage();
     let cfg = golden_skirmish_config("DmgAuthNoShadow");
@@ -664,32 +591,20 @@ fn damage_authority_applies_host_hp_when_shadow_disabled() {
         (mid - (pre - 25.0)).abs() < 0.01,
         "host HP must apply immediately when shadow disabled; pre={pre} mid={mid}"
     );
-
-    // restore env
-    match prev_shadow {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-    }
 }
 
 #[test]
-fn damage_authority_lethal_marks_destroyed_without_host_hp() {
-    let _env_guard = authority_env_lock();
-    let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-
+fn lethal_damage_marks_destroyed_and_zero_health_immediately() {
     // C++ ActiveBody::internalChangeHealth writes HP the same frame.
     let mut logic = GameLogic::new();
-    logic.set_damage_authority(true);
+
     let cfg = golden_skirmish_config("DmgAuthLethalFlag");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "AuthUnit", 50.0);
     let id = logic
         .create_object("AuthUnit", Team::USA, Vec3::new(3.0, 0.0, 0.0))
         .expect("unit");
-    assert!(gameworld_damage_authority_enabled());
-    assert!(gameworld_shadow_enabled());
-    let _couple = ShadowCoupleGuard::enter();
+
     if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(id) {
         let dead = obj.take_damage(999.0, health_events);
         assert!(dead, "projected lethal");
@@ -702,11 +617,6 @@ fn damage_authority_lethal_marks_destroyed_without_host_hp() {
         );
     } else {
         panic!("missing unit");
-    }
-    drop(_couple);
-    match prev_shadow {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
 }
 
@@ -728,8 +638,8 @@ fn host_owner_log_feeds_transfer_owner_mutation() {
     }
     let events = crate::game_logic::host_owner_log::drain();
     assert_eq!(events.len(), 1);
-    let n = shadow.apply_host_owner_events(&logic, &events);
-    assert_eq!(n, 1);
+    assert_eq!(events[0].object, id);
+    shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("map");
     let owner = shadow.world().entity(eid).unwrap().owner;
     let expected = shadow.owner_for_host_object(&logic, logic.host_object(id).unwrap());
@@ -755,14 +665,14 @@ fn host_heal_log_feeds_set_health_mutation() {
     let mut shadow = GameWorldShadow::new(4096);
     shadow.sync_from_host(&logic);
     {
-        let o = logic.host_object_mut(id).unwrap();
-        o.health.current = 70.0;
-        logic.health_events.record_heal(id, 70.0);
+        let (o, events) = logic.host_object_and_health_events_mut(id).unwrap();
+        o.heal(30.0, events);
     }
     let heals = logic.health_events.drain_heal();
-    let n = shadow.apply_host_heal_events(&heals);
-    assert_eq!(n, 1);
-    let probe = shadow.probe(&mut logic);
+    assert_eq!(heals.len(), 1);
+    assert_eq!(logic.host_object(id).unwrap().health.current, 70.0);
+    shadow.sync_from_host(&logic);
+    let probe = shadow.probe(&logic);
     assert!(
         probe.health_match,
         "heal SetHealth should match host: {}",
@@ -771,7 +681,7 @@ fn host_heal_log_feeds_set_health_mutation() {
 }
 
 #[test]
-fn host_damage_log_feeds_shadow_mutation_channel() {
+fn actual_damage_is_copied_into_projection() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DmgLogChannel");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -780,9 +690,11 @@ fn host_damage_log_feeds_shadow_mutation_channel() {
         .create_object("LogUnit", Team::USA, Vec3::new(1.0, 0.0, 0.0))
         .expect("unit");
     let mut shadow = GameWorldShadow::new(4096);
-    let queued = apply_logged_damage_channel_parity(&mut logic, &mut shadow, &[(id, 40.0)])
-        .expect("channel");
-    assert!(queued >= 1, "expected queued mutations");
+    assert!(!owner_damage(&mut logic, id, 40.0));
+    assert_eq!(logic.host_object(id).unwrap().health.current, 110.0);
+    shadow.sync_from_host(&logic);
+    let entity = shadow.entity_for_host(id).unwrap();
+    assert_eq!(shadow.world().entity(entity).unwrap().health, 110.0);
     assert!(shadow.entity_for_host(id).is_some());
 }
 
@@ -802,8 +714,14 @@ fn owned_construction_events_map_completed_structure_without_consuming_output() 
     // Do not sync first — apply construction should map via spawn residual.
     logic.construction_events.record(id, "USA_Barracks");
     let events = logic.construction_events.pending();
-    let n = shadow.apply_host_construction_events(events, &logic);
-    assert!(n >= 1, "construction apply mapped {n}");
+    assert_eq!(events.len(), 1);
+    let completed = events.to_vec();
+    shadow.sync_from_host(&logic);
+    assert_eq!(
+        logic.construction_events.pending(),
+        completed,
+        "observation cannot consume completion output"
+    );
     assert!(
         shadow.entity_for_host(id).is_some(),
         "completed structure must be mapped in shadow"
@@ -811,44 +729,19 @@ fn owned_construction_events_map_completed_structure_without_consuming_output() 
 }
 
 #[test]
-fn dozer_construction_ai_state_decision_authority_source() {
-    let src = GAME_LOGIC_HOST_SRC;
-    for fn_name in [
-        "update_dozer_bored_repair",
-        "update_construction",
-        "update_rebuild_holes",
-        "try_auto_resume_construction_residual",
-    ] {
-        let last = last_rust_fn_body(src, fn_name).unwrap_or_else(|| panic!("missing {fn_name}"));
-        let first = rust_fn_body(src, fn_name).unwrap_or(last);
-        let ok = [last, first].iter().any(|w| {
-            w.contains("gameworld_ai_decision_authority")
-                || w.contains("set_ai_state_decision_aware")
-                || w.contains("host_ai_decision_log::record_set_state")
-                || w.contains("apply_engagement_decision_aware")
-                || w.contains("record_stop_attack")
-                || w.contains("set_ai_state(AIState::Idle)")
-        });
-        assert!(ok, "{fn_name} must honor AI decision authority");
-    }
-    // Containment scatter moved to the original onDie observation point.
-    let contain = include_str!("../../game_logic/world_objects/containment_death.rs");
-    assert!(contain.contains("host_ai_decision_log::record_set_state"));
-    let physical = rust_fn_body(src, "process_destroy_list").expect("physical removal");
+fn physical_destructor_does_not_replay_containment_death_callbacks() {
+    // Structural ordering guard only; actual lifecycle tests establish behavior.
+    let physical =
+        rust_fn_body(GAME_LOGIC_HOST_SRC, "process_destroy_list").expect("physical removal");
     assert!(!physical.contains("apply_transport_death_scatter"));
 }
 
 #[test]
 fn dozer_bored_repair_state_decision_authority() {
-    let _env_guard = authority_env_lock();
-
-    use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
-    let _couple = super::ShadowCoupleGuard::enter();
+
     let mut logic = GameLogic::new();
-    logic.set_ai_decision_authority(true);
+
     let cfg = golden_skirmish_config("DzAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("DzU") {
@@ -861,16 +754,7 @@ fn dozer_bored_repair_state_decision_authority() {
         .create_object("DzU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
     logic.set_ai_state_decision_aware_for_test(oid, AIState::Repairing);
-    let events = host_ai_decision_log::drain();
-    let ord = GameWorldShadow::host_ai_state_ordinal(&AIState::Repairing);
-    assert!(
-        events.iter().any(|e| {
-            e.kind == host_ai_decision_log::AI_DECISION_SET_STATE
-                && e.host_object == oid
-                && e.ai_state_ordinal == ord
-        }),
-        "Repairing must be logged; got {events:?}"
-    );
+
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Repairing,
@@ -878,7 +762,7 @@ fn dozer_bored_repair_state_decision_authority() {
     );
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Repairing
@@ -886,59 +770,11 @@ fn dozer_bored_repair_state_decision_authority() {
 }
 
 #[test]
-fn capture_residual_ai_state_decision_authority_source() {
-    let src = GAME_LOGIC_HOST_SRC;
-    for fn_name in [
-        "fn on_capture_object_residual",
-        "fn on_capture_tunnel_network_residual",
-        "fn on_capture_kick_passengers",
-        "fn check_building_damage_states",
-        "fn put_hijacker_in_airborne_parachute",
-        "fn tick_strategy_center_turret_mood_target",
-    ] {
-        let i = src
-            .find(fn_name)
-            .unwrap_or_else(|| panic!("missing {fn_name}"));
-        let bytes = src.as_bytes();
-        let mut j = src[i..].find('{').map(|o| i + o).expect("body");
-        let mut depth = 0i32;
-        let end = loop {
-            match bytes.get(j) {
-                Some(b'{') => depth += 1,
-                Some(b'}') => {
-                    depth -= 1;
-                    if depth == 0 {
-                        break j;
-                    }
-                }
-                Some(_) => {}
-                None => panic!("unclosed {fn_name}"),
-            }
-            j += 1;
-        };
-        let w = &src[i..=end];
-        assert!(
-            w.contains("gameworld_ai_decision_authority")
-                || w.contains("set_ai_state_decision_aware")
-                || w.contains("host_ai_decision_log::record_set_state")
-                || w.contains("host_ai_decision_log::record_attack"),
-            "{fn_name} must honor AI decision authority"
-        );
-    }
-}
-
-#[test]
 fn hijacker_docked_state_decision_authority() {
-    let _env_guard = authority_env_lock();
-
-    use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
 
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
-    let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
-    logic.set_ai_decision_authority(true);
+
     let cfg = golden_skirmish_config("HjAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("HjU") {
@@ -950,16 +786,7 @@ fn hijacker_docked_state_decision_authority() {
         .create_object("HjU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
     logic.set_ai_state_decision_aware_for_test(oid, AIState::Docked);
-    let events = host_ai_decision_log::drain();
-    let ord = GameWorldShadow::host_ai_state_ordinal(&AIState::Docked);
-    assert!(
-        events.iter().any(|e| {
-            e.kind == host_ai_decision_log::AI_DECISION_SET_STATE
-                && e.host_object == oid
-                && e.ai_state_ordinal == ord
-        }),
-        "Docked must be logged; got {events:?}"
-    );
+
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Docked,
@@ -967,112 +794,10 @@ fn hijacker_docked_state_decision_authority() {
     );
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Docked
-    );
-}
-
-#[test]
-fn residual_eject_payload_ai_state_decision_authority_source() {
-    let src = GAME_LOGIC_HOST_SRC;
-    for fn_name in [
-        "fn apply_bunker_buster_to_target",
-        "fn apply_kill_garrisoned_to_target",
-        "fn apply_rider_free_fall_damage",
-        "fn tick_eject_parachute_residual",
-        "fn apply_host_hive_damage_from",
-        "fn update_angry_mobs",
-        "fn update_mines_and_demo_traps",
-        "fn clear_mine_internal",
-        "fn start_sell_object",
-        "fn cancel_dozers_building",
-        "fn resume_construction",
-        "fn apply_listening_outpost_initial_payload",
-        "fn apply_troop_crawler_initial_payload",
-        "fn command_attack",
-        "fn command_stop",
-    ] {
-        let i = src
-            .find(fn_name)
-            .unwrap_or_else(|| panic!("missing {fn_name}"));
-        let bytes = src.as_bytes();
-        let mut j = src[i..].find('{').map(|o| i + o).expect("body");
-        let mut depth = 0i32;
-        let end = loop {
-            match bytes.get(j) {
-                Some(b'{') => depth += 1,
-                Some(b'}') => {
-                    depth -= 1;
-                    if depth == 0 {
-                        break j;
-                    }
-                }
-                Some(_) => {}
-                None => panic!("unclosed {fn_name}"),
-            }
-            j += 1;
-        };
-        let w = &src[i..=end];
-        assert!(
-            w.contains("gameworld_ai_decision_authority")
-                || w.contains("set_ai_state_decision_aware")
-                || w.contains("host_ai_decision_log::record_set_state")
-                || w.contains("host_ai_decision_log::record_attack"),
-            "{fn_name} must honor AI decision authority"
-        );
-    }
-}
-
-#[test]
-fn residual_auto_fire_records_fire_intent_source() {
-    let src = GAME_LOGIC_HOST_SRC;
-    for fn_name in [
-        "fn try_strategy_center_bombardment_turret_fire",
-        "fn try_base_defense_residual_fire",
-        "fn update_pending_patriot_assists",
-        "fn try_sentry_drone_residual_fire",
-        "fn try_hellfire_drone_residual_fire",
-        "fn try_transport_passenger_residual_fire",
-        "fn try_garrison_residual_fire",
-    ] {
-        let i = src
-            .find(fn_name)
-            .unwrap_or_else(|| panic!("missing {fn_name}"));
-        let bytes = src.as_bytes();
-        let mut j = src[i..].find('{').map(|o| i + o).expect("body");
-        let mut depth = 0i32;
-        let end = loop {
-            match bytes.get(j) {
-                Some(b'{') => depth += 1,
-                Some(b'}') => {
-                    depth -= 1;
-                    if depth == 0 {
-                        break j;
-                    }
-                }
-                Some(_) => {}
-                None => panic!("unclosed {fn_name}"),
-            }
-            j += 1;
-        };
-        let w = &src[i..=end];
-        assert!(
-            w.contains("host_fire_intent_log::record")
-                && w.contains("gameworld_ai_attack_authority"),
-            "{fn_name} must record fire-intent under AI attack authority"
-        );
-    }
-    let obj = GAME_LOGIC_OBJECT_SRC;
-    let w = rust_fn_body(obj, "fire_at_ex_defer_weapon_barrel_advance")
-        .expect("actual Object shot implementation");
-    assert!(
-        w.contains("decision_authority_live: bool")
-            && w.contains("if decision_authority_live")
-            && w.contains("record_set_state")
-            && !w.contains("gameworld_ai_decision_authority_live()"),
-        "Object pre-attack must use the explicit driving-world decision policy"
     );
 }
 
@@ -1110,7 +835,7 @@ fn residual_auto_fire_damage_source_attribution_source() {
 fn residual_auto_fire_damage_source_writeback_channel() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.set_damage_authority(true);
+
     let cfg = golden_skirmish_config("DmgSrc");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["SrcA", "SrcB"] {
@@ -1132,8 +857,7 @@ fn residual_auto_fire_damage_source_writeback_channel() {
         let (v, health_events) = logic.host_object_and_health_events_mut(victim).unwrap();
         let _ = v.take_damage_from(25.0, Some(attacker), health_events);
         assert_eq!(v.last_damage_source, Some(attacker));
-        // Damage authority defers HP; projected destroy false.
-        assert!(v.health.current > 50.0 || gameworld_damage_authority_enabled());
+        // The actual nonlethal owner write retains its source.
     }
     let events = logic.health_events.drain_damage();
     assert!(
@@ -1144,52 +868,17 @@ fn residual_auto_fire_damage_source_writeback_channel() {
     );
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let applied = shadow.apply_host_damage_events(&events);
-    assert!(
-        applied.0 + applied.1 >= 1,
-        "expected damage apply {applied:?}"
-    );
+    assert_eq!(logic.host_object(victim).unwrap().health.current, 75.0);
+    let entity = shadow.entity_for_host(victim).unwrap();
+    assert_eq!(shadow.world().entity(entity).unwrap().health, 75.0);
 }
 
 #[test]
-fn private_stop_and_clear_target_decision_authority_source() {
-    let src = GAME_LOGIC_HOST_SRC;
-    assert!(
-        src.contains("fn clear_target_decision_aware"),
-        "clear_target_decision_aware helper must exist"
-    );
-    for fn_name in [
-        "private_stop",
-        "on_capture_tunnel_network_residual",
-        "on_capture_kick_passengers",
-        "check_building_damage_states",
-        "tick_strategy_center_turret_mood_target",
-    ] {
-        let w = last_rust_fn_body(src, fn_name).unwrap_or_else(|| panic!("missing {fn_name}"));
-        assert!(
-            w.contains("record_stop_attack")
-                || w.contains("clear_target_decision_aware")
-                || w.contains("stop_attack_decision_aware"),
-            "{fn_name} must clear combat targets via StopAttack decision channel"
-        );
-    }
-    let contain = include_str!("../../game_logic/world_objects/containment_death.rs");
-    let scatter = rust_fn_body(contain, "apply_transport_death_scatter").expect("onDie scatter");
-    assert!(scatter.contains("unit.target = None") && scatter.contains("record_set_state"));
-}
-
-#[test]
-fn private_stop_decision_authority_clears_via_writeback() {
-    let _env_guard = authority_env_lock();
-
-    use crate::game_logic::host_ai_decision_log;
+fn private_stop_clears_owner_before_projection() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_ai_decision_log::clear();
-    let _couple = super::ShadowCoupleGuard::enter();
+
     let mut logic = GameLogic::new();
-    logic.set_ai_decision_authority(true);
-    logic.set_ai_attack_authority(true);
+
     let cfg = golden_skirmish_config("PrivStop");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["PsU", "PsE"] {
@@ -1216,22 +905,27 @@ fn private_stop_decision_authority_clears_via_writeback() {
         logic.host_objects().get(&oid).unwrap().target.is_none(),
         "private_stop must clear host target immediately"
     );
-    let events = host_ai_decision_log::drain();
-    assert!(
-        events.iter().any(|e| {
-            e.kind == host_ai_decision_log::AI_DECISION_STOP_ATTACK && e.host_object == oid
-        }),
-        "private_stop must log StopAttack; got {events:?}"
-    );
+
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    // Seed world attack target then apply stop.
-    assert!(shadow.queue_set_attack_target_for_host(oid, Some(vid)));
-    let _ = shadow.apply_pending();
-    assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
-    let _ = shadow.apply_pending();
-    let _ = shadow.writeback_attack_targets_to_host(&mut logic);
-    let _ = crate::game_logic::host_attack_target_ready_log::drain();
+    let entity = shadow.entity_for_host(oid).unwrap();
+    let target = shadow.entity_for_host(vid).unwrap();
+    shadow
+        .world_mut()
+        .world_mut()
+        .entity_mut(entity)
+        .unwrap()
+        .attack_target = Some(target);
+    assert!(logic.host_object(oid).unwrap().target.is_none());
+    shadow.sync_from_host(&logic);
+    assert!(
+        shadow
+            .world()
+            .entity(entity)
+            .unwrap()
+            .attack_target
+            .is_none()
+    );
     assert!(
         logic.host_objects().get(&oid).unwrap().target.is_none(),
         "host remains clear after stop + GameWorld stop apply"

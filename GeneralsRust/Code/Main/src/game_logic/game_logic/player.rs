@@ -827,14 +827,7 @@ impl Player {
         if bounty > 0 {
             self.statistics.resources_collected =
                 self.statistics.resources_collected.saturating_add(bounty);
-            if crate::gameworld_shadow::gameworld_economy_authority_live() {
-                self.pending_supply_delta += bounty as i64;
-                crate::game_logic::host_economy_log::record(
-                    self.id,
-                    self.effective_supplies(),
-                    self.power_available,
-                );
-            } else {
+            {
                 self.resources.supplies = self.resources.supplies.saturating_add(bounty);
                 crate::game_logic::host_economy_log::record(
                     self.id,
@@ -1084,24 +1077,7 @@ impl Player {
             return false;
         }
         let power_after = self.power_available + cost.power; // Negative for consumption
-        if crate::gameworld_shadow::gameworld_economy_authority_live() {
-            self.pending_supply_delta -= cost.supplies as i64;
-            self.power_available = power_after;
-            if cost.supplies > 0 {
-                if record_spent {
-                    self.record_resources_spent(cost.supplies);
-                }
-                crate::game_logic::host_economy_log::record_money_audio(
-                    self.id,
-                    crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
-                );
-            }
-            crate::game_logic::host_economy_log::record(
-                self.id,
-                self.effective_supplies(),
-                self.power_available,
-            );
-        } else {
+        {
             self.resources.supplies -= cost.supplies;
             self.power_available = power_after;
             if cost.supplies > 0 {
@@ -1133,14 +1109,7 @@ impl Player {
                 .resources_collected
                 .saturating_add(amount.supplies);
         }
-        if crate::gameworld_shadow::gameworld_economy_authority_live() {
-            self.pending_supply_delta += amount.supplies as i64;
-            crate::game_logic::host_economy_log::record(
-                self.id,
-                self.effective_supplies(),
-                self.power_available,
-            );
-        } else {
+        {
             self.resources.supplies = self.resources.supplies.saturating_add(amount.supplies);
             crate::game_logic::host_economy_log::record(
                 self.id,
@@ -1187,14 +1156,7 @@ impl Player {
         if amount == 0 {
             return;
         }
-        if crate::gameworld_shadow::gameworld_economy_authority_live() {
-            self.pending_supply_delta += amount as i64;
-            crate::game_logic::host_economy_log::record(
-                self.id,
-                self.effective_supplies(),
-                self.power_available,
-            );
-        } else {
+        {
             self.resources.supplies = self.resources.supplies.saturating_add(amount);
             crate::game_logic::host_economy_log::record(
                 self.id,
@@ -1209,14 +1171,7 @@ impl Player {
         if amount == 0 {
             return;
         }
-        if crate::gameworld_shadow::gameworld_economy_authority_live() {
-            self.pending_supply_delta -= amount as i64;
-            crate::game_logic::host_economy_log::record(
-                self.id,
-                self.effective_supplies(),
-                self.power_available,
-            );
-        } else {
+        {
             self.resources.supplies = self.resources.supplies.saturating_sub(amount);
             crate::game_logic::host_economy_log::record(
                 self.id,

@@ -56,35 +56,11 @@ pub(super) struct Waves161200 {
     pub executable_presentation_boundary_method_names_wave176_ok: bool,
     pub executable_presentation_boundary_nav_commands_wave176_ok: bool,
     pub executable_presentation_boundary_live_wave176_ok: bool,
-    pub gameworld_production_authority_method_names_wave177_ok: bool,
-    pub gameworld_production_authority_nav_commands_wave177_ok: bool,
-    pub gameworld_production_authority_live_wave177_ok: bool,
-    pub gameworld_sole_tick_coupling_method_names_wave178_ok: bool,
-    pub gameworld_sole_tick_coupling_nav_commands_wave178_ok: bool,
-    pub gameworld_sole_tick_coupling_live_wave178_ok: bool,
-    pub movement_authority_env_ok: bool,
-    pub gameworld_authority_matrix_method_names_wave179_ok: bool,
-    pub gameworld_authority_matrix_nav_commands_wave179_ok: bool,
-    pub gameworld_authority_matrix_live_wave179_ok: bool,
-    pub ai_fire_construction_authority_env_ok: bool,
-    pub live_gameworld_production_writeback_method_names_wave180_ok: bool,
-    pub live_gameworld_production_writeback_nav_commands_wave180_ok: bool,
-    pub live_gameworld_production_writeback_live_wave180_ok: bool,
-    pub live_gameworld_construction_writeback_method_names_wave181_ok: bool,
-    pub live_gameworld_construction_writeback_nav_commands_wave181_ok: bool,
-    pub live_gameworld_construction_writeback_live_wave181_ok: bool,
-    pub live_gameworld_damage_channel_method_names_wave182_ok: bool,
-    pub live_gameworld_damage_channel_nav_commands_wave182_ok: bool,
-    pub live_gameworld_damage_channel_live_wave182_ok: bool,
-    pub live_gameworld_economy_movement_method_names_wave183_ok: bool,
-    pub live_gameworld_economy_movement_nav_commands_wave183_ok: bool,
-    pub live_gameworld_economy_movement_live_wave183_ok: bool,
-    pub live_gameworld_projectile_ai_method_names_wave184_ok: bool,
-    pub live_gameworld_projectile_ai_nav_commands_wave184_ok: bool,
-    pub live_gameworld_projectile_ai_live_wave184_ok: bool,
-    pub live_gameworld_fire_special_power_method_names_wave185_ok: bool,
-    pub live_gameworld_fire_special_power_nav_commands_wave185_ok: bool,
-    pub live_gameworld_fire_special_power_live_wave185_ok: bool,
+
+
+
+
+
     pub live_gameworld_presentation_view_method_names_wave186_ok: bool,
     pub live_gameworld_presentation_view_nav_commands_wave186_ok: bool,
     pub live_gameworld_presentation_view_live_wave186_ok: bool,
@@ -103,18 +79,8 @@ pub(super) struct Waves161200 {
     pub live_gameworld_entity_view_deepen_method_names_wave191_ok: bool,
     pub live_gameworld_entity_view_deepen_nav_commands_wave191_ok: bool,
     pub live_gameworld_entity_view_deepen_live_wave191_ok: bool,
-    pub live_presentation_append_missing_method_names_wave192_ok: bool,
-    pub live_presentation_append_missing_nav_commands_wave192_ok: bool,
-    pub live_presentation_append_missing_live_wave192_ok: bool,
-    pub live_presentation_build_from_gameworld_method_names_wave193_ok: bool,
-    pub live_presentation_build_from_gameworld_nav_commands_wave193_ok: bool,
-    pub live_presentation_build_from_gameworld_live_wave193_ok: bool,
-    pub live_presentation_from_gameworld_default_method_names_wave194_ok: bool,
-    pub live_presentation_from_gameworld_default_nav_commands_wave194_ok: bool,
-    pub live_presentation_from_gameworld_default_live_wave194_ok: bool,
-    pub live_presentation_build_for_engine_method_names_wave195_ok: bool,
-    pub live_presentation_build_for_engine_nav_commands_wave195_ok: bool,
-    pub live_presentation_build_for_engine_live_wave195_ok: bool,
+
+
     pub live_presentation_rebuilt_vertical_gate_method_names_wave196_ok: bool,
     pub live_presentation_rebuilt_vertical_gate_nav_commands_wave196_ok: bool,
     pub live_presentation_rebuilt_vertical_gate_live_wave196_ok: bool,
@@ -221,66 +187,11 @@ pub(super) fn evaluate(
             honesty_executable_presentation_boundary_nav_commands_residual_wave176(),
         executable_presentation_boundary_live_wave176_ok:
             simulate_executable_presentation_boundary_honesty(),
-        gameworld_production_authority_method_names_wave177_ok:
-            honesty_gameworld_production_authority_method_names_residual_wave177(),
-        gameworld_production_authority_nav_commands_wave177_ok:
-            honesty_gameworld_production_authority_nav_commands_residual_wave177(),
-        gameworld_production_authority_live_wave177_ok:
-            simulate_gameworld_production_authority_honesty(),
-        gameworld_sole_tick_coupling_method_names_wave178_ok:
-            honesty_gameworld_sole_tick_coupling_method_names_residual_wave178(),
-        gameworld_sole_tick_coupling_nav_commands_wave178_ok:
-            honesty_gameworld_sole_tick_coupling_nav_commands_residual_wave178(),
-        gameworld_sole_tick_coupling_live_wave178_ok: simulate_gameworld_sole_tick_coupling_honesty(
-        ),
-        movement_authority_env_ok: crate::gameworld_shadow::gameworld_movement_authority_enabled(),
-        gameworld_authority_matrix_method_names_wave179_ok:
-            honesty_gameworld_authority_matrix_method_names_residual_wave179(),
-        gameworld_authority_matrix_nav_commands_wave179_ok:
-            honesty_gameworld_authority_matrix_nav_commands_residual_wave179(),
-        gameworld_authority_matrix_live_wave179_ok: simulate_gameworld_authority_matrix_honesty(),
-        ai_fire_construction_authority_env_ok: {
-            use crate::gameworld_shadow::{
-                gameworld_ai_attack_authority_enabled, gameworld_fire_spawn_authority_enabled,
-            };
-            gameworld_ai_attack_authority_enabled() && gameworld_fire_spawn_authority_enabled()
-        },
-        live_gameworld_production_writeback_method_names_wave180_ok:
-            honesty_live_gameworld_production_writeback_method_names_residual_wave180(),
-        live_gameworld_production_writeback_nav_commands_wave180_ok:
-            honesty_live_gameworld_production_writeback_nav_commands_residual_wave180(),
-        live_gameworld_production_writeback_live_wave180_ok:
-            simulate_live_gameworld_production_writeback_honesty(),
-        live_gameworld_construction_writeback_method_names_wave181_ok:
-            honesty_live_gameworld_construction_writeback_method_names_residual_wave181(),
-        live_gameworld_construction_writeback_nav_commands_wave181_ok:
-            honesty_live_gameworld_construction_writeback_nav_commands_residual_wave181(),
-        live_gameworld_construction_writeback_live_wave181_ok:
-            simulate_live_gameworld_construction_writeback_honesty(),
-        live_gameworld_damage_channel_method_names_wave182_ok:
-            honesty_live_gameworld_damage_channel_method_names_residual_wave182(),
-        live_gameworld_damage_channel_nav_commands_wave182_ok:
-            honesty_live_gameworld_damage_channel_nav_commands_residual_wave182(),
-        live_gameworld_damage_channel_live_wave182_ok:
-            simulate_live_gameworld_damage_channel_honesty(),
-        live_gameworld_economy_movement_method_names_wave183_ok:
-            honesty_live_gameworld_economy_movement_method_names_residual_wave183(),
-        live_gameworld_economy_movement_nav_commands_wave183_ok:
-            honesty_live_gameworld_economy_movement_nav_commands_residual_wave183(),
-        live_gameworld_economy_movement_live_wave183_ok:
-            simulate_live_gameworld_economy_movement_honesty(),
-        live_gameworld_projectile_ai_method_names_wave184_ok:
-            honesty_live_gameworld_projectile_ai_method_names_residual_wave184(),
-        live_gameworld_projectile_ai_nav_commands_wave184_ok:
-            honesty_live_gameworld_projectile_ai_nav_commands_residual_wave184(),
-        live_gameworld_projectile_ai_live_wave184_ok: simulate_live_gameworld_projectile_ai_honesty(
-        ),
-        live_gameworld_fire_special_power_method_names_wave185_ok:
-            honesty_live_gameworld_fire_special_power_method_names_residual_wave185(),
-        live_gameworld_fire_special_power_nav_commands_wave185_ok:
-            honesty_live_gameworld_fire_special_power_nav_commands_residual_wave185(),
-        live_gameworld_fire_special_power_live_wave185_ok:
-            simulate_live_gameworld_fire_special_power_honesty(),
+
+
+
+
+
         live_gameworld_presentation_view_method_names_wave186_ok:
             honesty_live_gameworld_presentation_view_method_names_residual_wave186(),
         live_gameworld_presentation_view_nav_commands_wave186_ok:
@@ -317,30 +228,8 @@ pub(super) fn evaluate(
             honesty_live_gameworld_entity_view_deepen_nav_commands_residual_wave191(),
         live_gameworld_entity_view_deepen_live_wave191_ok:
             simulate_live_gameworld_entity_view_deepen_honesty(),
-        live_presentation_append_missing_method_names_wave192_ok:
-            honesty_live_presentation_append_missing_method_names_residual_wave192(),
-        live_presentation_append_missing_nav_commands_wave192_ok:
-            honesty_live_presentation_append_missing_nav_commands_residual_wave192(),
-        live_presentation_append_missing_live_wave192_ok:
-            simulate_live_presentation_append_missing_honesty(),
-        live_presentation_build_from_gameworld_method_names_wave193_ok:
-            honesty_live_presentation_build_from_gameworld_method_names_residual_wave193(),
-        live_presentation_build_from_gameworld_nav_commands_wave193_ok:
-            honesty_live_presentation_build_from_gameworld_nav_commands_residual_wave193(),
-        live_presentation_build_from_gameworld_live_wave193_ok:
-            simulate_live_presentation_build_from_gameworld_honesty(),
-        live_presentation_from_gameworld_default_method_names_wave194_ok:
-            honesty_live_presentation_from_gameworld_default_method_names_residual_wave194(),
-        live_presentation_from_gameworld_default_nav_commands_wave194_ok:
-            honesty_live_presentation_from_gameworld_default_nav_commands_residual_wave194(),
-        live_presentation_from_gameworld_default_live_wave194_ok:
-            simulate_live_presentation_from_gameworld_default_honesty(),
-        live_presentation_build_for_engine_method_names_wave195_ok:
-            honesty_live_presentation_build_for_engine_method_names_residual_wave195(),
-        live_presentation_build_for_engine_nav_commands_wave195_ok:
-            honesty_live_presentation_build_for_engine_nav_commands_residual_wave195(),
-        live_presentation_build_for_engine_live_wave195_ok:
-            simulate_live_presentation_build_for_engine_honesty(),
+
+
         live_presentation_rebuilt_vertical_gate_method_names_wave196_ok:
             honesty_live_presentation_rebuilt_vertical_gate_method_names_residual_wave196(),
         live_presentation_rebuilt_vertical_gate_nav_commands_wave196_ok:

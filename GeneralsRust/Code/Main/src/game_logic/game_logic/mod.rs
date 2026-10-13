@@ -15,7 +15,6 @@ mod ambient_sound_retries;
 mod authority;
 mod construct;
 mod crate_tick;
-pub mod gameworld_authority;
 mod host;
 mod player;
 mod script_camera;
@@ -25,15 +24,14 @@ pub(self) use authority::DestructionEvent;
 pub(crate) use authority::{AcceptedGatherCommand, SupplyDropoffEvent};
 pub use authority::{
     CommandPipelineOp, DirectPlayerOrder, HordeGrantCounter, HostObjectIdOp, HostObjectIdResult,
-    HostResidualMutationOp, HostSupportOp, HostSupportResult, HostWritebackOp, ObjectIdentityClear,
-    ObjectLifecycleOp, ObjectLifecycleResult, PostWritebackCompleteOp, ProductionAuthorityOp,
-    ProductionAuthorityResult, ReadyLogDrainOp, SessionControlOp, SpawnedPayloadKind,
+    HostResidualMutationOp, HostSupportOp, HostSupportResult, ObjectIdentityClear,
+    ObjectLifecycleOp, ObjectLifecycleResult, ProductionAuthorityOp, ProductionAuthorityResult,
+    SessionControlOp, SpawnedPayloadKind,
 };
 pub use crate_tick::{
     AICommand, AudioEventRequest, FixedStepDiagnostics, GameMode, PendingSpecialAbility,
     PlayerStatistics, SimTimingSnapshot,
 };
-pub use gameworld_authority::{GameWorldAuthority, current_gameworld_authority};
 pub(crate) use host::PathfindingHeightSamples;
 pub use host::{GameLogic, RuntimeWeatherState};
 pub(crate) use player::PlayerSideRole;

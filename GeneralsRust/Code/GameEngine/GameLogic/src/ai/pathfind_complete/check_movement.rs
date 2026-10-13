@@ -721,6 +721,25 @@ impl PathfindingSystem {
         is_crusher: bool,
         unit_radius: f32,
     ) -> bool {
+        self.adjust_to_possible_destination_with_observations(
+            start,
+            dest,
+            surfaces,
+            is_crusher,
+            unit_radius,
+            None,
+        )
+    }
+
+    pub(crate) fn adjust_to_possible_destination_with_observations(
+        &self,
+        start: &Coord3D,
+        dest: &mut Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        unit_radius: f32,
+        observations: Option<&PathfindObservations<'_>>,
+    ) -> bool {
         let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
         // C++: if (!center) adjustDest += PATHFIND_CELL_SIZE_F/2 before worldToCell.
         let mut adjust_dest = *dest;
@@ -742,7 +761,7 @@ impl PathfindingSystem {
         };
 
         if same_zone {
-            if self.is_destination_valid(
+            if self.is_destination_valid_with_observations(
                 goal_cell,
                 destination_layer,
                 surfaces,
@@ -750,6 +769,7 @@ impl PathfindingSystem {
                 radius,
                 center_in_cell,
                 None,
+                observations,
             ) {
                 // C++ returns true without rewriting dest when seed is already valid.
                 return true;
@@ -767,7 +787,7 @@ impl PathfindingSystem {
             for _ in 0..delta {
                 i += 1;
                 limit -= 1;
-                if self.try_zone_adjust(
+                if self.try_zone_adjust_with_observations(
                     i,
                     j,
                     start_cell,
@@ -776,6 +796,7 @@ impl PathfindingSystem {
                     radius,
                     center_in_cell,
                     dest,
+                    observations,
                 ) {
                     return true;
                 }
@@ -783,7 +804,7 @@ impl PathfindingSystem {
             for _ in 0..delta {
                 j += 1;
                 limit -= 1;
-                if self.try_zone_adjust(
+                if self.try_zone_adjust_with_observations(
                     i,
                     j,
                     start_cell,
@@ -792,6 +813,7 @@ impl PathfindingSystem {
                     radius,
                     center_in_cell,
                     dest,
+                    observations,
                 ) {
                     return true;
                 }
@@ -800,7 +822,7 @@ impl PathfindingSystem {
             for _ in 0..delta {
                 i -= 1;
                 limit -= 1;
-                if self.try_zone_adjust(
+                if self.try_zone_adjust_with_observations(
                     i,
                     j,
                     start_cell,
@@ -809,6 +831,7 @@ impl PathfindingSystem {
                     radius,
                     center_in_cell,
                     dest,
+                    observations,
                 ) {
                     return true;
                 }
@@ -816,7 +839,7 @@ impl PathfindingSystem {
             for _ in 0..delta {
                 j -= 1;
                 limit -= 1;
-                if self.try_zone_adjust(
+                if self.try_zone_adjust_with_observations(
                     i,
                     j,
                     start_cell,
@@ -825,6 +848,7 @@ impl PathfindingSystem {
                     radius,
                     center_in_cell,
                     dest,
+                    observations,
                 ) {
                     return true;
                 }
@@ -847,6 +871,31 @@ impl PathfindingSystem {
         center_in_cell: bool,
         dest: &mut Coord3D,
     ) -> bool {
+        self.try_zone_adjust_with_observations(
+            cx,
+            cy,
+            start_cell,
+            surfaces,
+            is_crusher,
+            radius,
+            center_in_cell,
+            dest,
+            None,
+        )
+    }
+
+    fn try_zone_adjust_with_observations(
+        &self,
+        cx: i32,
+        cy: i32,
+        start_cell: GridCoord,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        radius: i32,
+        center_in_cell: bool,
+        dest: &mut Coord3D,
+        observations: Option<&PathfindObservations<'_>>,
+    ) -> bool {
         let coord = GridCoord::new(cx, cy);
         if !self.is_valid_coord(coord) {
             return false;
@@ -861,7 +910,7 @@ impl PathfindingSystem {
             return false;
         }
 
-        if !self.is_destination_valid(
+        if !self.is_destination_valid_with_observations(
             coord,
             layer,
             surfaces,
@@ -869,11 +918,19 @@ impl PathfindingSystem {
             radius,
             center_in_cell,
             None,
+            observations,
         ) {
             return false;
         }
 
-        self.adjust_coord_to_cell(cx, cy, center_in_cell, dest, layer);
+        self.adjust_coord_to_cell_with_observations(
+            cx,
+            cy,
+            center_in_cell,
+            dest,
+            layer,
+            observations,
+        );
         true
     }
 

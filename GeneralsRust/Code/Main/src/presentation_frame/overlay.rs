@@ -1252,12 +1252,7 @@ impl PresentationFrame {
         // Prefer local_player_id slot (same dense index as host player id residual).
         let local_pid = gamelogic::world::PlayerId::from_index(self.local_player_id as u8);
         if let Some(p) = shadow.world().player(local_pid) {
-            if crate::gameworld_shadow::gameworld_economy_authority_live() {
-                self.local_supplies = p.supplies;
-                self.local_power = p.power_available;
-                self.local_power_produced = p.power_produced;
-                self.local_power_consumed = p.power_consumed;
-            }
+            {}
             // Presentation-only player residual (always from shadow when mapped).
             self.local_is_alive = p.is_alive;
             self.local_radar_count = p.radar_count;

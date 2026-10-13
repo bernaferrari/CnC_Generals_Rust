@@ -572,17 +572,35 @@ impl Object {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // C++ callbacks can resolve and mutate their owner. Snapshot only the
         // installed module handles, releasing the owner before entering them.
-        let modules = {
+        let (modules, unpublished) = {
             let owner = object
                 .read()
                 .map_err(|_| "object lock poisoned before creation callbacks")?;
             #[cfg(test)]
             LAST_ON_CREATED_SIBLING_COUNT
                 .store(owner.behaviors.len(), std::sync::atomic::Ordering::Relaxed);
-            owner.modules.clone()
+            (owner.modules.clone(), !owner.ambient_lifecycle_admitted)
         };
         for entry in &modules {
-            entry.with_module(|module| module.on_object_created());
+            entry.with_module(|module| {
+                if unpublished {
+                    if let Some(contain) =
+                        crate::contain_module_overrides::contain_handle_for_module(module)
+                    {
+                        if contain
+                            .lock()
+                            .expect("construction contain poisoned")
+                            .owned_tunnel_creation_needed()
+                            .is_some()
+                        {
+                            // Tunnel registration requires the receiving Player tracker.
+                            // Preserve its pending creation edge for the native callback.
+                            return;
+                        }
+                    }
+                }
+                module.on_object_created()
+            });
         }
         Ok(())
     }

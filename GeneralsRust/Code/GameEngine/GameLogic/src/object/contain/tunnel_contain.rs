@@ -15,16 +15,16 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use super::{ContainerIniParse, ContainerInterface};
 use crate::common::{Coord3D, GameResult, PlayerMaskType};
 use crate::damage::{DamageInfo, DamageType, DeathType};
-use crate::helpers::TheGameLogic;
 use crate::helpers::get_game_logic_random_value_real;
+use crate::helpers::TheGameLogic;
 use crate::modules::{
-    ContainModuleInterface, ContainModuleInterfaceExt, ContainWant, DISABLED_HELD, UpdateSleepTime,
+    ContainModuleInterface, ContainModuleInterfaceExt, ContainWant, UpdateSleepTime, DISABLED_HELD,
 };
-use crate::object::contain::OpenContain;
 use crate::object::contain::open_contain::ObjectRelationship;
-use crate::object::{INVALID_ID, Object, ObjectID};
+use crate::object::contain::OpenContain;
+use crate::object::{Object, ObjectID, INVALID_ID};
 use crate::terrain::THE_TERRAIN_LOGIC;
-use game_engine::common::ini::{FieldParse, INI, INIError};
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 /// Wave 280 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
@@ -136,7 +136,8 @@ impl TunnelContain {
             return Ok(());
         }
 
-        let _ = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        let _ = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .ok_or("Contain object not found")?;
         let owner = self.get_object()?;
         let Ok(owner) = owner.try_read() else {
@@ -167,7 +168,8 @@ impl TunnelContain {
             return Ok(());
         }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        let obj = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .ok_or("Contain object not found")?;
         let was_selected = obj
             .try_read()
@@ -263,7 +265,8 @@ impl TunnelContain {
         obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
-        let _obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        let _obj = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .ok_or("Contain object not found")?;
         let player = match self.get_object() {
             Ok(owner) => {
@@ -414,8 +417,7 @@ impl TunnelContain {
                     );
                     continue;
                 }
-                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-                {
+                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) {
                     if let Ok(mut obj_write) = obj.try_write() {
                         obj_write.kill(None, None);
                     } else {
@@ -439,8 +441,7 @@ impl TunnelContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -487,8 +488,7 @@ impl TunnelContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -838,7 +838,8 @@ impl TunnelContain {
                 };
 
             if let Some(nemesis_id) = nemesis_id {
-                if let Some(attacker) = crate::object::registry::OBJECT_REGISTRY.get_object(nemesis_id)
+                if let Some(attacker) =
+                    crate::object::registry::OBJECT_REGISTRY.get_object(nemesis_id)
                 {
                     if let Ok(attacker_guard) = attacker.try_read() {
                         let Ok(mut player_write) = controlling_player.try_write() else {
@@ -934,7 +935,8 @@ impl TunnelContain {
         }
 
         let id = self.owner_object_id()?;
-        crate::object::registry::OBJECT_REGISTRY.get_object(id)
+        crate::object::registry::OBJECT_REGISTRY
+            .get_object(id)
             .ok_or_else(|| "TunnelContain owner object no longer exists".into())
     }
 }
@@ -968,10 +970,27 @@ impl Snapshotable for TunnelContain {
 }
 
 impl ContainModuleInterface for TunnelContain {
+    fn owned_tunnel_registered(&self) -> Option<bool> {
+        Some(self.is_currently_registered)
+    }
+    fn owned_tunnel_creation_needed(&self) -> Option<bool> {
+        Some(self.need_to_run_on_build_complete)
+    }
+    fn finish_owned_tunnel_creation(&mut self, registered: bool) {
+        self.need_to_run_on_build_complete = false;
+        self.is_currently_registered = registered;
+    }
+    fn finish_owned_tunnel_retirement(&mut self) {
+        self.is_currently_registered = false;
+    }
+    fn owned_tunnel_die_applicable(&self, owner: &Object, damage: &DamageInfo) -> Option<bool> {
+        Some(self.base.is_die_applicable(owner, damage))
+    }
+
     fn can_contain(&self, object_id: ObjectID) -> bool {
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
             return ContainModuleInterface::is_valid_container_for(self, &*obj_guard, true);
-            });
+        });
         false
     }
 
@@ -1084,8 +1103,7 @@ impl ContainModuleInterface for TunnelContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-        else {
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
             return Ok(());
         };
         let valid = other

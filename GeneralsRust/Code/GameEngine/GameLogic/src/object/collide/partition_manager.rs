@@ -200,7 +200,7 @@ impl CellCoord {
 /// Matches C++ `PartitionManager::PartitionCell`.
 #[derive(Debug)]
 struct PartitionCell {
-    objects: HashSet<ObjectId>,
+    objects: Vec<ObjectId>,
     dirty: bool,
     threat_value: [u32; MAX_PLAYER_COUNT],
     cash_value: [u32; MAX_PLAYER_COUNT],
@@ -209,7 +209,7 @@ struct PartitionCell {
 impl PartitionCell {
     fn new() -> Self {
         Self {
-            objects: HashSet::new(),
+            objects: Vec::new(),
             dirty: false,
             threat_value: [0u32; MAX_PLAYER_COUNT],
             cash_value: [0u32; MAX_PLAYER_COUNT],
@@ -217,16 +217,15 @@ impl PartitionCell {
     }
 
     fn add(&mut self, id: ObjectId) {
-        self.objects.insert(id);
+        if !self.objects.contains(&id) { self.objects.insert(0, id); }
         self.dirty = true;
     }
 
     fn remove(&mut self, id: ObjectId) -> bool {
-        let removed = self.objects.remove(&id);
-        if removed {
-            self.dirty = true;
-        }
-        removed
+        let Some(index) = self.objects.iter().position(|candidate| *candidate == id) else { return false; };
+        self.objects.remove(index);
+        self.dirty = true;
+        true
     }
 
     #[allow(dead_code)]
@@ -2126,3 +2125,6 @@ mod tests {
         );
     }
 }
+
+#[path = "partition_search.rs"]
+mod partition_search;

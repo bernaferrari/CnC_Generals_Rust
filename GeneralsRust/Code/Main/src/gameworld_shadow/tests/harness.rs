@@ -3,11 +3,6 @@
 //! Host GameLogic was split out of `game_logic.rs` into `world_*` modules.
 //! Source-honesty tests must scan the live split, not the leftover facade.
 
-use super::authority_env_lock;
-use crate::gameworld_shadow::{
-    CoupledTickGuard, GAMEWORLD_AUTHORITY_ENV_NAMES, refresh_gameworld_authority_env_caches,
-};
-
 /// Concatenated host GameLogic sources after the world_* split and the
 /// game_logic/ directory split (2026-08-15).
 pub const GAME_LOGIC_HOST_SRC: &str = concat!(
@@ -97,57 +92,6 @@ pub const GAME_LOGIC_HOST_SRC: &str = concat!(
     include_str!("../../game_logic/object/attack.rs"),
 );
 
-const EXTRA_ENV_KEYS: &[&str] = &["GENERALS_GAMEWORLD_DEFERRED_DESTROY"];
-
-/// Serializes GENERALS_GAMEWORLD_* mutation and restores every key on drop.
-pub struct AuthorityEnvGuard {
-    _lock: std::sync::MutexGuard<'static, ()>,
-    _couple: Option<CoupledTickGuard>,
-    saved: Vec<(String, Option<String>)>,
-}
-
-impl AuthorityEnvGuard {
-    pub fn lock() -> Self {
-        let lock = authority_env_lock();
-        let mut keys: Vec<&str> = GAMEWORLD_AUTHORITY_ENV_NAMES.to_vec();
-        keys.extend_from_slice(EXTRA_ENV_KEYS);
-        let saved = keys
-            .into_iter()
-            .map(|k| (k.to_string(), std::env::var(k).ok()))
-            .collect();
-        Self {
-            _lock: lock,
-            _couple: None,
-            saved,
-        }
-    }
-
-    pub fn set(self, key: &str, value: &str) -> Self {
-        crate::env_compat::set_var(key, value);
-        refresh_gameworld_authority_env_caches();
-        self
-    }
-
-    pub fn couple(mut self) -> Self {
-        if self._couple.is_none() {
-            self._couple = Some(CoupledTickGuard::enter());
-        }
-        self
-    }
-}
-
-impl Drop for AuthorityEnvGuard {
-    fn drop(&mut self) {
-        for (key, prev) in self.saved.drain(..) {
-            match prev {
-                Some(v) => crate::env_compat::set_var(&key, v),
-                None => crate::env_compat::remove_var(&key),
-            }
-        }
-        refresh_gameworld_authority_env_caches();
-    }
-}
-
 /// Brace-matched Rust function body starting at `fn name` / `pub fn name`.
 pub fn last_rust_fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
     let mut last = None;
@@ -195,4 +139,45 @@ pub fn rust_fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
         i += 1;
     }
     None
+}
+
+/// Exercise the installed Main body's real synchronous damage operation.
+pub(crate) fn perform_owner_damage(
+    logic: &mut crate::game_logic::GameLogic,
+    id: crate::game_logic::ObjectId,
+    amount: f32,
+    source: Option<crate::game_logic::ObjectId>,
+) {
+    use crate::game_logic::{
+        combat::DamageType, host_usa_pilot::HostDeathType, object::DamageHitContext,
+    };
+    let kind = DamageType::Explosive;
+    let context = DamageHitContext::new(source.and_then(|id| logic.host_object(id)), None, kind);
+    let _ = logic.apply_owned_damage(
+        id,
+        amount,
+        source,
+        kind,
+        HostDeathType::from_host_damage_type(kind),
+        None,
+        &context,
+    );
+}
+
+/// A genuine body heal commits immediately; explicit script absolute-health
+/// control handles reductions without inventing a pending mutation channel.
+pub(crate) fn perform_owner_health(
+    logic: &mut crate::game_logic::GameLogic,
+    id: crate::game_logic::ObjectId,
+    health: f32,
+) {
+    let Some(current) = logic.host_object(id).map(|o| o.health.current) else {
+        return;
+    };
+    if health > current {
+        let (object, observations) = logic.host_object_and_health_events_mut(id).unwrap();
+        object.heal(health - current, observations);
+    } else {
+        logic.set_health_absolute_authority_aware(id, health);
+    }
 }

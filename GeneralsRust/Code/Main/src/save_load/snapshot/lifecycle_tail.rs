@@ -109,36 +109,12 @@ pub fn decode_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<LifecycleTail> {
     })
 }
 
-/// Live GameWorld entity-store generation for a host object, when the shadow
-/// session is reachable at capture time.
-///
-/// C++ `ObjectID`s are never reused (`GameLogic.cpp:3816-3821`), so C++ xfer
-/// links are implicitly "generation 1"; the Rust restore path
-/// (`EntityStore::spawn_at`) can reuse an id, and these generations are what
-/// disambiguates occupants for the GameWorld-side fixups built by
-/// `contain_fixups_from_tail` / `producer_fixups_from_tail`.
-fn shadow_generation_for(shadow: &GameWorldShadow, host: ObjectId) -> Option<u32> {
-    let eid = shadow.entity_for_host(host)?;
-    shadow.world().entity_handle(eid).map(|h| h.generation())
-}
-
 pub fn capture_lifecycle_tail(game_logic: &GameLogic) -> LifecycleTail {
     let mut tail = LifecycleTail::default();
-    // Real store generations when the shadow is installed for a coupled tick;
-    // otherwise the historical wire value 1. NOTE: the production save entry
-    // (`SnapshotBuilder::create_world_snapshot`) holds only `&GameLogic` and
-    // runs outside the coupled tick, so it takes the fallback today —
-    // capturing real generations there requires the save path to carry the
-    // shadow session (remaining gap; deliberately not plumbed wrong here).
-    let mut generation_fallbacks = 0usize;
-    let mut generation_for = |host: ObjectId| {
-        crate::gameworld_shadow::with_active_shadow(|shadow| shadow_generation_for(shadow, host))
-            .flatten()
-            .unwrap_or_else(|| {
-                generation_fallbacks += 1;
-                1
-            })
-    };
+    // CPP GameLogic.cpp3816-3821 never reuses ObjectIDs. These links belong
+    // to this Main session; another observer's arena generation cannot author
+    // the saved references. Independent GameWorld saves own their generations.
+    let generation_for = |_host: ObjectId| 1;
     for object in game_logic.host_objects().values() {
         tail.envelopes.push(
             object.entity_lifecycle_envelope_with_railroad(game_logic.railroad.get(object.id)),
@@ -160,12 +136,6 @@ pub fn capture_lifecycle_tail(game_logic: &GameLogic) -> LifecycleTail {
                 producer_generation: generation_for(producer),
             });
         }
-    }
-    if generation_fallbacks > 0 {
-        log::debug!(
-            "lifecycle tail: shadow entity store unreachable at capture; \
-             {generation_fallbacks} link generation(s) defaulted to 1"
-        );
     }
     tail
 }
@@ -496,14 +466,9 @@ mod tests {
     }
 
     #[test]
-    fn capture_uses_shadow_store_generations_when_coupled() {
+    fn capture_keeps_canonical_main_links_independent_of_observer_generations() {
         use crate::game_logic::{Object, Team, ThingTemplate};
         use gamelogic::world::entities::{TemplateRef, Transform};
-
-        // with_active_shadow fail-closes unless the env opt-out is off.
-        let _guard = crate::gameworld_shadow::authority_env_lock();
-        let prev = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
         let mut logic = GameLogic::new();
         let mut object = Object::new(
@@ -535,24 +500,30 @@ mod tests {
             Some(2)
         );
 
-        let tail = {
-            let _tick = crate::gameworld_shadow::CoupledTickGuard::enter();
-            crate::gameworld_shadow::with_coupled_shadow(&mut shadow, || {
-                capture_lifecycle_tail(&logic)
-            })
-        };
-
-        match prev {
-            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-        }
+        let tail = capture_lifecycle_tail(&logic);
+        let restored = decode_lifecycle_tail(&encode_lifecycle_tail(&tail)).unwrap();
+        assert_eq!(restored, tail);
+        // A second same-ID Main owner and a recycled observation arena cannot
+        // author this owner's future saved links.
+        let mut peer = GameLogic::new();
+        let mut peer_object = Object::new(ThingTemplate::new("Peer"), ObjectId(9), Team::China);
+        peer_object.producer_id = Some(ObjectId(77));
+        peer.host_objects_mut().insert(ObjectId(9), peer_object);
+        assert_eq!(capture_lifecycle_tail(&logic), tail);
+        assert_eq!(
+            capture_lifecycle_tail(&peer).producer_links[0].producer_id,
+            77
+        );
+        peer.reset();
+        drop(peer);
+        assert_eq!(capture_lifecycle_tail(&logic), tail);
 
         assert_eq!(tail.contain_links.len(), 1);
-        assert_eq!(tail.contain_links[0].container_generation, 2);
-        // Occupant/producer host ids without a shadow mapping fall back to 1.
+        assert_eq!(tail.contain_links[0].container_generation, 1);
+        // Every saved reference belongs to the same monotonic Main identity space.
         assert_eq!(tail.contain_links[0].occupant_generation, 1);
         assert_eq!(tail.producer_links.len(), 1);
-        assert_eq!(tail.producer_links[0].entity_generation, 2);
+        assert_eq!(tail.producer_links[0].entity_generation, 1);
         assert_eq!(tail.producer_links[0].producer_generation, 1);
     }
 }

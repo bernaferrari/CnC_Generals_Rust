@@ -10,7 +10,7 @@ use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
 
 struct RestoreCombatInputs {
     frame: u32,
-    authority: GameWorldAuthority,
+
     weapon_store: Option<gamelogic::weapon::WeaponStore>,
 }
 
@@ -18,13 +18,12 @@ impl RestoreCombatInputs {
     fn install() -> Self {
         let saved = Self {
             frame: crate::game_logic::host_historic_bonus::logic_frame(),
-            authority: current_gameworld_authority(),
+
             // Finite projectileless fire also appends a canonical delayed
             // entry. Preserve the real store rather than leaking that entry
             // into another test, including when the RED assertion panics.
             weapon_store: gamelogic::weapon::with_weapon_store_mut(std::mem::take).ok(),
         };
-        gameworld_authority::publish_gameworld_authority(GameWorldAuthority::DEFAULT_OFF);
         saved
     }
 }
@@ -37,7 +36,7 @@ impl Drop for RestoreCombatInputs {
         } else {
             gamelogic::weapon::shutdown_weapon_store().expect("restore absent weapon store");
         }
-        gameworld_authority::publish_gameworld_authority(self.authority);
+
         crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
     }
 }

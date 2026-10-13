@@ -441,14 +441,7 @@ impl GameLogic {
                         .set_quick_exit_deadline(Some(self.frame.wrapping_add(300)));
                     unit.set_ai_state(AIState::Moving);
                     unit.set_status_moving(true);
-                    if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                        self.movement_events.record(
-                            self.frame,
-                            unit.id,
-                            Some([door_end.x, door_end.y, door_end.z]),
-                        );
-                        unit.record_host_movement();
-                    }
+                    {}
                 }
                 self.register_ground_path_goal(uid, door_end);
             }

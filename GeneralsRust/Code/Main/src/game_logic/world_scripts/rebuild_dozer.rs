@@ -263,11 +263,7 @@ impl GameLogic {
         // C++ Object::onCapture → getAIUpdateInterface()->aiIdle(CMD_FROM_AI)
         // (Object.cpp:4512-4514): the captured entrance's AI decision flips
         // through the decision channel; GameWorld stays last-writer.
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-            let ordinal =
-                crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&AIState::Idle);
-            crate::game_logic::host_ai_decision_log::record_set_state(tunnel_id, ordinal);
-        }
+        {}
     }
 
     /// C++ Object::onCapture residual (after ownership flip).
@@ -337,11 +333,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.set_ai_state(AIState::Idle);
         }
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-            let ordinal =
-                crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&AIState::Idle);
-            crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
-        }
+        {}
         // C++ ScoreKeeper::addObjectCaptured residual for new owner.
         if let Some(p) =
             captured_owner_player_id.and_then(|player_id| self.get_player_mut(player_id))
@@ -522,21 +514,12 @@ impl GameLogic {
                 let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
                 unit.stop_moving();
                 unit.set_position(pos + offset);
-                if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    let p = pos + offset;
-                    self.movement_events
-                        .record(self.frame, unit.id, Some([p.x, p.y, p.z]));
-                    unit.record_host_movement();
-                }
+                {}
                 unit.set_target(None);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_stop_attack(uid);
-                }
+                {}
                 unit.set_contained_by(None);
                 unit.set_ai_state(AIState::Idle);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_set_state(uid, 0);
-                }
+                {}
                 unit.set_status_moving(false);
                 unit.set_status_attacking(false);
             }
@@ -602,18 +585,11 @@ impl GameLogic {
                 let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
                 unit.stop_moving();
                 unit.set_position(pos + offset);
-                if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    let p = pos + offset;
-                    self.movement_events
-                        .record(self.frame, unit.id, Some([p.x, p.y, p.z]));
-                    unit.record_host_movement();
-                }
+                {}
                 unit.set_target(None);
                 unit.set_contained_by(None);
                 unit.set_ai_state(AIState::Idle);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_set_state(uid, 0);
-                }
+                {}
                 unit.set_status_moving(false);
                 unit.set_status_attacking(false);
             }
@@ -668,21 +644,11 @@ impl GameLogic {
                             let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;
                             unit.stop_moving();
                             unit.set_position(pos + offset);
-                            if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                                let p = pos + offset;
-                                self.movement_events.record(
-                                    self.frame,
-                                    unit.id,
-                                    Some([p.x, p.y, p.z]),
-                                );
-                                unit.record_host_movement();
-                            }
+                            {}
                             unit.set_target(None);
                             unit.set_contained_by(None);
                             unit.set_ai_state(AIState::Idle);
-                            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                                crate::game_logic::host_ai_decision_log::record_set_state(uid, 0);
-                            }
+                            {}
                             unit.set_status_moving(false);
                             unit.set_status_attacking(false);
                         }
@@ -760,9 +726,7 @@ impl GameLogic {
             // Wave 212: deselect logs host_status selected last-writer.
             obj.deselect();
             obj.set_ai_state(AIState::Idle);
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_set_state(object_id, 0);
-            }
+            {}
             obj.apply_sell_scaffold_model_conditions();
         }
         // Deselect from all players.
@@ -810,13 +774,6 @@ impl GameLogic {
     }
 
     /// C++ BuildAssistant::update sell list residual.
-    pub(crate) fn tick_host_systems_residuals_sole(&mut self) {
-        // Wave 827: post-writeback sole-tick for remaining host system residuals.
-        self.update_main_crate_vision();
-        self.update_sell_list();
-        self.update_special_power_strikes();
-        self.update_player_upgrades();
-    }
 
     pub(crate) fn update_sell_list(&mut self) {
         if self.sell_list.is_empty() {
@@ -970,9 +927,7 @@ impl GameLogic {
                 }
                 obj.target = None;
                 obj.set_ai_state(AIState::Idle);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_set_state(id, 0);
-                }
+                {}
                 obj.set_actively_constructing(false);
                 cancelled = cancelled.saturating_add(1);
             }
@@ -981,8 +936,6 @@ impl GameLogic {
             self.dozer_cancel_task_events = self.dozer_cancel_task_events.saturating_add(cancelled);
             // Refresh ACTIVELY_CONSTRUCTING residual globally after cancel.
             // Wave 828: under coupled shadow, ACTIVELY_CONSTRUCTING bit owned by GW expire.
-            if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                && crate::gameworld_shadow::shadow_coupled_tick_active())
             {
                 self.update_actively_constructing_model_conditions();
             }
@@ -1207,8 +1160,6 @@ impl GameLogic {
 
             self.resume_construction_events = self.resume_construction_events.saturating_add(1);
             // Wave 828: under coupled shadow, ACTIVELY_CONSTRUCTING bit owned by GW expire.
-            if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                && crate::gameworld_shadow::shadow_coupled_tick_active())
             {
                 self.update_actively_constructing_model_conditions();
             }

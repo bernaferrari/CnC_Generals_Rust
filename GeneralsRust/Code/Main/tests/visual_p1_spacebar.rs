@@ -1,14 +1,12 @@
-use game_engine::common::system::radar::{Coord3D, RadarEventType, get_radar_system};
-use generals_main::game_logic::host_radar::{
-    host_world_to_radar_coord, last_the_radar_event_host_position,
-};
+use game_engine::common::system::radar::{Coord3D, RadarEventType};
+use generals_main::game_logic::host_radar::host_world_to_radar_coord;
 use glam::Vec3;
 
 #[test]
 fn spacebar_last_event_uses_the_radar_not_hud_queue() {
+    let mut logic = generals_main::game_logic::GameLogic::new();
     {
-        let radar = get_radar_system();
-        let mut radar = radar.write().expect("radar write");
+        let radar = logic.radar_mut();
         radar.reset();
         radar.new_map(
             Coord3D::new(0.0, 0.0, 0.0),
@@ -26,7 +24,7 @@ fn spacebar_last_event_uses_the_radar_not_hud_queue() {
             0.5,
         );
     }
-    let pos = last_the_radar_event_host_position().expect("TheRadar last event");
+    let pos = logic.last_the_radar_event_host_position().expect("TheRadar last event");
     assert!((pos.x - 150.0).abs() < f32::EPSILON);
     assert!((pos.y - 4.0).abs() < f32::EPSILON);
     assert!((pos.z - 250.0).abs() < f32::EPSILON);

@@ -26,6 +26,10 @@ use gamelogic::scripting::engine::get_named_object_tracker;
 use glam::{Mat4, Vec3, Vec4};
 use std::cell::Cell;
 
+#[cfg(test)]
+#[path = "view_owned_shake_tests.rs"]
+mod owned_shake_tests;
+
 /// Unique identifier for view instances
 pub type ViewId = u32;
 
@@ -330,8 +334,6 @@ impl std::ops::Mul<f32> for Vector3 {
         Self::new(self.x * scalar, self.y * scalar, self.z * scalar)
     }
 }
-
-
 
 /// Integer 2D point for screen coordinates
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -2871,11 +2873,28 @@ impl View {
 
     /// Apply camera shake impulse using the legacy damped-oscillation model.
     pub fn shake(&mut self, _epicenter: &Point3, _shake_type: CameraShakeType) {
-        let angle = crate::GameClientRandomValueReal!(0.0, 2.0 * PI);
+        let data = game_engine::common::global_data::read();
+        self.shake_with_services(
+            _epicenter,
+            _shake_type,
+            &data,
+            &mut game_engine::common::random_value::get_game_client_random_value_real,
+        );
+    }
+
+    /// The W3DView impulse calculation with this view's immutable rules and
+    /// presentation stream. Ordinary FX never has to select an active view.
+    pub fn shake_with_services(
+        &mut self,
+        _epicenter: &Point3,
+        _shake_type: CameraShakeType,
+        data: &game_engine::common::global_data::GlobalData,
+        random: &mut dyn FnMut(f32, f32) -> f32,
+    ) {
+        let angle = random(0.0, 2.0 * PI);
         self.shake_angle_cos = angle.cos();
         self.shake_angle_sin = angle.sin();
 
-        let data = game_engine::common::global_data::read();
         let mut intensity = match _shake_type {
             CameraShakeType::Subtle => data.shake_subtle_intensity,
             CameraShakeType::Normal => data.shake_normal_intensity,

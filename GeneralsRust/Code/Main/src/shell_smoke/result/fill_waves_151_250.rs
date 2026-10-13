@@ -8,9 +8,7 @@ fn fill_waves_151_250(
     out.credits_nav_commands_wave151_ok = early.credits_nav_commands_wave151_ok;
     out.challenge_generals_method_names_wave152_ok = early.challenge_generals_method_names_wave152_ok;
     out.challenge_generals_nav_commands_wave152_ok = early.challenge_generals_nav_commands_wave152_ok;
-    out.gameworld_authority_env_names_wave153_ok = early.gameworld_authority_env_names_wave153_ok;
-    out.gameworld_authority_method_names_wave153_ok = early.gameworld_authority_method_names_wave153_ok;
-    out.gameworld_authority_nav_commands_wave153_ok = early.gameworld_authority_nav_commands_wave153_ok;
+
     out.window_video_type_state_names_wave154_ok = early.window_video_type_state_names_wave154_ok;
     out.window_video_method_names_wave154_ok = early.window_video_method_names_wave154_ok;
     out.window_video_nav_commands_wave154_ok = early.window_video_nav_commands_wave154_ok;
@@ -80,35 +78,11 @@ fn fill_waves_151_250(
     out.executable_presentation_boundary_method_names_wave176_ok = early.executable_presentation_boundary_method_names_wave176_ok;
     out.executable_presentation_boundary_nav_commands_wave176_ok = early.executable_presentation_boundary_nav_commands_wave176_ok;
     out.executable_presentation_boundary_live_wave176_ok = early.executable_presentation_boundary_live_wave176_ok;
-    out.gameworld_production_authority_method_names_wave177_ok = early.gameworld_production_authority_method_names_wave177_ok;
-    out.gameworld_production_authority_nav_commands_wave177_ok = early.gameworld_production_authority_nav_commands_wave177_ok;
-    out.gameworld_production_authority_live_wave177_ok = early.gameworld_production_authority_live_wave177_ok;
-    out.gameworld_sole_tick_coupling_method_names_wave178_ok = early.gameworld_sole_tick_coupling_method_names_wave178_ok;
-    out.gameworld_sole_tick_coupling_nav_commands_wave178_ok = early.gameworld_sole_tick_coupling_nav_commands_wave178_ok;
-    out.gameworld_sole_tick_coupling_live_wave178_ok = early.gameworld_sole_tick_coupling_live_wave178_ok;
-    out.movement_authority_env_ok = early.movement_authority_env_ok;
-    out.gameworld_authority_matrix_method_names_wave179_ok = early.gameworld_authority_matrix_method_names_wave179_ok;
-    out.gameworld_authority_matrix_nav_commands_wave179_ok = early.gameworld_authority_matrix_nav_commands_wave179_ok;
-    out.gameworld_authority_matrix_live_wave179_ok = early.gameworld_authority_matrix_live_wave179_ok;
-    out.ai_fire_construction_authority_env_ok = early.ai_fire_construction_authority_env_ok;
-    out.live_gameworld_production_writeback_method_names_wave180_ok = early.live_gameworld_production_writeback_method_names_wave180_ok;
-    out.live_gameworld_production_writeback_nav_commands_wave180_ok = early.live_gameworld_production_writeback_nav_commands_wave180_ok;
-    out.live_gameworld_production_writeback_live_wave180_ok = early.live_gameworld_production_writeback_live_wave180_ok;
-    out.live_gameworld_construction_writeback_method_names_wave181_ok = early.live_gameworld_construction_writeback_method_names_wave181_ok;
-    out.live_gameworld_construction_writeback_nav_commands_wave181_ok = early.live_gameworld_construction_writeback_nav_commands_wave181_ok;
-    out.live_gameworld_construction_writeback_live_wave181_ok = early.live_gameworld_construction_writeback_live_wave181_ok;
-    out.live_gameworld_damage_channel_method_names_wave182_ok = early.live_gameworld_damage_channel_method_names_wave182_ok;
-    out.live_gameworld_damage_channel_nav_commands_wave182_ok = early.live_gameworld_damage_channel_nav_commands_wave182_ok;
-    out.live_gameworld_damage_channel_live_wave182_ok = early.live_gameworld_damage_channel_live_wave182_ok;
-    out.live_gameworld_economy_movement_method_names_wave183_ok = early.live_gameworld_economy_movement_method_names_wave183_ok;
-    out.live_gameworld_economy_movement_nav_commands_wave183_ok = early.live_gameworld_economy_movement_nav_commands_wave183_ok;
-    out.live_gameworld_economy_movement_live_wave183_ok = early.live_gameworld_economy_movement_live_wave183_ok;
-    out.live_gameworld_projectile_ai_method_names_wave184_ok = early.live_gameworld_projectile_ai_method_names_wave184_ok;
-    out.live_gameworld_projectile_ai_nav_commands_wave184_ok = early.live_gameworld_projectile_ai_nav_commands_wave184_ok;
-    out.live_gameworld_projectile_ai_live_wave184_ok = early.live_gameworld_projectile_ai_live_wave184_ok;
-    out.live_gameworld_fire_special_power_method_names_wave185_ok = early.live_gameworld_fire_special_power_method_names_wave185_ok;
-    out.live_gameworld_fire_special_power_nav_commands_wave185_ok = early.live_gameworld_fire_special_power_nav_commands_wave185_ok;
-    out.live_gameworld_fire_special_power_live_wave185_ok = early.live_gameworld_fire_special_power_live_wave185_ok;
+
+
+
+
+
     out.live_gameworld_presentation_view_method_names_wave186_ok = early.live_gameworld_presentation_view_method_names_wave186_ok;
     out.live_gameworld_presentation_view_nav_commands_wave186_ok = early.live_gameworld_presentation_view_nav_commands_wave186_ok;
     out.live_gameworld_presentation_view_live_wave186_ok = early.live_gameworld_presentation_view_live_wave186_ok;
@@ -127,18 +101,8 @@ fn fill_waves_151_250(
     out.live_gameworld_entity_view_deepen_method_names_wave191_ok = early.live_gameworld_entity_view_deepen_method_names_wave191_ok;
     out.live_gameworld_entity_view_deepen_nav_commands_wave191_ok = early.live_gameworld_entity_view_deepen_nav_commands_wave191_ok;
     out.live_gameworld_entity_view_deepen_live_wave191_ok = early.live_gameworld_entity_view_deepen_live_wave191_ok;
-    out.live_presentation_append_missing_method_names_wave192_ok = early.live_presentation_append_missing_method_names_wave192_ok;
-    out.live_presentation_append_missing_nav_commands_wave192_ok = early.live_presentation_append_missing_nav_commands_wave192_ok;
-    out.live_presentation_append_missing_live_wave192_ok = early.live_presentation_append_missing_live_wave192_ok;
-    out.live_presentation_build_from_gameworld_method_names_wave193_ok = early.live_presentation_build_from_gameworld_method_names_wave193_ok;
-    out.live_presentation_build_from_gameworld_nav_commands_wave193_ok = early.live_presentation_build_from_gameworld_nav_commands_wave193_ok;
-    out.live_presentation_build_from_gameworld_live_wave193_ok = early.live_presentation_build_from_gameworld_live_wave193_ok;
-    out.live_presentation_from_gameworld_default_method_names_wave194_ok = early.live_presentation_from_gameworld_default_method_names_wave194_ok;
-    out.live_presentation_from_gameworld_default_nav_commands_wave194_ok = early.live_presentation_from_gameworld_default_nav_commands_wave194_ok;
-    out.live_presentation_from_gameworld_default_live_wave194_ok = early.live_presentation_from_gameworld_default_live_wave194_ok;
-    out.live_presentation_build_for_engine_method_names_wave195_ok = early.live_presentation_build_for_engine_method_names_wave195_ok;
-    out.live_presentation_build_for_engine_nav_commands_wave195_ok = early.live_presentation_build_for_engine_nav_commands_wave195_ok;
-    out.live_presentation_build_for_engine_live_wave195_ok = early.live_presentation_build_for_engine_live_wave195_ok;
+
+
     out.live_presentation_rebuilt_vertical_gate_method_names_wave196_ok = early.live_presentation_rebuilt_vertical_gate_method_names_wave196_ok;
     out.live_presentation_rebuilt_vertical_gate_nav_commands_wave196_ok = early.live_presentation_rebuilt_vertical_gate_nav_commands_wave196_ok;
     out.live_presentation_rebuilt_vertical_gate_live_wave196_ok = early.live_presentation_rebuilt_vertical_gate_live_wave196_ok;

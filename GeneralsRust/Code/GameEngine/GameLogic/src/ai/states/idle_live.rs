@@ -13,11 +13,42 @@ impl AIIdleState {
         if self.inited {
             let mut ultra_accurate = false;
             ai.with_cur_locomotor(&mut |loco| ultra_accurate = loco.is_ultra_accurate());
-            self.do_init_idle_state_with_facts(Some((
-                is_idle,
-                ai.is_doing_ground_movement(),
-                ultra_accurate,
-            )));
+            let ground = ai.is_doing_ground_movement();
+            if ai.world().is_some() {
+                let owner = self.base.get_machine_owner().ok_or("Idle owner absent")?;
+                let position = *owner
+                    .read()
+                    .map_err(|_| "Idle owner poisoned")?
+                    .get_position();
+                let plan = super::idle::idle_pathfinder_restake_plan(
+                    is_idle,
+                    ground,
+                    position,
+                    ultra_accurate,
+                );
+                if plan.first_restake {
+                    let layer = owner.read().map_err(|_| "Idle owner poisoned")?.get_layer();
+                    // AI owns its saved goal cell as well as the receiving pathfinder stake.
+                    // No cached AI loan is acquired while this runtime is borrowed.
+                    ai.update_goal_position(&position, layer)?;
+                    if plan.snap {
+                        let snapped = {
+                            let source = owner.read().map_err(|_| "Idle owner poisoned")?;
+                            ai.idle_goal_position(&source)?
+                        };
+                        if let Some(snapped) = snapped {
+                            let world = ai.world_mut().ok_or("Idle world absent")?;
+                            if world.frame() <= 1 {
+                                world.set_object_position_handle(&owner, &snapped)?;
+                            }
+                            ai.update_goal_position(&snapped, layer)?;
+                        }
+                    }
+                }
+                self.inited = false;
+            } else {
+                self.do_init_idle_state_with_facts(Some((is_idle, ground, ultra_accurate)));
+            }
             // The owner borrow has ended. C++ clears these before looking for
             // a target; deferring them would erase the new attack's goal.
             ai.set_locomotor_goal_none();
@@ -52,13 +83,21 @@ impl AIIdleState {
             )
         };
         if can_be_repulsed && is_idle {
-            let repulsor = the_ai()
-                .read()
-                .map_err(|_| "Idle AI rules lock poisoned")?
-                .find_closest_repulsor(id, vision)
-                .ok()
-                .flatten();
-            if repulsor.and_then(get_legacy_object).is_some() {
+            let repulsor = if let Some(world) = ai.world() {
+                let source = owner.read().map_err(|_| "Idle repulsor owner poisoned")?;
+                world
+                    .closest_repulsor(&source, vision)?
+                    .and_then(|id| world.object(id))
+            } else {
+                the_ai()
+                    .read()
+                    .map_err(|_| "Idle AI rules lock poisoned")?
+                    .find_closest_repulsor(id, vision)
+                    .ok()
+                    .flatten()
+                    .and_then(get_legacy_object)
+            };
+            if repulsor.is_some() {
                 context.request_state(AIStateType::MoveAwayFromRepulsors);
                 return Ok(StateReturnType::Continue);
             }
@@ -72,8 +111,7 @@ impl AIIdleState {
                 & mood_matrix_adjustment::AFFECT_RANGE_IGNORE_ALL
                 == 0
         {
-            let target =
-                ai.get_next_mood_target_with_attack_state(true, true, context.parent_is_attacking);
+            let target = ai.try_next_mood_target(true, true, context.parent_is_attacking)?;
             if let Some(target) = target {
                 let target_id = target
                     .read()
@@ -87,7 +125,9 @@ impl AIIdleState {
                 return Ok(StateReturnType::Continue);
             }
         }
-        let now = TheGameLogic::get_frame();
+        let now = ai
+            .world()
+            .map_or_else(TheGameLogic::get_frame, |world| world.frame());
         let next = ai.get_next_mood_check_time();
         if next > now && next - now < sleep {
             sleep = next - now;

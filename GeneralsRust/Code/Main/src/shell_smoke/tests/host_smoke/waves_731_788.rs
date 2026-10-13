@@ -63,36 +63,12 @@ pub(super) fn assert_waves_731_788(r: &ShellSmokeResult) {
         "host seed_starting_building_opt_in live residual wave734: {}",
         r.detail
     );
-    assert!(
-        r.host_production_ready_pose_authority_method_names_wave735_ok,
-        "host production_ready_pose_authority method names residual pack wave735: {}",
-        r.detail
-    );
-    assert!(
-        r.host_production_ready_pose_authority_nav_commands_wave735_ok,
-        "host production_ready_pose_authority nav commands residual pack wave735: {}",
-        r.detail
-    );
-    assert!(
-        r.host_production_ready_pose_authority_live_wave735_ok,
-        "host production_ready_pose_authority live residual wave735: {}",
-        r.detail
-    );
-    assert!(
-        r.host_production_spawn_entity_first_method_names_wave736_ok,
-        "host production_spawn_entity_first method names residual pack wave736: {}",
-        r.detail
-    );
-    assert!(
-        r.host_production_spawn_entity_first_nav_commands_wave736_ok,
-        "host production_spawn_entity_first nav commands residual pack wave736: {}",
-        r.detail
-    );
-    assert!(
-        r.host_production_spawn_entity_first_live_wave736_ok,
-        "host production_spawn_entity_first live residual wave736: {}",
-        r.detail
-    );
+
+
+
+
+
+
     assert!(
         r.host_production_object_id_prefers_gw_entity_method_names_wave737_ok,
         "host production_object_id_prefers_gw_entity method names residual pack wave737: {}",
@@ -138,21 +114,9 @@ pub(super) fn assert_waves_731_788(r: &ShellSmokeResult) {
         "host production_spawn_pose_no_rejitter live residual wave739: {}",
         r.detail
     );
-    assert!(
-        r.host_rebuild_spawn_entity_first_method_names_wave740_ok,
-        "host rebuild_spawn_entity_first method names residual pack wave740: {}",
-        r.detail
-    );
-    assert!(
-        r.host_rebuild_spawn_entity_first_nav_commands_wave740_ok,
-        "host rebuild_spawn_entity_first nav commands residual pack wave740: {}",
-        r.detail
-    );
-    assert!(
-        r.host_rebuild_spawn_entity_first_live_wave740_ok,
-        "host rebuild_spawn_entity_first live residual wave740: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.host_rebuild_spawn_requires_gw_bind_method_names_wave741_ok,
         "host rebuild_spawn_requires_gw_bind method names residual pack wave741: {}",
@@ -183,21 +147,9 @@ pub(super) fn assert_waves_731_788(r: &ShellSmokeResult) {
         "host rebuild_hole_expose_entity_first live residual wave742: {}",
         r.detail
     );
-    assert!(
-        r.host_production_door_sole_no_dual_tick_method_names_wave743_ok,
-        "host production_door_sole_no_dual_tick method names residual pack wave743: {}",
-        r.detail
-    );
-    assert!(
-        r.host_production_door_sole_no_dual_tick_nav_commands_wave743_ok,
-        "host production_door_sole_no_dual_tick nav commands residual pack wave743: {}",
-        r.detail
-    );
-    assert!(
-        r.host_production_door_sole_no_dual_tick_live_wave743_ok,
-        "host production_door_sole_no_dual_tick live residual wave743: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.host_lifetime_kill_no_damage_auth_hp_stomp_method_names_wave745_ok,
         "host lifetime_kill_no_damage_auth_hp_stomp method names residual pack wave745: {}",

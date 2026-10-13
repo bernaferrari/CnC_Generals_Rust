@@ -34,6 +34,7 @@ impl OpenContain {
         );
         drop(owner_guard);
         drop(rider);
+        world.validate_containment_attachment(&passenger, &owner)?;
         // Poisoned participants are rejected before the first canonical mutation.
         // The synchronous owner forbids replacement/removal until this original
         // callback chain completes; callbacks may still mutate their fields.
@@ -52,6 +53,7 @@ impl OpenContain {
         }
         members.push(Arc::clone(&passenger));
         for member in &members {
+            world.validate_containment_member(member)?;
             let drawable = member
                 .read()
                 .map_err(|_| "contained rider poisoned")?
@@ -157,48 +159,44 @@ impl OpenContain {
     }
 
     fn redeploy_with_world(&mut self, prepared: &PreparedContainEnter, world: &mut dyn AiWorld) {
-        self.no_fire_points_in_art = false;
-        self.fire_point_start = -1;
-        self.fire_point_next = 0;
-        self.fire_point_size = 0;
-        let owner = prepared
-            .owner
-            .read()
-            .expect("admitted contain owner poisoned");
-        let points = owner.get_multi_logical_bone_position("FIREPOINT", MAX_FIRE_POINTS);
-        self.fire_point_size = points.len() as i32;
-        self.no_fire_points_in_art = points.is_empty();
-        for (index, position) in points.into_iter().take(MAX_FIRE_POINTS).enumerate() {
-            self.fire_points[index] = Self::fire_point_matrix_from_position(position);
-        }
-        drop(owner);
+        self.begin_owned_redeployment();
+        let (points, position) = {
+            let owner = prepared
+                .owner
+                .read()
+                .expect("admitted contain owner poisoned");
+            (
+                owner
+                    .containment_firepoint_matrices(false)
+                    .expect("admitted contain FIREPOINT matrices"),
+                *owner.get_position(),
+            )
+        };
         for rider in prepared.members.iter().rev() {
-            let mut rider = rider.write().expect("admitted contained rider poisoned");
-            let matrix = if self.no_fire_points_in_art {
-                let owner = prepared
+            let point = self.owned_next_firepoint(&points);
+            let matrix = match point {
+                Some(_) if self.module_data.passengers_in_turret => prepared
                     .owner
                     .read()
-                    .expect("admitted contain owner poisoned");
-                Matrix3D::from_translation(*owner.get_position())
-            } else if self.module_data.passengers_in_turret {
-                let name = format!("FIREPOINT{:02}", self.fire_point_next + 1);
-                let owner = prepared
-                    .owner
-                    .read()
-                    .expect("admitted contain owner poisoned");
-                let (_, _, matrix) =
-                    owner.get_single_logical_bone_position_on_turret(TurretType::Primary, &name);
-                self.fire_points[self.fire_point_next as usize] =
-                    Self::fire_point_matrix_from_transform(matrix);
-                matrix
-            } else {
-                Self::fire_point_transform(&self.fire_points[self.fire_point_next as usize])
+                    .expect("admitted contain owner poisoned")
+                    .containment_turret_firepoint(self.owned_firepoint_index())
+                    .expect("admitted turret FIREPOINT"),
+                Some(matrix) => matrix,
+                None => {
+                    let mut matrix = rider
+                        .read()
+                        .expect("admitted contained rider poisoned")
+                        .get_transform_matrix();
+                    matrix.w_axis = position.extend(1.0);
+                    matrix
+                }
             };
-            let enclosing = self.is_enclosing_container_for(&rider);
-            world.place_contained(&mut rider, matrix, enclosing);
-            if self.fire_point_size > 0 {
-                self.fire_point_next = (self.fire_point_next + 1) % self.fire_point_size;
-            }
+            let enclosing = {
+                let rider = rider.read().expect("admitted contained rider poisoned");
+                self.is_enclosing_container_for(&rider)
+            };
+            world.place_contained_handle(rider, matrix, enclosing);
+            self.advance_owned_firepoint();
         }
     }
 }

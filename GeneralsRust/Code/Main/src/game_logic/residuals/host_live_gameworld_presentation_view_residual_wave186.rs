@@ -107,8 +107,7 @@ pub fn simulate_live_gameworld_presentation_view_honesty() -> bool {
         resolve_retail_map_path,
     };
     use crate::gameworld_shadow::{
-        GameWorldShadow, ensure_gate_damage_authority, gameworld_shadow_enabled,
-        presentation_view_from_shadow,
+        GameWorldShadow,         presentation_view_from_shadow,
     };
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 
@@ -122,7 +121,6 @@ pub fn simulate_live_gameworld_presentation_view_honesty() -> bool {
         return false;
     }
 
-    ensure_gate_damage_authority();
 
     // Soft-ok when MapsZH absent (CI without retail maps).
     let map_name = if resolve_retail_map_path(LONE_EAGLE_MAP_WAVE169).is_some() {
@@ -172,8 +170,6 @@ pub fn simulate_live_gameworld_presentation_view_honesty() -> bool {
         return false;
     }
 
-    // Shadow enabled is production default; if off, still proved apply path above.
-    let _ = gameworld_shadow_enabled();
 
     true
 }
@@ -215,12 +211,11 @@ mod tests {
     fn presentation_view_from_shadow_reports_created_host_object() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
         use crate::gameworld_shadow::{
-            GameWorldShadow, ensure_gate_damage_authority, presentation_view_from_shadow,
+            GameWorldShadow, presentation_view_from_shadow,
         };
         use glam::Vec3;
 
-        ensure_gate_damage_authority();
-        let mut logic = GameLogic::new();
+            let mut logic = GameLogic::new();
         let mut t = ThingTemplate::new("GwViewRanger186");
         t.set_health(120.0);
         t.add_kind_of(KindOf::Infantry);

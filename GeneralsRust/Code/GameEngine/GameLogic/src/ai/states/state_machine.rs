@@ -931,7 +931,11 @@ impl AIStateMachine {
                 owner,
             ) {
                 after_body(&mut self.driver(), ai, owner)?;
-                if self.data.temporary_state_frame_end < TheGameLogic::get_frame() {
+                let now = ai
+                    .as_state_runtime()
+                    .world()
+                    .map_or_else(TheGameLogic::get_frame, |world| world.frame());
+                if self.data.temporary_state_frame_end < now {
                     if status == StateReturnType::Continue {
                         status = StateReturnType::Success;
                     }

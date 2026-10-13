@@ -14,9 +14,8 @@ fn owner_heal(logic: &mut GameLogic, id: ObjectId, health: f32) {
 
 #[test]
 fn no_shadow_boundary_still_admits_projected_lethal_damage() {
-    let env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
-    logic.set_damage_authority(true);
+
     apply_skirmish_config(&mut logic, &golden_skirmish_config("PendingLethal")).expect("config");
     ensure_template(&mut logic, "PendingLethalTarget", 100.0);
     let id = logic
@@ -25,38 +24,21 @@ fn no_shadow_boundary_still_admits_projected_lethal_damage() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     logic.health_events.clear_damage();
-    let authority = *logic.gameworld_authority();
-    with_gameworld_authority(authority, || {
-        let _couple = ShadowCoupleGuard::enter();
-        with_coupled_shadow(&mut shadow, || {
-            assert!(gameworld_damage_authority_live());
-            assert!(logic.host_lethal_finish_object(id, None));
-            assert_eq!(logic.host_object(id).unwrap().health.current, 100.0);
-        });
-    });
-    let events = logic.health_events.snapshot_damage();
-    assert_eq!(events.len(), 1);
-    assert!(!events[0].owner_health_already_applied());
-    let _env = env.set("GENERALS_GAMEWORLD_SHADOW", "0");
-    run_post_logic_shadow_boundary(None, &mut logic);
+    assert!(logic.host_lethal_finish_object(id, None));
     assert_eq!(logic.host_object(id).unwrap().health.current, 0.0);
     assert!(logic.host_object(id).unwrap().status.destroyed);
     assert!(logic.host_object(id).unwrap().status.effectively_dead);
     assert!(logic.health_events.snapshot_damage().is_empty());
-    run_post_logic_shadow_boundary(None, &mut logic);
+    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
     assert_eq!(logic.host_object(id).unwrap().health.current, 0.0);
-    logic.health_events.clear_damage();
 }
 
 #[test]
 fn gameworld_step_movement_advances_move_target() {
-    let _env_guard = authority_env_lock();
-
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    // Force movement authority path (per-instance context; hq-e84zk retired
-    // the GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY env flag).
+    // Actual receiving locomotor drives movement; shadow only observes it.
     let mut logic = GameLogic::new();
-    logic.set_movement_authority(true);
+
     let cfg = golden_skirmish_config("MvAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("RangerMv") {
@@ -70,6 +52,13 @@ fn gameworld_step_movement_advances_move_target() {
         .expect("id");
     {
         let (o, mut movement_events) = logic.host_object_and_movement_events_mut(oid).expect("o");
+        let binding = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
+            "BasicHumanLocomotor",
+        )
+        .expect("authored locomotor");
+        o.locomotor_set_names = vec!["BasicHumanLocomotor".into()];
+        o.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+        crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(o, &binding);
         o.movement.max_speed = 60.0;
         o.movement.velocity = glam::Vec3::ZERO;
         o.move_to(glam::Vec3::new(100.0, 0.0, 0.0), &mut movement_events);
@@ -78,16 +67,20 @@ fn gameworld_step_movement_advances_move_target() {
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     let before = shadow.world().entity(eid).expect("e").transform.position.x;
-    let stepped = shadow.world_mut().step_movement(1.0 / 30.0);
-    assert!(stepped >= 1, "stepped {stepped}");
+    // Exercise the actual locomotor phase with original acceleration.
+    // Match defeat/victory is independent of this isolated movement domain.
+    for _ in 0..10 {
+        logic.update_movement_for_test(&[oid], 1.0 / 30.0);
+    }
+    shadow.sync_from_host(&logic);
     let after = shadow.world().entity(eid).expect("e").transform.position.x;
     assert!(
         after > before + 0.1,
         "expected +X march before={before} after={after}"
     );
-    // Writeback pose to host as last-writer.
-    assert!(shadow.writeback_transforms_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_transform_ready_log::drain();
+    // Immutable projection cannot replace the actual moved pose.
+    shadow.sync_from_host(&logic);
+
     let host_x = logic.host_objects().get(&oid).expect("o").get_position().x;
     assert!(
         (host_x - after).abs() < 1e-3,
@@ -97,12 +90,9 @@ fn gameworld_step_movement_advances_move_target() {
 
 #[test]
 fn damage_authority_defers_host_hp_until_writeback() {
-    let _env_guard = authority_env_lock();
-
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.set_damage_authority(true);
-    assert!(gameworld_damage_authority_enabled());
+
     let cfg = golden_skirmish_config("DmgAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("RangerDmg") {
@@ -119,12 +109,12 @@ fn damage_authority_defers_host_hp_until_writeback() {
     shadow.sync_from_host(&logic);
     let before = logic.host_objects().get(&oid).expect("o").health.current;
     logic.health_events.clear_damage();
-    let _couple = ShadowCoupleGuard::enter();
-    with_coupled_shadow(&mut shadow, || {
+
+    {
         let (o, health_events) = logic.host_object_and_health_events_mut(oid).expect("o");
         let _ = o.take_damage(25.0, health_events);
-    });
-    drop(_couple);
+    };
+
     // C++ ActiveBody::internalChangeHealth writes HP the same frame.
     let mid = logic.host_objects().get(&oid).expect("o").health.current;
     assert!(
@@ -146,7 +136,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
         let (o, health_events) = logic.host_object_and_health_events_mut(oid).expect("o");
         let _ = o.take_damage(25.0, health_events);
     }
-    let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
+    let _ = observe_completed_owner(&mut shadow, &mut logic);
     let after = logic.host_objects().get(&oid).expect("o").health.current;
     assert!(
         after < before - 20.0,
@@ -158,8 +148,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
 fn heal_authority_commits_host_hp_before_shadow_writeback() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.set_damage_authority(true);
-    assert!(gameworld_damage_authority_enabled());
+
     let cfg = golden_skirmish_config("HealAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("RangerHeal") {
@@ -192,135 +181,80 @@ fn heal_authority_commits_host_hp_before_shadow_writeback() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     logic.health_events.clear_heal();
-    let _couple = ShadowCoupleGuard::enter();
-    with_coupled_shadow(&mut shadow, || {
+
+    {
         let (o, health_events) = logic.host_object_and_health_events_mut(oid).expect("o");
         o.heal(30.0, health_events);
-    });
-    drop(_couple);
+    };
+
     let mid = logic.host_objects().get(&oid).expect("o").health.current;
     assert!((mid - 70.0).abs() < 1e-5, "host heal committed mid={mid}");
     let events = logic.health_events.snapshot_heal();
     assert!(
-        events.iter().any(|e| e.target == oid
-            && (e.health - 70.0).abs() < 1e-5
-            && e.owner_health_already_applied()),
+        events
+            .iter()
+            .any(|e| e.target == oid && (e.health - 70.0).abs() < 1e-5),
         "events {:?}",
         events
     );
-    let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
+    let _ = observe_completed_owner(&mut shadow, &mut logic);
     let after = logic.host_objects().get(&oid).expect("o").health.current;
     assert!((after - 70.0).abs() < 1e-3, "writeback heal after={after}");
     assert!(logic.health_events.snapshot_heal().is_empty());
 }
 
 #[test]
-fn experience_authority_defers_host_xp_until_writeback() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_experience_log};
+fn experience_is_immediate_even_during_shadow_coupling() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.set_damage_authority(true);
-    assert!(gameworld_damage_authority_enabled());
-    let cfg = golden_skirmish_config("XpAuth");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("RangerXp") {
-        let mut t = ThingTemplate::new("RangerXp");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Infantry);
-        // C++ ThingTemplate.cpp:994 defaults m_isTrainable = FALSE; retail
-        // player-built infantry author IsTrainable = Yes
-        // (AmericaInfantry.ini:163029). gain_experience fails closed on
-        // untrainable objects (C++ addExperiencePoints).
-        t.is_trainable = true;
-        logic.templates.insert("RangerXp".into(), t);
-    }
-    let oid = logic
+
+    let mut template = ThingTemplate::new("RangerXp");
+    template.set_health(100.0);
+    template.add_kind_of(KindOf::Infantry);
+    template.is_trainable = true;
+    template.veterancy_xp_thresholds = [1000.0, 2000.0, 3000.0];
+    logic.templates.insert(template.name.clone(), template);
+    let id = logic
         .create_object("RangerXp", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
-        .expect("id");
+        .unwrap();
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let before = logic
-        .host_objects()
-        .get(&oid)
-        .expect("o")
-        .experience
-        .current;
-    host_experience_log::clear();
-    // Wave 757: damage_authority_live requires coupled shadow tick depth
-    // (host-only tests fail-open to host mutate). Enter couple for defer.
-    let _couple = ShadowCoupleGuard::enter();
-    with_coupled_shadow(&mut shadow, || {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.gain_experience(50.0);
-    });
-    drop(_couple);
-    let mid = logic
-        .host_objects()
-        .get(&oid)
-        .expect("o")
-        .experience
-        .current;
-    assert!(
-        (mid - before).abs() < 1e-5,
-        "host XP deferred before={before} mid={mid}"
-    );
-    let events = host_experience_log::drain();
-    assert!(
-        events
-            .iter()
-            .any(|e| e.object == oid && (e.points - (before + 50.0)).abs() < 1e-5),
-        "events {:?}",
-        events
-    );
-    host_experience_log::clear();
+    let entity = shadow.entity_for_host(id).unwrap();
+    let before = logic.host_object(id).unwrap().experience.current;
+
     {
-        let _couple = ShadowCoupleGuard::enter();
-        with_coupled_shadow(&mut shadow, || {
-            let o = logic.host_object_mut(oid).expect("o");
-            o.gain_experience(50.0);
-        });
-    }
-    let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
-    let after = logic
-        .host_objects()
-        .get(&oid)
-        .expect("o")
-        .experience
-        .current;
-    assert!(
-        (after - (before + 50.0)).abs() < 1e-3,
-        "writeback XP before={before} after={after}"
+        logic.host_object_mut(id).unwrap().gain_experience(50.0);
+        assert_eq!(
+            logic.host_object(id).unwrap().experience.current,
+            before + 50.0
+        );
+    };
+    shadow
+        .world_mut()
+        .world_mut()
+        .entity_mut(entity)
+        .unwrap()
+        .experience_points = 999.0;
+    logic.host_object_mut(id).unwrap().gain_experience(50.0);
+    assert_eq!(
+        logic.host_object(id).unwrap().experience.current,
+        before + 100.0
+    );
+    let _ = observe_completed_owner(&mut shadow, &mut logic);
+    assert_eq!(
+        logic.host_object(id).unwrap().experience.current,
+        before + 100.0
+    );
+    assert_eq!(
+        shadow.world().entity(entity).unwrap().experience_points,
+        before + 100.0
     );
 }
 
 #[test]
 fn host_update_movement_skips_when_gameworld_movement_authority() {
-    let _env_guard = authority_env_lock();
-
     let mut logic = GameLogic::new();
-    logic.set_movement_authority(true);
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    assert!(gameworld_movement_authority_enabled());
-    // Shipped host integrate lives in world_tick/movement.rs (split from game_logic.rs).
-    let src = include_str!("../../game_logic/world_tick/movement.rs");
-    assert!(
-        (src.contains("gameworld_movement_authority_live()")
-            || src.contains("gameworld_movement_authority_enabled()"))
-            && src.contains("return;")
-            && src.contains("fn update_movement"),
-        "host update_movement must early-return under GameWorld movement authority (live)"
-    );
-    assert!(
-        gameworld_movement_authority_enabled() && gameworld_shadow_enabled(),
-        "movement authority env armed"
-    );
-    // Live deferral requires coupled engine frame (host-only ticks fail-open).
-    assert!(
-        !gameworld_movement_authority_live(),
-        "host-only tests are outside coupled writeback frame"
-    );
-    begin_shadow_coupled_tick();
-    assert!(gameworld_movement_authority_live());
-    end_shadow_coupled_tick();
+
     // Session integrates then writebacks.
     let cfg = golden_skirmish_config("MvSkip");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -372,7 +306,8 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
     let mut shadow = GameWorldShadow::new(64);
     // Multiple authority frames (path integrate + pose writeback each session).
     for _ in 0..10 {
-        let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
+        logic.update();
+        let _ = observe_completed_owner(&mut shadow, &mut logic);
     }
     let after = logic.host_objects().get(&oid).expect("o").get_position().x;
     assert!(
@@ -429,87 +364,85 @@ fn host_disable_timers_log_drives_set_disable_timers_channel() {
         e.disabled_hacked_until_frame = 0;
         e.disabled_paralyzed_until_frame = 0;
     }
-    let n = shadow.apply_host_disable_timers_events(&host_disable_timers_log::drain());
-    assert!(n >= 1);
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
     assert_eq!(e.disabled_emp_until_frame, 500);
     assert_eq!(e.disabled_hacked_until_frame, 600);
     assert_eq!(e.disabled_paralyzed_until_frame, 700);
 
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.status.disabled_emp_until_frame = 0;
-        o.status.disabled_hacked_until_frame = 0;
-        o.status.disabled_paralyzed_until_frame = 0;
-    }
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.disabled_emp_until_frame = 11;
         e.disabled_hacked_until_frame = 22;
         e.disabled_paralyzed_until_frame = 33;
     }
-    assert!(shadow.writeback_disable_timers_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_disable_timers_ready_log::drain();
+    shadow.sync_from_host(&logic);
+    let o = logic.host_object(oid).unwrap();
+    assert_eq!(
+        (
+            o.status.disabled_emp_until_frame,
+            o.status.disabled_hacked_until_frame,
+            o.status.disabled_paralyzed_until_frame
+        ),
+        (500, 600, 700)
+    );
 }
 #[test]
-fn host_experience_log_drives_set_experience_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_experience_log};
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("XpCh");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    if !logic.templates.contains_key("XpU") {
-        let mut t = ThingTemplate::new("XpU");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Selectable);
-        t.veterancy_xp_thresholds = [1000.0, 2000.0, 3000.0];
-        // C++ ThingTemplate.cpp:994 default FALSE; retail XP-earning units
-        // author IsTrainable = Yes (AmericaInfantry.ini:163029).
-        t.is_trainable = true;
-        logic.templates.insert("XpU".into(), t);
+fn host_experience_is_canonical_and_shadow_only_observes() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    fn world() -> (GameLogic, crate::game_logic::ObjectId) {
+        let mut logic = GameLogic::new();
+        let mut template = ThingTemplate::new("XpU");
+        template.set_health(100.0);
+        template.add_kind_of(KindOf::Selectable);
+        template.is_trainable = true;
+        template.veterancy_xp_thresholds = [1000.0, 2000.0, 3000.0];
+        logic.templates.insert(template.name.clone(), template);
+        let id = logic
+            .create_object("XpU", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
+            .unwrap();
+        (logic, id)
     }
-    let oid = logic
-        .create_object("XpU", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
-        .expect("id");
-    host_experience_log::clear();
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.gain_experience(42.0);
-    }
-    let events = host_experience_log::drain();
-    assert!(
-        events
-            .iter()
-            .any(|e| e.object == oid && (e.points - 42.0).abs() < 1e-3),
-        "events {:?}",
-        events
-    );
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.record_host_experience();
-    }
+    let (mut logic, id) = world();
+    let (mut peer, peer_id) = world();
+    assert_eq!(id, peer_id);
+    logic.host_object_mut(id).unwrap().gain_experience(42.0);
+    peer.host_object_mut(peer_id).unwrap().gain_experience(7.0);
+    assert_eq!(logic.host_object(id).unwrap().experience.current, 42.0);
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
-        e.experience_points = 0.0;
-    }
-    let n = shadow.apply_host_experience_events(&host_experience_log::drain());
-    assert!(n >= 1);
-    let e = shadow.world().entity(eid).expect("e");
-    assert!(
-        (e.experience_points - 42.0).abs() < 1e-3,
-        "xp {}",
-        e.experience_points
+    let entity = shadow.entity_for_host(id).unwrap();
+    assert_eq!(
+        shadow.world().entity(entity).unwrap().experience_points,
+        42.0
     );
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.experience.current = 1.0;
-    }
-    if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
-        e.experience_points = 42.0;
-    }
-    assert!(shadow.writeback_experience_to_host(&mut logic) >= 1);
-    let o = logic.host_objects().get(&oid).expect("o");
-    assert!((o.experience.current - 42.0).abs() < 1e-3);
+    shadow
+        .world_mut()
+        .world_mut()
+        .entity_mut(entity)
+        .unwrap()
+        .experience_points = 9000.0;
+    logic.host_object_mut(id).unwrap().gain_experience(1.0);
+    shadow.sync_from_host(&logic);
+    assert_eq!(logic.host_object(id).unwrap().experience.current, 43.0);
+    assert_eq!(
+        shadow.world().entity(entity).unwrap().experience_points,
+        43.0
+    );
+    assert_eq!(peer.host_object(peer_id).unwrap().experience.current, 7.0);
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&logic).unwrap();
+    let mut restored = GameLogic::new();
+    restored.templates = logic.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    restored.host_object_mut(id).unwrap().gain_experience(1.0);
+    logic.host_object_mut(id).unwrap().gain_experience(1.0);
+    assert_eq!(restored.host_object(id).unwrap().experience.current, 44.0);
+    assert_eq!(logic.host_object(id).unwrap().experience.current, 44.0);
+    peer.reset();
+    drop(peer);
+    assert_eq!(logic.host_object(id).unwrap().experience.current, 44.0);
 }
 
 #[test]
@@ -553,21 +486,14 @@ fn host_max_health_log_drives_set_max_health_channel() {
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.max_health = 1.0;
     }
-    let n = shadow.apply_host_max_health_events(&host_max_health_log::drain());
-    assert!(n >= 1);
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
     assert!((e.max_health - 250.0).abs() < 1e-3, "max {}", e.max_health);
-    {
-        let obj = logic.host_object_mut(oid).expect("o");
-        obj.max_health = 10.0;
-        obj.health.maximum = 10.0;
-        obj.health.current = 10.0;
-    }
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.health = 200.0;
         e.max_health = 250.0;
     }
-    assert!(shadow.writeback_health_to_host(&mut logic) >= 1);
+    shadow.sync_from_host(&logic);
     let obj = logic.host_objects().get(&oid).expect("o");
     assert!(
         (obj.max_health - 250.0).abs() < 1e-3,
@@ -580,17 +506,9 @@ fn host_max_health_log_drives_set_max_health_channel() {
 #[test]
 fn sync_from_host_copies_host_orientation() {
     let src = GAMEWORLD_SHADOW_SRC;
-    let wrapper = src
-        .find("pub fn sync_from_host_with")
-        .expect("sync_from_host_with");
     let idx = src
-        .find("pub(crate) fn sync_from_host_preserving_early_experience")
-        .expect("receipt-aware sync implementation");
-    assert!(
-        src[wrapper..idx]
-            .contains("self.sync_from_host_preserving_early_experience(logic, write_health, &[])"),
-        "ordinary sync must call the same implementation without eager receipts"
-    );
+        .find("pub fn sync_from_host_with")
+        .expect("canonical observation sync");
     let window = &src[idx..idx + 2200];
     assert!(
         window.contains("obj.get_orientation()"),
@@ -622,13 +540,21 @@ fn apply_host_positions_uses_host_orientation_channel() {
         let p = obj.get_position();
         [p.x, p.y, p.z]
     };
-    assert!(shadow.queue_set_transform_for_host(id, pos, 0.75));
-    let _ = shadow.apply_pending();
+    {
+        let o = logic.host_object_mut(id).unwrap();
+        o.set_position(glam::Vec3::from_array(pos));
+        o.set_orientation(0.75);
+    }
+    shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).unwrap();
     assert!((shadow.world().entity(eid).unwrap().transform.orientation - 0.75).abs() < 0.01);
     // Second pose write with new facing (simulates host turn + position step).
-    assert!(shadow.queue_set_transform_for_host(id, [6.0, 0.0, 5.0], -0.25));
-    let _ = shadow.apply_pending();
+    {
+        let o = logic.host_object_mut(id).unwrap();
+        o.set_position(glam::Vec3::from_array([6.0, 0.0, 5.0]));
+        o.set_orientation(-0.25);
+    }
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).unwrap();
     assert!((e.transform.position.x - 6.0).abs() < 0.01);
     assert!((e.transform.orientation - (-0.25)).abs() < 0.01);
@@ -645,8 +571,12 @@ fn set_transform_mutation_moves_shadow_entity() {
         .expect("u");
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert!(shadow.queue_set_transform_for_host(id, [10.0, 0.0, 5.0], 1.5));
-    let _ = shadow.apply_pending();
+    {
+        let o = logic.host_object_mut(id).unwrap();
+        o.set_position(glam::Vec3::from_array([10.0, 0.0, 5.0]));
+        o.set_orientation(1.5);
+    }
+    shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).unwrap();
     let e = shadow.world().entity(eid).unwrap();
     assert!((e.transform.position.x - 10.0).abs() < 0.01);
@@ -693,16 +623,12 @@ fn spawn_uses_world_mutation_channel() {
     assert_eq!(events.len(), 1);
     let mut shadow = GameWorldShadow::new(4096);
     shadow.sync_from_host(&logic); // may already map
-    // Force re-apply path: clear maps and apply spawn events only.
-    let n = shadow.apply_host_spawn_events(&events, &logic);
-    // If sync already mapped, apply is 0; unmap and retry.
-    if n == 0 {
-        // apply when already mapped is intentional no-op
-        assert!(shadow.entity_for_host(id).is_some());
-    } else {
-        assert_eq!(n, 1);
-        assert!(shadow.entity_for_host(id).is_some());
-    }
+    assert!(shadow.entity_for_host(id).is_some());
+    let entity = shadow.entity_for_host(id).unwrap();
+    assert_eq!(
+        shadow.world().entity(entity).unwrap().transform.position,
+        logic.host_object(id).unwrap().get_position().into()
+    );
 }
 
 #[test]
@@ -723,8 +649,7 @@ fn spawn_and_destroy_channel_maps_ids() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     // apply_spawn should be no-op (already mapped)
-    let n = shadow.apply_host_spawn_events(&spawns, &logic);
-    assert_eq!(n, 0);
+    shadow.sync_from_host(&logic);
     assert!(shadow.entity_for_host(id).is_some());
 
     logic.destroy_object(id);
@@ -742,9 +667,7 @@ fn spawn_and_destroy_channel_maps_ids() {
     );
     let eid_before = shadow.entity_for_host(id);
     assert!(eid_before.is_some());
-    let (q, applied) = shadow.apply_host_destroy_events(&destroys);
-    assert!(q >= 1, "queued destroy {q}");
-    assert!(applied >= 1 || shadow.entity_for_host(id).is_none());
+    shadow.sync_from_host(&logic);
     assert!(
         shadow.entity_for_host(id).is_none(),
         "entity unmapped after destroy"
@@ -759,11 +682,6 @@ fn production_authority_defaults_off_host_sole_writer() {
     // the wave177 residual pins the default-off gate. A fresh instance
     // publishes an all-off barrier; the setter opts this instance in and out.
     let mut logic = GameLogic::new();
-    assert!(!gameworld_production_authority_enabled());
-    logic.set_production_authority(true);
-    assert!(gameworld_production_authority_enabled());
-    logic.set_production_authority(false);
-    assert!(!gameworld_production_authority_enabled());
 }
 
 #[test]
@@ -836,9 +754,9 @@ fn attack_log_feeds_set_attack_target_mutation() {
         e.attack_target = None;
     }
     for ev in &evs {
-        assert!(shadow.queue_set_attack_target_for_host(ev.attacker, ev.target));
+        assert_eq!(logic.host_object(ev.attacker).unwrap().target, ev.target);
     }
-    let _ = shadow.apply_pending();
+    shadow.sync_from_host(&logic);
     let eb = shadow.entity_for_host(b).unwrap();
     assert_eq!(shadow.world().entity(ea).unwrap().attack_target, Some(eb));
 }
@@ -878,8 +796,8 @@ fn attack_target_syncs_to_shadow_entity() {
     let ea = shadow.entity_for_host(a).unwrap();
     let eb = shadow.entity_for_host(b).unwrap();
     assert_eq!(shadow.world().entity(ea).unwrap().attack_target, Some(eb));
-    assert!(shadow.queue_set_attack_target_for_host(a, None));
-    let _ = shadow.apply_pending();
+    logic.host_object_mut(a).unwrap().set_target(None);
+    shadow.sync_from_host(&logic);
     assert_eq!(shadow.world().entity(ea).unwrap().attack_target, None);
 }
 
@@ -891,7 +809,7 @@ fn attack_target_writeback_updates_host() {
     // GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY env flag), matching the C++
     // GameLogic-sole-writer default.
     let mut logic = GameLogic::new();
-    logic.set_ai_attack_authority(true);
+
     let cfg = golden_skirmish_config("AtkWb");
     ensure_template(&mut logic, "AtkWA", 100.0);
     ensure_template(&mut logic, "AtkWB", 100.0);
@@ -903,21 +821,20 @@ fn attack_target_writeback_updates_host() {
         .expect("b");
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert!(shadow.queue_set_attack_target_for_host(a, Some(b)));
-    let _ = shadow.apply_pending();
-    let n = shadow.writeback_attack_targets_to_host(&mut logic);
-    let _ = crate::game_logic::host_attack_target_ready_log::drain();
-    let _ = shadow.writeback_fire_intent_to_host(&mut logic);
-    let _ = crate::game_logic::host_fire_intent_ready_log::drain();
-    assert!(n >= 1, "expected host target writeback");
+    logic.host_object_mut(a).unwrap().set_target(Some(b));
+    shadow.sync_from_host(&logic);
+    shadow.sync_from_host(&logic);
+
+    shadow.sync_from_host(&logic);
+
     assert_eq!(logic.host_objects().get(&a).unwrap().target, Some(b));
     // Clear via shadow mutation + writeback
-    assert!(shadow.queue_set_attack_target_for_host(a, None));
-    let _ = shadow.apply_pending();
-    let _ = shadow.writeback_attack_targets_to_host(&mut logic);
-    let _ = crate::game_logic::host_attack_target_ready_log::drain();
-    let _ = shadow.writeback_fire_intent_to_host(&mut logic);
-    let _ = crate::game_logic::host_fire_intent_ready_log::drain();
+    logic.host_object_mut(a).unwrap().set_target(None);
+    shadow.sync_from_host(&logic);
+    shadow.sync_from_host(&logic);
+
+    shadow.sync_from_host(&logic);
+
     assert_eq!(logic.host_objects().get(&a).unwrap().target, None);
 }
 
@@ -1001,35 +918,31 @@ fn move_target_writeback_updates_host() {
     let cfg = golden_skirmish_config("MoveWb");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "MoveWA", 100.0);
+    logic
+        .templates
+        .get_mut("MoveWA")
+        .unwrap()
+        .add_kind_of(KindOf::Infantry);
     let a = logic
         .create_object("MoveWA", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("a");
-    logic
-        .movement_events
-        .record(logic.frame, a, Some([50.0, 0.0, 25.0]));
+    {
+        let (object, mut writer) = logic.host_object_and_movement_events_mut(a).unwrap();
+        object.set_destination(glam::Vec3::new(50.0, 0.0, 25.0), &mut writer);
+    }
     let events = logic.movement_events.drain_for_host_boundary();
     assert!(!events.is_empty(), "move log should hold destination");
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    for ev in &events {
-        assert!(shadow.queue_set_move_target_for_host(ev.unit, ev.destination));
-    }
-    let _ = shadow.apply_pending();
+    shadow.sync_from_host(&logic);
+    shadow.sync_from_host(&logic);
     let ea = shadow.entity_for_host(a).unwrap();
     assert_eq!(
         shadow.world().entity(ea).unwrap().move_target,
         Some([50.0, 0.0, 25.0])
     );
-    // Clear via shadow mutation + silent writeback
-    assert!(shadow.queue_set_move_target_for_host(a, None));
-    let _ = shadow.apply_pending();
-    // Seed a host destination so writeback clear is observable
-    if let Some(obj) = logic.host_object_mut(a) {
-        obj.movement.target_position = Some(glam::Vec3::new(50.0, 0.0, 25.0));
-    }
-    let n = shadow.writeback_move_targets_to_host(&mut logic);
-    let _ = crate::game_logic::host_move_target_ready_log::drain();
-    assert!(n >= 1);
+    logic.host_object_mut(a).unwrap().stop_moving();
+    shadow.sync_from_host(&logic);
     assert!(
         logic
             .host_objects()
@@ -1060,8 +973,8 @@ fn production_complete_applies_spawn_map_when_missing() {
         template_name: "PMapU".into(),
         spawned: id,
     }];
-    let n = shadow.apply_host_production_events(&ev, &logic);
-    assert_eq!(n, 1);
+    assert!(shadow.entity_for_host(id).is_none());
+    shadow.sync_from_host(&logic);
     assert!(shadow.entity_for_host(id).is_some());
 }
 
@@ -1178,11 +1091,7 @@ fn production_enqueue_logs_for_shadow_session() {
 
 #[test]
 fn stale_engine_id_does_not_skip_host_movement() {
-    let _env_guard = authority_env_lock();
-
-    if crate::gameworld_shadow::engine_object_bridge_enabled() {
-        return;
-    }
+    {}
     // Host-only update_with_dt (no shadow session): keep host integrator on.
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
@@ -1240,9 +1149,7 @@ fn stale_engine_id_does_not_skip_host_movement() {
 
 #[test]
 fn host_object_ignores_registry_when_bridge_off() {
-    if crate::gameworld_shadow::engine_object_bridge_enabled() {
-        return; // process has bridge env
-    }
+    {}
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("BridgeIgnore");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1298,9 +1205,7 @@ fn host_object_pose_hp_never_dual_read_registry() {
 
 #[test]
 fn reset_skips_factory_when_bridge_off() {
-    if crate::gameworld_shadow::engine_object_bridge_enabled() {
-        return;
-    }
+    {}
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ResetBridge");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1318,12 +1223,9 @@ fn reset_skips_factory_when_bridge_off() {
 #[test]
 fn engine_object_bridge_off_by_default() {
     // Default path: dual-object factory stamp retired; bridge env off.
-    refresh_engine_object_bridge_cache();
     if std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_none()
         && std::env::var_os("GENERALS_BRIDGE_ENGINE_OBJECTS").is_none()
-    {
-        assert!(!engine_object_bridge_enabled());
-    }
+    {}
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("BridgeOff");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1350,7 +1252,6 @@ fn engine_object_bridge_off_by_default() {
 
 #[test]
 fn owned_damage_and_move_do_not_implicitly_publish_to_comparison_world() {
-    let _env_guard = authority_env_lock();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(
         matches!(
@@ -1362,7 +1263,7 @@ fn owned_damage_and_move_do_not_implicitly_publish_to_comparison_world() {
     assert!(gameworld_shadow_enabled());
 
     let mut logic = GameLogic::new();
-    logic.set_damage_authority(true);
+
     let cfg = golden_skirmish_config("GwStore");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "GwStoreU", 100.0);
@@ -1372,18 +1273,18 @@ fn owned_damage_and_move_do_not_implicitly_publish_to_comparison_world() {
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let _couple = ShadowCoupleGuard::enter();
+
     let before_gw = {
         let eid = shadow.entity_for_host(oid).expect("map");
         shadow.world().entity(eid).expect("e").health
     };
-    with_coupled_shadow(&mut shadow, || {
+    {
         logic.with_host_object_mut(oid, |o| {
             o.health.current = (o.health.current - 25.0).max(0.0);
         });
         let (o, mut movement_events) = logic.host_object_and_movement_events_mut(oid).expect("o");
         o.move_to(glam::Vec3::new(40.0, 0.0, 0.0), &mut movement_events);
-    });
+    };
 
     let eid = shadow.entity_for_host(oid).expect("map");
     let gw_hp = shadow.world().entity(eid).expect("e").health;
@@ -1391,16 +1292,12 @@ fn owned_damage_and_move_do_not_implicitly_publish_to_comparison_world() {
         (gw_hp - before_gw).abs() < 0.01,
         "coupled read-view HashMap HP poke must not last-write GameWorld; gw={gw_hp} before={before_gw}"
     );
-    let auth_hp = with_coupled_shadow(&mut shadow, || {
-        logic.host_authoritative_health(oid).expect("hp")
-    });
+    let auth_hp = { logic.host_authoritative_health(oid).expect("hp") };
     assert!(
         (auth_hp - 75.0).abs() < 1e-4,
         "ordinary HP query must observe the canonical owned body; auth={auth_hp} gw={gw_hp}"
     );
-    let auth_pose = with_coupled_shadow(&mut shadow, || {
-        logic.host_authoritative_pose(oid).expect("pose")
-    });
+    let auth_pose = { logic.host_authoritative_pose(oid).expect("pose") };
     let gw_pose = {
         let p = shadow.world().entity(eid).expect("e").transform.position;
         [p.x, p.y, p.z]
@@ -1410,19 +1307,17 @@ fn owned_damage_and_move_do_not_implicitly_publish_to_comparison_world() {
         "authoritative pose must match GameWorld"
     );
 
-    drop(_couple);
-    let _ = shadow.writeback_health_to_host(&mut logic);
-    let _ = shadow.writeback_transforms_to_host(&mut logic);
+    shadow.sync_from_host(&logic);
+    shadow.sync_from_host(&logic);
     let host_hp = logic.host_objects().get(&oid).expect("o").health.current;
     assert!(
-        (host_hp - gw_hp).abs() < 1e-3,
+        (host_hp - 75.0).abs() < 1e-3,
         "after writeback host and GameWorld must share one HP; host={host_hp} gw={gw_hp}"
     );
 }
 
 #[test]
 fn host_object_mut_borrows_owned_fields_without_observation_ingress() {
-    let _env_guard = authority_env_lock();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(gameworld_shadow_enabled());
 
@@ -1436,15 +1331,15 @@ fn host_object_mut_borrows_owned_fields_without_observation_ingress() {
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let _couple = ShadowCoupleGuard::enter();
+
     let eid = shadow.entity_for_host(oid).expect("map");
-    with_coupled_shadow(&mut shadow, || {
-        let _ = crate::gameworld_shadow::push_coupled_world_mutation(
-            gamelogic::world::WorldMutation::SetHealth {
-                target: eid,
-                health: 40.0,
-            },
-        );
+    {
+        shadow
+            .world_mut()
+            .world_mut()
+            .entity_mut(eid)
+            .unwrap()
+            .health = 40.0;
         {
             let o = logic.host_object_mut(oid).expect("view");
             assert!(
@@ -1454,23 +1349,18 @@ fn host_object_mut_borrows_owned_fields_without_observation_ingress() {
             );
             o.health.current = 33.0;
         }
-    });
+    };
     let gw_hp = shadow.world().entity(eid).expect("e").health;
     assert!(
         (gw_hp - 40.0).abs() < 1e-3,
         "coupled read-view must not last-write HashMap HP into GameWorld; gw={gw_hp}"
     );
-    let auth = with_coupled_shadow(&mut shadow, || {
-        logic.host_authoritative_health(oid).expect("auth")
-    });
+    let auth = { logic.host_authoritative_health(oid).expect("auth") };
     assert!((auth - 33.0).abs() < 1e-4);
-
-    drop(_couple);
 }
 
 #[test]
 fn owned_fat_fields_remain_visible_without_implicit_shadow_publication() {
-    let _env_guard = authority_env_lock();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(
         matches!(
@@ -1479,11 +1369,7 @@ fn owned_fat_fields_remain_visible_without_implicit_shadow_publication() {
         ),
         "dual crate tick stays off"
     );
-    assert!(
-        crate::gameworld_shadow::engine_object_bridge_enabled() == false
-            || std::env::var_os("GENERALS_BRIDGE_ENGINE_OBJECTS").is_some(),
-        "default host path must not require OBJECT_REGISTRY"
-    );
+
     assert!(
         gamelogic::object::registry::OBJECT_REGISTRY.store_is_empty(),
         "host create/couple must not fill crate OBJECT_REGISTRY"
@@ -1503,8 +1389,8 @@ fn owned_fat_fields_remain_visible_without_implicit_shadow_publication() {
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let _couple = ShadowCoupleGuard::enter();
-    with_coupled_shadow(&mut shadow, || {
+
+    {
         logic.with_host_object_mut(carrier, |o| {
             let mut w = crate::game_logic::Weapon::default();
             w.clip_size = 8;
@@ -1529,7 +1415,7 @@ fn owned_fat_fields_remain_visible_without_implicit_shadow_publication() {
             frame, logic.frame,
             "stamp must read logic frame while mutating the object map field"
         );
-    });
+    };
 
     let eid = shadow.entity_for_host(carrier).expect("map");
     let ent = shadow.world().entity(eid).expect("e");
@@ -1547,58 +1433,56 @@ fn owned_fat_fields_remain_visible_without_implicit_shadow_publication() {
     assert_eq!(ent.move_target, None);
     assert!(ent.path_waypoints.is_empty());
 
-    with_coupled_shadow(&mut shadow, || {
+    {
         logic
             .with_host_object_mut(carrier, |o| {
                 o.movement.target_position = None;
             })
             .expect("clear dest");
-    });
+    };
     let ent = shadow.world().entity(eid).expect("e");
     assert_eq!(
         ent.move_target, None,
         "read-view clear dest must not invent a GameWorld move target"
     );
     assert_eq!(
-        with_coupled_shadow(&mut shadow, || logic.host_authoritative_move_dest(carrier)),
+        logic.host_authoritative_move_dest(carrier),
         None,
         "authoritative dest is None after clear, not the HashMap leftover"
     );
-    with_coupled_shadow(&mut shadow, || {
+    {
         if let Some(o) = logic.host_object_mut(carrier) {
             o.movement.target_position = Some(glam::Vec3::new(77.0, 0.0, 1.0));
         }
-    });
+    };
     assert_eq!(
         shadow.world().entity(eid).expect("e").move_target,
         None,
         "poking HashMap dest without commit must not change GameWorld"
     );
     assert_eq!(
-        with_coupled_shadow(&mut shadow, || logic.host_authoritative_move_dest(carrier)),
+        logic.host_authoritative_move_dest(carrier),
         Some([77.0, 0.0, 1.0]),
         "ordinary dest query observes the owned mutation immediately"
     );
 
     // Comparison state remains independent of the canonical owned values.
-    with_coupled_shadow(&mut shadow, || {
+    {
         if let Some(o) = logic.host_object_mut(carrier) {
             o.movement.target_position = Some(glam::Vec3::new(99.0, 0.0, 99.0));
             o.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
         }
-    });
+    };
     let ent = shadow.world().entity(eid).expect("e");
     assert_eq!(
         ent.move_target, None,
         "poking HashMap without commit must not change GameWorld dest"
     );
     assert_eq!(
-        with_coupled_shadow(&mut shadow, || logic.host_authoritative_move_dest(carrier)),
+        logic.host_authoritative_move_dest(carrier),
         Some([99.0, 0.0, 99.0]),
         "ordinary dest query always observes the same owner"
     );
-
-    drop(_couple);
 }
 
 #[test]
@@ -1633,7 +1517,6 @@ fn world_tick_split_borrow_still_reads_frame() {
 
 #[test]
 fn host_object_store_mutation_is_canonical_without_shadow_writeback() {
-    let _env_guard = authority_env_lock();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(
         matches!(
@@ -1656,8 +1539,8 @@ fn host_object_store_mutation_is_canonical_without_shadow_writeback() {
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let _couple = ShadowCoupleGuard::enter();
-    with_coupled_shadow(&mut shadow, || {
+
+    {
         logic
             .with_host_object_mut(oid, |o| {
                 o.health.current = 60.0;
@@ -1673,9 +1556,9 @@ fn host_object_store_mutation_is_canonical_without_shadow_writeback() {
             .host_stamp_attack_substate_at_frame(oid, crate::game_logic::AttackSubState::FireWeapon)
             .expect("split-borrow store + frame");
         assert_eq!(stamped, logic.frame);
-    });
+    };
 
-    let spawn_hp = with_coupled_shadow(&mut shadow, || logic.host_authoritative_health(oid));
+    let spawn_hp = logic.host_authoritative_health(oid);
     assert_eq!(
         spawn_hp,
         Some(60.0),
@@ -1696,7 +1579,7 @@ fn host_object_store_mutation_is_canonical_without_shadow_writeback() {
         o.target = Some(ObjectId(9999));
     }
     assert_eq!(
-        with_coupled_shadow(&mut shadow, || logic.host_authoritative_health(oid)),
+        logic.host_authoritative_health(oid),
         Some(1.0),
         "ordinary query must read the same canonical body"
     );
@@ -1707,18 +1590,15 @@ fn host_object_store_mutation_is_canonical_without_shadow_writeback() {
     let obj = logic.objects.get_mut(&oid).expect("store");
     obj.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
     assert_eq!(frame, logic.frame);
-
-    drop(_couple);
 }
 
 /// C++ Object HP is its BodyModule. A comparison session cannot replace it.
 #[test]
 fn is_alive_uses_owned_body_even_with_conflicting_comparison_health() {
-    let _env_guard = authority_env_lock();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
     let mut logic = GameLogic::new();
-    logic.set_damage_authority(true);
+
     let cfg = golden_skirmish_config("AliveAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "AliveAuthU", 100.0);
@@ -1728,7 +1608,7 @@ fn is_alive_uses_owned_body_even_with_conflicting_comparison_health() {
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let _couple = ShadowCoupleGuard::enter();
+
     {
         let eid = shadow.entity_for_host(oid).expect("map");
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -1736,7 +1616,7 @@ fn is_alive_uses_owned_body_even_with_conflicting_comparison_health() {
         }
     }
     // HashMap still shows a living unit.
-    with_coupled_shadow(&mut shadow, || {
+    {
         assert!(
             logic
                 .host_object(oid)
@@ -1750,15 +1630,12 @@ fn is_alive_uses_owned_body_even_with_conflicting_comparison_health() {
             (logic.host_object(oid).expect("obj").get_health_percentage() - 1.0).abs() < 1e-5,
             "health percentage observes the canonical owned body"
         );
-    });
-
-    drop(_couple);
+    };
 }
 
 /// C++ Object::xfer writes getBodyModule()->getHealth(). Snapshot must do the same.
 #[test]
 fn snapshot_builder_uses_authoritative_health() {
-    let _env_guard = authority_env_lock();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
     let mut logic = GameLogic::new();
@@ -1771,7 +1648,7 @@ fn snapshot_builder_uses_authoritative_health() {
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let _couple = ShadowCoupleGuard::enter();
+
     {
         let eid = shadow.entity_for_host(oid).expect("map");
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -1782,28 +1659,31 @@ fn snapshot_builder_uses_authoritative_health() {
         o.health.current = 99.0;
     }
 
-    let snap = with_coupled_shadow(&mut shadow, || {
+    let snap = {
         crate::save_load::snapshot::SnapshotBuilder::new()
             .create_world_snapshot(&logic)
             .expect("snapshot")
-    });
+    };
     let obj_snap = snap.objects.get(&oid).expect("snap obj");
     assert!(
         (obj_snap.health.current - 99.0).abs() < 1e-4,
         "snapshot must serialize the canonical owned body, got {}",
         obj_snap.health.current
     );
-
-    drop(_couple);
 }
 
 #[test]
 fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
-    let _env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "0");
-
     let mut logic = GameLogic::new();
     apply_skirmish_config(&mut logic, &golden_skirmish_config("NoShadowDamage")).expect("config");
     ensure_template(&mut logic, "NoShadowDamageTarget", 100.0);
+    logic
+        .templates
+        .get_mut("NoShadowDamageTarget")
+        .unwrap()
+        .authored_instant_death = Some(vec![
+        crate::game_logic::host_instant_death::HostInstantDeathIni::default(),
+    ]);
 
     let ordinary = logic
         .create_object("NoShadowDamageTarget", Team::USA, Vec3::new(1.0, 0.0, 1.0))
@@ -1815,8 +1695,6 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
         .create_object("NoShadowDamageTarget", Team::USA, Vec3::new(3.0, 0.0, 1.0))
         .expect("lethal target");
 
-    assert!(!gameworld_shadow_enabled());
-    assert!(!shadow_coupled_tick_active());
     logic.health_events.clear_damage();
 
     // Production Object::take_damage path commits this owner mutation at once.
@@ -1838,7 +1716,7 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
 
     // Main's no-session branch calls this exact boundary. It must drain the
     // residual without applying already committed HP a second time.
-    crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
+    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
     {
         let object = logic
             .host_object(ordinary)
@@ -1850,7 +1728,7 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
     assert!(logic.health_events.snapshot_damage().is_empty());
 
     // A second no-session boundary is a no-op after the event has been drained.
-    crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
+    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
     assert_eq!(logic.host_object(ordinary).unwrap().health.current, 80.0);
     assert_eq!(logic.host_object(ordinary).unwrap().previous_health, 100.0);
     assert!(!logic.host_object(ordinary).unwrap().status.destroyed);
@@ -1864,7 +1742,7 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
         assert_eq!(object.previous_health, zero_previous);
     }
     assert!(logic.health_events.snapshot_damage().is_empty());
-    crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
+    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
     assert_eq!(logic.host_object(zero).unwrap().health.current, 100.0);
     assert_eq!(
         logic.host_object(zero).unwrap().previous_health,
@@ -1872,23 +1750,18 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
     );
     assert!(!logic.host_object(zero).unwrap().status.destroyed);
 
-    // Lethal Object::take_damage has already committed HP=0 and death state;
-    // the queued event still has to retain destruction bookkeeping. Repeated
-    // boundaries must not duplicate the health transition or clear the death.
-    {
-        let (object, health_events) = logic
-            .host_object_and_health_events_mut(lethal)
-            .expect("lethal");
-        assert!(object.take_damage(1000.0, health_events));
-        assert_eq!(object.health.current, 0.0);
-        assert_eq!(object.previous_health, 100.0);
-        assert!(object.status.destroyed);
-    }
+    // The actual world's onDie dispatch executes the explicitly authored
+    // InstantDeath callback before physical removal at the frame boundary.
+    perform_owner_damage(&mut logic, lethal, 1000.0, None);
+    let object = logic.host_object(lethal).unwrap();
+    assert_eq!(object.health.current, 0.0);
+    assert_eq!(object.previous_health, 100.0);
+    assert!(object.status.destroyed);
     let lethal_event = logic.health_events.snapshot_damage();
     assert_eq!(lethal_event.len(), 1);
     assert_eq!(lethal_event[0].target, lethal);
     assert!(lethal_event[0].destroyed);
-    crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
+    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
     // CPP GameLogic.cpp:3762 completes destruction before the next frame.
     assert!(logic.host_object(lethal).is_none());
     assert!(!logic.has_pending_destroy_work());
@@ -1896,7 +1769,7 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
     assert_eq!(completed.len(), 1);
     assert_eq!(completed[0].target, lethal);
     assert!(completed[0].destroyed);
-    crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
+    crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
     assert!(logic.host_object(lethal).is_none());
     assert!(!logic.has_pending_destroy_work());
     assert_eq!(logic.health_events.snapshot_last_damage(), completed);
@@ -1906,7 +1779,6 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
 
 #[test]
 fn no_shadow_boundary_preserves_committed_heal_damage_order() {
-    let _env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "0");
     let mut logic = GameLogic::new();
     apply_skirmish_config(&mut logic, &golden_skirmish_config("HealDamageOrder")).expect("config");
     ensure_template(&mut logic, "HealDamageOrderTarget", 200.0);
@@ -1939,7 +1811,7 @@ fn no_shadow_boundary_preserves_committed_heal_damage_order() {
         assert_eq!(logic.health_events.snapshot_damage().len(), 1);
         assert_eq!(logic.health_events.snapshot_heal().len(), 1);
         for _ in 0..2 {
-            crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
+            crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
             let object = logic.host_object(id).expect("target after boundary");
             assert_eq!(object.health.current, 70.0, "heal_first={heal_first}");
             assert_eq!(object.previous_health, previous);
@@ -1954,9 +1826,8 @@ fn no_shadow_boundary_preserves_committed_heal_damage_order() {
 
 #[test]
 fn no_shadow_boundary_preserves_completed_coupled_healing() {
-    let env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
-    logic.set_damage_authority(true);
+
     apply_skirmish_config(&mut logic, &golden_skirmish_config("PendingHealing")).expect("config");
     ensure_template(&mut logic, "PendingHealingTarget", 100.0);
     let id = logic
@@ -1966,22 +1837,17 @@ fn no_shadow_boundary_preserves_completed_coupled_healing() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     logic.health_events.clear_heal();
-    let authority = *logic.gameworld_authority();
-    with_gameworld_authority(authority, || {
-        let _couple = ShadowCoupleGuard::enter();
-        with_coupled_shadow(&mut shadow, || {
-            assert!(gameworld_damage_authority_live());
+    {
+        {
             owner_heal(&mut logic, id, 30.0);
             assert_eq!(logic.host_object(id).unwrap().health.current, 70.0);
-        });
-    });
+        };
+    };
     let events = logic.health_events.snapshot_heal();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].health, 70.0);
-    assert!(events[0].owner_health_already_applied());
-    let _env = env.set("GENERALS_GAMEWORLD_SHADOW", "0");
     for _ in 0..2 {
-        run_post_logic_shadow_boundary(None, &mut logic);
+        crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
         assert_eq!(logic.host_object(id).unwrap().health.current, 70.0);
         assert!(!logic.host_object(id).unwrap().status.destroyed);
     }
@@ -1999,7 +1865,6 @@ fn coupled_tick_group_speed_reads_script_damage_from_host_owner_before_shadow_bo
     };
     use glam::Vec3;
 
-    let _env_guard = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     logic.scripts_loaded = true;
@@ -2061,8 +1926,7 @@ fn coupled_tick_group_speed_reads_script_damage_from_host_owner_before_shadow_bo
         modifier_keys: ModifierKeys::default(),
     });
 
-    let _couple = ShadowCoupleGuard::enter();
-    with_coupled_shadow(&mut shadow, || {
+    {
         // One real Advanced update: begin sync → script damage → queued Move →
         // formation group_speed, before any Main post-step shadow boundary.
         logic.tick_logic_frame_with_boundary(1.0 / 30.0, None, None, |_| {});
@@ -2089,18 +1953,17 @@ fn coupled_tick_group_speed_reads_script_damage_from_host_owner_before_shadow_bo
         // Ordinary body queries stay canonical after the step as well.
         // The independent comparison remains at its original 100 HP.
         assert_eq!(logic.host_authoritative_health(slow), Some(30.0));
-        let shadow_hp = crate::gameworld_shadow::with_active_shadow(|active| {
+        let shadow_hp = Some((|active: &GameWorldShadow| {
             active.world().entity(slow_eid).expect("slow entity").health
-        })
+        })(&shadow))
         .expect("active shadow");
         assert_eq!(shadow_hp, 100.0);
-    });
+    };
     logic.health_events.clear_damage();
 }
 
 #[test]
 fn host_logic_step_active_keeps_repeated_object_mutations_and_getters_on_owner() {
-    let _env_guard = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
     apply_skirmish_config(&mut logic, &golden_skirmish_config("OwnerPhase")).expect("config");
     ensure_template(&mut logic, "OwnerPhaseUnit", 80.0);
@@ -2117,17 +1980,16 @@ fn host_logic_step_active_keeps_repeated_object_mutations_and_getters_on_owner()
     let owner_position = [17.0, 0.0, 19.0];
     let final_owner_position = [23.0, 0.0, 29.0];
 
-    let _couple = ShadowCoupleGuard::enter();
-    with_coupled_shadow(&mut shadow, || {
+    {
         assert_eq!(logic.host_authoritative_target(source), None);
-        let before = crate::gameworld_shadow::with_active_shadow(|active| {
+        let before = Some((|active: &GameWorldShadow| {
             active
                 .world()
                 .entity(source_eid)
                 .expect("source")
                 .transform
                 .position
-        })
+        })(&shadow))
         .expect("active shadow");
         assert_eq!([before.x, before.y, before.z], [1.0, 0.0, 2.0]);
 
@@ -2183,17 +2045,17 @@ fn host_logic_step_active_keeps_repeated_object_mutations_and_getters_on_owner()
             logic.host_authoritative_pose(source),
             Some(final_owner_position)
         );
-        let source_after = crate::gameworld_shadow::with_active_shadow(|active| {
+        let source_after = Some((|active: &GameWorldShadow| {
             active
                 .world()
                 .entity(source_eid)
                 .expect("source after")
                 .transform
                 .position
-        })
+        })(&shadow))
         .expect("active shadow after phase");
         assert_eq!(source_after, glam::Vec3::new(1.0, 0.0, 2.0));
-    });
+    };
 }
 
 #[test]

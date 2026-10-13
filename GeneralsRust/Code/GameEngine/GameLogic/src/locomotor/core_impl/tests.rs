@@ -787,51 +787,45 @@ mod tests {
     /// C++ AIUpdate.cpp:2236-2264 — NONE goal still settles then maintainCurrentPosition.
     #[test]
     fn loco_goal_none_settles_final_position() {
-        let template = Arc::new(LocomotorTemplate::new_wheeled("Truck".to_string()));
-        let mut loco = Locomotor::new(template);
         let current = Coord3D::new(0.0, 0.0, 3.0);
         let final_pos = Coord3D::new(20.0, 0.0, 9.0);
-        let dt = 1.0 / LOGICFRAMES_PER_SECOND as Real;
-        let update = loco.loco_update_when_goal_none(
-            current,
-            0.0,
-            4.0,
-            BodyDamageType::Pristine,
-            dt,
-            true,
-            final_pos,
-            false,
-        );
+        let (position, still_final) =
+            Locomotor::settle_final_position_with_height(current, final_pos, false, |_, _| {
+                panic!("off-ground settling must not query terrain")
+            });
         assert!(
-            update.do_final_position,
-            "far final position must keep settling (AIUpdate.cpp:2253-2261)"
-        );
-        assert!(
-            update.pos.x > current.x,
-            "settle steps toward m_finalPosition at 2*PATHFIND_CELL_SIZE_F / second"
+            still_final,
+            "far final position keeps settling (AIUpdate.cpp:2253–2261)"
         );
         assert_eq!(
-            update.pos.z, current.z,
-            "airborne settle keeps current z (AIUpdate.cpp:2259-2260)"
+            position.x,
+            2.0 * PATHFIND_CELL_SIZE_F / LOGICFRAMES_PER_SECOND as Real
         );
-
-        let close = loco.loco_update_when_goal_none(
+        assert_eq!(position.z, current.z, "airborne settle keeps current Z");
+        let (position, still_final) = Locomotor::settle_final_position_with_height(
             Coord3D::new(20.0, 0.0, 3.0),
-            0.0,
-            0.0,
-            BodyDamageType::Pristine,
-            dt,
-            true,
             Coord3D::new(20.1, 0.0, 9.0),
             false,
+            |_, _| panic!("off-ground snap must not query terrain"),
         );
         assert!(
-            !close.do_final_position,
-            "dSqr < 0.25 snaps and clears do_final_position (AIUpdate.cpp:2243-2251)"
+            !still_final,
+            "dSqr < 0.25 snaps and clears final-position continuation"
         );
         assert_eq!(
-            close.pos.z, 3.0,
-            "off-ground snap uses current z, not final.z"
+            position.z, 3.0,
+            "off-ground snap preserves current Z, not final Z"
+        );
+        let (position, still_final) = Locomotor::settle_final_position_with_height(
+            Coord3D::new(20.0, 0.0, 3.0),
+            Coord3D::new(20.1, 0.0, 9.0),
+            true,
+            |_, _| Some(15.0),
+        );
+        assert!(!still_final);
+        assert_eq!(
+            position.z, 15.0,
+            "ground snap uses the supplied receiving terrain"
         );
     }
 }

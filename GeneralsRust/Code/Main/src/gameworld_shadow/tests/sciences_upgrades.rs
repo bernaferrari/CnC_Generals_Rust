@@ -304,6 +304,7 @@ fn sync_players_copies_rank_residual() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let gw = shadow.host_player_to_gw.get(&pid).copied().expect("mapped");
+    shadow.sync_from_host(&logic);
     let pd = shadow.world().player(gw).expect("pd");
     assert_eq!(pd.rank_level, 4);
     assert_eq!(pd.skill_points, 512);
@@ -315,9 +316,20 @@ fn sync_players_copies_rank_residual() {
         p.skill_points = 600;
         p.science_purchase_points = 4;
     }
-    let wb = shadow.writeback_economy_to_host(&mut logic);
-    let _ = crate::game_logic::host_economy_ready_log::drain();
-    assert!(wb >= 1);
+    let host = logic.get_player(pid).unwrap();
+    assert_eq!(
+        (
+            host.rank_level,
+            host.skill_points,
+            host.science_purchase_points
+        ),
+        (4, 512, 3)
+    );
+    let host = logic.get_player_mut(pid).unwrap();
+    host.rank_level = 5;
+    host.skill_points = 600;
+    host.science_purchase_points = 4;
+    shadow.sync_from_host(&logic);
     let host = logic.get_player(pid).expect("host");
     assert_eq!(host.rank_level, 5);
     assert_eq!(host.skill_points, 600);
@@ -341,6 +353,7 @@ fn sync_players_copies_shared_special_power_cooldowns() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let gw = shadow.host_player_to_gw.get(&pid).copied().expect("map");
+    shadow.sync_from_host(&logic);
     let pd = shadow.world().player(gw).expect("pd");
     assert!(
         pd.shared_special_power_cooldowns
@@ -359,7 +372,19 @@ fn sync_players_copies_shared_special_power_cooldowns() {
             *v = 3.0;
         }
     }
-    let _ = shadow.writeback_shared_special_power_cooldowns_to_host(&mut logic);
+    assert_eq!(
+        logic
+            .get_player(pid)
+            .unwrap()
+            .shared_special_power_cooldowns
+            .get(&SpecialPowerType::ParticleCannon),
+        Some(&55.0)
+    );
+    logic
+        .get_player_mut(pid)
+        .unwrap()
+        .reset_shared_special_power_timer(&SpecialPowerType::ParticleCannon, 3.0);
+    shadow.sync_from_host(&logic);
     let host = logic.get_player(pid).expect("h");
     assert!(
         (host
@@ -446,22 +471,10 @@ fn host_command_set_log_drives_set_command_set_channel() {
     let oid = logic
         .create_object("CsU", Team::GLA, glam::Vec3::new(22.0, 0.0, 22.0))
         .expect("id");
-    host_command_set_log::clear();
+
     {
         let o = logic.host_object_mut(oid).expect("o");
         o.set_command_set_override(Some("Command_DemoSuicide".into()));
-    }
-    let events = host_command_set_log::drain();
-    assert!(
-        events
-            .iter()
-            .any(|e| e.object == oid && e.command_set == "Command_DemoSuicide"),
-        "events {:?}",
-        events
-    );
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.record_host_command_set();
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -469,19 +482,16 @@ fn host_command_set_log_drives_set_command_set_channel() {
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.command_set_override.clear();
     }
-    let n = shadow.apply_host_command_set_events(&host_command_set_log::drain());
-    assert!(n >= 1);
+
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
     assert_eq!(e.command_set_override, "Command_DemoSuicide");
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.command_set_override = None;
-    }
+
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.command_set_override = "Command_DemoSuicide".into();
     }
-    assert!(shadow.writeback_command_set_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_command_set_ready_log::drain();
+    shadow.sync_from_host(&logic);
+
     let o = logic.host_objects().get(&oid).expect("o");
     assert_eq!(
         o.command_set_override.as_deref(),
@@ -505,22 +515,10 @@ fn host_selection_radius_log_drives_set_selection_radius_channel() {
     let oid = logic
         .create_object("SrU", Team::USA, glam::Vec3::new(27.0, 0.0, 27.0))
         .expect("id");
-    host_selection_radius_log::clear();
+
     {
         let o = logic.host_object_mut(oid).expect("o");
         o.set_selection_radius(14.5);
-    }
-    let events = host_selection_radius_log::drain();
-    assert!(
-        events
-            .iter()
-            .any(|e| e.object == oid && (e.selection_radius - 14.5).abs() < 1e-5),
-        "events {:?}",
-        events
-    );
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.record_host_selection_radius();
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -528,19 +526,16 @@ fn host_selection_radius_log_drives_set_selection_radius_channel() {
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.selection_radius = 1.0;
     }
-    let n = shadow.apply_host_selection_radius_events(&host_selection_radius_log::drain());
-    assert!(n >= 1);
+
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
     assert!((e.selection_radius - 14.5).abs() < 1e-5);
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.selection_radius = 1.0;
-    }
+
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.selection_radius = 14.5;
     }
-    assert!(shadow.writeback_selection_radius_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_selection_radius_ready_log::drain();
+    shadow.sync_from_host(&logic);
+
     let o = logic.host_objects().get(&oid).expect("o");
     assert!((o.selection_radius - 14.5).abs() < 1e-5);
 }
@@ -561,22 +556,10 @@ fn host_ground_height_log_drives_set_ground_height_channel() {
     let oid = logic
         .create_object("GhU", Team::USA, glam::Vec3::new(34.0, 0.0, 34.0))
         .expect("id");
-    host_ground_height_log::clear();
+
     {
         let o = logic.host_object_mut(oid).expect("o");
         o.set_ground_height_residual(12.5, true);
-    }
-    let events = host_ground_height_log::drain();
-    assert!(
-        events.iter().any(|e| {
-            e.object == oid && (e.ground_height - 12.5).abs() < 1e-5 && e.from_terrain
-        }),
-        "events {:?}",
-        events
-    );
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.record_host_ground_height();
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -585,22 +568,18 @@ fn host_ground_height_log_drives_set_ground_height_channel() {
         e.ground_height = 0.0;
         e.ground_height_from_terrain = false;
     }
-    let n = shadow.apply_host_ground_height_events(&host_ground_height_log::drain());
-    assert!(n >= 1);
+
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
     assert!((e.ground_height - 12.5).abs() < 1e-5);
     assert!(e.ground_height_from_terrain);
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.ground_height = 0.0;
-        o.ground_height_from_terrain = false;
-    }
+
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.ground_height = 12.5;
         e.ground_height_from_terrain = true;
     }
-    assert!(shadow.writeback_ground_height_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_ground_height_ready_log::drain();
+    shadow.sync_from_host(&logic);
+
     let o = logic.host_objects().get(&oid).expect("o");
     assert!((o.ground_height - 12.5).abs() < 1e-5);
     assert!(o.ground_height_from_terrain);
@@ -616,7 +595,8 @@ fn host_model_mesh_log_drives_set_model_mesh_channel() {
         let mut t = ThingTemplate::new("RangerMesh");
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Selectable);
-        t.model_name = Some("airanger_s".into());
+        t.model_name = Some("avtank".into());
+        t.asset_scale = 1.25;
         logic.templates.insert("RangerMesh".into(), t);
     }
     let oid = logic
@@ -626,28 +606,9 @@ fn host_model_mesh_log_drives_set_model_mesh_channel() {
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
 
-    host_model_mesh_log::clear();
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.set_model_mesh_residual("avtank", 1.25);
-    }
-    let events = host_model_mesh_log::drain();
-    assert!(
-        events.iter().any(|e| e.object == oid
-            && e.model_key == "avtank"
-            && (e.mesh_scale - 1.25).abs() < 1e-5),
-        "events {:?}",
-        events
-    );
-
     // Re-apply path
-    host_model_mesh_log::clear();
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.set_model_mesh_residual("avtank", 1.25);
-    }
-    let n = shadow.apply_host_model_mesh_events(&host_model_mesh_log::drain());
-    assert!(n >= 1);
+
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
     assert_eq!(e.model_key, "avtank");
     assert!((e.mesh_scale - 1.25).abs() < 1e-5);
@@ -668,38 +629,37 @@ fn host_fow_log_drives_set_fow_channel() {
     let oid = logic
         .create_object("RangerFow", Team::USA, glam::Vec3::new(2.0, 0.0, 2.0))
         .expect("id");
+    let local = logic.local_player_id().expect("local player");
+    let other = logic
+        .get_players()
+        .values()
+        .find(|player| player.id != local && player.is_alive)
+        .map(|player| (player.id, player.team))
+        .expect("other live owner");
+    logic
+        .host_object_mut(oid)
+        .unwrap()
+        .set_team_and_owner(other.1, Some(other.0));
+    {
+        let shroud = logic.world_services.shroud();
+        let mut shroud = shroud.lock().unwrap();
+        shroud.mark_host_object_explored(local, oid.0);
+        shroud.mark_host_vision_ready();
+    }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-
-    host_fow_log::clear();
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.set_fow_residual(0.35, 1.0, 0.5);
-    }
-    let events = host_fow_log::drain();
-    assert!(
-        events.iter().any(|e| {
-            e.object == oid
-                && (e.visibility_alpha - 0.35).abs() < 1e-5
-                && (e.is_explored - 1.0).abs() < 1e-5
-                && (e.visibility_falloff - 0.5).abs() < 1e-5
-        }),
-        "events {:?}",
-        events
-    );
-
-    host_fow_log::clear();
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.set_fow_residual(0.35, 1.0, 0.5);
-    }
-    let n = shadow.apply_host_fow_events(&host_fow_log::drain());
-    assert!(n >= 1);
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
-    assert!((e.fow_visibility_alpha - 0.35).abs() < 1e-5);
+    assert_eq!(
+        e.fow_visibility_alpha,
+        crate::fow_rendering::ObjectVisibility::FOGGED.visibility_alpha
+    );
     assert!((e.fow_is_explored - 1.0).abs() < 1e-5);
-    assert!((e.fow_visibility_falloff - 0.5).abs() < 1e-5);
+    assert_eq!(
+        e.fow_visibility_falloff,
+        crate::fow_rendering::ObjectVisibility::FOGGED.visibility_falloff
+    );
 }
 
 #[test]
@@ -713,6 +673,7 @@ fn host_kind_of_log_drives_set_kind_of_bits_channel() {
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Selectable);
         t.add_kind_of(KindOf::Attackable);
+        t.add_kind_of(KindOf::Hero);
         logic.templates.insert("RangerKo".into(), t);
     }
     let oid = logic
@@ -728,27 +689,13 @@ fn host_kind_of_log_drives_set_kind_of_bits_channel() {
     };
     assert!(bits != 0, "bits {bits}");
 
-    host_kind_of_log::clear();
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.set_kind_of_bits_residual(bits | (1u32 << 10)); // set Hero bit residual
-    }
-    let events = host_kind_of_log::drain();
-    assert!(
-        events
-            .iter()
-            .any(|e| e.object == oid && e.kind_of_bits == (bits | (1u32 << 10))),
-        "events {:?}",
-        events
+    assert_ne!(
+        bits & (1u32 << 10),
+        0,
+        "authored Hero template must expose its original presentation bit"
     );
 
-    host_kind_of_log::clear();
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.set_kind_of_bits_residual(bits | (1u32 << 10));
-    }
-    let n = shadow.apply_host_kind_of_events(&host_kind_of_log::drain());
-    assert!(n >= 1);
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
     assert_eq!(e.kind_of_bits, bits | (1u32 << 10));
 }
@@ -769,27 +716,11 @@ fn host_identity_log_drives_set_identity_channel() {
     let oid = logic
         .create_object("IdU", Team::USA, glam::Vec3::new(33.0, 0.0, 33.0))
         .expect("id");
-    host_identity_log::clear();
+
     {
         let o = logic.host_object_mut(oid).expect("o");
         o.name = "ScriptRanger".into();
         o.team_color = [0.1, 0.2, 0.3, 1.0];
-        o.record_host_identity();
-    }
-    let events = host_identity_log::drain();
-    assert!(
-        events.iter().any(|e| {
-            e.object == oid
-                && e.name == "ScriptRanger"
-                && (e.team_color[0] - 0.1).abs() < 1e-5
-                && (e.team_color[2] - 0.3).abs() < 1e-5
-        }),
-        "events {:?}",
-        events
-    );
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.record_host_identity();
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -798,22 +729,18 @@ fn host_identity_log_drives_set_identity_channel() {
         e.display_name.clear();
         e.team_color = [1.0, 1.0, 1.0, 1.0];
     }
-    let n = shadow.apply_host_identity_events(&host_identity_log::drain());
-    assert!(n >= 1);
+
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
     assert_eq!(e.display_name, "ScriptRanger");
     assert!((e.team_color[0] - 0.1).abs() < 1e-5);
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.name.clear();
-        o.team_color = [0.0, 0.0, 0.0, 1.0];
-    }
+
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.display_name = "ScriptRanger".into();
         e.team_color = [0.1, 0.2, 0.3, 1.0];
     }
-    assert!(shadow.writeback_identity_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_identity_ready_log::drain();
+    shadow.sync_from_host(&logic);
+
     let o = logic.host_objects().get(&oid).expect("o");
     assert_eq!(o.name, "ScriptRanger");
     assert!((o.team_color[0] - 0.1).abs() < 1e-5);
@@ -837,23 +764,10 @@ fn host_building_type_log_drives_set_building_type_channel() {
     let oid = logic
         .create_object("BtU", Team::USA, glam::Vec3::new(32.0, 0.0, 32.0))
         .expect("id");
-    host_building_type_log::clear();
+
     {
         let o = logic.host_object_mut(oid).expect("o");
         o.building_data = Some(BuildingData::new(BuildingType::Barracks));
-        o.record_host_building_type();
-    }
-    let events = host_building_type_log::drain();
-    assert!(
-        events
-            .iter()
-            .any(|e| e.object == oid && e.is_building && e.building_type_ordinal == 1),
-        "events {:?}",
-        events
-    );
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.record_host_building_type();
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -862,21 +776,18 @@ fn host_building_type_log_drives_set_building_type_channel() {
         e.is_building = false;
         e.building_type_ordinal = 255;
     }
-    let n = shadow.apply_host_building_type_events(&host_building_type_log::drain());
-    assert!(n >= 1);
+
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
     assert!(e.is_building);
     assert_eq!(e.building_type_ordinal, 1);
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.building_data = Some(BuildingData::new(BuildingType::PowerPlant));
-    }
+
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.is_building = true;
         e.building_type_ordinal = 1;
     }
-    assert!(shadow.writeback_building_type_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_building_type_ready_log::drain();
+    shadow.sync_from_host(&logic);
+
     let o = logic.host_objects().get(&oid).expect("o");
     assert_eq!(
         o.building_data.as_ref().map(|b| b.building_type),
@@ -900,30 +811,13 @@ fn host_crush_vision_log_drives_set_crush_vision_channel() {
     let oid = logic
         .create_object("CvU", Team::USA, glam::Vec3::new(30.0, 0.0, 30.0))
         .expect("id");
-    host_crush_vision_log::clear();
+
     {
         let o = logic.host_object_mut(oid).expect("o");
         o.crusher_level = 2;
         o.crushable_level = 1;
         o.vision_range = 175.0;
         o.shroud_clearing_range = 200.0;
-        o.record_host_crush_vision();
-    }
-    let events = host_crush_vision_log::drain();
-    assert!(
-        events.iter().any(|e| {
-            e.object == oid
-                && e.crusher_level == 2
-                && e.crushable_level == 1
-                && (e.vision_range - 175.0).abs() < 1e-5
-                && (e.shroud_clearing_range - 200.0).abs() < 1e-5
-        }),
-        "events {:?}",
-        events
-    );
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.record_host_crush_vision();
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -934,28 +828,22 @@ fn host_crush_vision_log_drives_set_crush_vision_channel() {
         e.vision_range = 0.0;
         e.shroud_clearing_range = 0.0;
     }
-    let n = shadow.apply_host_crush_vision_events(&host_crush_vision_log::drain());
-    assert!(n >= 1);
+
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
     assert_eq!(e.crusher_level, 2);
     assert_eq!(e.crushable_level, 1);
     assert!((e.vision_range - 175.0).abs() < 1e-5);
     assert!((e.shroud_clearing_range - 200.0).abs() < 1e-5);
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.crusher_level = 0;
-        o.crushable_level = 0;
-        o.vision_range = 0.0;
-        o.shroud_clearing_range = 0.0;
-    }
+
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.crusher_level = 2;
         e.crushable_level = 1;
         e.vision_range = 175.0;
         e.shroud_clearing_range = 200.0;
     }
-    assert!(shadow.writeback_crush_vision_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_crush_vision_ready_log::drain();
+    shadow.sync_from_host(&logic);
+
     let o = logic.host_objects().get(&oid).expect("o");
     assert_eq!(o.crusher_level, 2);
     assert_eq!(o.crushable_level, 1);
@@ -982,28 +870,12 @@ fn host_demo_mine_cheer_log_drives_set_demo_mine_cheer_channel() {
     let oid = logic
         .create_object("DmcU", Team::GLA, glam::Vec3::new(29.0, 0.0, 29.0))
         .expect("id");
-    host_demo_mine_cheer_log::clear();
+
     {
         let o = logic.host_object_mut(oid).expect("o");
         o.demo_suicided_detonating = true;
         o.cheer_timer = 2.5;
         o.mine_data = Some(HostMineData::new(HostMineKind::LandMine));
-        o.record_host_demo_mine_cheer();
-    }
-    let events = host_demo_mine_cheer_log::drain();
-    assert!(
-        events.iter().any(|e| {
-            e.object == oid
-                && e.demo_suicided_detonating
-                && e.has_mine_data
-                && (e.cheer_timer - 2.5).abs() < 1e-5
-        }),
-        "events {:?}",
-        events
-    );
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.record_host_demo_mine_cheer();
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -1013,23 +885,19 @@ fn host_demo_mine_cheer_log_drives_set_demo_mine_cheer_channel() {
         e.has_mine_data = false;
         e.cheer_timer = 0.0;
     }
-    let n = shadow.apply_host_demo_mine_cheer_events(&host_demo_mine_cheer_log::drain());
-    assert!(n >= 1);
+
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
     assert!(e.demo_suicided_detonating && e.has_mine_data);
     assert!((e.cheer_timer - 2.5).abs() < 1e-5);
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.demo_suicided_detonating = false;
-        o.cheer_timer = 0.0;
-    }
+
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.demo_suicided_detonating = true;
         e.has_mine_data = true;
         e.cheer_timer = 2.5;
     }
-    assert!(shadow.writeback_demo_mine_cheer_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_demo_mine_cheer_ready_log::drain();
+    shadow.sync_from_host(&logic);
+
     let o = logic.host_objects().get(&oid).expect("o");
     assert!(o.demo_suicided_detonating);
     assert!((o.cheer_timer - 2.5).abs() < 1e-5);
@@ -1052,23 +920,10 @@ fn host_model_condition_log_drives_set_model_condition_channel() {
     let oid = logic
         .create_object("McU", Team::China, glam::Vec3::new(28.0, 0.0, 28.0))
         .expect("id");
-    host_model_condition_log::clear();
+
     {
         let o = logic.host_object_mut(oid).expect("o");
         o.model_condition_bits = 0b1011;
-        o.record_host_model_condition();
-    }
-    let events = host_model_condition_log::drain();
-    assert!(
-        events
-            .iter()
-            .any(|e| e.object == oid && e.model_condition_bits == 0b1011),
-        "events {:?}",
-        events
-    );
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.record_host_model_condition();
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -1076,19 +931,16 @@ fn host_model_condition_log_drives_set_model_condition_channel() {
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.model_condition_bits = 0;
     }
-    let n = shadow.apply_host_model_condition_events(&host_model_condition_log::drain());
-    assert!(n >= 1);
+
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
     assert_eq!(e.model_condition_bits, 0b1011);
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.model_condition_bits = 0;
-    }
+
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.model_condition_bits = 0b1011;
     }
-    assert!(shadow.writeback_model_condition_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_model_condition_ready_log::drain();
+    shadow.sync_from_host(&logic);
+
     let o = logic.host_objects().get(&oid).expect("o");
     assert_eq!(o.model_condition_bits, 0b1011);
 }

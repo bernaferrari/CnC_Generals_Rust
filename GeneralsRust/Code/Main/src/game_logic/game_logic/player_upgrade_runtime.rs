@@ -14,9 +14,7 @@ impl Player {
                 crate::game_logic::host_economy_log::HostMoneyAudio::Deposit,
             );
         }
-        if crate::gameworld_shadow::gameworld_economy_authority_live() {
-            self.pending_supply_delta += refund.supplies as i64;
-        } else {
+        {
             self.resources.supplies = self.resources.supplies.saturating_add(refund.supplies);
         }
         self.power_available -= refund.power;

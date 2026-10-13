@@ -50,12 +50,8 @@ pub(super) struct Waves721760 {
     pub host_seed_starting_building_opt_in_method_names_wave734_ok: bool,
     pub host_seed_starting_building_opt_in_nav_commands_wave734_ok: bool,
     pub host_seed_starting_building_opt_in_live_wave734_ok: bool,
-    pub host_production_ready_pose_authority_method_names_wave735_ok: bool,
-    pub host_production_ready_pose_authority_nav_commands_wave735_ok: bool,
-    pub host_production_ready_pose_authority_live_wave735_ok: bool,
-    pub host_production_spawn_entity_first_method_names_wave736_ok: bool,
-    pub host_production_spawn_entity_first_nav_commands_wave736_ok: bool,
-    pub host_production_spawn_entity_first_live_wave736_ok: bool,
+
+
     pub host_production_object_id_prefers_gw_entity_method_names_wave737_ok: bool,
     pub host_production_object_id_prefers_gw_entity_nav_commands_wave737_ok: bool,
     pub host_production_object_id_prefers_gw_entity_live_wave737_ok: bool,
@@ -65,18 +61,16 @@ pub(super) struct Waves721760 {
     pub host_production_spawn_pose_no_rejitter_method_names_wave739_ok: bool,
     pub host_production_spawn_pose_no_rejitter_nav_commands_wave739_ok: bool,
     pub host_production_spawn_pose_no_rejitter_live_wave739_ok: bool,
-    pub host_rebuild_spawn_entity_first_method_names_wave740_ok: bool,
-    pub host_rebuild_spawn_entity_first_nav_commands_wave740_ok: bool,
-    pub host_rebuild_spawn_entity_first_live_wave740_ok: bool,
+
+
     pub host_rebuild_spawn_requires_gw_bind_method_names_wave741_ok: bool,
     pub host_rebuild_spawn_requires_gw_bind_nav_commands_wave741_ok: bool,
     pub host_rebuild_spawn_requires_gw_bind_live_wave741_ok: bool,
     pub host_rebuild_hole_expose_entity_first_method_names_wave742_ok: bool,
     pub host_rebuild_hole_expose_entity_first_nav_commands_wave742_ok: bool,
     pub host_rebuild_hole_expose_entity_first_live_wave742_ok: bool,
-    pub host_production_door_sole_no_dual_tick_method_names_wave743_ok: bool,
-    pub host_production_door_sole_no_dual_tick_nav_commands_wave743_ok: bool,
-    pub host_production_door_sole_no_dual_tick_live_wave743_ok: bool,
+
+
     pub host_lifetime_kill_no_damage_auth_hp_stomp_method_names_wave745_ok: bool,
     pub host_lifetime_kill_no_damage_auth_hp_stomp_nav_commands_wave745_ok: bool,
     pub host_lifetime_kill_no_damage_auth_hp_stomp_live_wave745_ok: bool,
@@ -212,18 +206,8 @@ pub(super) fn evaluate() -> Waves721760 {
             honesty_host_seed_starting_building_opt_in_nav_commands_residual_wave734(),
         host_seed_starting_building_opt_in_live_wave734_ok:
             simulate_live_host_seed_starting_building_opt_in_honesty(),
-        host_production_ready_pose_authority_method_names_wave735_ok:
-            honesty_host_production_ready_pose_authority_method_names_residual_wave735(),
-        host_production_ready_pose_authority_nav_commands_wave735_ok:
-            honesty_host_production_ready_pose_authority_nav_commands_residual_wave735(),
-        host_production_ready_pose_authority_live_wave735_ok:
-            simulate_live_host_production_ready_pose_authority_honesty(),
-        host_production_spawn_entity_first_method_names_wave736_ok:
-            honesty_host_production_spawn_entity_first_method_names_residual_wave736(),
-        host_production_spawn_entity_first_nav_commands_wave736_ok:
-            honesty_host_production_spawn_entity_first_nav_commands_residual_wave736(),
-        host_production_spawn_entity_first_live_wave736_ok:
-            simulate_live_host_production_spawn_entity_first_honesty(),
+
+
         host_production_object_id_prefers_gw_entity_method_names_wave737_ok:
             honesty_host_production_object_id_prefers_gw_entity_method_names_residual_wave737(),
         host_production_object_id_prefers_gw_entity_nav_commands_wave737_ok:
@@ -242,12 +226,8 @@ pub(super) fn evaluate() -> Waves721760 {
             honesty_host_production_spawn_pose_no_rejitter_nav_commands_residual_wave739(),
         host_production_spawn_pose_no_rejitter_live_wave739_ok:
             simulate_live_host_production_spawn_pose_no_rejitter_honesty(),
-        host_rebuild_spawn_entity_first_method_names_wave740_ok:
-            honesty_host_rebuild_spawn_entity_first_method_names_residual_wave740(),
-        host_rebuild_spawn_entity_first_nav_commands_wave740_ok:
-            honesty_host_rebuild_spawn_entity_first_nav_commands_residual_wave740(),
-        host_rebuild_spawn_entity_first_live_wave740_ok:
-            simulate_live_host_rebuild_spawn_entity_first_honesty(),
+
+
         host_rebuild_spawn_requires_gw_bind_method_names_wave741_ok:
             honesty_host_rebuild_spawn_requires_gw_bind_method_names_residual_wave741(),
         host_rebuild_spawn_requires_gw_bind_nav_commands_wave741_ok:
@@ -260,12 +240,8 @@ pub(super) fn evaluate() -> Waves721760 {
             honesty_host_rebuild_hole_expose_entity_first_nav_commands_residual_wave742(),
         host_rebuild_hole_expose_entity_first_live_wave742_ok:
             simulate_live_host_rebuild_hole_expose_entity_first_honesty(),
-        host_production_door_sole_no_dual_tick_method_names_wave743_ok:
-            honesty_host_production_door_sole_no_dual_tick_method_names_residual_wave743(),
-        host_production_door_sole_no_dual_tick_nav_commands_wave743_ok:
-            honesty_host_production_door_sole_no_dual_tick_nav_commands_residual_wave743(),
-        host_production_door_sole_no_dual_tick_live_wave743_ok:
-            simulate_live_host_production_door_sole_no_dual_tick_honesty(),
+
+
         host_lifetime_kill_no_damage_auth_hp_stomp_method_names_wave745_ok:
             honesty_host_lifetime_kill_no_damage_auth_hp_stomp_method_names_residual_wave745(),
         host_lifetime_kill_no_damage_auth_hp_stomp_nav_commands_wave745_ok:

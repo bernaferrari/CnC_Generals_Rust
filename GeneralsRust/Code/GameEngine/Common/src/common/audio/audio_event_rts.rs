@@ -9,12 +9,13 @@
 //! Converted to Rust
 
 use super::audio_paths::{AudioPathSettings, current_audio_path_settings};
-use crate::common::random_value::{
-    get_game_audio_random_value, get_game_audio_random_value_real, get_game_logic_random_value,
-};
+#[path = "audio_event_selection.rs"]
+mod selection;
 use crate::common::system::file_system::get_file_system;
 #[cfg(feature = "async")]
 use async_trait::async_trait;
+pub(crate) use selection::AmbientAudioSelection;
+pub use selection::{AudioEventSelection, AudioSelectionStreams};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -603,6 +604,14 @@ impl AudioEventRts {
 
     /// The manager supplies its already-borrowed configuration, never a global lookup.
     pub(crate) fn generate_filename_with_settings(&mut self, paths: &AudioPathSettings) {
+        self.generate_filename_with_selection(paths, &mut AmbientAudioSelection);
+    }
+
+    pub(crate) fn generate_filename_with_selection(
+        &mut self,
+        paths: &AudioPathSettings,
+        selection: &mut dyn AudioEventSelection,
+    ) {
         let Some(event_info) = self.event_info.as_ref().map(Arc::clone) else {
             return;
         };
@@ -631,12 +640,7 @@ impl AudioEventRts {
         }
 
         let which = if (event_info.control & AC_RANDOM) != 0 {
-            let max_index = event_info.sounds.len() as i32 - 1;
-            let mut idx = if self.is_logical_audio {
-                get_game_logic_random_value(0, max_index) as usize
-            } else {
-                get_game_audio_random_value(0, max_index) as usize
-            };
+            let mut idx = selection.index(self.is_logical_audio, event_info.sounds.len());
 
             if idx as i32 == self.playing_audio_index.load(Ordering::Relaxed)
                 && event_info.sounds.len() > 2
@@ -665,20 +669,7 @@ impl AudioEventRts {
             self.filename_to_load = resolved;
         }
 
-        self.delay = get_game_audio_random_value_real(event_info.delay_min, event_info.delay_max);
-    }
-
-    fn pick_random_index(&self, count: usize) -> usize {
-        if count == 0 {
-            return 0;
-        }
-
-        let max_index = count as i32 - 1;
-        if self.is_logical_audio {
-            get_game_logic_random_value(0, max_index) as usize
-        } else {
-            get_game_audio_random_value(0, max_index) as usize
-        }
+        self.delay = selection.real(event_info.delay_min, event_info.delay_max);
     }
 
     pub fn get_filename(&self) -> &str {
@@ -694,16 +685,21 @@ impl AudioEventRts {
     }
 
     pub(crate) fn generate_play_info_with_settings(&mut self, paths: &AudioPathSettings) {
+        self.generate_play_info_with_selection(paths, &mut AmbientAudioSelection);
+    }
+
+    pub(crate) fn generate_play_info_with_selection(
+        &mut self,
+        paths: &AudioPathSettings,
+        selection: &mut dyn AudioEventSelection,
+    ) {
         let Some(event_info) = self.event_info.as_ref().map(Arc::clone) else {
             self.is_logical_audio = false;
             return;
         };
 
-        self.pitch_shift = get_game_audio_random_value_real(
-            event_info.pitch_shift_min,
-            event_info.pitch_shift_max,
-        );
-        self.volume_shift = get_game_audio_random_value_real(1.0 + event_info.volume_shift, 1.0);
+        self.pitch_shift = selection.real(event_info.pitch_shift_min, event_info.pitch_shift_max);
+        self.volume_shift = selection.real(1.0 + event_info.volume_shift, 1.0);
         self.loop_count = event_info.loop_count;
 
         self.portion_to_play_next = PortionToPlay::Attack;
@@ -712,7 +708,7 @@ impl AudioEventRts {
         if attack_size > 0 {
             self.attack_name =
                 self.generate_filename_prefix_with_settings(event_info.sound_type, false, paths);
-            let attack_index = self.pick_random_index(attack_size);
+            let attack_index = selection.index(self.is_logical_audio, attack_size);
             self.attack_name
                 .push_str(&event_info.attack_sounds[attack_index]);
             self.attack_name
@@ -728,7 +724,7 @@ impl AudioEventRts {
         if decay_size > 0 {
             self.decay_name =
                 self.generate_filename_prefix_with_settings(event_info.sound_type, false, paths);
-            let decay_index = self.pick_random_index(decay_size);
+            let decay_index = selection.index(self.is_logical_audio, decay_size);
             self.decay_name
                 .push_str(&event_info.decay_sounds[decay_index]);
             self.decay_name
@@ -1583,6 +1579,10 @@ pub fn resolve_extracted_audiozh_path(filename: &str) -> Option<String> {
 }
 
 // Tests module
+#[cfg(test)]
+#[path = "audio_event_owned_selection_tests.rs"]
+mod owned_selection_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;

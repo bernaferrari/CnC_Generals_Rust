@@ -883,11 +883,7 @@ fn angry_mob_spawns_member_objects_on_nexus() {
     if let Some(n) = logic.objects.get_mut(&nid) {
         // Wave 752: under damage authority, do not zero host HP mid-frame
         // (dual with GW HP writeback). Project lethal via damage log + flags.
-        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-            let hp = n.health.current.max(1.0);
-            let oid = n.id;
-            logic.health_events.record_damage(oid, hp, None, true);
-        } else {
+        {
             n.health.current = 0.0;
         }
         n.status.destroyed = true;
@@ -1233,11 +1229,7 @@ fn burton_charges_use_retail_c4_special_objects() {
     if let Some(o) = logic.objects.get_mut(&hero) {
         // Wave 752: under damage authority, do not zero host HP mid-frame
         // (dual with GW HP writeback). Project lethal via damage log + flags.
-        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-            let hp = o.health.current.max(1.0);
-            let oid = o.id;
-            logic.health_events.record_damage(oid, hp, None, true);
-        } else {
+        {
             o.health.current = 0.0;
         }
         o.status.destroyed = true;
@@ -1543,11 +1535,7 @@ fn command_center_radar_residual_enables_player_has_radar() {
     if let Some((obj, health_events)) = game_logic.host_object_and_health_events_mut(cc_id) {
         // Wave 753: under damage authority, do not zero host HP mid-frame
         // (dual with GW HP writeback). Project lethal via damage log + flags.
-        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-            let hp = obj.health.current.max(1.0);
-            let oid = obj.id;
-            health_events.record_damage(oid, hp, None, true);
-        } else {
+        {
             obj.health.current = 0.0;
         }
         obj.status.destroyed = true;

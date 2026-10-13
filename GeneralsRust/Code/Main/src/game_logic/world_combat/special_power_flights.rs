@@ -558,11 +558,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -990,11 +986,7 @@ impl GameLogic {
             // DeletionUpdate Lifetime 0 residual: die immediately after pulse.
             // Wave 752: under damage authority, do not zero host HP mid-frame
             // (dual with GW HP writeback). Project lethal via damage log + flags.
-            if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                let hp = o.health.current.max(1.0);
-                let oid = o.id;
-                self.health_events.record_damage(oid, hp, None, true);
-            } else {
+            {
                 o.health.current = 0.0;
             }
             o.status.destroyed = true;
@@ -1129,11 +1121,7 @@ impl GameLogic {
         // Keep registry damage zones and live segment objects in lockstep.
         self.fire_walls.crawl_segments();
         // Wave 809: under coupled shadow, object crawl/expire owned by GW.
-        if crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active()
-        {
-            return;
-        }
+        {}
         let crawlers: Vec<(ObjectId, f32, f32)> = self
             .objects
             .iter()
@@ -1176,11 +1164,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -1310,11 +1294,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -1449,11 +1429,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -2674,22 +2650,13 @@ impl GameLogic {
                 }
                 hunter.set_contained_by(Some(outpost_id));
                 hunter.set_ai_state(AIState::Docked);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_set_state(hunter_id, 12);
-                }
+                {}
                 hunter.stop_moving();
                 hunter.set_status_moving(false);
                 hunter.set_status_attacking(false);
                 hunter.target = None;
                 hunter.set_position(position);
-                if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    self.movement_events.record(
-                        self.frame,
-                        hunter_id,
-                        Some([position.x, position.y, position.z]),
-                    );
-                    hunter.record_host_movement();
-                }
+                {}
             }
 
             if let Some(outpost) = self.objects.get_mut(&outpost_id) {
@@ -2766,22 +2733,13 @@ impl GameLogic {
                 }
                 guard.set_contained_by(Some(crawler_id));
                 guard.set_ai_state(AIState::Docked);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_set_state(guard_id, 12);
-                }
+                {}
                 guard.stop_moving();
                 guard.set_status_moving(false);
                 guard.set_status_attacking(false);
                 guard.target = None;
                 guard.set_position(position);
-                if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    self.movement_events.record(
-                        self.frame,
-                        guard_id,
-                        Some([position.x, position.y, position.z]),
-                    );
-                    guard.record_host_movement();
-                }
+                {}
             }
 
             if let Some(crawler) = self.objects.get_mut(&crawler_id) {
@@ -2846,12 +2804,7 @@ impl GameLogic {
             if let Some(unit) = self.objects.get_mut(&occ_id) {
                 unit.stop_moving();
                 unit.set_position(crawler_pos + offset);
-                if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    let p = crawler_pos + offset;
-                    self.movement_events
-                        .record(self.frame, unit.id, Some([p.x, p.y, p.z]));
-                    unit.record_host_movement();
-                }
+                {}
                 unit.set_contained_by(None);
                 unit.set_status_moving(false);
             }

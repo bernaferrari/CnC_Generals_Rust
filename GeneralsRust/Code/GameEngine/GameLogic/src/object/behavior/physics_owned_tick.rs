@@ -8,6 +8,7 @@ pub(crate) struct OwnedPhysicsStep {
     pub(crate) enable_freefall: bool,
     pub(crate) previous_position: Coord3D,
     pub(crate) active_velocity_z: Real,
+    pub(crate) bounce: Option<OwnedBounce>,
 }
 
 /// Calculated motion awaiting callback admission. This contains operation
@@ -16,6 +17,9 @@ pub(crate) struct PreparedOwnedPhysicsStep {
     pub(crate) landing_expected: bool,
     pub(crate) resting_kill_expected: bool,
     pub(crate) landing_damage: Option<DamageInfo>,
+    pub(crate) bounce_expected: bool,
+    pub(crate) bounce_stun_expected: bool,
+    pub(crate) bounce_first_transform: Option<Mat4>,
     owner: Weak<RwLock<GameObject>>,
     owner_id: ObjectID,
     previous_position: Coord3D,
@@ -30,6 +34,8 @@ pub(crate) struct PreparedOwnedPhysicsStep {
     held: bool,
     stun_relief: bool,
     active_velocity_z: Real,
+    before_ground_velocity: Coord3D,
+    bounce: Option<OwnedBounce>,
 }
 
 pub(crate) struct OwnedLanding {
@@ -37,6 +43,10 @@ pub(crate) struct OwnedLanding {
 }
 
 impl PhysicsBehaviorUpdate {
+    pub(crate) fn owned_base_mass(&self) -> Real {
+        self.physics_handle.state.mass
+    }
+
     #[cfg(test)]
     pub(in crate::object) fn set_freefall_for_test(&mut self) {
         self.physics_handle
@@ -60,6 +70,8 @@ impl PhysicsBehaviorUpdate {
         frame: u32,
         gravity: Real,
         start_ground: Real,
+        rules: PhysicsRules,
+        cargo_mass: Real,
         mut ground_height: impl FnMut(Real, Real) -> Real,
     ) -> Result<PreparedOwnedPhysicsStep, String> {
         let state = &self.physics_handle.state;
@@ -67,12 +79,8 @@ impl PhysicsBehaviorUpdate {
             GameObject::is_above_terrain_height(obj.get_position().z, start_ground);
         let immune_landing = state.has_flag(FLAG_IMMUNE_TO_FALLING_DAMAGE);
         if self.object_id != obj.get_id()
-            || obj.get_contain().is_some()
-            || obj.get_contained_by().is_some()
             || obj.is_kind_of(KindOf::Projectile)
             || obj.get_layer() != crate::common::PathfindLayerEnum::Ground
-            || obj.test_status(ObjectStatusTypes::DeckHeightOffset)
-            || state.has_flag(FLAG_ALLOW_BOUNCE)
             || state.has_flag(FLAG_IS_IN_UPDATE)
             || state.current_overlap != crate::common::INVALID_ID
             || state.previous_overlap != crate::common::INVALID_ID
@@ -88,6 +96,10 @@ impl PhysicsBehaviorUpdate {
                     "owned freefall requires supplied dozer/spawn disabled continuations".into(),
                 );
             }
+        }
+        rules.validate()?;
+        if !cargo_mass.is_finite() || cargo_mass < 0.0 {
+            return Err("invalid supplied Physics cargo mass".into());
         }
         if !gravity.is_finite()
             || !start_ground.is_finite()
@@ -118,6 +130,8 @@ impl PhysicsBehaviorUpdate {
         let mut ground = start_ground;
         let mut stun_relief = false;
         let mut active_velocity_z = 0.0;
+        let mut before_ground_velocity = velocity;
+        let mut bounce = None;
         let significantly_above =
             crate::object::die::eject_pilot_die::is_significantly_above_terrain_height(
                 obj.get_position().z - start_ground,
@@ -133,8 +147,13 @@ impl PhysicsBehaviorUpdate {
         if !held {
             acceleration.z += gravity;
             if use_ground_friction {
-                acceleration +=
-                    Self::ground_friction_acceleration(&self.module_data, obj, state, frame, 0.0);
+                acceleration += Self::ground_friction_acceleration(
+                    &self.module_data,
+                    obj,
+                    state,
+                    frame,
+                    cargo_mass,
+                );
             } else {
                 acceleration +=
                     velocity * -Self::get_aerodynamic_friction(&self.module_data, state);
@@ -154,7 +173,38 @@ impl PhysicsBehaviorUpdate {
             if !pos.is_finite() || !ground.is_finite() {
                 return Err("ordinary Physics movement requires finite destination terrain".into());
             }
+            before_ground_velocity = velocity;
             active_velocity_z = velocity.z;
+            if state.has_flag(FLAG_ALLOW_BOUNCE) && pos.z <= ground {
+                let force_z = if obj.get_position().z > ground && velocity.z < 0.0 {
+                    (state.mass + cargo_mass)
+                        * velocity.z.abs()
+                        * rules.ground_stiffness.clamp(0.01, 0.99)
+                } else {
+                    0.0
+                };
+                let first_transform = if velocity.z < 0.0 {
+                    let previous = obj.get_transform_matrix();
+                    let yaw = previous.x_axis.y.atan2(previous.x_axis.x);
+                    let roll = if previous.z_axis.z > 0.0 {
+                        0.0
+                    } else {
+                        std::f32::consts::PI
+                    };
+                    Some(Mat4::from_rotation_translation(
+                        Quat::from_rotation_z(yaw) * Quat::from_rotation_x(-roll),
+                        *obj.get_position(),
+                    ))
+                } else {
+                    None
+                };
+                bounce = Some(OwnedBounce {
+                    first_transform,
+                    force: (force_z > 0.0).then_some(Coord3D::new(0.0, 0.0, force_z)),
+                    ground,
+                    movement_z: pos.z,
+                });
+            }
             if pos.z <= ground {
                 Self::clamp_ground(&mut velocity, &mut pos, ground);
             } else if !state.has_flag(FLAG_IS_IN_FREEFALL)
@@ -185,6 +235,11 @@ impl PhysicsBehaviorUpdate {
         let landing_expected =
             was_airborne && !GameObject::is_above_terrain_height(pos.z, ground) && !immune_landing;
         Ok(PreparedOwnedPhysicsStep {
+            bounce_stun_expected: bounce.as_ref().is_some_and(|bounce| bounce.force.is_some())
+                && state.has_flag(FLAG_IS_STUNNED)
+                && !stun_relief,
+            bounce_first_transform: bounce.as_ref().and_then(|bounce| bounce.first_transform),
+            bounce_expected: bounce.as_ref().is_some_and(|bounce| bounce.force.is_some()),
             resting_kill_expected: !obj.is_effectively_dead()
                 && self.module_data.kill_when_resting_on_ground
                 && !GameObject::is_above_terrain_height(pos.z, ground)
@@ -199,7 +254,7 @@ impl PhysicsBehaviorUpdate {
                     obj.get_id(),
                     active_velocity_z,
                     velocity,
-                    state.mass,
+                    state.mass + cargo_mass,
                 )
             } else {
                 None
@@ -218,6 +273,8 @@ impl PhysicsBehaviorUpdate {
             held,
             stun_relief,
             active_velocity_z,
+            before_ground_velocity,
+            bounce,
         })
     }
 
@@ -243,19 +300,32 @@ impl PhysicsBehaviorUpdate {
         if !prepared.held {
             apply_ypr_damping(state, prepared.damping);
             state.accel = prepared.acceleration;
-            state.vel = prepared.velocity;
+            state.vel = if prepared.bounce.is_some() {
+                prepared.before_ground_velocity
+            } else {
+                prepared.velocity
+            };
             state.vel_mag = INVALID_VEL_MAG;
             if !state.has_flag(FLAG_HAS_PITCHROLLYAW) {
                 state.yaw_angle = obj.get_orientation();
             }
-            if prepared.position.z <= prepared.ground {
+            if prepared.bounce.is_none() && prepared.position.z <= prepared.ground {
                 state.set_flag(FLAG_ALLOW_TO_FALL, false);
+            }
+            if let Some(bounce) = &prepared.bounce {
+                apply_ypr_damping(state, 0.7);
+                if bounce.force.is_none() {
+                    state.set_flag(FLAG_ALLOW_BOUNCE, state.original_allow_bounce);
+                }
             }
             if state.has_flag(FLAG_IS_STUNNED) && prepared.stun_relief {
                 state.set_flag(FLAG_IS_STUNNED, false);
                 obj.clear_model_condition_state(MODELCONDITION_STUNNED);
             }
-            if prepared.position.z <= prepared.ground && state.has_flag(FLAG_IS_STUNNED) {
+            if prepared.bounce.is_none()
+                && prepared.position.z <= prepared.ground
+                && state.has_flag(FLAG_IS_STUNNED)
+            {
                 obj.clear_model_condition_state(MODELCONDITION_STUNNED_FLAILING);
                 obj.set_model_condition_state(MODELCONDITION_STUNNED);
             }
@@ -268,6 +338,7 @@ impl PhysicsBehaviorUpdate {
                 && state.has_flag(FLAG_IS_IN_FREEFALL),
             previous_position: prepared.previous_position,
             active_velocity_z: prepared.active_velocity_z,
+            bounce: prepared.bounce,
         })
     }
 
@@ -280,7 +351,18 @@ impl PhysicsBehaviorUpdate {
         start_ground: Real,
         ground_height: impl FnMut(Real, Real) -> Real,
     ) -> Result<OwnedPhysicsStep, String> {
-        let prepared = self.prepare_owned_at(obj, frame, gravity, start_ground, ground_height)?;
+        let prepared =
+            self.prepare_owned_at(
+                obj,
+                frame,
+                gravity,
+                start_ground,
+                PhysicsRules::from_global_data(
+                    &game_engine::common::global_data::GlobalData::default(),
+                ),
+                0.0,
+                ground_height,
+            )?;
         self.commit_owned_at(obj, prepared)
     }
 
@@ -338,29 +420,25 @@ impl PhysicsBehaviorUpdate {
     pub(in crate::object) fn ground_collision_owned_at(
         &self,
         owner: &GameObject,
-    ) -> Result<(), String> {
-        if self.object_id != owner.get_id()
-            || owner.is_kind_of(KindOf::Projectile)
-            || owner.get_contained_by().is_some()
-        {
-            return Err(
-                "ground Physics collision requires supplied projectile/container callback".into(),
-            );
+    ) -> Result<Option<ObjectID>, String> {
+        if self.object_id != owner.get_id() || owner.is_kind_of(KindOf::Projectile) {
+            return Err("ground Physics collision requires supplied projectile callback".into());
         }
-        Ok(())
+        Ok(owner.get_contained_by())
     }
 
     pub(in crate::object) fn falling_damage_owned_at(
         &self,
         owner: &GameObject,
         active_velocity_z: Real,
+        cargo_mass: Real,
     ) -> Option<DamageInfo> {
         Self::falling_damage(
             &self.module_data,
             owner.get_id(),
             active_velocity_z,
             self.physics_handle.state.vel,
-            self.physics_handle.state.mass,
+            self.physics_handle.state.mass + cargo_mass,
         )
     }
 

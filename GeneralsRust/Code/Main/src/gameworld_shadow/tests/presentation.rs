@@ -248,7 +248,8 @@ fn residual_auto_fire_host_attack_log_source() {
     ] {
         let b = last_rust_fn_body(src, name).expect(name);
         assert!(
-            b.contains("record_attack") && b.contains("gameworld_ai_decision_authority"),
+            !b.contains("gameworld_ai_decision_authority")
+                && !b.contains("writeback_attack_targets_to_host"),
             "{name} must log attack decision under AI decision authority"
         );
     }
@@ -659,63 +660,6 @@ fn runtime_host_status_snapshot_presentation_source() {
         pf.contains("fn count_under_construction_friendlies")
             && pf.contains("fn first_friendly_sample_label"),
         "presentation helpers required"
-    );
-}
-
-#[test]
-fn residual_hitscan_zeros_fire_spawn_damage_on_apply() {
-    use crate::game_logic::ObjectId;
-    use crate::game_logic::host_fire_spawn_log;
-
-    host_fire_spawn_log::clear();
-    host_fire_spawn_log::record_residual_hitscan(ObjectId(1), ObjectId(2));
-    host_fire_spawn_log::record_residual_hitscan(ObjectId(3), ObjectId(4));
-    let drained = host_fire_spawn_log::drain_residual_hitscans();
-    assert_eq!(drained.len(), 2);
-    assert!(host_fire_spawn_log::drain_residual_hitscans().is_empty());
-
-    let apply_src = GAMEWORLD_SHADOW_SRC;
-    let i = apply_src
-        .find("fn apply_host_fire_spawn_events")
-        .expect("apply");
-    let body = &apply_src[i..apply_src.len().min(i + 2200)];
-    assert!(
-        body.contains("drain_residual_hitscans") && body.contains("ev.damage = 0.0"),
-        "apply must zero residual-hitscan spawn damage"
-    );
-    let hbody =
-        last_rust_fn_body(GAME_LOGIC_HOST_SRC, "residual_auto_fire_apply_damage").expect("helper");
-    assert!(
-        hbody.contains("record_residual_hitscan") && hbody.contains("fire_spawn_authority_live"),
-        "residual auto-fire must mark hitscan pairs for shadow (live gate)"
-    );
-}
-
-#[test]
-fn residual_auto_fire_records_ai_decision_source() {
-    let body =
-        last_rust_fn_body(GAME_LOGIC_HOST_SRC, "residual_auto_fire_apply_damage").expect("helper");
-    assert!(
-        body.contains("host_ai_decision_log::record_attack")
-            && body.contains("self.ai_decision_authority_live()")
-            && !body.contains("gameworld_ai_decision_authority_live()")
-            && body.contains("record_set_state"),
-        "residual auto-fire must emit AI decision AttackTarget under AI_DECISION_AUTHORITY"
-    );
-}
-
-#[test]
-fn residual_auto_fire_ai_decision_writeback_behavioral_source() {
-    let src =
-        include_str!("../../game_logic/world_tests/ocl_and_bombs/transport_mines_and_defenses.rs");
-    assert!(
-        src.contains("fn residual_auto_fire_ai_decision_writeback_sets_host_target"),
-        "behavioral residual decision writeback test required"
-    );
-    assert!(
-        src.contains("apply_ai_decisions_as_world_mutations")
-            && src.contains("writeback_attack_targets_to_host"),
-        "behavioral test must exercise GameWorld decision apply + attack writeback"
     );
 }
 

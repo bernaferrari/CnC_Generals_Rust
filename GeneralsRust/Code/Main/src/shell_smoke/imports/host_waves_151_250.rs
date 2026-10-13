@@ -32,26 +32,6 @@ pub use crate::game_logic::host_executable_presentation_boundary_residual_wave17
     honesty_executable_presentation_boundary_nav_commands_residual_wave176,
     simulate_executable_presentation_boundary_honesty,
 };
-pub use crate::game_logic::host_gameworld_authority_matrix_residual_wave179::{
-    honesty_gameworld_authority_matrix_method_names_residual_wave179,
-    honesty_gameworld_authority_matrix_nav_commands_residual_wave179,
-    simulate_gameworld_authority_matrix_honesty,
-};
-pub use crate::game_logic::host_gameworld_authority_residual_wave153::{
-    honesty_gameworld_authority_env_names_residual_wave153,
-    honesty_gameworld_authority_method_names_residual_wave153,
-    honesty_gameworld_authority_nav_commands_residual_wave153,
-};
-pub use crate::game_logic::host_gameworld_production_authority_residual_wave177::{
-    honesty_gameworld_production_authority_method_names_residual_wave177,
-    honesty_gameworld_production_authority_nav_commands_residual_wave177,
-    simulate_gameworld_production_authority_honesty,
-};
-pub use crate::game_logic::host_gameworld_sole_tick_coupling_residual_wave178::{
-    honesty_gameworld_sole_tick_coupling_method_names_residual_wave178,
-    honesty_gameworld_sole_tick_coupling_nav_commands_residual_wave178,
-    simulate_gameworld_sole_tick_coupling_honesty,
-};
 pub use crate::game_logic::host_golden_map_host_victory_residual_wave175::{
     honesty_golden_map_host_victory_method_names_residual_wave175,
     honesty_golden_map_host_victory_nav_commands_residual_wave175,
@@ -132,45 +112,15 @@ pub use crate::game_logic::host_live_evacuate_contain_log_residual_wave201::{
     honesty_live_evacuate_contain_log_nav_commands_residual_wave201,
     simulate_live_evacuate_contain_log_honesty,
 };
-pub use crate::game_logic::host_live_gameworld_construction_writeback_residual_wave181::{
-    honesty_live_gameworld_construction_writeback_method_names_residual_wave181,
-    honesty_live_gameworld_construction_writeback_nav_commands_residual_wave181,
-    simulate_live_gameworld_construction_writeback_honesty,
-};
-pub use crate::game_logic::host_live_gameworld_damage_channel_residual_wave182::{
-    honesty_live_gameworld_damage_channel_method_names_residual_wave182,
-    honesty_live_gameworld_damage_channel_nav_commands_residual_wave182,
-    simulate_live_gameworld_damage_channel_honesty,
-};
-pub use crate::game_logic::host_live_gameworld_economy_movement_residual_wave183::{
-    honesty_live_gameworld_economy_movement_method_names_residual_wave183,
-    honesty_live_gameworld_economy_movement_nav_commands_residual_wave183,
-    simulate_live_gameworld_economy_movement_honesty,
-};
 pub use crate::game_logic::host_live_gameworld_entity_view_deepen_residual_wave191::{
     honesty_live_gameworld_entity_view_deepen_method_names_residual_wave191,
     honesty_live_gameworld_entity_view_deepen_nav_commands_residual_wave191,
     simulate_live_gameworld_entity_view_deepen_honesty,
 };
-pub use crate::game_logic::host_live_gameworld_fire_special_power_residual_wave185::{
-    honesty_live_gameworld_fire_special_power_method_names_residual_wave185,
-    honesty_live_gameworld_fire_special_power_nav_commands_residual_wave185,
-    simulate_live_gameworld_fire_special_power_honesty,
-};
 pub use crate::game_logic::host_live_gameworld_presentation_view_residual_wave186::{
     honesty_live_gameworld_presentation_view_method_names_residual_wave186,
     honesty_live_gameworld_presentation_view_nav_commands_residual_wave186,
     simulate_live_gameworld_presentation_view_honesty,
-};
-pub use crate::game_logic::host_live_gameworld_production_writeback_residual_wave180::{
-    honesty_live_gameworld_production_writeback_method_names_residual_wave180,
-    honesty_live_gameworld_production_writeback_nav_commands_residual_wave180,
-    simulate_live_gameworld_production_writeback_honesty,
-};
-pub use crate::game_logic::host_live_gameworld_projectile_ai_residual_wave184::{
-    honesty_live_gameworld_projectile_ai_method_names_residual_wave184,
-    honesty_live_gameworld_projectile_ai_nav_commands_residual_wave184,
-    simulate_live_gameworld_projectile_ai_honesty,
 };
 pub use crate::game_logic::host_live_gameworld_shadow_overlay_residual_wave172::{
     honesty_live_gameworld_shadow_overlay_method_names_residual_wave172,
@@ -351,30 +301,10 @@ pub use crate::game_logic::host_live_os_input_command_path_residual_wave209::{
     honesty_live_os_input_command_path_nav_commands_residual_wave209,
     simulate_live_os_input_command_path_honesty,
 };
-pub use crate::game_logic::host_live_presentation_append_missing_residual_wave192::{
-    honesty_live_presentation_append_missing_method_names_residual_wave192,
-    honesty_live_presentation_append_missing_nav_commands_residual_wave192,
-    simulate_live_presentation_append_missing_honesty,
-};
-pub use crate::game_logic::host_live_presentation_build_for_engine_residual_wave195::{
-    honesty_live_presentation_build_for_engine_method_names_residual_wave195,
-    honesty_live_presentation_build_for_engine_nav_commands_residual_wave195,
-    simulate_live_presentation_build_for_engine_honesty,
-};
-pub use crate::game_logic::host_live_presentation_build_from_gameworld_residual_wave193::{
-    honesty_live_presentation_build_from_gameworld_method_names_residual_wave193,
-    honesty_live_presentation_build_from_gameworld_nav_commands_residual_wave193,
-    simulate_live_presentation_build_from_gameworld_honesty,
-};
 pub use crate::game_logic::host_live_presentation_fow_only_residual_wave213::{
     honesty_live_presentation_fow_only_method_names_residual_wave213,
     honesty_live_presentation_fow_only_nav_commands_residual_wave213,
     simulate_live_presentation_fow_only_honesty,
-};
-pub use crate::game_logic::host_live_presentation_from_gameworld_default_residual_wave194::{
-    honesty_live_presentation_from_gameworld_default_method_names_residual_wave194,
-    honesty_live_presentation_from_gameworld_default_nav_commands_residual_wave194,
-    simulate_live_presentation_from_gameworld_default_honesty,
 };
 pub use crate::game_logic::host_live_presentation_gameworld_overlay_residual_wave187::{
     honesty_live_presentation_gameworld_overlay_method_names_residual_wave187,

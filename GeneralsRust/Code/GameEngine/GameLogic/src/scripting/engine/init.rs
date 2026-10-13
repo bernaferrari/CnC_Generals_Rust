@@ -1192,12 +1192,23 @@ impl ScriptEngine {
     }
 
     pub fn set_priority_thing(&self, set_name: &str, type_or_list: &str, priority: i32) -> bool {
+        self.set_priority_thing_with_lookup(set_name, type_or_list, priority, |name| {
+            TheThingFactory::find_template(name).map(|template| template.get_name().to_string())
+        })
+    }
+
+    /// CPP SetPriorityThing uses the driving session's effective content definitions.
+    /// Named lists preserve their prefix writes when a later template is absent.
+    pub(crate) fn set_priority_thing_with_lookup(
+        &self, set_name: &str, type_or_list: &str, priority: i32,
+        mut template_name: impl FnMut(&str) -> Option<String>,
+    ) -> bool {
         if let Some(list) = self.get_object_types(type_or_list) {
             for type_name in list.iter() {
-                let Some(template) = TheThingFactory::find_template(type_name.as_str()) else {
+                let Some(resolved_name) = template_name(type_name.as_str()) else {
                     return false;
                 };
-                let template_name = template.get_name().to_string();
+                let template_name = resolved_name;
                 if self
                     .with_attack_info_mut(set_name, true, |info| {
                         info.set_priority(&template_name, priority);
@@ -1210,10 +1221,10 @@ impl ScriptEngine {
             return true;
         }
 
-        let Some(template) = TheThingFactory::find_template(type_or_list) else {
+        let Some(resolved_name) = template_name(type_or_list) else {
             return false;
         };
-        let template_name = template.get_name().to_string();
+        let template_name = resolved_name;
         self.with_attack_info_mut(set_name, true, |info| {
             info.set_priority(&template_name, priority);
         })

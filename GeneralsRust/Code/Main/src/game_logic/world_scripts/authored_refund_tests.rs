@@ -2,12 +2,11 @@
 //! Common command catalogs are explicitly unavailable for these unique names;
 //! this exercises the existing Main capability fallback, not retail authorization.
 use super::super::*;
-use crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority;
+
 use crate::game_logic::host_economy_log::{
     self, HostEconomyEvent, HostMoneyAudio, HostMoneyAudioEvent,
 };
 use crate::game_logic::{GameLogic, KindOf, ObjectId, Player, Resources, Team};
-use crate::gameworld_shadow::{CoupledTickGuard, with_gameworld_authority};
 
 const PRODUCER: &str = "AuthoredRefundOwnerBarracks";
 const UNIT: &str = "AuthoredRefundOwnerInfantry";
@@ -197,9 +196,8 @@ fn assert_refund(logic: &GameLogic, expected_bank: u32) {
 
 #[test]
 fn authored_slot_and_name_cancel_refund_once_keep_clock_and_owner() {
-    let _serial = crate::gameworld_shadow::authority_env_lock();
     let _cleanup = ClearEconomyLog;
-    with_gameworld_authority(GameWorldAuthority::DEFAULT_OFF, || {
+    {
         let (mut logic, producer) = authored_world(250, 1_000);
         let _ = enqueue(&mut logic, producer, 250);
         let _ = enqueue(&mut logic, producer, 250);
@@ -233,14 +231,13 @@ fn authored_slot_and_name_cancel_refund_once_keep_clock_and_owner() {
         assert!(!logic.cancel_production(producer, UNIT.to_string()));
         assert!(host_economy_log::drain().is_empty());
         assert!(host_economy_log::take_money_audio().is_empty());
-    });
+    };
 }
 
 #[test]
 fn authored_same_id_worlds_refund_their_own_paid_costs() {
-    let _serial = crate::gameworld_shadow::authority_env_lock();
     let _cleanup = ClearEconomyLog;
-    with_gameworld_authority(GameWorldAuthority::DEFAULT_OFF, || {
+    {
         let (mut first, first_producer) = authored_world(250, 1_000);
         let _ = enqueue(&mut first, first_producer, 250);
         let (mut second, second_producer) = authored_world(375, 2_000);
@@ -278,14 +275,13 @@ fn authored_same_id_worlds_refund_their_own_paid_costs() {
                 .production_queue
                 .is_empty()
         );
-    });
+    };
 }
 
 #[test]
 fn authored_cancel_all_has_one_final_event_and_deposit_per_paid_entry() {
-    let _serial = crate::gameworld_shadow::authority_env_lock();
     let _cleanup = ClearEconomyLog;
-    with_gameworld_authority(GameWorldAuthority::DEFAULT_OFF, || {
+    {
         let (mut logic, producer) = authored_world(250, 1_000);
         let _ = enqueue(&mut logic, producer, 250);
         let _ = enqueue(&mut logic, producer, 250);
@@ -323,36 +319,28 @@ fn authored_cancel_all_has_one_final_event_and_deposit_per_paid_entry() {
         assert!(!logic.cancel_all_production(producer));
         assert!(host_economy_log::drain().is_empty());
         assert!(host_economy_log::take_money_audio().is_empty());
-    });
+    };
 }
 
 #[test]
-fn authored_refund_coupled_economy_keeps_base_and_delta_contract() {
-    let _serial = crate::gameworld_shadow::authority_env_lock();
+fn authored_refund_keeps_canonical_cash_and_immutable_observation_contract() {
     let _cleanup = ClearEconomyLog;
-    let authority = GameWorldAuthority {
-        economy: true,
-        ..GameWorldAuthority::DEFAULT_OFF
-    };
-    with_gameworld_authority(authority, || {
-        let _coupled = CoupledTickGuard::enter();
-        assert!(
-            crate::gameworld_shadow::gameworld_economy_authority_live(),
-            "this control requires the actual coupled economy declaration"
-        );
+
+    {
         let (mut logic, producer) = authored_world(250, 1_000);
-        logic.set_economy_authority(true);
+
         let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(8);
         shadow.sync_from_host(&logic);
         let withdrawal = enqueue(&mut logic, producer, 250);
-        assert_eq!(shadow.apply_host_economy_events(&withdrawal), (2, 2));
+        shadow.sync_from_host(&logic);
+        assert!(!withdrawal.is_empty());
         // sync_players allocates these exact host IDs in sorted order: 0, 4.
         let shadow_owner = gamelogic::world::PlayerId::from_index(1);
         let shadow_teammate = gamelogic::world::PlayerId::from_index(0);
         assert_eq!(shadow.world().player(shadow_owner).unwrap().supplies, 750);
         let player = logic.get_player(OWNER).unwrap();
-        assert_eq!(player.resources.supplies, 1_000);
-        assert_eq!(player.pending_supply_delta, -250);
+        assert_eq!(player.resources.supplies, 750);
+        assert_eq!(player.pending_supply_delta, 0);
         assert!(logic.cancel_production_at_index(producer, 0));
         let owner = logic.get_player(OWNER).unwrap();
         let refund = host_economy_log::drain();
@@ -371,29 +359,23 @@ fn authored_refund_coupled_economy_keeps_base_and_delta_contract() {
                 kind: HostMoneyAudio::Deposit,
             }]
         );
-        assert_eq!(
-            shadow.apply_host_economy_events(&refund),
-            (2, 2),
-            "one refund applies one SetSupplies + SetPower pair"
-        );
+        shadow.sync_from_host(&logic);
         assert_eq!(shadow.world().player(shadow_owner).unwrap().supplies, 1_000);
         assert_eq!(
             shadow.world().player(shadow_teammate).unwrap().supplies,
             9_000
         );
-        let _ = shadow.writeback_economy_to_host(&mut logic);
-        let _ = crate::game_logic::host_economy_ready_log::drain();
+        shadow.sync_from_host(&logic);
         let player = logic.get_player(OWNER).unwrap();
         assert_eq!(player.resources.supplies, 1_000);
         assert_eq!(player.pending_supply_delta, 0);
-    });
+    };
 }
 
 #[test]
 fn parsed_upgrade_ledger_cancel_refunds_once() {
-    let _serial = crate::gameworld_shadow::authority_env_lock();
     let _cleanup = ClearEconomyLog;
-    with_gameworld_authority(GameWorldAuthority::DEFAULT_OFF, || {
+    {
         let (mut logic, _) = authored_world(250, 1_000);
         let source = "Upgrade Upgrade_AuthoredRefundLedger\nType = PLAYER\nBuildCost = 321\nBuildTime = 9\nEnd\n";
         let mut ini = game_engine::common::ini::INI::new();
@@ -443,14 +425,13 @@ fn parsed_upgrade_ledger_cancel_refunds_once() {
         assert!(!player.cancel_queued_upgrade("Upgrade_AuthoredRefundLedger", &cost));
         assert!(host_economy_log::drain().is_empty());
         assert!(host_economy_log::take_money_audio().is_empty());
-    });
+    };
 }
 
 #[test]
 fn zero_money_ledger_cancel_reverses_power_without_deposit_cue() {
-    let _serial = crate::gameworld_shadow::authority_env_lock();
     let _cleanup = ClearEconomyLog;
-    with_gameworld_authority(GameWorldAuthority::DEFAULT_OFF, || {
+    {
         let (mut logic, _) = authored_world(250, 1_000);
         let player = logic.get_player_mut(OWNER).unwrap();
         // Existing public Player ledger edge: zero money still reverses power.
@@ -478,5 +459,5 @@ fn zero_money_ledger_cancel_reverses_power_without_deposit_cue() {
             }]
         );
         assert!(host_economy_log::take_money_audio().is_empty());
-    });
+    };
 }

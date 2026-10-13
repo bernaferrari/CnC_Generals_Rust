@@ -6,7 +6,7 @@ use glam::Vec3;
 
 struct RestoreInputs {
     store: Option<gamelogic::weapon::WeaponStore>,
-    authority: crate::game_logic::game_logic::GameWorldAuthority,
+
     frame: u32,
 }
 
@@ -14,12 +14,10 @@ impl RestoreInputs {
     fn install() -> Self {
         let saved = Self {
             store: gamelogic::weapon::with_weapon_store_mut(std::mem::take).ok(),
-            authority: crate::game_logic::game_logic::current_gameworld_authority(),
+
             frame: crate::game_logic::host_historic_bonus::logic_frame(),
         };
-        crate::game_logic::game_logic::gameworld_authority::publish_gameworld_authority(
-            crate::game_logic::game_logic::GameWorldAuthority::DEFAULT_OFF,
-        );
+
         // A prior fixture may remove the store while the independent seed flag survives.
         gamelogic::weapon::initialize_weapon_store().expect("actual native WeaponStore");
         crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
@@ -73,9 +71,7 @@ impl Drop for RestoreInputs {
         } else {
             gamelogic::weapon::shutdown_weapon_store().expect("restore absent store");
         }
-        crate::game_logic::game_logic::gameworld_authority::publish_gameworld_authority(
-            self.authority,
-        );
+
         crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
     }
 }

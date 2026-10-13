@@ -228,9 +228,8 @@ fn observation_scenario(coupled: bool) {
 
     let phase_frame = owner.get_frame();
     if coupled {
-        let _tick = crate::gameworld_shadow::CoupledTickGuard::enter();
-        crate::gameworld_shadow::with_coupled_shadow(&mut shadow, || owner.update());
-        crate::gameworld_shadow::run_post_logic_shadow_boundary(Some(&mut shadow), &mut owner);
+        owner.update();
+        crate::gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), &mut owner);
     } else {
         owner.update();
     }

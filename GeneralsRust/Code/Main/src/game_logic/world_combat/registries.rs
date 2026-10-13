@@ -1088,11 +1088,7 @@ impl GameLogic {
             // (dual with GW HP writeback). Project lethal via damage log + flags;
             // non-authority path keeps host HP clear.
             if let Some(c) = self.objects.get_mut(&container_id) {
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = c.health.current.max(1.0);
-                    self.health_events
-                        .record_damage(container_id, hp, None, true);
-                } else {
+                {
                     c.health.current = 0.0;
                 }
                 c.status.destroyed = true;

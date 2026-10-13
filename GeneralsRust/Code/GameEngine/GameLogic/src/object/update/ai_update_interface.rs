@@ -2663,6 +2663,11 @@ pub struct AIUpdateInterfaceModule {
 }
 
 impl AIUpdateInterfaceModule {
+    pub(crate) fn runtime_ai_owned(
+        &self,
+    ) -> Option<Arc<Mutex<dyn crate::modules::AIUpdateInterface>>> {
+        self.runtime_ai.clone()
+    }
     pub fn new(module_name_key: NameKeyType, data: Arc<AIUpdateModuleData>) -> Self {
         Self {
             module_name_key,

@@ -1,19 +1,5 @@
-//! Wave 198 residual peels: player Guard/Stop/Patrol commands record
-//! `host_guard_log` so GameWorld shadow can last-write SetGuard mutations.
-//! Never flips shell `playable_claim`.
-//!
-//! Orthogonal to Wave 197 attack-log residual.
-//! Host residual only — network deferred.
-//!
-//! Sources:
-//! - `CommandExecutor::execute_guard` → `host_guard_log::record`
-//! - stop/patrol clear guard log
-//! - shadow drains `host_guard_log` into `WorldMutation::SetGuard`
-//!
-//! Fail-closed:
-//! - Not full command buffer cutover for all CommandTypes
-//! - Shell `playable_claim` stays false; network deferred
-
+//! Historical wave198: guard belongs to the canonical Main host object.
+//! Guard shadow replay and reverse writeback are retired; adjacent channels remain separately tracked.
 /// Lookup residual name index (exact match).
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
     table.iter().position(|n| *n == name)
@@ -22,15 +8,15 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 /// Guard-log residual method names.
 pub const LIVE_COMMAND_GUARD_LOG_METHOD_NAMES_WAVE198: &[&str] = &[
     "execute_guard",
-    "host_guard_log::record",
-    "WorldMutation::SetGuard",
+    "canonical_guard_command",
+    "immutable_guard_projection",
     "playable_claim = false",
 ];
 
 /// Ordered residual navigation steps.
 pub const LIVE_COMMAND_GUARD_LOG_NAV_STEPS_WAVE198: &[&str] = &[
-    "REQUIRE_EXECUTE_GUARD_RECORDS",
-    "REQUIRE_SHADOW_DRAINS_GUARD_LOG",
+    "REQUIRE_CANONICAL_GUARD_COMMAND",
+    "REQUIRE_IMMUTABLE_GUARD_PROJECTION",
     "LIVE_GUARD_LOG_LATCHES",
     "LIVE_PLAYABLE_CLAIM_FALSE",
 ];
@@ -50,7 +36,7 @@ pub fn honesty_live_command_guard_log_method_names_residual_wave198() -> bool {
             == Some(0)
         && residual_name_index(
             LIVE_COMMAND_GUARD_LOG_METHOD_NAMES_WAVE198,
-            "host_guard_log::record",
+            "canonical_guard_command",
         ) == Some(1)
         && residual_name_index(
             LIVE_COMMAND_GUARD_LOG_METHOD_NAMES_WAVE198,
@@ -63,7 +49,7 @@ pub fn honesty_live_command_guard_log_nav_commands_residual_wave198() -> bool {
     LIVE_COMMAND_GUARD_LOG_NAV_STEPS_WAVE198.len() == 4
         && residual_name_index(
             LIVE_COMMAND_GUARD_LOG_NAV_STEPS_WAVE198,
-            "REQUIRE_EXECUTE_GUARD_RECORDS",
+            "REQUIRE_CANONICAL_GUARD_COMMAND",
         ) == Some(0)
         && residual_name_index(
             LIVE_COMMAND_GUARD_LOG_NAV_STEPS_WAVE198,
@@ -78,7 +64,7 @@ pub fn honesty_live_command_guard_log_residual_pack_wave198() -> bool {
         && honesty_live_command_guard_log_nav_commands_residual_wave198()
 }
 
-/// Source residual: execute_guard records host_guard_log.
+/// Source residual: execute_guard reaches the canonical host guard command.
 pub fn honesty_execute_guard_records_source() -> bool {
     let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let i = match src.find("fn execute_guard(") {
@@ -86,7 +72,7 @@ pub fn honesty_execute_guard_records_source() -> bool {
         None => return false,
     };
     let body = &src[i..];
-    // Wave 232: guard last-writes via unit_command_guard_full (records host_guard_log).
+    // Wave 232: guard enters through the canonical unit_command_guard_full.
     if body.contains("unit_command_guard_full") {
         // 2026-08-15: scan host plus extra world_* splits.
         let gl = super::host_logic_scan_src();
@@ -95,37 +81,38 @@ pub fn honesty_execute_guard_records_source() -> bool {
             None => return false,
         };
         let gbody = &gl[gi..];
-        return gbody.contains("host_guard_log::record")
+        return gbody.contains("unit.set_ai_state(ai_state.clone())")
             && gbody.contains("set_guard_position")
             && gbody.contains("set_guard_target");
     }
-    body.contains("host_guard_log::record")
+    body.contains("unit_command_guard_full")
         && body.contains("set_guard_position")
         && body.contains("set_guard_target")
 }
 
-/// Source residual: stop/patrol clear guard log; shadow drains it.
+/// Source residual: stop/patrol clear canonical guard; shadow cannot write it back.
 pub fn honesty_shadow_drains_guard_log_source() -> bool {
     let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let gw = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let stop_i = ce.find("fn execute_stop").unwrap_or(0);
     let stop = &ce[stop_i..];
-    // Wave 232: stop clears guard via unit_command_stop (records host_guard_log).
-    let stop_ok = stop.contains("host_guard_log::record")
+    // Wave 232: stop clears guard via the canonical unit_command_stop.
+    let stop_ok = stop.contains("unit_command_stop")
         || (stop.contains("unit_command_stop") && {
             // 2026-08-15: scan host plus extra world_* splits.
             let gl = super::host_logic_scan_src();
             let gi = gl.find("pub fn unit_command_stop").unwrap_or(0);
             let gbody = &gl[gi..];
-            gbody.contains("host_guard_log::record")
+            gbody.contains("unit.set_ai_state(ai_state.clone())")
         });
-    stop_ok && gw.contains("host_guard_log::drain") && gw.contains("WorldMutation::SetGuard")
+    stop_ok
+        && !gw.contains("pub fn apply_host_guard_events")
+        && !gw.contains("pub fn writeback_guard_to_host")
 }
 
-/// Live residual: guard command latches host_guard_log event.
+/// Live residual: guard command changes the actual owner and immutable projection.
 pub fn simulate_live_command_guard_log_honesty() -> bool {
     use crate::command_system::{CommandType, GameCommand, GuardTarget, ModifierKeys};
-    use crate::game_logic::host_guard_log;
     use crate::game_logic::{GameLogic, GuardMode, KindOf, Team, ThingTemplate};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
@@ -140,8 +127,6 @@ pub fn simulate_live_command_guard_log_honesty() -> bool {
     if !honesty_shadow_drains_guard_log_source() {
         return false;
     }
-
-    host_guard_log::clear();
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("GuardLog198");
@@ -174,25 +159,31 @@ pub fn simulate_live_command_guard_log_honesty() -> bool {
     });
     logic.process_commands();
 
-    let events = host_guard_log::drain();
-    if !events.iter().any(|e| {
-        e.object == unit
-            && e.position
-                .map(|p| (p[0] - 40.0).abs() < 1e-3 && (p[2] - 41.0).abs() < 1e-3)
-                .unwrap_or(false)
-            && e.target_host == 0
-            && e.radius > 0.0
-    }) {
+    let Some(owner) = logic.host_object(unit) else {
+        return false;
+    };
+    if owner.guard_position != Some(dest)
+        || owner.guard_target.is_some()
+        || owner.guard_radius <= 0.0
+    {
         return false;
     }
-
-    // Shadow can queue SetGuard from a recorded event.
-    use crate::gameworld_shadow::GameWorldShadow;
-    let mut shadow = GameWorldShadow::new(64);
+    let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    host_guard_log::record(unit, Some([40.0, 0.0, 41.0]), 0, 100.0);
-    let drained = host_guard_log::drain();
-    if shadow.apply_host_guard_events(&drained) == 0 {
+    let Some(entity) = shadow.entity_for_host(unit) else {
+        return false;
+    };
+    #[cfg(test)]
+    {
+        let copy = shadow.world_mut().world_mut().entity_mut(entity).unwrap();
+        copy.guard_position = Some([900.0, 0.0, 900.0]);
+        copy.guard_radius = 1.0;
+    }
+    if logic.host_object(unit).unwrap().guard_position != Some(dest) {
+        return false;
+    }
+    shadow.sync_from_host(&logic);
+    if shadow.world().entity(entity).unwrap().guard_position != Some([dest.x, dest.y, dest.z]) {
         return false;
     }
 

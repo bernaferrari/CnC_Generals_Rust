@@ -41,7 +41,7 @@ fn spawn_finished_output(world: &mut GameLogic, factory: ObjectId, name: &str) -
         panic!("production output");
     };
     world.host_object_mut(unit).unwrap().producer_id = Some(factory);
-    crate::game_logic::host_production_spawn_ready_log::record(
+    world.record_production_spawn_completion(
         unit,
         factory,
         name.into(),
@@ -222,6 +222,9 @@ fn same_id_factory_deliveries_update_only_the_driving_world_queue() {
             ));
     }
     let au = spawn_finished_output(&mut a, af, name);
+    let bu = spawn_finished_output(&mut b, bf, name);
+    assert_eq!(au, bu);
+    // Both same-ID callbacks are pending before either receiving owner drains.
     assert_eq!(a.host_apply_production_spawn_ready_completions(), 1);
     assert_eq!(
         a.ai_manager.ai_players[&1].team_queue[0].work_orders[0].num_completed,
@@ -231,8 +234,6 @@ fn same_id_factory_deliveries_update_only_the_driving_world_queue() {
         b.ai_manager.ai_players[&1].team_queue[0].work_orders[0].num_completed,
         0
     );
-    let bu = spawn_finished_output(&mut b, bf, name);
-    assert_eq!(au, bu);
     assert_eq!(b.host_apply_production_spawn_ready_completions(), 1);
     assert_eq!(
         b.ai_manager.ai_players[&1].team_queue[0].work_orders[0].num_completed,

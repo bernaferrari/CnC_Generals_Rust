@@ -205,11 +205,10 @@ mod tests {
     #[test]
     fn host_ui_selected_ids_prefers_presentation_freeze_over_engine_selection() {
         use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
-        use crate::gameworld_shadow::ensure_gate_damage_authority;
+
         use crate::presentation_frame::PresentationFrame;
         use glam::Vec3;
 
-        ensure_gate_damage_authority();
         let mut logic = GameLogic::new();
         let mut t = ThingTemplate::new("UiSelRanger215");
         t.set_health(100.0);

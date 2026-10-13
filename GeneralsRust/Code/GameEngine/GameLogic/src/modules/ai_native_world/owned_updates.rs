@@ -24,18 +24,40 @@ impl BorrowedAiWorld<'_> {
                     .try_read()
                     .map_err(|_| "native scheduled owner already borrowed")?
                     .scheduled_native_slow_death(&update.module)?;
-                if !is_slow {
-                    return Err(
-                        "native scheduled callback family requires its owner runtime".into(),
-                    );
-                }
+                let is_physics = {
+                    let object = owner
+                        .try_read()
+                        .map_err(|_| "native scheduled owner already borrowed")?;
+                    match object.get_physics() {
+                        Some(physics) => {
+                            Arc::ptr_eq(&physics.installed_update_proxy(&object)?, &update.module)
+                        }
+                        None => false,
+                    }
+                };
+                let ai = if is_slow || is_physics {
+                    None
+                } else {
+                    let ai = owner
+                        .try_read()
+                        .map_err(|_| "native scheduled owner already borrowed")?
+                        .scheduled_native_ai(&update.module)?
+                        .ok_or("native scheduled callback family requires its owner runtime")?;
+                    Some(ai)
+                };
                 let previous = self
                     .services
                     .current_update
                     .replace(Arc::clone(&update.module));
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    self.update_slow_death_owned(&owner)
-                }));
+                let result =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match ai.as_ref() {
+                        Some(ai) => ai
+                            .try_lock()
+                            .map_err(|_| "native scheduled AI already borrowed".to_string())?
+                            .update_scheduled_tick_with_world(self),
+                        None if is_physics => self.update_physics_phase(&owner),
+                        None => self.update_slow_death_owned(&owner),
+                    }));
                 self.services.current_update = previous;
                 match result {
                     Ok(result) => result?,

@@ -1,14 +1,12 @@
-//! hq-du7d8: real shadow timers must deliver final-death completion only to
-//! their driving GameWorld. These controls use ordinary Object begin, sync,
-//! native GameWorld frame advancement, and the public post-host session.
+//! Death timers belong to their actual Main owner. These controls use real
+//! Object begin and shipped Main fixed frames, with same-ID peers and poisoned
+//! read-only observations that cannot request deletion.
 //! They do not insert into a completion queue. Retail jet/heli selectors and
 //! parsed SlowDeath domain rules are fixture admission, not full asset parity.
 use super::*;
-use crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority;
+use crate::gameworld_shadow::GameWorldShadow;
+
 use crate::game_logic::game_logic::world_tick::heli_motion_tests::isolated_at;
-use crate::gameworld_shadow::{
-    GameWorldShadow, shadow_session_after_host_tick, with_gameworld_authority,
-};
 
 #[derive(Clone, Copy, Debug)]
 enum DeathKind {
@@ -24,7 +22,7 @@ fn fixture(kind: DeathKind, start: bool) -> (GameLogic, GameWorldShadow, ObjectI
         DeathKind::Helicopter => "AmericaHelicopterComanche",
     };
     let mut logic = GameLogic::new();
-    logic.set_movement_authority(true);
+
     let mut template = ThingTemplate::new(name);
     template.set_health(100.0);
     template
@@ -81,104 +79,73 @@ End
     (logic, shadow, id)
 }
 
-fn is_done(shadow: &GameWorldShadow, id: ObjectId, kind: DeathKind) -> bool {
-    let entity = shadow
-        .world()
-        .entity(shadow.entity_for_host(id).unwrap())
-        .unwrap();
-    match kind {
-        DeathKind::Slow => entity.slow_death_phase == 4,
-        DeathKind::Jet => entity.jet_slow_death_done,
-        DeathKind::Helicopter => entity.heli_slow_death_done,
+// Run the shipped authoritative step. The projection never advances a death timer.
+fn finish_owner(logic: &mut GameLogic, shadow: &mut GameWorldShadow, id: ObjectId) {
+    for _ in 0..512 {
+        let Some(object) = logic.host_object(id) else {
+            assert!(shadow.entity_for_host(id).is_none());
+            assert!(
+                logic.health_events.snapshot_damage().is_empty(),
+                "final destroy must not fabricate another body hit"
+            );
+            return;
+        };
+        assert_eq!(object.health.current, 100.0);
+        assert!(
+            !object.status.on_die_started,
+            "finishing a directly begun timer must not re-enter onDie"
+        );
+        let before = logic.getFrame();
+        logic.update();
+        assert_eq!(logic.getFrame(), before + 1);
+        crate::gameworld_shadow::run_owned_host_boundary(Some(shadow), logic);
     }
+    panic!("actual owner death timer did not complete within its admitted fixture bounds");
 }
-
-fn produce(logic: &GameLogic, shadow: &mut GameWorldShadow, id: ObjectId, kind: DeathKind) {
-    assert!(!is_done(shadow, id, kind));
-    with_gameworld_authority(*logic.gameworld_authority(), || {
-        for _ in 0..128 {
-            shadow.world_mut().advance_frames(1);
-            let frame = u32::try_from(shadow.world().frame()).unwrap();
-            shadow.tick_status_timer_expirations(frame);
-            if is_done(shadow, id, kind) {
-                return;
-            }
-        }
-        panic!("ordinary native-frame timer never completed {kind:?}");
-    });
-    assert!(
-        logic.host_object(id).is_some(),
-        "producer has not consumed its completion"
-    );
-}
-
-fn consume(logic: &mut GameLogic, shadow: &mut GameWorldShadow) {
-    with_gameworld_authority(*logic.gameworld_authority(), || {
-        let _ = shadow_session_after_host_tick(shadow, logic);
-    });
-}
-
 fn assert_live(logic: &GameLogic, id: ObjectId, why: &str) {
     let object = logic.host_object(id).expect(why);
-    assert!(!object.status.destroyed, "{why}");
-    assert!(object.health.current > 0.0, "{why}");
-    assert!(
-        logic.objects_to_destroy.iter().all(|event| event.id != id),
-        "{why}"
-    );
-}
-
-fn assert_final(logic: &mut GameLogic, id: ObjectId) {
-    let object = logic
-        .host_object(id)
-        .expect("deferred final destruction remains discoverable");
-    assert!(object.status.destroyed);
-    // This fixture starts only the timer at positive HP. CPP final callbacks
-    // delete the object without manufacturing a second body damage operation.
+    assert!(object.is_alive(), "{why}");
     assert_eq!(object.health.current, 100.0);
     assert!(!object.status.on_die_started);
-    assert_eq!(
-        logic
-            .objects_to_destroy
-            .iter()
-            .filter(|event| event.id == id)
-            .count(),
-        1
-    );
-    logic.process_destroy_list();
-    assert!(logic.host_object(id).is_none());
+    assert!(logic.objects_to_destroy.iter().all(|event| event.id != id));
 }
-
 fn two_worlds(kind: DeathKind) {
     let (mut a, mut sa, aid) = fixture(kind, true);
-    produce(&a, &mut sa, aid, kind);
-    // Constructing a second world must neither take nor erase A's completion.
     let (mut b, mut sb, bid) = fixture(kind, false);
-    assert_eq!(aid, bid, "allocator-local host IDs intentionally alias");
-    consume(&mut b, &mut sb);
-    assert_live(&b, bid, "B consumed A's final-death completion");
-    consume(&mut a, &mut sa);
-    assert_final(&mut a, aid);
-    consume(&mut b, &mut sb);
-    assert_live(&b, bid, "A's completion was delivered twice");
+    assert_eq!(aid, bid);
+    for _ in 0..3 {
+        let frame = a.getFrame();
+        b.update();
+        crate::gameworld_shadow::run_owned_host_boundary(Some(&mut sb), &mut b);
+        assert_eq!(
+            a.getFrame(),
+            frame,
+            "foreign session cannot advance the timer"
+        );
+        assert_live(&b, bid, "foreign owner remains alive");
+    }
+    finish_owner(&mut a, &mut sa, aid);
+    assert_live(&b, bid, "same-ID peer cannot receive final deletion");
+    crate::gameworld_shadow::run_owned_host_boundary(Some(&mut sb), &mut b);
+    assert_live(
+        &b,
+        bid,
+        "empty later boundary cannot replay another owner's completion",
+    );
 }
-
 fn normal_completion(kind: DeathKind) {
     let (mut a, mut sa, aid) = fixture(kind, true);
-    produce(&a, &mut sa, aid, kind);
     let (b, _sb, bid) = fixture(kind, false);
     assert_eq!(aid, bid);
-    consume(&mut a, &mut sa);
-    assert_final(&mut a, aid);
-    assert_live(&b, bid, "construction or A delivery changed B");
+    finish_owner(&mut a, &mut sa, aid);
+    assert_live(&b, bid, "inert constructor or completion changed a peer");
 }
-
 fn owner_boundary(kind: DeathKind) {
     for boundary in ["reset", "clear", "drop"] {
-        let (a, mut sa, aid) = fixture(kind, true);
-        produce(&a, &mut sa, aid, kind);
+        let (mut a, mut sa, aid) = fixture(kind, true);
         let (mut b, _sb, bid) = fixture(kind, false);
         assert_eq!(aid, bid);
+        let frame = a.getFrame();
         match boundary {
             "reset" => sa.reset_for_world_boundary(),
             "clear" => sa.world_mut().clear_entities(),
@@ -189,51 +156,33 @@ fn owner_boundary(kind: DeathKind) {
             _ => unreachable!(),
         }
         sa.sync_from_host(&b);
-        consume(&mut b, &mut sa);
-        assert_live(
-            &b,
-            bid,
-            "old completion survived owner boundary and ID reuse",
-        );
+        crate::gameworld_shadow::run_owned_host_boundary(Some(&mut sa), &mut b);
+        assert_live(&b, bid, "observer reuse cannot deliver a foreign deletion");
+        assert_eq!(a.getFrame(), frame);
+        finish_owner(&mut a, &mut sa, aid);
+        assert_live(&b, bid, "observer lifecycle cannot change same-ID peer");
     }
 }
-
 fn disabled_timer(kind: DeathKind) {
     let (mut a, mut sa, aid) = fixture(kind, true);
-    a.set_movement_authority(false);
-    with_gameworld_authority(*a.gameworld_authority(), || {
-        for _ in 0..128 {
-            sa.world_mut().advance_frames(1);
-            let frame = u32::try_from(sa.world().frame()).unwrap();
-            sa.tick_status_timer_expirations(frame);
-        }
-    });
-    assert!(
-        !is_done(&sa, aid, kind),
-        "diagnostic timer completed while movement authority was disabled"
-    );
-    a.set_movement_authority(true);
-    consume(&mut a, &mut sa);
-    assert_live(
-        &a,
-        aid,
-        "disabled timer left a stale completion for re-enable",
-    );
+    let frame = a.getFrame();
+    // Independent oracle frames have no authority over Main timer execution.
+    sa.world_mut().advance_frames(128);
+    assert_eq!(a.getFrame(), frame);
+    assert_live(&a, aid, "observer clocks cannot kill the owner");
+    sa.sync_from_host(&a);
+    finish_owner(&mut a, &mut sa, aid);
 }
-
 fn authority_toggle(kind: DeathKind) {
     let (mut a, mut sa, aid) = fixture(kind, true);
-    produce(&a, &mut sa, aid, kind);
-    a.set_movement_authority(false);
-    consume(&mut a, &mut sa);
-    assert_live(&a, aid, "disabled consumer applied a pending completion");
-    a.set_movement_authority(true);
-    consume(&mut a, &mut sa);
-    assert_live(&a, aid, "re-enabled consumer delivered an old completion");
-    // A new ordinary timer transition is still deliverable after discard.
-    produce(&a, &mut sa, aid, kind);
-    consume(&mut a, &mut sa);
-    assert_final(&mut a, aid);
+    let eid = sa.entity_for_host(aid).unwrap();
+    let entity = sa.world_mut().world_mut().entity_mut(eid).unwrap();
+    entity.slow_death_phase = 4;
+    entity.jet_slow_death_done = true;
+    entity.heli_slow_death_done = true;
+    crate::gameworld_shadow::run_owned_host_boundary(Some(&mut sa), &mut a);
+    assert_live(&a, aid, "poisoned observer completion cannot mutate Main");
+    finish_owner(&mut a, &mut sa, aid);
 }
 
 macro_rules! control {
@@ -241,9 +190,7 @@ macro_rules! control {
         #[test]
         fn $name() {
             isolated_at(module_path!(), stringify!($name), || {
-                with_gameworld_authority(GameWorldAuthority::DEFAULT_OFF, || {
-                    $body(DeathKind::$kind)
-                });
+                $body(DeathKind::$kind);
             });
         }
     };

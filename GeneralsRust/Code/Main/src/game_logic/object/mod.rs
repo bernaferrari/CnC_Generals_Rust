@@ -3272,7 +3272,7 @@ pub(crate) use panic_runtime::{PanicRuntime, PanicSaveState};
 
 pub use barrels::WeaponBarrelState;
 mod damage_context;
-pub(in crate::game_logic) use damage_context::DamageHitContext;
+pub(crate) use damage_context::DamageHitContext;
 
 pub use jets::{
     HostJetAi, HostJetPendingResume, JET_AFTERBURNER_SOUND, JET_AFTERBURNER_SOUND_STOP,

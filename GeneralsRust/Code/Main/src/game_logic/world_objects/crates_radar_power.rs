@@ -823,13 +823,7 @@ impl GameLogic {
             p.y = new_y;
             obj.set_position(p);
             crate::game_logic::host_ground_height_log::record(crate_id, ground, false);
-            if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                if landed {
-                    self.movement_events
-                        .record(self.frame, crate_id, Some([p.x, p.y, p.z]));
-                }
-                obj.record_host_movement();
-            }
+            {}
             if landed {
                 obj.clear_eject_parachuting();
             }
@@ -1009,13 +1003,8 @@ impl GameLogic {
             for occ_id in occupants {
                 if let Some(unit) = self.objects.get(&occ_id) {
                     let p = unit.get_position();
-                    if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                        self.movement_events
-                            .record(self.frame, occ_id, Some([p.x, p.y, p.z]));
-                    }
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                        crate::game_logic::host_ai_decision_log::record_stop_attack(occ_id);
-                    }
+                    {}
+                    {}
                 }
                 self.record_garrison_residual_exit();
             }
@@ -1038,12 +1027,7 @@ impl GameLogic {
 
         // Wave 811: under coupled shadow, disabled_underpowered owned by GW expire.
         // Keep Eva low-power residual on host (UI presentation).
-        if crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active()
-        {
-            self.update_eva_low_power();
-            return;
-        }
+        {}
         // Build a set of players that are underpowered.  A faction can contain
         // multiple independent bases, so a USA player's brownout must not
         // disable another USA player's structures.

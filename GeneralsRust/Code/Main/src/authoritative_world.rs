@@ -111,35 +111,6 @@ mod tests {
     }
 
     #[test]
-    fn production_dual_tick_policy_is_authority_only_and_gameworld_shadow_on() {
-        assert!(matches!(dual_tick_policy(), DualTickPolicy::AuthorityOnly));
-        assert!(
-            crate::gameworld_shadow::gameworld_shadow_enabled(),
-            "GameWorld shadow is production-on (opt out GENERALS_GAMEWORLD_SHADOW=0)"
-        );
-        assert!(
-            !crate::gameworld_shadow::gameworld_movement_authority_enabled()
-                && !crate::gameworld_shadow::gameworld_damage_authority_enabled()
-                && !crate::gameworld_shadow::gameworld_economy_authority_enabled()
-                && !crate::gameworld_shadow::gameworld_production_authority_enabled(),
-            "last-writer authorities default off — host GameLogic is the sole writer"
-        );
-        let aw = include_str!("authoritative_world.rs");
-        let prod = aw.split("#[cfg(test)]").next().expect("prod");
-        assert!(prod.contains("DualTickPolicy::AuthorityOnly"));
-        assert!(
-            !prod.contains("GENERALS_ALLOW_DUAL_TICK"),
-            "dual crate tick path is removed"
-        );
-        let shadow = include_str!("gameworld_shadow/mod.rs");
-        assert!(shadow.contains("GENERALS_GAMEWORLD_SHADOW"));
-        assert!(
-            shadow.contains("Last-writer") || shadow.contains("sole writer"),
-            "shadow docs must state host sole writer"
-        );
-    }
-
-    #[test]
     fn probe_advances_with_main_game_logic_only() {
         let mut logic = GameLogic::new();
         logic.start_new_game(GameMode::Skirmish);

@@ -2,7 +2,7 @@ use generals_main::shell_smoke::{format_shell_smoke_report, run_shell_smoke};
 
 fn main() {
     // Gate default: GameWorld damage last-writer for HP (opt out DAMAGE_AUTHORITY=0).
-    generals_main::gameworld_shadow::ensure_gate_damage_authority();
+
     let r = run_shell_smoke(10);
     println!("{}", format_shell_smoke_report(&r));
     // Fail-closed retail: headless smoke must never claim full W3D playability.
@@ -375,9 +375,7 @@ fn main() {
         && r.challenge_generals_method_names_wave152_ok
         && r.challenge_generals_nav_commands_wave152_ok
         // Wave 153 residual honesty (GameWorld authority env; never flips playable_claim).
-        && r.gameworld_authority_env_names_wave153_ok
-        && r.gameworld_authority_method_names_wave153_ok
-        && r.gameworld_authority_nav_commands_wave153_ok
+
         // Wave 154 residual honesty (WindowVideo; never flips playable_claim).
         && r.window_video_type_state_names_wave154_ok
         && r.window_video_method_names_wave154_ok
@@ -471,44 +469,23 @@ fn main() {
         && r.executable_presentation_boundary_nav_commands_wave176_ok
         && r.executable_presentation_boundary_live_wave176_ok
         // Wave 177 residual honesty (GameWorld production authority default-on + sole-tick).
-        && r.production_authority_env_ok
-        && r.gameworld_production_authority_method_names_wave177_ok
-        && r.gameworld_production_authority_nav_commands_wave177_ok
-        && r.gameworld_production_authority_live_wave177_ok
+
         // Wave 178 residual honesty (sole-tick coupling + movement authority).
-        && r.movement_authority_env_ok
-        && r.gameworld_sole_tick_coupling_method_names_wave178_ok
-        && r.gameworld_sole_tick_coupling_nav_commands_wave178_ok
-        && r.gameworld_sole_tick_coupling_live_wave178_ok
+
         // Wave 179 residual honesty (full GameWorld authority matrix + engine couple).
-        && r.ai_fire_construction_authority_env_ok
-        && r.gameworld_authority_matrix_method_names_wave179_ok
-        && r.gameworld_authority_matrix_nav_commands_wave179_ok
-        && r.gameworld_authority_matrix_live_wave179_ok
+
         // Wave 180 residual honesty (live GameWorld production writeback + presentation shell).
-        && r.live_gameworld_production_writeback_method_names_wave180_ok
-        && r.live_gameworld_production_writeback_nav_commands_wave180_ok
-        && r.live_gameworld_production_writeback_live_wave180_ok
+
         // Wave 181 residual honesty (live GameWorld construction writeback).
-        && r.live_gameworld_construction_writeback_method_names_wave181_ok
-        && r.live_gameworld_construction_writeback_nav_commands_wave181_ok
-        && r.live_gameworld_construction_writeback_live_wave181_ok
+
         // Wave 182 residual honesty (live GameWorld damage channel parity).
-        && r.live_gameworld_damage_channel_method_names_wave182_ok
-        && r.live_gameworld_damage_channel_nav_commands_wave182_ok
-        && r.live_gameworld_damage_channel_live_wave182_ok
+
         // Wave 183 residual honesty (live GameWorld economy writeback + movement channel).
-        && r.live_gameworld_economy_movement_method_names_wave183_ok
-        && r.live_gameworld_economy_movement_nav_commands_wave183_ok
-        && r.live_gameworld_economy_movement_live_wave183_ok
+
         // Wave 184 residual honesty (live GameWorld projectile + AI decision channels).
-        && r.live_gameworld_projectile_ai_method_names_wave184_ok
-        && r.live_gameworld_projectile_ai_nav_commands_wave184_ok
-        && r.live_gameworld_projectile_ai_live_wave184_ok
+
         // Wave 185 residual honesty (live GameWorld fire-spawn + special-power).
-        && r.live_gameworld_fire_special_power_method_names_wave185_ok
-        && r.live_gameworld_fire_special_power_nav_commands_wave185_ok
-        && r.live_gameworld_fire_special_power_live_wave185_ok
+
         // Wave 186 residual honesty (live GameWorld presentation view after shadow tick).
         && r.live_gameworld_presentation_view_method_names_wave186_ok
         && r.live_gameworld_presentation_view_nav_commands_wave186_ok
@@ -534,21 +511,13 @@ fn main() {
         && r.live_gameworld_entity_view_deepen_nav_commands_wave191_ok
         && r.live_gameworld_entity_view_deepen_live_wave191_ok
         // Wave 192 residual honesty (append_missing_from_gameworld sparse objects).
-        && r.live_presentation_append_missing_method_names_wave192_ok
-        && r.live_presentation_append_missing_nav_commands_wave192_ok
-        && r.live_presentation_append_missing_live_wave192_ok
+
         // Wave 193 residual honesty (build_from_gameworld / rebuild_objects).
-        && r.live_presentation_build_from_gameworld_method_names_wave193_ok
-        && r.live_presentation_build_from_gameworld_nav_commands_wave193_ok
-        && r.live_presentation_build_from_gameworld_live_wave193_ok
+
         // Wave 194 residual honesty (GameWorld presentation default ON).
-        && r.live_presentation_from_gameworld_default_method_names_wave194_ok
-        && r.live_presentation_from_gameworld_default_nav_commands_wave194_ok
-        && r.live_presentation_from_gameworld_default_live_wave194_ok
+
         // Wave 195 residual honesty (build_for_engine single presentation path).
-        && r.live_presentation_build_for_engine_method_names_wave195_ok
-        && r.live_presentation_build_for_engine_nav_commands_wave195_ok
-        && r.live_presentation_build_for_engine_live_wave195_ok
+
         // Wave 196 residual honesty (rebuilt vertical gate + primary objects flag).
         && r.live_presentation_rebuilt_vertical_gate_method_names_wave196_ok
         && r.live_presentation_rebuilt_vertical_gate_nav_commands_wave196_ok

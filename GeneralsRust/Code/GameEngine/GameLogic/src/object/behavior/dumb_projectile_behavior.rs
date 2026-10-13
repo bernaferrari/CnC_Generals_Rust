@@ -888,17 +888,14 @@ impl DumbProjectileBehavior {
         };
 
         if let Some(weapon_template) = &self.detonation_weapon {
-            let detonation_result = crate::weapon::with_weapon_store(|store| {
-                store.handle_projectile_detonation(
-                    weapon_template,
-                    object_id,
-                    &position,
-                    self.extra_bonus_flags,
-                    true,
-                )
-            })
-            .map_err(|err| std::io::Error::other(err.to_string()))?;
-            detonation_result.map_err(|err| std::io::Error::other(err.to_string()))?;
+            crate::weapon::WeaponStore::handle_projectile_detonation(
+                weapon_template,
+                object_id,
+                &position,
+                self.extra_bonus_flags,
+                true,
+            )
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
 
             if self.module_data.detonate_calls_kill {
                 let max_health = self.with_object(|obj| obj.get_max_health())?;

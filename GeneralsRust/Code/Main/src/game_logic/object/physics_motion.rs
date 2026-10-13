@@ -874,16 +874,14 @@ impl Object {
         // apply_live_handle_behavior_z when host march ran (hq-g8oig).
         // Dead / disabled skip doLocomotor, so they still need gravity here.
         if self.shock_stun_frames == 0 {
-            let host_live_y_euler_already =
-                !crate::gameworld_shadow::gameworld_movement_authority_live()
-                    && !self.is_disabled()
-                    && !self.host_skip_dead_locomotor()
-                    && matches!(
-                        self.loco_behavior_z,
-                        LocomotorBehaviorZ::SurfaceRelativeHeight
-                            | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
-                            | LocomotorBehaviorZ::AbsoluteHeight
-                    );
+            let host_live_y_euler_already = !self.is_disabled()
+                && !self.host_skip_dead_locomotor()
+                && matches!(
+                    self.loco_behavior_z,
+                    LocomotorBehaviorZ::SurfaceRelativeHeight
+                        | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+                        | LocomotorBehaviorZ::AbsoluteHeight
+                );
             if !host_live_y_euler_already {
                 self.apply_gravitational_forces();
                 self.movement.velocity.y += self.physics_accel.y;
@@ -954,9 +952,7 @@ impl Object {
         // C++ PhysicsUpdate.cpp:665-669 — NaN translation destroyObject.
         if !new_pos.x.is_finite() || !new_pos.y.is_finite() || !new_pos.z.is_finite() {
             let hp = self.health.current.max(1.0);
-            if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                health_events.record_damage(self.id, hp, Some(self.id), true);
-            } else {
+            {
                 self.health.current = 0.0;
             }
             self.status.destroyed = true;

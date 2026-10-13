@@ -97,29 +97,7 @@ fn dozer_bored_mine_clear_assigns_enemy_mine() {
     assert!(logic.honesty_dozer_bored_mine_clear_ok());
     // Mine-clear engagement is decision-authority last-write (default on):
     // AttackTarget + SetAIState(Attacking) logged; host target/ai_state not mutated.
-    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-        assert_eq!(d.target, None);
-        assert_eq!(d.ai_state, AIState::Idle);
-        let events = crate::game_logic::host_ai_decision_log::snapshot();
-        let attacking =
-            crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&AIState::Attacking);
-        assert!(
-            events.iter().any(|e| {
-                e.host_object == did
-                    && e.kind == crate::game_logic::host_ai_decision_log::AI_DECISION_ATTACK
-                    && e.target_host == mid.0
-            }),
-            "dozer bored mine-clear must log AttackTarget under decision authority"
-        );
-        assert!(
-            events.iter().any(|e| {
-                e.host_object == did
-                    && e.kind == crate::game_logic::host_ai_decision_log::AI_DECISION_SET_STATE
-                    && e.ai_state_ordinal == attacking
-            }),
-            "dozer bored mine-clear must log SetAIState(Attacking) under decision authority"
-        );
-    } else {
+    {
         assert_eq!(d.target, Some(mid));
         assert_eq!(d.ai_state, AIState::Attacking);
     }
@@ -183,20 +161,7 @@ fn dozer_bored_auto_repair_assigns_damaged_structure() {
     assert!(logic.honesty_dozer_bored_repair_ok());
     // AI state last-write under AI_DECISION_AUTHORITY (default): host ai_state stays
     // Idle; SetAIState(Repairing) is logged for GameWorld writeback.
-    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-        assert_eq!(d.ai_state, AIState::Idle);
-        let events = crate::game_logic::host_ai_decision_log::snapshot();
-        let repairing =
-            crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&AIState::Repairing);
-        assert!(
-            events.iter().any(|e| {
-                e.host_object == did
-                    && e.kind == crate::game_logic::host_ai_decision_log::AI_DECISION_SET_STATE
-                    && e.ai_state_ordinal == repairing
-            }),
-            "dozer bored repair must log SetAIState(Repairing) under decision authority"
-        );
-    } else {
+    {
         assert_eq!(d.ai_state, AIState::Repairing);
     }
 }

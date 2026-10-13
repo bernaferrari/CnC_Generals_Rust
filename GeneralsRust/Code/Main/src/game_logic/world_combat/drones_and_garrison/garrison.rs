@@ -211,25 +211,7 @@ impl GameLogic {
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
-            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
-                let (dmg, rng) = attacker
-                    .weapon_slot(slot)
-                    .map(|w| (w.damage, w.range))
-                    .unwrap_or((0.0, 0.0));
-                let frame = crate::game_logic::host_historic_bonus::logic_frame();
-                let next_count = attacker.fire_intent_count.saturating_add(1);
-                crate::game_logic::host_fire_intent_log::record(
-                    attacker.id,
-                    target_id.0,
-                    slot,
-                    dmg,
-                    rng,
-                    current_time,
-                    frame,
-                    next_count,
-                );
-                attacker.fire_intent_count = next_count;
-            }
+            {}
             // The occupant stays Garrisoned (C++ GarrisonContain never
             // rewrites occupant AI on the fire path;
             // GarrisonContain.cpp:1691-1700 isPassengerAllowedToFire, occupant
@@ -237,9 +219,7 @@ impl GameLogic {
             // order target: Object::set_target would force AIState::Attacking
             // (orders.rs:30-47).
             attacker.set_order_target(Some(target_id));
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_attack(garrisoned_id, target_id);
-            }
+            {}
             // Kill XP awarded after this borrow via award_experience.
         }
         // Occupant discharges their own current slot from the FIREPOINT offset.

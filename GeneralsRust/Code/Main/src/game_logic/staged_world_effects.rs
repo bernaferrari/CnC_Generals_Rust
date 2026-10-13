@@ -7,15 +7,14 @@
 //! rollback, and clear the old world's events only once commit is certain.
 
 use super::{
-    host_ai_attitude_log, host_ai_decision_log, host_attack_log, host_building_type_log,
-    host_combat_attack_log, host_command_set_log, host_contain_capacity_log, host_contain_log,
-    host_continuous_fire_log, host_demo_mine_cheer_log, host_detector_log, host_experience_log,
-    host_ground_height_log, host_hive_log, host_identity_log, host_kind_of_log, host_locomotor_log,
-    host_max_health_log, host_model_mesh_log, host_movement_log, host_overlord_log,
-    host_physics_motive_log, host_player_cooldown_log, host_player_meta_log,
-    host_player_progress_log, host_spawn_log, host_special_power_log, host_status_log,
-    host_stealth_flags_log, host_stored_supplies_log, host_target_location_log, host_veterancy_log,
-    host_weapon_set_log,
+    host_ai_decision_log, host_attack_log, host_building_type_log, host_combat_attack_log,
+    host_command_set_log, host_contain_capacity_log, host_contain_log, host_continuous_fire_log,
+    host_demo_mine_cheer_log, host_detector_log, host_ground_height_log, host_hive_log,
+    host_identity_log, host_kind_of_log, host_locomotor_log, host_max_health_log,
+    host_model_mesh_log, host_movement_log, host_overlord_log, host_physics_motive_log,
+    host_player_cooldown_log, host_player_meta_log, host_player_progress_log, host_spawn_log,
+    host_special_power_log, host_status_log, host_stealth_flags_log, host_stored_supplies_log,
+    host_target_location_log, host_weapon_set_log,
 };
 use std::cell::Cell;
 
@@ -47,7 +46,6 @@ pub(crate) struct WorldStageEffectsState {
     weapon_set: Vec<host_weapon_set_log::HostWeaponSetEvent>,
     contain_capacity: Vec<host_contain_capacity_log::HostContainCapacityEvent>,
     status: Vec<host_status_log::HostStatusEvent>,
-    ai_attitude: Vec<host_ai_attitude_log::HostAiAttitudeEvent>,
     special_power: Vec<host_special_power_log::HostSpecialPowerEvent>,
     player_cooldown: Vec<host_player_cooldown_log::HostPlayerCooldownEvent>,
     stored_supplies: Vec<host_stored_supplies_log::HostStoredSuppliesEvent>,
@@ -61,9 +59,7 @@ pub(crate) struct WorldStageEffectsState {
     continuous_fire: Vec<host_continuous_fire_log::HostContinuousFireEvent>,
     player_meta: Vec<host_player_meta_log::HostPlayerMetaEvent>,
     player_progress: Vec<host_player_progress_log::HostPlayerProgressEvent>,
-    veterancy: Vec<host_veterancy_log::HostVeterancyEvent>,
     max_health: Vec<host_max_health_log::HostMaxHealthEvent>,
-    experience: Vec<host_experience_log::HostExperienceEvent>,
     building_type: Vec<host_building_type_log::HostBuildingTypeEvent>,
     physics_motive: Vec<host_physics_motive_log::HostPhysicsMotiveEvent>,
 }
@@ -85,7 +81,6 @@ impl WorldStageEffectsState {
             weapon_set: host_weapon_set_log::take_for_world_stage(),
             contain_capacity: host_contain_capacity_log::take_for_world_stage(),
             status: host_status_log::take_for_world_stage(),
-            ai_attitude: host_ai_attitude_log::take_for_world_stage(),
             special_power: host_special_power_log::take_for_world_stage(),
             player_cooldown: host_player_cooldown_log::take_for_world_stage(),
             stored_supplies: host_stored_supplies_log::take_for_world_stage(),
@@ -99,9 +94,7 @@ impl WorldStageEffectsState {
             continuous_fire: host_continuous_fire_log::take_for_world_stage(),
             player_meta: host_player_meta_log::take_for_world_stage(),
             player_progress: host_player_progress_log::take_for_world_stage(),
-            veterancy: host_veterancy_log::take_for_world_stage(),
             max_health: host_max_health_log::take_for_world_stage(),
-            experience: host_experience_log::take_for_world_stage(),
             building_type: host_building_type_log::take_for_world_stage(),
             physics_motive: host_physics_motive_log::take_for_world_stage(),
         }
@@ -127,7 +120,6 @@ impl WorldStageEffectsState {
                 next.contain_capacity,
             ),
             status: host_status_log::replace_for_world_stage(next.status),
-            ai_attitude: host_ai_attitude_log::replace_for_world_stage(next.ai_attitude),
             special_power: host_special_power_log::replace_for_world_stage(next.special_power),
             player_cooldown: host_player_cooldown_log::replace_for_world_stage(
                 next.player_cooldown,
@@ -151,9 +143,7 @@ impl WorldStageEffectsState {
             player_progress: host_player_progress_log::replace_for_world_stage(
                 next.player_progress,
             ),
-            veterancy: host_veterancy_log::replace_for_world_stage(next.veterancy),
             max_health: host_max_health_log::replace_for_world_stage(next.max_health),
-            experience: host_experience_log::replace_for_world_stage(next.experience),
             building_type: host_building_type_log::replace_for_world_stage(next.building_type),
             physics_motive: host_physics_motive_log::replace_for_world_stage(next.physics_motive),
         }
@@ -174,7 +164,6 @@ impl WorldStageEffectsState {
         host_weapon_set_log::clear();
         host_contain_capacity_log::clear();
         host_status_log::clear();
-        host_ai_attitude_log::clear();
         host_special_power_log::clear();
         host_player_cooldown_log::clear();
         host_stored_supplies_log::clear();
@@ -188,9 +177,7 @@ impl WorldStageEffectsState {
         host_continuous_fire_log::clear();
         host_player_meta_log::clear();
         host_player_progress_log::clear();
-        host_veterancy_log::clear();
         host_max_health_log::clear();
-        host_experience_log::clear();
         host_building_type_log::clear();
         host_physics_motive_log::clear();
     }

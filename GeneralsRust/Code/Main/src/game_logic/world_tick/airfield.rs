@@ -672,14 +672,7 @@ impl GameLogic {
             jet.movement.path.clear();
             jet.movement.current_path_index = 0;
             jet.set_locomotor_goal_position_explicit(path[0]);
-            if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                self.movement_events.record(
-                    self.frame,
-                    jet_id,
-                    Some([path[0].x, path[0].y, path[0].z]),
-                );
-                jet.record_host_movement();
-            }
+            {}
         }
     }
 
@@ -759,13 +752,7 @@ impl GameLogic {
             // Produced-at-helipad aircraft skip ParkOrient's positioning
             // (C++ :1149), then enter ReloadAmmo without changing their pose.
             jet.return_to_base_requested = false;
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_set_state(jet_id, 12);
-                let pos = jet.get_position();
-                self.movement_events
-                    .record(self.frame, jet_id, Some([pos.x, pos.y, pos.z]));
-                jet.record_host_movement();
-            }
+            {}
             jet.begin_parked_airfield_rearm(self.frame);
             let _ = jet.tick_parked_airfield_rearm(self.frame);
         }
@@ -848,9 +835,7 @@ impl GameLogic {
                 o.contained_by.is_some()
                     && o.target.is_none()
                     && o.health.current + 1e-3 >= o.health.maximum
-                    && (o.ai_state == AIState::Docked
-                        || o.ai_state == AIState::Idle
-                        || crate::gameworld_shadow::gameworld_ai_decision_authority_live())
+                    && (o.ai_state == AIState::Docked || o.ai_state == AIState::Idle)
             });
             if ready {
                 let _ = self.try_runway_takeoff_from_airfield(id);
@@ -1121,11 +1106,7 @@ impl GameLogic {
                     continue;
                 }
                 jet.set_position(heli);
-                if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    self.movement_events
-                        .record(self.frame, jet_id, Some([heli.x, heli.y, heli.z]));
-                    jet.record_host_movement();
-                }
+                {}
             }
             let dest = rally.unwrap_or(heli);
             let _ = self.assign_unit_path(jet_id, dest, &[]);
@@ -1852,18 +1833,7 @@ impl GameLogic {
         jet.status.airborne_target = false;
         jet.apply_taxiing_locomotor_set_for_surfaces(taxi_surfaces);
         jet.movement.path.clear();
-        if crate::gameworld_shadow::gameworld_movement_authority_live() {
-            self.movement_events.record(
-                self.frame,
-                jet_id,
-                Some([
-                    info.hangar_internal.x,
-                    info.hangar_internal.y,
-                    info.hangar_internal.z,
-                ]),
-            );
-            jet.record_host_movement();
-        }
+        {}
         self.admit_object_drawable_deselection(jet_id);
         self.sync_airfield_hangar_doors(producer_id);
         true
@@ -2848,12 +2818,7 @@ impl GameLogic {
                     jet.set_ai_state(AIState::Moving);
                 }
             }
-            if entered_move && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-                    &AIState::Moving,
-                );
-                crate::game_logic::host_ai_decision_log::record_set_state(jet_id, ordinal);
-            }
+            {}
             // C++ aircraft approach legs never fail closed on the ground
             // grid: RETURNING_FOR_LANDING's onEnter issues the move
             // (JetAIUpdate.cpp:1536-1541) and AIInternalMoveToState flies the
@@ -2966,12 +2931,7 @@ impl GameLogic {
                 jet.set_orientation(orient);
             }
             jet.return_to_base_requested = false;
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_set_state(jet_id, 12);
-                self.movement_events
-                    .record(self.frame, jet_id, Some([pad.x, pad.y, pad.z]));
-                jet.record_host_movement();
-            }
+            {}
             jet.begin_parked_airfield_rearm(self.frame);
             let _ = jet.tick_parked_airfield_rearm(self.frame);
         }
@@ -3026,8 +2986,7 @@ impl GameLogic {
                 o.is_alive()
                     && (o.is_kind_of(KindOf::Aircraft) || o.object_type == ObjectType::Aircraft)
                     && o.contained_by.is_some()
-                    && (o.ai_state == AIState::Docked
-                        || crate::gameworld_shadow::gameworld_ai_decision_authority_live())
+                    && (o.ai_state == AIState::Docked)
                     && (o.needs_return_to_base_rearm()
                         || o.airfield_rearm_ready_frame.is_some()
                         || aircraft_has_countermeasures_upgrade(&o.applied_upgrades))

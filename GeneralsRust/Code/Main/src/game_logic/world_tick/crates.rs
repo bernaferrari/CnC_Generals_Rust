@@ -93,11 +93,7 @@ impl GameLogic {
             if let Some(r) = self.objects.get_mut(&rider_id) {
                 r.set_position(pos);
                 crate::game_logic::host_ground_height_log::record(rider_id, 0.0, false);
-                if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    self.movement_events
-                        .record(self.frame, rider_id, Some([pos.x, pos.y, pos.z]));
-                    r.record_host_movement();
-                }
+                {}
                 r.apply_eject_parachuting();
             }
             return;
@@ -132,17 +128,10 @@ impl GameLogic {
             r.set_contained_by(Some(chute_id));
             r.producer_id = Some(chute_id);
             r.set_ai_state(crate::game_logic::AIState::Docked);
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_set_state(rider_id, 12);
-                // Docked
-            }
+            {}
             r.set_position(pos);
             crate::game_logic::host_ground_height_log::record(rider_id, 0.0, false);
-            if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                self.movement_events
-                    .record(self.frame, rider_id, Some([pos.x, pos.y, pos.z]));
-                r.record_host_movement();
-            }
+            {}
             r.apply_eject_parachuting();
             // Still not selectable while in chute (partition restore already cleared
             // MASKED from vehicle ride; chute contain keeps soft-hide).

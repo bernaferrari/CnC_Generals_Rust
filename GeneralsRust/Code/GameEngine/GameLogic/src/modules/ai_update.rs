@@ -13,6 +13,19 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
 
     /// C++ AIUpdate.h setFinalPosition writes existing AI state, not Object pose.
     fn set_final_position(&mut self, _position: &Coord3D) {}
+    /// Inspect the exact scheduled callback domain without changing wake metadata.
+    fn validate_scheduled_tick_with_world(
+        &self,
+        _world: &dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("scheduled AI owner callback domain unavailable".into())
+    }
+    fn update_scheduled_tick_with_world(
+        &mut self,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<UpdateSleepTime, String> {
+        Err("scheduled AI owner callback domain unavailable".into())
+    }
     /// Update AI logic
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     /// Run the cached implementation with the driving world's explicit services.
@@ -29,11 +42,35 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     ) -> Result<(), String> {
         Err("AI has no supplied Dozer primary phase".into())
     }
+    fn update_idle_phase_sleep_with_world(
+        &mut self,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        Err("supplied Idle phase sleep not admitted".into())
+    }
+    fn update_enter_phase_sleep_with_world(
+        &mut self,
+        _world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        Err("supplied Enter phase sleep not admitted".into())
+    }
     fn update_enter_phase_with_world(
         &mut self,
         _world: &mut dyn ai_world::AiWorld,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Err("AI implementation does not support supplied world operations".into())
+    }
+    fn update_waypoint_phase_sleep_with_world(
+        &mut self,
+        _world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        Err("supplied waypoint phase sleep not admitted".into())
+    }
+    fn update_follow_path_phase_sleep_with_world(
+        &mut self,
+        _world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<UpdateSleepTime, String> {
+        Err("supplied follow-path phase sleep not admitted".into())
     }
     fn update_waypoint_phase_with_world(
         &mut self,
@@ -45,8 +82,14 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn update_locomotor_phase_with_world(
         &mut self,
         _world: &mut dyn ai_world::AiWorld,
-    ) -> Result<(), String> {
+    ) -> Result<game_engine::common::thing::update_module::UpdateSleepTime, String> {
         Err("AI implementation does not support supplied locomotion".into())
+    }
+    fn update_exit_phase_sleep_with_world(
+        &mut self,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<UpdateSleepTime, String> {
+        Err("AI has no supplied Exit sleep phase".into())
     }
     fn update_exit_phase_with_world(
         &mut self,
@@ -369,6 +412,27 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     ) -> Result<(), String> {
         Err("supplied numbered exit AI unsupported".into())
     }
+    fn validate_contain_exit_occupancy_with_world(
+        &self,
+        _world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("supplied vehicle exit occupancy not admitted".into())
+    }
+    fn refresh_contain_exit_occupancy_with_world(
+        &mut self,
+        _world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("supplied vehicle exit occupancy not admitted".into())
+    }
+    fn quick_contain_exit_with_world(
+        &mut self,
+        _end: Coord3D,
+        _rally: Option<Coord3D>,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("supplied quick exit AI unsupported".into())
+    }
+
     fn update_follow_path_phase_with_world(
         &mut self,
         _world: &mut dyn ai_world::AiWorld,
@@ -764,6 +828,13 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn validate_removed_move(&self, _owner: &Arc<RwLock<Object>>) -> Result<(), String> {
         Err("native removed motion not admitted".into())
     }
+    fn validate_removed_move_with_world(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        _world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_removed_move(owner)
+    }
     fn move_removed_with_world(
         &mut self,
         _position: Coord3D,
@@ -774,6 +845,13 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
     fn validate_owned_removal_callbacks(&self, _owner: &Arc<RwLock<Object>>) -> Result<(), String> {
         Err("AI removal callbacks have no supplied owner adapter".into())
+    }
+    fn validate_owned_removal_callbacks_with_world(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        _world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_owned_removal_callbacks(owner)
     }
     fn wake_up_and_attempt_to_target_at(&mut self, _frame: u32) -> Result<(), String> {
         Err("AI wake has no supplied frame adapter".into())

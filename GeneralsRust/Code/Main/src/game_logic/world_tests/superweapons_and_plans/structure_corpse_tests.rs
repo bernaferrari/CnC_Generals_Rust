@@ -1,7 +1,6 @@
 //! Dead Body admission is independent of its retained structure Update module.
 //! C++ ActiveBody.cpp:641-649,1190-1226; structure updates finish without deletion.
 use super::*;
-use crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority;
 
 fn lethal_owner(collapse: bool) -> (GameLogic, ObjectId, Option<ObjectId>) {
     let mut world = GameLogic::new();
@@ -98,17 +97,14 @@ fn exercise_retained_body(coupled: bool) {
         let mut completed = false;
         for _ in 0..800 {
             if coupled {
-                let _guard = crate::gameworld_shadow::CoupledTickGuard::enter();
                 world.update();
             } else {
                 world.update();
             }
             if coupled {
                 shadow.sync_from_host(&world);
-                let _ = crate::gameworld_shadow::shadow_session_after_host_tick(
-                    &mut shadow,
-                    &mut world,
-                );
+                let _ =
+                    crate::gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), &mut world);
             }
             assert_corpse(&world, id);
             assert!(world.get_next_mood_target(id, true, true, false).is_none());
@@ -173,10 +169,7 @@ fn lethal_structure_body_stays_dead_while_host_update_completes() {
         module_path!(),
         "lethal_structure_body_stays_dead_while_host_update_completes",
         || {
-            crate::gameworld_shadow::with_gameworld_authority(
-                GameWorldAuthority::DEFAULT_OFF,
-                || exercise_retained_body(false),
-            );
+            exercise_retained_body(false);
         },
     );
 }
@@ -187,10 +180,7 @@ fn lethal_structure_body_stays_dead_through_coupled_update_and_explicit_delete()
         module_path!(),
         "lethal_structure_body_stays_dead_through_coupled_update_and_explicit_delete",
         || {
-            crate::gameworld_shadow::with_gameworld_authority(
-                GameWorldAuthority::DEFAULT_OFF,
-                || exercise_retained_body(true),
-            );
+            exercise_retained_body(true);
         },
     );
 }

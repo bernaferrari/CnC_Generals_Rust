@@ -1,8 +1,5 @@
-//! Wave 937: production complete/spawn via GameLogic::apply_production_authority_op.
-//!
-//! Shadow same-frame sole-tick complete and door-ready drains call one GameLogic
-//! authority API. Unit spawn from completions routes through SpawnUnit.
-//! playable_claim stays false.
+//! Production completion applies through Main's receiving owner.
+//! The immutable observer copies the completed state; it never spawns units.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
@@ -16,9 +13,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const LIVE_HOST_PRODUCTION_AUTHORITY_BOUNDARY_METHOD_NAMES_WAVE937: &[&str] = &[
     "apply_production_authority_op",
     "ProductionAuthorityOp",
-    "ApplyCompletionsAfterReadyWriteback",
     "SpawnUnit",
-    "ApplyDoorReadyCompletions",
     "ApplySpawnReadyCompletions",
     "Wave 937",
     "playable_claim = false",
@@ -54,13 +49,9 @@ fn gl_source() -> &'static str {
     super::GAME_LOGIC_HOST_SRC
 }
 
-fn shadow_source() -> &'static str {
-    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
-}
-
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {
     match src.find(marker) {
-        Some(i) => &src[i..src.len().min(i + len)],
+        Some(_) => crate::game_logic::residuals::source_window::window(src, marker, len),
         None => "",
     }
 }
@@ -93,7 +84,6 @@ pub fn honesty_host_production_authority_boundary_nav_commands_residual_wave937(
 
 pub fn honesty_host_production_authority_boundary_residual_pack_wave937() -> bool {
     let gl = gl_source();
-    let sh = shadow_source();
     let cnc = cnc_source();
     let api = non_comment_code(code_window(gl, "fn apply_production_authority_op", 1400));
     let unit_apply = non_comment_code(code_window(
@@ -103,18 +93,10 @@ pub fn honesty_host_production_authority_boundary_residual_pack_wave937() -> boo
     ));
     let ok = gl.contains("enum ProductionAuthorityOp")
         && gl.contains("enum ProductionAuthorityResult")
-        && api.contains("host_apply_production_completions_after_ready_writeback")
         && api.contains("host_spawn_production_unit")
         && api.contains("host_apply_production_spawn_ready_completions")
-        && api.contains("host_apply_production_door_ready_completions")
-        && sh.contains("apply_production_authority_op")
-        && sh.contains("ApplyCompletionsAfterReadyWriteback")
-        && sh.contains("ApplyDoorReadyCompletions")
-        && !sh.contains("logic.host_apply_production_completions_after_ready_writeback")
-        && !sh.contains("logic.host_apply_production_door_ready_completions")
         && unit_apply.contains("apply_production_authority_op")
         && unit_apply.contains("SpawnUnit")
-        && sh.contains("937")
         && gl.contains("Wave 937")
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");

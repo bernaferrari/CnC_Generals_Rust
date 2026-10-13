@@ -59,7 +59,7 @@ fn shadow_source() -> &'static str {
 
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {
     match src.find(marker) {
-        Some(i) => &src[i..src.len().min(i + len)],
+        Some(_) => crate::game_logic::residuals::source_window::window(src, marker, len),
         None => "",
     }
 }

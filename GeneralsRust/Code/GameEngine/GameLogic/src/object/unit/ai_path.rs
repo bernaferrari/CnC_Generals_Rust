@@ -458,10 +458,14 @@ impl UnitAIUpdate {
         if !Arc::ptr_eq(&owner, &supplied) {
             return Err("queued Enter belongs to another factory".into());
         }
-        let state = self.get_current_state_id();
-        let movement = matches!(state, Some(id) if id == AIStateType::FollowWaypointPathAsIndividuals as u32 || id == AIStateType::FollowWaypointPathAsIndividualsExact as u32 || id == AIStateType::FollowWaypointPathAsTeam as u32 || id == AIStateType::FollowWaypointPathAsTeamExact as u32 || id == AIStateType::MoveTo as u32 || id == AIStateType::FollowPath as u32);
+        let state = self
+            .ai_state_machine
+            .as_ref()
+            .and_then(|machine| machine.get_temporary_state())
+            .or(self.get_current_state_id());
+        let movement = matches!(state, Some(id) if id == AIStateType::FollowWaypointPathAsIndividuals as u32 || id == AIStateType::FollowWaypointPathAsIndividualsExact as u32 || id == AIStateType::FollowWaypointPathAsTeam as u32 || id == AIStateType::FollowWaypointPathAsTeamExact as u32 || id == AIStateType::MoveTo as u32 || id == AIStateType::FollowPath as u32 || id == AIStateType::FollowExitProductionPath as u32);
         if movement {
-            self.validate_owned_components(true, false)
+            self.validate_owned_path_components(true)
                 .map_err(|error| error.to_string())?;
             let object = owner.read().map_err(|_| "queued movement owner poisoned")?;
             if object.get_layer() != crate::common::PathfindLayerEnum::Ground
@@ -487,7 +491,7 @@ impl UnitAIUpdate {
                 return Err("supplied queued movement does not admit falling owners".into());
             }
         } else {
-            self.validate_owned_enter_components()
+            self.validate_owned_path_components(false)
                 .map_err(|error| error.to_string())?;
         }
         if (!movement && state != Some(AIStateType::Enter as u32))

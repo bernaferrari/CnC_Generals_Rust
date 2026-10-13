@@ -756,7 +756,7 @@ impl Object {
         if actual_damage > 0.0 {
             // Wave 779: under damage authority, FWWDB onDamage reaction is owned by
             // GW apply_host_damage_events + host_fwwd_reaction_log drain (post-HP).
-            if !(crate::gameworld_shadow::gameworld_damage_authority_live() && !force_host_hp) {
+            {
                 self.ensure_fire_weapon_when_damaged();
                 if let Some(fw) = self.fire_weapon_when_damaged.as_mut() {
                     // Keep the impact frame through debounce; GameLogic may process the emitted weapon later.
@@ -851,7 +851,6 @@ impl Object {
         attitude: crate::game_logic::host_strategy_center::HostAiAttitude,
     ) {
         self.ai_attitude = attitude.as_i8();
-        crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
     }
 
     /// C++ ImmortalBody templates: SupplyWarehouse/Pile/Dock, FireWallSegment,
@@ -1208,9 +1207,7 @@ mod tests {
         // Pre-fix: gameworld_damage_authority_live left health.current stale.
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         let mut logic = crate::game_logic::GameLogic::new();
-        logic.set_damage_authority(true);
-        crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
-        crate::gameworld_shadow::begin_shadow_coupled_tick();
+
         let mut tank = vehicle("SameFrameHp", 24, 100.0);
         assert!(!tank.take_damage_from_typed(
             25.0,
@@ -1231,7 +1228,6 @@ mod tests {
         ));
         assert!(tank.health.current <= 0.0);
         assert!(tank.status.destroyed);
-        crate::gameworld_shadow::end_shadow_coupled_tick();
     }
 
     #[test]

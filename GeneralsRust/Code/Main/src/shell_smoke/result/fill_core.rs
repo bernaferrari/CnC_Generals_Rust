@@ -15,10 +15,9 @@ fn fill_core(
     out.dual_tick_presentation_ok = host.dual_tick_presentation_ok;
     out.dual_tick_counters_ok = host.dual_tick_counters_ok;
     out.gameworld_shadow_ok = host.gameworld_shadow_ok;
-    out.damage_authority_env_ok = host.damage_authority_env_ok;
-    out.economy_authority_env_ok = host.economy_authority_env_ok;
-    out.production_authority_env_ok = host.production_authority_env_ok;
+
+
     out.dual_tick_policy_authority_only = host.dual_tick_policy_authority_only;
-    out.engine_bridge_off = host.engine_bridge_off;
+
     out.hud_selection_ok = hud_selection_ok;
 }

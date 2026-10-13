@@ -10,12 +10,12 @@ use crate::object::body::body_module::ArmorSetType;
 use crate::object::body::body_module::BodyModuleInterface;
 use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
 use crate::object::{ModuleEntry, Object};
-use game_engine::common::ini::INI;
+use game_engine::common::ini::ini_damage_fx::{get_damage_fx_store, DamageType as FxDamageType};
 use game_engine::common::ini::INILoadType;
-use game_engine::common::ini::ini_damage_fx::{DamageType as FxDamageType, get_damage_fx_store};
+use game_engine::common::ini::INI;
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     BaseModuleData, Module, ModuleData, ModuleInterfaceType, ModuleType, Thing,
 };
@@ -444,11 +444,9 @@ fn authored_same_id_body_kinds_bind_before_next_constructor_and_scale_default_an
             body.hit(upgrade);
             body.expect_names(side, "Upgrade");
         }
-        assert!(
-            crate::object::registry::OBJECT_REGISTRY
-                .get_object(ID)
-                .is_none()
-        );
+        assert!(crate::object::registry::OBJECT_REGISTRY
+            .get_object(ID)
+            .is_none());
     }
 }
 

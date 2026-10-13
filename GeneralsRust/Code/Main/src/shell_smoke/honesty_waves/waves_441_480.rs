@@ -77,9 +77,7 @@ pub(super) struct Waves441480 {
     pub production_quantity_writeback_method_names_wave463_ok: bool,
     pub production_quantity_writeback_nav_commands_wave463_ok: bool,
     pub production_quantity_writeback_live_wave463_ok: bool,
-    pub production_exit_delay_sole_tick_method_names_wave464_ok: bool,
-    pub production_exit_delay_sole_tick_nav_commands_wave464_ok: bool,
-    pub production_exit_delay_sole_tick_live_wave464_ok: bool,
+
     pub minimap_heightmap_repair_presentation_first_method_names_wave465_ok: bool,
     pub minimap_heightmap_repair_presentation_first_nav_commands_wave465_ok: bool,
     pub minimap_heightmap_repair_presentation_first_live_wave465_ok: bool,
@@ -274,12 +272,7 @@ pub(super) fn evaluate() -> Waves441480 {
             honesty_production_quantity_writeback_nav_commands_residual_wave463(),
         production_quantity_writeback_live_wave463_ok:
             simulate_live_production_quantity_writeback_honesty(),
-        production_exit_delay_sole_tick_method_names_wave464_ok:
-            honesty_production_exit_delay_sole_tick_method_names_residual_wave464(),
-        production_exit_delay_sole_tick_nav_commands_wave464_ok:
-            honesty_production_exit_delay_sole_tick_nav_commands_residual_wave464(),
-        production_exit_delay_sole_tick_live_wave464_ok:
-            simulate_live_production_exit_delay_sole_tick_honesty(),
+
         minimap_heightmap_repair_presentation_first_method_names_wave465_ok:
             honesty_minimap_heightmap_repair_presentation_first_method_names_residual_wave465(),
         minimap_heightmap_repair_presentation_first_nav_commands_wave465_ok:

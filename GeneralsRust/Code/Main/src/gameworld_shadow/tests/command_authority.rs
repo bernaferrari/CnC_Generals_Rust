@@ -3,15 +3,11 @@
 use super::*;
 use crate::command_system::{CommandType, GameCommand, ModifierKeys};
 use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-use crate::gameworld_shadow::shadow_session_after_host_tick;
+use observe_completed_owner;
 use std::time::SystemTime;
 
 #[test]
 fn attack_command_lands_set_attack_target_same_tick() {
-    let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_SHADOW", "1")
-        .couple();
-
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("P6Atk");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -49,15 +45,16 @@ fn attack_command_lands_set_attack_target_same_tick() {
         selected_units: vec![attacker],
         modifier_keys: ModifierKeys::default(),
     });
-    assert!(shadow.ingest_command_queue_view(&logic) >= 1);
+    assert!(logic.host_object(attacker).unwrap().target.is_none());
     let ea = shadow.entity_for_host(attacker).expect("ea");
     let et = shadow.entity_for_host(target).expect("et");
     assert_eq!(
         shadow.world().entity(ea).expect("e").attack_target,
-        Some(et)
+        None,
+        "queued input cannot mutate either owner or projection before Main processes it"
     );
     logic.process_commands();
-    let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
+    let _ = observe_completed_owner(&mut shadow, &mut logic);
     assert_eq!(
         shadow.world().entity(ea).expect("e").attack_target,
         Some(et)

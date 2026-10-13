@@ -4,10 +4,26 @@ use super::*;
 use crate::locomotor::{Locomotor, LocomotorAppearance, LocomotorBehaviorZ};
 
 impl BorrowedAiWorld<'_> {
-    fn locomotion_update_proxies(
+    pub(super) fn locomotion_update_proxies(
         &self,
         owner: &Arc<RwLock<Object>>,
         locomotor: &Locomotor,
+    ) -> Result<
+        (
+            crate::object::PhysicsInterfaceHandle,
+            game_engine::common::thing::update_module::UpdateModulePtr,
+            game_engine::common::thing::update_module::UpdateModulePtr,
+        ),
+        String,
+    > {
+        self.locomotion_update_proxies_mode(owner, locomotor, false)
+    }
+
+    pub(super) fn locomotion_update_proxies_mode(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        locomotor: &Locomotor,
+        maintenance: bool,
     ) -> Result<
         (
             crate::object::PhysicsInterfaceHandle,
@@ -47,25 +63,26 @@ impl BorrowedAiWorld<'_> {
         }
         let (physics, current_ai, current_physics) = {
             let object = owner.read().map_err(|_| "locomotion owner poisoned")?;
-            if object.get_container_id().is_some() {
+            if !maintenance && object.get_container_id().is_some() {
                 return Err("native locomotion does not admit contained owners".into());
             }
             // Physics mass-with-cargo walks this module and resolves cargo
             // through the ambient object registry. Even an empty Contain
             // module is outside this instance-owned operation's admission.
-            if object.get_contain().is_some() {
+            if !maintenance && object.get_contain().is_some() {
                 return Err("native locomotion does not admit owners with Contain modules".into());
             }
             if object.get_body_module().is_none() {
                 return Err("native locomotion requires its installed Body module".into());
             }
-            if object.is_disabled_by_type(crate::common::DisabledType::Held) {
+            if !maintenance && object.is_disabled_by_type(crate::common::DisabledType::Held) {
                 return Err("native ground path does not admit held owners".into());
             }
             let physics = object
                 .get_physics()
                 .ok_or("native locomotion owner has no Physics descriptor")?;
-            if self.above_terrain(&object)?
+            if !maintenance
+                && self.above_terrain(&object)?
                 && physics
                     .access()
                     .map_err(|_| "locomotion Physics poisoned")?

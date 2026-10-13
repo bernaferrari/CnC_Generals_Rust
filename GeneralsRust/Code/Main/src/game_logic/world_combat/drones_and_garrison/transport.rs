@@ -176,26 +176,7 @@ impl GameLogic {
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
-            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
-                let (dmg, rng) = attacker
-                    .weapon
-                    .as_ref()
-                    .map(|w| (w.damage, w.range))
-                    .unwrap_or((0.0, 0.0));
-                let frame = crate::game_logic::host_historic_bonus::logic_frame();
-                let next_count = attacker.fire_intent_count.saturating_add(1);
-                crate::game_logic::host_fire_intent_log::record(
-                    attacker.id,
-                    target_id.0,
-                    0,
-                    dmg,
-                    rng,
-                    current_time,
-                    frame,
-                    next_count,
-                );
-                attacker.fire_intent_count = next_count;
-            }
+            {}
             // The rider stays Docked: C++ TransportContain never rewrites an
             // occupant's AI on the fire path — the container holds the rider
             // (AI_BUSY per AIUpdate.cpp:4006 privateBusy), and
@@ -205,9 +186,7 @@ impl GameLogic {
             // (orders.rs:30-47) and eject the rider from its Docked state
             // (garrison fire path is the sibling convention).
             attacker.set_order_target(Some(target_id));
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_attack(passenger_id, target_id);
-            }
+            {}
             // Kill XP awarded after this borrow via award_experience.
         }
         // Contained fire changes where the shot originates, not which

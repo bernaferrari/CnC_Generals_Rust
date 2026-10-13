@@ -97,34 +97,6 @@ pub use super::host_gadget_video_audio_residual_wave113::{
     honesty_video_buffer_residual_wave113, honesty_window_style_residual_wave113,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_gameworld_authority_matrix_residual_wave179::{
-    honesty_gameworld_authority_matrix_method_names_residual_wave179,
-    honesty_gameworld_authority_matrix_nav_commands_residual_wave179,
-    honesty_gameworld_authority_matrix_residual_pack_wave179,
-    simulate_gameworld_authority_matrix_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_gameworld_authority_residual_wave153::{
-    honesty_gameworld_authority_env_names_residual_wave153,
-    honesty_gameworld_authority_method_names_residual_wave153,
-    honesty_gameworld_authority_nav_commands_residual_wave153,
-    honesty_gameworld_authority_residual_pack_wave153,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_gameworld_production_authority_residual_wave177::{
-    honesty_gameworld_production_authority_method_names_residual_wave177,
-    honesty_gameworld_production_authority_nav_commands_residual_wave177,
-    honesty_gameworld_production_authority_residual_pack_wave177,
-    simulate_gameworld_production_authority_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_gameworld_sole_tick_coupling_residual_wave178::{
-    honesty_gameworld_sole_tick_coupling_method_names_residual_wave178,
-    honesty_gameworld_sole_tick_coupling_nav_commands_residual_wave178,
-    honesty_gameworld_sole_tick_coupling_residual_pack_wave178,
-    simulate_gameworld_sole_tick_coupling_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_generals_exp_residual_wave138::{
     honesty_generals_exp_control_names_residual_wave138,
     honesty_generals_exp_nav_commands_residual_wave138, honesty_generals_exp_residual_pack_wave138,
@@ -184,16 +156,6 @@ pub use super::host_live_advanced_nuggets_dual_world_empty_gate_residual_wave445
     honesty_live_advanced_nuggets_dual_world_empty_gate_nav_commands_residual_wave445,
     honesty_live_advanced_nuggets_dual_world_empty_gate_residual_pack_wave445,
     simulate_live_advanced_nuggets_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_ai_attack_recheck_production_authority_chain_residual_wave616::{
-    honesty_ai_attack_recheck_production_authority_chain_method_names_residual_wave616,
-    honesty_ai_attack_recheck_production_authority_chain_nav_commands_residual_wave616,
-    honesty_ai_attack_recheck_production_authority_chain_residual_pack_wave616,
-    honesty_ai_attack_recheck_production_authority_chain_source_markers_residual_wave616,
-    residual_ai_attack_recheck_production_authority_chain_last_action,
-    residual_ai_attack_recheck_production_authority_chain_ok,
-    simulate_live_ai_attack_recheck_production_authority_chain_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_ai_build_list_dual_world_empty_gate_residual_wave293::{
@@ -1179,27 +1141,6 @@ pub use super::host_live_game_client_dual_world_empty_gate_residual_wave269::{
     simulate_live_game_client_dual_world_empty_gate_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_gameworld_construction_writeback_residual_wave181::{
-    honesty_live_gameworld_construction_writeback_method_names_residual_wave181,
-    honesty_live_gameworld_construction_writeback_nav_commands_residual_wave181,
-    honesty_live_gameworld_construction_writeback_residual_pack_wave181,
-    simulate_live_gameworld_construction_writeback_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_gameworld_damage_channel_residual_wave182::{
-    honesty_live_gameworld_damage_channel_method_names_residual_wave182,
-    honesty_live_gameworld_damage_channel_nav_commands_residual_wave182,
-    honesty_live_gameworld_damage_channel_residual_pack_wave182,
-    simulate_live_gameworld_damage_channel_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_gameworld_economy_movement_residual_wave183::{
-    honesty_live_gameworld_economy_movement_method_names_residual_wave183,
-    honesty_live_gameworld_economy_movement_nav_commands_residual_wave183,
-    honesty_live_gameworld_economy_movement_residual_pack_wave183,
-    simulate_live_gameworld_economy_movement_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_gameworld_entity_view_deepen_residual_wave191::{
     honesty_live_gameworld_entity_view_deepen_method_names_residual_wave191,
     honesty_live_gameworld_entity_view_deepen_nav_commands_residual_wave191,
@@ -1207,32 +1148,11 @@ pub use super::host_live_gameworld_entity_view_deepen_residual_wave191::{
     simulate_live_gameworld_entity_view_deepen_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_gameworld_fire_special_power_residual_wave185::{
-    honesty_live_gameworld_fire_special_power_method_names_residual_wave185,
-    honesty_live_gameworld_fire_special_power_nav_commands_residual_wave185,
-    honesty_live_gameworld_fire_special_power_residual_pack_wave185,
-    simulate_live_gameworld_fire_special_power_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_gameworld_presentation_view_residual_wave186::{
     honesty_live_gameworld_presentation_view_method_names_residual_wave186,
     honesty_live_gameworld_presentation_view_nav_commands_residual_wave186,
     honesty_live_gameworld_presentation_view_residual_pack_wave186,
     simulate_live_gameworld_presentation_view_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_gameworld_production_writeback_residual_wave180::{
-    honesty_live_gameworld_production_writeback_method_names_residual_wave180,
-    honesty_live_gameworld_production_writeback_nav_commands_residual_wave180,
-    honesty_live_gameworld_production_writeback_residual_pack_wave180,
-    simulate_live_gameworld_production_writeback_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_gameworld_projectile_ai_residual_wave184::{
-    honesty_live_gameworld_projectile_ai_method_names_residual_wave184,
-    honesty_live_gameworld_projectile_ai_nav_commands_residual_wave184,
-    honesty_live_gameworld_projectile_ai_residual_pack_wave184,
-    simulate_live_gameworld_projectile_ai_honesty,
 };
 pub use super::host_live_gameworld_shadow_overlay_residual_wave172::{
     honesty_live_gameworld_shadow_overlay_method_names_residual_wave172,

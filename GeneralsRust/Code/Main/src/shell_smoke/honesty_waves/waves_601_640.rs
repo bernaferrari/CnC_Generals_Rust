@@ -47,84 +47,33 @@ pub(super) struct Waves601640 {
     pub host_production_complete_collect_helper_method_names_wave613_ok: bool,
     pub host_production_complete_collect_helper_nav_commands_wave613_ok: bool,
     pub host_production_complete_collect_helper_live_wave613_ok: bool,
-    pub host_production_ready_log_helper_method_names_wave614_ok: bool,
-    pub host_production_ready_log_helper_nav_commands_wave614_ok: bool,
-    pub host_production_ready_log_helper_live_wave614_ok: bool,
+
+
+
     pub host_production_spawn_helper_method_names_wave615_ok: bool,
     pub host_production_spawn_helper_nav_commands_wave615_ok: bool,
     pub host_production_spawn_helper_live_wave615_ok: bool,
-    pub ai_attack_recheck_production_authority_chain_method_names_wave616_ok: bool,
-    pub ai_attack_recheck_production_authority_chain_nav_commands_wave616_ok: bool,
-    pub ai_attack_recheck_production_authority_chain_live_wave616_ok: bool,
+
+
     pub host_construction_ready_log_helper_method_names_wave617_ok: bool,
     pub host_construction_ready_log_helper_nav_commands_wave617_ok: bool,
     pub host_construction_ready_log_helper_live_wave617_ok: bool,
-    pub host_special_power_ready_log_helper_method_names_wave618_ok: bool,
-    pub host_special_power_ready_log_helper_nav_commands_wave618_ok: bool,
-    pub host_special_power_ready_log_helper_live_wave618_ok: bool,
-    pub host_sell_ready_log_helper_method_names_wave619_ok: bool,
-    pub host_sell_ready_log_helper_nav_commands_wave619_ok: bool,
-    pub host_sell_ready_log_helper_live_wave619_ok: bool,
-    pub host_rebuild_ready_log_helper_method_names_wave620_ok: bool,
-    pub host_rebuild_ready_log_helper_nav_commands_wave620_ok: bool,
-    pub host_rebuild_ready_log_helper_live_wave620_ok: bool,
-    pub host_destroy_ready_log_helper_method_names_wave621_ok: bool,
-    pub host_destroy_ready_log_helper_nav_commands_wave621_ok: bool,
-    pub host_destroy_ready_log_helper_live_wave621_ok: bool,
+
     pub host_veterancy_ready_log_helper_method_names_wave622_ok: bool,
     pub host_veterancy_ready_log_helper_nav_commands_wave622_ok: bool,
     pub host_veterancy_ready_log_helper_live_wave622_ok: bool,
-    pub host_body_damage_ready_log_helper_method_names_wave623_ok: bool,
-    pub host_body_damage_ready_log_helper_nav_commands_wave623_ok: bool,
-    pub host_body_damage_ready_log_helper_live_wave623_ok: bool,
-    pub host_radar_extend_ready_log_helper_method_names_wave625_ok: bool,
-    pub host_radar_extend_ready_log_helper_nav_commands_wave625_ok: bool,
-    pub host_radar_extend_ready_log_helper_live_wave625_ok: bool,
+
     pub host_construction_complete_clear_ready_log_helper_method_names_wave626_ok: bool,
     pub host_construction_complete_clear_ready_log_helper_nav_commands_wave626_ok: bool,
     pub host_construction_complete_clear_ready_log_helper_live_wave626_ok: bool,
-    pub host_production_door_ready_log_helper_method_names_wave627_ok: bool,
-    pub host_production_door_ready_log_helper_nav_commands_wave627_ok: bool,
-    pub host_production_door_ready_log_helper_live_wave627_ok: bool,
-    pub host_contain_ready_log_helper_method_names_wave628_ok: bool,
-    pub host_contain_ready_log_helper_nav_commands_wave628_ok: bool,
-    pub host_contain_ready_log_helper_live_wave628_ok: bool,
-    pub host_owner_ready_log_helper_method_names_wave629_ok: bool,
-    pub host_owner_ready_log_helper_nav_commands_wave629_ok: bool,
-    pub host_owner_ready_log_helper_live_wave629_ok: bool,
+
+
     pub host_ai_state_ready_log_helper_method_names_wave630_ok: bool,
     pub host_ai_state_ready_log_helper_nav_commands_wave630_ok: bool,
     pub host_ai_state_ready_log_helper_live_wave630_ok: bool,
-    pub host_economy_ready_log_helper_method_names_wave631_ok: bool,
-    pub host_economy_ready_log_helper_nav_commands_wave631_ok: bool,
-    pub host_economy_ready_log_helper_live_wave631_ok: bool,
-    pub host_death_type_ready_log_helper_method_names_wave632_ok: bool,
-    pub host_death_type_ready_log_helper_nav_commands_wave632_ok: bool,
-    pub host_death_type_ready_log_helper_live_wave632_ok: bool,
-    pub host_model_condition_ready_log_helper_method_names_wave633_ok: bool,
-    pub host_model_condition_ready_log_helper_nav_commands_wave633_ok: bool,
-    pub host_model_condition_ready_log_helper_live_wave633_ok: bool,
-    pub host_combat_status_ready_log_helper_method_names_wave634_ok: bool,
-    pub host_combat_status_ready_log_helper_nav_commands_wave634_ok: bool,
-    pub host_combat_status_ready_log_helper_live_wave634_ok: bool,
-    pub host_weapon_stats_ready_log_helper_method_names_wave635_ok: bool,
-    pub host_weapon_stats_ready_log_helper_nav_commands_wave635_ok: bool,
-    pub host_weapon_stats_ready_log_helper_live_wave635_ok: bool,
-    pub host_transform_ready_log_helper_method_names_wave636_ok: bool,
-    pub host_transform_ready_log_helper_nav_commands_wave636_ok: bool,
-    pub host_transform_ready_log_helper_live_wave636_ok: bool,
-    pub host_movement_ready_log_helper_method_names_wave637_ok: bool,
-    pub host_movement_ready_log_helper_nav_commands_wave637_ok: bool,
-    pub host_movement_ready_log_helper_live_wave637_ok: bool,
-    pub host_attack_target_ready_log_helper_method_names_wave638_ok: bool,
-    pub host_attack_target_ready_log_helper_nav_commands_wave638_ok: bool,
-    pub host_attack_target_ready_log_helper_live_wave638_ok: bool,
-    pub host_move_target_ready_log_helper_method_names_wave639_ok: bool,
-    pub host_move_target_ready_log_helper_nav_commands_wave639_ok: bool,
-    pub host_move_target_ready_log_helper_live_wave639_ok: bool,
-    pub host_fire_intent_ready_log_helper_method_names_wave640_ok: bool,
-    pub host_fire_intent_ready_log_helper_nav_commands_wave640_ok: bool,
-    pub host_fire_intent_ready_log_helper_live_wave640_ok: bool,
+
+
+
 }
 
 pub(super) fn evaluate() -> Waves601640 {
@@ -205,72 +154,31 @@ pub(super) fn evaluate() -> Waves601640 {
             honesty_host_production_complete_collect_helper_nav_commands_residual_wave613(),
         host_production_complete_collect_helper_live_wave613_ok:
             simulate_live_host_production_complete_collect_helper_honesty(),
-        host_production_ready_log_helper_method_names_wave614_ok:
-            honesty_host_production_ready_log_helper_method_names_residual_wave614(),
-        host_production_ready_log_helper_nav_commands_wave614_ok:
-            honesty_host_production_ready_log_helper_nav_commands_residual_wave614(),
-        host_production_ready_log_helper_live_wave614_ok:
-            simulate_live_host_production_ready_log_helper_honesty(),
+
+
+
         host_production_spawn_helper_method_names_wave615_ok:
             honesty_host_production_spawn_helper_method_names_residual_wave615(),
         host_production_spawn_helper_nav_commands_wave615_ok:
             honesty_host_production_spawn_helper_nav_commands_residual_wave615(),
         host_production_spawn_helper_live_wave615_ok:
             simulate_live_host_production_spawn_helper_honesty(),
-        ai_attack_recheck_production_authority_chain_method_names_wave616_ok:
-            honesty_ai_attack_recheck_production_authority_chain_method_names_residual_wave616(),
-        ai_attack_recheck_production_authority_chain_nav_commands_wave616_ok:
-            honesty_ai_attack_recheck_production_authority_chain_nav_commands_residual_wave616(),
-        ai_attack_recheck_production_authority_chain_live_wave616_ok:
-            simulate_live_ai_attack_recheck_production_authority_chain_honesty(),
+
+
         host_construction_ready_log_helper_method_names_wave617_ok:
             honesty_host_construction_ready_log_helper_method_names_residual_wave617(),
         host_construction_ready_log_helper_nav_commands_wave617_ok:
             honesty_host_construction_ready_log_helper_nav_commands_residual_wave617(),
         host_construction_ready_log_helper_live_wave617_ok:
             simulate_live_host_construction_ready_log_helper_honesty(),
-        host_special_power_ready_log_helper_method_names_wave618_ok:
-            honesty_host_special_power_ready_log_helper_method_names_residual_wave618(),
-        host_special_power_ready_log_helper_nav_commands_wave618_ok:
-            honesty_host_special_power_ready_log_helper_nav_commands_residual_wave618(),
-        host_special_power_ready_log_helper_live_wave618_ok:
-            simulate_live_host_special_power_ready_log_helper_honesty(),
-        host_sell_ready_log_helper_method_names_wave619_ok:
-            honesty_host_sell_ready_log_helper_method_names_residual_wave619(),
-        host_sell_ready_log_helper_nav_commands_wave619_ok:
-            honesty_host_sell_ready_log_helper_nav_commands_residual_wave619(),
-        host_sell_ready_log_helper_live_wave619_ok:
-            simulate_live_host_sell_ready_log_helper_honesty(),
-        host_rebuild_ready_log_helper_method_names_wave620_ok:
-            honesty_host_rebuild_ready_log_helper_method_names_residual_wave620(),
-        host_rebuild_ready_log_helper_nav_commands_wave620_ok:
-            honesty_host_rebuild_ready_log_helper_nav_commands_residual_wave620(),
-        host_rebuild_ready_log_helper_live_wave620_ok:
-            simulate_live_host_rebuild_ready_log_helper_honesty(),
-        host_destroy_ready_log_helper_method_names_wave621_ok:
-            honesty_host_destroy_ready_log_helper_method_names_residual_wave621(),
-        host_destroy_ready_log_helper_nav_commands_wave621_ok:
-            honesty_host_destroy_ready_log_helper_nav_commands_residual_wave621(),
-        host_destroy_ready_log_helper_live_wave621_ok:
-            simulate_live_host_destroy_ready_log_helper_honesty(),
+
         host_veterancy_ready_log_helper_method_names_wave622_ok:
             honesty_host_veterancy_ready_log_helper_method_names_residual_wave622(),
         host_veterancy_ready_log_helper_nav_commands_wave622_ok:
             honesty_host_veterancy_ready_log_helper_nav_commands_residual_wave622(),
         host_veterancy_ready_log_helper_live_wave622_ok:
             simulate_live_host_veterancy_ready_log_helper_honesty(),
-        host_body_damage_ready_log_helper_method_names_wave623_ok:
-            honesty_host_body_damage_ready_log_helper_method_names_residual_wave623(),
-        host_body_damage_ready_log_helper_nav_commands_wave623_ok:
-            honesty_host_body_damage_ready_log_helper_nav_commands_residual_wave623(),
-        host_body_damage_ready_log_helper_live_wave623_ok:
-            simulate_live_host_body_damage_ready_log_helper_honesty(),
-        host_radar_extend_ready_log_helper_method_names_wave625_ok:
-            honesty_host_radar_extend_ready_log_helper_method_names_residual_wave625(),
-        host_radar_extend_ready_log_helper_nav_commands_wave625_ok:
-            honesty_host_radar_extend_ready_log_helper_nav_commands_residual_wave625(),
-        host_radar_extend_ready_log_helper_live_wave625_ok:
-            simulate_live_host_radar_extend_ready_log_helper_honesty(),
+
         host_construction_complete_clear_ready_log_helper_method_names_wave626_ok:
             honesty_host_construction_complete_clear_ready_log_helper_method_names_residual_wave626(
             ),
@@ -279,89 +187,16 @@ pub(super) fn evaluate() -> Waves601640 {
             ),
         host_construction_complete_clear_ready_log_helper_live_wave626_ok:
             simulate_live_host_construction_complete_clear_ready_log_helper_honesty(),
-        host_production_door_ready_log_helper_method_names_wave627_ok:
-            honesty_host_production_door_ready_log_helper_method_names_residual_wave627(),
-        host_production_door_ready_log_helper_nav_commands_wave627_ok:
-            honesty_host_production_door_ready_log_helper_nav_commands_residual_wave627(),
-        host_production_door_ready_log_helper_live_wave627_ok:
-            simulate_live_host_production_door_ready_log_helper_honesty(),
-        host_contain_ready_log_helper_method_names_wave628_ok:
-            honesty_host_contain_ready_log_helper_method_names_residual_wave628(),
-        host_contain_ready_log_helper_nav_commands_wave628_ok:
-            honesty_host_contain_ready_log_helper_nav_commands_residual_wave628(),
-        host_contain_ready_log_helper_live_wave628_ok:
-            simulate_live_host_contain_ready_log_helper_honesty(),
-        host_owner_ready_log_helper_method_names_wave629_ok:
-            honesty_host_owner_ready_log_helper_method_names_residual_wave629(),
-        host_owner_ready_log_helper_nav_commands_wave629_ok:
-            honesty_host_owner_ready_log_helper_nav_commands_residual_wave629(),
-        host_owner_ready_log_helper_live_wave629_ok:
-            simulate_live_host_owner_ready_log_helper_honesty(),
+
+
         host_ai_state_ready_log_helper_method_names_wave630_ok:
             honesty_host_ai_state_ready_log_helper_method_names_residual_wave630(),
         host_ai_state_ready_log_helper_nav_commands_wave630_ok:
             honesty_host_ai_state_ready_log_helper_nav_commands_residual_wave630(),
         host_ai_state_ready_log_helper_live_wave630_ok:
             simulate_live_host_ai_state_ready_log_helper_honesty(),
-        host_economy_ready_log_helper_method_names_wave631_ok:
-            honesty_host_economy_ready_log_helper_method_names_residual_wave631(),
-        host_economy_ready_log_helper_nav_commands_wave631_ok:
-            honesty_host_economy_ready_log_helper_nav_commands_residual_wave631(),
-        host_economy_ready_log_helper_live_wave631_ok:
-            simulate_live_host_economy_ready_log_helper_honesty(),
-        host_death_type_ready_log_helper_method_names_wave632_ok:
-            honesty_host_death_type_ready_log_helper_method_names_residual_wave632(),
-        host_death_type_ready_log_helper_nav_commands_wave632_ok:
-            honesty_host_death_type_ready_log_helper_nav_commands_residual_wave632(),
-        host_death_type_ready_log_helper_live_wave632_ok:
-            simulate_live_host_death_type_ready_log_helper_honesty(),
-        host_model_condition_ready_log_helper_method_names_wave633_ok:
-            honesty_host_model_condition_ready_log_helper_method_names_residual_wave633(),
-        host_model_condition_ready_log_helper_nav_commands_wave633_ok:
-            honesty_host_model_condition_ready_log_helper_nav_commands_residual_wave633(),
-        host_model_condition_ready_log_helper_live_wave633_ok:
-            simulate_live_host_model_condition_ready_log_helper_honesty(),
-        host_combat_status_ready_log_helper_method_names_wave634_ok:
-            honesty_host_combat_status_ready_log_helper_method_names_residual_wave634(),
-        host_combat_status_ready_log_helper_nav_commands_wave634_ok:
-            honesty_host_combat_status_ready_log_helper_nav_commands_residual_wave634(),
-        host_combat_status_ready_log_helper_live_wave634_ok:
-            simulate_live_host_combat_status_ready_log_helper_honesty(),
-        host_weapon_stats_ready_log_helper_method_names_wave635_ok:
-            honesty_host_weapon_stats_ready_log_helper_method_names_residual_wave635(),
-        host_weapon_stats_ready_log_helper_nav_commands_wave635_ok:
-            honesty_host_weapon_stats_ready_log_helper_nav_commands_residual_wave635(),
-        host_weapon_stats_ready_log_helper_live_wave635_ok:
-            simulate_live_host_weapon_stats_ready_log_helper_honesty(),
-        host_transform_ready_log_helper_method_names_wave636_ok:
-            honesty_host_transform_ready_log_helper_method_names_residual_wave636(),
-        host_transform_ready_log_helper_nav_commands_wave636_ok:
-            honesty_host_transform_ready_log_helper_nav_commands_residual_wave636(),
-        host_transform_ready_log_helper_live_wave636_ok:
-            simulate_live_host_transform_ready_log_helper_honesty(),
-        host_movement_ready_log_helper_method_names_wave637_ok:
-            honesty_host_movement_ready_log_helper_method_names_residual_wave637(),
-        host_movement_ready_log_helper_nav_commands_wave637_ok:
-            honesty_host_movement_ready_log_helper_nav_commands_residual_wave637(),
-        host_movement_ready_log_helper_live_wave637_ok:
-            simulate_live_host_movement_ready_log_helper_honesty(),
-        host_attack_target_ready_log_helper_method_names_wave638_ok:
-            honesty_host_attack_target_ready_log_helper_method_names_residual_wave638(),
-        host_attack_target_ready_log_helper_nav_commands_wave638_ok:
-            honesty_host_attack_target_ready_log_helper_nav_commands_residual_wave638(),
-        host_attack_target_ready_log_helper_live_wave638_ok:
-            simulate_live_host_attack_target_ready_log_helper_honesty(),
-        host_move_target_ready_log_helper_method_names_wave639_ok:
-            honesty_host_move_target_ready_log_helper_method_names_residual_wave639(),
-        host_move_target_ready_log_helper_nav_commands_wave639_ok:
-            honesty_host_move_target_ready_log_helper_nav_commands_residual_wave639(),
-        host_move_target_ready_log_helper_live_wave639_ok:
-            simulate_live_host_move_target_ready_log_helper_honesty(),
-        host_fire_intent_ready_log_helper_method_names_wave640_ok:
-            honesty_host_fire_intent_ready_log_helper_method_names_residual_wave640(),
-        host_fire_intent_ready_log_helper_nav_commands_wave640_ok:
-            honesty_host_fire_intent_ready_log_helper_nav_commands_residual_wave640(),
-        host_fire_intent_ready_log_helper_live_wave640_ok:
-            simulate_live_host_fire_intent_ready_log_helper_honesty(),
+
+
+
     }
 }

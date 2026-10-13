@@ -103,16 +103,8 @@ fn apply_transport_death_scatter(
     // TransportContain.cpp:389–393 scatters before wakeUpAndAttemptToTarget.
     // The move makes the rider active, so AIUpdate.cpp:4430 preserves its
     // mood deadline and jitter flag even when ResetMoodCheckTimeOnExit is true.
-    if crate::gameworld_shadow::gameworld_movement_authority_live() {
-        movement_events.record(
-            unit.id,
-            Some([container_pos.x, container_pos.y, container_pos.z]),
-        );
-        unit.record_host_movement();
-    }
-    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-        crate::game_logic::host_ai_decision_log::record_set_state(unit.id, 1);
-    }
+    {}
+    {}
     unit.set_status_attacking(false);
     dest
 }

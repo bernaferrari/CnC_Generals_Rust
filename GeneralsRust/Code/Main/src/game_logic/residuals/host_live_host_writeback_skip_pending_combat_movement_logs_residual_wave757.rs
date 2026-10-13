@@ -20,7 +20,7 @@ pub const LIVE_HOST_WRITEBACK_SKIP_PENDING_COMBAT_MOVEMENT_LOGS_METHOD_NAMES_WAV
 pub const LIVE_HOST_WRITEBACK_SKIP_PENDING_COMBAT_MOVEMENT_LOGS_NAV_STEPS_WAVE757: &[&str] = &[
     "REQUIRE_HAS_PENDING",
     "REQUIRE_COUPLED_TICK",
-    "REQUIRE_TWELVE_WRITEBACKS",
+    "REQUIRE_SURVIVING_WRITEBACKS",
     "LIVE_HOST_WRITEBACK_SKIP_PENDING_COMBAT_MOVEMENT_LOGS",
     "LIVE_PLAYABLE_CLAIM_FALSE",
 ];
@@ -29,7 +29,7 @@ pub const RUNTIME_HOST_LIVE_HOST_WRITEBACK_SKIP_PENDING_COMBAT_MOVEMENT_LOGS_CMD
     "host_writeback_skip_pending_combat_movement_logs",
     "has_pending",
     "coupled_tick",
-    "twelve_writebacks",
+    "surviving_writebacks",
 ];
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,7 +96,6 @@ pub fn honesty_host_writeback_skip_pending_combat_movement_logs_source_markers_r
         "host_weapon_stats_log",
         "host_stealth_flags_log",
         "host_model_condition_log",
-        "host_experience_log",
     ];
     let wbs = [
         "writeback_body_damage_to_host",
@@ -108,7 +107,6 @@ pub fn honesty_host_writeback_skip_pending_combat_movement_logs_source_markers_r
         "writeback_weapon_stats_to_host",
         "writeback_stealth_flags_to_host",
         "writeback_model_condition_to_host",
-        "writeback_experience_to_host",
     ];
     let logs_ok = logs
         .iter()
@@ -119,7 +117,7 @@ pub fn honesty_host_writeback_skip_pending_combat_movement_logs_source_markers_r
         && sh.contains("shadow_coupled_tick_active()")
         && logs_ok
         && wbs_ok
-        && wave_hits >= 10
+        && wave_hits >= 9
         && !sh.contains("playable_claim = true");
     residual_action_store(ResidualHostWritebackSkipPendingCombatMovementLogsAction::SourceMarkers);
     ok
@@ -130,7 +128,7 @@ pub fn honesty_host_writeback_skip_pending_combat_movement_logs_nav_commands_res
     let cmds = RUNTIME_HOST_LIVE_HOST_WRITEBACK_SKIP_PENDING_COMBAT_MOVEMENT_LOGS_CMD_NAMES_WAVE757;
     let ok = residual_name_index(steps, "REQUIRE_HAS_PENDING").is_some()
         && residual_name_index(steps, "REQUIRE_COUPLED_TICK").is_some()
-        && residual_name_index(steps, "REQUIRE_TWELVE_WRITEBACKS").is_some()
+        && residual_name_index(steps, "REQUIRE_SURVIVING_WRITEBACKS").is_some()
         && residual_name_index(
             steps,
             "LIVE_HOST_WRITEBACK_SKIP_PENDING_COMBAT_MOVEMENT_LOGS",
@@ -140,7 +138,7 @@ pub fn honesty_host_writeback_skip_pending_combat_movement_logs_nav_commands_res
         && residual_name_index(cmds, "host_writeback_skip_pending_combat_movement_logs").is_some()
         && residual_name_index(cmds, "has_pending").is_some()
         && residual_name_index(cmds, "coupled_tick").is_some()
-        && residual_name_index(cmds, "twelve_writebacks").is_some();
+        && residual_name_index(cmds, "surviving_writebacks").is_some();
     residual_action_store(ResidualHostWritebackSkipPendingCombatMovementLogsAction::NavCommands);
     ok
 }
@@ -151,8 +149,8 @@ pub fn simulate_host_writeback_skip_pending_combat_movement_logs_collect_source(
     ok
 }
 pub fn simulate_host_writeback_skip_pending_combat_movement_logs_dispatch_source() -> bool {
-    let ok = sh_source().matches("Wave 757").count() >= 10
-        && sh_source().contains("writeback_experience_to_host");
+    let ok = sh_source().matches("Wave 757").count() >= 9
+        && !sh_source().contains("pub fn writeback_experience_to_host");
     residual_action_store(ResidualHostWritebackSkipPendingCombatMovementLogsAction::DispatchSource);
     ok
 }

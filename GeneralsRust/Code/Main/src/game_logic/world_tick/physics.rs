@@ -886,10 +886,7 @@ impl GameLogic {
             if let Some(v) = self.objects.get_mut(&vehicle_id) {
                 // Damage authority: HP last-writer via damage log; destroy flag stays host.
                 let hp = v.health.current.max(1.0);
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    self.health_events
-                        .record_damage(vehicle_id, hp, Some(vehicle_id), true);
-                } else {
+                {
                     v.health.current = 0.0;
                 }
                 v.status.destroyed = true;
@@ -985,12 +982,7 @@ impl GameLogic {
             u.set_status_force_attack(false);
             u.set_ai_state(AIState::FacingObject);
         }
-        if faced && self.ai_decision_authority_live() {
-            let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-                &AIState::FacingObject,
-            );
-            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, ordinal);
-        }
+        {}
         true
     }
 
@@ -1018,12 +1010,7 @@ impl GameLogic {
             u.set_status_force_attack(false);
             u.set_ai_state(AIState::FacingPosition);
         }
-        if faced && self.ai_decision_authority_live() {
-            let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-                &AIState::FacingPosition,
-            );
-            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, ordinal);
-        }
+        {}
         true
     }
 
@@ -1035,7 +1022,7 @@ impl GameLogic {
         if u.is_kind_of(crate::game_logic::KindOf::Projectile) {
             return false;
         }
-        let decision_auth = self.ai_decision_authority_live();
+
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.stop_moving();
             u.set_status_attacking(false);
@@ -1048,10 +1035,7 @@ impl GameLogic {
                 u.set_ai_state(AIState::Idle);
             }
         }
-        if decision_auth {
-            crate::game_logic::host_ai_decision_log::record_stop_attack(unit_id);
-            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 0);
-        }
+        {}
         true
     }
 
@@ -1135,7 +1119,7 @@ impl GameLogic {
         if !new_alive {
             return 0;
         }
-        let decision_auth = self.ai_decision_authority_live();
+
         let mut transferred = 0usize;
         let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
         for id in ids {
@@ -1162,9 +1146,7 @@ impl GameLogic {
                 if let Some(u) = self.objects.get_mut(&id) {
                     u.target = Some(to_id);
                 }
-                if decision_auth {
-                    crate::game_logic::host_ai_decision_log::record_attack(id, to_id);
-                }
+                {}
             }
             if had_turret {
                 // Turret aim residual stays host (not AI decision channel).

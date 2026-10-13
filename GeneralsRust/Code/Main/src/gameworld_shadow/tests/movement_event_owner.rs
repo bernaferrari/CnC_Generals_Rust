@@ -15,14 +15,7 @@ fn admitted_world() -> (GameLogic, ObjectId) {
     (logic, id)
 }
 
-fn enable_diagnostic_shadow() {
-    // Each case executes in the existing isolated test process, without a
-    // process-wide test mutex or modifying another test's environment.
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-}
-
 fn missing_mapping_retains_whole_suffix_until_a_later_session_case() {
-    enable_diagnostic_shadow();
     let (mut logic, a) = admitted_world();
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -30,44 +23,26 @@ fn missing_mapping_retains_whole_suffix_until_a_later_session_case() {
     let b = logic
         .create_object("MovementBoundaryUnit", Team::USA, Vec3::new(10.0, 0.0, 0.0))
         .unwrap();
-    // Deliberately model a retained host subject with no admitted diagnostic
-    // spawn. This adversarial observer must not discard its movement order.
-    crate::game_logic::host_spawn_log::clear();
     logic.movement_events.clear();
-    logic
-        .movement_events
-        .record(logic.frame, a, Some([20.0, 0.0, 0.0]));
-    logic
-        .movement_events
-        .record(logic.frame, b, Some([30.0, 0.0, 0.0]));
-    let _couple = ShadowCoupleGuard::enter();
-    let (_, moved) = eager_apply_host_move_attack_after_logic(&mut shadow, &mut logic);
-    assert_eq!(
-        moved, 0,
-        "missing mapping must prevent partial suffix admission"
-    );
-    assert_eq!(shadow.world().entity(a_entity).unwrap().move_target, None);
-    assert!(logic.movement_events.has_pending(a));
-    assert!(logic.movement_events.has_pending(b));
-    // A second real eager boundary still cannot admit the unmapped suffix.
-    // The full session deliberately rebuilds mappings before late admission.
-    assert_eq!(
-        eager_apply_host_move_attack_after_logic(&mut shadow, &mut logic).1,
-        0
-    );
+    for (id, x) in [(a, 20.0), (b, 30.0), (a, 40.0)] {
+        let (object, mut writer) = logic.host_object_and_movement_events_mut(id).unwrap();
+        object.set_destination(Vec3::new(x, 0.0, 0.0), &mut writer);
+    }
+    // Missing observer admission cannot block the actual object command.
     assert!(shadow.entity_for_host(b).is_none());
+    assert_eq!(
+        logic.host_object(a).unwrap().movement.target_position,
+        Some(Vec3::new(40.0, 0.0, 0.0))
+    );
+    assert_eq!(
+        logic.host_object(b).unwrap().movement.target_position,
+        Some(Vec3::new(30.0, 0.0, 0.0))
+    );
     assert_eq!(shadow.world().entity(a_entity).unwrap().move_target, None);
     assert!(logic.movement_events.has_pending(a));
     assert!(logic.movement_events.has_pending(b));
-    let first_receipts = logic.movement_events.snapshot_completed().to_vec();
-    assert_eq!(first_receipts.len(), 2);
-
-    logic
-        .movement_events
-        .record(logic.frame, a, Some([40.0, 0.0, 0.0]));
-    shadow.sync_from_host(&logic);
+    observe_completed_owner(&mut shadow, &mut logic);
     let b_entity = shadow.entity_for_host(b).unwrap();
-    let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
     assert_eq!(
         shadow.world().entity(a_entity).unwrap().move_target,
         Some([40.0, 0.0, 0.0])
@@ -76,20 +51,15 @@ fn missing_mapping_retains_whole_suffix_until_a_later_session_case() {
         shadow.world().entity(b_entity).unwrap().move_target,
         Some([30.0, 0.0, 0.0])
     );
-    assert!(!logic.movement_events.has_pending(a));
-    assert!(!logic.movement_events.has_pending(b));
-    let completed = logic.movement_events.snapshot_completed();
-    assert!(completed.starts_with(&first_receipts));
-    assert_eq!(
-        completed.len(),
-        3,
-        "retry must not duplicate completed receipts"
-    );
+    let receipts = logic.movement_events.snapshot_completed().to_vec();
+    assert_eq!(receipts.len(), 3);
     assert!(
-        completed
+        receipts
             .windows(2)
             .all(|pair| pair[0].sequence < pair[1].sequence)
     );
+    observe_completed_owner(&mut shadow, &mut logic);
+    assert_eq!(logic.movement_events.snapshot_completed(), receipts);
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let moves: Vec<_> = frame
         .events
@@ -109,8 +79,6 @@ fn missing_mapping_retains_whole_suffix_until_a_later_session_case() {
             (a, [40.0, 0.0, 0.0])
         ]
     );
-    let (_, repeated) = eager_apply_host_move_attack_after_logic(&mut shadow, &mut logic);
-    assert_eq!(repeated, 0);
     assert!(logic.movement_events.take_completed().is_empty());
 }
 
@@ -124,7 +92,6 @@ fn missing_mapping_retains_whole_suffix_until_a_later_session() {
 }
 
 fn eager_prefix_late_suffix_and_foreign_session_remain_once_and_ordered_case() {
-    enable_diagnostic_shadow();
     let (mut owner, a) = admitted_world();
     let b = owner
         .create_object("MovementBoundaryUnit", Team::USA, Vec3::new(10.0, 0.0, 0.0))
@@ -142,14 +109,12 @@ fn eager_prefix_late_suffix_and_foreign_session_remain_once_and_ordered_case() {
     let other_entity = other_shadow.entity_for_host(other_a).unwrap();
     owner.movement_events.clear();
     other.movement_events.clear();
-    owner
-        .movement_events
-        .record(owner.frame, a, Some([20.0, 0.0, 0.0]));
-    let _couple = ShadowCoupleGuard::enter();
-    assert_eq!(
-        eager_apply_host_move_attack_after_logic(&mut shadow, &mut owner).1,
-        1
-    );
+    {
+        let (object, mut writer) = owner.host_object_and_movement_events_mut(a).unwrap();
+        object.set_destination(Vec3::new(20.0, 0.0, 0.0), &mut writer);
+    }
+
+    observe_completed_owner(&mut shadow, &mut owner);
     // An admitted prefix must never be replayed over later diagnostic state.
     shadow
         .world_mut()
@@ -164,11 +129,8 @@ fn eager_prefix_late_suffix_and_foreign_session_remain_once_and_ordered_case() {
     object.set_destination(Vec3::new(30.0, 0.0, 0.0), &mut writer);
     let (object, mut writer) = other.host_object_and_movement_events_mut(other_a).unwrap();
     object.set_destination(Vec3::new(80.0, 0.0, 0.0), &mut writer);
-    assert_eq!(
-        eager_apply_host_move_attack_after_logic(&mut other_shadow, &mut other).1,
-        1
-    );
-    let _ = shadow_session_after_host_tick(&mut other_shadow, &mut other);
+    observe_completed_owner(&mut other_shadow, &mut other);
+    let _ = observe_completed_owner(&mut other_shadow, &mut other);
     assert_eq!(
         other_shadow
             .world()
@@ -178,7 +140,7 @@ fn eager_prefix_late_suffix_and_foreign_session_remain_once_and_ordered_case() {
         Some([80.0, 0.0, 0.0])
     );
     assert!(owner.movement_events.has_pending(b));
-    let _ = shadow_session_after_host_tick(&mut shadow, &mut owner);
+    let _ = observe_completed_owner(&mut shadow, &mut owner);
     assert_eq!(
         shadow.world().entity(a_entity).unwrap().move_target,
         Some([99.0, 0.0, 0.0])

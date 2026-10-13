@@ -68,7 +68,7 @@ struct RestoreInputs {
     native_frame: u64,
     draw_icon_ui: bool,
     host_frame: u32,
-    authority: GameWorldAuthority,
+
     store: Option<gamelogic::weapon::WeaponStore>,
 }
 impl RestoreInputs {
@@ -82,15 +82,16 @@ impl RestoreInputs {
             native_frame: previous_frame,
             draw_icon_ui: previous_draw_icon_ui,
             host_frame: crate::game_logic::host_historic_bonus::logic_frame(),
-            authority: current_gameworld_authority(),
+
             store: gamelogic::weapon::with_weapon_store_mut(std::mem::take).ok(),
         };
+
         {
             let mut logic = native.lock().unwrap();
             logic.set_current_frame(native_frame);
             logic.set_draw_icon_ui(true);
         }
-        gameworld_authority::publish_gameworld_authority(GameWorldAuthority::DEFAULT_OFF);
+
         gamelogic::initialize_weapon_store().expect("real authored weapon catalog");
         assert_eq!(
             crate::assets::ini_template_loader::register_weapons_from_ini_text(
@@ -125,7 +126,7 @@ impl Drop for RestoreInputs {
         logic.set_current_frame(self.native_frame);
         logic.set_draw_icon_ui(self.draw_icon_ui);
         drop(logic);
-        gameworld_authority::publish_gameworld_authority(self.authority);
+
         crate::game_logic::host_historic_bonus::set_logic_frame(self.host_frame);
     }
 }

@@ -178,9 +178,7 @@
         host_legal_build_cache_method_names_wave911_ok,
         host_legal_build_cache_nav_commands_wave911_ok,
         host_legal_build_cache_live_wave911_ok,
-        host_destroy_list_if_needed_method_names_wave912_ok,
-        host_destroy_list_if_needed_nav_commands_wave912_ok,
-        host_destroy_list_if_needed_live_wave912_ok,
+
         host_redundant_authority_write_skip_method_names_wave913_ok,
         host_redundant_authority_write_skip_nav_commands_wave913_ok,
         host_redundant_authority_write_skip_live_wave913_ok,
@@ -217,9 +215,7 @@
         host_placement_legal_build_cache_method_names_wave924_ok,
         host_placement_legal_build_cache_nav_commands_wave924_ok,
         host_placement_legal_build_cache_live_wave924_ok,
-        host_eager_apply_batch_method_names_wave925_ok,
-        host_eager_apply_batch_nav_commands_wave925_ok,
-        host_eager_apply_batch_live_wave925_ok,
+
         host_presentation_build_boundary_method_names_wave926_ok,
         host_presentation_build_boundary_nav_commands_wave926_ok,
         host_presentation_build_boundary_live_wave926_ok,

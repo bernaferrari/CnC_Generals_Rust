@@ -409,3 +409,102 @@ fn resting_kill_after_lethal_fall_does_not_repeat_body_callbacks() {
         DeathType::Splatted
     );
 }
+
+#[test]
+fn owned_bounce_applies_receiving_stiffness_then_rebounds_with_saved_impulse() {
+    let mut first = game(2.0, 0.0, false, false, false);
+    let mut peer = game(2.0, 0.0, false, false, false);
+    first.physics_rules.ground_stiffness = 0.6;
+    peer.physics_rules.ground_stiffness = 2.0; // C++ clamps to MAX_STIFF.
+    for game in [&mut first, &mut peer] {
+        start(game, 400.0, Coord3D::new(0.0, 0.0, -1000.0));
+        game.source
+            .read()
+            .unwrap()
+            .get_physics()
+            .unwrap()
+            .access()
+            .unwrap()
+            .set_allow_bouncing(true);
+        phase(game, 0).unwrap();
+        assert_eq!(game.source.read().unwrap().get_position().z, 0.0);
+        assert_eq!(
+            game.source
+                .read()
+                .unwrap()
+                .get_physics()
+                .unwrap()
+                .access()
+                .unwrap()
+                .get_velocity()
+                .z,
+            -400.0
+        );
+        assert_eq!(health(game), 100.0);
+    }
+    let saved = bytes(&first);
+    let mut restored = game(2.0, 0.0, false, false, false);
+    restored.physics_rules = first.physics_rules;
+    start(&mut restored, 0.0, Coord3D::ZERO);
+    let module = restored
+        .source
+        .read()
+        .unwrap()
+        .module_by_name(&"PhysicsBehavior".into())
+        .unwrap();
+    module.with_module(|module| {
+        module
+            .xfer(&mut XferLoad::new(Cursor::new(saved), 1))
+            .unwrap()
+    });
+    phase(&mut peer, 1).unwrap();
+    phase(&mut first, 1).unwrap();
+    phase(&mut restored, 1).unwrap();
+    let expected = -400.0 + (1000.0 - crate::physics::GRAVITY) * 0.6 + crate::physics::GRAVITY;
+    assert!((first.source.read().unwrap().get_position().z - expected).abs() < 0.0001);
+    assert!(
+        peer.source.read().unwrap().get_position().z
+            > first.source.read().unwrap().get_position().z
+    );
+    assert_eq!(
+        *first.source.read().unwrap().get_position(),
+        *restored.source.read().unwrap().get_position()
+    );
+    assert_eq!(bytes(&first), bytes(&restored));
+}
+
+#[test]
+fn bouncing_stunned_upside_down_unit_kills_before_final_pose_and_retains_impulse() {
+    let mut game = game(2.0, 0.0, false, true, false);
+    start(&mut game, 400.0, Coord3D::new(0.0, 0.0, -1000.0));
+    let owner = game.source.clone();
+    let matrix = glam::Mat4::from_rotation_translation(
+        glam::Quat::from_rotation_x(std::f32::consts::PI),
+        *owner.read().unwrap().get_position(),
+    );
+    owner
+        .write()
+        .unwrap()
+        .set_transform_matrix_with_services(
+            &matrix,
+            &game.terrain,
+            &mut game.collision,
+            0,
+            &mut |_| {},
+            &mut |_| {},
+        )
+        .unwrap();
+    let physics = owner.read().unwrap().get_physics().unwrap();
+    physics.access().unwrap().set_allow_bouncing(true);
+    physics
+        .finish_stunned_at(&mut *owner.write().unwrap())
+        .unwrap();
+    phase(&mut game, 0).unwrap();
+    assert!(owner.read().unwrap().is_effectively_dead());
+    assert!(owner.read().unwrap().is_destroyed());
+    assert_eq!(owner.read().unwrap().get_position().z, 0.0);
+    assert!(
+        owner.read().unwrap().get_transform_matrix().z_axis.z > 0.99,
+        "second setAngles rights the dead owner before outer pose"
+    );
+}

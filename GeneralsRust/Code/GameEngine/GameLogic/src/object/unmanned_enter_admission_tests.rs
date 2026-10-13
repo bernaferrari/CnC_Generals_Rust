@@ -227,7 +227,7 @@ impl AdmissionMatch {
         }
     }
 
-    fn can_enter(&self, mode: CanEnterType) -> bool {
+    fn can_enter(&mut self, mode: CanEnterType) -> bool {
         let mut scheduler = crate::system::game_logic::GameLogic::new();
         let teams = crate::team::TeamFactory::new();
         let mut client_random = Default::default();
@@ -251,17 +251,25 @@ impl AdmissionMatch {
         let bonuses = crate::weapon::WeaponBonusSet::default();
         let mut triggers = Vec::new();
         let mut terrain_moves = Vec::new();
+        let mut groups = Vec::new();
+        let mut weapon_store = crate::weapon::WeaponStore::new();
         let world = BorrowedAiWorld::new(
-            &self.factory,
+            &mut self.factory,
             &self.players,
             AiNativeServices {
+                weapon_store: &mut weapon_store,
+                historic_damage_limit: game_engine::common::global_data::GlobalData::default().historic_damage_limit,
+                physics_rules:
+                    crate::object::behavior::physics_update::PhysicsRules::from_global_data(
+                        &game_engine::common::global_data::GlobalData::default(),
+                    ),
                 radar: &mut radar,
                 death_notifications: &mut death_notifications,
                 rank_info: &ranks,
                 rank_level_limit: i32::MAX,
                 money_deposit_sound: &deposit_sound,
                 kill_award_events: &mut kill_awards,
-                groups: &[],
+                groups: &mut groups,
                 disposal: None,
                 current_update: None,
                 update_scheduler: &mut scheduler,
@@ -321,7 +329,7 @@ impl AdmissionMatch {
 #[test]
 fn reject_unmanned_falls_through_to_actual_open_and_transport_admission() {
     for target in [open(KindOf::Infantry, true), transport(1)] {
-        let actual = AdmissionMatch::new(true, 1, target, false);
+        let mut actual = AdmissionMatch::new(true, 1, target, false);
         assert!(actual.can_enter(CanEnterType::CheckCapacity));
         actual.assert_query_has_no_capture_or_boarding();
     }
@@ -335,7 +343,7 @@ fn reject_unmanned_fallthrough_preserves_missing_contain_kind_and_relationship_r
         (open(KindOf::Infantry, false), true),
         (transport(1), true),
     ] {
-        let actual = AdmissionMatch::new(true, 1, target, hostile);
+        let mut actual = AdmissionMatch::new(true, 1, target, hostile);
         assert!(!actual.can_enter(CanEnterType::CheckCapacity));
         actual.assert_query_has_no_capture_or_boarding();
     }
@@ -343,11 +351,11 @@ fn reject_unmanned_fallthrough_preserves_missing_contain_kind_and_relationship_r
 
 #[test]
 fn reject_unmanned_fallthrough_preserves_transport_capacity_and_zero_slot_rules() {
-    let oversized = AdmissionMatch::new(true, 2, transport(1), false);
+    let mut oversized = AdmissionMatch::new(true, 2, transport(1), false);
     assert!(!oversized.can_enter(CanEnterType::CheckCapacity));
     assert!(oversized.can_enter(CanEnterType::DontCheckCapacity));
     oversized.assert_query_has_no_capture_or_boarding();
-    let zero_slot = AdmissionMatch::new(true, 0, transport(1), false);
+    let mut zero_slot = AdmissionMatch::new(true, 0, transport(1), false);
     assert!(!zero_slot.can_enter(CanEnterType::CheckCapacity));
     assert!(!zero_slot.can_enter(CanEnterType::DontCheckCapacity));
     zero_slot.assert_query_has_no_capture_or_boarding();
@@ -355,10 +363,10 @@ fn reject_unmanned_fallthrough_preserves_transport_capacity_and_zero_slot_rules(
 
 #[test]
 fn ordinary_unmanned_shortcut_requires_eligible_infantry_and_respects_prior_gates() {
-    let actual = AdmissionMatch::new(false, 1, carrier(None), false);
+    let mut actual = AdmissionMatch::new(false, 1, carrier(None), false);
     assert!(actual.can_enter(CanEnterType::CheckCapacity));
     actual.assert_query_has_no_capture_or_boarding();
-    let rejected = AdmissionMatch::new(true, 1, carrier(None), false);
+    let mut rejected = AdmissionMatch::new(true, 1, carrier(None), false);
     assert!(!rejected.can_enter(CanEnterType::CheckCapacity));
     actual
         .target
@@ -401,8 +409,8 @@ fn ordinary_unmanned_shortcut_requires_eligible_infantry_and_respects_prior_gate
 
 #[test]
 fn reject_unmanned_admission_uses_its_exact_factory_among_same_id_peers() {
-    let allowed = AdmissionMatch::new(true, 1, open(KindOf::Infantry, true), false);
-    let denied = AdmissionMatch::new(true, 1, open(KindOf::Vehicle, true), false);
+    let mut allowed = AdmissionMatch::new(true, 1, open(KindOf::Infantry, true), false);
+    let mut denied = AdmissionMatch::new(true, 1, open(KindOf::Vehicle, true), false);
     assert_eq!(
         allowed.source.read().unwrap().get_id(),
         denied.source.read().unwrap().get_id()

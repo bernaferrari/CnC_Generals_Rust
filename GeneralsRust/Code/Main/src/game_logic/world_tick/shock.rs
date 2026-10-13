@@ -234,11 +234,7 @@ impl GameLogic {
                 if o.shock_stun_frames > 0 {
                     // Wave 764: under coupled shadow, GW sole-decrements frames;
                     // host keeps tumble/bounce physics only.
-                    if crate::gameworld_shadow::gameworld_shadow_enabled()
-                        && crate::gameworld_shadow::shadow_coupled_tick_active()
                     {
-                        o.tick_shock_stun_physics_only(&mut self.health_events);
-                    } else {
                         o.tick_shock_stun(&mut self.health_events);
                     }
                 }
@@ -803,9 +799,7 @@ impl GameLogic {
                 a.set_ai_state(AIState::Attacking);
             }
             a.set_status_attacking(true);
-            if entered_attack && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2);
-            }
+            {}
             a.set_status_moving(true);
             self.movement_events
                 .record(self.frame, attacker_id, Some([dest.x, dest.y, dest.z]));
@@ -1015,11 +1009,7 @@ impl GameLogic {
         else {
             return false;
         };
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-            crate::game_logic::host_ai_decision_log::record_attack(attacker_id, next_id);
-            crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2);
-            return true;
-        }
+        {}
         let next_pos = self.objects.get(&next_id).map(|obj| obj.get_position());
         let armed = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
             attacker.target = Some(next_id);

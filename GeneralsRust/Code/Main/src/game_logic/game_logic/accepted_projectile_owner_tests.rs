@@ -12,7 +12,7 @@ const SECOND_WEAPON: &str = "AcceptedQueueSecondWeapon";
 
 struct RestoreInputs {
     frame: u32,
-    authority: GameWorldAuthority,
+
     weapon_store: Option<gamelogic::weapon::WeaponStore>,
 }
 
@@ -20,10 +20,9 @@ impl RestoreInputs {
     fn install() -> Self {
         let saved = Self {
             frame: crate::game_logic::host_historic_bonus::logic_frame(),
-            authority: current_gameworld_authority(),
+
             weapon_store: gamelogic::weapon::with_weapon_store_mut(std::mem::take).ok(),
         };
-        gameworld_authority::publish_gameworld_authority(GameWorldAuthority::DEFAULT_OFF);
         gamelogic::initialize_weapon_store().expect("real host WeaponStore");
         crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         let source = r#"
@@ -87,7 +86,7 @@ impl Drop for RestoreInputs {
         } else {
             gamelogic::weapon::shutdown_weapon_store().expect("restore absent store");
         }
-        gameworld_authority::publish_gameworld_authority(self.authority);
+
         crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
     }
 }
@@ -142,11 +141,6 @@ fn world(weapon_name: &str) -> (GameLogic, ObjectId, ObjectId) {
 }
 
 fn accept(world: &mut GameLogic, source: ObjectId, target: ObjectId, time: f32) {
-    assert_eq!(
-        current_gameworld_authority(),
-        GameWorldAuthority::DEFAULT_OFF
-    );
-    assert!(!crate::gameworld_shadow::gameworld_fire_spawn_authority_live());
     let unit = &world.objects[&source];
     let victim = &world.objects[&target];
     assert!(unit.is_alive() && victim.is_alive());

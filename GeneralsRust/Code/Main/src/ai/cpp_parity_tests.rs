@@ -2240,12 +2240,11 @@ fn launch_attack_sets_target_and_logs_host_attack() {
     // host + logs decisions.
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     // Decision logs require coupled shadow writeback frame (live gate).
-    crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
-    crate::gameworld_shadow::begin_shadow_coupled_tick();
+
     host_attack_log::clear();
     host_ai_decision_log::clear();
     let mut logic = GameLogic::new();
-    logic.set_ai_decision_authority(true);
+
     let cfg = golden_skirmish_config("AiAtk");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for (name, team, x) in [("AiAtkU", Team::USA, 0.0f32), ("AiAtkE", Team::GLA, 80.0)] {
@@ -2313,7 +2312,7 @@ fn launch_attack_sets_target_and_logs_host_attack() {
         "launch_attack must still pathfind on host under decision authority"
     );
     // Legacy residual path when decision authority is off (setter flip).
-    logic.set_ai_decision_authority(false);
+
     host_attack_log::clear();
     host_ai_decision_log::clear();
     if let Some(o) = logic.host_object_mut(usa_unit) {
@@ -2333,7 +2332,6 @@ fn launch_attack_sets_target_and_logs_host_attack() {
         "legacy launch_attack must set_target and host_attack_log"
     );
     assert_eq!(unit.ai_state, AIState::AttackMoving);
-    crate::gameworld_shadow::end_shadow_coupled_tick();
 }
 
 #[test]

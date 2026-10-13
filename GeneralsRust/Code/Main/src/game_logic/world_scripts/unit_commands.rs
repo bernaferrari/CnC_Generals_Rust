@@ -549,7 +549,6 @@ impl GameLogic {
                 unit.set_guard_position(None);
                 unit.set_guard_target(None);
                 crate::game_logic::host_attack_log::record(id, None);
-                crate::game_logic::host_guard_log::record(id, None, 0, 0.0);
                 unit.end_guard_retaliate();
                 unit.hunting = false;
                 unit.return_to_base_requested = true;
@@ -568,7 +567,6 @@ impl GameLogic {
         unit.set_guard_position(None);
         unit.set_guard_target(None);
         crate::game_logic::host_attack_log::record(id, None);
-        crate::game_logic::host_guard_log::record(id, None, 0, 0.0);
         unit.end_guard_retaliate();
         unit.hunting = false;
         // C++ SupplyTruckAIUpdate::privateIdle(CMD_FROM_PLAYER) setForceBusyState.
@@ -1197,7 +1195,7 @@ impl GameLogic {
         }
 
         // For object guard, require living target position when provided.
-        let (gpos, gtarget, ai_state) = if let Some(tid) = target {
+        let ai_state = if let Some(tid) = target {
             let tpos = self
                 .objects
                 .get(&tid)
@@ -1206,13 +1204,9 @@ impl GameLogic {
             if tpos.is_none() {
                 return false;
             }
-            (
-                tpos.map(|p| [p.x, p.y, p.z]),
-                tid.0,
-                AIState::GuardingObject,
-            )
-        } else if let Some(pos) = position {
-            (Some([pos.x, pos.y, pos.z]), 0u32, AIState::GuardingArea)
+            AIState::GuardingObject
+        } else if position.is_some() {
+            AIState::GuardingArea
         } else {
             return false;
         };
@@ -1235,7 +1229,6 @@ impl GameLogic {
                 unit.set_guard_position(Some(pos));
             }
             unit.set_ai_state(ai_state.clone());
-            crate::game_logic::host_guard_log::record(id, gpos, gtarget, guard_radius);
             crate::game_logic::host_attack_log::record(id, None);
         } else {
             return false;
@@ -1337,7 +1330,6 @@ impl GameLogic {
             unit.set_guard_position(None);
             unit.set_guard_target(None);
             unit.end_guard_retaliate();
-            crate::game_logic::host_guard_log::record(id, None, 0, 0.0);
             crate::game_logic::host_attack_log::record(id, None);
             unit.auto_acquire_when_idle = true;
             unit.hunting = true;

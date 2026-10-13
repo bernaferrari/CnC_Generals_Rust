@@ -377,3 +377,112 @@ fn guard_disabled_masks_reject_after_script_preparation() {
         );
     }
 }
+
+#[test]
+fn canonical_guard_command_movement_and_save_ignore_poisoned_shadow_and_same_id_peer() {
+    use crate::game_logic::object::unit_ai_runtime::GuardPhase;
+    use crate::gameworld_shadow::GameWorldShadow;
+    let (mut owner, id) = super::guard_return_rate_control_tests::unfinished_return();
+    let (mut peer, peer_id, _) = world();
+    assert_eq!(id, peer_id);
+    owner
+        .host_object_mut(id)
+        .unwrap()
+        .unit_ai_runtime
+        .set_guard_scan_deadline(Some(500));
+    let start = owner.host_object(id).unwrap().get_position();
+    let peer_before = projection(&peer, peer_id);
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&owner);
+    let entity = shadow.entity_for_host(id).unwrap();
+    let copy = shadow.world_mut().world_mut().entity_mut(entity).unwrap();
+    copy.guard_position = Some([900.0, 0.0, 900.0]);
+    copy.guard_target_host = peer_id.0;
+    copy.guard_radius = 999.0;
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let mut restored = GameLogic::new();
+    restored.templates = owner.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    for frame in 100..250 {
+        for receiving in [&mut owner, &mut restored] {
+            receiving.frame = frame;
+            receiving.tick_host_guard_states(&[id]);
+            if receiving
+                .host_object(id)
+                .unwrap()
+                .unit_ai_runtime
+                .guard_phase()
+                != Some(GuardPhase::Idle)
+            {
+                receiving.update_movement_for_test(&[id], 1.0 / 30.0);
+            }
+        }
+        assert_eq!(
+            projection(&owner, id),
+            projection(&restored, id),
+            "saved guard continuation frame {frame}"
+        );
+        assert_eq!(projection(&peer, peer_id), peer_before);
+        if owner.host_object(id).unwrap().unit_ai_runtime.guard_phase() == Some(GuardPhase::Idle) {
+            break;
+        }
+    }
+    assert_eq!(
+        owner.host_object(id).unwrap().unit_ai_runtime.guard_phase(),
+        Some(GuardPhase::Idle)
+    );
+    assert_ne!(owner.host_object(id).unwrap().get_position(), start);
+    assert!(!owner.host_object(id).unwrap().status.moving);
+    let anchor = owner.host_object(id).unwrap().guard_position;
+    shadow.sync_from_host(&owner);
+    assert_eq!(
+        shadow.world().entity(entity).unwrap().guard_position,
+        anchor.map(|p| [p.x, p.y, p.z])
+    );
+    peer.reset();
+    drop(peer);
+    assert_eq!(owner.host_object(id).unwrap().guard_position, anchor);
+}
+
+#[test]
+fn guarded_target_lifetime_uses_driving_session_even_with_same_ids() {
+    let (mut owner, id, target) = world();
+    let (peer, peer_id, peer_target) = world();
+    assert_eq!((id, target), (peer_id, peer_target));
+    assert!(owner.unit_command_guard_full(id, None, Some(target), 175.0, GuardMode::Normal));
+    assert_eq!(
+        owner.host_object(id).unwrap().ai_state,
+        AIState::GuardingObject
+    );
+    assert_eq!(owner.host_object(id).unwrap().guard_target, Some(target));
+    assert!(
+        owner
+            .host_object(id)
+            .unwrap()
+            .requested_destination
+            .is_some()
+            || !owner.host_object(id).unwrap().movement.path.is_empty()
+    );
+    let peer_before = projection(&peer, peer_id);
+    owner.host_object_mut(target).unwrap().health.current = 0.0;
+    owner.frame = 11;
+    owner
+        .host_object_mut(id)
+        .unwrap()
+        .unit_ai_runtime
+        .set_guard_scan_deadline(Some(11));
+    owner.tick_host_guard_states(&[id]);
+    assert_eq!(owner.host_object(id).unwrap().guard_target, None);
+    assert_eq!(peer.host_object(peer_target).unwrap().health.current, 100.0);
+    assert_eq!(projection(&peer, peer_id), peer_before);
+    let before = projection(&owner, id);
+    assert!(!owner.unit_command_guard_full(id, None, Some(target), 175.0, GuardMode::Normal));
+    assert_eq!(
+        projection(&owner, id),
+        before,
+        "dead target admission cannot install another session's same-ID target"
+    );
+}

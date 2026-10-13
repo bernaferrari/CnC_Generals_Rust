@@ -394,14 +394,14 @@ impl BunkerBusterBehavior {
         if let Some(weapon_template) = &data.shockwave_weapon_template {
             if let Ok(obj_guard) = object_for_fx.read() {
                 let position = *obj_guard.get_position();
-                let _ = crate::weapon::with_weapon_store(|store| {
-                    store.create_and_fire_temp_weapon(
-                        weapon_template,
-                        obj_guard.get_id(),
-                        None,
-                        Some(&position),
-                    )
-                });
+                let source_id = obj_guard.get_id();
+                drop(obj_guard);
+                let _ = crate::weapon::WeaponStore::create_and_fire_temp_weapon(
+                    weapon_template,
+                    source_id,
+                    None,
+                    Some(&position),
+                );
             }
         }
     }

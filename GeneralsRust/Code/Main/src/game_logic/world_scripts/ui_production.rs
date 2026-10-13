@@ -473,7 +473,7 @@ impl GameLogic {
         }
         // Standalone command processing (unit tests / host gates without a full
         // sim tick) must still settle deferred economy/damage authority logs.
-        if !crate::gameworld_shadow::shadow_coupled_tick_active() {
+        {
             crate::gameworld_shadow::materialize_host_economy_pending(self);
         }
     }

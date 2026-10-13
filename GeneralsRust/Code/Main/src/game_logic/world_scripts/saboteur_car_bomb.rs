@@ -424,9 +424,7 @@ impl GameLogic {
                     if let Some(r) = self.objects.get_mut(&pilot_id) {
                         r.set_position(cp);
                         crate::game_logic::host_ground_height_log::record(pilot_id, cp.y, false);
-                        if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                            r.record_host_movement();
-                        }
+                        {}
                         if open && !r.is_parachute_open() {
                             r.open_eject_parachute();
                         }
@@ -529,15 +527,7 @@ impl GameLogic {
             }
             obj.set_position(p);
             crate::game_logic::host_ground_height_log::record(pilot_id, ground, false);
-            if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                // Freefall residual is not path-integrate; host pose stays residual,
-                // but landing destination is logged for GameWorld move channel.
-                if landed {
-                    self.movement_events
-                        .record(self.frame, pilot_id, Some([p.x, p.y, p.z]));
-                }
-                obj.record_host_movement();
-            }
+            {}
             if let Some((np, nr, npr, nrr)) = sway {
                 obj.status.parachute_pitch = np;
                 obj.status.parachute_roll = nr;
@@ -565,9 +555,7 @@ impl GameLogic {
                 if let Some(r) = self.objects.get_mut(&rid) {
                     r.set_position(land_pos);
                     crate::game_logic::host_ground_height_log::record(rid, ground, false);
-                    if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                        r.record_host_movement();
-                    }
+                    {}
                     if open && !r.is_parachute_open() {
                         r.open_eject_parachute();
                     }
@@ -584,19 +572,10 @@ impl GameLogic {
                 if let Some(r) = self.objects.get_mut(rid) {
                     r.set_contained_by(None);
                     r.set_ai_state(AIState::Idle);
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                        crate::game_logic::host_ai_decision_log::record_set_state(*rid, 0);
-                    }
+                    {}
                     r.set_position(land_pos);
                     crate::game_logic::host_ground_height_log::record(*rid, ground, false);
-                    if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                        self.movement_events.record(
-                            self.frame,
-                            *rid,
-                            Some([land_pos.x, land_pos.y, land_pos.z]),
-                        );
-                        r.record_host_movement();
-                    }
+                    {}
                     r.clear_eject_parachuting();
                     // Partition restore residual after chute dump.
                     r.set_status_masked(false);
@@ -658,9 +637,7 @@ impl GameLogic {
                 if let Some(chute) = self.objects.get_mut(&pilot_id) {
                     chute.clear_eject_parachuting();
                     let hp = chute.health.current.max(1.0);
-                    if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                        self.health_events.record_damage(pilot_id, hp, None, true);
-                    } else {
+                    {
                         chute.health.current = 0.0;
                     }
                     chute.status.destroyed = true;
@@ -757,9 +734,7 @@ impl GameLogic {
 
         if let Some(r) = self.objects.get_mut(&rider_id) {
             let hp = r.health.current.max(1.0);
-            if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                self.health_events.record_damage(rider_id, hp, None, true);
-            } else {
+            {
                 r.health.current = 0.0;
             }
             r.status.destroyed = true;
@@ -837,9 +812,7 @@ impl GameLogic {
             r.hunting = false;
             r.target = None;
             r.stop_moving();
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_set_state(rider_id, 0);
-            }
+            {}
         }
     }
 
@@ -883,14 +856,7 @@ impl GameLogic {
             unit.set_position(create);
             unit.set_orientation(orientation);
             crate::game_logic::host_ground_height_log::record(rider_id, 0.0, false);
-            if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                self.movement_events.record(
-                    self.frame,
-                    rider_id,
-                    Some([create.x, create.y, create.z]),
-                );
-                unit.record_host_movement();
-            }
+            {}
         }
 
         let mut exit_path = vec![natural];
@@ -1171,20 +1137,18 @@ impl GameLogic {
                     // Wave 748: under damage authority, do not mutate host HP
                     // (dual with GW HP writeback). Damage log owns the numeric
                     // residual; lethal still stamps destroyed + idle residual.
-                    if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                        self.health_events.record_damage(
-                            obj.id,
-                            result.structure_damage_applied,
-                            None,
-                            new_struct_hp <= 0.0,
-                        );
-                    } else {
+                    {
                         obj.health.current = new_struct_hp;
-                        self.health_events.record_damage(
+                        self.health_events.record_applied_damage(
                             obj.id,
                             result.structure_damage_applied,
                             None,
                             new_struct_hp <= 0.0,
+                            0,
+                            crate::game_logic::host_damage_log::BodyHealthObservation {
+                                current: obj.health.current,
+                                maximum: obj.health.maximum,
+                            },
                         );
                         if new_struct_hp <= 0.0 {
                             obj.health.current = 0.0;
@@ -1194,9 +1158,7 @@ impl GameLogic {
                         obj.status.destroyed = true;
                         let hid = obj.id;
                         obj.set_ai_state(AIState::Idle);
-                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                            crate::game_logic::host_ai_decision_log::record_set_state(hid, 0);
-                        }
+                        {}
                         obj.target = None;
                         destroyed = true;
                     }

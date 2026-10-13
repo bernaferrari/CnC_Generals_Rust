@@ -34,11 +34,7 @@ impl GameLogic {
                 // y is world height after grounding; residual height sample = y when terrain present.
                 object.set_ground_height_residual(y, true);
                 crate::game_logic::host_ground_height_log::record(object_id, y, true);
-                if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    self.movement_events
-                        .record(self.frame, object_id, Some([x, y, z]));
-                    object.record_host_movement();
-                }
+                {}
             }
         }
         // Wave 475: host map grounding is host-ObjectStore only.
@@ -766,8 +762,6 @@ impl GameLogic {
         // immediately so build placement / presentation FOW are not stuck LBC_SHROUD
         // until the first logic tick. Same XZ→shroud mapping as update path.
         // Wave 827: under coupled shadow, host system residuals sole-tick after GW writeback.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.update_main_crate_vision();
         }

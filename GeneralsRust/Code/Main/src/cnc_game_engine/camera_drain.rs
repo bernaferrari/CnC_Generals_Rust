@@ -672,37 +672,9 @@ impl CnCGameEngine {
         } else {
             None
         };
-        // Ordinary matches keep all simulation writes and timers in Main.
-        // Only an explicitly enabled authority experiment publishes a shadow.
-        let couple_shadow = self.gameworld_shadow.is_some()
-            && *self.game_logic.gameworld_authority()
-                != crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF;
-        // Take the observer so its exclusive borrow is explicit across the
-        // per-step boundary; restore it before presentation.
+        // The observer only copies completed Main state at each fixed step.
         let mut observer_slot = self.gameworld_shadow.take();
-        let coupled_tick_guard =
-            couple_shadow.then(crate::gameworld_shadow::CoupledTickGuard::enter);
-        // Each replay fast-forward iteration offers one host update, but a host
-        // update may produce zero, one, or several fixed 30 Hz logic steps.
-        // Complete admission and observation for every actual logic step.
-        // Production, construction and movement follow logic frames rather
-        // than presentation or fast-forward iteration count.
-        if couple_shadow {
-            let shadow = observer_slot
-                .as_mut()
-                .expect("couple_shadow implies a live GameWorldShadow");
-            crate::gameworld_shadow::with_coupled_shadow(shadow, || {
-                self.host_run_fast_forward_loop(dt, ff_steps, step_budget, true, None);
-            });
-        } else {
-            self.host_run_fast_forward_loop(
-                dt,
-                ff_steps,
-                step_budget,
-                false,
-                observer_slot.as_mut(),
-            );
-        }
+        self.host_run_fast_forward_loop(dt, ff_steps, step_budget, observer_slot.as_mut());
         self.gameworld_shadow = observer_slot.take();
         // Script FPS applied from presentation residual after snapshot build (below).
         // Live take remains for boot path when no frame is produced this tick.
@@ -726,7 +698,6 @@ impl CnCGameEngine {
 
         // The scoped couple publication ended with the fast-forward batch
         // above; release coupled-frame depth before the presentation shell.
-        drop(coupled_tick_guard);
 
         // Wave 589: presentation finalize residual via helper (build + audio + FX).
         self.host_finalize_presentation_after_logic();
@@ -2358,7 +2329,6 @@ impl CnCGameEngine {
         dt: f32,
         ff_steps: usize,
         headless_step_budget: Option<usize>,
-        couple_shadow: bool,
         mut owned_observer: Option<&mut crate::gameworld_shadow::GameWorldShadow>,
     ) {
         for _ in 0..ff_steps {
@@ -2384,28 +2354,10 @@ impl CnCGameEngine {
                     // Wave 682/925: post-logic host→GameWorld residual batch.
                     // The callback borrows this driving GameLogic after each
                     // completed step; all eager channels retain their order.
-                    if couple_shadow {
-                        crate::gameworld_shadow::with_active_shadow_mut(|shadow| {
-                            crate::gameworld_shadow::eager_apply_all_host_residuals_after_logic(
-                                shadow, logic,
-                            );
-                        });
-                        *presentation_entity_count =
-                            Self::host_run_gameworld_shadow_after_logic(logic);
-                    } else if *logic.gameworld_authority()
-                        == crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF
-                    {
-                        *presentation_entity_count =
-                            crate::gameworld_shadow::run_owned_host_boundary(
-                                owned_observer.as_deref_mut(),
-                                logic,
-                            );
-                    } else {
-                        // An explicit authority experiment may run without a
-                        // shadow. Preserve its host-only admission boundary.
-                        *presentation_entity_count =
-                            crate::gameworld_shadow::run_post_logic_shadow_boundary(None, logic);
-                    }
+                    *presentation_entity_count = crate::gameworld_shadow::run_owned_host_boundary(
+                        owned_observer.as_deref_mut(),
+                        logic,
+                    );
                 },
             );
             if !self.game_paused {
@@ -2418,26 +2370,6 @@ impl CnCGameEngine {
     ///
     /// Compatibility boundary for explicit authority experiments and probes.
     /// Ordinary match frames pass their observation mirror directly.
-    pub(super) fn host_run_gameworld_shadow_after_logic(
-        logic: &mut crate::game_logic::GameLogic,
-    ) -> usize {
-        // Wave 597/680/927: delegate the per-step shadow/session boundary.
-        let from_boundary = crate::gameworld_shadow::with_active_shadow_mut(|shadow| {
-            crate::gameworld_shadow::run_post_logic_shadow_boundary(Some(shadow), logic)
-        })
-        .unwrap_or_else(|| crate::gameworld_shadow::run_post_logic_shadow_boundary(None, logic));
-        let entity_count = crate::gameworld_shadow::with_active_shadow(|shadow| {
-            crate::gameworld_shadow::presentation_view_from_shadow(shadow, 0)
-                .entities
-                .len()
-        })
-        .unwrap_or(from_boundary);
-        // Wave 621/912: after health writeback, drain destroy-ready log
-        // before the next host ingress.
-        let _ = logic
-            .apply_host_support_op(crate::game_logic::HostSupportOp::ProcessDestroyListIfNeeded);
-        entity_count
-    }
 
     /// Wave 589: post-logic presentation finalize residual.
     ///
@@ -2820,10 +2752,7 @@ mod replay_fast_forward_probe {
         BuildingData, BuildingType, GameLogic, KindOf, ObjectId, ProductionItem, ProductionKind,
         Resources, Team, ThingTemplate,
     };
-    use crate::gameworld_shadow::{
-        GameWorldShadow, ShadowCoupleGuard, gameworld_production_sole_tick_enabled,
-        gameworld_shadow_enabled,
-    };
+    use crate::gameworld_shadow::GameWorldShadow;
     use glam::Vec3;
     use std::sync::Arc;
     use winit::{event_loop::EventLoop, window::WindowAttributes};
@@ -2848,7 +2777,6 @@ mod replay_fast_forward_probe {
 
     fn install_replay_factory(engine: &mut CnCGameEngine) -> ObjectId {
         engine.game_logic = GameLogic::new();
-        engine.game_logic.set_production_authority(true);
         engine.gameworld_shadow = Some(GameWorldShadow::new(64));
         engine.last_frame_timing = None;
         engine.last_presentation_frame = None;
@@ -2921,7 +2849,7 @@ mod replay_fast_forward_probe {
         let before = host_queue_state(engine, producer_id);
         for _ in 0..outer_frames {
             // Exercise the actual engine boundary: it decides fixed-step count,
-            // drains host residuals, runs GameWorld writeback, and finalizes one
+            // completes Main gameplay, copies observations, and finalizes one
             // presentation frame per outer update.
             engine.host_run_ingame_logic_presentation_frame(dt);
         }
@@ -2934,25 +2862,8 @@ mod replay_fast_forward_probe {
     }
 
     pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
-        // The launcher owns the child environment. Never change process env
-        // after Tokio, windowing, or native asset/driver workers may exist.
-        // Missing configuration retains the existing shadow default (enabled).
-        anyhow::ensure!(
-            gameworld_shadow_enabled(),
-            "replay probe requires shadow enabled at process launch; use the replay_fast_forward_probe binary",
-        );
-        let _coupled = ShadowCoupleGuard::enter();
-
         let (_event_loop, mut engine) = replay_fixture_engine()?;
-        // Arm production authority on the engine's GameLogic (hq-e84zk retired
-        // the GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY env flag; re-armed on
-        // every fresh instance inside install_replay_factory).
         install_replay_factory(&mut engine);
-        assert!(
-            gameworld_production_sole_tick_enabled(),
-            "fixture must take the same coupled production-authority path as the engine"
-        );
-        drop(_coupled);
 
         let normal_30 = run_engine_replay_batch(&mut engine, false, 1.0 / 30.0, 1);
         assert_eq!(
@@ -2980,7 +2891,7 @@ mod replay_fast_forward_probe {
         assert_eq!(
             fast_60,
             (2, 2, 2),
-            "four TiVO 60 Hz offers must advance shadow queues only for the two completed fixed steps"
+            "four TiVO 60 Hz offers must advance owner queues only for the two completed fixed steps"
         );
         Ok(())
     }

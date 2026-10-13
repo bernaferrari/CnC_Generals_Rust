@@ -8,9 +8,8 @@
     pub dual_tick_presentation_ok: bool,
     pub dual_tick_counters_ok: bool,
     pub gameworld_shadow_ok: bool,
-    pub damage_authority_env_ok: bool,
-    pub economy_authority_env_ok: bool,
-    pub production_authority_env_ok: bool,
+
+
     pub dual_tick_policy_authority_only: bool,
-    pub engine_bridge_off: bool,
+
     pub hud_selection_ok: bool,

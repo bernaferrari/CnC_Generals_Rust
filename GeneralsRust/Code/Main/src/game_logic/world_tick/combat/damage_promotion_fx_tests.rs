@@ -3,9 +3,6 @@
 //! Actual parsed Main rules/admission and normal combat; no fabricated XP/context.
 use super::*;
 use crate::game_logic::combat::tests::combat_test_guard;
-use crate::game_logic::game_logic::gameworld_authority::{
-    GameWorldAuthority, current_gameworld_authority, publish_gameworld_authority,
-};
 use crate::game_logic::host_transition_damage_fx::take_dispatched_armor_damage_fx;
 use game_engine::common::ini::INI;
 use game_engine::common::ini::ini_damage_fx::{
@@ -85,7 +82,7 @@ fn isolated(_: &str, run: impl FnOnce()) {
 // on normal/unwind return; the child may initialize an absent DamageFX catalog.
 struct RestoreInputs {
     store: Option<gamelogic::weapon::WeaponStore>,
-    authority: GameWorldAuthority,
+
     frame: u32,
     previous_rows: Option<DamageFX>,
 }
@@ -94,11 +91,11 @@ impl RestoreInputs {
         init_global_damage_fx_store();
         let saved = Self {
             store: gamelogic::weapon::with_weapon_store_mut(std::mem::take).ok(),
-            authority: current_gameworld_authority(),
+
             frame: crate::game_logic::host_historic_bonus::logic_frame(),
             previous_rows: get_damage_fx_store_mut().unwrap().remove_damage_fx(ROWS),
         };
-        publish_gameworld_authority(GameWorldAuthority::DEFAULT_OFF);
+
         gamelogic::initialize_weapon_store().expect("actual catalog presence");
         crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         assert_eq!(
@@ -153,7 +150,7 @@ impl Drop for RestoreInputs {
         } else {
             gamelogic::weapon::shutdown_weapon_store().unwrap();
         }
-        publish_gameworld_authority(self.authority);
+
         crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
     }
 }

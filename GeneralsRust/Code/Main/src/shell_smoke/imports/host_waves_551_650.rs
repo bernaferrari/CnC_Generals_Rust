@@ -315,183 +315,33 @@ pub use crate::game_logic::host_live_host_production_complete_collect_helper_res
     honesty_host_production_complete_collect_helper_nav_commands_residual_wave613,
     simulate_live_host_production_complete_collect_helper_honesty,
 };
-pub use crate::game_logic::host_live_host_production_ready_log_helper_residual_wave614::{
-    honesty_host_production_ready_log_helper_method_names_residual_wave614,
-    honesty_host_production_ready_log_helper_nav_commands_residual_wave614,
-    simulate_live_host_production_ready_log_helper_honesty,
-};
 pub use crate::game_logic::host_live_host_production_spawn_helper_residual_wave615::{
     honesty_host_production_spawn_helper_method_names_residual_wave615,
     honesty_host_production_spawn_helper_nav_commands_residual_wave615,
     simulate_live_host_production_spawn_helper_honesty,
-};
-pub use crate::game_logic::host_live_ai_attack_recheck_production_authority_chain_residual_wave616::{
-    honesty_ai_attack_recheck_production_authority_chain_method_names_residual_wave616,
-    honesty_ai_attack_recheck_production_authority_chain_nav_commands_residual_wave616,
-    simulate_live_ai_attack_recheck_production_authority_chain_honesty,
 };
 pub use crate::game_logic::host_live_host_construction_ready_log_helper_residual_wave617::{
     honesty_host_construction_ready_log_helper_method_names_residual_wave617,
     honesty_host_construction_ready_log_helper_nav_commands_residual_wave617,
     simulate_live_host_construction_ready_log_helper_honesty,
 };
-pub use crate::game_logic::host_live_host_special_power_ready_log_helper_residual_wave618::{
-    honesty_host_special_power_ready_log_helper_method_names_residual_wave618,
-    honesty_host_special_power_ready_log_helper_nav_commands_residual_wave618,
-    simulate_live_host_special_power_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_sell_ready_log_helper_residual_wave619::{
-    honesty_host_sell_ready_log_helper_method_names_residual_wave619,
-    honesty_host_sell_ready_log_helper_nav_commands_residual_wave619,
-    simulate_live_host_sell_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_rebuild_ready_log_helper_residual_wave620::{
-    honesty_host_rebuild_ready_log_helper_method_names_residual_wave620,
-    honesty_host_rebuild_ready_log_helper_nav_commands_residual_wave620,
-    simulate_live_host_rebuild_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_destroy_ready_log_helper_residual_wave621::{
-    honesty_host_destroy_ready_log_helper_method_names_residual_wave621,
-    honesty_host_destroy_ready_log_helper_nav_commands_residual_wave621,
-    simulate_live_host_destroy_ready_log_helper_honesty,
-};
 pub use crate::game_logic::host_live_host_veterancy_ready_log_helper_residual_wave622::{
     honesty_host_veterancy_ready_log_helper_method_names_residual_wave622,
     honesty_host_veterancy_ready_log_helper_nav_commands_residual_wave622,
     simulate_live_host_veterancy_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_body_damage_ready_log_helper_residual_wave623::{
-    honesty_host_body_damage_ready_log_helper_method_names_residual_wave623,
-    honesty_host_body_damage_ready_log_helper_nav_commands_residual_wave623,
-    simulate_live_host_body_damage_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_radar_extend_ready_log_helper_residual_wave625::{
-    honesty_host_radar_extend_ready_log_helper_method_names_residual_wave625,
-    honesty_host_radar_extend_ready_log_helper_nav_commands_residual_wave625,
-    simulate_live_host_radar_extend_ready_log_helper_honesty,
 };
 pub use crate::game_logic::host_live_host_construction_complete_clear_ready_log_helper_residual_wave626::{
     honesty_host_construction_complete_clear_ready_log_helper_method_names_residual_wave626,
     honesty_host_construction_complete_clear_ready_log_helper_nav_commands_residual_wave626,
     simulate_live_host_construction_complete_clear_ready_log_helper_honesty,
 };
-pub use crate::game_logic::host_live_host_production_door_ready_log_helper_residual_wave627::{
-    honesty_host_production_door_ready_log_helper_method_names_residual_wave627,
-    honesty_host_production_door_ready_log_helper_nav_commands_residual_wave627,
-    simulate_live_host_production_door_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_contain_ready_log_helper_residual_wave628::{
-    honesty_host_contain_ready_log_helper_method_names_residual_wave628,
-    honesty_host_contain_ready_log_helper_nav_commands_residual_wave628,
-    simulate_live_host_contain_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_owner_ready_log_helper_residual_wave629::{
-    honesty_host_owner_ready_log_helper_method_names_residual_wave629,
-    honesty_host_owner_ready_log_helper_nav_commands_residual_wave629,
-    simulate_live_host_owner_ready_log_helper_honesty,
-};
 pub use crate::game_logic::host_live_host_ai_state_ready_log_helper_residual_wave630::{
     honesty_host_ai_state_ready_log_helper_method_names_residual_wave630,
     honesty_host_ai_state_ready_log_helper_nav_commands_residual_wave630,
     simulate_live_host_ai_state_ready_log_helper_honesty,
 };
-pub use crate::game_logic::host_live_host_economy_ready_log_helper_residual_wave631::{
-    honesty_host_economy_ready_log_helper_method_names_residual_wave631,
-    honesty_host_economy_ready_log_helper_nav_commands_residual_wave631,
-    simulate_live_host_economy_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_death_type_ready_log_helper_residual_wave632::{
-    honesty_host_death_type_ready_log_helper_method_names_residual_wave632,
-    honesty_host_death_type_ready_log_helper_nav_commands_residual_wave632,
-    simulate_live_host_death_type_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_model_condition_ready_log_helper_residual_wave633::{
-    honesty_host_model_condition_ready_log_helper_method_names_residual_wave633,
-    honesty_host_model_condition_ready_log_helper_nav_commands_residual_wave633,
-    simulate_live_host_model_condition_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_combat_status_ready_log_helper_residual_wave634::{
-    honesty_host_combat_status_ready_log_helper_method_names_residual_wave634,
-    honesty_host_combat_status_ready_log_helper_nav_commands_residual_wave634,
-    simulate_live_host_combat_status_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_weapon_stats_ready_log_helper_residual_wave635::{
-    honesty_host_weapon_stats_ready_log_helper_method_names_residual_wave635,
-    honesty_host_weapon_stats_ready_log_helper_nav_commands_residual_wave635,
-    simulate_live_host_weapon_stats_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_transform_ready_log_helper_residual_wave636::{
-    honesty_host_transform_ready_log_helper_method_names_residual_wave636,
-    honesty_host_transform_ready_log_helper_nav_commands_residual_wave636,
-    simulate_live_host_transform_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_movement_ready_log_helper_residual_wave637::{
-    honesty_host_movement_ready_log_helper_method_names_residual_wave637,
-    honesty_host_movement_ready_log_helper_nav_commands_residual_wave637,
-    simulate_live_host_movement_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_attack_target_ready_log_helper_residual_wave638::{
-    honesty_host_attack_target_ready_log_helper_method_names_residual_wave638,
-    honesty_host_attack_target_ready_log_helper_nav_commands_residual_wave638,
-    simulate_live_host_attack_target_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_move_target_ready_log_helper_residual_wave639::{
-    honesty_host_move_target_ready_log_helper_method_names_residual_wave639,
-    honesty_host_move_target_ready_log_helper_nav_commands_residual_wave639,
-    simulate_live_host_move_target_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_fire_intent_ready_log_helper_residual_wave640::{
-    honesty_host_fire_intent_ready_log_helper_method_names_residual_wave640,
-    honesty_host_fire_intent_ready_log_helper_nav_commands_residual_wave640,
-    simulate_live_host_fire_intent_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_stored_supplies_ready_log_helper_residual_wave641::{
-    honesty_host_stored_supplies_ready_log_helper_method_names_residual_wave641,
-    honesty_host_stored_supplies_ready_log_helper_nav_commands_residual_wave641,
-    simulate_live_host_stored_supplies_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_weapon_set_ready_log_helper_residual_wave642::{
-    honesty_host_weapon_set_ready_log_helper_method_names_residual_wave642,
-    honesty_host_weapon_set_ready_log_helper_nav_commands_residual_wave642,
-    simulate_live_host_weapon_set_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_combat_attack_ready_log_helper_residual_wave643::{
-    honesty_host_combat_attack_ready_log_helper_method_names_residual_wave643,
-    honesty_host_combat_attack_ready_log_helper_nav_commands_residual_wave643,
-    simulate_live_host_combat_attack_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_command_set_ready_log_helper_residual_wave644::{
-    honesty_host_command_set_ready_log_helper_method_names_residual_wave644,
-    honesty_host_command_set_ready_log_helper_nav_commands_residual_wave644,
-    simulate_live_host_command_set_ready_log_helper_honesty,
-};
 pub use crate::game_logic::host_live_host_ai_mood_ready_log_helper_residual_wave645::{
     honesty_host_ai_mood_ready_log_helper_method_names_residual_wave645,
     honesty_host_ai_mood_ready_log_helper_nav_commands_residual_wave645,
     simulate_live_host_ai_mood_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_locomotor_ready_log_helper_residual_wave646::{
-    honesty_host_locomotor_ready_log_helper_method_names_residual_wave646,
-    honesty_host_locomotor_ready_log_helper_nav_commands_residual_wave646,
-    simulate_live_host_locomotor_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_hijacker_ready_log_helper_residual_wave647::{
-    honesty_host_hijacker_ready_log_helper_method_names_residual_wave647,
-    honesty_host_hijacker_ready_log_helper_nav_commands_residual_wave647,
-    simulate_live_host_hijacker_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_ai_request_ready_log_helper_residual_wave648::{
-    honesty_host_ai_request_ready_log_helper_method_names_residual_wave648,
-    honesty_host_ai_request_ready_log_helper_nav_commands_residual_wave648,
-    simulate_live_host_ai_request_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_physics_motive_ready_log_helper_residual_wave649::{
-    honesty_host_physics_motive_ready_log_helper_method_names_residual_wave649,
-    honesty_host_physics_motive_ready_log_helper_nav_commands_residual_wave649,
-    simulate_live_host_physics_motive_ready_log_helper_honesty,
-};
-pub use crate::game_logic::host_live_host_bounce_land_ready_log_helper_residual_wave650::{
-    honesty_host_bounce_land_ready_log_helper_method_names_residual_wave650,
-    honesty_host_bounce_land_ready_log_helper_nav_commands_residual_wave650,
-    simulate_live_host_bounce_land_ready_log_helper_honesty,
 };

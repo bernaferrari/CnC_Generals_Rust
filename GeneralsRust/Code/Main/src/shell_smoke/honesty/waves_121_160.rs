@@ -73,9 +73,7 @@ pub(super) struct Waves121160 {
     pub credits_nav_commands_wave151_ok: bool,
     pub challenge_generals_method_names_wave152_ok: bool,
     pub challenge_generals_nav_commands_wave152_ok: bool,
-    pub gameworld_authority_env_names_wave153_ok: bool,
-    pub gameworld_authority_method_names_wave153_ok: bool,
-    pub gameworld_authority_nav_commands_wave153_ok: bool,
+
     pub window_video_type_state_names_wave154_ok: bool,
     pub window_video_method_names_wave154_ok: bool,
     pub window_video_nav_commands_wave154_ok: bool,
@@ -193,12 +191,7 @@ pub(super) fn evaluate(
             honesty_challenge_generals_method_names_residual_wave152(),
         challenge_generals_nav_commands_wave152_ok:
             honesty_challenge_generals_nav_commands_residual_wave152(),
-        gameworld_authority_env_names_wave153_ok:
-            honesty_gameworld_authority_env_names_residual_wave153(),
-        gameworld_authority_method_names_wave153_ok:
-            honesty_gameworld_authority_method_names_residual_wave153(),
-        gameworld_authority_nav_commands_wave153_ok:
-            honesty_gameworld_authority_nav_commands_residual_wave153(),
+
         window_video_type_state_names_wave154_ok:
             honesty_window_video_type_state_names_residual_wave154(),
         window_video_method_names_wave154_ok: honesty_window_video_method_names_residual_wave154(),

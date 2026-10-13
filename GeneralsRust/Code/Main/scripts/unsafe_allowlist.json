@@ -764,14 +764,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/Main/src/game_logic/residuals/host_live_gameworld_economy_movement_residual_wave183.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/Main/src/gameworld_shadow/tick/couple.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/Main/src/graphics/occlusion_bridge.rs": {
       "constructs": 2,
       "undocumented": 0

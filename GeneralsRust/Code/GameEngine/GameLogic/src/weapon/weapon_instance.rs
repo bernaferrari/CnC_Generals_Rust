@@ -650,7 +650,7 @@ impl Weapon {
             if self.template.get_auto_reloads_clip() {
                 // C++ Weapon.cpp:2629-2632 — empty clip + auto-reload starts
                 // reloadWithBonus immediately (ammo refill + RELOADING_CLIP).
-                let _ = self.reload_with_bonus(source, bonus, false);
+                let _ = self.reload_with_bonus_at(source, bonus, false, current_frame);
                 return true;
             }
             // C++ Weapon.cpp:2634-2637, 2672 — no-auto-reload stays empty

@@ -327,8 +327,8 @@ fn admit_source(logic: &mut GameLogic, case: Case) {
     assert_eq!(logic.host_ai_player_count(), 0);
 }
 
-// Existing safe APIs publish a distinct world with the same numeric ObjectIds
-// only around load. Its health/construction deliberately contradicts the save.
+// A distinct owner with the same numeric IDs supplies a conflicting immutable
+// projection. Loading the receiving save must neither read nor mutate that peer.
 fn foreign_shadow(
     logic: &GameLogic,
     case: Case,
@@ -344,18 +344,17 @@ fn foreign_shadow(
             ObjectId(index as u32 + 1)
         );
     }
-    let mut shadow = generals_main::gameworld_shadow::GameWorldShadow::new(16);
-    shadow.sync_from_host(&foreign);
-    let entity = shadow.entity_for_host(ObjectId(1)).unwrap();
-    let producer = shadow.world_mut().world_mut().entity_mut(entity).unwrap();
+    let producer = foreign.host_object_mut(ObjectId(1)).unwrap();
     match case.control {
-        Control::ForeignDeadProducer => producer.health = 0.0,
+        Control::ForeignDeadProducer => producer.health.current = 0.0,
         Control::ForeignIncompleteProducer => {
-            producer.under_construction = true;
+            producer.status.under_construction = true;
             producer.construction_percent = 0.25;
         }
         _ => unreachable!(),
     }
+    let mut shadow = generals_main::gameworld_shadow::GameWorldShadow::new(16);
+    shadow.sync_from_host(&foreign);
     shadow
 }
 
@@ -375,11 +374,21 @@ fn load_with_foreign_shadow(
     case: Case,
     dir: &Path,
 ) {
-    use generals_main::gameworld_shadow::{CoupledTickGuard, with_coupled_shadow};
     let mut shadow = foreign_shadow(logic, case);
     let before = shadow_state(&shadow);
-    let guard = CoupledTickGuard::enter();
-    let (result, receiving) = with_coupled_shadow(&mut shadow, || {
+    let projected = shadow
+        .world()
+        .entity(shadow.entity_for_host(ObjectId(1)).unwrap())
+        .unwrap();
+    match case.control {
+        Control::ForeignDeadProducer => assert_eq!(projected.health, 0.0),
+        Control::ForeignIncompleteProducer => {
+            assert!(projected.under_construction);
+            assert_eq!(projected.construction_percent, 0.25);
+        }
+        _ => unreachable!(),
+    }
+    let (result, receiving) = {
         let result = manager.load_game("power", logic);
         let producer = logic.host_object(ObjectId(1)).unwrap();
         write_json(
@@ -391,15 +400,15 @@ fn load_with_foreign_shadow(
             "local_under_construction":producer.status.under_construction,
             "local_construction_percent":producer.construction_percent}),
         );
-        // These generic predicates must actually see the conflicting foreign
-        // object. Merely creating a shadow without reaching it is not evidence.
-        assert_eq!(
+        // Ordinary predicates use only the receiving saved object. The positive
+        // control above proves the same-ID foreign projection really disagrees.
+        assert!(
             producer.is_alive(),
-            case.control != Control::ForeignDeadProducer
+            "receiving body remains alive despite a foreign same-ID projection"
         );
-        assert_eq!(
+        assert!(
             producer.is_constructed(),
-            case.control != Control::ForeignIncompleteProducer
+            "receiving construction state cannot be replaced by a foreign projection"
         );
         assert_eq!(producer.health.current, 1000.0);
         assert!(!producer.status.under_construction);
@@ -412,8 +421,7 @@ fn load_with_foreign_shadow(
             "local_construction_percent":producer.construction_percent,
             "produced":player.power_produced,"consumed":player.power_consumed,"available":player.power_available}),
         )
-    });
-    drop(guard);
+    };
     let after = shadow_state(&shadow);
     write_json(
         &dir.join("reader-foreign-shadow.json"),
@@ -490,8 +498,6 @@ fn script_state() -> Value {
 }
 
 fn observe(logic: &GameLogic) -> Value {
-    assert!(!generals_main::gameworld_shadow::gameworld_damage_authority_live());
-    assert!(!generals_main::gameworld_shadow::gameworld_construction_authority_live());
     let player = logic.get_player(0).unwrap();
     let mut objects: Vec<_> = logic.host_objects().values().collect();
     objects.sort_by_key(|object| object.id.0);

@@ -122,106 +122,74 @@ impl AI {
             range,
             &[(source_id, source_pos)],
         );
-        // C++ AI.cpp:642-646: null/default uses closest selection, not priorities.
-        let priority_info = info.filter(|info| !info.get_name().is_empty());
-        let mut closest_id = None;
-        let mut closest_distance = range * range + 1.0;
-        let mut priority_candidates = Vec::new();
-
-        for target_id in candidates {
-            if target_id == source_id {
-                continue;
-            }
-            let Some(distance) = OBJECT_REGISTRY
-                .with_object(target_id, |target| {
-                    // PartitionManager.cpp:3358-3370 computes distance before filters.
-                    let distance = ThePartitionManager::get_distance_squared(
-                        source,
-                        target,
-                        FROM_BOUNDING_SPHERE_2D,
-                    );
-                    target_passes_builtin_filters(source, target, qualifiers).then_some(distance)
-                })
-                .flatten()
-            else {
-                continue;
-            };
-            // No target guard spans the user callback; it may change containment.
-            if optional_filter.is_some_and(|filter| !filter.allow(target_id)) {
-                continue;
-            }
-            if priority_info.is_some() {
-                priority_candidates.push((target_id, distance));
-            } else if distance < closest_distance {
-                closest_distance = distance;
-                closest_id = Some(target_id);
-            }
-        }
-
-        let Some(priority_info) = priority_info else {
-            return Ok(closest_id);
-        };
-        // C++ iterateObjectsInRange completes every filter, then sorts the iterator.
-        // Only afterwards does AI.cpp:660-700 inspect live priority/contained data.
-        priority_candidates
-            .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        let mut best_enemy = None;
-        let mut effective_priority = 0;
-        let mut actual_priority = 0;
-        let distance_modifier = self.ai_data.attack_priority_distance_modifier;
-        for (target_id, _) in priority_candidates {
-            let Some((mut priority, contained_ids, distance)) = OBJECT_REGISTRY
-                .with_object(target_id, |target| {
-                    let priority =
-                        priority_info.get_priority(target.get_template().get_name().as_str());
-                    if priority == 0 {
-                        return None;
-                    }
-                    let contained_ids = target
-                        .get_contain()
-                        .and_then(|contain| {
-                            contain
-                                .lock()
-                                .ok()
-                                .map(|contain| contain.get_contained_objects().into_owned())
-                        })
-                        .unwrap_or_default();
-                    // AI.cpp:685 recalculates distance after the filtered iterator.
-                    let distance = ThePartitionManager::get_distance_squared(
-                        source,
-                        target,
-                        FROM_BOUNDING_SPHERE_2D,
-                    );
-                    Some((priority, contained_ids, distance))
-                })
-                .flatten()
-            else {
-                continue;
-            };
-            for contained_id in contained_ids {
-                if let Some(contained_priority) = OBJECT_REGISTRY
-                    .with_object(contained_id, |member| {
-                        priority_info.get_priority(member.get_template().get_name().as_str())
-                    })
-                {
-                    priority = priority.max(contained_priority);
+        select_enemy_candidates(
+            candidates,
+            range,
+            info.is_some_and(|info| !info.get_name().is_empty()),
+            self.ai_data.attack_priority_distance_modifier,
+            |target_id| {
+                if target_id == source_id {
+                    return Ok(None);
                 }
-            }
-            let penalty = if distance_modifier > 0.0 {
-                (distance.sqrt() / distance_modifier) as i32
-            } else {
-                0
-            };
-            let modified_priority = (priority - penalty).max(1);
-            if modified_priority > effective_priority
-                || (modified_priority == effective_priority && priority > actual_priority)
-            {
-                effective_priority = modified_priority;
-                actual_priority = priority;
-                best_enemy = Some(target_id);
-            }
-        }
-        Ok(best_enemy)
+                let distance = OBJECT_REGISTRY
+                    .with_object(target_id, |target| {
+                        let distance = ThePartitionManager::get_distance_squared(
+                            source,
+                            target,
+                            FROM_BOUNDING_SPHERE_2D,
+                        );
+                        target_passes_builtin_filters(source, target, qualifiers)
+                            .then_some(distance)
+                    })
+                    .flatten();
+                if distance.is_some()
+                    && optional_filter.is_some_and(|filter| !filter.allow(target_id))
+                {
+                    return Ok(None);
+                }
+                Ok(distance)
+            },
+            |target_id| {
+                let Some(priority_info) = info else {
+                    return Ok(None);
+                };
+                let Some((mut priority, members, distance)) = OBJECT_REGISTRY
+                    .with_object(target_id, |target| {
+                        let priority =
+                            priority_info.get_priority(target.get_template().get_name().as_str());
+                        if priority == 0 {
+                            return None;
+                        }
+                        let members = target
+                            .get_contain()
+                            .and_then(|contain| {
+                                contain
+                                    .lock()
+                                    .ok()
+                                    .map(|contain| contain.get_contained_objects().into_owned())
+                            })
+                            .unwrap_or_default();
+                        let distance = ThePartitionManager::get_distance_squared(
+                            source,
+                            target,
+                            FROM_BOUNDING_SPHERE_2D,
+                        );
+                        Some((priority, members, distance))
+                    })
+                    .flatten()
+                else {
+                    return Ok(None);
+                };
+                for member in members {
+                    if let Some(value) = OBJECT_REGISTRY.with_object(member, |object| {
+                        priority_info.get_priority(object.get_template().get_name().as_str())
+                    }) {
+                        priority = priority.max(value);
+                    }
+                }
+                Ok(Some((priority, distance)))
+            },
+        )
     }
 
     pub fn get_adjusted_vision_range_for_object(
@@ -255,45 +223,14 @@ impl AI {
         if attitude.is_none() {
             return 0.0;
         }
-        let mut range = source.get_vision_range();
-        let controller_is_human =
-            source.with_controlling_player(|player| player.get_player_type() == PlayerType::Human);
-        let player_is_human = controller_is_human == Some(true);
-        let contained = source.get_contained_by().is_some();
-        let weapon_range = source.get_largest_weapon_range();
-        let ai_data = &self.ai_data;
-
-        if (factors_to_consider & vision_factors::OWNER_TYPE) != 0 {
-            if player_is_human {
-                if (factors_to_consider & vision_factors::GUARD_INNER) != 0 {
-                    range *= ai_data.guard_inner_modifier_human;
-                } else {
-                    range *= ai_data.guard_outer_modifier_human;
-                }
-            } else if (factors_to_consider & vision_factors::GUARD_INNER) != 0 {
-                range *= ai_data.guard_inner_modifier_ai;
-            } else {
-                range *= ai_data.guard_outer_modifier_ai;
-            }
-        }
-
-        // C++ AI.cpp:814-826 — contained uses weapon range; Sleep returns 0.
-        if contained {
-            range = weapon_range;
-        } else if (factors_to_consider & vision_factors::MOOD) != 0
-            && controller_is_human == Some(false)
-        {
-            if let Some(attitude) = attitude {
-                match attitude {
-                    AIAttitudeType::Sleep => return 0.0,
-                    AIAttitudeType::Aggressive => range *= ai_data.aggressive_range_modifier,
-                    AIAttitudeType::Defensive => range *= ai_data.alert_range_modifier,
-                    AIAttitudeType::Passive | AIAttitudeType::Normal => {}
-                }
-            }
-        }
-
-        range
+        adjusted_vision_range(
+            &self.ai_data,
+            source,
+            factors_to_consider,
+            attitude,
+            source.with_controlling_player(|player| player.get_player_type() == PlayerType::Human),
+            source.get_largest_weapon_range(),
+        )
     }
 }
 
@@ -366,4 +303,106 @@ fn target_passes_builtin_filters(source: &Object, target: &Object, qualifiers: u
         return false;
     }
     !(target.is_stealthed() && !target.is_detected())
+}
+
+/// AI.cpp:642-703 selection shared by registry adapters and receiving-world callers.
+/// Filters finish before priority reads; candidate state is observed again afterwards.
+pub(crate) fn select_enemy_candidates<E>(
+    candidates: impl IntoIterator<Item = ObjectID>,
+    range: Real,
+    uses_priorities: bool,
+    distance_modifier: Real,
+    mut filter: impl FnMut(ObjectID) -> Result<Option<Real>, E>,
+    mut priority: impl FnMut(ObjectID) -> Result<Option<(i32, Real)>, E>,
+) -> Result<Option<ObjectID>, E> {
+    let mut nearest = None;
+    let mut nearest_distance = range * range + 1.0;
+    let mut ranked = Vec::new();
+    for id in candidates {
+        let Some(distance) = filter(id)? else {
+            continue;
+        };
+        if uses_priorities {
+            ranked.push((id, distance));
+        } else if distance < nearest_distance {
+            nearest_distance = distance;
+            nearest = Some(id);
+        }
+    }
+    if !uses_priorities {
+        return Ok(nearest);
+    }
+    ranked.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    let mut best = None;
+    let mut effective = 0;
+    let mut actual = 0;
+    for (id, _) in ranked {
+        let Some((value, distance)) = priority(id)? else {
+            continue;
+        };
+        if value == 0 {
+            continue;
+        }
+        let penalty = if distance_modifier > 0.0 {
+            (distance.sqrt() / distance_modifier) as i32
+        } else {
+            0
+        };
+        let modified = (value - penalty).max(1);
+        if modified > effective || (modified == effective && value > actual) {
+            effective = modified;
+            actual = value;
+            best = Some(id);
+        }
+    }
+    Ok(best)
+}
+
+/// AI.cpp:778-826, with controller and attitude observed from the driving owner.
+pub(crate) fn adjusted_vision_range(
+    ai_data: &AiData,
+    source: &Object,
+    factors_to_consider: u32,
+    attitude: Option<AIAttitudeType>,
+    controller_is_human: Option<bool>,
+    weapon_range: Real,
+) -> Real {
+    if attitude.is_none() {
+        return 0.0;
+    }
+    let mut range = source.get_vision_range();
+    let player_is_human = controller_is_human == Some(true);
+    let contained = source.get_contained_by().is_some();
+
+    if (factors_to_consider & vision_factors::OWNER_TYPE) != 0 {
+        if player_is_human {
+            if (factors_to_consider & vision_factors::GUARD_INNER) != 0 {
+                range *= ai_data.guard_inner_modifier_human;
+            } else {
+                range *= ai_data.guard_outer_modifier_human;
+            }
+        } else if (factors_to_consider & vision_factors::GUARD_INNER) != 0 {
+            range *= ai_data.guard_inner_modifier_ai;
+        } else {
+            range *= ai_data.guard_outer_modifier_ai;
+        }
+    }
+
+    // C++ AI.cpp:814-826 — contained uses weapon range; Sleep returns 0.
+    if contained {
+        range = weapon_range;
+    } else if (factors_to_consider & vision_factors::MOOD) != 0
+        && controller_is_human == Some(false)
+    {
+        if let Some(attitude) = attitude {
+            match attitude {
+                AIAttitudeType::Sleep => return 0.0,
+                AIAttitudeType::Aggressive => range *= ai_data.aggressive_range_modifier,
+                AIAttitudeType::Defensive => range *= ai_data.alert_range_modifier,
+                AIAttitudeType::Passive | AIAttitudeType::Normal => {}
+            }
+        }
+    }
+
+    range
 }

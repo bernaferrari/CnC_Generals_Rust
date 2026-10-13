@@ -1479,16 +1479,12 @@ impl GameLogic {
             }
             obj.set_body_max_health(max_h);
             obj.record_host_max_health();
-            if !crate::gameworld_shadow::gameworld_damage_authority_live() {
+            {
                 obj.previous_health = before;
             }
             Self::write_object_health_authority_aware(obj, cur, &mut self.health_events);
             obj.health.maximum = maximum;
-            if live_maximum
-                && !crate::gameworld_shadow::gameworld_damage_authority_live()
-                && obj.health.maximum > 0.0
-                && obj.health.current > obj.health.maximum
-            {
+            if live_maximum && obj.health.maximum > 0.0 && obj.health.current > obj.health.maximum {
                 obj.health.current = obj.health.maximum;
             }
             self.health_events

@@ -23,26 +23,14 @@ pub(super) fn assert_core(r: &ShellSmokeResult) {
         "gameworld shadow count parity: {}",
         r.detail
     );
-    assert!(
-        r.damage_authority_env_ok,
-        "damage authority should default on in shell gate: {}",
-        r.detail
-    );
-    assert!(
-        r.economy_authority_env_ok,
-        "economy authority should default on in shell gate: {}",
-        r.detail
-    );
+
+
     assert!(
         r.dual_tick_policy_authority_only,
         "dual-tick must stay AuthorityOnly by default: {}",
         r.detail
     );
-    assert!(
-        r.engine_bridge_off,
-        "engine OBJECT_REGISTRY bridge must stay off by default: {}",
-        r.detail
-    );
+
 
     assert!(
         r.control_bar_layout_ok,

@@ -33,11 +33,10 @@ fn launch_attack_installs_owned_attack_move_state_and_path() {
 
     // Opt into AI decision authority via GameLogic::set_ai_decision_authority(true)
     // (retired GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY env).
-    crate::gameworld_shadow::begin_shadow_coupled_tick();
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AiSm");
-    logic.set_ai_decision_authority(true);
+
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for (name, team, x) in [("AiSmU", Team::USA, 0.0f32), ("AiSmE", Team::GLA, 80.0)] {
         if !logic.templates.contains_key(name) {
@@ -94,6 +93,4 @@ fn launch_attack_installs_owned_attack_move_state_and_path() {
         unit.waiting_for_path || !unit.movement.path.is_empty(),
         "attack-move must request or install a path on the live unit"
     );
-
-    crate::gameworld_shadow::end_shadow_coupled_tick();
 }

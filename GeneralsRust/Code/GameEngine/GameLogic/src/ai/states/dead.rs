@@ -99,7 +99,70 @@ impl StateImplementation for AIDeadState {
     }
 }
 
+fn non_dying_model_conditions() -> ModelConditionFlags {
+    let mask = ModelConditionFlags::UsingWeaponA
+        | ModelConditionFlags::UsingWeaponB
+        | ModelConditionFlags::UsingWeaponC
+        | ModelConditionFlags::FiringA
+        | ModelConditionFlags::FiringB
+        | ModelConditionFlags::FiringC
+        | ModelConditionFlags::BetweenFiringShotsA
+        | ModelConditionFlags::BetweenFiringShotsB
+        | ModelConditionFlags::BetweenFiringShotsC
+        | ModelConditionFlags::ReloadingA
+        | ModelConditionFlags::ReloadingB
+        | ModelConditionFlags::ReloadingC
+        | ModelConditionFlags::PreAttackA
+        | ModelConditionFlags::PreAttackB
+        | ModelConditionFlags::PreAttackC
+        | MODELCONDITION_MOVING;
+    mask
+}
+
 impl CppState for AIDeadState {
+    fn cpp_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        let Some(world) = ai.world_mut() else {
+            return self.cpp_on_enter();
+        };
+        if let Some(owner) = self.base.get_machine_owner() {
+            world.enter_dead_ai(&owner, non_dying_model_conditions())?;
+        }
+        Ok(StateReturnType::Continue)
+    }
+    fn cpp_on_update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        if ai.world().is_none() {
+            return self.cpp_on_update();
+        }
+        ai.set_locomotor_goal_none();
+        let owner = self
+            .base
+            .get_machine_owner()
+            .ok_or("Dead AI owner retired")?;
+        ai.world_mut()
+            .ok_or("Dead AI receiving world disappeared")?
+            .update_dead_ai(&owner)?;
+        Ok(StateReturnType::Continue)
+    }
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<(), String> {
+        let Some(world) = ai.world_mut() else {
+            return self.cpp_on_exit(exit);
+        };
+        if let Some(owner) = self.base.get_machine_owner() {
+            world.exit_dead_ai(&owner)?;
+        }
+        Ok(())
+    }
+
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -111,22 +174,7 @@ impl CppState for AIDeadState {
     fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         if let Some(owner) = self.base.get_machine_owner() {
             if let Ok(mut owner_guard) = owner.write() {
-                let non_dying_stuff = ModelConditionFlags::UsingWeaponA
-                    | ModelConditionFlags::UsingWeaponB
-                    | ModelConditionFlags::UsingWeaponC
-                    | ModelConditionFlags::FiringA
-                    | ModelConditionFlags::FiringB
-                    | ModelConditionFlags::FiringC
-                    | ModelConditionFlags::BetweenFiringShotsA
-                    | ModelConditionFlags::BetweenFiringShotsB
-                    | ModelConditionFlags::BetweenFiringShotsC
-                    | ModelConditionFlags::ReloadingA
-                    | ModelConditionFlags::ReloadingB
-                    | ModelConditionFlags::ReloadingC
-                    | ModelConditionFlags::PreAttackA
-                    | ModelConditionFlags::PreAttackB
-                    | ModelConditionFlags::PreAttackC
-                    | MODELCONDITION_MOVING;
+                let non_dying_stuff = non_dying_model_conditions();
 
                 let _ = owner_guard
                     .clear_and_set_model_condition_flags(non_dying_stuff, MODELCONDITION_DYING);
@@ -148,7 +196,7 @@ impl CppState for AIDeadState {
                 if owner_guard.is_kind_of(KindOf::Infantry) {
                     if let Some(phys) = owner_guard.get_physics() {
                         let vel = phys.get_velocity();
-                        let vel_mag = (vel.x * vel.x + vel.y * vel.y).sqrt();
+                        let vel_mag = (vel.x * vel.x + vel.y * vel.y + vel.z * vel.z).sqrt();
                         phys.scrub_velocity_2d(vel_mag * 0.8);
                     }
                 }

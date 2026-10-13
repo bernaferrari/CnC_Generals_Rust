@@ -985,10 +985,7 @@ End
         plant.health.current = 270.0;
         plant.health.current
     };
-    assert!(
-        !crate::gameworld_shadow::gameworld_damage_authority_live(),
-        "this host-only regression must apply its typed DAMAGE_PENALTY immediately"
-    );
+
     logic.update_overcharge_drain(0.1); // 1500 × 3% × 0.1 = 4.5
     let after_drain = logic.host_object(plant_id).expect("drained plant");
     assert!(after_drain.overcharge_enabled);

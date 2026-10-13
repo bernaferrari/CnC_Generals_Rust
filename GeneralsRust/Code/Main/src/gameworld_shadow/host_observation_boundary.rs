@@ -1,12 +1,11 @@
 //! Complete an ordinary Main-owned frame, then copy its observations.
 //!
-//! No shadow tick or reverse write participates in this boundary. Optional
-//! authority experiments use the separate coupled session entrypoint.
+//! No shadow tick or reverse write participates in this boundary;
+//! the projection cannot select another simulation authority.
 
 use super::{
     GameWorldShadow, materialize_host_authority_logs, presentation_entity_count_from_shadow,
 };
-use crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority;
 use crate::game_logic::{GameLogic, HostSupportOp};
 
 /// Admit required owner effects before the next fixed step. Only afterward may
@@ -15,36 +14,24 @@ pub(crate) fn run_owned_host_boundary(
     shadow: Option<&mut GameWorldShadow>,
     logic: &mut GameLogic,
 ) -> usize {
-    assert_eq!(
-        *logic.gameworld_authority(),
-        GameWorldAuthority::DEFAULT_OFF,
-        "an authority experiment requires its coupled boundary"
-    );
-    assert!(
-        !super::shadow_coupled_tick_active(),
-        "ordinary Main timers must run without coupled suppression"
-    );
-
     // A completed step has released its compatibility store/policy scopes.
     // Death callbacks still use those adapters, so resolve this owner for the
     // bounded admission operation and restore the previous context afterward.
     // Neither scope publishes or lends a shadow as writable simulation state.
     let stores = std::sync::Arc::clone(&logic.world_services);
-    super::with_gameworld_authority(GameWorldAuthority::DEFAULT_OFF, || {
-        gamelogic::system::engine_stores::with_world_services(&stores, || {
-            // Ordered owner admission distinguishes already-applied damage/
-            // healing observations from required pending effects.
-            materialize_host_authority_logs(logic);
-            logic.apply_host_support_op(HostSupportOp::ProcessDestroyListIfNeeded);
-            freeze_host_observations(logic);
+    gamelogic::system::engine_stores::with_world_services(&stores, || {
+        // Ordered owner admission distinguishes already-applied damage/
+        // healing observations from required pending effects.
+        materialize_host_authority_logs(logic);
+        logic.apply_host_support_op(HostSupportOp::ProcessDestroyListIfNeeded);
+        freeze_host_observations(logic);
 
-            if let Some(shadow) = shadow {
-                shadow.sync_from_host(logic);
-                presentation_entity_count_from_shadow(shadow)
-            } else {
-                0
-            }
-        })
+        if let Some(shadow) = shadow {
+            shadow.sync_from_host(logic);
+            presentation_entity_count_from_shadow(shadow)
+        } else {
+            0
+        }
     })
 }
 
@@ -60,7 +47,6 @@ pub(crate) fn run_owned_host_boundary(
 /// Construction completion also stays pending for PresentationFrame's direct
 /// drain; unlike production completion it has no LAST_DRAIN transport.
 fn freeze_host_observations(logic: &mut GameLogic) {
-    let _ = crate::game_logic::host_ai_attitude_log::drain();
     let _ = crate::game_logic::host_ai_decision_log::drain();
     let _ = crate::game_logic::host_ai_request_log::drain();
     let _ = crate::game_logic::host_attack_log::drain();
@@ -80,14 +66,15 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_disable_timers_log::drain();
     let _ = crate::game_logic::host_disguise_log::drain();
     let _ = crate::game_logic::host_entity_power_log::drain();
-    let _ = crate::game_logic::host_experience_log::drain();
     let _ = crate::game_logic::host_faerie_fire_log::drain();
     let _ = crate::game_logic::host_fire_intent_log::drain();
-    let _ = crate::game_logic::host_fire_sound_loop_log::drain();
+    logic
+        .combat_system
+        .fire_sound_loop_events
+        .complete_boundary();
     let _ = crate::game_logic::host_formation_log::drain();
     let _ = crate::game_logic::host_fow_log::drain();
     let _ = crate::game_logic::host_ground_height_log::drain();
-    let _ = crate::game_logic::host_guard_log::drain();
     let _ = crate::game_logic::host_hijacker_log::drain();
     let _ = crate::game_logic::host_hive_log::drain();
     let _ = crate::game_logic::host_identity_log::drain();
@@ -124,7 +111,6 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_stored_supplies_log::drain();
     let _ = crate::game_logic::host_target_location_log::drain();
     let _ = crate::game_logic::host_turret_log::drain();
-    let _ = crate::game_logic::host_veterancy_log::drain();
     let _ = crate::game_logic::host_vision_camo_log::drain();
     let _ = crate::game_logic::host_weapon_bonus_log::drain();
     let _ = crate::game_logic::host_weapon_set_log::drain();

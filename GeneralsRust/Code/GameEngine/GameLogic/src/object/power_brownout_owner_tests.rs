@@ -93,13 +93,13 @@ impl Match {
     fn apply(&self, brownout: bool, frame: u32) {
         let mut radar = QuietRadar(frame);
         let mut services = OwnedPowerBrownout {
-            factory: &self.factory,
+            objects: crate::player::PowerObjectOwner::Factory(&self.factory),
             teams: &self.teams,
             players: &self.players,
             radar: &mut radar,
             frame,
             special_power_uses_delay: true,
-            ai_world: None,
+
             misc_audio: None,
             audio: None,
         };
@@ -185,13 +185,13 @@ fn foreign_same_id_receiver_is_rejected_before_radar_or_disable_mutation() {
     let peer = Match::new(false);
     let mut radar = QuietRadar(20);
     let mut services = OwnedPowerBrownout {
-        factory: &world.factory,
+        objects: crate::player::PowerObjectOwner::Factory(&world.factory),
         teams: &world.teams,
         players: &world.players,
         radar: &mut radar,
         frame: 20,
         special_power_uses_delay: true,
-        ai_world: None,
+
         misc_audio: None,
         audio: None,
     };
@@ -278,13 +278,13 @@ fn injected_real_spy_name_is_not_a_supplied_module_capability() {
         .push_behavior_module_for_test(Arc::new(std::sync::Mutex::new(spy)));
     let mut radar = QuietRadar(20);
     let mut power = OwnedPowerBrownout {
-        factory: &world.factory,
+        objects: crate::player::PowerObjectOwner::Factory(&world.factory),
         teams: &world.teams,
         players: &world.players,
         radar: &mut radar,
         frame: 20,
         special_power_uses_delay: true,
-        ai_world: None,
+
         misc_audio: None,
         audio: None,
     };

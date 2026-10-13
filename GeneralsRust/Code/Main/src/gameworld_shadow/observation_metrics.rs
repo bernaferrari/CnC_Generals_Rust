@@ -1,0 +1,343 @@
+//! Read-only checks of the completed Main projection.
+//! These metrics validate observation copying; they are not an independent
+//! original-engine gameplay comparison and never change either simulation.
+use super::*;
+use crate::game_logic::{GameLogic, ObjectId};
+use gamelogic::world::WorldSnapshot;
+use gamelogic::world::entities::EntityId;
+impl GameWorldShadow {
+    pub fn health_parity(&self, logic: &GameLogic) -> (bool, usize) {
+        let mut checked = 0usize;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+                return (false, checked);
+            };
+            let Some(ent) = self.world.entity(eid) else {
+                return (false, checked);
+            };
+            checked += 1;
+            if (host_obj.health.current - ent.health).abs() > 0.01 {
+                return (false, checked);
+            }
+        }
+        (true, checked)
+    }
+
+    fn first_health_mismatch(&self, logic: &GameLogic) -> Option<String> {
+        let mut host_ids: Vec<u32> = self.host_to_entity.keys().copied().collect();
+        host_ids.sort_unstable();
+        for hid in host_ids {
+            let eid = self.host_to_entity[&hid];
+            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+                return Some(format!("host_id={hid} missing_host_object"));
+            };
+            let Some(ent) = self.world.entity(eid) else {
+                return Some(format!("host_id={hid} missing_shadow_entity={}", eid.get()));
+            };
+            if (host_obj.health.current - ent.health).abs() > 0.01 {
+                return Some(format!(
+                    "host_id={hid} template={} host_health={} shadow_health={} host_max={} shadow_max={} host_destroyed={} shadow_destroyed={}",
+                    host_obj.thing().template.name,
+                    host_obj.health.current,
+                    ent.health,
+                    host_obj.max_health,
+                    ent.max_health,
+                    host_obj.status.destroyed,
+                    ent.destroyed
+                ));
+            }
+        }
+        None
+    }
+
+    fn pose_parity(&self, logic: &GameLogic) -> bool {
+        const EPS: f32 = 0.05;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+                return false;
+            };
+            let Some(ent) = self.world.entity(eid) else {
+                return false;
+            };
+            let hp = host_obj.get_position();
+            let ep = ent.transform.position;
+            if (hp.x - ep.x).abs() > EPS || (hp.y - ep.y).abs() > EPS || (hp.z - ep.z).abs() > EPS {
+                return false;
+            }
+            let ho = host_obj.get_orientation();
+            if (ho - ent.transform.orientation).abs() > EPS {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn attack_target_parity(&self, logic: &GameLogic) -> bool {
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+                return false;
+            };
+            let Some(ent) = self.world.entity(eid) else {
+                return false;
+            };
+            let host_t = host_obj.target.and_then(|t| self.entity_for_host(t));
+            if host_t != ent.attack_target {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn move_target_parity(&self, logic: &GameLogic) -> bool {
+        const EPS: f32 = 0.05;
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+                return false;
+            };
+            let Some(ent) = self.world.entity(eid) else {
+                return false;
+            };
+            match (host_obj.movement.target_position, ent.move_target) {
+                (None, None) => {}
+                (Some(h), Some(e)) => {
+                    if (h.x - e[0]).abs() > EPS
+                        || (h.y - e[1]).abs() > EPS
+                        || (h.z - e[2]).abs() > EPS
+                    {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+        }
+        true
+    }
+
+    fn weapon_parity(&self, logic: &GameLogic) -> bool {
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+                return false;
+            };
+            let Some(ent) = self.world.entity(eid) else {
+                return false;
+            };
+            let (h_clip, h_ammo) = host_obj
+                .weapon
+                .as_ref()
+                .map(|w| (w.clip_size, w.ammo.unwrap_or(u32::MAX)))
+                .unwrap_or((0, u32::MAX));
+            if h_clip != ent.weapon_clip_size || h_ammo != ent.weapon_ammo {
+                return false;
+            }
+            let host_sec = host_obj.secondary_weapon.is_some();
+            if host_sec != ent.has_secondary_weapon {
+                return false;
+            }
+            if !self.weapon_slot_parity(eid, host_obj) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn weapon_slot_parity(&self, eid: EntityId, host_obj: &crate::game_logic::Object) -> bool {
+        use gamelogic::world::{
+            WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_SECONDARY, WEAPON_SLOT_TERTIARY,
+        };
+        let slots = [
+            (WEAPON_SLOT_SECONDARY, host_obj.secondary_weapon.as_ref()),
+            (WEAPON_SLOT_TERTIARY, host_obj.tertiary_weapon.as_ref()),
+            (
+                WEAPON_SLOT_MINE_CLEAR,
+                host_obj.mine_clearing_primary_weapon.as_ref(),
+            ),
+        ];
+        for (slot, host_w) in slots {
+            match (host_w, self.world.weapon_slots().slot(eid, slot)) {
+                (None, None) => {}
+                (None, Some(f)) if !f.present => {}
+                (None, Some(_)) => return false,
+                (Some(hw), Some(gw)) => {
+                    if !gw.present
+                        || gw.clip_size != hw.clip_size
+                        || gw.ammo != hw.ammo.unwrap_or(u32::MAX)
+                    {
+                        return false;
+                    }
+                }
+                (Some(_), None) => return false,
+            }
+        }
+        true
+    }
+
+    fn contain_parity(&self, logic: &GameLogic) -> bool {
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+                return false;
+            };
+            let Some(ent) = self.world.entity(eid) else {
+                return false;
+            };
+            let host_by = host_obj.contained_by.map(|id| id.0).unwrap_or(0);
+            if host_by != ent.contained_by_host {
+                return false;
+            }
+            let mut host_occ: Vec<u32> = host_obj.occupants.iter().map(|id| id.0).collect();
+            if let Some(bd) = host_obj.building_data.as_ref() {
+                for id in &bd.garrisoned_units {
+                    if !host_occ.contains(&id.0) {
+                        host_occ.push(id.0);
+                    }
+                }
+            }
+            host_occ.sort_unstable();
+            let mut shadow_occ = ent.garrisoned_host_ids.clone();
+            shadow_occ.sort_unstable();
+            if host_occ != shadow_occ {
+                return false;
+            }
+            let roster = self.world.contain_roster().occupants(eid);
+            let mut roster_hosts: Vec<u32> = roster
+                .iter()
+                .filter_map(|occ| self.entity_to_host.get(&occ.get()).copied())
+                .collect();
+            roster_hosts.sort_unstable();
+            if !roster.is_empty() && roster_hosts != host_occ {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn production_parity(&self, logic: &GameLogic) -> bool {
+        for (&hid, &eid) in &self.host_to_entity {
+            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+                return false;
+            };
+            let Some(ent) = self.world.entity(eid) else {
+                return false;
+            };
+            if host_obj.production_door_phase != ent.production_door_phase {
+                return false;
+            }
+            let host_frames = host_obj
+                .building_data
+                .as_ref()
+                .and_then(|bd| bd.production_queue.first())
+                .map(|h| h.construction_frames);
+            let shadow_frames = ent
+                .production_queue_items
+                .first()
+                .map(|h| h.construction_frames);
+            if host_frames != shadow_frames {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn destroy_visibility_parity(&self, logic: &GameLogic) -> bool {
+        for (&hid, &eid) in &self.host_to_entity {
+            let host_obj = logic.host_objects().get(&ObjectId(hid));
+            let ent = self.world.entity(eid);
+            match (host_obj, ent) {
+                (None, None) => {}
+                (Some(h), Some(e)) => {
+                    if h.status.destroyed != e.destroyed {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+        }
+        true
+    }
+
+    pub fn probe(&self, logic: &GameLogic) -> GameWorldShadowProbe {
+        let snap: WorldSnapshot = self.world.snapshot();
+        let host_objects = logic.host_objects().len().min(self.max_entities);
+        let host_players = logic.get_players().len();
+        let shadow_entities = snap.entities.len();
+        let shadow_players = snap.players.len();
+        let host_frame = logic.get_frame();
+        let shadow_frame = snap.frame;
+        let host_supplies_sum: u64 = logic
+            .get_players()
+            .values()
+            .map(|p| p.resources.supplies as u64)
+            .sum();
+        let shadow_supplies_sum: u64 = snap.players.iter().map(|p| p.supplies as u64).sum();
+        let mapped_objects = self.host_to_entity.len();
+        let (health_match, _) = self.health_parity(logic);
+        let pose_match = self.pose_parity(logic);
+        let attack_target_match = self.attack_target_parity(logic);
+        let move_target_match = self.move_target_parity(logic);
+        let weapon_match = self.weapon_parity(logic);
+        let contain_match = self.contain_parity(logic);
+        let destroy_visibility_match = self.destroy_visibility_parity(logic);
+        let production_match = self.production_parity(logic);
+
+        let entity_ok = shadow_entities == host_objects && mapped_objects == host_objects;
+        let counts_match =
+            entity_ok && shadow_players == host_players && shadow_frame == host_frame as u64;
+        let economy_match = host_supplies_sum == shadow_supplies_sum;
+
+        let detail = if counts_match && economy_match && health_match {
+            "ok".into()
+        } else {
+            format!(
+                "mismatch entities {} vs {} mapped={} players {} vs {} frame {} vs {} supplies {} vs {} health_ok={} first_health={:?} pose={} atk={} move={} weap={} contain={} dvis={} prod={}",
+                host_objects,
+                shadow_entities,
+                mapped_objects,
+                host_players,
+                shadow_players,
+                host_frame,
+                shadow_frame,
+                host_supplies_sum,
+                shadow_supplies_sum,
+                health_match,
+                (!health_match)
+                    .then(|| self.first_health_mismatch(logic))
+                    .flatten(),
+                pose_match,
+                attack_target_match,
+                move_target_match,
+                weapon_match,
+                contain_match,
+                destroy_visibility_match,
+                production_match
+            )
+        };
+
+        let victory = logic.current_victory_observation();
+        let host_match_over = victory.match_over;
+        let victory_label = victory.outcome.map(|v| format!("{v:?}"));
+
+        GameWorldShadowProbe {
+            host_frame,
+            shadow_frame,
+            host_objects: logic.host_objects().len(),
+            shadow_entities,
+            host_players,
+            shadow_players,
+            host_supplies_sum,
+            shadow_supplies_sum,
+            mapped_objects,
+            counts_match,
+            economy_match,
+            health_match,
+            pose_match,
+            attack_target_match,
+            move_target_match,
+            weapon_match,
+            contain_match,
+            destroy_visibility_match,
+            production_match,
+            host_match_over,
+            victory_label,
+            detail,
+        }
+    }
+}

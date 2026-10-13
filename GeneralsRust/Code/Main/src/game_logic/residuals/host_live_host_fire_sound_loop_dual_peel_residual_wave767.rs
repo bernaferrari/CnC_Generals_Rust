@@ -1,7 +1,5 @@
-//! Wave 767: GW entity carries FireSoundLoopTime residual; under coupled
-//! dual-tick `tick_status_timer_expirations` sole-stops looping fire audio via
-//! host_fire_sound_loop_log; host peels `tick_fire_sound_loop` on coupled path.
-//! Non-coupled still stops via continuous-fire coast. playable_claim stays false.
+//! Source diagnostics for the canonical FiringTracker timer and receiving CombatSystem audio receipts.
+//! Actual firing/expiry and FIFO isolation are exercised by parsed-weapon tests.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
@@ -12,22 +10,22 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const LIVE_HOST_FIRE_SOUND_LOOP_DUAL_PEEL_METHOD_NAMES_WAVE767: &[&str] = &[
     "fire_sound_loop_until_frame",
     "host_fire_sound_loop_log",
-    "tick_status_timer_expirations",
+    "FireSoundLoopEvents",
     "tick_fire_sound_loop",
     "Wave 767",
     "playable_claim = false",
 ];
 pub const LIVE_HOST_FIRE_SOUND_LOOP_DUAL_PEEL_NAV_STEPS_WAVE767: &[&str] = &[
     "REQUIRE_ENTITY_FIRE_SOUND_FIELDS",
-    "REQUIRE_GW_STOP_EXPIRE",
-    "REQUIRE_HOST_COUPLED_PEEL",
+    "REQUIRE_OWNER_STOP_EXPIRE",
+    "REQUIRE_RECEIVING_OUTPUT_OWNER",
     "LIVE_HOST_FIRE_SOUND_LOOP_DUAL_PEEL",
     "LIVE_PLAYABLE_CLAIM_FALSE",
 ];
 pub const RUNTIME_HOST_LIVE_HOST_FIRE_SOUND_LOOP_DUAL_PEEL_CMD_NAMES_WAVE767: &[&str] = &[
     "host_fire_sound_loop_dual_peel",
     "fire_sound_loop_until_frame",
-    "tick_status_timer_expirations",
+    "FireSoundLoopEvents",
     "host_fire_sound_loop_log",
 ];
 #[repr(u8)]
@@ -64,17 +62,11 @@ pub fn residual_host_fire_sound_loop_dual_peel_last_action()
 -> ResidualHostFireSoundLoopDualPeelAction {
     ResidualHostFireSoundLoopDualPeelAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
-fn sh_source() -> &'static str {
-    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
-}
-fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
-}
 pub fn honesty_host_fire_sound_loop_dual_peel_method_names_residual_wave767() -> bool {
     let names = LIVE_HOST_FIRE_SOUND_LOOP_DUAL_PEEL_METHOD_NAMES_WAVE767;
     let ok = residual_name_index(names, "fire_sound_loop_until_frame").is_some()
         && residual_name_index(names, "host_fire_sound_loop_log").is_some()
-        && residual_name_index(names, "tick_status_timer_expirations").is_some()
+        && residual_name_index(names, "FireSoundLoopEvents").is_some()
         && residual_name_index(names, "tick_fire_sound_loop").is_some()
         && residual_name_index(names, "Wave 767").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
@@ -82,42 +74,41 @@ pub fn honesty_host_fire_sound_loop_dual_peel_method_names_residual_wave767() ->
     ok
 }
 pub fn honesty_host_fire_sound_loop_dual_peel_source_markers_residual_wave767() -> bool {
-    let sh = sh_source();
-    let gl = gl_source();
-    let ent = include_str!("../../../../GameEngine/GameLogic/src/world/entities/mod.rs");
-    let ok = ent.contains("fire_sound_loop_until_frame")
-        && ent.contains("fire_sound_loop_name")
-        && sh.contains("Wave 767")
-        && sh.contains("host_fire_sound_loop_log::record")
-        && gl.contains("Wave 767")
-        && !gl.contains("obj.tick_fire_sound_loop(self.frame)")
-        && crate::game_logic::object::OBJECT_SRC.contains("fn tick_fire_sound_loop");
+    let owner = crate::game_logic::object::OBJECT_SRC;
+    let outputs = include_str!("../host_fire_sound_loop_log.rs");
+    let combat = include_str!("../combat/weapon_fire.rs");
+    let ok = owner.contains("fn tick_fire_sound_loop")
+        && owner.contains("stamp_fire_sound_loop_after_shot")
+        && owner.contains("events.record")
+        && outputs.contains("pub struct FireSoundLoopEvents")
+        && outputs.contains("self.completed.append(&mut self.pending)")
+        && !outputs.contains("thread_local!")
+        && combat.contains("fire_sound_loop_events");
     residual_action_store(ResidualHostFireSoundLoopDualPeelAction::SourceMarkers);
     ok
 }
 pub fn honesty_host_fire_sound_loop_dual_peel_nav_commands_residual_wave767() -> bool {
     let steps = LIVE_HOST_FIRE_SOUND_LOOP_DUAL_PEEL_NAV_STEPS_WAVE767;
     let ok = residual_name_index(steps, "REQUIRE_ENTITY_FIRE_SOUND_FIELDS").is_some()
-        && residual_name_index(steps, "REQUIRE_GW_STOP_EXPIRE").is_some()
-        && residual_name_index(steps, "REQUIRE_HOST_COUPLED_PEEL").is_some()
+        && residual_name_index(steps, "REQUIRE_OWNER_STOP_EXPIRE").is_some()
+        && residual_name_index(steps, "REQUIRE_RECEIVING_OUTPUT_OWNER").is_some()
         && residual_name_index(steps, "LIVE_HOST_FIRE_SOUND_LOOP_DUAL_PEEL").is_some()
         && residual_name_index(steps, "LIVE_PLAYABLE_CLAIM_FALSE").is_some();
     residual_action_store(ResidualHostFireSoundLoopDualPeelAction::NavCommands);
     ok
 }
 pub fn simulate_host_fire_sound_loop_dual_peel_collect_source() -> bool {
-    let ok = sh_source().contains("Wave 767")
-        && sh_source().contains("fire_sound_loop_until_frame")
-        && gl_source().contains("Wave 767");
+    let boundary = include_str!("../../gameworld_shadow/host_observation_boundary.rs");
+    let ok =
+        boundary.contains(".fire_sound_loop_events") && boundary.contains(".complete_boundary()");
     residual_action_store(ResidualHostFireSoundLoopDualPeelAction::CollectSource);
     ok
 }
 pub fn simulate_host_fire_sound_loop_dual_peel_dispatch_source() -> bool {
-    let ok = sh_source().contains("host_fire_sound_loop_log::record")
-        && sh_source()
-            .contains("obj.fire_sound_loop_until_frame = ent.fire_sound_loop_until_frame")
-        && !gl_source().contains("obj.tick_fire_sound_loop(self.frame)")
-        && crate::game_logic::object::OBJECT_SRC.contains("tick_fire_sound_loop(frame)");
+    let presentation = include_str!("../../presentation_frame/build.rs");
+    let ok = presentation.contains("logic.combat_system.fire_sound_loop_events.take_completed()")
+        && presentation.contains("PresentationEvent::WeaponFireLoopStarted")
+        && presentation.contains("PresentationEvent::WeaponFireLoopStopped");
     residual_action_store(ResidualHostFireSoundLoopDualPeelAction::DispatchSource);
     ok
 }

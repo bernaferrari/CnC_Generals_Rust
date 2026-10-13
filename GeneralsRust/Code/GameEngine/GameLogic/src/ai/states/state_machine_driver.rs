@@ -248,8 +248,12 @@ impl AIStateMachineDriver<'_> {
         }
         // C++ AIStates.cpp:944-946 clamps the count, then adds it to the
         // UnsignedInt frame; the deadline wraps rather than saturating.
+        let now = ai
+            .as_deref()
+            .and_then(|ai| ai.world())
+            .map_or_else(TheGameLogic::get_frame, |world| world.frame());
         self.data.temporary_state_frame_end =
-            TheGameLogic::get_frame().wrapping_add(frame_limit.min(60 * LOGICFRAMES_PER_SECOND));
+            now.wrapping_add(frame_limit.min(60 * LOGICFRAMES_PER_SECOND));
         ret
     }
     pub(crate) fn ai_do_command_with_ai(

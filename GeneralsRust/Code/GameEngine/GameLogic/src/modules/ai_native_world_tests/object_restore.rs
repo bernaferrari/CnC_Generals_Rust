@@ -125,13 +125,13 @@ fn transfer<R>(
 ) -> R {
     let mut radar = RadarScope(frame);
     let mut power = OwnedPowerBrownout {
-        factory: &game.factory,
+        objects: crate::player::PowerObjectOwner::Factory(&game.factory),
         teams: &game.teams,
         players: &game.players,
         radar: &mut radar,
         frame,
         special_power_uses_delay: false,
-        ai_world: None,
+
         misc_audio: None,
         audio: None,
     };
@@ -236,6 +236,11 @@ fn fresh_with_templates(
         )
         .unwrap();
     let mut game = NativeMatch {
+        weapon_store: crate::weapon::WeaponStore::new(),
+        historic_damage_limit: game_engine::common::global_data::GlobalData::default().historic_damage_limit,
+        physics_rules: crate::object::behavior::physics_update::PhysicsRules::from_global_data(
+            &game_engine::common::global_data::GlobalData::default(),
+        ),
         ranks: Default::default(),
         kill_awards: Vec::new(),
         deposit_sound: Default::default(),

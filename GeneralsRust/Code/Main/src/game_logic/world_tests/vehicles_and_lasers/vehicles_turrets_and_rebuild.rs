@@ -1665,11 +1665,7 @@ fn hijack_hides_in_eject_capable_vehicle() {
         let v = logic.objects.get_mut(&vid).unwrap();
         // Wave 753: under damage authority, do not zero host HP mid-frame
         // (dual with GW HP writeback). Project lethal via damage log + flags.
-        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-            let hp = v.health.current.max(1.0);
-            let oid = v.id;
-            logic.health_events.record_damage(oid, hp, None, true);
-        } else {
+        {
             v.health.current = 0.0;
         }
         v.status.destroyed = true;
@@ -1723,11 +1719,7 @@ fn hijack_airborne_eject_puts_in_america_parachute() {
         let v = logic.objects.get_mut(&vid).unwrap();
         // Wave 753: under damage authority, do not zero host HP mid-frame
         // (dual with GW HP writeback). Project lethal via damage log + flags.
-        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-            let hp = v.health.current.max(1.0);
-            let oid = v.id;
-            logic.health_events.record_damage(oid, hp, None, true);
-        } else {
+        {
             v.health.current = 0.0;
         }
         v.status.destroyed = true;

@@ -1404,8 +1404,12 @@ impl Object {
     }
 
     /// C++ FiringTracker::update cool-down after ContinuousFireCoast idle.
-    pub fn tick_continuous_fire_coast(&mut self, frame: u32) {
-        self.tick_fire_sound_loop(frame);
+    pub fn tick_continuous_fire_coast(
+        &mut self,
+        frame: u32,
+        events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
+    ) {
+        self.tick_fire_sound_loop(frame, events);
         let _ = frame;
         self.tick_subdual_damage();
         if self.continuous_fire_level == 0 {

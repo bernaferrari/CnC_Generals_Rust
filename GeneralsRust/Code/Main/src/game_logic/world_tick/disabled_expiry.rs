@@ -4,11 +4,7 @@ use super::super::*;
 impl GameLogic {
     pub(in super::super) fn expire_owned_disabled_statuses(&mut self) {
         // Optional coupled experiments retain their explicit timer phase.
-        if crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active()
-        {
-            return;
-        }
+        {}
         // C++ GameLogic.cpp:3783-3792 walks the current live object list after
         // destruction and victory. Release each Object borrow before admitting
         // its Player callbacks; no object is temporarily removed from its store.

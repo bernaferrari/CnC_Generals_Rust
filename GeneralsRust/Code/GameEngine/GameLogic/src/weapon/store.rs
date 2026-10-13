@@ -45,6 +45,7 @@ enum HostBootstrapAdmission {
 /// Weapon store managing all weapon templates
 #[derive(Debug)]
 pub struct WeaponStore {
+    histories: super::weapon_history::WeaponHistories,
     pub(crate) weapon_templates: HashMap<String, Arc<WeaponTemplate>>,
     pub(crate) weapon_templates_by_key: HashMap<u32, Arc<WeaponTemplate>>,
     pub(crate) delayed_damage_info: Vec<WeaponDelayedDamageInfo>,
@@ -119,12 +120,39 @@ pub fn honesty_weapon_store_delayed_damage_residual_ok(store: &WeaponStore) -> b
 impl WeaponStore {
     pub fn new() -> Self {
         Self {
+            histories: Default::default(),
             weapon_templates: HashMap::new(),
             weapon_templates_by_key: HashMap::new(),
             delayed_damage_info: Vec::new(),
             last_imported_common_count: 0,
             host_bootstrap_admission: HostBootstrapAdmission::Pending,
         }
+    }
+
+    pub(crate) fn trim_historic_damage_at(
+        &mut self,
+        template: &WeaponTemplate,
+        frame: u32,
+        limit: u32,
+    ) {
+        self.histories.trim(template, frame, limit);
+    }
+    pub(crate) fn observe_historic_damage_at(
+        &mut self,
+        template: &WeaponTemplate,
+        position: &Coord3D,
+        frame: u32,
+        limit: u32,
+        bonus_is_self: bool,
+    ) -> bool {
+        self.histories
+            .observe(template, position, frame, limit, bonus_is_self)
+    }
+    pub(crate) fn clear_historic_damage(&mut self, template: &WeaponTemplate) {
+        self.histories.clear(template);
+    }
+    pub fn historic_damage_len(&self, template: &WeaponTemplate) -> usize {
+        self.histories.len(template)
     }
 
     /// Initialize the weapon store
@@ -308,6 +336,7 @@ impl WeaponStore {
 
     /// Reset the weapon store
     pub fn reset(&mut self) -> GameLogicResult<()> {
+        self.histories = Default::default();
         self.weapon_templates.clear();
         self.weapon_templates_by_key.clear();
         self.delayed_damage_info.clear();
@@ -391,13 +420,12 @@ impl WeaponStore {
 
     /// Create and fire a temporary weapon
     pub fn create_and_fire_temp_weapon(
-        &self,
         template: &Arc<WeaponTemplate>,
         source: ObjectId,
         target: Option<ObjectId>,
         position: Option<&Coord3D>,
     ) -> GameLogicResult<()> {
-        let mut temp_weapon = self.allocate_new_weapon(template, WeaponSlotType::Primary);
+        let mut temp_weapon = Weapon::new(Arc::clone(template), WeaponSlotType::Primary);
         temp_weapon.load_ammo_now(source)?;
 
         match (target, position) {
@@ -423,14 +451,13 @@ impl WeaponStore {
 
     /// Handle projectile detonation
     pub fn handle_projectile_detonation(
-        &self,
         template: &Arc<WeaponTemplate>,
         source: ObjectId,
         position: &Coord3D,
         extra_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
         inflict_damage: bool,
     ) -> GameLogicResult<()> {
-        let mut temp_weapon = self.allocate_new_weapon(template, WeaponSlotType::Primary);
+        let mut temp_weapon = Weapon::new(Arc::clone(template), WeaponSlotType::Primary);
         temp_weapon.load_ammo_now(source)?;
         temp_weapon
             .fire_projectile_detonation_weapon(
@@ -487,38 +514,36 @@ impl WeaponStore {
     ) -> GameLogicResult<Arc<WeaponTemplate>> {
         let mut override_template = (**base_template).clone();
         override_template.name = override_name;
+        override_template.renew_history_identity();
         override_template.name_key = 0;
         override_template.set_next_template((**base_template).clone());
         Ok(self.add_weapon_template(override_template))
     }
 
     pub fn create_and_fire_temp_weapon_at_pos(
-        &self,
         template: &Arc<WeaponTemplate>,
         source: ObjectId,
         position: &Coord3D,
     ) -> GameLogicResult<()> {
-        self.create_and_fire_temp_weapon(template, source, None, Some(position))
+        Self::create_and_fire_temp_weapon(template, source, None, Some(position))
     }
 
     pub fn create_and_fire_temp_weapon_at_target(
-        &self,
         template: &Arc<WeaponTemplate>,
         source: ObjectId,
         target: ObjectId,
     ) -> GameLogicResult<()> {
-        self.create_and_fire_temp_weapon(template, source, Some(target), None)
+        Self::create_and_fire_temp_weapon(template, source, Some(target), None)
     }
 
     pub fn handle_projectile_detonation_at_pos(
-        &self,
         template: &Arc<WeaponTemplate>,
         source: ObjectId,
         position: &Coord3D,
         extra_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
         inflict_damage: bool,
     ) -> GameLogicResult<()> {
-        self.handle_projectile_detonation(
+        Self::handle_projectile_detonation(
             template,
             source,
             position,
@@ -528,14 +553,13 @@ impl WeaponStore {
     }
 
     pub fn handle_projectile_detonation_at_target(
-        &self,
         template: &Arc<WeaponTemplate>,
         source: ObjectId,
         target: ObjectId,
         extra_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
         inflict_damage: bool,
     ) -> GameLogicResult<()> {
-        let mut temp_weapon = self.allocate_new_weapon(template, WeaponSlotType::Primary);
+        let mut temp_weapon = Weapon::new(Arc::clone(template), WeaponSlotType::Primary);
         temp_weapon.load_ammo_now(source)?;
         temp_weapon
             .fire_projectile_detonation_weapon(

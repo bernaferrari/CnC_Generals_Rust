@@ -421,10 +421,6 @@ impl GameLogic {
         op: ProductionAuthorityOp,
     ) -> ProductionAuthorityResult {
         match op {
-            ProductionAuthorityOp::ApplyCompletionsAfterReadyWriteback { dt } => {
-                self.host_apply_production_completions_after_ready_writeback(dt);
-                ProductionAuthorityResult::Unit
-            }
             ProductionAuthorityOp::SpawnUnit {
                 template,
                 team,
@@ -440,94 +436,7 @@ impl GameLogic {
                 self.host_apply_production_spawn_ready_completions();
                 ProductionAuthorityResult::Unit
             }
-            ProductionAuthorityOp::ApplyDoorReadyCompletions => {
-                self.host_apply_production_door_ready_completions();
-                ProductionAuthorityResult::Unit
-            }
         }
-    }
-
-    /// Wave 938: single post-writeback complete authority boundary.
-    #[inline]
-    pub fn apply_post_writeback_complete_op(&mut self, op: PostWritebackCompleteOp) {
-        match op {
-            PostWritebackCompleteOp::SpecialPowerReadyAfterWriteback => {
-                self.host_apply_special_power_ready_after_writeback();
-            }
-        }
-    }
-
-    /// Wave 939: single ready-log drain authority boundary (shadow post-writeback).
-    #[inline]
-    pub fn apply_ready_log_drain_op(&mut self, op: ReadyLogDrainOp) -> usize {
-        match op {
-            ReadyLogDrainOp::Contain => self.host_apply_contain_ready_completions(),
-            ReadyLogDrainOp::Projectiles => self.host_apply_projectiles_ready_completions(),
-            ReadyLogDrainOp::AttackTarget => self.host_apply_attack_target_ready_completions(),
-            ReadyLogDrainOp::Movement => self.host_apply_movement_ready_completions(),
-            ReadyLogDrainOp::FireIntent => self.host_apply_fire_intent_ready_completions(),
-            ReadyLogDrainOp::MoveTarget => self.host_apply_move_target_ready_completions(),
-            ReadyLogDrainOp::Transform => self.host_apply_transform_ready_completions(),
-            ReadyLogDrainOp::Locomotor => self.host_apply_locomotor_ready_completions(),
-            ReadyLogDrainOp::AiRequest => self.host_apply_ai_request_ready_completions(),
-            ReadyLogDrainOp::Hijacker => self.host_apply_hijacker_ready_completions(),
-            ReadyLogDrainOp::PhysicsMotive => self.host_apply_physics_motive_ready_completions(),
-            ReadyLogDrainOp::BounceLand => self.host_apply_bounce_land_ready_completions(),
-            ReadyLogDrainOp::CombatStatus => self.host_apply_combat_status_ready_completions(),
-            ReadyLogDrainOp::BodyDamage => self.host_apply_body_damage_ready_completions(),
-            ReadyLogDrainOp::DeathType => self.host_apply_death_type_ready_completions(),
-            ReadyLogDrainOp::RadarExtend => self.host_apply_radar_extend_ready_completions(),
-            ReadyLogDrainOp::ShockStun => self.host_apply_shock_stun_ready_completions(),
-
-            ReadyLogDrainOp::SoleHealing => self.host_apply_sole_healing_ready_completions(),
-            ReadyLogDrainOp::Owner => self.host_apply_owner_ready_completions(),
-            ReadyLogDrainOp::Veterancy => self.host_apply_veterancy_ready_completions(),
-            ReadyLogDrainOp::WeaponBonus => self.host_apply_weapon_bonus_ready_completions(),
-            ReadyLogDrainOp::FaerieFire => self.host_apply_faerie_fire_ready_completions(),
-            ReadyLogDrainOp::Repulsor => self.host_apply_repulsor_ready_completions(),
-            ReadyLogDrainOp::DisableTimers => self.host_apply_disable_timers_ready_completions(),
-            ReadyLogDrainOp::WeaponSlot => self.host_apply_weapon_slot_ready_completions(),
-            ReadyLogDrainOp::EntityPower => self.host_apply_entity_power_ready_completions(),
-            ReadyLogDrainOp::Turret => self.host_apply_turret_ready_completions(),
-            ReadyLogDrainOp::StealthDelay => self.host_apply_stealth_delay_ready_completions(),
-            ReadyLogDrainOp::CombatAttack => self.host_apply_combat_attack_ready_completions(),
-            ReadyLogDrainOp::TargetLocation => self.host_apply_target_location_ready_completions(),
-            ReadyLogDrainOp::Detector => self.host_apply_detector_ready_completions(),
-            ReadyLogDrainOp::ContinuousFire => self.host_apply_continuous_fire_ready_completions(),
-            ReadyLogDrainOp::Guard => self.host_apply_guard_ready_completions(),
-            ReadyLogDrainOp::AiAttitude => self.host_apply_ai_attitude_ready_completions(),
-            ReadyLogDrainOp::WeaponSet => self.host_apply_weapon_set_ready_completions(),
-            ReadyLogDrainOp::Overcharge => self.host_apply_overcharge_ready_completions(),
-            ReadyLogDrainOp::Hive => self.host_apply_hive_ready_completions(),
-            ReadyLogDrainOp::StealthFlags => self.host_apply_stealth_flags_ready_completions(),
-            ReadyLogDrainOp::Overlord => self.host_apply_overlord_ready_completions(),
-            ReadyLogDrainOp::CommandSet => self.host_apply_command_set_ready_completions(),
-            ReadyLogDrainOp::Disguise => self.host_apply_disguise_ready_completions(),
-            ReadyLogDrainOp::VisionCamo => self.host_apply_vision_camo_ready_completions(),
-            ReadyLogDrainOp::WeaponStats => self.host_apply_weapon_stats_ready_completions(),
-            ReadyLogDrainOp::SelectionRadius => {
-                self.host_apply_selection_radius_ready_completions()
-            }
-            ReadyLogDrainOp::ModelCondition => self.host_apply_model_condition_ready_completions(),
-            ReadyLogDrainOp::DemoMineCheer => self.host_apply_demo_mine_cheer_ready_completions(),
-            ReadyLogDrainOp::CrushVision => self.host_apply_crush_vision_ready_completions(),
-            ReadyLogDrainOp::BuildingType => self.host_apply_building_type_ready_completions(),
-            ReadyLogDrainOp::Identity => self.host_apply_identity_ready_completions(),
-            ReadyLogDrainOp::GroundHeight => self.host_apply_ground_height_ready_completions(),
-            ReadyLogDrainOp::Economy => self.host_apply_economy_ready_completions(),
-            ReadyLogDrainOp::StoredSupplies => self.host_apply_stored_supplies_ready_completions(),
-        }
-    }
-
-    /// Wave 940: batch post-writeback sole-tick residuals (single authority boundary).
-    #[inline]
-    pub fn apply_post_writeback_sole_ticks(&mut self) {
-        // Order matches shadow_session_after_host_tick (Waves 823–827).
-        self.tick_patriot_assist_lasers_sole();
-        self.tick_pending_patriot_assists_sole();
-        self.tick_zone_damage_fields_sole();
-        self.tick_combat_field_residuals_sole();
-        self.tick_host_systems_residuals_sole();
     }
 
     /// Wave 940: host ObjectId create/mark-destroy authority boundary.
@@ -592,11 +501,7 @@ impl GameLogic {
                     if let Some(pos) = position {
                         obj.set_position(pos);
                     }
-                    if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                        let hp = obj.health.current.max(1.0);
-                        let oid = obj.id;
-                        self.health_events.record_damage(oid, hp, None, true);
-                    } else {
+                    {
                         obj.health.current = 0.0;
                     }
                     obj.status.destroyed = true;
@@ -885,290 +790,13 @@ impl GameLogic {
                     }
                 }
             }
-            HostResidualMutationOp::ApplyRawHpDamage { id, amount } => {
-                // Wave 943: host-only damage fallback (no shadow entity).
-                if let Some(obj) = self.host_objects_mut().get_mut(&id) {
-                    if obj.status.destroyed {
-                        // already dead
-                    } else {
-                        obj.health.damage(amount);
-                        if !obj.health.is_alive() {
-                            obj.status.destroyed = true;
-                            obj.set_ai_state(crate::game_logic::AIState::Idle);
-                            obj.target = None;
-                        }
-                        obj.refresh_model_condition_bits();
-                    }
-                }
-            }
         }
     }
 
     /// Wave 943: apply post-armor damage for host objects with no shadow mapping.
     /// Returns number of host objects mutated.
-    pub fn apply_host_unmapped_damage_fallback(
-        &mut self,
-        events: &[crate::game_logic::host_damage_log::HostDamageEvent],
-        mut shadow_mapped: impl FnMut(ObjectId) -> bool,
-    ) -> usize {
-        let mut fallback = 0usize;
-        for ev in events {
-            if ev.owner_health_already_applied() || shadow_mapped(ev.target) {
-                continue;
-            }
-            let eligible = self
-                .host_objects()
-                .get(&ev.target)
-                .is_some_and(|o| !o.status.destroyed);
-            if !eligible {
-                continue;
-            }
-            self.apply_host_residual_mutation_op(HostResidualMutationOp::ApplyRawHpDamage {
-                id: ev.target,
-                amount: ev.amount,
-            });
-            fallback += 1;
-        }
-        fallback
-    }
 
     /// Wave 944: apply one shadow→host writeback mutation.
-    pub fn apply_host_writeback_op(&mut self, op: HostWritebackOp) -> bool {
-        match op {
-            HostWritebackOp::Health {
-                id,
-                current,
-                maximum,
-                destroy,
-            } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                let max = maximum.max(1.0);
-                obj.health.current = current.min(max);
-                obj.max_health = max;
-                obj.health.maximum = max;
-                if destroy {
-                    obj.status.destroyed = true;
-                    obj.ai_state = crate::game_logic::AIState::Idle;
-                    obj.target = None;
-                }
-                true
-            }
-            HostWritebackOp::Experience { id, points, level } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                if let Some(pts) = points {
-                    obj.experience.current = pts;
-                }
-                if let Some(lvl) = level {
-                    obj.experience.level = lvl;
-                }
-                true
-            }
-            HostWritebackOp::Transform {
-                id,
-                position,
-                orientation,
-            } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.set_position(position);
-                obj.set_orientation(orientation);
-                true
-            }
-            HostWritebackOp::AttackTarget {
-                id,
-                target,
-                clear_target_location,
-            } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.target = target;
-                if clear_target_location {
-                    obj.target_location = None;
-                }
-                true
-            }
-            HostWritebackOp::MoveTarget { id, destination } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.movement.target_position = destination;
-                true
-            }
-            HostWritebackOp::AiAttitude { id, attitude } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.ai_attitude = attitude.clamp(-2, 2);
-                true
-            }
-            HostWritebackOp::Owner {
-                id,
-                team,
-                team_color,
-                owner_player_id,
-            } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.team = team;
-                obj.team_color = team_color;
-                obj.owner_player_id = owner_player_id;
-                true
-            }
-            HostWritebackOp::SpecialPower {
-                id,
-                ready,
-                cooldown_remaining,
-                cooldown,
-            } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.special_power_ready = ready;
-                obj.special_power_cooldown_remaining = cooldown_remaining.max(0.0);
-                obj.special_power_cooldown = cooldown.max(0.0);
-                true
-            }
-            HostWritebackOp::Overcharge { id, enabled } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.overcharge_enabled = enabled;
-                true
-            }
-            HostWritebackOp::WeaponSlot { id, slot } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.active_weapon_slot = slot;
-                true
-            }
-            HostWritebackOp::SelectionRadius { id, radius } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.selection_radius = radius;
-                true
-            }
-            HostWritebackOp::EntityPower {
-                id,
-                provided,
-                consumed,
-            } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.power_provided = provided;
-                obj.power_consumed = consumed;
-                true
-            }
-            HostWritebackOp::TargetLocation { id, location } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.target_location = location;
-                true
-            }
-            HostWritebackOp::CommandSet { id, override_name } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.command_set_override = override_name;
-                true
-            }
-            HostWritebackOp::GroundHeight {
-                id,
-                height,
-                from_terrain,
-            } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.ground_height = height;
-                obj.ground_height_from_terrain = from_terrain;
-                true
-            }
-            HostWritebackOp::BodyDamage { id, state } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.body_damage_state = state;
-                true
-            }
-            HostWritebackOp::DeathType { id, death_type } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.status.death_type = death_type;
-                true
-            }
-            HostWritebackOp::StoredSupplies { id, supplies } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.stored_resources.supplies = supplies;
-                true
-            }
-            HostWritebackOp::FaerieFire {
-                id,
-                active,
-                until_frame,
-            } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.status.faerie_fire = active;
-                obj.faerie_fire_until_frame = if active { until_frame } else { 0 };
-                true
-            }
-            HostWritebackOp::Repulsor {
-                id,
-                active,
-                until_frame,
-            } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.repulsor_until_frame = until_frame;
-                obj.status.repulsor = active;
-                true
-            }
-            HostWritebackOp::Detector {
-                id,
-                is_detector,
-                range,
-                rate_frames,
-            } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.is_detector = is_detector;
-                obj.detection_range = range.max(0.0);
-                obj.detection_rate_frames = rate_frames;
-                true
-            }
-            HostWritebackOp::Guard {
-                id,
-                position,
-                target,
-                radius,
-            } => {
-                let Some(obj) = self.host_objects_mut().get_mut(&id) else {
-                    return false;
-                };
-                obj.guard_position = position;
-                obj.guard_target = target;
-                obj.guard_radius = radius;
-                true
-            }
-        }
-    }
 
     /// Borrow the canonical object for one synchronous mutation.
     /// Observation sessions cannot replace its fields or receive implicit writes.
@@ -1508,7 +1136,7 @@ impl GameLogic {
                                 // already issued via assign_unit_attack_path; GameWorld
                                 // integrates the march. Host-only residual may still snap
                                 // for short smoke waits when authority is off.
-                                if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+                                {
                                     let dir = if dist > 1.0 {
                                         dir / dist
                                     } else {
@@ -1522,12 +1150,7 @@ impl GameLogic {
                                         // Host-immediate engagement residual (host-only
                                         // path when movement auth is off).
                                         a.set_ai_state(AIState::Attacking);
-                                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live()
-                                        {
-                                            crate::game_logic::host_ai_decision_log::record_set_state(
-                                                object_id, 2,
-                                            );
-                                        }
+                                        {}
                                         a.set_status_attacking(true);
                                         a.set_status_moving(false);
                                         a.movement.velocity = glam::Vec3::ZERO;

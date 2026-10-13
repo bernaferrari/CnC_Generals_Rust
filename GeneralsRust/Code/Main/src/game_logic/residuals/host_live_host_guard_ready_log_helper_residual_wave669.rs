@@ -1,18 +1,5 @@
-//! Wave 669 residual peels: GameWorld guard writeback records dirty
-//! objects via `host_guard_ready_log`; host drains and applies
-//! presentation bookkeeping. Never flips `playable_claim`.
-//!
-//! Orthogonal to Waves 614–668 ready-log residuals.
-//! Host residual only — network deferred.
-//!
-//! Sources:
-//! - `host_guard_ready_log.rs`
-//! - `gameworld_shadow.rs` writeback_guard_to_host
-//! - `game_logic.rs` host_apply_guard_ready_completions
-//!
-//! Fail-closed:
-//! - Shell `playable_claim` stays false
-
+//! Historical wave669: guard belongs to the canonical Main host object.
+//! Guard shadow replay and reverse writeback are retired; adjacent channels remain separately tracked.
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
@@ -23,17 +10,17 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 
 pub const LIVE_HOST_GUARD_READY_LOG_HELPER_METHOD_NAMES_WAVE669: &[&str] = &[
-    "host_guard_ready_log",
-    "writeback_guard_to_host",
+    "canonical_guard_owner",
+    "retired_guard_writeback",
     "host_apply_guard_ready_completions",
     "Wave 669",
     "playable_claim = false",
 ];
 
 pub const LIVE_HOST_GUARD_READY_LOG_HELPER_NAV_STEPS_WAVE669: &[&str] = &[
-    "REQUIRE_GUARD_READY_LOG_MODULE",
-    "REQUIRE_WRITEBACK_RECORDS_GUARD_CHANGE",
-    "REQUIRE_HOST_DRAINS_GUARD_READY",
+    "REQUIRE_CANONICAL_GUARD_OWNER",
+    "REQUIRE_RETIRED_GUARD_WRITEBACK",
+    "REQUIRE_NO_GUARD_READY_QUEUE",
     "REQUIRE_HOST_APPLIES_GUARD_BOOKKEEPING",
     "LIVE_HOST_GUARD_READY_LOG_HELPER",
     "LIVE_PLAYABLE_CLAIM_FALSE",
@@ -41,8 +28,8 @@ pub const LIVE_HOST_GUARD_READY_LOG_HELPER_NAV_STEPS_WAVE669: &[&str] = &[
 
 pub const RUNTIME_HOST_LIVE_HOST_GUARD_READY_LOG_HELPER_CMD_NAMES_WAVE669: &[&str] = &[
     "host_guard_ready_log_helper",
-    "writeback_records_guard_change",
-    "host_drains_guard_ready",
+    "retired_guard_writeback",
+    "no_guard_ready_queue",
     "host_applies_guard_bookkeeping",
     "guard_ready_log_residual",
 ];
@@ -92,43 +79,13 @@ fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 fn ready_log_source() -> &'static str {
-    include_str!("../host_guard_ready_log.rs")
-}
-
-fn last_sig_index(src: &str, sig: &str) -> Option<usize> {
-    let mut at = None;
-    let mut from = 0usize;
-    while let Some(rel) = src[from..].find(sig) {
-        at = Some(from + rel);
-        from = from + rel + sig.len();
-    }
-    at
-}
-
-fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
-    let start = last_sig_index(src, sig)?;
-    let after = &src[start..];
-    let brace = after.find('{')?;
-    let mut depth = 0i32;
-    for (i, ch) in after[brace..].char_indices() {
-        match ch {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(&after[..=brace + i]);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
+    include_str!("../object/orders.rs")
 }
 
 pub fn honesty_host_guard_ready_log_helper_method_names_residual_wave669() -> bool {
     let names = LIVE_HOST_GUARD_READY_LOG_HELPER_METHOD_NAMES_WAVE669;
-    let ok = residual_name_index(names, "host_guard_ready_log").is_some()
-        && residual_name_index(names, "writeback_guard_to_host").is_some()
+    let ok = residual_name_index(names, "canonical_guard_owner").is_some()
+        && residual_name_index(names, "retired_guard_writeback").is_some()
         && residual_name_index(names, "Wave 669").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
     residual_action_store(ResidualHostGuardReadyLogHelperAction::MethodNames);
@@ -136,29 +93,10 @@ pub fn honesty_host_guard_ready_log_helper_method_names_residual_wave669() -> bo
 }
 
 pub fn honesty_host_guard_ready_log_helper_source_markers_residual_wave669() -> bool {
-    let gl = gl_source();
-    let sh = shadow_source();
-    let ready = ready_log_source();
-    let log_ok = ready.contains("Wave 669")
-        && ready.contains("pub fn record(")
-        && ready.contains("pub fn drain(");
-    let Some(wb) = fn_body(sh, "pub fn writeback_guard_to_host(") else {
-        residual_action_store(ResidualHostGuardReadyLogHelperAction::SourceMarkers);
-        return false;
-    };
-    let wb_ok = wb.contains("Wave 669") && wb.contains("host_guard_ready_log::record");
-    let Some(apply) = fn_body(gl, "pub fn host_apply_guard_ready_completions(") else {
-        residual_action_store(ResidualHostGuardReadyLogHelperAction::SourceMarkers);
-        return false;
-    };
-    let apply_ok = apply.contains("Wave 669")
-        && apply.contains("host_guard_ready_log::drain")
-        && apply.contains("record_host_guard");
-    let drain_call = (sh.contains("host_apply_guard_ready_completions")
-        || sh.contains("apply_ready_log_drain_op")
-        || sh.contains("ReadyLogDrainOp::Guard"))
-        && sh.contains("Wave 669: drain");
-    let ok = log_ok && wb_ok && apply_ok && drain_call && !gl.contains("playable_claim = true");
+    let ok = ready_log_source().contains("pub fn set_guard_position")
+        && !ready_log_source().contains("record_host_guard")
+        && !shadow_source().contains("pub fn writeback_guard_to_host")
+        && !gl_source().contains("pub fn host_apply_guard_ready_completions");
     residual_action_store(ResidualHostGuardReadyLogHelperAction::SourceMarkers);
     ok
 }
@@ -166,15 +104,15 @@ pub fn honesty_host_guard_ready_log_helper_source_markers_residual_wave669() -> 
 pub fn honesty_host_guard_ready_log_helper_nav_commands_residual_wave669() -> bool {
     let steps = LIVE_HOST_GUARD_READY_LOG_HELPER_NAV_STEPS_WAVE669;
     let cmds = RUNTIME_HOST_LIVE_HOST_GUARD_READY_LOG_HELPER_CMD_NAMES_WAVE669;
-    let ok = residual_name_index(steps, "REQUIRE_GUARD_READY_LOG_MODULE").is_some()
-        && residual_name_index(steps, "REQUIRE_WRITEBACK_RECORDS_GUARD_CHANGE").is_some()
-        && residual_name_index(steps, "REQUIRE_HOST_DRAINS_GUARD_READY").is_some()
+    let ok = residual_name_index(steps, "REQUIRE_CANONICAL_GUARD_OWNER").is_some()
+        && residual_name_index(steps, "REQUIRE_RETIRED_GUARD_WRITEBACK").is_some()
+        && residual_name_index(steps, "REQUIRE_NO_GUARD_READY_QUEUE").is_some()
         && residual_name_index(steps, "REQUIRE_HOST_APPLIES_GUARD_BOOKKEEPING").is_some()
         && residual_name_index(steps, "LIVE_HOST_GUARD_READY_LOG_HELPER").is_some()
         && residual_name_index(steps, "LIVE_PLAYABLE_CLAIM_FALSE").is_some()
         && residual_name_index(cmds, "host_guard_ready_log_helper").is_some()
-        && residual_name_index(cmds, "writeback_records_guard_change").is_some()
-        && residual_name_index(cmds, "host_drains_guard_ready").is_some()
+        && residual_name_index(cmds, "retired_guard_writeback").is_some()
+        && residual_name_index(cmds, "no_guard_ready_queue").is_some()
         && residual_name_index(cmds, "host_applies_guard_bookkeeping").is_some()
         && residual_name_index(cmds, "guard_ready_log_residual").is_some();
     residual_action_store(ResidualHostGuardReadyLogHelperAction::NavCommands);
@@ -182,17 +120,14 @@ pub fn honesty_host_guard_ready_log_helper_nav_commands_residual_wave669() -> bo
 }
 
 pub fn simulate_host_guard_ready_log_helper_collect_source() -> bool {
-    let ok = ready_log_source().contains("Wave 669")
-        && shadow_source().contains("host_guard_ready_log::record")
-        && gl_source().contains("host_guard_ready_log::drain");
+    let ok = honesty_host_guard_ready_log_helper_source_markers_residual_wave669();
     residual_action_store(ResidualHostGuardReadyLogHelperAction::CollectSource);
     ok
 }
 
 pub fn simulate_host_guard_ready_log_helper_dispatch_source() -> bool {
-    let gl = gl_source();
-    let sh = shadow_source();
-    let ok = sh.contains("Wave 669") && gl.contains("Wave 669") && sh.contains("Wave 669: drain");
+    let ok = !shadow_source().contains("ReadyLogDrainOp::Guard")
+        && !gl_source().contains("host_guard_ready_log::");
     residual_action_store(ResidualHostGuardReadyLogHelperAction::DispatchSource);
     ok
 }

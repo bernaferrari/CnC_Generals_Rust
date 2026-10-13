@@ -106,6 +106,8 @@ pub struct WeaponFireOcl {
 /// Combat system manager
 #[derive(Debug)]
 pub struct CombatSystem {
+    pub(crate) fire_sound_loop_events:
+        crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
     projectiles: HashMap<ObjectId, Projectile>,
     /// Accepted shots awaiting this world's existing materialization phase.
     pending_projectiles: Vec<PendingProjectile>,
@@ -396,10 +398,7 @@ pub fn queue_projectile(combat: &mut CombatSystem, mut pending: PendingProjectil
     // Host-only (shadow off) must enqueue immediately or combat never spawns shots.
     // Wave 682: under coupled tick, host_fire_spawn_log is drained immediately
     // after the host logic frame (eager post-logic apply) — still record here.
-    if crate::gameworld_shadow::gameworld_fire_spawn_authority_live() {
-        crate::game_logic::host_fire_spawn_log::record(pending);
-        return;
-    }
+    {}
     combat.pending_projectiles.push(pending);
 }
 

@@ -95,7 +95,7 @@ pub fn honesty_engine_exports_overlay_stamp_source() -> bool {
 /// Live residual: overlay sets non-zero stamp after shadow desync.
 pub fn simulate_live_presentation_overlay_stamp_honesty() -> bool {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::gameworld_shadow::{GameWorldShadow, ensure_gate_damage_authority};
+    use crate::gameworld_shadow::{GameWorldShadow};
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
@@ -110,7 +110,6 @@ pub fn simulate_live_presentation_overlay_stamp_honesty() -> bool {
         return false;
     }
 
-    ensure_gate_damage_authority();
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PresOverlayStamp190");
@@ -132,10 +131,10 @@ pub fn simulate_live_presentation_overlay_stamp_honesty() -> bool {
     let Some(eid) = shadow.entity_for_host(oid) else {
         return false;
     };
-    if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
-        e.health = 55.0;
-        e.selected = true;
-    }
+    let Some(object) = logic.host_object_mut(oid) else { return false; };
+    object.health.current = 55.0;
+    object.selected = true;
+    shadow.sync_from_host(&logic);
 
     let mut pres = PresentationFrame::build_from_logic(&mut logic, 0);
     if pres.gameworld_overlay_stamped != 0 {

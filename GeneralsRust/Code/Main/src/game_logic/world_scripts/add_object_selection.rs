@@ -234,10 +234,7 @@ impl GameLogic {
                     if obj.ai_state != AIState::Idle {
                         obj.set_ai_state(AIState::Idle);
                     }
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                        crate::game_logic::host_ai_decision_log::record_set_state(object_id, 0);
-                        crate::game_logic::host_ai_decision_log::record_stop_attack(object_id);
-                    }
+                    {}
                 }
             }
             log::trace!("{} commanded {} units to stop", player_id, selected.len());

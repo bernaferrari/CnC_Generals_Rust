@@ -602,16 +602,6 @@ impl Object {
         self.force_attack = v;
         crate::game_logic::host_status_log::record_force_attack(self.id, v);
     }
-    pub fn record_host_guard(&self) {
-        let position = self.guard_position.map(|p| [p.x, p.y, p.z]);
-        let target_host = self.guard_target.map(|id| id.0).unwrap_or(0);
-        crate::game_logic::host_guard_log::record(
-            self.id,
-            position,
-            target_host,
-            self.guard_radius,
-        );
-    }
 
     pub fn record_host_continuous_fire(&self) {
         let consecutive = self.continuous_fire_consecutive.min(u16::MAX as u32) as u16;

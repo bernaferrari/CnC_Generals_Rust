@@ -54,6 +54,13 @@ pub(crate) trait AiStateRuntime {
         }
     }
 
+    fn idle_goal_position(
+        &self,
+        _owner: &crate::object::Object,
+    ) -> Result<Option<Coord3D>, String> {
+        Err("runtime has no supplied Idle goal cell".into())
+    }
+
     fn enter_owned(&mut self, _passenger: ObjectID, _target: ObjectID) -> Result<(), String> {
         Err("AI operation has no supplied containment owner".into())
     }
@@ -169,6 +176,18 @@ pub(crate) trait AiStateRuntime {
         called_during_idle: bool,
         _is_attacking: bool,
     ) -> Option<Arc<RwLock<Object>>>;
+    fn try_next_mood_target(
+        &mut self,
+        called_by_ai: bool,
+        called_during_idle: bool,
+        is_attacking: bool,
+    ) -> Result<Option<Arc<RwLock<Object>>>, String> {
+        Ok(self.get_next_mood_target_with_attack_state(
+            called_by_ai,
+            called_during_idle,
+            is_attacking,
+        ))
+    }
     fn get_next_mood_check_time(&self) -> u32;
     fn reset_next_mood_check_time(&mut self);
     fn reset_mood_check_at_owned(

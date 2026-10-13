@@ -81,16 +81,16 @@ fn power_with_current(
 ) -> Result<(), String> {
     let source = game.source.clone();
     game.operate_with_current(frame, current, |world| {
-        let (factory, players, teams) = world.service_owners();
+        let (players, teams) = world.player_service_owners();
         let mut radar = QuietRadar(frame);
         let mut power = OwnedPowerBrownout {
-            factory,
+            objects: crate::player::PowerObjectOwner::World(world),
             players,
             teams,
             radar: &mut radar,
             frame,
             special_power_uses_delay: true,
-            ai_world: Some(world),
+
             misc_audio: None,
             audio: None,
         };

@@ -11,16 +11,7 @@ impl GameLogic {
         // shadow_session_after_host_tick via GameWorld::step_movement. Host still
         // owns path *commands* (move_to / attack-move logs) earlier in the frame.
         // Wave 875: movement authority early-return honesty — GW sole integrate.
-        if crate::gameworld_shadow::gameworld_movement_authority_live() {
-            // Collide/friction still run on the host; C++ applyMotiveForce(0)
-            // flags the object as locomotor-driven even when GW integrates pose.
-            self.arm_march_motive_flags(object_ids);
-            // Contain exit is not a locomotor integrate — still stream riders.
-            self.drain_pending_transport_exits();
-            // C++ doLocomotor still stamps AIRBORNE_TARGET after the frame.
-            self.stamp_airborne_targets_from_locomotor(object_ids);
-            return;
-        }
+        {}
         self.update_movement_locomotor_pass(object_ids, dt);
     }
 

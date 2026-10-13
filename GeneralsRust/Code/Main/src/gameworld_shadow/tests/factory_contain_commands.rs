@@ -8,12 +8,8 @@ use gamelogic::world::WorldMutation;
 
 #[test]
 fn production_queue_advances_one_frame_per_logic_update_and_writeback_matches() {
-    let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_SHADOW", "1")
-        .couple();
-
     let mut logic = GameLogic::new();
-    logic.set_production_authority(true);
+
     let cfg = golden_skirmish_config("P4Fact");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("P4Fact") {
@@ -25,33 +21,32 @@ fn production_queue_advances_one_frame_per_logic_update_and_writeback_matches() 
     let oid = logic
         .create_object("P4Fact", Team::USA, glam::Vec3::new(6.0, 0.0, 6.0))
         .expect("id");
-    host_production_progress_log::record(
-        oid,
-        vec![host_production_progress_log::HostProductionQueueItem {
+    {
+        use crate::game_logic::{ProductionItem, ProductionKind, Resources};
+        let mut data = BuildingData::new(BuildingType::Barracks);
+        data.production_queue.push(ProductionItem {
             template_name: "Ranger".into(),
             progress: 0.0,
             total_time: 1.0,
             construction_frames: 0,
-            cost_supplies: 100,
-            is_upgrade: false,
+            cost: Resources {
+                supplies: 100,
+                power: 0,
+            },
             quantity_total: 1,
             quantity_produced: 0,
-        }],
-        0.0,
-        1.0,
-    );
+            kind: ProductionKind::Unit,
+        });
+        logic.host_object_mut(oid).unwrap().building_data = Some(data);
+    }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let _ = shadow.apply_host_production_progress_events(&host_production_progress_log::drain());
 
     const TICKS: u32 = 5;
     for _ in 0..TICKS {
-        let n = shadow.tick_production_queues(1.0 / 30.0);
-        assert!(
-            n >= 1,
-            "C++ ProductionUpdate.cpp:687 increments once per update"
-        );
+        logic.update_production(1.0 / 30.0);
     }
+    shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(oid).expect("map");
     let head = shadow
         .world()
@@ -61,7 +56,7 @@ fn production_queue_advances_one_frame_per_logic_update_and_writeback_matches() 
         .first()
         .expect("head");
     assert_eq!(head.construction_frames, TICKS);
-    assert!(shadow.writeback_production_to_host(&mut logic) >= 1);
+    shadow.sync_from_host(&logic);
     let host_frames = logic
         .host_object(oid)
         .and_then(|o| o.building_data.as_ref())
@@ -74,12 +69,8 @@ fn production_queue_advances_one_frame_per_logic_update_and_writeback_matches() 
 
 #[test]
 fn production_door_advances_opening_to_waiting_open() {
-    let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_SHADOW", "1")
-        .couple();
-
     let mut logic = GameLogic::new();
-    logic.set_production_authority(true);
+
     let cfg = golden_skirmish_config("P4Door");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("P4Door") {
@@ -97,8 +88,11 @@ fn production_door_advances_opening_to_waiting_open() {
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let n = shadow.tick_production_doors(10);
-    assert!(n >= 1);
+    // CPP advances after the deadline; bool reports all doors closed.
+    assert!(!logic.host_object_mut(oid).unwrap().tick_production_door(10));
+    assert_eq!(logic.host_object(oid).unwrap().production_door_phase, 1);
+    assert!(!logic.host_object_mut(oid).unwrap().tick_production_door(11));
+    shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(oid).expect("map");
     assert_eq!(
         shadow.world().entity(eid).expect("e").production_door_phase,
@@ -130,9 +124,8 @@ fn construction_observation_does_not_complete_host_or_projection() {
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert!(shadow.queue_set_construction_for_host(oid, 0.99, true));
-    let _ = shadow.apply_pending();
-    let _ = shadow.observe_host_construction(&logic);
+    shadow.sync_from_host(&logic);
+    let _ = shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(oid).expect("map");
     let pct = shadow.world().entity(eid).expect("e").construction_percent;
     assert!(
@@ -147,11 +140,6 @@ fn construction_observation_does_not_complete_host_or_projection() {
 
 #[test]
 fn contain_enter_exit_roster_and_container_destroy_ejects_before_remove() {
-    let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_SHADOW", "1")
-        .set("GENERALS_GAMEWORLD_DEFERRED_DESTROY", "1")
-        .couple();
-
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("P5Cont");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -185,13 +173,6 @@ fn contain_enter_exit_roster_and_container_destroy_ejects_before_remove() {
     shadow.sync_from_host(&logic);
     let eid_b = shadow.entity_for_host(bunker).expect("b");
     let eid_i = shadow.entity_for_host(inf).expect("i");
-    shadow
-        .world_mut()
-        .queue_mutation(WorldMutation::ContainEnter {
-            container: eid_b,
-            occupant: eid_i,
-        });
-    assert!(shadow.apply_pending() >= 1);
     assert_eq!(shadow.world().contain_roster().occupants(eid_b), &[eid_i]);
     assert_eq!(
         shadow.world().contain_roster().contained_by(eid_i),
@@ -200,12 +181,13 @@ fn contain_enter_exit_roster_and_container_destroy_ejects_before_remove() {
     let probe = shadow.probe(&mut logic);
     assert!(probe.contain_match, "{}", probe.format_report());
 
-    shadow
-        .world_mut()
-        .queue_mutation(WorldMutation::Destroy(eid_b));
-    let _ = shadow.apply_pending();
-    assert!(shadow.world().entity(eid_b).expect("marked").destroyed);
-    assert_eq!(shadow.world_mut().process_destroy_list(), 1);
+    assert!(logic.evacuate_container_now(bunker, true));
+    assert!(logic.host_object(bunker).unwrap().occupants.is_empty());
+    assert!(logic.host_object(inf).unwrap().contained_by.is_none());
+    logic.destroy_object(bunker);
+    assert!(logic.host_object(bunker).unwrap().status.destroyed);
+    logic.process_destroy_list();
+    shadow.sync_from_host(&logic);
     assert!(shadow.world().entity(eid_b).is_none());
     assert!(shadow.world().entity(eid_i).is_some());
     assert!(

@@ -415,9 +415,7 @@ impl GameLogic {
                 chute.clear_eject_parachuting();
                 if chute.is_alive() {
                     let hp = chute.health.current.max(1.0);
-                    if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                        self.health_events.record_damage(id, hp, None, true);
-                    } else {
+                    {
                         chute.health.current = 0.0;
                     }
                     chute.status.destroyed = true;
@@ -459,19 +457,10 @@ impl GameLogic {
         let destroyed = if let Some(r) = self.objects.get_mut(&rider_id) {
             r.set_contained_by(None);
             r.set_ai_state(AIState::Idle);
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_set_state(rider_id, 0);
-            }
+            {}
             r.set_position(eject_pos);
             crate::game_logic::host_ground_height_log::record(rider_id, eject_pos.y, false);
-            if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                self.movement_events.record(
-                    self.frame,
-                    rider_id,
-                    Some([eject_pos.x, eject_pos.y, eject_pos.z]),
-                );
-                r.record_host_movement();
-            }
+            {}
             // C++ ParachuteContain::onDie: chute gone, rider setAllowToFall + setIsInFreeFall.
             r.set_status_parachute_open(false);
             r.set_status_parachuting(false);
@@ -1870,11 +1859,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -1999,11 +1984,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;

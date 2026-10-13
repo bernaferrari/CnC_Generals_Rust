@@ -148,7 +148,10 @@ fn move_step(game: &mut NativeMatch, frame: u32, target: Coord3D) -> Result<(), 
     let current = ai_proxy(&owner);
     prepare_ai_path(&ai, target);
     game.operate_with_current(frame, Some(current), |world| {
-        ai.lock().unwrap().update_locomotor_phase_with_world(world)
+        ai.lock()
+            .unwrap()
+            .update_locomotor_phase_with_world(world)
+            .map(|_| ())
     })
 }
 
@@ -743,4 +746,156 @@ pub(crate) fn explicit_goal_moves_canonical_owner_without_path_or_foreign_writes
             .get_velocity(),
         peer_velocity
     );
+}
+
+#[test]
+fn installed_idle_scheduler_keeps_same_id_peer_wakes_and_pose_unchanged() {
+    if !child(
+        "modules::ai_native_world_tests::locomotion::installed_idle_scheduler_keeps_same_id_peer_wakes_and_pose_unchanged",
+    ) {
+        return;
+    }
+    let mut first = game(0.1);
+    let peer = game(0.1);
+    let first_proxy = ai_proxy(&first.source);
+    let peer_proxy = ai_proxy(&peer.source);
+    let interface = first
+        .source
+        .read()
+        .unwrap()
+        .get_ai_update_interface()
+        .unwrap();
+    first.operate(0, |world| {
+        interface
+            .lock()
+            .unwrap()
+            .execute_command_with_world(
+                &crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::Idle,
+                    crate::ai::CommandSourceType::FromAi,
+                ),
+                world,
+            )
+            .unwrap()
+    });
+    assert_eq!(
+        first.source.read().unwrap().get_id(),
+        peer.source.read().unwrap().get_id()
+    );
+    let peer_wake = peer.scheduler.sleepy_entry_for(&peer_proxy);
+    let peer_position = *peer.source.read().unwrap().get_position();
+    let count = first
+        .operate(1, |world| world.tick_owned_updates(1))
+        .unwrap();
+    assert!(count >= 1, "the real admitted heap must execute callbacks");
+    assert!(
+        first.scheduler.sleepy_entry_for(&first_proxy).unwrap().1 > 1,
+        "actual Idle sleep must reschedule its proxy"
+    );
+    assert_eq!(peer.scheduler.sleepy_entry_for(&peer_proxy), peer_wake);
+    assert_eq!(*peer.source.read().unwrap().get_position(), peer_position);
+}
+
+#[test]
+fn unsupported_scheduled_goal_keeps_actual_wake_and_waypoint_metadata() {
+    if !child(
+        "modules::ai_native_world_tests::locomotion::unsupported_scheduled_goal_keeps_actual_wake_and_waypoint_metadata",
+    ) {
+        return;
+    }
+    let mut game = game(0.1);
+    let owner = Arc::clone(&game.source);
+    let interface = owner.read().unwrap().get_ai_update_interface().unwrap();
+    game.operate(0, |world| {
+        interface
+            .lock()
+            .unwrap()
+            .execute_command_with_world(
+                &crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::Idle,
+                    crate::ai::CommandSourceType::FromAi,
+                ),
+                world,
+            )
+            .unwrap()
+    });
+    {
+        let mut ai = interface.lock().unwrap();
+        ai.set_locomotor_goal_orientation(1.0);
+        ai.set_completed_waypoint_id(Some(23));
+    }
+    let proxy = ai_proxy(&owner);
+    let wake_before = game.scheduler.sleepy_entry_for(&proxy);
+    let position_before = *owner.read().unwrap().get_position();
+    let failure = game
+        .operate(1, |world| world.tick_owned_updates(1))
+        .unwrap_err();
+    assert!(failure.contains("goal requires"), "{failure}");
+    assert_eq!(game.scheduler.sleepy_entry_for(&proxy), wake_before);
+    assert_eq!(
+        interface.lock().unwrap().get_completed_waypoint_id(),
+        Some(23)
+    );
+    assert_eq!(*owner.read().unwrap().get_position(), position_before);
+}
+
+#[test]
+fn scheduled_dead_entry_notifies_receiving_scripts_then_preserves_full_velocity_magnitude() {
+    if !child(
+        "modules::ai_native_world_tests::locomotion::scheduled_dead_entry_notifies_receiving_scripts_then_preserves_full_velocity_magnitude",
+    ) {
+        return;
+    }
+    let peer = game(0.1);
+    let mut game = game(0.1);
+    let owner = Arc::clone(&game.source);
+    let interface = owner.read().unwrap().get_ai_update_interface().unwrap();
+    let proxy = ai_proxy(&owner);
+    game.operate(9, |world| {
+        interface
+            .lock()
+            .unwrap()
+            .execute_command_with_world(
+                &crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::Idle,
+                    crate::ai::CommandSourceType::FromAi,
+                ),
+                world,
+            )
+            .unwrap()
+    });
+    interface.lock().unwrap().mark_dead_owned().unwrap();
+    let entry_sleep = game
+        .operate_with_current(10, Some(Arc::clone(&proxy)), |world| {
+            interface
+                .lock()
+                .unwrap()
+                .update_scheduled_tick_with_world(world)
+        })
+        .unwrap();
+    assert_eq!(entry_sleep, crate::modules::UpdateSleepTime::None);
+    assert_eq!(
+        interface.lock().unwrap().get_current_state_id(),
+        Some(crate::ai::states::AIStateType::Dead as u32)
+    );
+    assert_eq!(game.disposal.scripts.get_frame_object_count_changed(), 10);
+    let physics = physics_handle(&owner);
+    physics
+        .access()
+        .unwrap()
+        .set_velocity(&Coord3D::new(3.0, 4.0, 12.0));
+    game.operate_with_current(11, Some(proxy), |world| {
+        interface
+            .lock()
+            .unwrap()
+            .update_scheduled_tick_with_world(world)
+    })
+    .unwrap();
+    assert!(owner.read().unwrap().is_effectively_dead());
+    let velocity = physics.access().unwrap().get_velocity();
+    // CPP full magnitude is13 => desired10.4; scrub2D must not accelerate
+    // current horizontal speed5. The old XY-only magnitude wrongly reduced it.
+    assert_eq!((velocity.x, velocity.y, velocity.z), (3.0, 4.0, 12.0));
+    assert!(!peer.source.read().unwrap().is_effectively_dead());
+    assert_ne!(peer.disposal.scripts.get_frame_object_count_changed(), 10);
 }

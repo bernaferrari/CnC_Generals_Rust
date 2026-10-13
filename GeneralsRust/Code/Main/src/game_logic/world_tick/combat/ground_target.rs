@@ -122,9 +122,7 @@ impl GameLogic {
             }
             let aim_ok = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                 attacker.set_ai_state(AIState::AttackingGround);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 4); // AttackingGround
-                }
+                {}
                 attacker.set_status_attacking(true);
                 let max_step = if attacker.status.moving && attacker.can_move() {
                     0.2

@@ -34,9 +34,7 @@ impl GameLogic {
             obj.set_actively_constructing(false);
         }
         self.set_ai_state_decision_aware(object_id, AIState::Idle);
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-            crate::game_logic::host_ai_decision_log::record_stop_attack(object_id);
-        }
+        {}
         self.dozer_internal_task_complete(object_id, true);
         let _ = self.dozer_idle_resume_pending_build(object_id);
     }
@@ -573,15 +571,6 @@ impl GameLogic {
                         }
                         if obj.health.current >= obj.health.maximum - 0.01 {
                             obj.set_order_target(None);
-                        } else if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                            let ordinal =
-                                crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-                                    &state,
-                                );
-                            crate::game_logic::host_ai_decision_log::record_set_state(
-                                object_id, ordinal,
-                            );
-                            obj.set_ai_state(state);
                         } else {
                             obj.set_ai_state(state);
                         }
@@ -1165,14 +1154,7 @@ impl GameLogic {
                                 container_pos.y,
                                 false,
                             );
-                            if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                                self.movement_events.record(
-                                    self.frame,
-                                    obj.id,
-                                    Some([container_pos.x, container_pos.y, container_pos.z]),
-                                );
-                                obj.record_host_movement();
-                            }
+                            {}
                         }
                         let __ai_st = if container_is_heal_contain || container_is_tunnel_network {
                             // C++ HealContain / TunnelContain::isGarrisonable is FALSE.
@@ -1185,15 +1167,7 @@ impl GameLogic {
                             AIState::Docked
                         };
                         // Host-immediate garrison/dock residual under decision auth.
-                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                            let ordinal =
-                                crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-                                    &__ai_st,
-                                );
-                            crate::game_logic::host_ai_decision_log::record_set_state(
-                                object_id, ordinal,
-                            );
-                        }
+                        {}
                         obj.set_ai_state(__ai_st);
                         obj.set_status_moving(false);
                         // C++ GarrisonContain::onContaining TheInGameUI->deselectDrawable.
@@ -1383,12 +1357,7 @@ impl GameLogic {
                             Some(capture_target_id),
                         ) {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
-                                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled(
-                                ) {
-                                    crate::game_logic::host_ai_decision_log::record_set_state(
-                                        object_id, 19,
-                                    ); // Capturing
-                                } else {
+                                {
                                     obj.set_ai_state(AIState::Capturing);
                                     if !obj.movement.path.is_empty() {
                                         obj.set_status_moving(true);
@@ -2098,9 +2067,7 @@ impl GameLogic {
                                     o.helicopter_slow_death = None;
                                     o.status.effectively_dead = true;
                                     o.status.destroyed = true;
-                                    if !crate::gameworld_shadow::gameworld_damage_authority_live()
-                                        && o.health.current > 0.0
-                                    {
+                                    if o.health.current > 0.0 {
                                         o.health.current = 0.0;
                                     }
                                 }
@@ -2705,15 +2672,7 @@ impl GameLogic {
                                 obj.apply_disguise(&tpl, as_team);
                                 obj.stop_moving();
                                 obj.ignored_obstacle_id = None;
-                                if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled(
-                                ) {
-                                    crate::game_logic::host_ai_decision_log::record_stop_attack(
-                                        object_id,
-                                    );
-                                    crate::game_logic::host_ai_decision_log::record_set_state(
-                                        object_id, 0,
-                                    );
-                                } else {
+                                {
                                     obj.set_target(None);
                                     obj.set_ai_state(AIState::Idle);
                                 }
@@ -3626,14 +3585,7 @@ impl GameLogic {
                         obj.set_contained_by_enclosing(Some(container_id), enclosing);
                         obj.set_position(pin_pos);
                         crate::game_logic::host_ground_height_log::record(obj.id, pin_pos.y, false);
-                        if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                            self.movement_events.record(
-                                self.frame,
-                                obj.id,
-                                Some([pin_pos.x, pin_pos.y, pin_pos.z]),
-                            );
-                            obj.record_host_movement();
-                        }
+                        {}
                         obj.stop_moving();
                         obj.set_status_moving(false);
                     }

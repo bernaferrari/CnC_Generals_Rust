@@ -1374,14 +1374,7 @@ impl GameLogic {
             object.partition_cash_value = partition_cash;
             object.partition_threat_value = partition_threat;
             object.set_position(position);
-            if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                self.movement_events.record(
-                    self.frame,
-                    id,
-                    Some([position.x, position.y, position.z]),
-                );
-                object.record_host_movement();
-            }
+            {}
             let starts_under_construction = object.status.under_construction;
 
             // Primary weapon from template when defined; kind-based fallback only as last resort.
@@ -2626,15 +2619,7 @@ impl GameLogic {
             );
             // Wave 680: mid-frame GameWorld map while coupled shadow tick is live.
             // End-of-tick host_spawn_log drain remains idempotent for unmapped IDs.
-            let _ = crate::gameworld_shadow::eager_map_host_spawn_if_coupled(
-                self,
-                &crate::game_logic::host_spawn_log::HostSpawnEvent {
-                    id,
-                    template: template_name.to_string(),
-                    team_ordinal: team_ord,
-                    position: [position.x, position.y, position.z],
-                },
-            );
+
             if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                 obj.record_model_mesh_from_template();
                 obj.record_kind_of_bits_from_template();

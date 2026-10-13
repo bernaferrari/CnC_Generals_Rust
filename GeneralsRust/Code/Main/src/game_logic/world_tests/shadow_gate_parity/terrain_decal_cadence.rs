@@ -2,7 +2,7 @@
 //! Exercise Main's admitted object and ordinary frame boundary. Calling the
 //! crate decal domain operation explicitly is not retail crate-spawn evidence.
 use super::*;
-use crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority;
+
 use crate::game_logic::host_battlemaster::{
     CRATE_DECAL_FADE_IN_RATE, TERRAIN_DECAL_CRATE, TERRAIN_DECAL_NONE,
 };
@@ -25,7 +25,7 @@ fn admitted_decal() -> (GameLogic, ObjectId) {
         None,
     );
     let mut logic = GameLogic::new();
-    logic.set_gameworld_authority(|authority| *authority = GameWorldAuthority::DEFAULT_OFF);
+
     logic.templates.insert(NAME.into(), template);
     let id = logic
         .create_object(NAME, Team::Neutral, Vec3::ZERO)
@@ -60,12 +60,11 @@ fn terrain_decal_fade_advances_once_per_bare_host_frame() {
 }
 
 #[test]
-fn terrain_decal_fade_advances_once_per_default_coupled_frame() {
-    let _env = ShadowEnvPin::new();
+fn terrain_decal_fade_advances_once_per_default_owned_frame() {
     let (mut logic, id) = admitted_decal();
     let mut shadow = GameWorldShadow::new(16);
     for frame in 1..=3 {
-        coupled_frame(&mut shadow, &mut logic);
+        owned_frame(&mut shadow, &mut logic);
         assert_eq!(logic.getFrame(), frame);
         assert_opacity(&logic, id, frame as f32 * CRATE_DECAL_FADE_IN_RATE);
     }

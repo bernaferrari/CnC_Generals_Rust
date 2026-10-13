@@ -34,6 +34,7 @@ impl GameClient {
             frame: 0,
             last_visual_time_frame: u32::MAX,
             next_drawable_id: DrawableId(1),
+            ray_effects: Default::default(),
             local_player_id: 0,
             visual_world: None,
             last_applied_military_caption: None,
@@ -165,6 +166,7 @@ impl GameClient {
             drawable.reset_volatile_shroud_state();
         }
         self.drawable_map.clear();
+        self.ray_effects.reset();
         self.drawable_object_map.clear();
         self.presentation_direct_drawable_bindings.clear();
         self.text_bearing_drawables.clear();

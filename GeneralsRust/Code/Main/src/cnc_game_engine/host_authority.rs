@@ -1699,7 +1699,10 @@ impl CnCGameEngine {
     pub(super) fn host_simulate_gameworld_authority_probe(&mut self) -> bool {
         // Wave 928: runtime-host GameWorld authority probe boundary.
 
-        crate::gameworld_shadow::simulate_gameworld_authority_probe(&mut self.game_logic)
+        let (_, probe) = crate::gameworld_shadow::probe_host_vs_gameworld(&self.game_logic);
+        probe.counts_match && probe.economy_match && probe.health_match && probe.pose_match && probe.attack_target_match
+            && probe.move_target_match && probe.weapon_match && probe.contain_match
+            && probe.production_match && probe.destroy_visibility_match
     }
 
     pub(super) fn host_quick_save_from_hotkey(&mut self, source: &str) {
@@ -2027,7 +2030,6 @@ mod staged_restore_tests {
         crate::game_logic::host_weapon_set_log::record(object, true, false);
         crate::game_logic::host_contain_capacity_log::record(object, 20, 21);
         crate::game_logic::host_status_log::record_selected(object, true);
-        crate::game_logic::host_ai_attitude_log::record(object, 2);
         crate::game_logic::host_special_power_log::record(object, false, 22.0, 23.0, true);
         crate::game_logic::host_player_cooldown_log::record(
             24,
@@ -2071,9 +2073,7 @@ mod staged_restore_tests {
         crate::game_logic::host_continuous_fire_log::record(object, 52, 53, 54);
         crate::game_logic::host_player_meta_log::record_sciences(55, [format!("{label}-science")]);
         crate::game_logic::host_player_progress_log::record(56, 57, 58, 59, 60.0);
-        crate::game_logic::host_veterancy_log::record(object, 3);
         crate::game_logic::host_max_health_log::record(object, 61.0);
-        crate::game_logic::host_experience_log::record(object, 62.0);
         crate::game_logic::host_building_type_log::record(object, true, 12);
         crate::game_logic::host_physics_motive_log::record(
             object,

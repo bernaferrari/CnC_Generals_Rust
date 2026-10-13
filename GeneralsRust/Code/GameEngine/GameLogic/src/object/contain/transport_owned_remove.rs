@@ -75,6 +75,15 @@ impl TransportContain {
         let ai = rider.get_ai_update_interface();
         drop(rider);
         drop(owner);
+        if parent_velocity.is_some() && rider_physics.is_some() {
+            world.physics_mass_for_owner(&prepared.passenger)?;
+        }
+        if !orientation.is_finite()
+            || exit_position.is_some_and(|point| !point.is_finite())
+            || parent_velocity.is_some_and(|velocity| !velocity.is_finite())
+        {
+            return Err("transport exit pose/velocity is nonfinite".into());
+        }
         // No recoverable store/guard/service failure follows this unlink.
         self.base.detach_remove_with_world(&prepared, world);
         self.base.removing_sounds_with_world(&prepared, world);
@@ -85,24 +94,33 @@ impl TransportContain {
                 .expect("admitted remove rider poisoned");
             world.clear_contained_held(&mut rider);
         }
+        if let Some(position) = exit_position {
+            world
+                .set_object_position_handle(&prepared.passenger, &position)
+                .expect("admitted exit bone position");
+        }
+        if self.module_data.orient_like_container_on_exit {
+            world
+                .set_object_orientation_handle(&prepared.passenger, orientation)
+                .expect("admitted exit orientation");
+        }
+        let rider_mass = if parent_velocity.is_some() && rider_physics.is_some() {
+            Some(
+                world
+                    .physics_mass_for_owner(&prepared.passenger)
+                    .expect("admitted cargo Physics mass"),
+            )
+        } else {
+            None
+        };
         {
-            let mut rider = prepared
+            let rider = prepared
                 .passenger
-                .write()
+                .read()
                 .expect("admitted remove rider poisoned");
-            if let Some(position) = exit_position {
-                world
-                    .set_object_position(&mut rider, &position)
-                    .expect("admitted exit bone position");
-            }
-            if self.module_data.orient_like_container_on_exit {
-                world
-                    .set_object_orientation(&mut rider, orientation)
-                    .expect("admitted exit orientation");
-            }
             if let (Some(velocity), Some(physics)) = (parent_velocity, &rider_physics) {
                 let mut physics = physics.access().expect("admitted rider physics poisoned");
-                let force = velocity * physics.get_mass_with_object(&rider);
+                let force = velocity * rider_mass.expect("observed cargo Physics mass");
                 let pitch = physics.get_center_of_mass_offset() * self.module_data.exit_pitch_rate;
                 let wake = physics.apply_motive_force_with_object_at(&force, &rider, world.frame());
                 physics.set_pitch_rate(pitch);

@@ -1339,6 +1339,22 @@ impl ParticleSystem {
         system_id: ParticleSystemId,
         create_slaves: bool,
     ) -> Self {
+        Self::new_with_random(
+            template,
+            system_id,
+            create_slaves,
+            &mut get_game_client_random_value_real,
+        )
+    }
+
+    /// Constructor observations belong to the receiving presentation session.
+    /// Initial delay and wind keep their original order before admission.
+    pub fn new_with_random(
+        template: Arc<ParticleSystemTemplate>,
+        system_id: ParticleSystemId,
+        create_slaves: bool,
+        random: &mut dyn FnMut(f32, f32) -> f32,
+    ) -> Self {
         let info = template.info();
 
         let mut system = Self {
@@ -1360,7 +1376,7 @@ impl ParticleSystem {
             last_position: Vec3::ZERO,
 
             burst_delay_left: 0,
-            delay_left: info.initial_delay.sample() as u32,
+            delay_left: info.initial_delay.sample_with(&mut *random) as u32,
             start_timestamp: 0, // Will be set when started
             system_lifetime_left: info.system_lifetime,
 
@@ -1409,7 +1425,7 @@ impl ParticleSystem {
         };
 
         // Initialize wind motion
-        system.initialize_wind_motion();
+        system.initialize_wind_motion_with_random(random);
 
         system
     }
@@ -2363,23 +2379,20 @@ impl ParticleSystem {
     }
 
     /// Initialize wind motion (C++ ParticleSystem ctor lines 1114-1125)
-    fn initialize_wind_motion(&mut self) {
+    fn initialize_wind_motion_with_random(&mut self, random: &mut dyn FnMut(f32, f32) -> f32) {
         let info = self.template.info();
 
         // C++ ParticleSys.cpp:1123-1125 — three client-stream draws. The client
         // residual returns `hi` for empty ranges, so no min/max clamping needed.
-        self.wind_motion_start_angle = get_game_client_random_value_real(
+        self.wind_motion_start_angle = random(
             info.wind_motion_start_angle_min,
             info.wind_motion_start_angle_max,
         );
-        self.wind_motion_end_angle = get_game_client_random_value_real(
+        self.wind_motion_end_angle = random(
             info.wind_motion_end_angle_min,
             info.wind_motion_end_angle_max,
         );
-        self.wind_angle = get_game_client_random_value_real(
-            self.wind_motion_start_angle,
-            self.wind_motion_end_angle,
-        );
+        self.wind_angle = random(self.wind_motion_start_angle, self.wind_motion_end_angle);
         self.wind_motion_moving_to_end_angle = info.wind_motion_moving_to_end_angle;
     }
 

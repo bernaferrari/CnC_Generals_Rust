@@ -50,13 +50,7 @@ fn local_player_id(logic: &GameLogic) -> u32 {
 }
 
 fn coupled_session(shadow: &mut GameWorldShadow, logic: &mut GameLogic) {
-    begin_shadow_coupled_tick();
-    crate::gameworld_shadow::with_coupled_shadow(shadow, || {
-        let _ = crate::gameworld_shadow::with_active_shadow_mut(|active_shadow| {
-            crate::gameworld_shadow::shadow_session_after_host_tick(active_shadow, logic)
-        });
-    });
-    end_shadow_coupled_tick();
+    observe_completed_owner(shadow, logic);
 }
 
 fn assert_radar_kept(logic: &GameLogic, local: u32, ctx: &str) {
@@ -73,10 +67,6 @@ fn assert_radar_kept(logic: &GameLogic, local: u32, ctx: &str) {
 
 #[test]
 fn fresh_shadow_skirmish_coupled_session_keeps_local_radar() {
-    let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_SHADOW", "1")
-        .couple();
-
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MinimapSeamFresh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -94,10 +84,6 @@ fn fresh_shadow_skirmish_coupled_session_keeps_local_radar() {
 
 #[test]
 fn shell_to_skirmish_coupled_session_keeps_local_radar() {
-    let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_SHADOW", "1")
-        .couple();
-
     // Shell phase (live: GAME_SHELL with bootstrap players), then match start
     // on the SAME GameLogic + persistent GameWorldShadow.
     let mut logic = GameLogic::new();

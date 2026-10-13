@@ -19,15 +19,13 @@ impl TheWeaponStore {
         source_id: ObjectID,
         position: &Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let result = crate::weapon::with_weapon_store(|store| {
-            store.create_and_fire_temp_weapon(weapon_template, source_id, None, Some(position))
-        });
-
-        match result {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(err)) => Err(format!("{:?}", err).into()),
-            Err(err) => Err(format!("{:?}", err).into()),
-        }
+        crate::weapon::WeaponStore::create_and_fire_temp_weapon(
+            weapon_template,
+            source_id,
+            None,
+            Some(position),
+        )
+        .map_err(|error| format!("{error:?}").into())
     }
 
     /// Create and fire a temporary weapon
@@ -45,16 +43,13 @@ impl TheWeaponStore {
             return Err(format!("Weapon template '{}' not found", weapon_name).into());
         };
 
-        let source_id = source.get_id();
-        let result = crate::weapon::with_weapon_store(|store| {
-            store.create_and_fire_temp_weapon(&template, source_id, None, Some(position))
-        });
-
-        match result {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(err)) => Err(format!("{:?}", err).into()),
-            Err(err) => Err(format!("{:?}", err).into()),
-        }
+        crate::weapon::WeaponStore::create_and_fire_temp_weapon(
+            &template,
+            source.get_id(),
+            None,
+            Some(position),
+        )
+        .map_err(|error| format!("{error:?}").into())
     }
 }
 

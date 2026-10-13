@@ -2285,11 +2285,7 @@ fn create_object_die_spawns_on_lifetime_expiry() {
         assert!(o.tick_lifetime_update(2));
         // Wave 753: under damage authority, do not zero host HP mid-frame
         // (dual with GW HP writeback). Project lethal via damage log + flags.
-        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-            let hp = o.health.current.max(1.0);
-            let oid = o.id;
-            logic.health_events.record_damage(oid, hp, None, true);
-        } else {
+        {
             o.health.current = 0.0;
         }
         o.status.destroyed = true;

@@ -35,11 +35,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&sid) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -129,11 +125,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -1364,11 +1356,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -1595,12 +1583,7 @@ impl GameLogic {
             if entered_attack {
                 attacker.set_ai_state(AIState::Attacking);
             }
-            if entered_attack && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_attack(sentry_id, target_id);
-                crate::game_logic::host_ai_decision_log::record_set_state(sentry_id, 2);
-            } else if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_attack(sentry_id, target_id);
-            }
+            {}
         }
         if !self.ensure_deploy_style_ready_to_fire(sentry_id) {
             return;
@@ -1628,26 +1611,7 @@ impl GameLogic {
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
-            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
-                let (dmg, rng) = attacker
-                    .weapon
-                    .as_ref()
-                    .map(|w| (w.damage, w.range))
-                    .unwrap_or((0.0, 0.0));
-                let frame = crate::game_logic::host_historic_bonus::logic_frame();
-                let next_count = attacker.fire_intent_count.saturating_add(1);
-                crate::game_logic::host_fire_intent_log::record(
-                    attacker.id,
-                    target_id.0,
-                    0,
-                    dmg,
-                    rng,
-                    current_time,
-                    frame,
-                    next_count,
-                );
-                attacker.fire_intent_count = next_count;
-            }
+            {}
             // STEALTH_NOT_WHILE_ATTACKING residual.
             if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
                 attacker.break_stealth();
@@ -1826,26 +1790,7 @@ impl GameLogic {
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
-            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
-                let (dmg, rng) = attacker
-                    .weapon
-                    .as_ref()
-                    .map(|w| (w.damage, w.range))
-                    .unwrap_or((0.0, 0.0));
-                let frame = crate::game_logic::host_historic_bonus::logic_frame();
-                let next_count = attacker.fire_intent_count.saturating_add(1);
-                crate::game_logic::host_fire_intent_log::record(
-                    attacker.id,
-                    target_id.0,
-                    0,
-                    dmg,
-                    rng,
-                    current_time,
-                    frame,
-                    next_count,
-                );
-                attacker.fire_intent_count = next_count;
-            }
+            {}
             attacker.note_attack_target(target_id);
             let entered_attack = !matches!(
                 attacker.ai_state,
@@ -1854,12 +1799,7 @@ impl GameLogic {
             if entered_attack {
                 attacker.set_ai_state(AIState::Attacking);
             }
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_attack(hellfire_id, target_id);
-                if entered_attack {
-                    crate::game_logic::host_ai_decision_log::record_set_state(hellfire_id, 2);
-                }
-            }
+            {}
             if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
                 attacker.break_stealth();
             }
@@ -2120,9 +2060,7 @@ impl GameLogic {
             }
             occ.set_contained_by(None);
             occ.set_ai_state(AIState::Idle);
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_set_state(occ_id, 0);
-            }
+            {}
             ejected.push(occ_id);
         }
 
@@ -2327,9 +2265,7 @@ impl GameLogic {
             }
             occ.set_contained_by(None);
             occ.set_ai_state(AIState::Idle);
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_set_state(occ_id, 0);
-            }
+            {}
             if let Some(aid) = attacker_id {
                 score_pairs.push((aid, occ_id));
             }

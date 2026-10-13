@@ -177,6 +177,9 @@ impl AudioLocalityResolver for LocalPlayers<'_> {
     }
 }
 struct NativeMatch {
+    weapon_store: crate::weapon::WeaponStore,
+    historic_damage_limit: u32,
+    physics_rules: crate::object::behavior::physics_update::PhysicsRules,
     radar: game_engine::common::system::radar::RadarSystem,
     death_notifications: Vec<super::ai_native_world::NativeDeathNotification>,
     ranks: crate::system::rank_info::RankInfoStore,
@@ -368,6 +371,11 @@ impl NativeMatch {
             )
             .unwrap();
         Self {
+            weapon_store: crate::weapon::WeaponStore::new(),
+            historic_damage_limit: game_engine::common::global_data::GlobalData::default().historic_damage_limit,
+            physics_rules: crate::object::behavior::physics_update::PhysicsRules::from_global_data(
+                &game_engine::common::global_data::GlobalData::default(),
+            ),
             ranks: Default::default(),
             deposit_sound: Default::default(),
             kill_awards: Vec::new(),
@@ -427,13 +435,16 @@ impl NativeMatch {
     ) -> R {
         let locality = LocalPlayers(&self.players);
         let services = AiNativeServices {
+            weapon_store: &mut self.weapon_store,
+            historic_damage_limit: self.historic_damage_limit,
+            physics_rules: self.physics_rules,
             radar: &mut self.radar,
             death_notifications: &mut self.death_notifications,
             rank_info: &self.ranks,
             rank_level_limit: i32::MAX,
             money_deposit_sound: &self.deposit_sound,
             kill_award_events: &mut self.kill_awards,
-            groups: &self.groups,
+            groups: &mut self.groups,
             disposal: Some(&mut self.disposal),
             current_update,
             update_scheduler: &mut self.scheduler,
@@ -1007,3 +1018,9 @@ mod kill_awards;
 
 #[path = "ai_native_world_tests/physics_landing.rs"]
 mod physics_landing;
+
+#[path = "ai_native_world_tests/containment_lifecycle.rs"]
+mod containment_lifecycle;
+
+#[path = "ai_native_world_tests/idle.rs"]
+mod idle;

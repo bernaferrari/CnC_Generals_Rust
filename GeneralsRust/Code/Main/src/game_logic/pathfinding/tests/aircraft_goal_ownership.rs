@@ -522,9 +522,7 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
     if isolated("authored_aircraft_liveness_ignores_same_id_foreign_shadow_health") {
         return;
     }
-    use crate::gameworld_shadow::{
-        CoupledTickGuard, GameWorldShadow, coupled_entity_health, with_coupled_shadow,
-    };
+    use crate::gameworld_shadow::GameWorldShadow;
     let dest = Vec3::new(75.0, 40.0, 75.0);
     let (mut driving, hover, wings) = authored_world(dest);
     // Only the hover reserves this goal; the wings is the attack seeker.
@@ -558,10 +556,9 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
         .unwrap()
         .health = 0.0;
     {
-        let _couple = CoupledTickGuard::enter();
-        with_coupled_shadow(&mut shadow, || {
+        {
             assert_eq!(
-                coupled_entity_health(hover),
+                shadow.world().entity(entity).map(|entity| entity.health),
                 Some(0.0),
                 "positive control reads the dead foreign shadow"
             );
@@ -588,7 +585,7 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
                     "alive host reserves despite dead foreign HP"
                 );
             }
-        });
+        };
     }
     // Reverse the disagreement. A dead host cannot acquire a reservation from
     // a healthy foreign same-ID entity, nor retain its earlier cached footprint.
@@ -605,10 +602,9 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
         "the local HP change has a real effect"
     );
     {
-        let _couple = CoupledTickGuard::enter();
-        with_coupled_shadow(&mut shadow, || {
+        {
             assert_eq!(
-                coupled_entity_health(hover),
+                shadow.world().entity(entity).map(|entity| entity.health),
                 Some(220.0),
                 "positive control reads the live foreign shadow"
             );
@@ -635,6 +631,6 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
                     "dead host clears the old footprint despite healthy foreign HP"
                 );
             }
-        });
+        };
     }
 }

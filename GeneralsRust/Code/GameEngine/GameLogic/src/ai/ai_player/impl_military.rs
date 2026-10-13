@@ -322,7 +322,8 @@ impl AIPlayer {
         };
 
         // C++ AIPlayer uses TheAI->getAiData() thresholds (retail Wealthy=7000, Poor=2000).
-        let ai_store = the_ai();let (poor_threshold, wealthy_threshold) = ai_store
+        let ai_store = the_ai();
+        let (poor_threshold, wealthy_threshold) = ai_store
             .read()
             .ok()
             .and_then(|ai| {

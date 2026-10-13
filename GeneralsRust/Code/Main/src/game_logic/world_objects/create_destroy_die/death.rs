@@ -168,10 +168,7 @@ impl GameLogic {
         let Some(o) = self.objects.get_mut(&id) else {
             return false;
         };
-        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-            let hp = o.health.current.max(1.0);
-            self.health_events.record_damage(id, hp, source, true);
-        } else {
+        {
             o.health.current = 0.0;
         }
         o.status.destroyed = true;
@@ -511,7 +508,6 @@ impl GameLogic {
         if let Some(object) = self.objects.get_mut(&id) {
             object.status.destroyed = true;
         }
-        let _ = crate::gameworld_shadow::eager_mark_host_destroy_if_coupled(id);
     }
 
     fn begin_object_death(
@@ -609,7 +605,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&id) {
                 obj.status.destroyed = true;
             }
-            let _ = crate::gameworld_shadow::eager_mark_host_destroy_if_coupled(id);
+
             return;
         }
         let crusher_xz = self.objects.get(&id).and_then(|obj| {

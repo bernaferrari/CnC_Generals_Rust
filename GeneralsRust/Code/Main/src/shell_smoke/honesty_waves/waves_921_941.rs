@@ -20,9 +20,7 @@ pub(super) struct Waves921941 {
     pub host_placement_legal_build_cache_method_names_wave924_ok: bool,
     pub host_placement_legal_build_cache_nav_commands_wave924_ok: bool,
     pub host_placement_legal_build_cache_live_wave924_ok: bool,
-    pub host_eager_apply_batch_method_names_wave925_ok: bool,
-    pub host_eager_apply_batch_nav_commands_wave925_ok: bool,
-    pub host_eager_apply_batch_live_wave925_ok: bool,
+
     pub host_presentation_build_boundary_method_names_wave926_ok: bool,
     pub host_presentation_build_boundary_nav_commands_wave926_ok: bool,
     pub host_presentation_build_boundary_live_wave926_ok: bool,
@@ -99,11 +97,7 @@ pub(super) fn evaluate() -> Waves921941 {
             honesty_host_placement_legal_build_cache_nav_commands_residual_wave924(),
         host_placement_legal_build_cache_live_wave924_ok:
             simulate_live_host_placement_legal_build_cache_honesty(),
-        host_eager_apply_batch_method_names_wave925_ok:
-            honesty_host_eager_apply_batch_method_names_residual_wave925(),
-        host_eager_apply_batch_nav_commands_wave925_ok:
-            honesty_host_eager_apply_batch_nav_commands_residual_wave925(),
-        host_eager_apply_batch_live_wave925_ok: simulate_live_host_eager_apply_batch_honesty(),
+
         host_presentation_build_boundary_method_names_wave926_ok:
             honesty_host_presentation_build_boundary_method_names_residual_wave926(),
         host_presentation_build_boundary_nav_commands_wave926_ok:

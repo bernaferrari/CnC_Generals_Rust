@@ -1299,8 +1299,7 @@ fn queue_factory_exit_follows_snapped_production_path() {
         )
         .expect("redguard");
 
-    crate::game_logic::host_production_spawn_ready_log::clear();
-    crate::game_logic::host_production_spawn_ready_log::record(
+    logic.record_production_spawn_completion(
         uid,
         bid,
         "ChinaInfantryRedguard".into(),
@@ -1428,8 +1427,7 @@ fn queue_exit_with_a_rally_keeps_the_next_segment() {
             glam::Vec3::new(100.0, 15.0, 75.0),
         )
         .expect("redguard");
-    crate::game_logic::host_production_spawn_ready_log::clear();
-    crate::game_logic::host_production_spawn_ready_log::record(
+    logic.record_production_spawn_completion(
         uid,
         bid,
         "ChinaInfantryRedguard".into(),
@@ -1512,8 +1510,7 @@ fn factory_spawn_keeps_unit_create_point_without_selection_radius_jitter() {
         unit.selection_radius = 12.0;
     }
 
-    crate::game_logic::host_production_spawn_ready_log::clear();
-    crate::game_logic::host_production_spawn_ready_log::record(
+    logic.record_production_spawn_completion(
         uid,
         bid,
         "ChinaInfantryRedguard".into(),
@@ -1591,8 +1588,7 @@ fn queue_exit_applies_airborne_motive_and_pitch_after_ground_snap() {
         .create_object("ChinaInfantryRedguard", Team::China, create_pos)
         .expect("redguard");
 
-    crate::game_logic::host_production_spawn_ready_log::clear();
-    crate::game_logic::host_production_spawn_ready_log::record(
+    logic.record_production_spawn_completion(
         uid,
         bid,
         "ChinaInfantryRedguard".into(),
@@ -1674,8 +1670,7 @@ fn queue_exit_airborne_kick_keeps_y_when_allow_airborne() {
         .create_object("ChinaInfantryRedguard", Team::China, create_pos)
         .expect("redguard");
 
-    crate::game_logic::host_production_spawn_ready_log::clear();
-    crate::game_logic::host_production_spawn_ready_log::record(
+    logic.record_production_spawn_completion(
         uid,
         bid,
         "ChinaInfantryRedguard".into(),
@@ -1745,8 +1740,7 @@ fn queue_exit_ground_spawn_skips_airborne_kick() {
         .create_object("ChinaInfantryRedguard", Team::China, create_pos)
         .expect("redguard");
 
-    crate::game_logic::host_production_spawn_ready_log::clear();
-    crate::game_logic::host_production_spawn_ready_log::record(
+    logic.record_production_spawn_completion(
         uid,
         bid,
         "ChinaInfantryRedguard".into(),

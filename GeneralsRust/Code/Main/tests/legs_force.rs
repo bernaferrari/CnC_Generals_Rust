@@ -7,9 +7,6 @@ use generals_main::game_logic::locomotor_bootstrap::resolve_host_locomotor_bindi
 use generals_main::game_logic::{
     GameLogic, KindOf, LocomotorAppearance, Object, Team, ThingTemplate,
 };
-use generals_main::gameworld_shadow::{
-    gameworld_movement_authority_live, shadow_coupled_tick_active, with_active_shadow,
-};
 use glam::Vec3;
 
 const ORIGINAL: &str = include_str!("fixtures/legs_force_original.txt");
@@ -45,14 +42,6 @@ fn host_vector(row: &[&str], first: usize) -> Vec3 {
         scalar(row[first + 2]),
         -scalar(row[first + 1]),
     )
-}
-fn host_only() {
-    assert!(!shadow_coupled_tick_active());
-    assert!(!gameworld_movement_authority_live());
-    assert!(
-        with_active_shadow(|_| ()).is_none(),
-        "no authoritative-view sync may replace setup"
-    );
 }
 fn active_guards(object: &Object) {
     assert_eq!(object.loco_appearance, LocomotorAppearance::LegsTwo);
@@ -98,7 +87,6 @@ fn active_guards(object: &Object) {
 }
 
 fn run_case(name: &str, assert_original_force: bool) {
-    host_only();
     let row = oracle_row(name, "host-impulse");
     let raw = oracle_row(name, "raw-frame");
     let (speed, acceleration, braking, turn_rate) = match name {
@@ -228,12 +216,10 @@ fn run_case(name: &str, assert_original_force: bool) {
             object.forward_speed_2d().to_bits()
         );
     }
-    host_only();
     let tick = game.update_with_dt(DT);
     assert_eq!((tick.frame, tick.steps_run), (2, 1));
     assert!(!tick.budget_hit);
     assert_eq!(tick.accumulated_time_seconds, 0.0);
-    host_only();
     assert_eq!(game.host_objects().len(), 1);
     let object = game.host_object(id).unwrap();
     active_guards(object);

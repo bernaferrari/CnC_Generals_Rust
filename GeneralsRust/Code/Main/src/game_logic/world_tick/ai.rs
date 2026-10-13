@@ -6,8 +6,6 @@ impl GameLogic {
         use crate::ai_decisions::*;
         self.flush_countermeasure_flare_spawns();
         // Wave 806: under coupled shadow, lifetime owned by GW expire + logs.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.update_countermeasure_flare_objects();
         }
@@ -62,8 +60,7 @@ impl GameLogic {
                 // is owned by `tick_status_timer_expirations` + writeback. Host must
                 // not dual-expire mid-frame. Eject-invulnerable stays host-only
                 // (no GW until_frame field yet).
-                let peel_status_timers = crate::gameworld_shadow::gameworld_shadow_enabled()
-                    && crate::gameworld_shadow::shadow_coupled_tick_active();
+                let peel_status_timers = false;
                 if !peel_status_timers {
                     obj.tick_selection_flash();
                     obj.tick_weapon_bonus_frenzy(self.frame);
@@ -71,15 +68,11 @@ impl GameLogic {
                 }
                 // Wave 762: under coupled shadow, eject-invulnerable expire is
                 // owned by GW tick_status_timer_expirations + writeback.
-                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                    && crate::gameworld_shadow::shadow_coupled_tick_active())
                 {
                     obj.tick_eject_invulnerable(self.frame);
                 }
                 // Wave 766: under coupled shadow, ObjectDefectionHelper timer is
                 // owned by GW tick_status_timer_expirations + writeback.
-                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                    && crate::gameworld_shadow::shadow_coupled_tick_active())
                 {
                     // C++ ObjectDefectionHelper::update residual.
                     obj.tick_defection_helper(self.frame);
@@ -131,8 +124,6 @@ impl GameLogic {
                 }
                 // Wave 778: under coupled shadow, FWWDB continuous is owned by
                 // GW tick_status_timer_expirations + host_fwwd_continuous_log drain.
-                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                    && crate::gameworld_shadow::shadow_coupled_tick_active())
                 {
                     if obj.temporary_weapon_runtime.damaged.is_empty() {
                         if let Some(w) = obj.tick_fire_weapon_when_damaged_continuous(self.frame) {
@@ -149,7 +140,7 @@ impl GameLogic {
                 // Wave 745: retain the existing damage-authority HP channel.
                 if obj.tick_lifetime_update(self.frame) {
                     lifetime_kill = true;
-                    if !crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    {
                         obj.health.current = 0.0;
                         obj.status.destroyed = true;
                         obj.refresh_model_condition_bits();
@@ -170,16 +161,15 @@ impl GameLogic {
                 // Wave 765: subdual heal owned by GW when coupled.
                 // Wave 767: fire-sound loop stop owned by GW tick_status_timer_expirations
                 // when coupled (non-coupled still via tick_continuous_fire_coast).
-                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                    && crate::gameworld_shadow::shadow_coupled_tick_active())
                 {
-                    obj.tick_continuous_fire_coast(self.frame);
+                    obj.tick_continuous_fire_coast(
+                        self.frame,
+                        &mut self.combat_system.fire_sound_loop_events,
+                    );
                     obj.tick_repulsor_status(self.frame);
                 }
                 // Wave 763: under coupled shadow, force-reload-when-idle is owned by
                 // GW tick_status_timer_expirations + weapon_stats/continuous-fire writeback.
-                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                    && crate::gameworld_shadow::shadow_coupled_tick_active())
                 {
                     obj.tick_force_reload_when_idle(self.frame);
                 }
@@ -202,8 +192,6 @@ impl GameLogic {
                 }
                 // Wave 770: under coupled shadow, ToppleUpdate fall is owned by
                 // GW tick_status_timer_expirations + host_topple_kill_log drain.
-                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                    && crate::gameworld_shadow::shadow_coupled_tick_active())
                 {
                     topple_kill = obj.tick_topple();
                     let stump_pos = obj.get_position();
@@ -218,8 +206,6 @@ impl GameLogic {
                 // C++ HeightDieUpdate residual (bombs/missiles).
                 // Wave 771: under coupled shadow, HeightDieUpdate is owned by
                 // GW tick_status_timer_expirations + host_height_die_kill_log drain.
-                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                    && crate::gameworld_shadow::shadow_coupled_tick_active())
                 {
                     if !topple_kill && obj.tick_height_die(self.frame, height_die_terrain) {
                         topple_kill = true;
@@ -227,7 +213,7 @@ impl GameLogic {
                 }
                 // Wave 772: under coupled shadow, JetSlowDeathBehavior is owned by
                 // GW tick_status_timer_expirations + its owned Jet completion drain.
-                if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+                {
                     // C++ JetSlowDeathBehavior residual.
                     if !topple_kill
                         && obj
@@ -242,7 +228,7 @@ impl GameLogic {
                 }
                 // Wave 773: under coupled shadow, HelicopterSlowDeathBehavior is owned by
                 // GW tick_status_timer_expirations + its owned Helicopter completion drain.
-                if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+                {
                     // C++ HelicopterSlowDeathBehavior residual.
                     if !topple_kill
                         && obj
@@ -257,7 +243,7 @@ impl GameLogic {
                 }
                 // Wave 774: under coupled shadow, SlowDeathBehavior is owned by
                 // GW tick_status_timer_expirations + its owned Slow completion drain.
-                if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+                {
                     if !topple_kill
                         && obj
                             .slow_death
@@ -271,7 +257,7 @@ impl GameLogic {
                 }
                 // Wave 775: under coupled shadow, StructureCollapseUpdate is owned by
                 // Optional movement authority advances the animation; DONE never deletes.
-                if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+                {
                     if !topple_kill && obj.structure_collapse_data.is_some() {
                         let _completed = obj.tick_structure_collapse(self.frame);
                     }
@@ -287,19 +273,11 @@ impl GameLogic {
                 obj.poll_structure_collapse_phase_fx(self.frame);
             }
             self.sync_helicopter_attach_particle(object_id);
-            if !topple_kill && !crate::gameworld_shadow::gameworld_movement_authority_live() {
+            if !topple_kill {
                 if let Err(error) = self.update_owned_structure_topple(object_id) {
                     log::error!("Owned StructureTopple update rejected: {error}");
                 }
-            } else if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                if let Some(data) = self
-                    .objects
-                    .get_mut(&object_id)
-                    .and_then(|object| object.structure_topple_data.as_mut())
-                {
-                    data.poll_fx(self.frame);
-                }
-                self.dispatch_owned_structure_topple_fx(object_id);
+            } else {
             }
             // C++ FireWeaponWhenDamagedBehavior forceFire (reaction + continuous).
             let has_live_damaged = self
@@ -725,35 +703,9 @@ impl GameLogic {
         self.tick_command_button_hunt_updates();
 
         // Apply all AI commands (or log-only when GameWorld owns decision apply).
-        let decision_auth = self.ai_decision_authority_live();
+
         for command in ai_commands {
-            if decision_auth {
-                // Record only — shadow applies SetAttackTarget/SetMoveTarget/SetAiState.
-                match &command {
-                    AICommand::AttackTarget {
-                        object_id,
-                        target_id,
-                    } => crate::game_logic::host_ai_decision_log::record_attack(
-                        *object_id, *target_id,
-                    ),
-                    AICommand::StopAttack { object_id } => {
-                        crate::game_logic::host_ai_decision_log::record_stop_attack(*object_id)
-                    }
-                    AICommand::MoveTo {
-                        object_id,
-                        position,
-                    } => crate::game_logic::host_ai_decision_log::record_move_to(
-                        *object_id, *position,
-                    ),
-                    AICommand::SetAIState { object_id, state } => {
-                        let ordinal =
-                            crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
-                        crate::game_logic::host_ai_decision_log::record_set_state(
-                            *object_id, ordinal,
-                        );
-                    }
-                }
-            } else {
+            {
                 self.apply_ai_command(command);
             }
         }

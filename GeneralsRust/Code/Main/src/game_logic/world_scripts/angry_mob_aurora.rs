@@ -956,11 +956,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -1195,11 +1191,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -1468,11 +1460,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&mid) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -1561,11 +1549,7 @@ impl GameLogic {
                 });
         for nid in destroy_nexuses {
             if let Some(o) = self.objects.get_mut(&nid) {
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -1579,8 +1563,6 @@ impl GameLogic {
         self.flush_angry_mob_member_spawns();
         // Wave 801: under coupled shadow, AngryMob member follow is owned by
         // GW tick_status_timer_expirations + destroy logs.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.update_angry_mob_member_follow();
         }
@@ -1795,15 +1777,7 @@ impl GameLogic {
                 let first_target = plan.hits.first().map(|h| h.target_id);
                 if let Some(mob) = self.objects.get_mut(&plan.mob_id) {
                     mob.set_status_attacking(true);
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                        if let Some(tid) = first_target {
-                            crate::game_logic::host_ai_decision_log::record_attack(
-                                plan.mob_id,
-                                tid,
-                            );
-                        }
-                        crate::game_logic::host_ai_decision_log::record_set_state(plan.mob_id, 2);
-                    } else {
+                    {
                         if let Some(tid) = first_target {
                             mob.target = Some(tid);
                         }
@@ -1966,11 +1940,7 @@ impl GameLogic {
                 o.aurora_bomb_projectile = false;
                 // Wave 753: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -2040,11 +2010,7 @@ impl GameLogic {
                 }
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -2170,18 +2136,6 @@ impl GameLogic {
 
     pub fn honesty_aurora_fuel_air_gas_object_ok(&self) -> bool {
         self.aurora_fuel_air_gas_spawned > 0
-    }
-
-    pub(crate) fn tick_combat_field_residuals_sole(&mut self) {
-        // Wave 826: post-writeback sole-tick for host combat/field residuals.
-        self.update_aurora_bombs();
-        self.update_supply_drop_zone_drops();
-        self.update_point_defense_intercept();
-        self.update_mines_and_demo_traps();
-        self.update_money_crate_collides();
-        self.update_firewall_segment_objects();
-        self.update_wave_guides();
-        self.update_tensile_formations();
     }
 
     pub(in super::super) fn update_aurora_bombs(&mut self) {

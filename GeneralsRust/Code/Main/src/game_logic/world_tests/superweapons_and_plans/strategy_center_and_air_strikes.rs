@@ -108,9 +108,7 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
             sc.turret_mood_target,
             "Passive WaitForAttack residual must retaliate vs last damage source"
         );
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-            assert!(sc.target.is_none());
-        } else {
+        {
             assert_eq!(sc.target, Some(enemy_id));
         }
         assert!(
@@ -519,19 +517,7 @@ fn strategy_center_bombardment_turret_fire_residual() {
     }
 
     let enemy_hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
-    if crate::gameworld_shadow::gameworld_damage_authority_live() {
-        // HP last-write via damage log; host HP stays until GameWorld writeback.
-        let dmg_events = game_logic.health_events.snapshot_damage();
-        let dealt: f32 = dmg_events
-            .iter()
-            .filter(|e| e.target == enemy_id)
-            .map(|e| e.amount)
-            .sum();
-        assert!(
-            dealt > 50.0,
-            "in-range enemy must log StrategyCenterGun residual damage under damage authority, dealt={dealt}"
-        );
-    } else {
+    {
         assert!(
             enemy_hp_after < enemy_hp_before - 50.0,
             "in-range enemy must take StrategyCenterGun residual damage, before={enemy_hp_before} after={enemy_hp_after}"
@@ -2605,11 +2591,7 @@ fn ambush_dies_on_bad_land_drowns() {
         o.cell_is_underwater = true;
         // Wave 752: under damage authority, do not zero host HP mid-frame
         // (dual with GW HP writeback). Project lethal via damage log + flags.
-        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-            let hp = o.health.current.max(1.0);
-            let oid = o.id;
-            logic.health_events.record_damage(oid, hp, None, true);
-        } else {
+        {
             o.health.current = 0.0;
         }
         o.status.destroyed = true;

@@ -107,9 +107,8 @@ pub fn honesty_execute_rally_records_source() -> bool {
 pub fn honesty_shadow_drains_rally_log_source() -> bool {
     let gw = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     gw.contains("host_rally_log::drain")
-        && gw.contains("apply_host_rally_events")
-        && gw.contains("queue_set_rally_point_for_host")
-        && gw.contains("SetRallyPoint")
+        && gw.contains("e.rally_point =")
+        && gw.contains("obj.rally_point")
 }
 
 /// Live residual: rally command latches host_rally_log; shadow applies SetRallyPoint.
@@ -178,21 +177,20 @@ pub fn simulate_live_command_rally_log_honesty() -> bool {
                 .map(|p| (p[0] - 80.0).abs() < 1e-3 && (p[2] - 81.0).abs() < 1e-3)
                 .unwrap_or(false)
     }) {
-        // Direct record path if building_data missing blocked executor.
-        host_rally_log::record(factory, Some([80.0, 0.0, 81.0]));
-        let events = host_rally_log::drain();
-        if events.is_empty() {
-            return false;
-        }
+        return false;
+    }
+    if logic.host_object(factory).and_then(|object| {
+        object
+            .building_data
+            .as_ref()
+            .and_then(|building| building.rally_point)
+    }) != Some(dest)
+    {
+        return false;
     }
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    host_rally_log::record(factory, Some([80.0, 0.0, 81.0]));
-    let drained = host_rally_log::drain();
-    if shadow.apply_host_rally_events(&drained) == 0 {
-        return false;
-    }
     // Entity should hold rally after apply.
     let Some(eid) = shadow.entity_for_host(factory) else {
         return false;

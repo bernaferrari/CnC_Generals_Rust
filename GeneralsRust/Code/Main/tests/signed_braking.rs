@@ -7,9 +7,6 @@ use generals_main::game_logic::locomotor_bootstrap::resolve_host_locomotor_bindi
 use generals_main::game_logic::{
     GameLogic, KindOf, LocoGoalType, LocomotorAppearance, Object, Team, ThingTemplate,
 };
-use generals_main::gameworld_shadow::{
-    gameworld_movement_authority_live, shadow_coupled_tick_active,
-};
 use glam::Vec3;
 
 const ORIGINAL: &str = include_str!("fixtures/signed_braking_original.txt");
@@ -78,8 +75,6 @@ fn run_case(name: &str) {
     assert_eq!(cases.len(), 9);
     let row = cases.iter().find(|r| r[1] == name).unwrap();
     assert_eq!(row.len(), 20);
-    assert!(!shadow_coupled_tick_active());
-    assert!(!gameworld_movement_authority_live());
     let mut game = GameLogic::new();
     assert_eq!(game.get_frame(), 0);
     assert_eq!(game.host_objects().len(), 0);
@@ -168,8 +163,6 @@ fn run_case(name: &str) {
     assert_eq!((tick.frame, tick.steps_run), (2, 1));
     assert!(!tick.budget_hit);
     assert_eq!(tick.accumulated_time_seconds, 0.0);
-    assert!(!shadow_coupled_tick_active());
-    assert!(!gameworld_movement_authority_live());
     assert_eq!(game.host_objects().len(), 1);
     let object = game.host_object(id).unwrap();
     assert_isolated(object);

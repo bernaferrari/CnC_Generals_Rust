@@ -778,16 +778,7 @@ pub(super) fn test_observed_damage_to(
     hp_before: f32,
     hp_after: f32,
 ) -> f32 {
-    if crate::gameworld_shadow::gameworld_damage_authority_live() {
-        health_events
-            .snapshot_damage()
-            .into_iter()
-            .filter(|e| e.target == target)
-            .map(|e| e.amount)
-            .sum()
-    } else {
-        (hp_before - hp_after).max(0.0)
-    }
+    { (hp_before - hp_after).max(0.0) }
 }
 
 // -----------------------------------------------------------------------

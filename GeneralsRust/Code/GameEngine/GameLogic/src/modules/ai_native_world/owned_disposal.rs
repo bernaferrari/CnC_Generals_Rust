@@ -20,6 +20,9 @@ impl NativeDisposalState {
 impl AiNativeServices<'_> {
     fn reborrow(&mut self) -> AiNativeServices<'_> {
         AiNativeServices {
+            weapon_store: self.weapon_store,
+            historic_damage_limit: self.historic_damage_limit,
+            physics_rules: self.physics_rules,
             radar: self.radar,
             death_notifications: self.death_notifications,
             rank_info: self.rank_info,
@@ -198,6 +201,17 @@ pub(crate) fn finish_native_destroyed_objects(
             .unregister_object(id)
             .map_err(|error| error.to_string())?;
         services.spatial_objects.retire_native_object(id, &owner)?;
+        // CPP Object::~Object removes the group after partition unregistration
+        // and before freeing any authored module. The exact group was admitted
+        // before scheduler/factory unlink; no ambient lookup remains here.
+        {
+            let mut object = owner.write().map_err(|_| "retiring group owner poisoned")?;
+            super::owned_containment::depart_supplied_group_owned(
+                services.groups,
+                &mut object,
+                false,
+            );
+        }
         owner
             .write()
             .map_err(|_| "retiring native object poisoned")?

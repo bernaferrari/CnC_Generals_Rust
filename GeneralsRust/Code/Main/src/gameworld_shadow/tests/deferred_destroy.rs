@@ -4,10 +4,6 @@ use super::*;
 
 #[test]
 fn destroy_marks_then_process_removes_in_lockstep() {
-    let _lock = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_DEFERRED_DESTROY", "1")
-        .set("GENERALS_GAMEWORLD_SHADOW", "1");
-
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DefDest");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -19,32 +15,25 @@ fn destroy_marks_then_process_removes_in_lockstep() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&id.0).expect("map");
-    assert!(shadow.queue_destroy_for_host(id));
-    let _ = shadow.world_mut().apply_pending_mutations();
-    {
-        let o = logic.host_object_mut(id).expect("o");
-        o.status.destroyed = true;
-    }
+    logic.destroy_object(id);
+    assert!(logic.host_object(id).unwrap().status.destroyed);
+    shadow.sync_from_host(&logic);
     let ent = shadow.world().entity(eid).expect("marked-visible");
     assert!(ent.destroyed);
     assert!(!ent.is_eligible_for_targeting());
-    assert_eq!(shadow.world().pending_destroy_ids().len(), 1);
+    assert!(logic.has_pending_destroy_work());
 
     let probe = shadow.probe(&mut logic);
     assert!(probe.destroy_visibility_match, "{}", probe.format_report());
 
-    assert_eq!(shadow.world_mut().process_destroy_list(), 1);
+    logic.process_destroy_list();
+    shadow.sync_from_host(&logic);
     assert!(shadow.world().entity(eid).is_none());
-    shadow.invalidate_dead_entity_maps();
     assert!(shadow.entity_for_host(id).is_none());
 }
 
 #[test]
 fn host_to_entity_invalidates_on_deferred_destroy_events() {
-    let _lock = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_DEFERRED_DESTROY", "1")
-        .set("GENERALS_GAMEWORLD_SHADOW", "1");
-
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MapInv");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -56,8 +45,9 @@ fn host_to_entity_invalidates_on_deferred_destroy_events() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(id).expect("mapped");
-    let events = [crate::game_logic::host_destroy_log::HostDestroyEvent { id }];
-    let _ = shadow.apply_host_destroy_events(&events);
+    logic.destroy_object(id);
+    logic.process_destroy_list();
+    shadow.sync_from_host(&logic);
     assert!(shadow.entity_for_host(id).is_none());
     assert!(shadow.host_for_entity(eid).is_none());
 }

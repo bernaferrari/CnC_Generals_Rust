@@ -24,16 +24,13 @@ pub(super) struct HostSession {
     pub dual_tick_presentation_ok: bool,
     pub dual_tick_counters_ok: bool,
     pub gameworld_shadow_ok: bool,
-    pub damage_authority_env_ok: bool,
-    pub economy_authority_env_ok: bool,
-    pub production_authority_env_ok: bool,
+
+
     pub dual_tick_policy_authority_only: bool,
-    pub engine_bridge_off: bool,
+
 }
 
 pub(super) fn run_host_session(frames: u32) -> HostSession {
-    // Default-on damage authority for gate honesty (opt out via env=0).
-    crate::gameworld_shadow::ensure_gate_damage_authority();
     let mut logic = GameLogic::new();
 
     let resolved = super::maps::resolve_host_map();
@@ -156,18 +153,15 @@ pub(super) fn run_host_session(frames: u32) -> HostSession {
         && seed_pres.dual_tick.applies >= 1
         && pres.dual_tick.applies >= 1;
     let gameworld_shadow_ok = {
-        let (_w, probe) = crate::gameworld_shadow::probe_host_vs_gameworld(&mut logic);
+        let (_w, probe) = crate::gameworld_shadow::probe_host_vs_gameworld(&logic);
         probe.full_match()
     };
-    let damage_authority_env_ok = crate::gameworld_shadow::gameworld_damage_authority_enabled();
-    let economy_authority_env_ok = crate::gameworld_shadow::gameworld_economy_authority_enabled();
-    let production_authority_env_ok =
-        crate::gameworld_shadow::gameworld_production_authority_enabled();
+
     let dual_tick_policy_authority_only = matches!(
         crate::authoritative_world::dual_tick_policy(),
         crate::authoritative_world::DualTickPolicy::AuthorityOnly
     );
-    let engine_bridge_off = !crate::gameworld_shadow::engine_object_bridge_enabled();
+
 
     HostSession {
         logic,
@@ -189,10 +183,9 @@ pub(super) fn run_host_session(frames: u32) -> HostSession {
         dual_tick_presentation_ok,
         dual_tick_counters_ok,
         gameworld_shadow_ok,
-        damage_authority_env_ok,
-        economy_authority_env_ok,
-        production_authority_env_ok,
+
+
         dual_tick_policy_authority_only,
-        engine_bridge_off,
+
     }
 }

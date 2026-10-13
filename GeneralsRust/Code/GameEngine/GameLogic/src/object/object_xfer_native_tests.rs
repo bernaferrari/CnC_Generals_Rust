@@ -246,13 +246,13 @@ impl Candidate {
     ) -> R {
         let mut radar = NoRadarPayload(frame);
         let mut power = OwnedPowerBrownout {
-            factory: &self.factory,
+            objects: crate::player::PowerObjectOwner::Factory(&self.factory),
             teams: &self.teams,
             players: &self.players,
             radar: &mut radar,
             frame,
             special_power_uses_delay: false,
-            ai_world: None,
+
             misc_audio: None,
             audio: None,
         };

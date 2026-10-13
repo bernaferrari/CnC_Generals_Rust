@@ -248,5 +248,4 @@ impl GameWorldShadow {
             .map(|(_, p)| p.unlocked_sciences.len())
             .sum()
     }
-
 }

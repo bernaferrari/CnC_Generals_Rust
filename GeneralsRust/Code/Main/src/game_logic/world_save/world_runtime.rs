@@ -223,7 +223,6 @@ impl GameLogic {
         // singleton-era consumers. Staged candidates install at reset below.
         let logic = GameLogic::new();
         if !gamelogic::runtime_world_transaction::world_runtime_staging_active() {
-            logic.publish_gameworld_authority_context();
             logic.install_as_active_stores();
             GameLogic::register_leftover_object_create_overrides_overlay();
         }

@@ -8,9 +8,6 @@ use generals_main::game_logic::locomotor_bootstrap::resolve_host_locomotor_bindi
 use generals_main::game_logic::{
     GameLogic, KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate,
 };
-use generals_main::gameworld_shadow::{
-    gameworld_movement_authority_live, shadow_coupled_tick_active,
-};
 use glam::Vec3;
 
 const ORIGINAL: &str = include_str!("fixtures/infantry_sway_original.txt");
@@ -71,7 +68,6 @@ fn admit(
     airborne: bool,
     downhill: bool,
 ) -> (GameLogic, ObjectId) {
-    assert!(!shadow_coupled_tick_active() && !gameworld_movement_authority_live());
     let mut game = GameLogic::new();
     assert_eq!((game.get_frame(), game.host_objects().len()), (0, 0));
     // Movement is scheduled from frame 1. An empty frame-0 tick is not coverage.
@@ -164,7 +160,7 @@ fn tick(game: &mut GameLogic, expected_frame: u32) {
     assert_eq!((result.frame, result.steps_run), (expected_frame, 1));
     assert!(!result.budget_hit);
     assert_eq!(result.accumulated_time_seconds, 0.0);
-    assert!(!shadow_coupled_tick_active() && !gameworld_movement_authority_live());
+
     assert_eq!(game.host_objects().len(), 1);
 }
 fn assert_active_result(object: &Object, row: &[&str], before: Vec3, target: Vec3) {

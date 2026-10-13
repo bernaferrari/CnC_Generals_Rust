@@ -886,10 +886,37 @@ impl AudioManager {
         self.add_audio_event_with_submission(event_to_add, AudioSubmission::Explicit(locality))
     }
 
+    /// FX admission through receiving player facts and sound-selection streams.
+    pub fn add_audio_event_with_locality_and_selection(
+        &mut self,
+        event_to_add: &AudioEventRts,
+        locality: &AudioSubmissionLocality,
+        selection: &mut dyn super::audio_event_rts::AudioEventSelection,
+    ) -> AudioHandle {
+        self.add_audio_event_with_submission_and_selection(
+            event_to_add,
+            AudioSubmission::Explicit(locality),
+            selection,
+        )
+    }
+
     fn add_audio_event_with_submission(
         &mut self,
         event_to_add: &AudioEventRts,
         submission: AudioSubmission<'_>,
+    ) -> AudioHandle {
+        self.add_audio_event_with_submission_and_selection(
+            event_to_add,
+            submission,
+            &mut super::audio_event_rts::AmbientAudioSelection,
+        )
+    }
+
+    fn add_audio_event_with_submission_and_selection(
+        &mut self,
+        event_to_add: &AudioEventRts,
+        submission: AudioSubmission<'_>,
+        selection: &mut dyn super::audio_event_rts::AudioEventSelection,
     ) -> AudioHandle {
         if event_to_add.get_event_name().is_empty() || event_to_add.get_event_name() == "NoSound" {
             return AHSV_NO_SOUND;
@@ -941,10 +968,10 @@ impl AudioManager {
         let handle = self.allocate_new_handle();
         audio_event.set_playing_handle(handle);
         let paths = self.audio_paths();
-        audio_event.generate_filename_with_settings(&paths);
+        audio_event.generate_filename_with_selection(&paths, selection);
         // C++ GameAudio.cpp:424 writes the chosen index back onto the caller's event.
         event_to_add.set_playing_audio_index(audio_event.get_playing_audio_index());
-        audio_event.generate_play_info_with_settings(&paths);
+        audio_event.generate_play_info_with_selection(&paths, selection);
 
         // Check volume adjustments
         for (name, volume) in &self.adjusted_volumes {

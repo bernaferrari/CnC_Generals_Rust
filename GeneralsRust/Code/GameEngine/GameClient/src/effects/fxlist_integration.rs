@@ -21,9 +21,13 @@ use super::decals::DecalManager;
 use super::particle_manager::*;
 use super::particle_presets;
 use super::ray_effects::{RayEffectConfig, RayEffectManager};
+use glam::{Mat3, Vec3};
+
+#[cfg(test)]
+#[path = "fx_owned_particle_tests.rs"]
+mod owned_particle_tests;
 use std::collections::HashMap;
 use std::sync::Arc;
-use glam::{Vec3, Mat3};
 
 /// FX nugget trait - all FX nuggets implement this
 pub trait FXNugget: Send + Sync {
@@ -717,6 +721,36 @@ impl ParticleSystemFXNugget {
         override_radius: f32,
         manager: &mut ParticleSystemManager,
     ) -> Vec<ParticleSystemId> {
+        self.do_fx_with_services(
+            primary,
+            mtx,
+            object_id,
+            override_radius,
+            manager,
+            &mut game_engine::common::random_value::get_game_client_random_value_real,
+            &mut |position| {
+                gamelogic::helpers::TheTerrainLogic::get().map(|terrain| {
+                    let dest = gamelogic::common::Coord3D::new(position.x, position.y, position.z);
+                    let layer = terrain.get_layer_for_destination(&dest);
+                    terrain.get_layer_height(position.x, position.y, layer)
+                })
+            },
+        )
+    }
+
+    /// The canonical FXList.cpp:570–641 loop with receiving particle storage,
+    /// terrain observation and client random stream. Source pose is immutable;
+    /// no object or manager publication is required during creation.
+    pub fn do_fx_with_services(
+        &self,
+        primary: Vec3,
+        mtx: Option<&Mat3>,
+        object_id: Option<ObjectId>,
+        override_radius: f32,
+        manager: &mut ParticleSystemManager,
+        random: &mut dyn FnMut(f32, f32) -> f32,
+        ground_height: &mut dyn FnMut(Vec3) -> Option<f32>,
+    ) -> Vec<ParticleSystemId> {
         let mut created_systems = Vec::new();
 
         // C++ FXList.cpp:575-578 — only TheParticleSystemManager->findTemplate.
@@ -732,11 +766,17 @@ impl ParticleSystemFXNugget {
 
         // Create multiple systems based on count
         for _ in 0..self.count {
+            // FXList.cpp:585 creates the system before placement observations.
+            // Failed creation does not consume radius/height/delay observations.
+            let result = manager.create_particle_system_with_random(&template, true, random);
+            if result.is_err() {
+                continue;
+            }
             // C++ FXList.cpp:588-603 — radius draw, then angle draw; the
             // height draw happens only when the ground snap does NOT consume
             // the Z.
-            let radius = self.radius.sample();
-            let angle = crate::GameClientRandomValueReal!(0.0, 2.0 * std::f32::consts::PI);
+            let radius = self.radius.sample_with(&mut *random);
+            let angle = random(0.0, 2.0 * std::f32::consts::PI);
 
             let mut spawn_pos = Vec3::new(
                 primary.x + offset.x + radius * angle.cos(),
@@ -745,43 +785,19 @@ impl ParticleSystemFXNugget {
             );
 
             let ground_z = if self.create_at_ground_height {
-                gamelogic::helpers::TheTerrainLogic::get().map(|terrain| {
-                    let dest = gamelogic::common::Coord3D {
-                        x: spawn_pos.x,
-                        y: spawn_pos.y,
-                        z: spawn_pos.z,
-                    };
-                    let layer = terrain.get_layer_for_destination(&dest);
-                    terrain.get_layer_height(spawn_pos.x, spawn_pos.y, layer)
-                })
+                ground_height(spawn_pos)
             } else {
                 None
             };
             match ground_z {
                 Some(z) => spawn_pos.z = z,
                 // C++ FXList.cpp:603 — non-ground branch samples Height.
-                None => spawn_pos.z += self.height.sample(),
+                None => spawn_pos.z += self.height.sample_with(&mut *random),
             }
-
-            // Create particle system
-            let result = if let Some(obj_id) = object_id {
-                if self.attach_to_object {
-                    manager.create_attached_particle_system(&template, obj_id, true)
-                } else {
-                    manager.create_particle_system(&template, true)
-                }
-            } else {
-                manager.create_particle_system(&template, true)
-            };
 
             if let Ok(system_id) = result {
                 let attached = object_id.is_some() && self.attach_to_object;
                 if let Some(system) = manager.find_particle_system_mut(system_id) {
-                    // C++ FXList.cpp:617-621 — attachToObject replaces setPosition.
-                    if !attached {
-                        system.set_position(spawn_pos);
-                    }
-
                     // C++: orientToObject then rotateLocalTransformX/Y/Z.
                     if self.orient_to_object {
                         if let Some(matrix) = mtx {
@@ -798,9 +814,17 @@ impl ParticleSystemFXNugget {
                         system.rotate_local_transform_z(self.rotate_z);
                     }
 
+                    // FXList.cpp:617–621 follows orientation with attachment or
+                    // position, then the authored delay override.
+                    if attached {
+                        system.attach_to_object(object_id.unwrap());
+                    } else {
+                        system.set_position(spawn_pos);
+                    }
+
                     // C++: delayInMsec >= 0 → setInitialDelay(ceil(msec→frames)).
                     // -1 leave-sentinel keeps the template default.
-                    let delay_msec = self.delay.sample();
+                    let delay_msec = self.delay.sample_with(&mut *random);
                     if delay_msec >= 0.0 {
                         let delay_frames = (delay_msec * 30.0 / 1000.0).ceil() as u32;
                         system.set_initial_delay(delay_frames);
@@ -978,9 +1002,8 @@ pub mod helpers {
             if let Ok(smoke_id) = manager.create_particle_system(&smoke_template, false) {
                 if let Some(smoke_system) = manager.find_particle_system_mut(smoke_id) {
                     // Offset slightly to side for ejection
-                    let side_offset = Vec3::new(-muzzle_direction.y, muzzle_direction.x, 0.0)
-                        .normalize()
-                        * 2.0;
+                    let side_offset =
+                        Vec3::new(-muzzle_direction.y, muzzle_direction.x, 0.0).normalize() * 2.0;
                     smoke_system.set_position(muzzle_position + side_offset);
                     smoke_system.trigger();
                     systems.push(smoke_id);

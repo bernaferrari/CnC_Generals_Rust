@@ -105,7 +105,7 @@ pub fn simulate_live_gameworld_shadow_overlay_honesty() -> bool {
         DEFAULT_SKIRMISH_MAP_WAVE169, GameLogic, GameMode, LONE_EAGLE_MAP_WAVE169,
         resolve_retail_map_path,
     };
-    use crate::gameworld_shadow::{GameWorldShadow, ensure_gate_damage_authority};
+    use crate::gameworld_shadow::GameWorldShadow;
     use crate::presentation_frame::PresentationFrame;
 
     if !honesty_live_gameworld_shadow_overlay_residual_pack_wave172() {
@@ -114,9 +114,6 @@ pub fn simulate_live_gameworld_shadow_overlay_honesty() -> bool {
     if !honesty_seed_presentation_shadow_overlay_source() {
         return false;
     }
-
-    // Gate default-on damage/economy/production authority (matches behavior_gate).
-    ensure_gate_damage_authority();
 
     let map_name = if resolve_retail_map_path(LONE_EAGLE_MAP_WAVE169).is_some() {
         LONE_EAGLE_MAP_WAVE169
@@ -146,7 +143,7 @@ pub fn simulate_live_gameworld_shadow_overlay_honesty() -> bool {
 
     let mut shadow = GameWorldShadow::new(4096);
     shadow.sync_from_host(&logic);
-    let probe = shadow.probe(&mut logic);
+    let probe = shadow.probe(&logic);
     if probe.mapped_objects == 0 {
         return false;
     }
@@ -209,11 +206,10 @@ mod tests {
     #[test]
     fn sync_from_host_maps_created_object_and_overlays_presentation() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-        use crate::gameworld_shadow::{GameWorldShadow, ensure_gate_damage_authority};
+        use crate::gameworld_shadow::GameWorldShadow;
         use crate::presentation_frame::PresentationFrame;
         use glam::Vec3;
 
-        ensure_gate_damage_authority();
         let mut logic = GameLogic::new();
         let mut t = ThingTemplate::new("ShadowRanger172");
         t.set_health(100.0);
@@ -226,7 +222,7 @@ mod tests {
 
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
-        let probe = shadow.probe(&mut logic);
+        let probe = shadow.probe(&logic);
         assert!(
             probe.mapped_objects >= 1,
             "sync_from_host must map created host objects"

@@ -104,7 +104,7 @@ pub fn honesty_execute_attack_records_source() -> bool {
 /// Source residual: shadow drains host_attack_log.
 pub fn honesty_shadow_drains_attack_log_source() -> bool {
     let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
-    src.contains("host_attack_log::drain") && src.contains("queue_set_attack_target_for_host")
+    src.contains("host_attack_log::drain") && src.contains("e.attack_target =")
 }
 
 /// Live residual: attack command latches host_attack_log event.
@@ -172,15 +172,15 @@ pub fn simulate_live_command_attack_log_honesty() -> bool {
         return false;
     }
 
-    // Shadow can consume attack events into mutations.
-    use crate::gameworld_shadow::GameWorldShadow;
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    // Re-record after drain for apply path if needed — drain already consumed.
-    // Re-issue command path: record again and apply via queue API.
-    host_attack_log::record(attacker, Some(target));
-    let ok = shadow.queue_set_attack_target_for_host(attacker, Some(target));
-    if !ok {
+    // The command has already committed its target to the canonical Main object.
+    if logic.host_object(attacker).and_then(|object| object.target) != Some(target) {
+        return false;
+    }
+    let mut observer = crate::gameworld_shadow::GameWorldShadow::new(64);
+    observer.sync_from_host(&logic);
+    let Some(entity) = observer.entity_for_host(attacker) else { return false; };
+    let Some(victim) = observer.entity_for_host(target) else { return false; };
+    if observer.world().entity(entity).and_then(|object| object.attack_target) != Some(victim) {
         return false;
     }
 

@@ -1,44 +1,48 @@
-//! Frame-local host FireSoundLoopTime residual log (FiringTracker audio loop).
-//!
-//! C++ FiringTracker::shotFired extends `m_frameToStopLoopingSound` while
-//! FireSoundLoopTime > 0; when the deadline elapses the looping fire audio stops.
-
+//! FiringTracker loop audio receipts owned by the accepting CombatSystem.
+//! CPP FiringTracker.cpp138–185 starts a loop, extends its deadline, then stops
+//! it at the original logic frame. Delivery never changes that gameplay state.
 use super::ObjectId;
-use std::cell::RefCell;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostFireSoundLoopEvent {
     pub unit: ObjectId,
     pub sound: String,
-    /// true = start/refresh loop; false = stop after idle deadline.
     pub start: bool,
 }
 
-thread_local! {
-    static LOG: RefCell<Vec<HostFireSoundLoopEvent>> = RefCell::new(Vec::new());
-    static LAST_DRAIN: RefCell<Vec<HostFireSoundLoopEvent>> = RefCell::new(Vec::new());
+#[derive(Debug, Default)]
+pub struct FireSoundLoopEvents {
+    pending: Vec<HostFireSoundLoopEvent>,
+    completed: Vec<HostFireSoundLoopEvent>,
 }
 
-pub fn record(unit: ObjectId, sound: String, start: bool) {
-    LOG.with(|log| {
-        log.borrow_mut()
+impl FireSoundLoopEvents {
+    pub(crate) fn record(&mut self, unit: ObjectId, sound: String, start: bool) {
+        self.pending
             .push(HostFireSoundLoopEvent { unit, sound, start });
-    });
-}
-
-pub fn drain() -> Vec<HostFireSoundLoopEvent> {
-    let v = LOG.with(|log| std::mem::take(&mut *log.borrow_mut()));
-    if !v.is_empty() {
-        LAST_DRAIN.with(|last| *last.borrow_mut() = v.clone());
     }
-    v
-}
 
-pub fn clear() {
-    LOG.with(|log| log.borrow_mut().clear());
-    LAST_DRAIN.with(|last| last.borrow_mut().clear());
-}
+    /// Admit this owner's current frame in FIFO order. Multiple fixed frames
+    /// before presentation retain every transition rather than overwriting it.
+    pub(crate) fn complete_boundary(&mut self) {
+        self.completed.append(&mut self.pending);
+    }
 
-pub fn take_last_drain() -> Vec<HostFireSoundLoopEvent> {
-    LAST_DRAIN.with(|last| std::mem::take(&mut *last.borrow_mut()))
+    pub(crate) fn take_completed(&mut self) -> Vec<HostFireSoundLoopEvent> {
+        std::mem::take(&mut self.completed)
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.pending.clear();
+        self.completed.clear();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending(&self) -> &[HostFireSoundLoopEvent] {
+        &self.pending
+    }
+    #[cfg(test)]
+    pub(crate) fn completed(&self) -> &[HostFireSoundLoopEvent] {
+        &self.completed
+    }
 }

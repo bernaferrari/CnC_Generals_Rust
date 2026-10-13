@@ -150,11 +150,7 @@ impl GameLogic {
             // Shadow economy channel: effective supplies + power after host tick residual.
             crate::game_logic::host_economy_log::record(
                 player.id,
-                if crate::gameworld_shadow::gameworld_economy_authority_live() {
-                    player.effective_supplies()
-                } else {
-                    player.resources.supplies
-                },
+                { player.resources.supplies },
                 player.power_available,
             );
         }

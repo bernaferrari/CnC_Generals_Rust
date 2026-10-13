@@ -353,7 +353,7 @@ impl Object {
         Ok(())
     }
 
-    pub(crate) fn validate_native_leaf_enter_effects(&self) -> Result<(), String> {
+    pub(crate) fn validate_native_containment_effects(&self) -> Result<(), String> {
         if let Some(drawable) = self.get_drawable() {
             drop(
                 drawable
@@ -373,10 +373,16 @@ impl Object {
                 })
                 .unwrap_or(false)
         });
-        if has_foreign_collision || self.get_contain().is_some() {
-            return Err(
-                "native leaf entry does not admit collide or nested contain callbacks".into(),
-            );
+        if has_foreign_collision {
+            return Err("native containment does not admit foreign collide callbacks".into());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_native_leaf_enter_effects(&self) -> Result<(), String> {
+        self.validate_native_containment_effects()?;
+        if self.get_contain().is_some() {
+            return Err("native leaf entry does not admit nested contain callbacks".into());
         }
         Ok(())
     }

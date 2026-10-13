@@ -11,6 +11,37 @@ use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, LockResult, Mutex, MutexGuard, PoisonError, TryLockError, TryLockResult};
 
 impl super::Object {
+    pub(crate) fn owned_physics_ground_colliders(
+        &self,
+    ) -> Result<Vec<PhysicsInterfaceHandle>, String> {
+        let mut result = Vec::new();
+        for &index in &self.collide_module_handles {
+            let entry = self
+                .modules
+                .get(index)
+                .ok_or("native collider descriptor index invalid")?;
+            let is_physics = entry
+                .try_with_module(|module| {
+                    module
+                            .as_any()
+                            .is::<crate::contain_module_overrides::ActiveBehaviorModule<
+                                PhysicsBehaviorUpdate,
+                            >>()
+                })
+                .ok_or("native collider module borrowed")?;
+            if !is_physics {
+                return Err(format!(
+                    "native ground collision requires supplied callback for {}",
+                    entry.name()
+                ));
+            }
+            result.push(PhysicsInterfaceHandle::from_module(BehaviorModuleHandle {
+                entry: entry.clone(),
+            }));
+        }
+        Ok(result)
+    }
+
     /// Resolve one installed update proxy from its exact module entry, rejecting
     /// duplicate descriptors and registrations that only share a class name.
     pub(crate) fn installed_update_proxy_named(
@@ -282,17 +313,57 @@ impl PhysicsInterfaceHandle {
         })
     }
 
+    pub(crate) fn owned_base_mass(&self) -> Result<f32, String> {
+        self.with_installed_update(|physics| Ok(physics.owned_base_mass()))
+    }
+
+    pub(crate) fn complete_owned_bounce_at(
+        &self,
+        owner: &mut super::Object,
+        step: &mut super::behavior::physics_update::OwnedPhysicsStep,
+    ) -> Result<(), String> {
+        self.installed_update_proxy(owner)?;
+        self.with_installed_update(|physics| physics.complete_owned_bounce_at(owner, step))
+    }
+
+    pub(crate) fn bounce_stun_destruction_active(&self) -> Result<bool, String> {
+        self.with_installed_update(|physics| Ok(physics.bounce_stun_destruction_active()))
+    }
+
+    pub(crate) fn apply_owned_bounce_force_at(
+        &self,
+        owner: &super::Object,
+        force: &crate::common::Coord3D,
+        mass: f32,
+    ) -> Result<(), String> {
+        self.installed_update_proxy(owner)?;
+        self.with_installed_update(|physics| {
+            physics.apply_owned_bounce_force_at(force, mass);
+            Ok(())
+        })
+    }
+
     pub(crate) fn prepare_owned_at(
         &self,
         owner: &super::Object,
         frame: u32,
         gravity: f32,
         start_ground: f32,
+        rules: super::behavior::physics_update::PhysicsRules,
+        cargo_mass: f32,
         ground_height: impl FnMut(f32, f32) -> f32,
     ) -> Result<super::behavior::physics_update::PreparedOwnedPhysicsStep, String> {
         self.installed_update_proxy(owner)?;
         self.with_installed_update(|physics| {
-            physics.prepare_owned_at(owner, frame, gravity, start_ground, ground_height)
+            physics.prepare_owned_at(
+                owner,
+                frame,
+                gravity,
+                start_ground,
+                rules,
+                cargo_mass,
+                ground_height,
+            )
         })
     }
 
@@ -316,7 +387,10 @@ impl PhysicsInterfaceHandle {
         })
     }
 
-    pub(crate) fn ground_collision_owned_at(&self, owner: &super::Object) -> Result<(), String> {
+    pub(crate) fn ground_collision_owned_at(
+        &self,
+        owner: &super::Object,
+    ) -> Result<Option<crate::common::ObjectID>, String> {
         self.installed_update_proxy(owner)?;
         self.with_installed_update(|physics| physics.ground_collision_owned_at(owner))
     }
@@ -325,10 +399,11 @@ impl PhysicsInterfaceHandle {
         &self,
         owner: &super::Object,
         active_velocity_z: f32,
+        cargo_mass: f32,
     ) -> Result<Option<crate::damage::DamageInfo>, String> {
         self.installed_update_proxy(owner)?;
         self.with_installed_update(|physics| {
-            Ok(physics.falling_damage_owned_at(owner, active_velocity_z))
+            Ok(physics.falling_damage_owned_at(owner, active_velocity_z, cargo_mass))
         })
     }
 

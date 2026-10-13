@@ -7,11 +7,7 @@ impl GameLogic {
     /// Owner-bound policy for host AI-decision writes. The authority bit comes
     /// from this exact GameLogic; shadow/coupling remain frame-local gates.
     #[inline]
-    pub(crate) fn ai_decision_authority_live(&self) -> bool {
-        self.gameworld_authority.ai_decision
-            && crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active()
-    }
+
     /// Process AI behavior for a single object
     /// Enhanced with proper enemy detection, attack decisions, and movement
     pub(in super::super) fn process_ai_behavior(
@@ -86,9 +82,7 @@ impl GameLogic {
                 if let Some(u) = self.objects.get_mut(&object_id) {
                     u.set_ai_state(AIState::Idle);
                 }
-                if self.ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_set_state(object_id, 0);
-                }
+                {}
                 return None;
             }
         } else if matches!(ai_state, AIState::FacingObject | AIState::FacingPosition) {
@@ -516,9 +510,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.stop_attack();
         }
-        if self.ai_decision_authority_live() {
-            crate::game_logic::host_ai_decision_log::record_stop_attack(unit_id);
-        }
+        {}
     }
 
     /// Clear engagement target, honoring AI decision authority (StopAttack channel).
@@ -532,26 +524,17 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.set_target(None);
         }
-        if self.ai_decision_authority_live() {
-            crate::game_logic::host_ai_decision_log::record_stop_attack(unit_id);
-        }
+        {}
     }
 
     /// Commit absolute HP on the existing owner; the health channel observes it.
-    pub(in super::super) fn set_health_absolute_authority_aware(
-        &mut self,
-        object_id: ObjectId,
-        health: f32,
-    ) {
+    pub(crate) fn set_health_absolute_authority_aware(&mut self, object_id: ObjectId, health: f32) {
         let hp = health.max(0.0);
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.health.current = hp.min(obj.health.maximum.max(hp));
             self.health_events
                 .record_applied_heal(object_id, obj.health.current);
-        } else if crate::gameworld_shadow::gameworld_damage_authority_live() {
-            // No admitted owner yet: preserve the existing deferred producer
-            // contract for creation paths, rather than claiming a completed write.
-            self.health_events.record_heal(object_id, hp);
+        } else {
         }
     }
 
@@ -574,11 +557,7 @@ impl GameLogic {
         source: Option<ObjectId>,
     ) {
         if let Some(obj) = self.objects.get_mut(&object_id) {
-            if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                let hp = obj.health.current.max(1.0);
-                self.health_events
-                    .record_damage(object_id, hp, source, true);
-            } else if obj.health.current > 0.0 {
+            if obj.health.current > 0.0 {
                 obj.health.current = 0.0;
             }
             obj.status.destroyed = true;
@@ -591,10 +570,7 @@ impl GameLogic {
         source: Option<ObjectId>,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) {
-        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-            let hp = obj.health.current.max(1.0);
-            health_events.record_damage(obj.id, hp, source, true);
-        } else if obj.health.current > 0.0 {
+        if obj.health.current > 0.0 {
             obj.health.current = 0.0;
         }
         obj.status.destroyed = true;
@@ -624,11 +600,7 @@ impl GameLogic {
         // Fire *decision* residual: under AI_DECISION_AUTHORITY, emit AttackTarget so
         // GameWorld last-writes host engagement target (parity with fire_at_ex).
         // Host still *chooses* the residual target; this peels the decision channel.
-        if self.ai_decision_authority_live() {
-            crate::game_logic::host_ai_decision_log::record_attack(attacker_id, target_id);
-            crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2);
-            // Attacking
-        }
+        {}
 
         // Fire-spawn channel residual: under FIRE_SPAWN_AUTHORITY, log a projectile
         // spawn carrying live damage (parity with fire_at). Hitscan below still
@@ -637,120 +609,7 @@ impl GameLogic {
         // are marked so shadow zeroes spawn damage (no dual-tick double-dip).
         // Ballistic projectile-owned residual HP (no hitscan) remains deferred until
         // dual-tick tests drive shadow materialize+resolve after host combat.
-        if crate::gameworld_shadow::gameworld_fire_spawn_authority_live() {
-            // Even this alternate auto-fire path must retain the real
-            // Weapon.ini presentation references. C++ carries them on the
-            // WeaponTemplate selected for the firing object; do not infer an
-            // effect from the weapon's category when the host shadow later
-            // materializes this pending projectile.
-            let (projectile_object_name, fire_fx_name, fire_ocl_name, detonation_fx_name, detonation_ocl_name, exhaust_name) = self
-                .objects
-                .get(&attacker_id)
-                .and_then(|attacker| {
-                    let veterancy = attacker.experience.level;
-                    attacker.weapon_name_for_slot(slot).map(|weapon_name| {
-                        (
-                            crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name(
-                                weapon_name,
-                            ),
-                            crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name_at_veterancy(
-                                weapon_name,
-                                veterancy,
-                            ),
-                            crate::game_logic::weapon_bootstrap::host_fire_ocl_for_weapon_name_at_veterancy(
-                                weapon_name,
-                                veterancy,
-                            ),
-                            crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name_at_veterancy(
-                                weapon_name,
-                                veterancy,
-                            ),
-                            crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name_at_veterancy(
-                                weapon_name,
-                                veterancy,
-                            ),
-                            crate::game_logic::weapon_bootstrap::host_projectile_exhaust_for_weapon_name_at_veterancy(
-                                weapon_name,
-                                veterancy,
-                            ),
-                        )
-                    })
-                })
-                .unwrap_or_default();
-            let (speed, splash, homing, dtype, attack_range, min_attack_range) = match weapon {
-                Some(w) => {
-                    let speed = if w.projectile_speed <= 0.0 {
-                        999_000.0
-                    } else {
-                        w.projectile_speed
-                    };
-                    let homing = w.can_target_air && !w.can_target_ground;
-                    let dtype = if speed >= 999_000.0 {
-                        DamageType::Laser
-                    } else if w.splash_radius > 0.0 {
-                        DamageType::Explosive
-                    } else {
-                        DamageType::Bullet
-                    };
-                    (speed, w.splash_radius, homing, dtype, w.range, w.min_range)
-                }
-                None => (999_000.0, 0.0, false, DamageType::Laser, 0.0, 0.0),
-            };
-            combat::queue_projectile(&mut self.combat_system, PendingProjectile {
-                shooter_id: attacker_id,
-                shooter_pos,
-                source_context: self.objects.get(&attacker_id).map(|attacker| {
-                    combat::ProjectileLaunchContext {
-                        source_team: attacker.team,
-                        source_owner_player_id: attacker.owner_player_id,
-                        source_veterancy: attacker.experience.level,
-                        source_orientation: attacker.get_orientation(),
-                        source_velocity: attacker.movement.velocity,
-                    }
-                }),
-                target_id: Some(target_id),
-                target_pos: self.objects.get(&target_id).map(|t| t.get_position()),
-                damage,
-                speed,
-                speed_unit: combat::ProjectileSpeedUnit::DistancePerLogicFrame,
-                splash_radius: splash,
-                is_homing: homing,
-                damage_type: dtype,
-                death_type: HostDeathType::Normal,
-                projectile_object_name,
-                projectile_lifecycle: None,
-                fire_fx_name,
-                fire_ocl_name,
-                detonation_fx_name,
-                detonation_ocl_name,
-                exhaust_name,
-                secondary_damage: 0.0,
-                secondary_damage_radius: 0.0,
-                shock_wave_amount: 0.0,
-                shock_wave_radius: 0.0,
-                shock_wave_taper_off: 0.0,
-                radius_damage_affects: 0,
-                projectile_collides: 0,
-                scatter_radius: 0.0,
-                scatter_table_offset: None,
-                min_weapon_speed: 0.0,
-                scale_weapon_speed: false,
-                attack_range,
-                min_attack_range,
-                historic_weapon_key: String::new(),
-                historic_bonus_time_frames: 0,
-                historic_bonus_count: 0,
-                historic_bonus_radius: 0.0,
-                historic_bonus_weapon: String::new(),
-
-                die_on_detonate: self
-                    .objects
-                    .get(&attacker_id)
-                    .and_then(|attacker| attacker.weapon_name_for_slot(slot))
-                    .map(crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name)
-                    .unwrap_or(false),
-            });
-        }
+        {}
 
         let mut destroyed = false;
         let mut kill_xp = 0.0;
@@ -762,12 +621,7 @@ impl GameLogic {
                 &mut self.health_events,
                 &self.enable_repulsors,
             );
-            if crate::gameworld_shadow::gameworld_fire_spawn_authority_live() {
-                crate::game_logic::host_fire_spawn_log::record_residual_hitscan(
-                    attacker_id,
-                    target_id,
-                );
-            }
+            {}
             if destroyed {
                 kill_xp = target.kill_experience_value();
             }
@@ -793,9 +647,7 @@ impl GameLogic {
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.set_ai_state(state);
         }
-        if self.ai_decision_authority_live() {
-            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, ordinal);
-        }
+        {}
     }
 
     #[cfg(test)]
@@ -957,15 +809,7 @@ impl GameLogic {
                     crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
             }
         }
-        if self.ai_decision_authority_live() {
-            crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
-            if !matches!(
-                self.objects.get(&unit_id).map(|o| o.ai_state.clone()),
-                Some(AIState::Patrolling | AIState::AttackMoving)
-            ) {
-                crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
-            }
-        }
+        {}
         true
     }
 
@@ -1013,11 +857,7 @@ impl GameLogic {
             obj.set_force_attack(false);
             obj.attack_target(target_id);
         }
-        if self.ai_decision_authority_live() {
-            crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
-            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
-            // Attacking
-        }
+        {}
         true
     }
 
@@ -1033,7 +873,7 @@ impl GameLogic {
     pub(in super::super) fn apply_ai_command(&mut self, command: AICommand) {
         // Host applies immediately so AI aggression/combat is same-frame.
         // Decision authority still logs every command for GameWorld last-write.
-        let decision_auth = self.ai_decision_authority_live();
+
         match command {
             AICommand::AttackTarget {
                 object_id,
@@ -1051,9 +891,7 @@ impl GameLogic {
                 position,
             } => {
                 let installed = self.move_object_with_pathfinding(object_id, position, None);
-                if installed && decision_auth {
-                    crate::game_logic::host_ai_decision_log::record_move_to(object_id, position);
-                }
+                {}
             }
             AICommand::SetAIState { object_id, state } => {
                 // Player Hunt (`hunting`) must survive transient Idle so the
@@ -1082,12 +920,12 @@ impl GameLogic {
 #[cfg(test)]
 mod health_owner_tests {
     use super::*;
-    use crate::gameworld_shadow::{GameWorldShadow, ShadowCoupleGuard, with_coupled_shadow};
+    use crate::gameworld_shadow::GameWorldShadow;
 
     #[test]
     fn absolute_writes_commit_existing_owner_and_preserve_creation_cap() {
         let mut logic = GameLogic::new();
-        logic.set_damage_authority(true);
+
         let id = ObjectId(1);
         let mut template = ThingTemplate::new("AbsoluteOwnerBody");
         template.set_health(100.0);
@@ -1096,8 +934,8 @@ mod health_owner_tests {
         logic.objects.insert(id, object);
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
-        let _couple = ShadowCoupleGuard::enter();
-        with_coupled_shadow(&mut shadow, || {
+
+        {
             logic
                 .with_host_logic_step(|owner| {
                     owner.set_health_absolute_authority_aware(id, 70.0);
@@ -1115,33 +953,28 @@ mod health_owner_tests {
                     assert_eq!(owner.host_authoritative_health(id), Some(225.0));
                 })
                 .unwrap();
-        });
+        };
         let events = logic.health_events.drain_heal();
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].health, 70.0);
         assert_eq!(events[1].health, 225.0);
-        assert!(
-            events
-                .iter()
-                .all(|event| event.owner_health_already_applied())
-        );
     }
 
     #[test]
     fn absent_owner_absolute_write_remains_pending_under_live_authority() {
         let mut logic = GameLogic::new();
-        logic.set_damage_authority(true);
+
         let mut shadow = GameWorldShadow::new(8);
-        let _couple = ShadowCoupleGuard::enter();
-        with_coupled_shadow(&mut shadow, || {
-            assert!(crate::gameworld_shadow::gameworld_damage_authority_live());
+
+        {
             logic.set_health_absolute_authority_aware(ObjectId(99), 125.0);
-        });
+        };
         assert!(!logic.objects.contains_key(&ObjectId(99)));
         let events = logic.health_events.drain_heal();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].health, 125.0);
-        assert!(!events[0].owner_health_already_applied());
+        assert!(
+            events.is_empty(),
+            "an absent object has no body operation to observe"
+        );
     }
 }
 

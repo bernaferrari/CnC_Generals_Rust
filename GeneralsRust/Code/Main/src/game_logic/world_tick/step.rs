@@ -213,12 +213,7 @@ impl GameLogic {
             delta_time,
             absolute_time,
             budget.map(|budget| budget.max(1)),
-            |logic, fixed_dt| {
-                crate::gameworld_shadow::with_gameworld_authority(
-                    *logic.gameworld_authority(),
-                    || logic.update_simulation(fixed_dt),
-                )
-            },
+            |logic, fixed_dt| logic.update_simulation(fixed_dt),
             after_step,
         );
         self.sim_timing_snapshot()
@@ -534,14 +529,10 @@ impl GameLogic {
                     self.update_construction(&object_ids, dt);
                 }
                 super::HostSleepyKind::SellList => {
-                    if !crate::gameworld_shadow::gameworld_movement_authority_live() {
-                        self.update_sell_list();
-                    }
+                    self.update_sell_list();
                 }
                 super::HostSleepyKind::DozerBoredRepair => {
-                    if !crate::gameworld_shadow::gameworld_movement_authority_live() {
-                        self.update_dozer_bored_repair();
-                    }
+                    self.update_dozer_bored_repair();
                 }
                 super::HostSleepyKind::RebuildHoles => {
                     self.update_rebuild_holes();
@@ -568,7 +559,7 @@ impl GameLogic {
         // spectre orbit). Fail-closed vs full OCL aircraft / NeutronMissileUpdate
         // / PoisonField stack / B52 DeliverPayload / door loft path.
         // Wave 827: host-sole unless movement authority live: host system residuals sole-tick after GW writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_special_power_strikes();
         }
         // Gate: no radiation field spawned this frame -> the residual is a
@@ -586,7 +577,7 @@ impl GameLogic {
         }
         // Wave 802: host-sole unless movement authority live: field-object lifetime is owned by
         // GW tick_status_timer_expirations + expire logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_nuke_radiation_field_objects();
         }
         // Gate: mirror of the radiation gate above, for toxin fields.
@@ -602,7 +593,7 @@ impl GameLogic {
         }
         // Wave 802: host-sole unless movement authority live: field-object lifetime is owned by
         // GW tick_status_timer_expirations + expire logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_anthrax_toxin_field_objects();
         }
 
@@ -610,7 +601,7 @@ impl GameLogic {
         // Fail-closed vs full OCL cargo plane / parachute payload path.
         // Wave 796: host-sole unless movement authority live: Paradrop cargo flight is owned by
         // GW tick_status_timer_expirations + drop/ground logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_paradrop_cargo_planes();
         }
         // Gate: zero paradrop missions -> clear_frame_events/plan_due_drops
@@ -637,11 +628,11 @@ impl GameLogic {
 
         // Host MoneyCrateCollide residual: unit + BuildingPickup cash collect.
         // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_money_crate_collides();
         }
         // Wave 817: host-sole unless movement authority live: crate lifetime owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_crate_deletion_updates();
         }
 
@@ -661,7 +652,7 @@ impl GameLogic {
         // Fail-closed vs full OCL B52 / LeafletContainer / LeafletFX particle path.
         // Wave 795: host-sole unless movement authority live: Leaflet B52 flight is owned by
         // GW tick_status_timer_expirations + drop/ground logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_leaflet_b52_flights();
         }
         // Gate: zero leaflet missions -> the per-plan world radius scan never
@@ -689,7 +680,7 @@ impl GameLogic {
         // Host mine / demo-trap residual: proximity trigger + timed detonation.
         // Fail-closed vs full MinefieldBehavior / DemoTrapUpdate modules.
         // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_mines_and_demo_traps();
         }
 
@@ -705,21 +696,21 @@ impl GameLogic {
         self.update_propaganda_tower_pulse(dt);
         self.update_overcharge_drain(dt);
         // Wave 810: host-sole unless movement authority live: rods completion owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_power_plant_rods();
         }
 
         // Host China vehicle HordeUpdate residual. Vehicles run every frame for
         // decal size (UPDATE_SLEEP_NONE) but membership is gated on UpdateRate.
         // Wave 812: host-sole unless movement authority live: horde status owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_battlemaster_horde_status();
         }
 
         // Host China infantry HordeUpdate residual. Infantry UPDATE_SLEEP(UpdateRate).
         // Wave 813: host-sole unless movement authority live: horde status owned by GW expire + logs.
 
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_china_infantry_horde_status();
         }
 
@@ -731,43 +722,43 @@ impl GameLogic {
         // Host America Microwave Tank residual: DISABLE_SUBDUED on cooked structures.
         // Fail-closed vs full subdual accumulate/heal / laser stream / emitter field.
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_microwave_disable();
         }
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_microwave_emitter_field();
         }
 
         // Host PointDefenseLaser residual: Paladin / Avenger / King Raptor intercept missiles.
         // Fail-closed vs full PointDefenseLaserUpdate velocity prediction / laser FX.
         // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_point_defense_intercept();
         }
         // Wave 806: host-sole unless movement authority live: lifetime owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_point_defense_laser_beam_objects();
         }
         // Wave 806: host-sole unless movement authority live: lifetime owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_weapon_laser_beam_objects();
         }
         // Wave 804: host-sole unless movement authority live: residual owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_comanche_rocket_pod_projectiles();
         }
         self.update_stealth_jet_missile_projectiles();
         // Wave 800: host-sole unless movement authority live: cannon shell flight is owned by
         // GW tick_status_timer_expirations + impact logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_scud_launcher_missile_projectiles();
         }
         self.update_tomahawk_missile_projectiles();
         self.update_rocket_buggy_missile_projectiles();
         // Wave 800: host-sole unless movement authority live: cannon shell flight is owned by
         // GW tick_status_timer_expirations + impact logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_neutron_cannon_shell_projectiles();
         }
         // Gate (latched counter): see the technical_rpg gate below.
@@ -799,12 +790,12 @@ impl GameLogic {
             residual_gate_seam::note(&residual_gate_seam::SCORPION_SHELLS);
         }
         // Wave 805: host-sole unless movement authority live: residual owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_scorpion_missile_projectiles();
         }
         // Wave 800: host-sole unless movement authority live: cannon shell flight is owned by
         // GW tick_status_timer_expirations + impact logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_nuke_cannon_shell_projectiles();
         }
         self.update_usa_tank_shell_projectiles();
@@ -823,7 +814,7 @@ impl GameLogic {
             residual_gate_seam::note(&residual_gate_seam::OVERLORD_SHELLS);
         }
         // Wave 803: host-sole unless movement authority live: residual owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_inferno_shell_projectiles();
         }
         // Gate (latched counter): see the technical_rpg gate below.
@@ -855,7 +846,7 @@ impl GameLogic {
             residual_gate_seam::note(&residual_gate_seam::MIG_MISSILES);
         }
         // Wave 804: host-sole unless movement authority live: residual owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_flashbang_grenade_projectiles();
         }
         // Gate (latched counter): see the technical_rpg gate below —
@@ -875,7 +866,7 @@ impl GameLogic {
         }
         // Wave 798: host-sole unless movement authority live: ToxinStream projectile flight is owned by
         // GW tick_status_timer_expirations + impact/stream logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_toxin_stream_projectiles();
         }
         // Gate (latched counter): this projectile type exists only after its
@@ -921,7 +912,7 @@ impl GameLogic {
         // Host RadarScan residual: expire temporary FOW reveals (undo lookers).
         // RadarVanPing DeletionUpdate residual + FOW undo.
         // Wave 809: host-sole unless movement authority live: lifetime owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_radar_van_pings();
         }
         self.update_radar_scans();
@@ -929,7 +920,7 @@ impl GameLogic {
         // Host SpySatellite residual: expire temporary FOW reveals (undo lookers).
         // Fail-closed vs full OCL SpySatellitePing / DynamicShroudClearingRangeUpdate.
         // Wave 803: host-sole unless movement authority live: residual owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_spy_satellite_pings();
         }
         self.update_spy_satellites();
@@ -943,23 +934,23 @@ impl GameLogic {
         // Host China FireWall residual: tick fire damage along wall segments.
         // FireWallSegment object DeletionUpdate residual + zone damage ticks.
         // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_firewall_segment_objects();
         }
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_firewalls();
         }
 
         // Host China Inferno Cannon residual: tick FireFieldSmall DoT at impact zones.
         // Fail-closed vs full InfernoTankShell projectile / OCL_FireFieldSmall spawn.
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_inferno_fire_zones();
         }
         // Wave 802: host-sole unless movement authority live: field-object lifetime is owned by
         // GW tick_status_timer_expirations + expire logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_inferno_fire_field_objects();
         }
 
@@ -974,7 +965,7 @@ impl GameLogic {
             residual_gate_seam::note(&residual_gate_seam::HELIX_NAPALM_FIRESTORMS);
         }
         // Wave 804: host-sole unless movement authority live: residual owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_helix_napalm_bomb_projectiles();
         }
 
@@ -990,62 +981,62 @@ impl GameLogic {
         }
         // Nuclear Tanks SmallRadiationField residual ticks.
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_nuclear_tanks_radiation_zones();
         }
 
         // Host GLA SCUD toxin residual: tick MediumPoisonField DoT at impact zones.
         // Fail-closed vs full OCL_PoisonFieldMedium object spawn / particle bones.
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_scud_poison_zones();
         }
         self.update_tensile_formations();
         // Wave 820: host-sole unless movement authority live: fire-spread owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_fire_spread();
         }
         // Wave 780: BaseRegenerateUpdate is host-sole (C++ has one store; the
         // GW dual-peel heal tick is retired with wave780). Host skips only
         // while damage authority is live and the shadow session last-writes HP.
-        if !crate::gameworld_shadow::gameworld_damage_authority_live() {
+        {
             self.update_base_regenerate();
         }
         self.update_supply_warehouse_crippling();
 
         // Wave 781: host-sole unless movement authority live: EnemyNearUpdate is owned by
         // GW tick_status_timer_expirations + writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_enemy_near();
         }
         // Wave 784: host-sole unless movement authority live: AnimationSteeringUpdate is owned by
         // GW tick_status_timer_expirations + writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_animation_steering();
         }
         // Wave 783: host-sole unless movement authority live: FloatUpdate is owned by
         // GW tick_status_timer_expirations + transform writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_float_update();
         }
         // Wave 782: host-sole unless movement authority live: ProneUpdate is owned by
         // GW tick_status_timer_expirations + writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_prone_update();
         }
         // Wave 785: host-sole unless movement authority live: RadiusDecalUpdate is owned by
         // GW tick_status_timer_expirations + writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_radius_decal_update();
         }
         // Wave 786: host-sole unless movement authority live: CheckpointUpdate is owned by
         // GW tick_status_timer_expirations + writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_checkpoint_update();
         }
         // Wave 787: host-sole unless movement authority live: SmartBombTargetHomingUpdate is owned by
         // GW tick_status_timer_expirations + transform writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_smart_bomb_target_homing();
         }
         self.update_spectre_gunship_flights();
@@ -1054,37 +1045,37 @@ impl GameLogic {
         self.update_scud_storm_missile_flights();
         // Wave 794: host-sole unless movement authority live: CarpetBomb flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_carpet_bomb_flights();
         }
         // Wave 793: host-sole unless movement authority live: ArtilleryBarrage flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_artillery_barrage_flights();
         }
         // Wave 792: host-sole unless movement authority live: A10 strike flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_a10_strike_flights();
         }
         // Wave 788: host-sole unless movement authority live: DaisyCutter/MOAB flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_daisy_cutter_flights();
         }
         // Wave 789: host-sole unless movement authority live: AnthraxBomb flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_anthrax_bomb_flights();
         }
         // Wave 790: host-sole unless movement authority live: ClusterMines flight is owned by
         // GW tick_status_timer_expirations + drop/detonate logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_cluster_mines_flights();
         }
         // Wave 791: host-sole unless movement authority live: EMP Pulse flight + spheroid is owned by
         // GW tick_status_timer_expirations + drop/detonate/expire logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_emp_pulse_spheroids();
             self.update_emp_pulse_flights();
         }
@@ -1118,19 +1109,19 @@ impl GameLogic {
         }
         self.tick_fire_ocl_after_weapon_cooldown();
         // Wave 825: host-sole unless movement authority live: zone/field damage sole-ticks after GW writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_toxin_tractor_poison_zones();
         }
 
         // Host America Aurora dive bomb residual: delayed area damage at target.
         // AuroraBombLocomotor flight residual + FuelAir gas OCL path.
         // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_aurora_bombs();
         }
         // Wave 797: host-sole unless movement authority live: AuroraBomb projectile dive is owned by
         // GW tick_status_timer_expirations + destroy logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_aurora_bomb_projectiles();
         }
 
@@ -1139,7 +1130,7 @@ impl GameLogic {
         self.update_angry_mobs();
         // Wave 799: host-sole unless movement authority live: AngryMob projectile flight is owned by
         // GW tick_status_timer_expirations + impact logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_angry_mob_projectiles();
         }
 
@@ -1159,7 +1150,7 @@ impl GameLogic {
 
         // Stinger HiveStructureBody SpawnReplaceDelay residual slave respawns.
         // Wave 814: host-sole unless movement authority live: hive respawn owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_stinger_hive_respawns();
         }
 
@@ -1211,14 +1202,7 @@ impl GameLogic {
         // after projectiles update (combat still applies damage; we heal-back
         // diverted hits is wrong). Prefer combat-level hook:
         // Wave 882: projectile sole-integrate under GW authority (host skips dual advance).
-        let projectile_hits = if crate::gameworld_shadow::gameworld_projectile_authority_live() {
-            // Snapshot pre-step flight state for GameWorld integrate authority.
-            crate::game_logic::host_projectile_log::record_snapshot(
-                self.combat_system.projectiles_snapshot(),
-            );
-            // Defer integrate+hits to shadow_session (GW step + writeback + hits).
-            Vec::new()
-        } else {
+        let projectile_hits = {
             let hits = self.update_owned_projectile_impacts(dt);
             crate::game_logic::host_projectile_log::record_snapshot(
                 self.combat_system.projectiles_snapshot(),
@@ -1239,7 +1223,7 @@ impl GameLogic {
         // even when GameWorld sole-integrates projectile flight.
         self.flush_countermeasure_flare_spawns();
         // Wave 806: host-sole unless movement authority live: lifetime owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_countermeasure_flare_objects();
         }
         self.drain_historic_bonus_firestorms();
@@ -1389,7 +1373,7 @@ impl GameLogic {
         self.host_upgrades.clear_frame_events();
         self.update_production(dt);
         // Wave 827: host-sole unless movement authority live: host system residuals sole-tick after GW writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_player_upgrades();
         }
         // Skip crate BuildAssistant::update on the live tick. Its update() only
@@ -1406,26 +1390,26 @@ impl GameLogic {
         // GLA Black Market residual cash (AutoDepositUpdate discrete deposits + floating text).
         // Fail-closed: not full InGameUI GPU / InitialCaptureBonus (retail 0).
         // Wave 821: host-sole unless movement authority live: AutoDeposit owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_black_market_deposits();
         }
         // Tech Oil Derrick residual cash (AutoDeposit + SupplyLines boost + floating text).
         // Fail-closed: not full InGameUI GPU / STEALTHED local display gate.
         // Wave 821: host-sole unless movement authority live: AutoDeposit owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_oil_derrick_deposits();
         }
         // China Hacker / Internet Center residual cash (HackInternetAIUpdate).
         // Fail-closed: not full unpack/pack state machine / variation factor.
         // Wave 822: host-sole unless movement authority live: Hacker income owned by GW expire + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_hacker_income();
         }
         // America Supply Drop Zone residual: OCL schedules cargo DeliverPayload
         // residual; cash credits after approach delay + crate spawn.
         // Fail-closed: not full CreateAtEdge cargo plane / parachute fall path.
         // Wave 826: host-sole unless movement authority live: combat/field residuals sole-tick after GW writeback.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
+        {
             self.update_supply_drop_zone_drops();
         }
         // USA Battle Drone residual master repair: 12-unit weld SM, not instant 48-range.
@@ -1555,7 +1539,7 @@ impl GameLogic {
 
         // Host-only ticks: settle deferred economy spends (DAMAGE/HP already
         // fail-open onto host when not in a coupled shadow writeback frame).
-        if !crate::gameworld_shadow::shadow_coupled_tick_active() {
+        {
             crate::gameworld_shadow::materialize_host_economy_pending(self);
         }
 
@@ -1910,30 +1894,12 @@ mod tests {
     /// frames the local looker must appear in the shroud membership, reveal
     /// real grid cells, and activate the presentation FOW snapshot.
     #[test]
-    fn vision_feed_runs_while_coupled_shadow_tick_active() {
+    fn vision_feed_runs_on_canonical_owner_frames() {
         use crate::fow_rendering::FOWRenderingBridge;
-        use crate::gameworld_shadow::{
-            begin_shadow_coupled_tick, end_shadow_coupled_tick, gameworld_shadow_enabled,
-            shadow_coupled_tick_active,
-        };
-        use gamelogic::system::shroud_manager::{ShroudState, get_shroud_manager};
+        use gamelogic::system::shroud_manager::ShroudState;
 
         let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         drop_pending_clear_game_data();
-
-        // Shadow coupling is production-on; unwind any nested coupled depth
-        // left behind by sibling suites (Wave 178 harness pattern).
-        for _ in 0..8 {
-            if !shadow_coupled_tick_active() {
-                break;
-            }
-            end_shadow_coupled_tick();
-        }
-        assert!(!shadow_coupled_tick_active());
-        assert!(
-            gameworld_shadow_enabled(),
-            "GameWorld shadow is production-on (opt out GENERALS_GAMEWORLD_SHADOW=0)"
-        );
 
         let mut logic = GameLogic::new();
         logic.add_player(crate::game_logic::Player::new(
@@ -1956,14 +1922,11 @@ mod tests {
             mgr.init_shroud_grid(512.0, 512.0);
         }
 
-        begin_shadow_coupled_tick();
-        assert!(shadow_coupled_tick_active());
         // Drive 3 InGame logic frames through the standard step loop while
         // the coupled tick is active — Phase 17 must still feed the shroud.
         for _ in 0..3 {
             logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
         }
-        end_shadow_coupled_tick();
 
         {
             let shroud = logic.world_services.shroud();
@@ -1997,7 +1960,6 @@ mod tests {
             let mut mgr = shroud.lock().expect("shroud");
             mgr.clear_all();
         }
-        assert!(!shadow_coupled_tick_active());
     }
 
     /// Live catch-up clamp: with no explicit budget (the live drive_frame

@@ -8,8 +8,14 @@ mod physics_bounce;
 mod physics_collide;
 #[path = "physics_crush.rs"]
 mod physics_crush;
+#[path = "physics_owned_bounce.rs"]
+mod physics_owned_bounce;
+pub(crate) use physics_owned_bounce::OwnedBounce;
+#[path = "physics_owned_rules.rs"]
+mod physics_owned_rules;
 #[path = "physics_owned_shock.rs"]
 mod physics_owned_shock;
+pub use physics_owned_rules::PhysicsRules;
 #[path = "physics_owned_tick.rs"]
 mod physics_owned_tick;
 #[path = "physics_reset.rs"]

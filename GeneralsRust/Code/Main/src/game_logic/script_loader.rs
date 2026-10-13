@@ -97,7 +97,7 @@ fn locate_map_file(map_name: &str) -> Option<PathBuf> {
     search_roots.push(manifest.join("../.."));
     search_roots.push(manifest.join("../../.."));
 
-    // Retail ZH maps live under windows_game/extracted_big_files{,_v2}/MapsZH.
+    // Retail ZH maps live under windows_game/extracted_big_files{_v2}/MapsZH.
     // C++ virtual FS roots Maps/ at MapsZH.big; join INI "Maps/..." against
     // those extract trees so ShellMapMD resolves from cwd=GeneralsRust/.
     // NOTE: no bare "/Maps" suffixes here — the VFS local backend treats any

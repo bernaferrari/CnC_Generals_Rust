@@ -53,7 +53,7 @@ pub use game_engine::common::rts::ScienceType;
 pub mod integration;
 pub mod object_registry;
 mod pathfinder_attack_view;
-mod target_acquisition;
+pub(crate) mod target_acquisition;
 
 // Constants
 pub const MAX_AI_UPGRADES: usize = 20;
@@ -410,15 +410,19 @@ impl AiGroup {
     }
 
     pub fn remove(&mut self, obj: ObjectId) -> bool {
-        if let Some(pos) = self.member_list.iter().position(|&x| x == obj) {
-            self.member_list.remove(pos);
-            self.dirty = true;
-
-            // Return true if group is now empty (should be destroyed)
-            self.member_list.is_empty()
-        } else {
-            false
-        }
+        self.remove_member_with_departure(obj, || {})
+    }
+    pub(crate) fn remove_owned_member(&mut self, owner: &mut crate::object::Object) -> bool {
+        self.remove_member_with_departure(owner.get_id(), || owner.leave_group())
+    }
+    fn remove_member_with_departure(&mut self, obj: ObjectId, departure: impl FnOnce()) -> bool {
+        let Some(position) = self.member_list.iter().position(|&id| id == obj) else {
+            return false;
+        };
+        self.member_list.remove(position);
+        departure(); // CPP AIGroup::remove clears Object backlink before dirty.
+        self.dirty = true;
+        self.member_list.is_empty()
     }
 
     pub fn is_member(&self, obj: ObjectId) -> bool {
@@ -2199,6 +2203,26 @@ impl Pathfinder {
             .adjust_to_possible_destination(start, dest, surfaces, is_crusher, unit_radius)
     }
 
+    pub(crate) fn adjust_exit_destination_with_observations(
+        &self,
+        object: &Object,
+        locomotors: &crate::locomotor::LocomotorSet,
+        destination: &mut Coord3D,
+        observations: &pathfind_complete::PathfindObservations<'_>,
+    ) -> bool {
+        self.inner.adjust_to_possible_destination_with_observations(
+            object.get_position(),
+            destination,
+            locomotors.get_valid_surfaces(),
+            object.get_crusher_level() > 0,
+            object
+                .get_geometry_info()
+                .get_bounding_circle_radius()
+                .max(0.0),
+            Some(observations),
+        )
+    }
+
     /// C++ `Pathfinder::findBrokenBridge` (AIPathfind.cpp).
     ///
     /// Compute effective terrain zones at from/to; if equal, no bridge is the
@@ -2474,6 +2498,16 @@ impl Pathfinder {
     }
 
     /// C++ `Pathfinder::validMovementTerrain`.
+    pub(crate) fn valid_movement_terrain_for_locomotor(
+        &self,
+        layer: crate::ai::pathfind_astar::PathfindLayerEnum,
+        locomotor: &crate::locomotor::Locomotor,
+        position: &Coord3D,
+    ) -> bool {
+        self.inner
+            .valid_movement_terrain(layer, locomotor.get_legal_surfaces(), position)
+    }
+
     pub fn valid_movement_terrain(
         &self,
         layer: crate::ai::pathfind_astar::PathfindLayerEnum,
@@ -2673,6 +2707,21 @@ impl Pathfinder {
         out: &mut Coord3D,
     ) -> bool {
         self.inner.goal_position(unit_id, unit_radius, out)
+    }
+
+    pub(crate) fn goal_position_for_cell_with_observations(
+        &self,
+        cell: ICoord2D,
+        unit_radius: f32,
+        out: &mut Coord3D,
+        observations: &pathfind_complete::PathfindObservations<'_>,
+    ) -> bool {
+        self.inner.goal_position_for_cell_with_observations(
+            cell,
+            unit_radius,
+            out,
+            Some(observations),
+        )
     }
 
     /// C++ `Pathfinder::pathDestination`.

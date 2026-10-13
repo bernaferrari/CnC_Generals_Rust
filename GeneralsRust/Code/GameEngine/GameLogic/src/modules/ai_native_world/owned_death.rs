@@ -61,6 +61,7 @@ impl BorrowedAiWorld<'_> {
         drop(victim);
         let id = owner.read().map_err(|_| "lethal owner poisoned")?.get_id();
         self.validate_owned_destroy(id)?;
+        self.validate_containment_death_owned(owner, damage)?;
         self.validate_native_kill_score(owner, damage.input.source_id)
     }
 
@@ -381,12 +382,29 @@ impl BorrowedAiWorld<'_> {
             let object = owner.read().expect("admitted dying owner");
             (
                 object.get_id(),
-                object.behavior_modules(),
+                object.death_callback_entries(),
                 object.get_ai_update_interface(),
                 object.named_update_registrations("AIUpdateInterface"),
             )
         };
         for handle in handles {
+            let contain = handle.with_module(|module| {
+                crate::contain_module_overrides::contain_handle_for_module(module)
+            });
+            if let Some(contain) = contain {
+                let actual = owner
+                    .read()
+                    .expect("admitted contain DIE owner")
+                    .get_contain()
+                    .expect("admitted contain interface");
+                assert!(
+                    Arc::ptr_eq(&contain, &actual),
+                    "admitted authored contain DIE identity"
+                );
+                self.finish_containment_death_owned(owner, damage)
+                    .expect("admitted immediate containment DIE");
+                continue;
+            }
             if handle.interface_mask().0 & ModuleInterfaceType::DIE.0 == 0 {
                 continue;
             }

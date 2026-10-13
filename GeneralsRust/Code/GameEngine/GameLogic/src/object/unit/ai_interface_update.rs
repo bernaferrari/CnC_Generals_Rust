@@ -379,12 +379,48 @@ impl UnitAIUpdate {
     /// The original installed parent-FSM phase, including synchronous terminal
     /// commands. The caller owns the surrounding AI/movement scheduler phases;
     /// this method does not masquerade as a complete native AIUpdate tick.
+    pub(super) fn update_idle_phase_sleep_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<crate::modules::UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_world_owner(world)?;
+        self.validate_owned_components_with_world(world, true, false)?;
+        if world.pathfinder().is_none() {
+            return Err("supplied Idle requires its owner pathfinder".into());
+        }
+        let machine = self
+            .ai_state_machine
+            .as_mut()
+            .ok_or("installed AI has no machine")?;
+        if machine.get_current_state_id() != Some(AIStateType::Idle as u32)
+            || machine.get_temporary_state().is_some()
+        {
+            return Err("supplied operation admits only ordinary Idle".into());
+        }
+        let mut runtime = super::UnitAiStateRuntime {
+            runtime: &mut self.runtime,
+            parent_exists: true,
+            parent_state_id: None,
+            world: Some(world),
+        };
+        machine
+            .update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
+                ai.execute_command_native(terminal.params(), driver)
+            })
+            .map(Self::state_machine_sleep_owned)
+    }
     pub(super) fn update_enter_phase_with_world(
         &mut self,
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.update_enter_phase_sleep_with_world(world).map(|_| ())
+    }
+    pub(super) fn update_enter_phase_sleep_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<crate::modules::UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         self.validate_world_owner(world)?;
-        self.validate_owned_enter_components()?;
+        self.validate_owned_components_with_world(world, false, false)?;
         if world.pathfinder().is_none() {
             return Err("supplied AIEnter requires its owner pathfinder".into());
         }
@@ -414,17 +450,37 @@ impl UnitAIUpdate {
             parent_state_id: None,
             world: Some(world),
         };
-        machine.update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
-            ai.execute_command_native(terminal.params(), driver)
-        })?;
-        Ok(())
+        machine
+            .update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
+                ai.execute_command_native(terminal.params(), driver)
+            })
+            .map(Self::state_machine_sleep_owned)
+    }
+    /// CPP AIUpdate.cpp998-1010: only an actual STATE_SLEEP delays AI;
+    /// Continue/Success/Failure all demand the next logic frame.
+    pub(super) fn state_machine_sleep_owned(
+        result: crate::state_machine::StateReturnType,
+    ) -> crate::modules::UpdateSleepTime {
+        match result {
+            crate::state_machine::StateReturnType::Sleep(frames) => {
+                crate::modules::UpdateSleepTime::from_u32(frames)
+            }
+            _ => crate::modules::UpdateSleepTime::None,
+        }
     }
     pub(super) fn update_waypoint_phase_with_world(
         &mut self,
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.update_waypoint_phase_sleep_with_world(world)
+            .map(|_| ())
+    }
+    pub(super) fn update_waypoint_phase_sleep_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<crate::modules::UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         self.validate_world_owner(world)?;
-        self.validate_owned_components(true, false)?;
+        self.validate_owned_components_with_world(world, true, false)?;
         if (self.runtime.get_mood_matrix_action_adjustment_with_world(
             true,
             crate::ai::MoodMatrixAction::Move,
@@ -507,10 +563,11 @@ impl UnitAIUpdate {
             state.inner_mut().resolve_last_waypoint(Some(&runtime))?;
         }
         machine.commit_loaded_goal_waypoint(staged_goal);
-        machine.update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
-            ai.execute_command_native(terminal.params(), driver)
-        })?;
-        Ok(())
+        machine
+            .update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
+                ai.execute_command_native(terminal.params(), driver)
+            })
+            .map(Self::state_machine_sleep_owned)
     }
 
     pub(super) fn request_dozer_fortify_with_world(
@@ -1529,7 +1586,7 @@ impl UnitAIUpdate {
     ) -> Result<(), String> {
         self.validate_world_owner(world)
             .map_err(|error| error.to_string())?;
-        self.validate_owned_components(true, false)
+        self.validate_owned_components_with_world(world, true, false)
             .map_err(|error| error.to_string())?;
         let machine = self
             .ai_state_machine

@@ -13,7 +13,7 @@ enum ImpactRelationships {
 
 /// Retarget observations taken after body callbacks, before world onDie.
 #[derive(Debug)]
-pub(in crate::game_logic) struct OwnedDamageResult {
+pub(crate) struct OwnedDamageResult {
     pub(in crate::game_logic) destroyed: bool,
     /// HP delta for this impact, before world callbacks can damage/heal again.
     pub(in crate::game_logic) hp_lost: f32,
@@ -47,7 +47,10 @@ impl GameLogic {
         )
     }
 
-    pub(in crate::game_logic) fn apply_owned_damage(
+    /// Admit one unapplied health operation through the receiving body's real
+    /// synchronous callbacks. Completed receipts never enter this method.
+
+    pub(crate) fn apply_owned_damage(
         &mut self,
         victim_id: ObjectId,
         damage: f32,
@@ -127,12 +130,30 @@ impl GameLogic {
         let victim_team = victim.team;
         self.admit_object_drawable_deselection(victim_id);
         self.admit_host_radar_disabled_edges(victim_id);
+        // CPP ActiveBody585–600 calls onDamage before scoreTheKill/onDie.
+        // Release the body loan before forceFireWeapon can damage other owners
+        // or reenter this same object; every next hit resolves it afresh.
+        let mut reaction_callback_ran = false;
+        let has_installed_reaction_weapons = self
+            .objects
+            .get(&victim_id)
+            .is_some_and(|object| !object.temporary_weapon_runtime.damaged.is_empty());
+        if hp_lost > 0.0 && !has_installed_reaction_weapons {
+            if let Some(weapon) = self
+                .objects
+                .get_mut(&victim_id)
+                .and_then(|object| object.take_pending_fire_when_damaged_weapon())
+            {
+                reaction_callback_ran = true;
+                let _ = self.apply_fire_weapon_when_damaged_named(victim_id, &weapon);
+            }
+        }
         let bridge_callbacks = application.bridge_callbacks();
         if let Some(callbacks) = bridge_callbacks {
             self.complete_owned_bridge_body_callbacks(callbacks);
         }
         // Original ActiveBody rereads live health after synchronous callbacks.
-        let killed = if bridge_callbacks.is_some()
+        let killed = if (bridge_callbacks.is_some() || reaction_callback_ran)
             && damage_type != crate::game_logic::combat::DamageType::Healing
         {
             before_hp > 0.0
@@ -143,7 +164,7 @@ impl GameLogic {
         } else {
             application.killed()
         };
-        if bridge_callbacks.is_some() {
+        if bridge_callbacks.is_some() || reaction_callback_ran {
             application.set_killed_after_callbacks(killed);
         }
         if killed {

@@ -8,7 +8,7 @@ use crate::game_logic::combat::{
 // accepted commands. Each test owns its queue; restore the other inputs on unwind.
 struct RestoreInputs {
     store: Option<gamelogic::weapon::WeaponStore>,
-    authority: crate::game_logic::game_logic::GameWorldAuthority,
+
     frame: u32,
 }
 
@@ -16,12 +16,9 @@ impl RestoreInputs {
     fn install() -> Self {
         let restore = Self {
             store: gamelogic::weapon::with_weapon_store_mut(std::mem::take).ok(),
-            authority: crate::game_logic::game_logic::current_gameworld_authority(),
+
             frame: crate::game_logic::host_historic_bonus::logic_frame(),
         };
-        crate::game_logic::game_logic::gameworld_authority::publish_gameworld_authority(
-            crate::game_logic::game_logic::GameWorldAuthority::DEFAULT_OFF,
-        );
         // The independent bootstrap seed flag may survive a previous fixture
         // restoring an absent store. Initialize the real store idempotently.
         gamelogic::initialize_weapon_store().expect("fixture weapon store");
@@ -38,9 +35,7 @@ impl Drop for RestoreInputs {
         } else {
             gamelogic::weapon::shutdown_weapon_store().expect("restore absent store");
         }
-        crate::game_logic::game_logic::gameworld_authority::publish_gameworld_authority(
-            self.authority,
-        );
+
         crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
     }
 }
@@ -104,7 +99,7 @@ fn fire_at_keeps_gattling_store_type() {
         .last_fire_time = -10.0;
     let target_position = Vec3::new(100.0, 0.0, 0.0);
     attacker.prev_victim_pos = Some(target_position);
-    assert!(attacker.fire_at(ObjectId(2), 1.0, 3, &mut combat, false));
+    assert!(attacker.fire_at(ObjectId(2), 1.0, 3, &mut combat));
     assert_eq!(
         crate::game_logic::combat::last_pending_projectile_damage_type_for_test(&combat),
         Some(crate::game_logic::combat::DamageType::Gattling),
@@ -181,7 +176,7 @@ fn fire_at_projectileless_queues_leftover_delayed_damage() {
         last_fire_time: -10.0,
         ..Weapon::default()
     });
-    assert!(attacker.fire_at(ObjectId(2), 1.0, 3, &mut combat, false));
+    assert!(attacker.fire_at(ObjectId(2), 1.0, 3, &mut combat));
     // Preserve the original immediate compatibility identity assertion BEFORE
     // materialization appends its separate native mirror entry. This does not
     // assert that the remaining compatibility mirror executes only once.

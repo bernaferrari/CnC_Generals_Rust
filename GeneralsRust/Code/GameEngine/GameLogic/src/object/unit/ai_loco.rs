@@ -426,7 +426,7 @@ impl UnitAIUpdate {
     ) -> Result<Real, String> {
         self.validate_world_owner(world)
             .map_err(|error| error.to_string())?;
-        self.validate_owned_components(true, false)
+        self.validate_owned_components_with_world(world, true, false)
             .map_err(|error| error.to_string())?;
         if !world.has_pathfinder() {
             return Err("owned movement distance requires its pathfinder".into());

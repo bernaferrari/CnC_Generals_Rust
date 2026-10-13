@@ -1,7 +1,7 @@
 //! Canonical leftover WeaponTemplate extracted from weapon/mod.rs.
 
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock, Weak};
 
 use crate::common::Coord3D;
 use crate::common::LOGICFRAMES_PER_SECOND;
@@ -153,8 +153,8 @@ pub struct WeaponTemplate {
     /// Bonuses
     pub extra_bonus: Option<WeaponBonusSet>,
 
-    /// Historic damage tracking
-    historic_damage: Arc<Mutex<VecDeque<HistoricWeaponDamageInfo>>>,
+    /// Immutable definition identity shared by temporary projectile clones.
+    history_identity: Arc<()>,
 
     /// Next template for inheritance
     next_template: Option<Box<WeaponTemplate>>,
@@ -437,7 +437,7 @@ impl WeaponTemplate {
             projectile_exhaust: [None, None, None, None],
             projectile_exhaust_names: [None, None, None, None],
             extra_bonus: None,
-            historic_damage: Arc::new(Mutex::new(VecDeque::new())),
+            history_identity: Arc::new(()),
             next_template: None,
         }
     }
@@ -1206,33 +1206,23 @@ impl WeaponTemplate {
     }
 
     /// C++ Weapon.cpp:1169-1186 trimOldHistoricDamage — global historicDamageLimit.
+    pub(super) fn history_identity(&self) -> &Arc<()> {
+        &self.history_identity
+    }
+    pub(super) fn renew_history_identity(&mut self) {
+        self.history_identity = Arc::new(());
+    }
+
+    /// Ambient compatibility adapter. Match-owned fire supplies its own store.
     pub fn trim_old_historic_damage(&self) {
+        let frame = TheGameLogic::get_frame();
         let limit = game_engine::common::global_data::read().historic_damage_limit;
-        let expiration = TheGameLogic::get_frame().wrapping_sub(limit);
-        if let Ok(mut damage_list) = self.historic_damage.lock() {
-            while let Some(front) = damage_list.front() {
-                if front.frame <= expiration {
-                    damage_list.pop_front();
-                } else {
-                    break;
-                }
-            }
-        }
+        let _ = super::store::with_weapon_store_mut(|store| {
+            store.trim_historic_damage_at(self, frame, limit)
+        });
     }
-
-    /// Record historic damage for bonus calculations (no trim; C++ records after check).
-    fn record_historic_damage(&self, location: &Coord3D, frame: u32) {
-        if let Ok(mut damage_list) = self.historic_damage.lock() {
-            damage_list.push_back(HistoricWeaponDamageInfo::new(frame, *location));
-        }
-    }
-
-    /// Hits still inside the historic window (tests / honesty).
     pub fn historic_damage_len(&self) -> usize {
-        self.historic_damage
-            .lock()
-            .map(|list| list.len())
-            .unwrap_or(0)
+        super::store::with_weapon_store(|store| store.historic_damage_len(self)).unwrap_or(0)
     }
 
     /// C++ `INI::parseWeaponTemplate` for HistoricBonusWeapon.
@@ -1280,18 +1270,36 @@ impl WeaponTemplate {
             .as_ref()
             .and_then(|weak| weak.upgrade())
         {
-            if !arc.name.eq_ignore_ascii_case(&self.name) {
+            if !Arc::ptr_eq(arc.history_identity(), self.history_identity()) {
                 return Some(arc);
             }
             return None;
         }
         let name = self.historic_bonus_weapon_name_resolved()?;
-        if name.eq_ignore_ascii_case(&self.name) || name.eq_ignore_ascii_case("None") {
+        if name.eq_ignore_ascii_case("None") {
             return None;
         }
         with_weapon_store(|store| store.find_weapon_template_ci(&name).cloned())
             .ok()
             .flatten()
+            .filter(|bonus| !Arc::ptr_eq(bonus.history_identity(), self.history_identity()))
+    }
+
+    pub(crate) fn historic_bonus_weapon_in_store(
+        &self,
+        store: &super::WeaponStore,
+    ) -> Option<Arc<WeaponTemplate>> {
+        self.historic_bonus_weapon
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+            .or_else(|| {
+                let name = self.historic_bonus_weapon_name.trim();
+                if name.is_empty() || name.eq_ignore_ascii_case("None") {
+                    None
+                } else {
+                    store.find_weapon_template_ci(name).cloned()
+                }
+            })
     }
 
     /// C++ Weapon.cpp:1214-1251 — fire historic bonus then clear, else record this hit.
@@ -1299,56 +1307,42 @@ impl WeaponTemplate {
     /// Returns true when the Nth qualifying hit dispatched HistoricBonusWeapon
     /// via `WeaponStore::createAndFireTempWeapon`.
     pub fn apply_historic_bonus(&self, source_obj: ObjectId, pos: &Coord3D) -> bool {
-        self.trim_old_historic_damage();
-        // C++: if (m_historicBonusCount > 0 && m_historicBonusWeapon != this)
-        if self.historic_bonus_count <= 0 {
-            return false;
-        }
-        let bonus_weapon = self.resolve_historic_bonus_weapon();
-        if bonus_weapon
+        let bonus_weapon = self
+            .historic_bonus_weapon
             .as_ref()
-            .is_some_and(|bonus| bonus.name.eq_ignore_ascii_case(&self.name))
-        {
+            .and_then(|weak| weak.upgrade())
+            .or_else(|| {
+                let name = self.historic_bonus_weapon_name_resolved()?;
+                with_weapon_store(|store| store.find_weapon_template_ci(&name).cloned())
+                    .ok()
+                    .flatten()
+            });
+        let same = bonus_weapon
+            .as_ref()
+            .is_some_and(|bonus| Arc::ptr_eq(bonus.history_identity(), self.history_identity()));
+        let frame = TheGameLogic::get_frame();
+        let limit = game_engine::common::global_data::read().historic_damage_limit;
+        let fire = super::store::with_weapon_store_mut(|store| {
+            store.observe_historic_damage_at(self, pos, frame, limit, same)
+        })
+        .unwrap_or(false);
+        if !fire {
             return false;
         }
-
-        let current_frame = TheGameLogic::get_frame();
-        let rad_sqr = self.historic_bonus_radius * self.historic_bonus_radius;
-        let oldest = current_frame.wrapping_sub(self.historic_bonus_time);
-        let count = if let Ok(list) = self.historic_damage.lock() {
-            list.iter()
-                .filter(|info| {
-                    // C++: it->frame >= oldestThatWillCount && 2D dist²
-                    if info.frame < oldest {
-                        return false;
-                    }
-                    let dx = info.location.x - pos.x;
-                    let dy = info.location.y - pos.y;
-                    dx * dx + dy * dy <= rad_sqr
-                })
-                .count() as i32
+        // Release the history/store borrow before recursive bonus delivery.
+        let dispatched = if let Some(bonus) = bonus_weapon {
+            let _ = super::WeaponStore::create_and_fire_temp_weapon(
+                &bonus,
+                source_obj,
+                None,
+                Some(pos),
+            );
+            true
         } else {
-            0
-        };
-
-        if count >= self.historic_bonus_count - 1 {
-            // minus 1: this hit is included implicitly (Weapon.cpp:1233)
-            let dispatched = if let Some(bonus_weapon) = bonus_weapon {
-                let _ = with_weapon_store(|store| {
-                    store.create_and_fire_temp_weapon(&bonus_weapon, source_obj, None, Some(pos))
-                });
-                true
-            } else {
-                false
-            };
-            if let Ok(mut list) = self.historic_damage.lock() {
-                list.clear();
-            }
-            dispatched
-        } else {
-            self.record_historic_damage(pos, current_frame);
             false
-        }
+        };
+        let _ = super::store::with_weapon_store_mut(|store| store.clear_historic_damage(self));
+        dispatched
     }
 
     /// C++ Weapon.cpp estimateWeaponTemplateDamage: returns estimated damage to

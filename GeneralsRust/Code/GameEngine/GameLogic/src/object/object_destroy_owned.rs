@@ -11,7 +11,17 @@ pub(crate) struct NativeDestroyPlan {
 
 impl NativeDestroyPlan {
     pub(crate) fn notify_delete(&self) -> Result<(), String> {
+        self.notify_delete_with_containment(|_| Ok(false))
+    }
+    pub(crate) fn notify_delete_with_containment(
+        &self,
+        mut contain: impl FnMut(&BehaviorModuleHandle) -> Result<bool, String>,
+    ) -> Result<(), String> {
         for entry in &self.modules {
+            let handle = BehaviorModuleHandle::new(Arc::clone(entry));
+            if contain(&handle)? {
+                continue;
+            }
             entry.with_module(|module| {
                 if let Some(heal) = module.as_any_mut().downcast_mut::<AutoHealBehaviorModule>() {
                     heal.behavior_mut().delete_owned()
@@ -50,13 +60,21 @@ impl Object {
     }
 
     pub(crate) fn native_destroy_plan(&self) -> Result<NativeDestroyPlan, String> {
+        self.native_destroy_plan_impl(false)
+    }
+    pub(crate) fn native_destroy_plan_with_containment(&self) -> Result<NativeDestroyPlan, String> {
+        self.native_destroy_plan_impl(true)
+    }
+    fn native_destroy_plan_impl(
+        &self,
+        supplied_containment: bool,
+    ) -> Result<NativeDestroyPlan, String> {
         if self.ambient_lifecycle_admitted || !self.modules_ready {
             return Err("destroy requires an admitted native object".into());
         }
-        if self.contain.is_some()
-            || self.get_container_id().is_some()
+        if (!supplied_containment && (self.contain.is_some() || self.get_container_id().is_some()))
             || self.drawable.is_some()
-            || self.group_id.is_some()
+            || (!supplied_containment && self.group_id.is_some())
             || self.has_any_special_power()
             || self.thing_template.get_energy_production() != 0
         {
@@ -67,6 +85,12 @@ impl Object {
                 .try_with_module(|module| -> Result<bool, String> {
                     if entry.mask().0 & ModuleInterfaceType::DESTROY.0 != 0 {
                         return Err("native onDestroy interface is not admitted".into());
+                    }
+                    if supplied_containment {
+                        if let Some(contain) = crate::contain_module_overrides::contain_handle_for_module(module) {
+                            let contain = contain.try_lock().map_err(|_| "native contain delete callback borrowed")?;
+                            return Ok(contain.supports_owned_lifecycle() || contain.owned_tunnel_registered().is_some());
+                        }
                     }
                     if let Some(heal) = module.as_any_mut().downcast_mut::<AutoHealBehaviorModule>()
                     {

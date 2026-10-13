@@ -17,3 +17,21 @@ mod shared_contract;
 mod weapon_readiness;
 
 mod shroud_ownership;
+
+/// Admit the same real Main objects used by presentation health-event controls.
+fn admit_health_fixture_objects(logic: &mut GameLogic, count: u32) -> ObjectId {
+    let mut template = ThingTemplate::new("PresentationHealthFixture");
+    template.set_health(100.0);
+    template.add_kind_of(KindOf::Infantry);
+    logic
+        .templates
+        .insert("PresentationHealthFixture".into(), template);
+    let mut target = ObjectId(0);
+    for _ in 0..count {
+        target = logic
+            .create_object("PresentationHealthFixture", Team::USA, Vec3::ZERO)
+            .expect("health fixture object");
+    }
+    assert_eq!(target.0, count);
+    target
+}

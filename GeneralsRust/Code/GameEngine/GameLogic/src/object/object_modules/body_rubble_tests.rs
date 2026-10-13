@@ -7,7 +7,7 @@ use crate::ai::pathfind_astar::PathfindCellType;
 use crate::common::{Coord3D, ObjectID, ObjectStatusMaskType, ThingTemplate};
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
-use crate::object::{Object, registry::OBJECT_REGISTRY};
+use crate::object::{registry::OBJECT_REGISTRY, Object};
 use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
 use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get_thing_factory};
 use std::sync::{Arc, RwLock};
@@ -101,11 +101,9 @@ fn raw(template: Arc<dyn ThingTemplate>, id: ObjectID, pos: Coord3D) -> Arc<RwLo
 
 fn assert_rubble(owner: &Arc<RwLock<Object>>) {
     let owner = owner.read().unwrap();
-    assert!(
-        owner
-            .get_status_bits()
-            .contains(ObjectStatusMaskType::NO_COLLISIONS)
-    );
+    assert!(owner
+        .get_status_bits()
+        .contains(ObjectStatusMaskType::NO_COLLISIONS));
     assert_eq!(
         owner.get_geometry_info().get_max_height_above_position(),
         3.0
@@ -279,11 +277,9 @@ fn admitted_initial_rubble_pose_returns_under_actual_owner_write_loan() {
     {
         let mut owner = owner.write().unwrap();
         owner.apply_structure_rubble_pose();
-        assert!(
-            owner
-                .get_status_bits()
-                .contains(ObjectStatusMaskType::NO_COLLISIONS)
-        );
+        assert!(owner
+            .get_status_bits()
+            .contains(ObjectStatusMaskType::NO_COLLISIONS));
     }
     assert_rubble(&owner);
     assert_eq!(

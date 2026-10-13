@@ -475,8 +475,11 @@ mod tests {
         );
 
         let group_pathfinder = GroupPathfinder::new(20.0);
-        let adjusted =
-            group_pathfinder.adjust_formation_for_terrain(&mut pathfinder, &positions, SURFACE_GROUND);
+        let adjusted = group_pathfinder.adjust_formation_for_terrain(
+            &mut pathfinder,
+            &positions,
+            SURFACE_GROUND,
+        );
         let adjusted_coord = GridCoord::from_world(adjusted.get(&1).unwrap());
 
         assert_ne!(adjusted_coord, blocked);

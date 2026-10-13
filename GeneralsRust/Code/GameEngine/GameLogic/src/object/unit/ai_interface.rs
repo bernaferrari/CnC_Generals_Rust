@@ -6,8 +6,22 @@ use super::ai_core::UnitAIUpdate;
 use super::ai_helpers::to_locomotor_body_damage_type;
 use super::imports::*;
 use super::registry::get_unit_arc;
+use crate::modules::UpdateSleepTime;
 
 impl AIUpdateInterface for UnitAIUpdate {
+    fn validate_scheduled_tick_with_world(
+        &self,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_scheduled_tick_owned(world)
+    }
+    fn update_scheduled_tick_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<UpdateSleepTime, String> {
+        self.update_scheduled_tick_owned(world)
+    }
+
     fn set_final_position(&mut self, position: &Coord3D) {
         self.runtime.data.final_position = *position;
         self.runtime.data.do_final_position = false;
@@ -69,11 +83,29 @@ impl AIUpdateInterface for UnitAIUpdate {
     ) -> Result<(), String> {
         UnitAIUpdate::update_dozer_primary_with_world(self, world)
     }
+    fn update_idle_phase_sleep_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<crate::modules::UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        UnitAIUpdate::update_idle_phase_sleep_with_world(self, world)
+    }
+    fn update_enter_phase_sleep_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        UnitAIUpdate::update_enter_phase_sleep_with_world(self, world)
+    }
     fn update_enter_phase_with_world(
         &mut self,
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         UnitAIUpdate::update_enter_phase_with_world(self, world)
+    }
+    fn update_waypoint_phase_sleep_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        UnitAIUpdate::update_waypoint_phase_sleep_with_world(self, world)
     }
     fn update_waypoint_phase_with_world(
         &mut self,
@@ -84,16 +116,22 @@ impl AIUpdateInterface for UnitAIUpdate {
     fn update_locomotor_phase_with_world(
         &mut self,
         world: &mut dyn crate::modules::ai_world::AiWorld,
-    ) -> Result<(), String> {
+    ) -> Result<game_engine::common::thing::update_module::UpdateSleepTime, String> {
         UnitAIUpdate::update_locomotor_phase_with_world(self, world)
     }
     fn update_exit_phase_with_world(
         &mut self,
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<(), String> {
+        self.update_exit_phase_sleep_with_world(world).map(|_| ())
+    }
+    fn update_exit_phase_sleep_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<UpdateSleepTime, String> {
         self.validate_world_owner(world)
             .map_err(|e| e.to_string())?;
-        self.validate_owned_components(true, false)
+        self.validate_owned_components_with_world(world, true, false)
             .map_err(|e| e.to_string())?;
         let machine = self
             .ai_state_machine
@@ -117,8 +155,8 @@ impl AIUpdateInterface for UnitAIUpdate {
             .update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
                 ai.execute_command_native(terminal.params(), driver)
             })
-            .map_err(|e| e.to_string())?;
-        Ok(())
+            .map(Self::state_machine_sleep_owned)
+            .map_err(|e| e.to_string())
     }
     fn complete_exit_body_with_world(
         &mut self,
@@ -337,88 +375,57 @@ impl AIUpdateInterface for UnitAIUpdate {
     fn follow_contain_exit_with_world(
         &mut self,
         ignore: ObjectID,
-        mut end: Coord3D,
+        end: Coord3D,
         rally: Option<Coord3D>,
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<(), String> {
-        self.validate_world_owner(world)
-            .map_err(|error| error.to_string())?;
-        self.runtime.data.ignore_obstacle_id = INVALID_ID;
-        self.runtime.data.ignore_collisions_until =
-            world.frame().wrapping_add(LOGICFRAMES_PER_SECOND);
-        {
-            let mut runtime = super::UnitAiStateRuntime {
-                runtime: &mut self.runtime,
-                parent_exists: true,
-                parent_state_id: None,
-                world: Some(world),
-            };
-            crate::modules::ai_state_runtime::AiStateRuntime::adjust_destination(
-                &mut runtime,
-                &mut end,
-            );
-        }
-        let owner = self.runtime.native_owner().ok_or("exit actor absent")?;
-        let physics = owner
-            .read()
-            .map_err(|_| "exit actor poisoned")?
-            .get_physics();
-        let previous = physics.as_ref().map(|physics| {
-            let mut physics = physics.access().expect("admitted exit Physics poisoned");
-            let previous = physics.get_allow_to_fall();
-            physics.set_allow_to_fall(false);
-            previous
-        });
-        let mut command = crate::ai::AiCommandParams::new(
-            crate::ai::AiCommandType::FollowPath,
-            crate::ai::CommandSourceType::FromAi,
-        );
-        command.obj = Some(ignore);
-        command.coords = vec![end, end];
-        if let Some(rally) = rally {
-            command.coords.push(rally);
-        }
-        let result = self
-            .execute_command_with_world(&command, world)
-            .map_err(|error| error.to_string())
-            .and_then(|_| {
-                let layer = world.layer_for_destination(&end)?;
-                let mut runtime = super::UnitAiStateRuntime {
-                    runtime: &mut self.runtime,
-                    parent_exists: true,
-                    parent_state_id: None,
-                    world: Some(world),
-                };
-                crate::modules::ai_state_runtime::AiStateRuntime::update_goal_position(
-                    &mut runtime,
-                    &end,
-                    layer,
-                )
-            });
-        if let (Some(physics), Some(previous)) = (physics, previous) {
-            physics
-                .access()
-                .expect("admitted exit Physics poisoned")
-                .set_allow_to_fall(previous);
-        }
-        result
+        self.finish_contain_exit_path_owned(Some(ignore), end, rally, world)
+    }
+    fn validate_contain_exit_occupancy_with_world(
+        &self,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_exit_occupancy_owned(world)
+    }
+    fn refresh_contain_exit_occupancy_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.refresh_exit_occupancy_owned(world)
+    }
+    fn quick_contain_exit_with_world(
+        &mut self,
+        end: Coord3D,
+        rally: Option<Coord3D>,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.finish_contain_exit_path_owned(None, end, rally, world)
     }
     fn update_follow_path_phase_with_world(
         &mut self,
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<(), String> {
+        self.update_follow_path_phase_sleep_with_world(world)
+            .map(|_| ())
+    }
+    fn update_follow_path_phase_sleep_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<UpdateSleepTime, String> {
         self.validate_world_owner(world)
             .map_err(|error| error.to_string())?;
-        self.validate_owned_components(true, false)
+        self.validate_owned_components_with_world(world, true, false)
             .map_err(|error| error.to_string())?;
         let machine = self
             .ai_state_machine
             .as_mut()
             .ok_or("FollowPath machine absent")?;
-        if machine.get_current_state_id() != Some(AIStateType::FollowPath as u32)
-            || machine.get_temporary_state().is_some()
+        let temporary = machine.get_temporary_state();
+        if temporary != Some(AIStateType::FollowExitProductionPath as u32)
+            && (temporary.is_some()
+                || machine.get_current_state_id() != Some(AIStateType::FollowPath as u32))
         {
-            return Err("supplied phase requires ordinary FollowPath".into());
+            return Err("supplied phase requires an ordinary or quick exit path".into());
         }
         let mut runtime = super::UnitAiStateRuntime {
             runtime: &mut self.runtime,
@@ -430,7 +437,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             .update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
                 ai.execute_command_native(terminal.params(), driver)
             })
-            .map(|_| ())
+            .map(Self::state_machine_sleep_owned)
             .map_err(|error| error.to_string())
     }
 
@@ -1061,18 +1068,15 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
     fn validate_removed_move(&self, owner: &Arc<RwLock<Object>>) -> Result<(), String> {
         self.validate_owned_removal_callbacks(owner)?;
-        self.validate_owned_components(true, false)
-            .map_err(|error| error.to_string())?;
-        let machine = self
-            .ai_state_machine
-            .as_ref()
-            .ok_or("removed movement machine missing")?;
-        if machine.get_temporary_state().is_some()
-            || !matches!(machine.get_current_state_id(), Some(id) if id == crate::ai::states::AIStateType::Idle as u32 || id == crate::ai::states::AIStateType::Enter as u32 || id == crate::ai::states::AIStateType::Busy as u32)
-        {
-            return Err("removed move previous state not admitted".into());
-        }
-        Ok(())
+        self.validate_removed_parent_owned()
+    }
+    fn validate_removed_move_with_world(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_owned_removal_callbacks_with_world(owner, world)?;
+        self.validate_removed_parent_owned()
     }
     fn move_removed_with_world(
         &mut self,
@@ -1085,22 +1089,26 @@ impl AIUpdateInterface for UnitAIUpdate {
             crate::ai::CommandSourceType::FromAi,
         );
         command.pos = position;
-        self.execute_owned_command_with_ignore(&command, world, Some(ignored))
+        // CPP scatter calls ignoreObstacle before aiDoCommand's dead rejection.
+        self.runtime
+            .ignore_obstacle_id(ignored)
+            .map_err(|error| error.to_string())?;
+        self.execute_command_with_world(&command, world)
             .map_err(|error| error.to_string())
     }
     fn validate_owned_removal_callbacks(&self, owner: &Arc<RwLock<Object>>) -> Result<(), String> {
-        let actual = self
-            .runtime
-            .native_owner()
-            .ok_or("removal AI owner missing")?;
-        if !Arc::ptr_eq(&actual, owner) || self.ai_state_machine.is_none() {
-            return Err("removal AI does not belong to this installed owner".into());
-        }
-        // Reuse the actual native-family admission before any damage/unlink
-        // mutation. Specialized stop/path hooks need their explicit services.
+        self.validate_removal_identity_owned(owner)?;
         self.validate_owned_components(true, false)
-            .map_err(|error| error.to_string())?;
-        Ok(())
+            .map_err(|error| error.to_string())
+    }
+    fn validate_owned_removal_callbacks_with_world(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_removal_identity_owned(owner)?;
+        self.validate_owned_components_with_world(world, true, false)
+            .map_err(|error| error.to_string())
     }
     fn wake_up_and_attempt_to_target_at(&mut self, frame: u32) -> Result<(), String> {
         UnitAIUpdate::wake_up_and_attempt_to_target_at(self, frame);

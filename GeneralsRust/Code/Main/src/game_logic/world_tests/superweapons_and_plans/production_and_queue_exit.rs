@@ -344,8 +344,7 @@ fn host_construction_completes_when_sole_tick_unmapped() {
     let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
-    crate::gameworld_shadow::begin_shadow_coupled_tick();
+
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut game_logic = GameLogic::new();
         ensure_test_player_for_team(&mut game_logic, Team::USA);
@@ -382,10 +381,7 @@ fn host_construction_completes_when_sole_tick_unmapped() {
             dozer.status.moving = false;
             dozer.dozer_dock_action = Some(dozer.get_position());
         }
-        assert!(
-            !crate::gameworld_shadow::coupled_host_mapped(id),
-            "this test is the unmapped fail-open path"
-        );
+
         for _ in 0..80 {
             game_logic.update_with_dt_budget(LOGIC_FRAME_TIMESTEP, 1);
         }
@@ -400,8 +396,7 @@ fn host_construction_completes_when_sole_tick_unmapped() {
             "completed unmapped barracks must accept infantry enqueue"
         );
     }));
-    crate::gameworld_shadow::end_shadow_coupled_tick();
-    crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
+
     result.expect("unmapped sole-tick construction test");
 }
 

@@ -255,26 +255,7 @@ impl GameLogic {
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
-            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
-                let (dmg, rng) = attacker
-                    .weapon
-                    .as_ref()
-                    .map(|w| (w.damage, w.range))
-                    .unwrap_or((0.0, 0.0));
-                let frame = crate::game_logic::host_historic_bonus::logic_frame();
-                let next_count = attacker.fire_intent_count.saturating_add(1);
-                crate::game_logic::host_fire_intent_log::record(
-                    attacker.id,
-                    target_id.0,
-                    0,
-                    dmg,
-                    rng,
-                    current_time,
-                    frame,
-                    next_count,
-                );
-                attacker.fire_intent_count = next_count;
-            }
+            {}
             // Mood ownership residual: keep mood flag only when fire engages the
             // same mood-acquired target; otherwise fire owns acquisition (clear flag).
             if attacker.turret_mood_target && attacker.target != Some(target_id) {
@@ -291,12 +272,7 @@ impl GameLogic {
             if entered_attack {
                 attacker.set_ai_state(AIState::Attacking);
             }
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_attack(center_id, target_id);
-                if entered_attack {
-                    crate::game_logic::host_ai_decision_log::record_set_state(center_id, 2);
-                }
-            }
+            {}
             // Turret already aligned by tick_turret_aim (no snap).
             attacker.turret_idle_scanning = false;
             attacker.record_host_turret();
@@ -639,35 +615,7 @@ impl GameLogic {
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
-            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
-                let (dmg, rng) = if slot == 1 {
-                    attacker
-                        .secondary_weapon
-                        .as_ref()
-                        .or(attacker.weapon.as_ref())
-                        .map(|w| (w.damage, w.range))
-                        .unwrap_or((0.0, 0.0))
-                } else {
-                    attacker
-                        .weapon
-                        .as_ref()
-                        .map(|w| (w.damage, w.range))
-                        .unwrap_or((0.0, 0.0))
-                };
-                let frame = crate::game_logic::host_historic_bonus::logic_frame();
-                let next_count = attacker.fire_intent_count.saturating_add(1);
-                crate::game_logic::host_fire_intent_log::record(
-                    attacker.id,
-                    target_id.0,
-                    slot,
-                    dmg,
-                    rng,
-                    current_time,
-                    frame,
-                    next_count,
-                );
-                attacker.fire_intent_count = next_count;
-            }
+            {}
             // Track engagement for UI / subsequent frames without requiring
             // a player AttackObject. Structures stay immobile (no chase).
             attacker.note_attack_target(target_id);
@@ -678,12 +626,7 @@ impl GameLogic {
             if entered_attack {
                 attacker.set_ai_state(AIState::Attacking);
             }
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                crate::game_logic::host_ai_decision_log::record_attack(defense_id, target_id);
-                if entered_attack {
-                    crate::game_logic::host_ai_decision_log::record_set_state(defense_id, 2);
-                }
-            }
+            {}
             if destroyed {
                 self.stop_attack_decision_aware(defense_id);
             }
@@ -996,9 +939,6 @@ impl GameLogic {
     /// - LaserUpdate endpoint track residual (parent/target positions)
     /// - W3DLaserDraw ScrollRate residual
     /// - DeletionUpdate lifetime expiry
-    pub(crate) fn tick_patriot_assist_lasers_sole(&mut self) {
-        self.update_patriot_assist_lasers();
-    }
 
     pub(in super::super) fn update_patriot_assist_lasers(&mut self) {
         use crate::game_logic::host_base_defense::{
@@ -1028,9 +968,6 @@ impl GameLogic {
     ///
     /// Fires one assist-weapon shot per DelayBetweenShots (**8** frames) until
     /// AssistingClipSize (**4**) is exhausted or victim dies / leaves range.
-    pub(crate) fn tick_pending_patriot_assists_sole(&mut self) {
-        self.update_pending_patriot_assists();
-    }
 
     pub(in super::super) fn update_pending_patriot_assists(&mut self) {
         use crate::game_logic::host_base_defense::{
@@ -1124,26 +1061,7 @@ impl GameLogic {
                     crate::game_logic::Object::consume_ammo_on_fire(w, t);
                 }
                 // AI attack authority: residual fire-intent for GameWorld last-writer.
-                if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
-                    let (dmg, rng) = asst
-                        .weapon
-                        .as_ref()
-                        .map(|w| (w.damage, w.range))
-                        .unwrap_or((0.0, 0.0));
-                    let frame = crate::game_logic::host_historic_bonus::logic_frame();
-                    let next_count = asst.fire_intent_count.saturating_add(1);
-                    crate::game_logic::host_fire_intent_log::record(
-                        asst.id,
-                        clip.victim_id.0,
-                        0,
-                        dmg,
-                        rng,
-                        frame as f32 * LOGIC_FRAME_TIMESTEP,
-                        frame,
-                        next_count,
-                    );
-                    asst.fire_intent_count = next_count;
-                }
+                {}
                 asst.note_attack_target(clip.victim_id);
                 let entered_attack = !matches!(
                     asst.ai_state,
@@ -1152,18 +1070,7 @@ impl GameLogic {
                 if entered_attack {
                     asst.set_ai_state(AIState::Attacking);
                 }
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_attack(
-                        clip.assistant_id,
-                        clip.victim_id,
-                    );
-                    if entered_attack {
-                        crate::game_logic::host_ai_decision_log::record_set_state(
-                            clip.assistant_id,
-                            2,
-                        );
-                    }
-                }
+                {}
                 // Kill XP awarded after this borrow via award_experience.
             }
             // An assisted-targeting clip is a real primary WeaponSet shot,
@@ -1507,11 +1414,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -1606,11 +1509,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -1782,12 +1681,7 @@ impl GameLogic {
                     );
                     // Under damage authority take_damage does not zero host HP; project kill for
                     // mark_object_for_destruction when lethal residual is logged.
-                    if !destroyed
-                        && crate::gameworld_shadow::gameworld_damage_authority_live()
-                        && damage >= target.health.current
-                    {
-                        destroyed = true;
-                    }
+                    {}
                 }
 
                 if module_i == 0 {
@@ -1809,26 +1703,8 @@ impl GameLogic {
                     Some(target_id),
                 );
                 // AI attack authority: PDL discharge records fire-intent for GameWorld last-writer.
-                if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
-                    if let Some(carrier) = self.objects.get_mut(&carrier_id) {
-                        let next_count = carrier.fire_intent_count.saturating_add(1);
-                        let sim_t = frame as f32 * LOGIC_FRAME_TIMESTEP;
-                        crate::game_logic::host_fire_intent_log::record(
-                            carrier_id,
-                            target_id.0,
-                            0,
-                            damage,
-                            fire_range,
-                            sim_t,
-                            frame,
-                            next_count,
-                        );
-                        carrier.fire_intent_count = next_count;
-                    }
-                }
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_attack(carrier_id, target_id);
-                }
+                {}
+                {}
 
                 if destroyed {
                     self.mark_object_for_destruction(target_id, Some(team));

@@ -12,11 +12,10 @@ pub(super) use super::GAMEWORLD_SHADOW_SRC;
 pub(super) use crate::game_logic::object::OBJECT_SRC as GAME_LOGIC_OBJECT_SRC;
 
 mod harness;
-pub(super) use harness::{AuthorityEnvGuard, GAME_LOGIC_HOST_SRC, last_rust_fn_body, rust_fn_body};
-
-pub(super) fn authority_env_lock() -> std::sync::MutexGuard<'static, ()> {
-    super::authority_env_lock()
-}
+pub(super) use harness::{
+    GAME_LOGIC_HOST_SRC, last_rust_fn_body, perform_owner_damage, perform_owner_health,
+    rust_fn_body,
+};
 
 pub(super) fn ensure_template(logic: &mut GameLogic, name: &str, hp: f32) {
     if logic.templates.contains_key(name) {
@@ -37,7 +36,6 @@ mod continue_attack;
 mod deferred_destroy;
 mod economy_construction;
 mod entity_channels;
-mod entity_modules;
 mod factory_contain_commands;
 mod fire_damage;
 mod host_log_combat;
@@ -57,3 +55,13 @@ mod health_owner_order;
 mod direct_destroy_owner;
 
 mod movement_event_owner;
+
+/// Exercise the actual shipped owner admission before inspecting its projection.
+/// This fixture performs no shadow gameplay tick or synthetic mutation replay.
+pub(super) fn observe_completed_owner(
+    shadow: &mut GameWorldShadow,
+    logic: &mut GameLogic,
+) -> GameWorldShadowProbe {
+    super::run_owned_host_boundary(Some(shadow), logic);
+    shadow.probe(logic)
+}

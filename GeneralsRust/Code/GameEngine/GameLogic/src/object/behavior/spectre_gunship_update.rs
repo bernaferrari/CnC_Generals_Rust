@@ -1015,14 +1015,12 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                                 + GameLogicRandomValueReal!(-offs, offs),
                             self.gattling_target_position.z,
                         );
-                        let _ = with_weapon_store(|store| {
-                            store.create_and_fire_temp_weapon(
-                                template,
-                                gunship.get_id(),
-                                None,
-                                Some(&attack_pos),
-                            )
-                        });
+                        let _ = crate::weapon::WeaponStore::create_and_fire_temp_weapon(
+                            template,
+                            gunship.get_id(),
+                            None,
+                            Some(&attack_pos),
+                        );
                         if !self.howitzer_fire_sound.event_name.is_empty() {
                             let mut event = self.howitzer_fire_sound.clone();
                             event.set_object_id(gunship.get_id());

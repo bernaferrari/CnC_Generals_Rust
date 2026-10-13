@@ -6,10 +6,7 @@ use std::sync::{Arc, RwLock};
 
 fn isolated(name: &str, run: impl FnOnce()) {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(module_path!(), name, || {
-        crate::gameworld_shadow::with_gameworld_authority(
-            crate::game_logic::game_logic::GameWorldAuthority::DEFAULT_OFF,
-            run,
-        );
+        run();
     });
 }
 

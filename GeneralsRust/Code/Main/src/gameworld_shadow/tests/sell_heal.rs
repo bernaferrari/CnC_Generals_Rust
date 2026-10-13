@@ -2,131 +2,6 @@
 
 use super::*;
 
-// These are source-policy checks; line wrapping must not change their result.
-fn records_owned_movement(source: &str) -> bool {
-    source
-        .split_whitespace()
-        .collect::<String>()
-        .contains("movement_events.record(")
-}
-
-#[test]
-fn owned_movement_source_check_ignores_line_wrapping() {
-    assert!(records_owned_movement(
-        "self.movement_events.record(id, destination);"
-    ));
-    assert!(records_owned_movement(
-        "self.movement_events\n    .record(id, destination);"
-    ));
-    assert!(!records_owned_movement(
-        "host_move_log::record(id, destination);"
-    ));
-    assert!(!records_owned_movement("self.movement_events.clear();"));
-}
-
-#[test]
-fn angry_mob_pdl_damage_source_authority_source() {
-    let src = GAME_LOGIC_HOST_SRC;
-    for (fn_name, token) in [
-        (
-            "fn update_angry_mobs",
-            // Live split uses the immediate-residual attribution API with the
-            // mob nexus as damage source (C++ DamageSystem source-object
-            // attribution on AngryMob pistol fire).
-            "Some(plan.mob_id)",
-        ),
-        (
-            "fn update_point_defense_intercept",
-            // Live split routes PDL return fire through the immediate-residual
-            // attribution API (C++ DamageSystem source-object attribution).
-            "Some(carrier_id)",
-        ),
-        (
-            "fn update_scud_poison_zones",
-            "take_damage_from_immediate_typed_death_with_repulsor_policy(",
-        ),
-        (
-            "fn update_bomb_truck_poison_zones",
-            "take_damage_from_immediate_typed_death_with_repulsor_policy(",
-        ),
-        ("fn update_inferno_fire_zones", "Some(plan.source_object),"),
-        ("fn update_firewalls", "Some(plan.source_object),"),
-        (
-            "fn update_helix_napalm_firestorms",
-            "Some(plan.source_object),",
-        ),
-        (
-            "fn update_nuclear_tanks_radiation_zones",
-            // Live radiation residual routes through take_radiation_field_tick
-            // with the detonating vehicle as damage source.
-            "take_radiation_field_tick_with_repulsor_policy(hit.damage,Some(plan.source_object),&mutself.health_events,&self.enable_repulsors,",
-        ),
-        (
-            "fn update_nuke_cannon_radiation_zones",
-            "take_radiation_field_tick_with_repulsor_policy(hit.damage,Some(plan.source_object),&mutself.health_events,&self.enable_repulsors,",
-        ),
-        (
-            "fn update_toxin_tractor_poison_zones",
-            "take_damage_from_immediate_typed_death_with_repulsor_policy(",
-        ),
-    ] {
-        let i = src
-            .find(fn_name)
-            .unwrap_or_else(|| panic!("missing {fn_name}"));
-        let bytes = src.as_bytes();
-        let mut j = src[i..].find('{').map(|o| i + o).expect("body");
-        let mut depth = 0i32;
-        let end = loop {
-            match bytes.get(j) {
-                Some(b'{') => depth += 1,
-                Some(b'}') => {
-                    depth -= 1;
-                    if depth == 0 {
-                        break j;
-                    }
-                }
-                Some(_) => {}
-                None => panic!("unclosed {fn_name}"),
-            }
-            j += 1;
-        };
-        let w: String = src[i..=end].split_whitespace().collect();
-        let token: String = token.split_whitespace().collect();
-        assert!(
-            w.contains(&token),
-            "{fn_name} must source-attribute residual damage via {token}"
-        );
-    }
-    let pdl_i = src.find("fn update_point_defense_intercept").expect("pdl");
-    let bytes = src.as_bytes();
-    let mut j = src[pdl_i..].find('{').map(|o| pdl_i + o).expect("pdl body");
-    let mut depth = 0i32;
-    let pdl_end = loop {
-        match bytes.get(j) {
-            Some(b'{') => depth += 1,
-            Some(b'}') => {
-                depth -= 1;
-                if depth == 0 {
-                    break j;
-                }
-            }
-            Some(_) => {}
-            None => panic!("unclosed pdl"),
-        }
-        j += 1;
-    };
-    let pdl = &src[pdl_i..=pdl_end];
-    assert!(
-        pdl.contains("host_fire_intent_log::record")
-            && pdl.contains("gameworld_ai_attack_authority"),
-        "PDL must record fire-intent under AI attack authority"
-    );
-    assert!(
-        pdl.contains("record_attack") && pdl.contains("gameworld_ai_decision_authority"),
-        "PDL must log Attack under AI decision authority"
-    );
-}
-
 #[test]
 fn explosion_detonation_damage_source_authority_source() {
     let src = GAME_LOGIC_HOST_SRC;
@@ -200,10 +75,8 @@ fn cancel_production_refund_economy_authority_source() {
     ] {
         let w = last_rust_fn_body(src, fn_name).unwrap_or_else(|| panic!("missing {fn_name}"));
         assert!(
-            w.contains("apply_supply_gain")
-                || w.contains("refund_cancelled_production_item")
-                || w.contains("gameworld_economy_authority_enabled")
-                || w.contains("pending_supply_delta"),
+            ((w.contains("apply_supply_gain") || w.contains("refund_cancelled_production_item"))
+                || w.contains("pending_supply_delta")),
             "{fn_name} must honor economy authority for cash mutations"
         );
         assert!(
@@ -310,8 +183,8 @@ fn cancel_production_refund_commits_to_owner_without_shadow_writeback() {
 #[test]
 fn sell_and_rebuild_have_one_host_writer_and_read_only_shadow_comparisons() {
     let host = GAME_LOGIC_HOST_SRC;
-    assert!(!host.contains("gameworld_construction_authority_enabled"));
-    let shadow = include_str!("../writeback_production.rs");
+
+    let shadow = include_str!("../construction_observation.rs");
     assert!(shadow.contains("pub fn compare_construction_to_host(&self, logic: &GameLogic)"));
     assert!(!shadow.contains("pub fn writeback_construction_to_host"));
     assert!(!shadow.contains("pub fn tick_construction_progress"));
@@ -410,8 +283,7 @@ fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let n = shadow.observe_host_construction(&logic);
-    assert!(n >= 1);
+    shadow.sync_from_host(&logic);
     let eid = shadow.entity_for_host(oid).expect("mapped");
     let ent_pct = shadow.world().entity(eid).expect("e").construction_percent;
     assert!(
@@ -598,9 +470,8 @@ fn heal_armor_absolute_hp_authority_source() {
         };
         let w = &src[i..=end];
         assert!(
-            w.contains("write_object_health_authority_aware")
-                || w.contains("health_events.record_heal")
-                || w.contains("gameworld_damage_authority"),
+            (w.contains("write_object_health_authority_aware")
+                || w.contains("health_events.record_heal")),
             "{fn_name} must route absolute HP writes through the owner health sink or authority-aware helper"
         );
     }
@@ -608,11 +479,9 @@ fn heal_armor_absolute_hp_authority_source() {
 
 #[test]
 fn pending_absolute_health_record_waits_for_admission() {
-    let _env_guard = authority_env_lock();
-
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.set_damage_authority(true);
+
     let cfg = golden_skirmish_config("HealAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("HealU") {
@@ -631,10 +500,10 @@ fn pending_absolute_health_record_waits_for_admission() {
     }
     // This tests the transport's genuinely deferred producer contract. It does
     // not execute a crate collision or claim to verify the crate behavior.
-    logic.health_events.record_heal(oid, 100.0);
+    perform_owner_health(&mut logic, oid, 100.0);
     assert!(
-        (logic.host_objects().get(&oid).unwrap().health.current - 40.0).abs() < 1e-3,
-        "host HP must stay until writeback under damage authority"
+        (logic.host_objects().get(&oid).unwrap().health.current - 100.0).abs() < 1e-3,
+        "actual body healing commits before any observer boundary"
     );
     let evs = logic.health_events.drain_heal();
     assert!(
@@ -645,120 +514,7 @@ fn pending_absolute_health_record_waits_for_admission() {
 }
 
 #[test]
-fn lethal_hp_and_rebuild_start_damage_authority_source() {
-    let _env_guard = authority_env_lock();
-
-    let src = GAME_LOGIC_HOST_SRC;
-    for (fn_name, token) in [
-        (
-            "fn apply_vehicle_crash_into_immobile",
-            "self.health_events.record_damage",
-        ),
-        (
-            "fn destroy_eject_parachute_midair",
-            "self.health_events.record_damage",
-        ),
-        (
-            "fn tick_eject_parachute_residual",
-            "self.health_events.record_damage",
-        ),
-        (
-            "fn update_rebuild_holes",
-            "write_object_health_authority_aware",
-        ),
-    ] {
-        let i = src
-            .find(fn_name)
-            .unwrap_or_else(|| panic!("missing {fn_name}"));
-        let bytes = src.as_bytes();
-        let mut j = src[i..].find('{').map(|o| i + o).expect("body");
-        let mut depth = 0i32;
-        let end = loop {
-            match bytes.get(j) {
-                Some(b'{') => depth += 1,
-                Some(b'}') => {
-                    depth -= 1;
-                    if depth == 0 {
-                        break j;
-                    }
-                }
-                Some(_) => {}
-                None => panic!("unclosed {fn_name}"),
-            }
-            j += 1;
-        };
-        let w: String = src[i..=end].split_whitespace().collect();
-        assert!(
-            w.contains(token)
-                && (w.contains("gameworld_damage_authority")
-                    || token == "write_object_health_authority_aware"),
-            "{fn_name} must honor damage authority via {token}"
-        );
-    }
-}
-
-#[test]
-fn command_attack_range_snap_movement_authority_source() {
-    let src = GAME_LOGIC_HOST_SRC;
-    for fn_name in [
-        "fn command_attack",
-        "fn try_return_to_base_rearm",
-        "fn try_runway_takeoff_from_airfield",
-    ] {
-        let i = src
-            .find(fn_name)
-            .unwrap_or_else(|| panic!("missing {fn_name}"));
-        let bytes = src.as_bytes();
-        let mut j = src[i..].find('{').map(|o| i + o).expect("body");
-        let mut depth = 0i32;
-        let end = loop {
-            match bytes.get(j) {
-                Some(b'{') => depth += 1,
-                Some(b'}') => {
-                    depth -= 1;
-                    if depth == 0 {
-                        break j;
-                    }
-                }
-                Some(_) => {}
-                None => panic!("unclosed {fn_name}"),
-            }
-            j += 1;
-        };
-        let w = &src[i..=end];
-        assert!(
-            w.contains("gameworld_movement_authority")
-                || w.contains("assign_unit_path")
-                || w.contains("assign_rtb_path"),
-            "{fn_name} must gate pose snaps under movement authority"
-        );
-    }
-    // Final20b jet rework extracted the RTB approach legs into
-    // `assign_rtb_path` (C++ RETURNING_FOR_LANDING issues the move,
-    // JetAIUpdate.cpp:1536-1541). The pose-snap honesty now lives on the
-    // helper: it must route through the movement-authority-gated
-    // `assign_unit_path`, never a raw teleport.
-    let at = src.find("fn assign_rtb_path").expect("assign_rtb_path");
-    let w = &src[at..src.len().min(at + 1200)];
-    assert!(
-        w.contains("assign_unit_path"),
-        "assign_rtb_path must route pose snaps through assign_unit_path"
-    );
-    // command_attack must not always teleport into range when authority on.
-    let i = src.find("fn command_attack").unwrap();
-    let w = &src[i..i + 5000];
-    assert!(
-        w.contains("no range-snap teleport")
-            || w.contains("GameWorld\n                                // integrates")
-            || w.contains("assign_unit_attack_path"),
-        "command_attack must prefer path over snap under movement authority"
-    );
-}
-
-#[test]
 fn suicide_consume_destroy_damage_authority_source() {
-    let _env_guard = authority_env_lock();
-
     let src = GAME_LOGIC_HOST_SRC;
     assert!(
         src.contains("fn mark_destroyed_authority_aware")
@@ -778,59 +534,6 @@ fn suicide_consume_destroy_damage_authority_source() {
             "expected destroy residual peel {token}"
         );
     }
-    // Production exit still sets pose but logs move under movement authority
-    // (Wave 679: pose + move logging lives on the spawn-ready drain
-    // host_apply_production_spawn_ready_completions, not the completion
-    // collector, which only queues host_production_spawn_ready_log::record).
-    let i = src
-        .find("fn host_apply_production_spawn_ready_completions")
-        .expect("host_apply_production_spawn_ready_completions");
-    let w = &src[i..src.len().min(i + 12000)];
-    assert!(
-        w.contains("gameworld_movement_authority") && records_owned_movement(w),
-        "factory exit spawn pose must honor movement authority logging"
-    );
-}
-
-#[test]
-fn parachute_freefall_movement_authority_source() {
-    let src = GAME_LOGIC_HOST_SRC;
-    let eject = src
-        .find("fn tick_eject_parachute_residual")
-        .expect("eject parachute");
-    let eject_body = &src[eject..src.len().min(eject + 12000)];
-    assert!(
-        eject_body.contains("host_ground_height_log::record")
-            && eject_body.contains("gameworld_movement_authority")
-            && records_owned_movement(eject_body),
-        "eject freefall must log ground height + landing move under movement authority"
-    );
-    let crate_i = src
-        .find("fn tick_crate_parachute_residual")
-        .expect("crate parachute");
-    let crate_body = &src[crate_i..src.len().min(crate_i + 5000)];
-    assert!(
-        crate_body.contains("host_ground_height_log::record")
-            && crate_body.contains("gameworld_movement_authority"),
-        "crate freefall must log ground height under movement authority"
-    );
-    let sell = src
-        .find("fn on_selling_container_residual")
-        .expect("sell residual");
-    let sell_body = &src[sell..src.len().min(sell + 6000)];
-    assert!(
-        records_owned_movement(sell_body) && sell_body.contains("gameworld_movement_authority"),
-        "sell eject dump must log move dest under movement authority"
-    );
-    let hijack = src
-        .find("fn put_hijacker_in_airborne_parachute")
-        .expect("hijacker chute");
-    let hijack_body = &src[hijack..src.len().min(hijack + 4000)];
-    assert!(
-        hijack_body.contains("host_ground_height_log::record")
-            && records_owned_movement(hijack_body),
-        "hijacker airborne put must log ground/move under authority"
-    );
 }
 
 #[test]
@@ -851,193 +554,22 @@ fn execute_packs_presentation_particle_systems_source() {
 }
 
 #[test]
-fn map_ground_support_pose_movement_authority_source() {
-    let src = GAME_LOGIC_HOST_SRC;
-    let ground = src
-        .find("fn ground_loaded_map_objects_to_terrain")
-        .expect("ground_loaded");
-    let ground_body = &src[ground..src.len().min(ground + 2500)];
+fn residual_auto_fire_keeps_live_primary_damage() {
+    // Structural side-effect guard only; this gives no C++ behavioral credit.
+    let helper =
+        last_rust_fn_body(GAME_LOGIC_HOST_SRC, "residual_auto_fire_apply_damage").expect("helper");
     assert!(
-        ground_body.contains("host_ground_height_log::record")
-            && ground_body.contains("gameworld_movement_authority")
-            && records_owned_movement(ground_body),
-        "map object terrain grounding must log ground height + move under movement authority"
+        helper.contains("take_damage_from_with_repulsor_policy"),
+        "the residual hit applies damage to the canonical body"
     );
-    let support = src
-        .find("fn update_support_states(")
-        .expect("update_support_states");
-    // update_support_states is large (special-ability residual); scan full fn body.
-    let support_end = src[support + 1..]
-        .find(
-            "
-    fn ",
-        )
-        .map(|o| support + 1 + o)
-        .unwrap_or(src.len());
-    let support_body = &src[support..support_end];
-    assert!(
-        support_body.contains("set_position(container_pos)")
-            && records_owned_movement(support_body)
-            && support_body.contains("host_ground_height_log::record")
-            && support_body.contains("gameworld_movement_authority"),
-        "contained support pose sync must log ground/move under authority"
-    );
-    let bldg = src
-        .find("fn check_building_damage_states")
-        .expect("building damage");
-    let bldg_body = &src[bldg..src.len().min(bldg + 8000)];
-    assert!(
-        bldg_body.contains("evacuate_container_now")
-            && bldg_body.contains("gameworld_movement_authority")
-            && records_owned_movement(bldg_body)
-            && bldg_body.contains("record_stop_attack"),
-        "ReallyDamaged garrison eject must walk via evacuate_container_now and log move/stop"
-    );
-}
-
-#[test]
-fn residual_auto_fire_queues_fire_spawn_channel_source() {
-    let src = GAME_LOGIC_HOST_SRC;
-    assert!(
-        src.contains("fn residual_auto_fire_apply_damage"),
-        "residual auto-fire helper must exist"
-    );
-    for name in [
-        "try_sentry_drone_residual_fire",
-        "try_hellfire_drone_residual_fire",
-        "try_garrison_residual_fire",
-        "try_transport_passenger_residual_fire",
-        "try_base_defense_residual_fire",
-    ] {
-        let i = src
-            .find(&format!("fn {name}"))
-            .unwrap_or_else(|| panic!("missing {name}"));
-        let body = &src[i..src.len().min(i + 20000)];
-        assert!(
-            body.contains("residual_auto_fire_apply_damage"),
-            "{name} must route damage/spawn through residual_auto_fire_apply_damage"
-        );
-    }
-    let helper = last_rust_fn_body(src, "residual_auto_fire_apply_damage").expect("helper");
-    assert!(
-        helper.contains("gameworld_fire_spawn_authority")
-            && helper.contains("queue_projectile")
-            && helper.contains("take_damage_from")
-            && helper.contains("record_residual_hitscan"),
-        "helper must queue live-damage fire-spawn, hitscan same-frame, and mark residual hitscan"
-    );
-    // Spawn residual carries live primary `damage` (field from residual shot).
     assert!(
         helper.contains("damage,"),
-        "fire-spawn residual must carry live damage field from residual shot"
+        "authored live damage must reach the shot"
     );
-    let primary_zero = helper
-        .lines()
-        .any(|l| l.trim() == "damage: 0.0," || l.trim() == "damage: 0.0");
     assert!(
-        !primary_zero,
-        "fire-spawn residual primary damage must not be hard-coded 0.0"
-    );
-    let apply_src = GAMEWORLD_SHADOW_SRC;
-    assert!(
-        apply_src.contains("drain_residual_hitscans") && apply_src.contains("ev.damage = 0.0"),
-        "shadow fire-spawn apply must zero residual-hitscan damage"
-    );
-    let log_src = include_str!("../../game_logic/host_fire_spawn_log.rs");
-    assert!(
-        log_src.contains("record_residual_hitscan") && log_src.contains("drain_residual_hitscans"),
-        "fire-spawn log must track residual hitscan pairs"
-    );
-}
-
-#[test]
-fn payload_pose_movement_authority_source() {
-    let src = GAME_LOGIC_HOST_SRC;
-    for name in [
-        "apply_listening_outpost_initial_payload",
-        "apply_troop_crawler_initial_payload",
-        "apply_troop_crawler_assault_deploy",
-        "apply_rider_free_fall_damage",
-    ] {
-        let at = src
-            .find(&format!("fn {name}"))
-            .unwrap_or_else(|| panic!("missing {name}"));
-        let body = &src[at..src.len().min(at + 5000)];
-        assert!(
-            body.contains("gameworld_movement_authority") && records_owned_movement(body),
-            "{name} must log move dest under movement authority"
-        );
-    }
-    let free = src
-        .find("fn apply_rider_free_fall_damage")
-        .expect("freefall");
-    let body = &src[free..src.len().min(free + 3500)];
-    assert!(
-        body.contains("host_ground_height_log::record"),
-        "freefall residual must log ground height"
-    );
-}
-
-#[test]
-fn create_object_spawn_pose_movement_authority_source() {
-    let src = GAME_LOGIC_HOST_SRC;
-    for (name, window) in [
-        ("create_object", 25000usize),
-        ("on_capture_kick_passengers", 12000),
-    ] {
-        let at = src
-            .find(&format!("fn {name}"))
-            .unwrap_or_else(|| panic!("missing {name}"));
-        let body = &src[at..src.len().min(at + window)];
-        assert!(
-            body.contains("gameworld_movement_authority") && records_owned_movement(body),
-            "{name} must log move dest under movement authority"
-        );
-    }
-    let construction = rust_fn_body(
-        include_str!("../../game_logic/world_objects/create_destroy_die/construction.rs"),
-        "create_scaffold_with_factory_observer",
-    )
-    .expect("owned scaffold factory");
-    assert!(construction.contains("object.record_host_movement()"));
-    // C++ TunnelTracker capture: the last-tunnel cave-in destroys garrisoned
-    // units in place (TunnelTracker::destroyObject) and a remap keeps them
-    // contained — neither repositions, so movement logging does not apply.
-    // The honest capture channels here are AI decision authority
-    // (Object.cpp:4512-4514 onCapture aiIdle) and cave-in destroy damage.
-    {
-        let at = src
-            .find("fn on_capture_tunnel_network_residual")
-            .expect("tunnel residual");
-        let bytes = src.as_bytes();
-        let mut j = src[at..].find('{').map(|o| at + o).expect("body");
-        let mut depth = 0i32;
-        let end = loop {
-            match bytes.get(j) {
-                Some(b'{') => depth += 1,
-                Some(b'}') => {
-                    depth -= 1;
-                    if depth == 0 {
-                        break j;
-                    }
-                }
-                Some(_) => {}
-                None => panic!("unclosed tunnel residual"),
-            }
-            j += 1;
-        };
-        let body = &src[at..=end];
-        assert!(
-            body.contains("clear_target_decision_aware")
-                && body.contains("gameworld_ai_decision_authority")
-                && body.contains("record_set_state"),
-            "tunnel capture must flip AI decision through the decision channel"
-        );
-    }
-    let para = src.find("fn update_paradrops").expect("paradrops");
-    let body = &src[para..src.len().min(para + 5000)];
-    assert!(
-        body.contains("host_ground_height_log::record"),
-        "paradrop elevate must log ground height"
+        !helper
+            .lines()
+            .any(|line| matches!(line.trim(), "damage: 0.0," | "damage: 0.0")),
+        "live primary damage cannot be replaced by a diagnostic zero"
     );
 }

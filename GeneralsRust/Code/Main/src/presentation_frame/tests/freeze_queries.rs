@@ -1289,12 +1289,10 @@ fn combat_damage_does_not_spawn_floating_text() {
     // C++ addFloatingText is cash-only. DamageApplied stays an event, not a floater.
     let mut logic = crate::game_logic::GameLogic::new();
     logic.health_events.clear_damage();
-    logic.health_events.record_damage(
-        crate::game_logic::ObjectId(11),
-        25.0,
-        Some(crate::game_logic::ObjectId(1)),
-        false,
-    );
+    let target = super::admit_health_fixture_objects(&mut logic, 11);
+    let (object, events) = logic.host_object_and_health_events_mut(target).unwrap();
+    object.take_damage_from(25.0, Some(crate::game_logic::ObjectId(1)), events);
+    assert_eq!(object.health.current, 75.0);
     let _ = logic.health_events.drain_damage();
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
@@ -1315,12 +1313,10 @@ fn combat_damage_does_not_spawn_floating_text() {
 fn damage_applied_freezes_from_last_drain() {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.health_events.clear_damage();
-    logic.health_events.record_damage(
-        crate::game_logic::ObjectId(8),
-        12.5,
-        Some(crate::game_logic::ObjectId(1)),
-        false,
-    );
+    let target = super::admit_health_fixture_objects(&mut logic, 8);
+    let (object, events) = logic.host_object_and_health_events_mut(target).unwrap();
+    object.take_damage_from(12.5, Some(crate::game_logic::ObjectId(1)), events);
+    assert_eq!(object.health.current, 87.5);
     let _ = logic.health_events.drain_damage();
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(

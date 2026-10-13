@@ -181,11 +181,7 @@ impl GameLogic {
                             p.y = 120.0;
                             obj.set_position(p);
                             crate::game_logic::host_ground_height_log::record(id, p.y, false);
-                            if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                                self.movement_events
-                                    .record(self.frame, id, Some([p.x, p.y, p.z]));
-                                obj.record_host_movement();
-                            }
+                            {}
                         }
                         obj.apply_eject_parachuting();
                     }
@@ -395,11 +391,7 @@ impl GameLogic {
                                 o.cell_is_underwater = water;
                                 // Wave 752: under damage authority, do not zero host HP mid-frame
                                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                                    let hp = o.health.current.max(1.0);
-                                    let oid = o.id;
-                                    self.health_events.record_damage(oid, hp, None, true);
-                                } else {
+                                {
                                     o.health.current = 0.0;
                                 }
                                 o.status.destroyed = true;

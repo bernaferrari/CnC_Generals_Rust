@@ -933,6 +933,12 @@ impl AudioLocalityResolver for SubmissionLocalityPlayers {
 
 #[test]
 fn explicit_locality_admits_registered_events_with_complete_cpp_player_facts() {
+    let mut logic_stream = crate::common::random_value::RandomState::default();
+    let mut audio_stream = crate::common::random_value::RandomState::default();
+    let mut selection = crate::common::audio::audio_event_rts::AudioSelectionStreams {
+        logic: &mut logic_stream,
+        audio: &mut audio_stream,
+    };
     let active = SubmissionLocalityPlayers {
         local: Some(3),
         active: true,
@@ -1172,7 +1178,8 @@ fn explicit_locality_admits_registered_events_with_complete_cpp_player_facts() {
         );
         let facts = AudioSubmissionLocality::from_resolver(source, &players);
         let next_handle = manager.audio_handle_pool;
-        let handle = manager.add_audio_event_with_locality(&event, &facts);
+        let handle =
+            manager.add_audio_event_with_locality_and_selection(&event, &facts, &mut selection);
         assert_eq!(
             manager.audio_handle_pool,
             next_handle + 1,

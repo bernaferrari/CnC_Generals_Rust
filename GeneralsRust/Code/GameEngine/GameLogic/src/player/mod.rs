@@ -139,7 +139,7 @@ mod economy;
 mod power;
 mod radar;
 pub use economy::*;
-pub use power::{OwnedPowerBrownout, PowerBrownoutServices};
+pub use power::{OwnedPowerBrownout, PowerBrownoutServices, PowerObjectOwner};
 pub use radar::RadarEdgeServices;
 mod production;
 pub use production::*;

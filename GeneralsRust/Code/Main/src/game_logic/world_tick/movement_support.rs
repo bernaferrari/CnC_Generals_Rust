@@ -47,7 +47,6 @@ impl GameLogic {
                 None => return false,
             };
 
-        let decision_auth = self.ai_decision_authority_live();
         let apply_state = |logic: &mut Self, state: AIState| {
             let already = logic
                 .objects
@@ -56,11 +55,7 @@ impl GameLogic {
             if already {
                 return;
             }
-            if decision_auth {
-                let ordinal =
-                    crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
-                crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
-            }
+            {}
             if let Some(obj) = logic.objects.get_mut(&object_id) {
                 obj.set_ai_state(state);
             }

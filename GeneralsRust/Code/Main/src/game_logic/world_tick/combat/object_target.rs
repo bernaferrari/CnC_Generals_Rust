@@ -321,18 +321,7 @@ impl GameLogic {
                             entered_attack = true;
                         }
                     }
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                        crate::game_logic::host_ai_decision_log::record_attack(
-                            attacker_id,
-                            target_id,
-                        );
-                        if entered_attack {
-                            crate::game_logic::host_ai_decision_log::record_set_state(
-                                attacker_id,
-                                2,
-                            );
-                        }
-                    }
+                    {}
                     return CombatShotResult::NoShot;
                 }
             }
@@ -374,18 +363,7 @@ impl GameLogic {
                                 attacker.set_ai_state(AIState::Attacking);
                             }
                             attacker.set_status_attacking(true);
-                            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                                crate::game_logic::host_ai_decision_log::record_attack(
-                                    attacker_id,
-                                    target_id,
-                                );
-                                if entered_attack {
-                                    crate::game_logic::host_ai_decision_log::record_set_state(
-                                        attacker_id,
-                                        2,
-                                    );
-                                }
-                            }
+                            {}
                             true
                         } else {
                             false

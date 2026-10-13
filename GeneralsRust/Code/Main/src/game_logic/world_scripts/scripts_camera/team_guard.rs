@@ -107,7 +107,6 @@ impl GameLogic {
             };
             if unit.has_ai_update_interface() {
                 unit.ai_attitude = attitude;
-                unit.record_host_ai_attitude();
             }
         }
         Ok(())

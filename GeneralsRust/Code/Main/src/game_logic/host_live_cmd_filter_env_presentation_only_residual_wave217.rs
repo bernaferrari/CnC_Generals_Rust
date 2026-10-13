@@ -219,11 +219,10 @@ mod tests {
     #[test]
     fn presentation_selected_sellable_structure_ids_fail_closed_without_freeze() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-        use crate::gameworld_shadow::ensure_gate_damage_authority;
+
         use crate::presentation_frame::PresentationFrame;
         use glam::Vec3;
 
-        ensure_gate_damage_authority();
         let mut logic = GameLogic::new();
         let mut barracks = ThingTemplate::new("SellBarracks217");
         barracks.set_health(1000.0);

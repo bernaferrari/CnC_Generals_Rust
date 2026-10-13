@@ -26,18 +26,11 @@ fn transport_death_scatter_records_own_pose_before_path_order() {
                 passenger.next_mood_check_time = 9_999;
                 passenger.randomly_offset_mood_check = false;
                 let session = world.movement_events.session().clone();
-                let mut authority =
-                    crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF;
-                authority.movement = movement;
-                crate::gameworld_shadow::with_gameworld_authority(authority, || {
-                    let _coupled = movement.then(crate::gameworld_shadow::CoupledTickGuard::enter);
-                    assert_eq!(
-                        crate::gameworld_shadow::gameworld_movement_authority_live(),
-                        movement
-                    );
+
+                {
                     world.mark_object_for_destruction(transport, None);
                     world.process_destroy_list();
-                });
+                };
 
                 let passenger = world.host_object(rider).unwrap();
                 assert!(passenger.is_alive());

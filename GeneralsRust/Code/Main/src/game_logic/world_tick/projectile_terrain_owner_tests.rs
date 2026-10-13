@@ -78,36 +78,33 @@ fn real_projectile_bridge_impact_uses_same_id_world_deck_with_foreign_core_ai_he
         module_path!(),
         "real_projectile_bridge_impact_uses_same_id_world_deck_with_foreign_core_ai_held",
         || {
-            crate::gameworld_shadow::with_gameworld_authority(
-                crate::game_logic::game_logic::GameWorldAuthority::DEFAULT_OFF,
-                || {
-                    let (mut first, id) = world(35.0);
-                    let (mut second, second_id) = world(55.0);
-                    let (mut reference, reference_id) = world(35.0);
-                    assert_eq!(id, second_id);
-                    assert_eq!(id, reference_id);
-                    impact(&mut reference, id, 35.0);
-                    let foreign = gamelogic::system::engine_stores::new_for_world();
-                    let held = foreign.ai().write().unwrap();
-                    gamelogic::system::engine_stores::with_active_stores(&foreign, || {
-                        impact(&mut second, id, 55.0);
-                        assert_eq!(
-                            first.combat_system.projectile_count(),
-                            1,
-                            "other world's impact cannot retire this same-ID flight"
-                        );
-                        second.reset();
-                        let unrelated = GameLogic::new();
-                        drop(unrelated);
-                        assert!(std::sync::Arc::ptr_eq(
-                            &gamelogic::system::engine_stores::active(),
-                            &foreign
-                        ));
-                        impact(&mut first, id, 35.0);
-                    });
-                    drop(held);
-                },
-            );
+            {
+                let (mut first, id) = world(35.0);
+                let (mut second, second_id) = world(55.0);
+                let (mut reference, reference_id) = world(35.0);
+                assert_eq!(id, second_id);
+                assert_eq!(id, reference_id);
+                impact(&mut reference, id, 35.0);
+                let foreign = gamelogic::system::engine_stores::new_for_world();
+                let held = foreign.ai().write().unwrap();
+                gamelogic::system::engine_stores::with_active_stores(&foreign, || {
+                    impact(&mut second, id, 55.0);
+                    assert_eq!(
+                        first.combat_system.projectile_count(),
+                        1,
+                        "other world's impact cannot retire this same-ID flight"
+                    );
+                    second.reset();
+                    let unrelated = GameLogic::new();
+                    drop(unrelated);
+                    assert!(std::sync::Arc::ptr_eq(
+                        &gamelogic::system::engine_stores::active(),
+                        &foreign
+                    ));
+                    impact(&mut first, id, 35.0);
+                });
+                drop(held);
+            };
         },
     );
 }

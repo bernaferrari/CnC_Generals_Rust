@@ -116,7 +116,8 @@ impl Weapon {
         );
 
         if source_snap.adjusts_destination {
-            let ai_store = the_ai(); if let Ok(ai) = ai_store.read() {
+            let ai_store = the_ai();
+            if let Ok(ai) = ai_store.read() {
                 if let Some(pathfinder) = ai.pathfinder() {
                     if let Ok(pf) = pathfinder.read() {
                         let surfaces = if source_snap.airborne {
@@ -130,11 +131,7 @@ impl Weapon {
                             source_snap.radius,
                             Some(source),
                             approach_target_pos,
-                            |goal| {
-                                self.is_goal_pos_within_attack_range(
-                                    source, goal, target, pos,
-                                )
-                            },
+                            |goal| self.is_goal_pos_within_attack_range(source, goal, target, pos),
                         );
                     }
                 }

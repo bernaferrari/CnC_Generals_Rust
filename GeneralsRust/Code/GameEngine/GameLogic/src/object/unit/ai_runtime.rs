@@ -1127,7 +1127,7 @@ impl UnitAiRuntime {
         )
     }
 
-    fn update_goal_position_with_world(
+    pub(super) fn update_goal_position_with_world(
         &mut self,
         goal: &Coord3D,
         layer: crate::common::PathfindLayerEnum,
@@ -1753,6 +1753,148 @@ impl UnitAiRuntime {
             .flatten()
             .unwrap_or(INVALID_ID)
     }
+    pub(super) fn get_next_mood_target_with_world(
+        &mut self,
+        called_by_ai: bool,
+        called_during_idle: bool,
+        is_attacking: bool,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<Option<Arc<RwLock<Object>>>, String> {
+        let owner = self.native_owner().ok_or("mood source owner absent")?;
+        let source = owner.read().map_err(|_| "mood source poisoned")?;
+        let actual = world.object(source.get_id()).ok_or("mood source absent")?;
+        if !Arc::ptr_eq(&owner, &actual) {
+            return Err("foreign mood source owner".into());
+        }
+        if source.is_effectively_dead() || source.test_status(ObjectStatusTypes::IsUsingAbility) {
+            return Ok(None);
+        }
+        let mask = self.data.auto_acquire_enemies_when_idle;
+        if called_during_idle && mask & AUTO_ACQUIRE_IDLE == 0 {
+            return Ok(None);
+        }
+        if mask & AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING != 0 && is_attacking {
+            return Ok(None);
+        }
+        if called_during_idle && source.test_status(ObjectStatusTypes::Stealthed) {
+            if !self.can_auto_acquire_while_stealthed_for_source(&source) {
+                let passenger_may_fire = if let Some(id) = source.get_contained_by() {
+                    let container = world.object(id).ok_or("mood container absent")?;
+                    let container = container.read().map_err(|_| "mood container poisoned")?;
+                    if let Some(contain) = container.get_contain() {
+                        contain
+                            .try_lock()
+                            .map_err(|_| "mood contain borrowed")?
+                            .is_passenger_allowed_to_fire(None)
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                if !passenger_may_fire {
+                    return Ok(None);
+                }
+            }
+        }
+        let now = world.frame();
+        if called_by_ai {
+            let common_target = if let Some(team) = source.admitted_team()? {
+                let team = team.try_read().map_err(|_| "mood team borrowed")?;
+                if team.attack_common_target() {
+                    team.get_team_target_object()
+                } else {
+                    INVALID_ID
+                }
+            } else {
+                INVALID_ID
+            };
+            if common_target != INVALID_ID && common_target != source.get_id() {
+                let can_attack = if let Some(target) = world.object(common_target) {
+                    let target = target.read().map_err(|_| "common mood target poisoned")?;
+                    matches!(
+                        world.can_attack(
+                            &source,
+                            &target,
+                            CommandSourceType::FromAi,
+                            crate::attack::AbleToAttackType::NewTarget
+                        )?,
+                        crate::attack::CanAttackResult::Possible
+                            | crate::attack::CanAttackResult::PossibleAfterMoving
+                    )
+                } else {
+                    false
+                };
+                if can_attack
+                    && matches!(
+                        self.data.attitude,
+                        AIAttitudeType::Normal
+                            | AIAttitudeType::Defensive
+                            | AIAttitudeType::Aggressive
+                    )
+                {
+                    return Ok(world.object(common_target));
+                }
+            }
+            if now < self.data.next_mood_check_time {
+                return Ok(None);
+            }
+            let rate = self.data.mood_attack_check_rate_frames as i32;
+            self.data.next_mood_check_time = now.wrapping_add(rate as u32);
+            if self.data.randomly_offset_mood_check {
+                let half_rate = rate >> 1;
+                let offset = world.mood_random_offset(-half_rate, half_rate)?;
+                self.data.next_mood_check_time =
+                    self.data.next_mood_check_time.wrapping_add(offset as u32);
+                self.data.randomly_offset_mood_check = false;
+            }
+        }
+        let mut range = world.mood_vision_range(&source, self.data.attitude)?;
+        if range <= 0.0 {
+            return Ok(None);
+        }
+        if let Some(container_id) = source.get_contained_by() {
+            let container = world
+                .object(container_id)
+                .ok_or("mood range container absent")?;
+            range += container
+                .read()
+                .map_err(|_| "mood range container poisoned")?
+                .get_geometry_info()
+                .get_bounding_circle_radius();
+        }
+        let controller_is_human = world.controller_is_human(&source);
+        let human = controller_is_human == Some(true);
+        if controller_is_human == Some(false) && self.data.attitude == AIAttitudeType::Passive {
+            if source.get_body_module().is_none() {
+                return Ok(None);
+            }
+            let Some(damage) = source.get_last_damage_info() else {
+                return Ok(None);
+            };
+            if damage.input.damage_type != crate::damage::DamageType::Healing {
+                return Ok(world.object(damage.input.source_id));
+            }
+        }
+        let (attack_uses_line_of_sight, attack_ignore_insignificant_buildings) =
+            world.mood_search_rules()?;
+        let mut qualifiers = search_qualifiers::CAN_ATTACK;
+        if attack_uses_line_of_sight && source.is_kind_of(KindOf::AttackNeedsLineOfSight) {
+            qualifiers |= search_qualifiers::CAN_SEE;
+        }
+        if attack_ignore_insignificant_buildings {
+            qualifiers |= search_qualifiers::IGNORE_INSIGNIFICANT_BUILDINGS;
+        }
+        if mask & AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS != 0 {
+            qualifiers |= search_qualifiers::ATTACK_BUILDINGS;
+        }
+        if called_by_ai && human {
+            qualifiers |= search_qualifiers::WITHIN_ATTACK_RANGE | search_qualifiers::UNFOGGED;
+        }
+        Ok(world
+            .closest_mood_enemy(&source, range, qualifiers)?
+            .and_then(|id| world.object(id)))
+    }
     pub(super) fn get_legacy_mood_target(
         &mut self,
         use_existing_target: bool,
@@ -1942,6 +2084,13 @@ impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
             Some(world) => Some(&mut **world),
             None => None,
         }
+    }
+
+    fn idle_goal_position(&self, owner: &Object) -> Result<Option<Coord3D>, String> {
+        self.world
+            .as_deref()
+            .ok_or("Idle world absent")?
+            .idle_goal_position(owner, self.runtime.data.pathfind_goal_cell)
     }
 
     fn enter_owned(&mut self, passenger: ObjectID, target: ObjectID) -> Result<(), String> {
@@ -2318,6 +2467,26 @@ impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
             called_during_idle,
             _is_attacking,
         )
+    }
+    fn try_next_mood_target(
+        &mut self,
+        called_by_ai: bool,
+        called_during_idle: bool,
+        is_attacking: bool,
+    ) -> Result<Option<Arc<RwLock<Object>>>, String> {
+        match self.world.as_deref_mut() {
+            Some(world) => self.runtime.get_next_mood_target_with_world(
+                called_by_ai,
+                called_during_idle,
+                is_attacking,
+                world,
+            ),
+            None => Ok(self.runtime.get_next_mood_target_with_attack_state(
+                called_by_ai,
+                called_during_idle,
+                is_attacking,
+            )),
+        }
     }
     fn get_next_mood_check_time(&self) -> u32 {
         self.runtime.get_next_mood_check_time()

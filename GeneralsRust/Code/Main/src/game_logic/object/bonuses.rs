@@ -695,7 +695,7 @@ impl Object {
             if !matches!(donor_level, crate::game_logic::VeterancyLevel::Rookie) {
                 let prev = self.experience.level;
                 self.experience.level = donor_level;
-                self.record_host_veterancy_level();
+
                 // Seed XP to at least the threshold for the donor level residual.
                 let thr = self.thing.template.veterancy_xp_thresholds;
                 let need = match donor_level {
@@ -796,7 +796,7 @@ impl Object {
         if rank(highest) > rank(self.experience.level) {
             let prev = self.experience.level;
             self.experience.level = highest;
-            self.record_host_veterancy_level();
+
             let thr = self.thing.template.veterancy_xp_thresholds;
             let need = match highest {
                 VeterancyLevel::Veteran => thr[0],
@@ -870,7 +870,7 @@ impl Object {
             if rank(highest) > rank(self.experience.level) {
                 let prev = self.experience.level;
                 self.experience.level = highest;
-                self.record_host_veterancy_level();
+
                 let thr = self.thing.template.veterancy_xp_thresholds;
                 let need = match highest {
                     VeterancyLevel::Veteran => thr[0],

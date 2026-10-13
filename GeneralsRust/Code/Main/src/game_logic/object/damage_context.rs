@@ -7,7 +7,7 @@ use crate::game_logic::host_transition_damage_fx::{HostDamageFxVictim, snapshot_
 use gamelogic::common::ObjectStatusTypes;
 
 #[derive(Default)]
-pub(in crate::game_logic) struct DamageHitContext<'a> {
+pub(crate) struct DamageHitContext<'a> {
     source: Option<HostDamageFxVictim>,
     status: Option<ObjectStatusTypes>,
     // C++ DamageInfoInput::m_kill: an input to this one body operation.
@@ -17,11 +17,7 @@ pub(in crate::game_logic) struct DamageHitContext<'a> {
 }
 
 impl<'a> DamageHitContext<'a> {
-    pub(in crate::game_logic) fn new(
-        source: Option<&Object>,
-        weapon: Option<&str>,
-        kind: DamageType,
-    ) -> Self {
+    pub(crate) fn new(source: Option<&Object>, weapon: Option<&str>, kind: DamageType) -> Self {
         Self {
             kill: false,
             topple_interpreter: None,

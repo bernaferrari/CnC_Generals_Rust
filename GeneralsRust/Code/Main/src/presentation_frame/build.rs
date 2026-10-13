@@ -1931,7 +1931,7 @@ impl PresentationFrame {
         }
         // Wave 532: FireSound loop drain is a sibling of attack_log (not nested).
         // Nested drain only ran when attack_log was non-empty and could drop loops.
-        for ev in crate::game_logic::host_fire_sound_loop_log::take_last_drain() {
+        for ev in logic.combat_system.fire_sound_loop_events.take_completed() {
             if ev.start {
                 events.push(PresentationEvent::WeaponFireLoopStarted {
                     unit: ev.unit,
@@ -2067,10 +2067,7 @@ impl PresentationFrame {
             structure_topple_transforms: logic
                 .host_objects()
                 .iter()
-                .filter(|(_, object)| {
-                    object.structure_topple_data.is_some()
-                        && !crate::gameworld_shadow::gameworld_movement_authority_live()
-                })
+                .filter(|(_, object)| object.structure_topple_data.is_some())
                 .map(|(id, object)| (*id, object.get_transform_matrix()))
                 .collect(),
             direct_host_drawables,

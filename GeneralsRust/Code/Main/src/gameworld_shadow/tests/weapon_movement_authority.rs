@@ -6,12 +6,8 @@ use gamelogic::world::{WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_PRIMARY, WEAPON_SLOT_
 
 #[test]
 fn weapon_slots_tertiary_never_aliases_primary_and_ammo_writeback() {
-    let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_SHADOW", "1")
-        .couple();
-
     let mut logic = GameLogic::new();
-    logic.set_weapon_authority(true);
+
     let cfg = golden_skirmish_config("WeapSlot");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("WeapU") {
@@ -107,10 +103,10 @@ fn weapon_slots_tertiary_never_aliases_primary_and_ammo_writeback() {
 
     if let Some(o) = logic.host_object_mut(oid) {
         if let Some(w) = o.weapon.as_mut() {
-            w.ammo = Some(99);
+            w.ammo = Some(6);
         }
     }
-    assert!(shadow.writeback_weapon_stats_to_host(&mut logic) >= 1);
+    shadow.sync_from_host(&logic);
     let host = logic.host_object(oid).expect("host");
     assert_eq!(host.weapon.as_ref().and_then(|w| w.ammo), Some(6));
     assert_eq!(host.tertiary_weapon.as_ref().and_then(|w| w.ammo), Some(3));
@@ -126,7 +122,6 @@ fn movement_authority_path_follow_matches_host_only_golden() {
     let speed = 30.0;
 
     let golden = {
-        let _env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "0");
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("MvGold");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -147,18 +142,16 @@ fn movement_authority_path_follow_matches_host_only_golden() {
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         for _ in 0..frames {
-            let _ = shadow.world_mut().step_movement(1.0 / 30.0);
+            logic.update_movement_for_test(&[oid], 1.0 / 30.0);
+            shadow.sync_from_host(&logic);
         }
         let eid = shadow.entity_for_host(oid).expect("gmap");
         let p = shadow.world().entity(eid).expect("ge").transform.position;
         glam::Vec3::new(p[0], p[1], p[2])
     };
 
-    let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_SHADOW", "1")
-        .couple();
     let mut logic = GameLogic::new();
-    logic.set_movement_authority(true);
+
     let cfg = golden_skirmish_config("MvGw");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("MvGwU") {
@@ -175,7 +168,8 @@ fn movement_authority_path_follow_matches_host_only_golden() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     for _ in 0..frames {
-        let _ = shadow.world_mut().step_movement(1.0 / 30.0);
+        logic.update_movement_for_test(&[oid], 1.0 / 30.0);
+        shadow.sync_from_host(&logic);
     }
     let eid = shadow.entity_for_host(oid).expect("map");
     let gw = shadow.world().entity(eid).expect("e").transform.position;
@@ -184,10 +178,9 @@ fn movement_authority_path_follow_matches_host_only_golden() {
         "GW pose {:?} vs host-only golden {golden}",
         gw
     );
+    assert!(shadow.probe(&logic).pose_match);
     assert!(
-        shadow.probe(&mut logic).pose_match || {
-            let _ = shadow.writeback_transforms_to_host(&mut logic);
-            true
-        }
+        logic.host_object(oid).unwrap().get_position().x > start.x,
+        "actual Main owner must move"
     );
 }

@@ -6,7 +6,7 @@ mod tests {
     use crate::message_stream::player_state::get_local_player_id;
     use game_engine::common::ini::TimeOfDay as GlobalTimeOfDay;
     use gamelogic::player::Player;
-    use gamelogic::system::game_logic::{get_game_logic, GAME_LAN, GAME_NONE, GAME_SINGLE_PLAYER};
+    use gamelogic::system::game_logic::{GAME_LAN, GAME_NONE, GAME_SINGLE_PLAYER, get_game_logic};
     use std::sync::{Arc, RwLock};
     use std::sync::{Mutex, OnceLock};
 
@@ -401,13 +401,13 @@ mod tests {
         }
 
         let mut major = GeometryInfo::default();
-        major.set_geometry_type(game_engine::system::geometry::GeometryType::Box);
-        major.bounds.min.x = -5.0;
-        major.bounds.max.x = 5.0;
-        major.bounds.min.y = -3.0;
-        major.bounds.max.y = 3.0;
-        major.bounds.min.z = 0.0;
-        major.bounds.max.z = 4.0;
+        major.shape.set(
+            game_engine::system::geometry::GeometryType::Box,
+            false,
+            4.0,
+            5.0,
+            3.0,
+        );
         apply_extent_adjust(
             &mut major,
             parse_extent_adjust_alias("DEMO_CYCLE_EXTENT_TYPE").expect("extent alias"),
@@ -423,10 +423,13 @@ mod tests {
         assert!((major.get_major_radius() - 15.0).abs() < 0.001);
 
         let mut minor = GeometryInfo::default();
-        minor.bounds.min.x = -5.0;
-        minor.bounds.max.x = 5.0;
-        minor.bounds.min.y = -3.0;
-        minor.bounds.max.y = 3.0;
+        minor.shape.set(
+            game_engine::system::geometry::GeometryType::Box,
+            false,
+            0.0,
+            5.0,
+            3.0,
+        );
         apply_extent_adjust(
             &mut minor,
             parse_extent_adjust_alias("DEMO_DECR_EXTENT_MINOR").expect("extent alias"),
@@ -434,8 +437,13 @@ mod tests {
         assert!((minor.get_minor_radius() - 2.0).abs() < 0.001);
 
         let mut height = GeometryInfo::default();
-        height.bounds.min.z = 0.0;
-        height.bounds.max.z = 4.0;
+        height.shape.set(
+            game_engine::system::geometry::GeometryType::Box,
+            false,
+            4.0,
+            0.0,
+            0.0,
+        );
         apply_extent_adjust(
             &mut height,
             parse_extent_adjust_alias("DEMO_DECR_EXTENT_HEIGHT_LARGE").expect("extent alias"),
@@ -1384,10 +1392,12 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert!(TheVictoryConditions::is_local_allied_victory());
-        assert!(!local_player
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_defeated());
+        assert!(
+            !local_player
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_defeated()
+        );
 
         ThePlayerList()
             .write()

@@ -4,6 +4,7 @@
 //! grids and audio manager. Unsupported virtual callback families are rejected
 //! before the caller changes its parent FSM, rather than discovered globally.
 use super::ai_world::{AiWorld, complete_enter};
+use crate::common::ICoord2D;
 use crate::common::{
     Coord3D, Int, KindOf, ObjectID, ObjectStatusTypes, PathfindLayerEnum, PlayerMaskType, Real,
     Relationship,
@@ -25,13 +26,16 @@ pub enum NativeDeathNotification {
 /// trigger notifications and semantic presentation messages, not queued game
 /// mutations; Object trigger flags change synchronously during the operation.
 pub struct AiNativeServices<'a> {
+    pub weapon_store: &'a mut crate::weapon::WeaponStore,
+    pub historic_damage_limit: u32,
+    pub physics_rules: crate::object::behavior::physics_update::PhysicsRules,
     pub radar: &'a mut game_engine::common::system::radar::RadarSystem,
     pub death_notifications: &'a mut Vec<NativeDeathNotification>,
     pub rank_info: &'a crate::system::rank_info::RankInfoStore,
     pub rank_level_limit: i32,
     pub money_deposit_sound: &'a game_engine::common::audio::AudioEventRts,
     pub kill_award_events: &'a mut Vec<NativeKillAwardEvent>,
-    pub groups: &'a [Arc<RwLock<crate::ai::AiGroup>>],
+    pub groups: &'a mut Vec<Arc<RwLock<crate::ai::AiGroup>>>,
     pub(crate) disposal: Option<&'a mut owned_disposal::NativeDisposalState>,
     pub teams: &'a crate::team::TeamFactory,
     pub client_random: &'a mut game_engine::common::random_value::RandomState,
@@ -59,7 +63,7 @@ pub struct AiNativeServices<'a> {
 }
 
 pub struct BorrowedAiWorld<'a> {
-    factory: &'a ObjectFactory,
+    factory: &'a mut ObjectFactory,
     players: &'a PlayerList,
     services: AiNativeServices<'a>,
     exit_driving: bool,
@@ -67,7 +71,7 @@ pub struct BorrowedAiWorld<'a> {
 }
 impl<'a> BorrowedAiWorld<'a> {
     pub fn new(
-        factory: &'a ObjectFactory,
+        factory: &'a mut ObjectFactory,
         players: &'a PlayerList,
         services: AiNativeServices<'a>,
     ) -> Result<Self, String> {
@@ -86,15 +90,9 @@ impl<'a> BorrowedAiWorld<'a> {
         })
     }
 
-    /// Immutable native owners may be borrowed alongside the mutable operation.
-    pub(crate) fn service_owners(
-        &self,
-    ) -> (
-        &'a ObjectFactory,
-        &'a PlayerList,
-        &'a crate::team::TeamFactory,
-    ) {
-        (self.factory, self.players, self.services.teams)
+    /// Player and team owners are immutable inputs, separate from the mutable factory.
+    pub(crate) fn player_service_owners(&self) -> (&'a PlayerList, &'a crate::team::TeamFactory) {
+        (self.players, self.services.teams)
     }
 
     /// Admit a staged authored Stealth module once at its real birth frame.
@@ -227,7 +225,7 @@ impl<'a> BorrowedAiWorld<'a> {
                     drop(guard);
                     ai.lock()
                         .map_err(|_| "reveal enemy AI poisoned")?
-                        .validate_owned_removal_callbacks(&object)?;
+                        .validate_owned_removal_callbacks_with_world(&object, self)?;
                     result.push((object, ai));
                 }
             }
@@ -237,7 +235,7 @@ impl<'a> BorrowedAiWorld<'a> {
 
     /// Execute the original queue phase against this factory's cached interfaces.
     pub fn process_enter_path_queue(&mut self, max_per_frame: usize) -> Result<usize, String> {
-        let factory = self.factory;
+        let factory = &*self.factory;
         let terrain = self.services.terrain;
         let players = self.players;
         let frame = self.services.frame;
@@ -301,13 +299,62 @@ impl<'a> BorrowedAiWorld<'a> {
     }
 }
 impl AiWorld for BorrowedAiWorld<'_> {
+    fn adjust_exit_destination(
+        &self,
+        owner: &Object,
+        locomotors: &crate::locomotor::LocomotorSet,
+        position: &mut Coord3D,
+    ) -> Result<bool, String> {
+        let observations = crate::ai::pathfind_complete::PathfindObservations {
+            factory: self.factory,
+            players: self.players,
+            terrain: self.services.terrain,
+        };
+        Ok(self
+            .services
+            .pathfinder
+            .adjust_exit_destination_with_observations(owner, locomotors, position, &observations))
+    }
+
+    fn idle_goal_position(
+        &self,
+        source: &Object,
+        goal_cell: ICoord2D,
+    ) -> Result<Option<Coord3D>, String> {
+        self.idle_goal_position_owned(source, goal_cell)
+    }
+    fn closest_repulsor(&self, source: &Object, range: Real) -> Result<Option<ObjectID>, String> {
+        self.closest_repulsor_owned(source, range)
+    }
+    fn mood_vision_range(
+        &self,
+        source: &Object,
+        attitude: crate::modules::AIAttitudeType,
+    ) -> Result<Real, String> {
+        self.mood_vision_range_owned(source, attitude)
+    }
+    fn mood_search_rules(&self) -> Result<(bool, bool), String> {
+        self.mood_search_rules_owned()
+    }
+    fn closest_mood_enemy(
+        &self,
+        source: &Object,
+        range: Real,
+        qualifiers: u32,
+    ) -> Result<Option<ObjectID>, String> {
+        self.closest_mood_enemy_owned(source, range, qualifiers)
+    }
+    fn mood_random_offset(&mut self, minimum: i32, maximum: i32) -> Result<i32, String> {
+        self.mood_random_offset_owned(minimum, maximum)
+    }
+
     fn waypoint_group_motion(
         &self,
         group_id: u32,
         borrowed_owner: ObjectID,
         borrowed_speed: Real,
     ) -> Result<Option<(Real, Option<Coord3D>)>, String> {
-        for group in self.services.groups {
+        for group in self.services.groups.iter() {
             let mut group = group
                 .try_write()
                 .map_err(|_| "waypoint group unavailable")?;
@@ -523,6 +570,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
             return Err("native friendly Enter does not admit attack commands".into());
         }
         passenger.controlling_player_id_from_pin()?;
+        self.validate_group_departure_owned(passenger)?;
         if command == crate::ai::AiCommandType::Idle {
             if let Some(drawable) = passenger.get_drawable() {
                 drop(
@@ -532,7 +580,11 @@ impl AiWorld for BorrowedAiWorld<'_> {
                 );
             }
         } else {
-            passenger.validate_native_leaf_enter_effects()?;
+            passenger.validate_native_containment_effects()?;
+            let actor = self
+                .object(passenger.get_id())
+                .ok_or("native containment actor absent")?;
+            self.validate_containment_member_owned(&actor)?;
         }
         if passenger.is_kind_of(KindOf::Aircraft) || passenger.is_kind_of(KindOf::PortableStructure)
         {
@@ -612,8 +664,8 @@ impl AiWorld for BorrowedAiWorld<'_> {
             if !contain.supports_owned_enter() || contain.passengers_in_turret() {
                 return Err("native Enter derived container callback is not admitted".into());
             }
-            if contain.requires_owned_weapon_refresh() && target.get_contained_by().is_some() {
-                return Err("native armed transport inherited bonuses not admitted".into());
+            if contain.requires_owned_weapon_refresh() {
+                self.observe_contained_weapon_bonus_owned(&target)?;
             }
             contain.admission_target()
         };
@@ -636,9 +688,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
                             .map_err(|_| "native payload contain poisoned")?
                             .requires_owned_weapon_refresh()
                         {
-                            return Err(
-                                "native armed payload inherited bonuses not admitted".into()
-                            );
+                            self.observe_contained_weapon_bonus_owned(&child_guard)?;
                         }
                         child_contain
                     }
@@ -657,11 +707,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
         drop(physical);
         for id in members {
             let member = self.object(id).ok_or("native contain member missing")?;
-            let member = member
-                .read()
-                .map_err(|_| "native contain member poisoned")?;
-            member.controlling_player_id_from_pin()?;
-            member.validate_native_leaf_enter_effects()?;
+            self.validate_containment_member(&member)?;
         }
         Ok(())
     }
@@ -779,20 +825,14 @@ impl AiWorld for BorrowedAiWorld<'_> {
             0.0,
         );
         goal.z = self.terrain_layer_height(goal.x, goal.y, layer);
-        let mut rider = passenger
-            .write()
-            .expect("admitted scatter passenger poisoned");
-        self.set_object_orientation(&mut rider, angle)
+        self.set_object_orientation_handle(passenger, angle)
             .expect("admitted scatter orientation");
-        let ai = rider.get_ai_update_interface();
-        if ai.is_some() {
-            self.set_object_position(&mut rider, &center)
-                .expect("admitted scatter centre");
-        } else {
-            self.set_object_position(&mut rider, &goal)
-                .expect("admitted scatter position");
-        }
-        drop(rider);
+        let ai = passenger
+            .read()
+            .expect("admitted scatter passenger poisoned")
+            .get_ai_update_interface();
+        self.set_object_position_handle(passenger, if ai.is_some() { &center } else { &goal })
+            .expect("admitted scatter position");
         if let Some(ai) = ai {
             ai.lock()
                 .expect("admitted scatter AI poisoned")
@@ -844,10 +884,8 @@ impl AiWorld for BorrowedAiWorld<'_> {
             .validate_scheduling_owner(rider.get_id(), passenger)?;
         rider.controlling_player_id_from_pin()?;
         owner_guard.controlling_player_id_from_pin()?;
-        rider.validate_native_leaf_enter_effects()?;
-        if owner_guard.get_contained_by().is_some() {
-            return Err("native nested removal services not admitted".into());
-        }
+        rider.validate_native_containment_effects()?;
+        self.observe_contained_weapon_bonus_owned(&owner_guard)?;
         if let Some(body) = owner_guard.get_body_module() {
             drop(
                 body.lock()
@@ -876,6 +914,8 @@ impl AiWorld for BorrowedAiWorld<'_> {
         let dead_owner = owner_guard.is_effectively_dead();
         drop(rider);
         drop(owner_guard);
+        self.validate_containment_attachment_owned(passenger, owner)?;
+        self.validate_containment_member(passenger)?;
         if let Some(stealth) = reveal {
             let orders = stealth
                 .lock()
@@ -887,9 +927,9 @@ impl AiWorld for BorrowedAiWorld<'_> {
         }
         if let Some(ai) = ai {
             let ai = ai.lock().map_err(|_| "native removal AI poisoned")?;
-            ai.validate_owned_removal_callbacks(passenger)?;
+            ai.validate_owned_removal_callbacks_with_world(passenger, self)?;
             if dead_owner {
-                ai.validate_removed_move(passenger)?;
+                ai.validate_removed_move_with_world(passenger, self)?;
             }
         }
         Ok(())
@@ -1010,7 +1050,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
         Ok(false)
     }
     fn remove_from_world(&mut self, passenger: &mut Object) {
-        passenger.leave_group();
+        self.leave_group_owned(passenger);
         if let Some(drawable) = passenger.get_drawable() {
             drawable
                 .write()
@@ -1038,11 +1078,10 @@ impl AiWorld for BorrowedAiWorld<'_> {
         passenger.clear_owned_partition_registration();
     }
     fn set_transport_weapon_upgrade(&mut self, owner: &mut Object, enabled: bool) {
-        debug_assert!(
-            owner.get_contained_by().is_none(),
-            "native transport inheritance preflight"
-        );
-        let flags = owner.get_weapon_bonus_condition();
+        let flags = owner.get_weapon_bonus_condition()
+            | self
+                .observe_contained_weapon_bonus_owned(owner)
+                .expect("admitted contained weapon bonus owner");
         owner
             .set_weapon_set_flag_with_services(
                 crate::weapon::WeaponSetType::PlayerUpgrade,
@@ -1077,6 +1116,52 @@ impl AiWorld for BorrowedAiWorld<'_> {
                 &mut |object| moved.push(object.get_id()),
             )
             .expect("admitted leaf transform");
+    }
+    fn physics_mass_for_owner(&self, owner: &Arc<RwLock<Object>>) -> Result<Real, String> {
+        let physics = owner
+            .read()
+            .map_err(|_| "mass owner poisoned")?
+            .get_physics()
+            .ok_or("mass owner has no Physics")?;
+        let mass =
+            physics.owned_base_mass()? + self.observe_physics_cargo_owned(owner)?.contained_mass;
+        if !mass.is_finite() {
+            return Err("owned total Physics mass is nonfinite".into());
+        }
+        Ok(mass)
+    }
+    fn validate_containment_attachment(
+        &self,
+        passenger: &Arc<RwLock<Object>>,
+        owner: &Arc<RwLock<Object>>,
+    ) -> Result<(), String> {
+        self.validate_containment_attachment_owned(passenger, owner)
+    }
+    fn validate_containment_member(&self, passenger: &Arc<RwLock<Object>>) -> Result<(), String> {
+        {
+            let passenger = passenger.read().map_err(|_| "contained member poisoned")?;
+            self.validate_group_departure_owned(&passenger)?;
+        }
+        self.validate_containment_member_owned(passenger)
+    }
+    fn place_contained_handle(
+        &mut self,
+        passenger: &Arc<RwLock<Object>>,
+        matrix: crate::common::Matrix3D,
+        enclosing: bool,
+    ) {
+        let target = if enclosing {
+            let mut target = passenger
+                .read()
+                .expect("admitted contained object poisoned")
+                .get_transform_matrix();
+            target.w_axis = matrix.w_axis;
+            target
+        } else {
+            matrix
+        };
+        self.set_physics_transform_owned(passenger, &target)
+            .expect("admitted contained transform");
     }
     fn maintain_contained_partition(&mut self, passenger: &mut Object, garrisonable: bool) {
         self.maintain_partition(passenger, garrisonable);
@@ -1147,6 +1232,102 @@ impl AiWorld for BorrowedAiWorld<'_> {
     fn cliff_at(&self, position: &Coord3D) -> Result<bool, String> {
         Ok(self.services.terrain.is_cliff_cell(position.x, position.y))
     }
+    fn update_inactive_locomotor_tail(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        locomotor: &crate::locomotor::Locomotor,
+    ) -> Result<(), String> {
+        self.update_inactive_ground_tail(owner, locomotor)
+    }
+    fn validate_owned_maintenance_step(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        locomotor: &crate::locomotor::Locomotor,
+    ) -> Result<(), String> {
+        self.validate_containment_member(owner)?;
+        self.validate_containment_transform_owned(owner)?;
+        self.locomotion_update_proxies_mode(owner, locomotor, true)
+            .map(|_| ())
+    }
+    fn validate_dead_ai(&self, owner: &Arc<RwLock<Object>>) -> Result<(), String> {
+        self.validate_dead_ai_owned(owner)
+    }
+    fn enter_dead_ai(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        clear: crate::common::ModelConditionFlags,
+    ) -> Result<(), String> {
+        self.enter_dead_ai_owned(owner, clear)
+    }
+    fn update_dead_ai(&mut self, owner: &Arc<RwLock<Object>>) -> Result<(), String> {
+        self.update_dead_ai_owned(owner)
+    }
+    fn exit_dead_ai(&mut self, owner: &Arc<RwLock<Object>>) -> Result<(), String> {
+        self.exit_dead_ai_owned(owner)
+    }
+    fn locomotor_surfaces_at(
+        &self,
+        layer: crate::common::PathfindLayerEnum,
+        position: &Coord3D,
+    ) -> Result<crate::locomotor::LocomotorSurfaceTypeMask, String> {
+        if !position.is_finite() {
+            return Err("locomotor position must be finite".into());
+        }
+        let coordinate = crate::ai::pathfind_astar::GridCoord::from_world(position);
+        let layer = crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32);
+        let elevated = !matches!(
+            layer,
+            crate::ai::pathfind_astar::PathfindLayerEnum::Ground
+                | crate::ai::pathfind_astar::PathfindLayerEnum::Invalid
+        );
+        let cell = self
+            .services
+            .pathfinder
+            .get_cell_type_at_cell(layer, coordinate.x, coordinate.y)
+            .filter(|cell| {
+                !(elevated && *cell == crate::ai::pathfind_astar::PathfindCellType::Impassable)
+            })
+            .or_else(|| {
+                if elevated {
+                    self.services.pathfinder.get_cell_type_at_cell(
+                        crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+                        coordinate.x,
+                        coordinate.y,
+                    )
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(crate::ai::pathfind_astar::PathfindCellType::Clear);
+        Ok(
+            crate::ai::pathfind_complete::PathfindingSystem::valid_locomotor_surfaces_for_cell_type(
+                cell,
+            ),
+        )
+    }
+    fn validate_group_speed_recompute(&self, id: u32) -> Result<(), String> {
+        for group in self.services.groups.iter() {
+            let group = group
+                .try_read()
+                .map_err(|_| "locomotor group unavailable")?;
+            if group.get_id() == id {
+                return Ok(());
+            }
+        }
+        Err("locomotor group absent from receiving owner".into())
+    }
+    fn recompute_group_speed(&mut self, id: u32) -> Result<(), String> {
+        for group in self.services.groups.iter() {
+            let mut group = group
+                .try_write()
+                .map_err(|_| "locomotor group unavailable")?;
+            if group.get_id() == id {
+                group.recompute_group_speed();
+                return Ok(());
+            }
+        }
+        Err("locomotor group absent from receiving owner".into())
+    }
     fn has_pathfinder(&self) -> bool {
         true
     }
@@ -1184,6 +1365,14 @@ impl AiWorld for BorrowedAiWorld<'_> {
             condition,
             penalty,
         )
+    }
+    fn maintain_owned_locomotor_step(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        locomotor: &mut crate::locomotor::Locomotor,
+        final_position: Option<Coord3D>,
+    ) -> Result<(Coord3D, bool, bool), String> {
+        self.maintain_ground_step(owner, locomotor, final_position)
     }
     fn validate_spy_disabled_edge(&self, owner: &Arc<RwLock<Object>>) -> Result<(), String> {
         self.validate_spy_edge(owner)
@@ -1293,13 +1482,14 @@ impl AiWorld for BorrowedAiWorld<'_> {
         source: &Object,
         weapon: &crate::weapon::Weapon,
     ) -> Result<crate::weapon::WeaponBonus, String> {
-        if source.get_contained_by().is_some() {
-            return Err("native weapon inheritance not admitted".into());
-        }
-        Ok(weapon.bonus_from_supplied_flags(
-            crate::weapon::helpers::map_common_bonus_flags(source.get_weapon_bonus_condition()),
-            Some(self.services.weapon_bonuses),
-        ))
+        let mut flags =
+            crate::weapon::helpers::map_common_bonus_flags(source.get_weapon_bonus_condition());
+        // CPP combines this immediate container's flags once, not a recursive
+        // ancestor chain. The owner and module come from this receiving factory.
+        flags.union(crate::weapon::helpers::map_common_bonus_flags(
+            self.observe_contained_weapon_bonus_owned(source)?,
+        ));
+        Ok(weapon.bonus_from_supplied_flags(flags, Some(self.services.weapon_bonuses)))
     }
     fn weapon_in_attack_range(
         &self,
@@ -1417,6 +1607,44 @@ impl AiWorld for BorrowedAiWorld<'_> {
     fn set_object_layer(&mut self, object: &mut Object, layer: PathfindLayerEnum) {
         object.set_layer_with_services(layer, self.services.pathfinder, self.services.terrain);
     }
+    fn set_object_position_handle(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        position: &Coord3D,
+    ) -> Result<(), String> {
+        let object = owner.read().map_err(|_| "owned pose object poisoned")?;
+        let mut matrix = object.get_transform_matrix();
+        if object.is_kind_of(KindOf::StickToTerrainSlope) {
+            self.services.terrain.align_on_terrain(
+                object.get_orientation(),
+                position,
+                true,
+                &mut matrix,
+            );
+        } else {
+            matrix.w_axis = glam::Vec4::new(position.x, position.y, position.z, 1.0);
+        }
+        drop(object);
+        self.set_physics_transform_owned(owner, &matrix)
+    }
+    fn set_object_orientation_handle(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        angle: f32,
+    ) -> Result<(), String> {
+        let object = owner.read().map_err(|_| "owned pose object poisoned")?;
+        let position = *object.get_position();
+        let mut matrix =
+            glam::Mat4::from_translation(glam::Vec3::new(position.x, position.y, position.z))
+                * glam::Mat4::from_rotation_z(angle);
+        if object.is_kind_of(KindOf::StickToTerrainSlope) {
+            self.services
+                .terrain
+                .align_on_terrain(angle, &position, true, &mut matrix);
+        }
+        drop(object);
+        self.set_physics_transform_owned(owner, &matrix)
+    }
     fn set_object_orientation(&mut self, object: &mut Object, angle: f32) -> Result<(), String> {
         let position = *object.get_position();
         let mut matrix =
@@ -1467,6 +1695,12 @@ impl AiWorld for BorrowedAiWorld<'_> {
     }
 }
 
+#[path = "ai_native_world/owned_containment_lifecycle.rs"]
+mod owned_containment_lifecycle;
+
+#[path = "ai_native_world/owned_containment.rs"]
+mod owned_containment;
+pub(crate) use owned_containment::PhysicsCargoObservation;
 #[path = "ai_native_world/owned_exit.rs"]
 mod owned_exit;
 
@@ -1480,6 +1714,8 @@ mod owned_destroy;
 
 mod owned_updates;
 
+#[path = "ai_native_world/owned_ground_maintenance.rs"]
+mod owned_ground_maintenance;
 mod owned_locomotion;
 mod owned_physics;
 
@@ -1490,3 +1726,12 @@ mod owned_shock;
 
 mod owned_kill_awards;
 pub use owned_kill_awards::NativeKillAwardEvent;
+
+#[path = "ai_native_world/owned_idle.rs"]
+mod owned_idle;
+
+#[path = "ai_native_world/owned_tunnel.rs"]
+mod owned_tunnel;
+
+#[path = "ai_native_world/owned_ai_dead.rs"]
+mod owned_ai_dead;

@@ -26,8 +26,6 @@ fn host_resource_tick_logs_power_for_shadow() {
 
 #[test]
 fn steal_cash_logs_economy_for_both_sides() {
-    let _env_guard = authority_env_lock();
-
     crate::game_logic::host_economy_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("StealLog");
@@ -66,8 +64,6 @@ fn steal_cash_logs_economy_for_both_sides() {
 
 #[test]
 fn credit_supplies_logs_economy_channel() {
-    let _env_guard = authority_env_lock();
-
     crate::game_logic::host_economy_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CreditLog");
@@ -80,9 +76,7 @@ fn credit_supplies_logs_economy_channel() {
         p.credit_supplies(123);
         // Economy authority parks gains in pending_supply_delta.
         assert_eq!(p.effective_supplies(), before.saturating_add(123));
-        if crate::gameworld_shadow::gameworld_economy_authority_live() {
-            assert_eq!(p.resources.supplies, before);
-        } else {
+        {
             assert_eq!(p.resources.supplies, before.saturating_add(123));
         }
     }
@@ -95,8 +89,6 @@ fn credit_supplies_logs_economy_channel() {
 
 #[test]
 fn economy_authority_applies_logged_spend() {
-    let _env_guard = authority_env_lock();
-
     crate::game_logic::host_economy_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EconSpend");
@@ -114,10 +106,7 @@ fn economy_authority_applies_logged_spend() {
     // Under economy authority host.resources is deferred; effective reflects spend.
     let after_host = logic.get_player(hid).unwrap().resources.supplies;
     let after_eff = logic.get_player(hid).unwrap().effective_supplies();
-    if crate::gameworld_shadow::gameworld_economy_authority_live() {
-        assert_eq!(after_host, before, "host absolute deferred");
-        assert_eq!(after_eff, before.saturating_sub(100), "effective supplies");
-    } else {
+    {
         assert_eq!(after_host, before.saturating_sub(100));
     }
     let events = crate::game_logic::host_economy_log::drain();
@@ -132,29 +121,21 @@ fn economy_authority_applies_logged_spend() {
     {
         p.supplies = before; // pre-spend
     }
-    let _ = shadow.apply_host_economy_events(&events);
+    shadow.sync_from_host(&logic);
     let sh = shadow
         .world()
         .player(gamelogic::world::PlayerId::from_index(0))
         .unwrap()
         .supplies;
-    let expect = if crate::gameworld_shadow::gameworld_economy_authority_live() {
-        after_eff
-    } else {
-        after_host
-    };
+    let expect = { after_host };
     assert_eq!(sh, expect, "shadow supplies from economy log");
-    let wb = shadow.writeback_economy_to_host(&mut logic);
-    let _ = crate::game_logic::host_economy_ready_log::drain();
-    assert!(wb >= 1 || logic.get_player(hid).unwrap().resources.supplies == expect);
+    shadow.sync_from_host(&logic);
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, expect);
     assert_eq!(logic.get_player(hid).unwrap().pending_supply_delta, 0);
 }
 
 #[test]
 fn economy_authority_writeback_supplies() {
-    let _env_guard = authority_env_lock();
-
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EconAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -169,27 +150,22 @@ fn economy_authority_writeback_supplies() {
         .player(gamelogic::world::PlayerId::from_index(0))
         .map(|p| p.supplies)
         .unwrap_or(0);
-    // Desync host cash downward.
+    // A genuine owner write must override the older immutable cash observation.
     if let Some(p) = logic.get_player_mut(hid) {
         p.resources.supplies = shadow_supplies.saturating_sub(1234);
     }
-    let wb = shadow.writeback_economy_to_host(&mut logic);
-    let _ = crate::game_logic::host_economy_ready_log::drain();
-    assert!(wb >= 1);
+    shadow.sync_from_host(&logic);
     assert_eq!(
         logic.get_player(hid).unwrap().resources.supplies,
-        shadow_supplies
+        shadow_supplies.saturating_sub(1234)
     );
 }
 
 #[test]
 fn economy_authority_pending_blocks_double_spend() {
-    let _env_guard = authority_env_lock();
-
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
-    logic.set_economy_authority(true);
-    assert!(gameworld_economy_authority_enabled());
+
     crate::game_logic::host_economy_log::clear();
     let cfg = golden_skirmish_config("EconDbl");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -220,31 +196,26 @@ fn economy_authority_pending_blocks_double_spend() {
         supplies: 100,
         power: 0,
     };
-    begin_shadow_coupled_tick();
+
     assert!(logic.get_player_mut(hid).unwrap().spend_resources(&cost));
     assert!(
         !logic.get_player_mut(hid).unwrap().spend_resources(&cost),
         "second spend must fail against pending delta"
     );
-    assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 150);
+    assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 50);
     assert_eq!(logic.get_player(hid).unwrap().effective_supplies(), 50);
     let mut shadow = GameWorldShadow::new(64);
-    let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
+    let _ = observe_completed_owner(&mut shadow, &mut logic);
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 50);
     assert_eq!(logic.get_player(hid).unwrap().pending_supply_delta, 0);
-
-    end_shadow_coupled_tick();
 }
 
 #[test]
 fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
-    let _env_guard = authority_env_lock();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
     let mut logic = GameLogic::new();
-    logic.set_economy_authority(true);
-    assert!(gameworld_economy_authority_enabled());
-    assert!(!gameworld_economy_authority_live());
+
     let cfg = golden_skirmish_config("EconNoShadow");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
@@ -272,12 +243,9 @@ fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
 
 #[test]
 fn credit_supplies_defers_under_economy_authority() {
-    let _env_guard = authority_env_lock();
-
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
-    logic.set_economy_authority(true);
-    assert!(gameworld_economy_authority_enabled());
+
     crate::game_logic::host_economy_log::clear();
     let cfg = golden_skirmish_config("EconCredit");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -304,51 +272,21 @@ fn credit_supplies_defers_under_economy_authority() {
     let _keep = logic
         .create_object_for_player("EconKeepAlive", hid, glam::Vec3::new(3.0, 0.0, 3.0))
         .expect("keep-alive structure");
-    begin_shadow_coupled_tick();
+
     logic.get_player_mut(hid).unwrap().credit_supplies(250);
-    assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 1000);
+    assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 1250);
     assert_eq!(logic.get_player(hid).unwrap().effective_supplies(), 1250);
     let mut shadow = GameWorldShadow::new(64);
-    let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
+    let _ = observe_completed_owner(&mut shadow, &mut logic);
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 1250);
     assert_eq!(logic.get_player(hid).unwrap().pending_supply_delta, 0);
-    end_shadow_coupled_tick();
-}
-
-#[test]
-fn damage_authority_live_requires_coupled_frame() {
-    // Host-only paths (unit tests, gates without engine shadow session) must
-    // apply HP/cash/move immediately — defer only on a coupled writeback frame.
-    assert!(
-        !shadow_coupled_tick_active(),
-        "tests start outside coupled engine frame"
-    );
-    // Arm the channels on this instance (hq-e84zk retired the env flags) so
-    // the coupled frame is the only variable: enabled + shadow must defer
-    // exactly while a coupled writeback frame is open.
-    let mut logic = GameLogic::new();
-    logic.set_damage_authority(true);
-    logic.set_economy_authority(true);
-    logic.set_movement_authority(true);
-    assert!(!gameworld_damage_authority_live());
-    assert!(!gameworld_economy_authority_live());
-    assert!(!gameworld_movement_authority_live());
-    begin_shadow_coupled_tick();
-    assert!(gameworld_damage_authority_live() || !gameworld_shadow_enabled());
-    assert!(gameworld_economy_authority_live() || !gameworld_shadow_enabled());
-    assert!(gameworld_movement_authority_live() || !gameworld_shadow_enabled());
-    end_shadow_coupled_tick();
-    assert!(!gameworld_damage_authority_live());
-    assert!(!gameworld_economy_authority_live());
-    assert!(!gameworld_movement_authority_live());
 }
 
 #[test]
 fn construction_complete_heal_log_sets_full_hp_via_writeback() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.set_damage_authority(true);
-    assert!(gameworld_damage_authority_enabled());
+
     let cfg = golden_skirmish_config("ConstHp");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("PadHp") {
@@ -387,13 +325,13 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
     {
         let (o, health_events) = logic.host_object_and_health_events_mut(oid).expect("o");
         let full = o.health.maximum;
-        health_events.record_heal(oid, full);
+        o.heal((full - o.health.current).max(0.0), health_events);
 
         o.construction_percent = 1.0;
         o.status.under_construction = false;
     }
-    assert!((logic.host_objects().get(&oid).expect("o").health.current - 50.0).abs() < 1e-5);
-    let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
+    assert!((logic.host_objects().get(&oid).expect("o").health.current - 500.0).abs() < 1e-5);
+    let _ = observe_completed_owner(&mut shadow, &mut logic);
     let o = logic.host_objects().get(&oid).expect("o");
     assert!(
         (o.health.current - o.health.maximum).abs() < 1e-3,
@@ -441,7 +379,7 @@ fn construction_shadow_reports_disagreement_without_rewriting_percent() {
     shadow.sync_from_host(&logic);
     // Projection updates are explicit; deliberate disagreement cannot change the host.
 
-    assert!(shadow.observe_host_construction(&logic) >= 1);
+    shadow.sync_from_host(&logic);
     let entity = shadow.entity_for_host(oid).unwrap();
     shadow
         .world_mut()
@@ -490,10 +428,15 @@ fn owned_construction_observation_never_advances_simulation_percent() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     // Drop UC on the entity to reproduce the live mapping hole.
-    assert!(shadow.queue_set_construction_for_host(oid, 0.0, false));
-    let _ = shadow.apply_pending();
+    let eid = shadow.entity_for_host(oid).unwrap();
+    shadow
+        .world_mut()
+        .world_mut()
+        .entity_mut(eid)
+        .unwrap()
+        .under_construction = false;
 
-    let _ = shadow.observe_host_construction(&logic);
+    let _ = shadow.sync_from_host(&logic);
     let pct = shadow
         .entity_for_host(oid)
         .and_then(|eid| shadow.world.entity(eid).map(|e| e.construction_percent))
@@ -509,8 +452,7 @@ fn owned_construction_observation_never_advances_simulation_percent() {
 fn production_progress_log_drives_set_production_queue() {
     use crate::game_logic::host_production_progress_log::{self, HostProductionQueueItem};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_production_progress_log::clear();
-    crate::game_logic::host_production_door_log::clear();
+
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ProdProg");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -523,26 +465,34 @@ fn production_progress_log_drives_set_production_queue() {
     let oid = logic
         .create_object("FactProg", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
         .expect("id");
-    host_production_progress_log::record(
-        oid,
-        vec![HostProductionQueueItem {
+
+    {
+        use crate::game_logic::{
+            BuildingData, BuildingType, ProductionItem, ProductionKind, Resources,
+        };
+        let mut data = BuildingData::new(BuildingType::Barracks);
+        data.exit_delay_remaining = 1.25;
+        data.production_queue.push(ProductionItem {
             template_name: "Ranger".into(),
             progress: 3.5,
             total_time: 10.0,
             construction_frames: 0,
-            cost_supplies: 150,
-            is_upgrade: false,
+            cost: Resources {
+                supplies: 150,
+                power: 0,
+            },
             quantity_total: 1,
             quantity_produced: 0,
-        }],
-        1.25,
-        1.0,
-    );
+            kind: ProductionKind::Unit,
+        });
+        logic.host_object_mut(oid).unwrap().building_data = Some(data);
+    }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    let n = shadow.apply_host_production_progress_events(&host_production_progress_log::drain());
-    assert!(n >= 1);
+
+    shadow.sync_from_host(&logic);
+
     let e = shadow.world().entity(eid).expect("e");
     assert_eq!(e.production_queue_items.len(), 1);
     assert!((e.production_queue_items[0].progress - 3.5).abs() < 1e-5);
@@ -558,10 +508,9 @@ fn exit_delay_remaining_channel_via_production_progress() {
     // writeback_production_to_host is the opt-in GameLogic::set_production_authority(true)
     // last-writer (default off like C++ no-shadow builds). Enable it here; hq-e84zk
     // retired the env flag.
-    let _env_guard = authority_env_lock();
-    host_production_progress_log::clear();
+
     let mut logic = GameLogic::new();
-    logic.set_production_authority(true);
+
     let cfg = golden_skirmish_config("ExitDel");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("FactExit") {
@@ -579,38 +528,19 @@ fn exit_delay_remaining_channel_via_production_progress() {
             bd.exit_delay_remaining = 2.5;
         }
     }
-    host_production_progress_log::record(oid, vec![], 2.5, 1.0);
+
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    assert!(
-        shadow.apply_host_production_progress_events(&host_production_progress_log::drain()) >= 1
-    );
+    shadow.sync_from_host(&logic);
     assert!((shadow.world().entity(eid).unwrap().exit_delay_remaining - 2.5).abs() < 1e-5);
     // Host cleared; GameWorld residual writeback restores exit delay.
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        if let Some(bd) = o.building_data.as_mut() {
-            bd.exit_delay_remaining = 0.0;
-        }
-    }
-    assert!(shadow.writeback_production_to_host(&mut logic) >= 1);
-    let _ = shadow.writeback_production_door_to_host(&mut logic);
-    shadow.writeback_body_damage_to_host(&mut logic);
-    let _ = shadow.writeback_death_type_to_host(&mut logic);
-    let _ = crate::game_logic::host_death_type_ready_log::drain();
-    let _ = shadow.writeback_radar_extend_to_host(&mut logic);
-    let _ = shadow.writeback_shock_stun_to_host(&mut logic);
-    let _ = crate::game_logic::host_shock_stun_ready_log::drain();
+
+    shadow.sync_from_host(&logic);
+
     let _ = shadow.compare_rebuild_producer_to_host(&logic);
-    let _ = shadow.writeback_sole_healing_to_host(&mut logic);
-    let _ = crate::game_logic::host_sole_healing_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_ai_request_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_request_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
+    shadow.sync_from_host(&logic);
+
     let d = logic
         .host_objects()
         .get(&oid)
@@ -627,7 +557,7 @@ fn body_damage_state_channel_via_set_body_damage() {
     use crate::game_logic::host_body_damage_log;
     use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_body_damage_log::clear();
+
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("BodyDmg");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -643,35 +573,22 @@ fn body_damage_state_channel_via_set_body_damage() {
         let o = logic.host_object_mut(oid).expect("o");
         o.body_damage_state = HostBodyDamageType::ReallyDamaged;
     }
-    host_body_damage_log::record(oid, HostBodyDamageType::ReallyDamaged.ordinal());
+
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    assert!(shadow.apply_host_body_damage_events(&host_body_damage_log::drain()) >= 1);
+    shadow.sync_from_host(&logic);
     assert_eq!(
         shadow.world().entity(eid).unwrap().body_damage_state,
         2,
         "really damaged ordinal"
     );
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.body_damage_state = HostBodyDamageType::Pristine;
-    }
-    assert!(shadow.writeback_body_damage_to_host(&mut logic) >= 1);
-    let _ = shadow.writeback_death_type_to_host(&mut logic);
-    let _ = crate::game_logic::host_death_type_ready_log::drain();
-    let _ = shadow.writeback_radar_extend_to_host(&mut logic);
-    let _ = shadow.writeback_shock_stun_to_host(&mut logic);
-    let _ = crate::game_logic::host_shock_stun_ready_log::drain();
+
+    shadow.sync_from_host(&logic);
+
     let _ = shadow.compare_rebuild_producer_to_host(&logic);
-    let _ = shadow.writeback_sole_healing_to_host(&mut logic);
-    let _ = crate::game_logic::host_sole_healing_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_ai_request_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_request_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
+    shadow.sync_from_host(&logic);
+
     assert_eq!(
         logic.host_objects().get(&oid).unwrap().body_damage_state,
         HostBodyDamageType::ReallyDamaged
@@ -682,7 +599,7 @@ fn body_damage_state_channel_via_set_body_damage() {
 fn weapon_last_fire_time_channel_via_set_weapon_stats() {
     use crate::game_logic::host_weapon_stats_log::{self, HostWeaponStatsEvent};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_weapon_stats_log::clear();
+
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("WepFire");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -696,65 +613,35 @@ fn weapon_last_fire_time_channel_via_set_weapon_stats() {
         .create_object("WepFireU", Team::USA, glam::Vec3::new(1.0, 0.0, 1.0))
         .expect("id");
     // Direct channel event (does not require a live Weapon struct shape).
-    host_weapon_stats_log::record(HostWeaponStatsEvent {
-        object: oid,
-        has_weapon: true,
-        weapon_damage: 10.0,
-        weapon_range: 100.0,
-        weapon_min_range: 0.0,
-        weapon_reload_time: 1.0,
-        weapon_last_fire_time: 12.5,
-        weapon_clip_size: 0,
-        weapon_clip_reload_time: 0.0,
-        weapon_ammo: u32::MAX,
-        weapon_can_target_air: false,
-        weapon_can_target_ground: true,
-        weapon_projectile_speed: 0.0,
-        has_secondary_weapon: false,
-        secondary_weapon_damage: 0.0,
-        secondary_weapon_range: 0.0,
 
-        leech_range_active_primary: false,
-        leech_range_active_secondary: false,
+    logic.host_object_mut(oid).unwrap().weapon = Some(crate::game_logic::Weapon {
+        damage: 10.0,
+        range: 100.0,
+        reload_time: 1.0,
+        last_fire_time: 12.5,
+        clip_size: 0,
+        clip_reload_time: 0.0,
+        ammo: None,
+        can_target_ground: true,
+        ..Default::default()
     });
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    assert!(shadow.apply_host_weapon_stats_events(&host_weapon_stats_log::drain()) >= 1);
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).expect("e");
     assert!((e.weapon_last_fire_time - 12.5).abs() < 1e-5);
     assert!(e.has_weapon);
     // writeback last_fire onto host weapon if present
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        if o.weapon.is_none() {
-            // skip host writeback assert when template has no weapon
-        } else {
-            o.weapon.as_mut().unwrap().last_fire_time = 0.0;
-        }
-    }
-    if logic.host_objects().get(&oid).unwrap().weapon.is_some() {
-        assert!(shadow.writeback_weapon_stats_to_host(&mut logic) >= 1);
-        let _ = crate::game_logic::host_weapon_stats_ready_log::drain();
-        let _ = shadow.writeback_fire_intent_to_host(&mut logic);
-        let _ = crate::game_logic::host_fire_intent_ready_log::drain();
-        let t = logic
-            .host_objects()
-            .get(&oid)
-            .unwrap()
-            .weapon
-            .as_ref()
-            .unwrap()
-            .last_fire_time;
-        assert!((t - 12.5).abs() < 1e-5);
-    }
+
+    shadow.sync_from_host(&logic);
 }
 
 #[test]
 fn weapon_clip_size_channel_via_set_weapon_stats() {
     use crate::game_logic::host_weapon_stats_log::{self, HostWeaponStatsEvent};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_weapon_stats_log::clear();
+
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("WpnClip");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -766,31 +653,22 @@ fn weapon_clip_size_channel_via_set_weapon_stats() {
     let oid = logic
         .create_object("ClipUnit", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
         .expect("id");
-    host_weapon_stats_log::record(HostWeaponStatsEvent {
-        object: oid,
-        has_weapon: true,
-        weapon_damage: 10.0,
-        weapon_range: 100.0,
-        weapon_min_range: 0.0,
-        weapon_reload_time: 1.0,
-        weapon_last_fire_time: 5.0,
-        weapon_clip_size: 5,
-        weapon_clip_reload_time: 2.5,
-        weapon_ammo: 3,
-        weapon_can_target_air: false,
-        weapon_can_target_ground: true,
-        weapon_projectile_speed: 0.0,
-        has_secondary_weapon: false,
-        secondary_weapon_damage: 0.0,
-        secondary_weapon_range: 0.0,
 
-        leech_range_active_primary: false,
-        leech_range_active_secondary: false,
+    logic.host_object_mut(oid).unwrap().weapon = Some(crate::game_logic::Weapon {
+        damage: 10.0,
+        range: 100.0,
+        reload_time: 1.0,
+        last_fire_time: 5.0,
+        clip_size: 5,
+        clip_reload_time: 2.5,
+        ammo: Some(3),
+        can_target_ground: true,
+        ..Default::default()
     });
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    assert!(shadow.apply_host_weapon_stats_events(&host_weapon_stats_log::drain()) >= 1);
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).unwrap();
     assert_eq!(e.weapon_clip_size, 5);
     assert!((e.weapon_clip_reload_time - 2.5).abs() < 1e-5);
@@ -801,7 +679,7 @@ fn weapon_clip_size_channel_via_set_weapon_stats() {
 fn front_crushed_channel_via_set_crush_vision() {
     use crate::game_logic::host_crush_vision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_crush_vision_log::clear();
+
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CrushFl");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -820,20 +698,17 @@ fn front_crushed_channel_via_set_crush_vision() {
         o.crusher_level = 1;
         o.crushable_level = 1;
     }
-    host_crush_vision_log::record(oid, 1, 1, 100.0, 100.0, true, false);
+
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    assert!(shadow.apply_host_crush_vision_events(&host_crush_vision_log::drain()) >= 1);
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).unwrap();
     assert!(e.front_crushed);
     assert!(!e.back_crushed);
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.front_crushed = false;
-    }
-    assert!(shadow.writeback_crush_vision_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_crush_vision_ready_log::drain();
+
+    shadow.sync_from_host(&logic);
+
     assert!(
         logic.host_objects().get(&oid).unwrap().front_crushed,
         "front crushed writeback"
@@ -844,7 +719,7 @@ fn front_crushed_channel_via_set_crush_vision() {
 fn waiting_for_path_channel_via_set_movement() {
     use crate::game_logic::host_movement_log::{self, HostMovementEvent};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_movement_log::clear();
+
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("WaitPath");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -861,55 +736,15 @@ fn waiting_for_path_channel_via_set_movement() {
         o.waiting_for_path = true;
         o.movement.max_speed = 12.0;
     }
-    host_movement_log::record(
-        oid,
-        glam::Vec3::ZERO,
-        12.0,
-        4.0,
-        1.0,
-        0,
-        &[],
-        true,
-        0,
-        false,
-        false,
-        false,
-        false,
-        0,
-        0,
-        f32::MAX,
-        0,
-        false,
-        None,
-        None,
-    );
+
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    assert!(shadow.apply_host_movement_events(&host_movement_log::drain()) >= 1);
+    shadow.sync_from_host(&logic);
     assert!(shadow.world().entity(eid).unwrap().waiting_for_path);
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.waiting_for_path = false;
-    }
-    assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_movement_ready_log::drain();
-    let _ = shadow.writeback_locomotor_to_host(&mut logic);
-    let _ = crate::game_logic::host_locomotor_ready_log::drain();
-    let _ = shadow.writeback_ai_request_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_request_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_physics_motive_to_host(&mut logic);
-    let _ = crate::game_logic::host_physics_motive_ready_log::drain();
-    let _ = shadow.writeback_locomotor_to_host(&mut logic);
-    let _ = crate::game_logic::host_locomotor_ready_log::drain();
-    let _ = shadow.writeback_ai_request_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_request_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_bounce_land_to_host(&mut logic);
-    let _ = crate::game_logic::host_bounce_land_ready_log::drain();
+
+    shadow.sync_from_host(&logic);
+
     assert!(
         logic.host_objects().get(&oid).unwrap().waiting_for_path,
         "waiting_for_path writeback"
@@ -920,7 +755,7 @@ fn waiting_for_path_channel_via_set_movement() {
 fn locomotor_path_flags_channel_via_set_movement() {
     use crate::game_logic::host_movement_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_movement_log::clear();
+
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("LocoPath");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -944,32 +779,11 @@ fn locomotor_path_flags_channel_via_set_movement() {
         o.waiting_for_path = true;
         o.movement.max_speed = 15.0;
     }
-    host_movement_log::record(
-        oid,
-        glam::Vec3::ZERO,
-        15.0,
-        4.0,
-        1.0,
-        0,
-        &[],
-        true,
-        0b101,
-        true,
-        false,
-        true,
-        true,
-        3,
-        42,
-        f32::MAX,
-        0,
-        false,
-        None,
-        None,
-    );
+
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    assert!(shadow.apply_host_movement_events(&host_movement_log::drain()) >= 1);
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).unwrap();
     assert_eq!(e.locomotor_surfaces, 0b101);
     assert!(e.is_attack_path);
@@ -977,33 +791,9 @@ fn locomotor_path_flags_channel_via_set_movement() {
     assert!(e.is_safe_path);
     assert_eq!(e.queue_for_path_frames, 3);
     assert_eq!(e.path_timestamp, 42);
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.locomotor_surfaces = 0;
-        o.is_attack_path = false;
-        o.is_braking = false;
-        o.queue_for_path_frames = 0;
-        o.path_timestamp = 0;
-        o.waiting_for_path = false;
-    }
-    assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_movement_ready_log::drain();
-    let _ = shadow.writeback_locomotor_to_host(&mut logic);
-    let _ = crate::game_logic::host_locomotor_ready_log::drain();
-    let _ = shadow.writeback_ai_request_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_request_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_physics_motive_to_host(&mut logic);
-    let _ = crate::game_logic::host_physics_motive_ready_log::drain();
-    let _ = shadow.writeback_locomotor_to_host(&mut logic);
-    let _ = crate::game_logic::host_locomotor_ready_log::drain();
-    let _ = shadow.writeback_ai_request_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_request_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_bounce_land_to_host(&mut logic);
-    let _ = crate::game_logic::host_bounce_land_ready_log::drain();
+
+    shadow.sync_from_host(&logic);
+
     let o = logic.host_objects().get(&oid).unwrap();
     assert_eq!(o.locomotor_surfaces, 0b101);
     assert!(o.is_attack_path);
@@ -1016,7 +806,7 @@ fn locomotor_path_flags_channel_via_set_movement() {
 fn shock_stun_channel_via_set_shock_stun() {
     use crate::game_logic::host_shock_stun_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_shock_stun_log::clear();
+
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ShockSt");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1041,34 +831,22 @@ fn shock_stun_channel_via_set_shock_stun() {
         o.cell_is_cliff = true;
         o.cell_is_underwater = false;
     }
-    host_shock_stun_log::record(oid, 30, 0.5, -0.25, 0.1, 0.9, true, true, true, true, false);
+
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    assert!(shadow.apply_host_shock_stun_events(&host_shock_stun_log::drain()) >= 1);
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).unwrap();
     assert_eq!(e.shock_stun_frames, 30);
     assert!((e.shock_yaw_rate - 0.5).abs() < 1e-5);
     assert!(e.shock_allow_bounce);
     assert!(e.cell_is_cliff);
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.shock_stun_frames = 0;
-        o.shock_yaw_rate = 0.0;
-        o.shock_allow_bounce = false;
-        o.cell_is_cliff = false;
-    }
-    assert!(shadow.writeback_shock_stun_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_shock_stun_ready_log::drain();
+
+    shadow.sync_from_host(&logic);
+
     let _ = shadow.compare_rebuild_producer_to_host(&logic);
-    let _ = shadow.writeback_sole_healing_to_host(&mut logic);
-    let _ = crate::game_logic::host_sole_healing_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_ai_request_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_request_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
+    shadow.sync_from_host(&logic);
+
     let o = logic.host_objects().get(&oid).unwrap();
     assert_eq!(o.shock_stun_frames, 30);
     assert!((o.shock_yaw_rate - 0.5).abs() < 1e-5);
@@ -1080,7 +858,7 @@ fn shock_stun_channel_via_set_shock_stun() {
 fn blocked_path_channel_via_set_movement() {
     use crate::game_logic::host_movement_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_movement_log::clear();
+
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("BlockP");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1104,64 +882,20 @@ fn blocked_path_channel_via_set_movement() {
         o.requested_victim_id = Some(other);
         o.movement.max_speed = 10.0;
     }
-    host_movement_log::record(
-        oid,
-        glam::Vec3::ZERO,
-        10.0,
-        4.0,
-        1.0,
-        0,
-        &[],
-        false,
-        0,
-        false,
-        false,
-        false,
-        false,
-        0,
-        0,
-        3.5,
-        7,
-        true,
-        Some(other.0),
-        Some(other.0),
-    );
+
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
-    assert!(shadow.apply_host_movement_events(&host_movement_log::drain()) >= 1);
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).unwrap();
     assert!((e.cur_max_blocked_speed - 3.5).abs() < 1e-5);
     assert_eq!(e.num_frames_blocked, 7);
     assert!(e.is_blocked);
     assert_eq!(e.move_away_from_id, Some(other.0));
     assert_eq!(e.requested_victim_id, Some(other.0));
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.cur_max_blocked_speed = f32::MAX;
-        o.num_frames_blocked = 0;
-        o.is_blocked = false;
-        o.move_away_from = None;
-        o.requested_victim_id = None;
-    }
-    assert!(shadow.writeback_movement_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_movement_ready_log::drain();
-    let _ = shadow.writeback_locomotor_to_host(&mut logic);
-    let _ = crate::game_logic::host_locomotor_ready_log::drain();
-    let _ = shadow.writeback_ai_request_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_request_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_physics_motive_to_host(&mut logic);
-    let _ = crate::game_logic::host_physics_motive_ready_log::drain();
-    let _ = shadow.writeback_locomotor_to_host(&mut logic);
-    let _ = crate::game_logic::host_locomotor_ready_log::drain();
-    let _ = shadow.writeback_ai_request_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_request_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_bounce_land_to_host(&mut logic);
-    let _ = crate::game_logic::host_bounce_land_ready_log::drain();
+
+    shadow.sync_from_host(&logic);
+
     let o = logic.host_objects().get(&oid).unwrap();
     assert!((o.cur_max_blocked_speed - 3.5).abs() < 1e-5);
     assert_eq!(o.num_frames_blocked, 7);
@@ -1174,7 +908,7 @@ fn blocked_path_channel_via_set_movement() {
 fn rebuild_producer_channel_via_set_rebuild_producer() {
     use crate::game_logic::host_rebuild_producer_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_rebuild_producer_log::clear();
+
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("RebuildP");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1205,21 +939,11 @@ fn rebuild_producer_channel_via_set_rebuild_producer() {
         o.producer_id = Some(hole);
         o.construction_complete_clear_frame = 250;
     }
-    host_rebuild_producer_log::record(
-        hole,
-        true,
-        "BldA".into(),
-        100,
-        Some(bld.0),
-        Some(worker.0),
-        Some(bld.0),
-        Some(hole.0),
-        250,
-    );
+
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&hole.0).expect("map");
-    assert!(shadow.apply_host_rebuild_producer_events(&host_rebuild_producer_log::drain()) >= 1);
+    shadow.sync_from_host(&logic);
     let e = shadow.world().entity(eid).unwrap();
     assert!(e.is_rebuild_hole);
     assert_eq!(e.rebuild_template_name, "BldA");
@@ -1229,33 +953,23 @@ fn rebuild_producer_channel_via_set_rebuild_producer() {
     assert_eq!(e.rebuild_reconstructing_id, Some(bld.0));
     assert_eq!(e.producer_id, Some(hole.0));
     assert_eq!(e.construction_complete_clear_frame, 250);
-    {
-        let o = logic.host_object_mut(hole).expect("o");
-        o.is_rebuild_hole = false;
-        o.rebuild_template_name = None;
-        o.rebuild_ready_frame = 0;
-        o.rebuild_spawner_id = None;
-        o.rebuild_worker_id = None;
-        o.rebuild_reconstructing_id = None;
-        o.producer_id = None;
-        o.construction_complete_clear_frame = 0;
-    }
+
+    shadow
+        .world_mut()
+        .world_mut()
+        .entity_mut(eid)
+        .unwrap()
+        .rebuild_ready_frame = 0;
     assert!(shadow.compare_rebuild_producer_to_host(&logic) >= 1);
-    let _ = shadow.writeback_sole_healing_to_host(&mut logic);
-    let _ = crate::game_logic::host_sole_healing_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_ai_request_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_request_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
+    shadow.sync_from_host(&logic);
+
     let o = logic.host_objects().get(&hole).unwrap();
-    assert!(!o.is_rebuild_hole);
-    assert_eq!(o.rebuild_template_name.as_deref(), None);
-    assert_eq!(o.rebuild_ready_frame, 0);
-    assert_eq!(o.rebuild_spawner_id, None);
-    assert_eq!(o.rebuild_worker_id, None);
-    assert_eq!(o.rebuild_reconstructing_id, None);
-    assert_eq!(o.producer_id, None);
-    assert_eq!(o.construction_complete_clear_frame, 0);
+    assert!(o.is_rebuild_hole);
+    assert_eq!(o.rebuild_template_name.as_deref(), Some("BldA"));
+    assert_eq!(o.rebuild_ready_frame, 100);
+    assert_eq!(o.rebuild_spawner_id, Some(bld));
+    assert_eq!(o.rebuild_worker_id, Some(worker));
+    assert_eq!(o.rebuild_reconstructing_id, Some(bld));
+    assert_eq!(o.producer_id, Some(hole));
+    assert_eq!(o.construction_complete_clear_frame, 250);
 }

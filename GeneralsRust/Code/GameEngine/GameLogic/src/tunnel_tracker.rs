@@ -6,10 +6,10 @@
 //!
 //! Matches C++ TunnelTracker.cpp from GeneralsMD/Code/GameEngine/Source/Common/RTS/
 
-use crate::common::{GameResult, INVALID_ID, KindOf, ObjectID, ObjectStatusTypes};
+use crate::common::{GameResult, KindOf, ObjectID, ObjectStatusTypes, INVALID_ID};
 use crate::damage::DamageInfo;
-use crate::object::Object;
 use crate::object::drawable::DrawableArcExt;
+use crate::object::Object;
 use crate::system::game_logic::get_game_logic;
 use game_engine::common::system::snapshot::Snapshotable;
 use game_engine::common::system::xfer::{Xfer, XferMode, XferVersion};
@@ -35,6 +35,14 @@ pub struct TunnelTracker {
     nemesis_timestamp: u32,
     /// Maximum capacity for this tunnel network
     max_capacity: i32,
+}
+
+/// The metadata edge of the original immediate tunnel retirement. Rider
+/// callbacks run after releasing the owning Player/Tracker borrow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TunnelRetirement {
+    CaveIn,
+    Retarget(ObjectID),
 }
 
 impl TunnelTracker {
@@ -242,12 +250,45 @@ impl TunnelTracker {
         self.on_tunnel_destroyed_id(dead_tunnel.get_id())
     }
 
+    pub(crate) fn validate_entrance_retirement(&self, id: ObjectID) -> Result<(), String> {
+        if self.tunnel_count as usize != self.tunnel_ids.len()
+            || self.tunnel_count == 0
+            || self.tunnel_ids.iter().filter(|entry| **entry == id).count() != 1
+        {
+            return Err("tunnel registration/count identity mismatch".into());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn retire_entrance_metadata(&mut self, id: ObjectID) -> TunnelRetirement {
+        self.tunnel_count = self.tunnel_count.saturating_sub(1);
+        self.tunnel_ids.retain(|entry| *entry != id);
+        if self.tunnel_count == 0 {
+            TunnelRetirement::CaveIn
+        } else {
+            TunnelRetirement::Retarget(self.tunnel_ids.first().copied().unwrap_or(INVALID_ID))
+        }
+    }
+
+    pub(crate) fn contained_successor(&self, id: ObjectID) -> Result<Option<ObjectID>, String> {
+        let cursor = self
+            .contained_ids
+            .iter()
+            .position(|entry| *entry == id)
+            .ok_or("tunnel passenger cursor retired")?;
+        Ok(self.contained_ids.get(cursor + 1).copied())
+    }
+
+    pub(crate) fn clear_caved_in_roster(&mut self) {
+        self.contained_ids.clear();
+        self.contain_list_size = 0;
+    }
+
     /// Register that a tunnel object ID has been destroyed.
     pub fn on_tunnel_destroyed_id(&mut self, dead_tunnel_id: ObjectID) -> GameResult<()> {
-        self.tunnel_count = self.tunnel_count.saturating_sub(1);
-        self.tunnel_ids.retain(|&id| id != dead_tunnel_id);
+        let retirement = self.retire_entrance_metadata(dead_tunnel_id);
 
-        if self.tunnel_count == 0 {
+        if retirement == TunnelRetirement::CaveIn {
             // Kill everyone in the contain list - cave in! (Matches C++ lines 192-198)
             // Snapshot IDs to avoid iterator invalidation
             let objects_to_destroy: Vec<ObjectID> = self.contained_ids.clone();
@@ -339,7 +380,10 @@ impl TunnelTracker {
             None => return Ok(()),
         };
         let Ok(current_frame) = get_current_frame() else {
-            log::warn!("TunnelTracker::healObject frame unavailable for {}", object_id);
+            log::warn!(
+                "TunnelTracker::healObject frame unavailable for {}",
+                object_id
+            );
             return Ok(());
         };
         let contained_by_frame = obj_read.get_contained_by_frame();

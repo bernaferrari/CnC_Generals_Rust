@@ -2479,7 +2479,6 @@ fn run_map_world_skirmish(
 
 /// Production-linked golden skirmish scenario.
 pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSkirmishResult {
-    crate::gameworld_shadow::ensure_gate_damage_authority();
     let (map_identity, map_exists) = resolve_map(map_override);
     let config = golden_skirmish_config(&map_identity);
     let slots_active = config.slots.iter().filter(|s| s.is_active).count();
@@ -2716,8 +2715,7 @@ mod tests {
     #[test]
 
     fn host_construct_after_load_map_residual() {
-        crate::gameworld_shadow::ensure_gate_damage_authority();
-        let (map_identity, map_exists) = resolve_map(None);
+            let (map_identity, map_exists) = resolve_map(None);
         if !map_exists {
             return;
         }
@@ -2757,8 +2755,7 @@ mod tests {
 
     #[test]
     fn load_map_start_vision_allows_build_residual() {
-        crate::gameworld_shadow::ensure_gate_damage_authority();
-        let (map_identity, map_exists) = resolve_map(None);
+            let (map_identity, map_exists) = resolve_map(None);
         if !map_exists {
             eprintln!("retail map absent — skip start vision residual");
             return;

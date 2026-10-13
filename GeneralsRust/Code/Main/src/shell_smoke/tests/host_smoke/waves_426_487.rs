@@ -523,21 +523,9 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         "production quantity writeback live residual wave463: {}",
         r.detail
     );
-    assert!(
-        r.production_exit_delay_sole_tick_method_names_wave464_ok,
-        "production exit delay sole tick method names residual pack wave464: {}",
-        r.detail
-    );
-    assert!(
-        r.production_exit_delay_sole_tick_nav_commands_wave464_ok,
-        "production exit delay sole tick nav commands residual pack wave464: {}",
-        r.detail
-    );
-    assert!(
-        r.production_exit_delay_sole_tick_live_wave464_ok,
-        "production exit delay sole tick live residual wave464: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.minimap_heightmap_repair_presentation_first_method_names_wave465_ok,
         "minimap heightmap repair presentation first method names residual pack wave465: {}",

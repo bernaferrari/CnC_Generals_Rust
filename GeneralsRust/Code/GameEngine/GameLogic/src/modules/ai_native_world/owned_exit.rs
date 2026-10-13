@@ -4,6 +4,7 @@ pub(super) struct ExitContinuation {
     passenger: Arc<RwLock<Object>>,
     owner: Arc<RwLock<Object>>,
     instant: bool,
+    hurry: bool,
 }
 impl BorrowedAiWorld<'_> {
     pub(super) fn observe_exit_free_to_exit(
@@ -47,16 +48,30 @@ impl BorrowedAiWorld<'_> {
             drop(target);
         }
         let target = owner.read().map_err(|_| "exit owner poisoned")?;
+        let vehicle_ai = target
+            .is_kind_of(KindOf::Vehicle)
+            .then(|| target.get_ai_update_interface())
+            .flatten();
+        drop(target);
+        if let Some(ai) = vehicle_ai {
+            let ai = ai.lock().map_err(|_| "exit vehicle AI poisoned")?;
+            if ai.is_idle() {
+                ai.validate_contain_exit_occupancy_with_world(self)?;
+            }
+        }
+        let target = owner.read().map_err(|_| "exit owner poisoned")?;
         let contain = target.get_contain().ok_or("exit container absent")?;
         let contain = contain.lock().map_err(|_| "exit contain poisoned")?;
         if !contain.supports_owned_zero_path_exit() && !contain.supports_owned_numbered_exit() {
             return Err("native exit path/bone continuation not admitted".into());
         }
         if contain.supports_owned_numbered_exit() {
-            if target.is_kind_of(crate::common::KindOf::Vehicle)
-                || target.get_layer() != crate::common::PathfindLayerEnum::Ground
-            {
-                return Err("numbered exit currently requires a ground structure".into());
+            if target.get_layer() != crate::common::PathfindLayerEnum::Ground {
+                return Err("numbered exit requires supplied ground-layer path services".into());
+            }
+            let radius = target.get_geometry_info().get_bounding_circle_radius();
+            if !radius.is_finite() || radius < 0.0 {
+                return Err("numbered exit owner radius is invalid".into());
             }
             if let Some(drawable) = target.get_drawable() {
                 drop(
@@ -65,6 +80,23 @@ impl BorrowedAiWorld<'_> {
                         .map_err(|_| "exit pristine drawable poisoned")?,
                 );
             }
+        }
+        Ok(())
+    }
+    fn refresh_idle_vehicle_exit_map(&mut self, owner: &Arc<RwLock<Object>>) -> Result<(), String> {
+        let ai = {
+            let owner = owner.read().map_err(|_| "exit vehicle poisoned")?;
+            if !owner.is_kind_of(KindOf::Vehicle) {
+                return Ok(());
+            }
+            owner.get_ai_update_interface()
+        };
+        let Some(ai) = ai else {
+            return Ok(());
+        };
+        let mut ai = ai.lock().map_err(|_| "exit vehicle AI poisoned")?;
+        if ai.is_idle() {
+            ai.refresh_contain_exit_occupancy_with_world(self)?;
         }
         Ok(())
     }
@@ -84,6 +116,7 @@ impl BorrowedAiWorld<'_> {
             passenger,
             owner,
             instant,
+            hurry: false,
         });
         Ok(())
     }
@@ -128,29 +161,34 @@ impl BorrowedAiWorld<'_> {
             }
         };
         if let Some(path) = path {
+            self.set_object_position_handle(&step.passenger, &path.start)
+                .expect("admitted numbered exit position");
+            self.set_object_orientation_handle(&step.passenger, path.orientation)
+                .expect("admitted numbered exit orientation");
             {
                 let mut passenger = step
                     .passenger
                     .write()
                     .expect("admitted exit passenger poisoned");
-                self.set_object_position(&mut passenger, &path.start)
-                    .expect("admitted numbered exit position");
-                self.set_object_orientation(&mut passenger, path.orientation)
-                    .expect("admitted numbered exit orientation");
                 self.set_object_layer(&mut passenger, path.layer);
                 self.services
                     .pathfinder
                     .add_object_to_map(id, &[path.start], false);
             }
+            // Original owner occupancy refresh precedes the rider AI adjustment.
+            self.refresh_idle_vehicle_exit_map(&step.owner)?;
             let ai = step
                 .passenger
                 .read()
                 .expect("admitted exit actor poisoned")
                 .get_ai_update_interface()
                 .expect("admitted exit AI retired");
-            ai.lock()
-                .expect("admitted exit AI poisoned")
-                .follow_contain_exit_with_world(goal, path.end, path.rally, self)?;
+            let mut ai = ai.lock().expect("admitted exit AI poisoned");
+            if step.hurry {
+                ai.quick_contain_exit_with_world(path.end, path.rally, self)?;
+            } else {
+                ai.follow_contain_exit_with_world(goal, path.end, path.rally, self)?;
+            }
         }
         if !step.instant {
             let ai = step
@@ -164,6 +202,32 @@ impl BorrowedAiWorld<'_> {
                 .complete_exit_body_with_world(crate::ai::states::AIStateType::Exit as u32, self)?;
         }
         Ok(())
+    }
+    /// Original OpenContain::exitObjectInAHurry: physical removal and a
+    /// temporary exit path complete synchronously without replacing parent state.
+    pub fn execute_hurry_exit(&mut self, id: ObjectID) -> Result<(), String> {
+        if self.exit_driving {
+            return Err("nested hurry exit driver".into());
+        }
+        let passenger = self.object(id).ok_or("hurry exit source absent")?;
+        let goal = passenger
+            .read()
+            .map_err(|_| "hurry exit source poisoned")?
+            .get_contained_by()
+            .ok_or("hurry exit source not contained")?;
+        let owner = self.object(goal).ok_or("hurry exit owner absent")?;
+        self.validate_exit_pair(&passenger, &owner)?;
+        self.exit_driving = true;
+        self.pending_exit = Some(ExitContinuation {
+            passenger,
+            owner,
+            instant: true,
+            hurry: true,
+        });
+        let result = self.finish_staged_exit();
+        self.exit_driving = false;
+        self.pending_exit = None;
+        result
     }
     /// AIExitInstantly entry is completed before this command returns; ordinary
     /// AIExit leaves the passenger installed until its original update phase.
@@ -190,22 +254,6 @@ impl BorrowedAiWorld<'_> {
         };
         let owner = self.object(goal).ok_or("exit owner absent")?;
         self.validate_exit_pair(&passenger, &owner)?;
-        if instant {
-            let contain = owner
-                .read()
-                .map_err(|_| "exit owner poisoned")?
-                .get_contain()
-                .ok_or("exit contain absent")?;
-            if !contain
-                .lock()
-                .map_err(|_| "exit contain poisoned")?
-                .supports_owned_zero_path_exit()
-            {
-                return Err(
-                    "numbered instant exit requires the original QuickExit callback".into(),
-                );
-            }
-        }
         if owner
             .read()
             .map_err(|_| "exit owner poisoned")?

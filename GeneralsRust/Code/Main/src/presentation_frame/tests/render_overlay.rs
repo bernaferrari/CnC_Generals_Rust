@@ -1064,7 +1064,7 @@ fn overlay_gameworld_shadow_applies_local_economy_power() {
     use crate::gameworld_shadow::GameWorldShadow;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     // Ensure economy authority path is on for this process (gate default).
-    crate::gameworld_shadow::ensure_gate_damage_authority();
+
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("OverlayEconPower");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1076,31 +1076,33 @@ fn overlay_gameworld_shadow_applies_local_economy_power() {
     assert!(host_cash > 0, "host must have cash");
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    // Shadow last-writer: diverge economy/power and player residual from host.
-    if let Some(p) = shadow
-        .world_mut()
-        .player_mut(gamelogic::world::PlayerId::from_index(0u8))
-    {
-        p.supplies = host_cash.saturating_add(1234);
-        p.power_available = 77;
-        p.power_produced = 88;
-        p.power_consumed = 11;
-        p.is_alive = false;
-        p.radar_count = 3;
-        p.radar_disabled = true;
-        p.cash_bounty_percent = 0.25;
-        p.color_rgb = (9, 8, 7);
-        p.rank_level = 3;
-        p.skill_points = 400;
-        p.science_purchase_points = 2;
-        p.unlocked_sciences = vec!["SCIENCE_TestRank".into()];
-        p.shared_special_power_cooldowns =
-            vec![("ParticleCannon".into(), 42.0), ("ScudStorm".into(), 0.0)];
-    }
+    // Author the receiving Main player; the projection copies completed fields.
+    let player = logic.get_player_mut(0).unwrap();
+    player.resources.supplies = host_cash.saturating_add(1234);
+    player.power_available = 77;
+    player.power_produced = 88;
+    player.power_consumed = 11;
+    player.is_alive = false;
+    player.radar_count = 3;
+    player.radar_disabled = true;
+    player.cash_bounty_percent = 0.25;
+    player.color_rgb = (9, 8, 7);
+    player.rank_level = 3;
+    player.skill_points = 400;
+    player.science_purchase_points = 2;
+    player.unlocked_sciences.insert("SCIENCE_TestRank".into());
+    player.shared_special_power_cooldowns.insert(
+        crate::command_system::SpecialPowerType::ParticleCannon,
+        42.0,
+    );
+    player
+        .shared_special_power_cooldowns
+        .insert(crate::command_system::SpecialPowerType::ScudStorm, 0.0);
+    shadow.sync_from_host(&logic);
     let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
-    assert_eq!(frame.local_supplies, host_cash);
+    assert_eq!(frame.local_supplies, host_cash.saturating_add(1234));
     let _ = frame.overlay_gameworld_shadow(&shadow);
-    if crate::gameworld_shadow::gameworld_economy_authority_live() {
+    {
         assert_eq!(frame.local_supplies, host_cash.saturating_add(1234));
         assert_eq!(frame.local_power, 77);
         assert_eq!(frame.local_power_produced, 88);
@@ -1676,9 +1678,11 @@ fn apply_events_queues_authored_fire_audio_without_inventing_attack_or_death_sou
 fn heal_applied_freezes_from_last_drain() {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.health_events.clear_heal();
-    logic
-        .health_events
-        .record_heal(crate::game_logic::ObjectId(3), 88.0);
+    let target = super::admit_health_fixture_objects(&mut logic, 3);
+    let (object, events) = logic.host_object_and_health_events_mut(target).unwrap();
+    object.health.current = 40.0;
+    object.heal(48.0, events);
+    assert_eq!(object.health.current, 88.0);
     let _ = logic.health_events.drain_heal();
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(

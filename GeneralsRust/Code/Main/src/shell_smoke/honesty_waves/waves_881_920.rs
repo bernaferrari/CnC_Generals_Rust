@@ -101,9 +101,7 @@ pub(super) struct Waves881920 {
     pub host_legal_build_cache_method_names_wave911_ok: bool,
     pub host_legal_build_cache_nav_commands_wave911_ok: bool,
     pub host_legal_build_cache_live_wave911_ok: bool,
-    pub host_destroy_list_if_needed_method_names_wave912_ok: bool,
-    pub host_destroy_list_if_needed_nav_commands_wave912_ok: bool,
-    pub host_destroy_list_if_needed_live_wave912_ok: bool,
+
     pub host_redundant_authority_write_skip_method_names_wave913_ok: bool,
     pub host_redundant_authority_write_skip_nav_commands_wave913_ok: bool,
     pub host_redundant_authority_write_skip_live_wave913_ok: bool,
@@ -304,12 +302,7 @@ pub(super) fn evaluate() -> Waves881920 {
         host_legal_build_cache_nav_commands_wave911_ok:
             honesty_host_legal_build_cache_nav_commands_residual_wave911(),
         host_legal_build_cache_live_wave911_ok: simulate_live_host_legal_build_cache_honesty(),
-        host_destroy_list_if_needed_method_names_wave912_ok:
-            honesty_host_destroy_list_if_needed_method_names_residual_wave912(),
-        host_destroy_list_if_needed_nav_commands_wave912_ok:
-            honesty_host_destroy_list_if_needed_nav_commands_residual_wave912(),
-        host_destroy_list_if_needed_live_wave912_ok:
-            simulate_live_host_destroy_list_if_needed_honesty(),
+
         host_redundant_authority_write_skip_method_names_wave913_ok:
             honesty_host_redundant_authority_write_skip_method_names_residual_wave913(),
         host_redundant_authority_write_skip_nav_commands_wave913_ok:

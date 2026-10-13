@@ -6,11 +6,7 @@ pub(in crate::game_logic) mod tests {
     /// so host HP must mutate directly: publish the all-off authority context
     /// barrier (hq-e84zk retired the `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY` env
     /// opt-out) in case another test leaked a thread-local authority snapshot.
-    fn ensure_unit_test_direct_damage() {
-        crate::game_logic::game_logic::gameworld_authority::publish_gameworld_authority(
-            crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF,
-        );
-    }
+    fn ensure_unit_test_direct_damage() {}
 
     use super::*;
     use crate::game_logic::{KindOf, Object, Team, ThingTemplate, Weapon};
@@ -260,16 +256,9 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        let _authority_guard = crate::gameworld_shadow::authority_env_lock();
+
         let prior_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-        let prior_authority =
-            crate::game_logic::game_logic::gameworld_authority::current_gameworld_authority();
-        crate::game_logic::game_logic::gameworld_authority::publish_gameworld_authority(
-            crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority {
-                projectile: true,
-                ..prior_authority
-            },
-        );
+
         crate::game_logic::host_projectile_log::clear();
 
         let mut combat = CombatSystem::new();
@@ -294,7 +283,6 @@ pub(in crate::game_logic) mod tests {
         projectile.lifetime = 3.0 / 30.0;
 
         {
-            let _couple = crate::gameworld_shadow::ShadowCoupleGuard::enter();
             let mut objects = HashMap::new();
             let removed = combat.update_projectiles_with_countermeasures(
                 0.0,
@@ -317,9 +305,6 @@ pub(in crate::game_logic) mod tests {
             Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),
             None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
         }
-        crate::game_logic::game_logic::gameworld_authority::publish_gameworld_authority(
-            prior_authority,
-        );
     }
 
     #[test]
@@ -2660,7 +2645,7 @@ pub(in crate::game_logic) mod tests {
             last_fire_time: -10.0,
             ..Weapon::default()
         });
-        assert!(atk.fire_at(ObjectId(2), 1.0, 3, &mut combat, false));
+        assert!(atk.fire_at(ObjectId(2), 1.0, 3, &mut combat));
         let mut objects = HashMap::new();
         objects.insert(
             ObjectId(2),

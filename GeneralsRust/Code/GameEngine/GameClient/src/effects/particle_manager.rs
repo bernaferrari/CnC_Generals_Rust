@@ -548,6 +548,23 @@ impl ParticleSystemManager {
         system_id: ParticleSystemId,
         create_slaves: bool,
     ) -> Result<ParticleSystemId, ParticleSystemError> {
+        self.create_particle_system_with_id_and_random(
+            template,
+            system_id,
+            create_slaves,
+            &mut get_game_client_random_value_real,
+        )
+    }
+
+    /// Create with this manager's explicit initialization stream. No ambient
+    /// client random state is consulted beneath this boundary.
+    pub fn create_particle_system_with_id_and_random(
+        &mut self,
+        template: &Arc<ParticleSystemTemplate>,
+        system_id: ParticleSystemId,
+        create_slaves: bool,
+        random: &mut dyn FnMut(f32, f32) -> f32,
+    ) -> Result<ParticleSystemId, ParticleSystemError> {
         if system_id == INVALID_PARTICLE_SYSTEM_ID {
             return Err(ParticleSystemError::InvalidSystemId(system_id));
         }
@@ -559,13 +576,28 @@ impl ParticleSystemManager {
 
         // C++ ParticleSystemManager::createParticleSystem always instantiates the
         // system. LOD / budget gates run later in createParticle per particle.
-        let system = ParticleSystem::new(template.clone(), system_id, create_slaves);
+        let system =
+            ParticleSystem::new_with_random(template.clone(), system_id, create_slaves, random);
         self.active_systems.insert(system_id, Box::new(system));
         self.active_system_order.push(system_id);
         self.system_count = self.active_systems.len();
         self.next_system_id = self.next_system_id.max(system_id.saturating_add(1));
 
         Ok(system_id)
+    }
+
+    pub fn create_particle_system_with_random(
+        &mut self,
+        template: &Arc<ParticleSystemTemplate>,
+        create_slaves: bool,
+        random: &mut dyn FnMut(f32, f32) -> f32,
+    ) -> Result<ParticleSystemId, ParticleSystemError> {
+        self.create_particle_system_with_id_and_random(
+            template,
+            self.next_system_id,
+            create_slaves,
+            random,
+        )
     }
 
     /// Create a particle system attached to an object

@@ -17,7 +17,6 @@ pub const LIVE_HOST_WRITEBACK_CORE_BOUNDARY_METHOD_NAMES_WAVE944: &[&str] = &[
     "apply_host_writeback_op",
     "HostWritebackOp",
     "Health",
-    "Experience",
     "Transform",
     "AttackTarget",
     "MoveTarget",
@@ -61,7 +60,7 @@ fn shadow_source() -> &'static str {
 
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {
     match src.find(marker) {
-        Some(i) => &src[i..src.len().min(i + len)],
+        Some(_) => crate::game_logic::residuals::source_window::window(src, marker, len),
         None => "",
     }
 }
@@ -125,22 +124,20 @@ pub fn honesty_host_writeback_core_boundary_residual_pack_wave944() -> bool {
     let cnc = cnc_source();
     let api = non_comment_code(code_window(gl, "fn apply_host_writeback_op", 4000));
     let health = non_comment_code(fn_window(sh, "pub fn writeback_health_to_host"));
-    let xp = non_comment_code(fn_window(sh, "pub fn writeback_experience_to_host"));
     let xf = non_comment_code(fn_window(sh, "pub fn writeback_transforms_to_host"));
     let atk = non_comment_code(fn_window(sh, "pub fn writeback_attack_targets_to_host"));
     let mv = non_comment_code(fn_window(sh, "pub fn writeback_move_targets_to_host"));
     let ok = gl.contains("enum HostWritebackOp")
         && gl.contains("apply_host_writeback_op")
         && api.contains("HostWritebackOp::Health")
-        && api.contains("HostWritebackOp::Experience")
+        && !api.contains("HostWritebackOp::Experience")
         && api.contains("HostWritebackOp::Transform")
         && api.contains("HostWritebackOp::AttackTarget")
         && api.contains("HostWritebackOp::MoveTarget")
         && health.contains("apply_host_writeback_op")
         && health.contains("HostWritebackOp::Health")
         && !health.contains("get_objects_mut")
-        && xp.contains("HostWritebackOp::Experience")
-        && !xp.contains("get_objects_mut")
+        && !sh.contains("pub fn writeback_experience_to_host")
         && xf.contains("HostWritebackOp::Transform")
         && !xf.contains("get_objects_mut")
         && atk.contains("HostWritebackOp::AttackTarget")

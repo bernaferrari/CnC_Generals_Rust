@@ -82,6 +82,17 @@ impl UnitAIUpdate {
         world: &mut dyn crate::modules::ai_world::AiWorld,
         ignored: Option<ObjectID>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_world_owner(world)?;
+        if self
+            .runtime
+            .native_owner()
+            .ok_or("owned command actor absent")?
+            .read()
+            .map_err(|_| "owned command actor poisoned")?
+            .is_effectively_dead()
+        {
+            return Ok(()); // CPP AIUpdate::isAllowedToRespondToAiCommands.
+        }
         self.validate_owned_command(command, world)?;
         if world.pathfinder().is_none() {
             return Err("admitted pathfinder disappeared".into());
@@ -162,7 +173,8 @@ impl UnitAIUpdate {
         {
             return Err("supplied movement currently admits AI-origin removal motion only".into());
         }
-        self.validate_owned_components(
+        self.validate_owned_components_with_world(
+            world,
             command.cmd == crate::ai::AiCommandType::MoveToPosition
                 || idle
                 || exits
@@ -235,10 +247,40 @@ impl UnitAIUpdate {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.validate_owned_components(false, false)
     }
+    pub(super) fn validate_owned_components_with_world(
+        &self,
+        world: &dyn crate::modules::ai_world::AiWorld,
+        allow_contained: bool,
+        allow_dozer_idle: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_world_owner(world)?;
+        let owner = self
+            .runtime
+            .native_owner()
+            .ok_or("installed AI owner missing")?;
+        world.validate_containment_member(&owner)?;
+        self.validate_owned_components_impl(allow_contained, allow_dozer_idle, true)
+    }
+    /// Queued path geometry performs no containing/pose virtual callback.
+    /// The queue has already pinned this exact owner to its supplied factory.
+    pub(super) fn validate_owned_path_components(
+        &self,
+        allow_contained: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_owned_components_impl(allow_contained, false, true)
+    }
     pub(super) fn validate_owned_components(
         &self,
         allow_contained: bool,
         allow_dozer_idle: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_owned_components_impl(allow_contained, allow_dozer_idle, false)
+    }
+    fn validate_owned_components_impl(
+        &self,
+        allow_contained: bool,
+        allow_dozer_idle: bool,
+        allow_containing: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let owner = self
             .runtime
@@ -268,7 +310,8 @@ impl UnitAIUpdate {
         // Eligibility recursively inspects firing passengers and enclosing
         // garrison fire points. Those native callbacks are not yet admitted by
         // this bounded infantry-enter endpoint, including their slave effects.
-        if owner.get_contain().is_some() || (!allow_contained && owner.get_contained_by().is_some())
+        if (!allow_containing && owner.get_contain().is_some())
+            || (!allow_contained && owner.get_contained_by().is_some())
         {
             return Err("supplied AIEnter does not admit a containing or contained source".into());
         }

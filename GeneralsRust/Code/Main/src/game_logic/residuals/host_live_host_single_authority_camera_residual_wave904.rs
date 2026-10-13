@@ -48,7 +48,7 @@ fn cnc_source() -> &'static str {
 
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {
     match src.find(marker) {
-        Some(i) => &src[i..src.len().min(i + len)],
+        Some(_) => crate::game_logic::residuals::source_window::window(src, marker, len),
         None => "",
     }
 }
@@ -80,7 +80,6 @@ pub fn honesty_host_single_authority_camera_nav_commands_residual_wave904() -> b
 }
 
 pub fn honesty_host_single_authority_camera_residual_pack_wave904() -> bool {
-
     let cnc = cnc_source();
     let follow_raw = code_window(cnc, "fn host_set_camera_follow_object", 900);
     let follow = non_comment_code(follow_raw);

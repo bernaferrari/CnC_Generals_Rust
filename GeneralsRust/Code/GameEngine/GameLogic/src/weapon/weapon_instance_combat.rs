@@ -247,11 +247,26 @@ impl Weapon {
         primary_target_pos: &Coord3D,
         layer: PathfindLayerEnum,
     ) -> Option<Coord3D> {
+        self.take_scatter_target_pos_with_services(
+            primary_target_pos,
+            |last| get_game_logic_random_value(0, last) as usize,
+            |x, y| TheTerrainLogic::get().map(|terrain| terrain.get_ground_height(x, y, None)),
+        )
+    }
+
+    /// The original scatter-table consumption with the driving match's choice
+    /// and ground-height services. Victim layer does not select terrain here.
+    pub(crate) fn take_scatter_target_pos_with_services(
+        &mut self,
+        primary_target_pos: &Coord3D,
+        pick: impl FnOnce(i32) -> usize,
+        ground_height: impl FnOnce(f32, f32) -> Option<f32>,
+    ) -> Option<Coord3D> {
         if self.scatter_targets_unused.is_empty() {
             return None;
         }
         let last = self.scatter_targets_unused.len() as i32 - 1;
-        let random_pick = get_game_logic_random_value(0, last) as usize;
+        let random_pick = pick(last);
         let target_index = self.scatter_targets_unused.swap_remove(random_pick) as usize;
         let Some(scatter_target) = self.template.scatter_targets.get(target_index).copied() else {
             return None;
@@ -260,9 +275,9 @@ impl Weapon {
         let mut pos = *primary_target_pos;
         pos.x += scatter_target.x * scalar;
         pos.y += scatter_target.y * scalar;
-        if let Some(terrain) = TheTerrainLogic::get() {
+        if let Some(height) = ground_height(pos.x, pos.y) {
             // C++ Weapon.cpp:2605 uses getGroundHeight, not the victim layer.
-            pos.z = terrain.get_ground_height(pos.x, pos.y, None);
+            pos.z = height;
         }
         Some(pos)
     }
@@ -403,17 +418,19 @@ impl Weapon {
         } else {
             None
         };
-        let source_guard = source_arc.as_ref().and_then(|arc| arc.try_read().ok());
         let damage_source_arc = if damage_source_id == source_obj_id {
             None
         } else {
             TheGameLogic::find_object_by_id(damage_source_id)
         };
-        let damage_source_guard = damage_source_arc.as_ref().and_then(|arc| arc.read().ok());
-
         let mut impact_pos = *impact_pos;
         self.template
             .apply_historic_bonus(source_obj_id, &impact_pos);
+        // Weapon.cpp:1169–1251 delivers historical fire before ordinary damage
+        // observations. A nested bonus can damage the firer or its producer:
+        // retain their identities here, never their read loans across delivery.
+        let source_guard = source_arc.as_ref().and_then(|arc| arc.try_read().ok());
+        let damage_source_guard = damage_source_arc.as_ref().and_then(|arc| arc.read().ok());
         let mut primary_victim_id = None;
         if let Some(target_id) = target_obj_id {
             if let Some(target) = borrowed_source

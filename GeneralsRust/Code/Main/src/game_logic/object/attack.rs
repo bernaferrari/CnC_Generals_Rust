@@ -8,17 +8,8 @@ impl Object {
         current_time: f32,
         logic_frame: u32,
         combat: &mut super::combat::CombatSystem,
-        decision_authority_live: bool,
     ) -> bool {
-        self.fire_at_ex(
-            target_id,
-            current_time,
-            false,
-            false,
-            logic_frame,
-            combat,
-            decision_authority_live,
-        )
+        self.fire_at_ex(target_id, current_time, false, false, logic_frame, combat)
     }
 
     /// Fire at target with KindOf-aware scatter residual.
@@ -31,7 +22,6 @@ impl Object {
         target_has_faerie_fire: bool,
         logic_frame: u32,
         combat: &mut super::combat::CombatSystem,
-        decision_authority_live: bool,
     ) -> bool {
         let Some(slot) = self.fire_at_ex_defer_weapon_barrel_advance(
             target_id,
@@ -40,7 +30,6 @@ impl Object {
             target_has_faerie_fire,
             logic_frame,
             combat,
-            decision_authority_live,
         ) else {
             return false;
         };
@@ -67,7 +56,6 @@ impl Object {
         target_has_faerie_fire: bool,
         logic_frame: u32,
         combat: &mut super::combat::CombatSystem,
-        decision_authority_live: bool,
     ) -> Option<u8> {
         // C++ Weapon::getMaxShotCount residual — AI burst / scatter limits.
         if !self.has_max_shots_remaining() {
@@ -184,12 +172,7 @@ impl Object {
                 if entered_attack {
                     self.set_ai_state(AIState::Attacking);
                 }
-                if decision_authority_live {
-                    crate::game_logic::host_ai_decision_log::record_attack(self.id, target_id);
-                    if entered_attack {
-                        crate::game_logic::host_ai_decision_log::record_set_state(self.id, 2);
-                    }
-                }
+                {}
                 return None;
             }
             // Delay complete — fall through to fire; record_shot clears ready_at.
@@ -206,9 +189,7 @@ impl Object {
         if entered_attack {
             self.set_ai_state(AIState::Attacking);
         }
-        if entered_attack && decision_authority_live {
-            crate::game_logic::host_ai_decision_log::record_set_state(self.id, 2);
-        }
+        {}
 
         let fire_weapon_name = self.weapon_name_for_slot(slot).map(str::to_owned);
         let name = fire_weapon_name.as_deref();
@@ -491,7 +472,11 @@ impl Object {
         }
         {
             let frame = logic_frame;
-            self.stamp_fire_sound_loop_after_shot(frame, fire_weapon_name.as_deref());
+            self.stamp_fire_sound_loop_after_shot(
+                frame,
+                fire_weapon_name.as_deref(),
+                &mut combat.fire_sound_loop_events,
+            );
             // C++ FiringTracker::shotFired(weaponFired) — delay from this slot.
             self.stamp_auto_reload_when_idle_from_slot(slot, frame);
         }
@@ -504,20 +489,7 @@ impl Object {
             let next_count = self.fire_intent_count.saturating_add(1);
             // When AI attack authority is on, GameWorld SetFireIntent writeback is
             // last-writer — log the intent without dual-writing host last_fire_*.
-            if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
-                crate::game_logic::host_fire_intent_log::record(
-                    self.id,
-                    target_id.0,
-                    slot,
-                    dmg,
-                    rng,
-                    current_time,
-                    frame,
-                    next_count,
-                );
-                // Keep counter monotonic for subsequent shots this frame.
-                self.fire_intent_count = next_count;
-            } else {
+            {
                 self.last_fire_victim_host = target_id.0;
                 self.last_fire_slot = slot;
                 self.last_fire_damage = dmg;
@@ -660,7 +632,12 @@ impl Object {
 
     /// C++ FiringTracker::shotFired FireSoundLoopTime residual.
     /// Extends the looping fire-audio deadline; records start when newly armed.
-    pub fn stamp_fire_sound_loop_after_shot(&mut self, frame: u32, weapon_name: Option<&str>) {
+    pub fn stamp_fire_sound_loop_after_shot(
+        &mut self,
+        frame: u32,
+        weapon_name: Option<&str>,
+        events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
+    ) {
         let loop_frames = weapon_name
             .map(crate::game_logic::weapon_bootstrap::host_fire_sound_loop_frames_for_weapon_name)
             .unwrap_or(0);
@@ -674,15 +651,19 @@ impl Object {
             return;
         }
         let was_active = self.fire_sound_loop_until_frame > frame;
-        self.fire_sound_loop_until_frame = frame.saturating_add(loop_frames);
+        self.fire_sound_loop_until_frame = frame.wrapping_add(loop_frames);
         self.fire_sound_loop_name = sound.clone();
         if !was_active {
-            crate::game_logic::host_fire_sound_loop_log::record(self.id, sound, true);
+            events.record(self.id, sound, true);
         }
     }
 
     /// C++ FiringTracker::update stop-loop residual when deadline elapses.
-    pub fn tick_fire_sound_loop(&mut self, frame: u32) {
+    pub fn tick_fire_sound_loop(
+        &mut self,
+        frame: u32,
+        events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
+    ) {
         if self.fire_sound_loop_until_frame == 0 {
             return;
         }
@@ -690,7 +671,7 @@ impl Object {
             let sound = std::mem::take(&mut self.fire_sound_loop_name);
             self.fire_sound_loop_until_frame = 0;
             if !sound.is_empty() {
-                crate::game_logic::host_fire_sound_loop_log::record(self.id, sound, false);
+                events.record(self.id, sound, false);
             }
         }
     }
@@ -988,7 +969,7 @@ mod tests {
         // authoritative and must retain tertiary identity while firing.
         attacker.set_active_weapon_slot(0);
 
-        assert!(attacker.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, false));
+        assert!(attacker.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat));
         assert_eq!(attacker.last_fire_slot, 2);
         assert!((attacker.last_fire_damage - 37.0).abs() < f32::EPSILON);
         assert_eq!(
@@ -1019,7 +1000,7 @@ mod tests {
         unit.apply_grant_stealth();
         unit.stealth_breaks_on_attack = true;
         unit.stealth_delay_frames = 30;
-        assert!(unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, false));
+        assert!(unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat));
         assert!(!unit.status.stealthed);
         assert!(
             unit.innate_stealth,
@@ -1048,11 +1029,11 @@ mod tests {
             ..Weapon::default()
         });
         unit.status.under_construction = true;
-        assert!(!unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, false));
+        assert!(!unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat));
         unit.status.under_construction = false;
         unit.status.sold = true;
-        assert!(!unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, false));
+        assert!(!unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat));
         unit.status.sold = false;
-        assert!(unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, false));
+        assert!(unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat));
     }
 }

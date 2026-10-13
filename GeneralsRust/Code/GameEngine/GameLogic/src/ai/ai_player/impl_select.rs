@@ -49,16 +49,16 @@ impl AIPlayer {
             let Ok(player_guard) = player_arc.read() else {
                 return Ok((false, false));
             };
-            for (thing_name, min_units, max_units) in
-                units.iter().map(|(name, min_units, max_units)| (name.as_str(), *min_units, *max_units))
+            for (thing_name, min_units, max_units) in units
+                .iter()
+                .map(|(name, min_units, max_units)| (name.as_str(), *min_units, *max_units))
             {
                 let Some(template) = TheThingFactory::find_template(thing_name) else {
                     continue;
                 };
                 let thing_cost = template.calc_cost_to_build(Some(&*player_guard)) as i32;
                 // C++: cost += thingCost * ((maxUnits+minUnits)/2.0f);  // truncates to Int
-                cost +=
-                    (thing_cost as f32 * ((max_units as f32 + min_units as f32) / 2.0)) as i32;
+                cost += (thing_cost as f32 * ((max_units as f32 + min_units as f32) / 2.0)) as i32;
             }
         }
 
@@ -76,7 +76,8 @@ impl AIPlayer {
             }
         }
 
-        let ai_store = the_ai();let resources_mod = ai_store
+        let ai_store = the_ai();
+        let resources_mod = ai_store
             .read()
             .ok()
             .map(|ai| ai.get_ai_data().team_resources_to_build)

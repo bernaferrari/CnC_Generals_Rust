@@ -196,7 +196,6 @@ fn structure_exposes_command_sell_residual() {
         KindOf, Player, Team, ThingTemplate,
         buildings::{BuildingData, BuildingType},
     };
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
     // Controlling-player provenance: C++ evaluateContextUI populates only the
     // local player's selection (ControlBar.cpp:1359-1580); a playerless world
@@ -251,7 +250,6 @@ fn disabled_structure_keeps_sell_stop_rally() {
         KindOf, Player, ThingTemplate,
         buildings::{BuildingData, BuildingType},
     };
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
     // Controlling-player provenance: C++ evaluateContextUI runs on the local
     // player's selected object (Object::getControllingPlayer); a playerless
@@ -314,7 +312,6 @@ fn emp_plus_underpowered_does_not_reenable_specials() {
         KindOf, Player, Team, ThingTemplate,
         buildings::{BuildingData, BuildingType},
     };
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut tb = ThingTemplate::new("AmericaPowerPlant");
@@ -357,7 +354,6 @@ fn emp_plus_underpowered_does_not_reenable_specials() {
 #[test]
 fn empty_chinook_combat_drop_restricted() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
     // The command strip is the local player's UI (C++ ControlBar populates
     // the local player's selection). Register the controller slot so the
@@ -400,7 +396,6 @@ fn generals_power_hidden_without_required_science() {
         KindOf, Team, ThingTemplate,
         buildings::{BuildingData, BuildingType},
     };
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
     let mut tb = ThingTemplate::new("AmericaCommandCenter");
     tb.set_health(2000.0);
@@ -443,7 +438,6 @@ fn human_hides_ai_only_construct_cameo() {
         buildings::{BuildingData, BuildingType},
         host_production_buildable_command_residual::BSTATUS_ONLY_BY_AI,
     };
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
     let mut tb = ThingTemplate::new("AmericaWarFactory");
     tb.set_health(2000.0);
@@ -1782,7 +1776,6 @@ fn heal_and_attack_writes_never_invent_heal_or_fire_sfx() {
 #[test]
 fn capture_building_button_uses_ready_and_in_use() {
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
@@ -1836,7 +1829,6 @@ fn capture_building_button_uses_ready_and_in_use() {
 #[test]
 fn ranger_command_set_does_not_invent_buttons() {
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut t = ThingTemplate::new("AmericaInfantryRanger");
@@ -1886,7 +1878,6 @@ fn script_disabled_and_unmanned_hide_command_strip() {
         KindOf, Team, ThingTemplate,
         buildings::{BuildingData, BuildingType},
     };
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
     let mut tb = ThingTemplate::new("AmericaBarracks");
     tb.set_health(1000.0);
@@ -1926,7 +1917,6 @@ fn script_disabled_and_unmanned_hide_command_strip() {
 #[test]
 fn transport_exit_slots_bind_occupant_portraits() {
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
@@ -1980,7 +1970,6 @@ fn transport_exit_slots_bind_occupant_portraits() {
 #[test]
 fn special_power_buttons_disabled_on_cooldown_or_in_use() {
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut puc = ThingTemplate::new("AmericaParticleCannonUplink");
@@ -2048,7 +2037,6 @@ fn special_power_buttons_disabled_on_cooldown_or_in_use() {
 #[test]
 fn evacuate_disabled_with_zero_occupants() {
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
@@ -2109,7 +2097,6 @@ fn evacuate_disabled_with_zero_occupants() {
 
 #[test]
 fn command_set_strip_keeps_authored_holes() {
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = GameLogic::new();
     // Controlling-player provenance: C++ evaluateContextUI populates only the
     // local player's selection (ControlBar.cpp:1359-1580).
@@ -2269,7 +2256,6 @@ fn leftover_control_bar_override_hides_and_replaces_strip_slots() {
 
 #[test]
 fn multi_select_intersects_ok_for_multi_select_slots() {
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = GameLogic::new();
     // Controlling-player provenance: C++ updateContextMultiSelect intersects the
     // local player's selected objects (ControlBarMultiSelect.cpp).
@@ -2334,7 +2320,6 @@ fn multi_select_intersects_ok_for_multi_select_slots() {
 
 #[test]
 fn leftover_get_command_availability_hides_script_unsellable() {
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = GameLogic::new();
     let mut tb = ThingTemplate::new("AmericaBarracks");
     tb.set_health(1000.0);
@@ -2363,7 +2348,6 @@ fn leftover_get_command_availability_hides_script_unsellable() {
 
 #[test]
 fn leftover_wnd_stamps_single_use_subdued_and_unsellable() {
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = GameLogic::new();
     // C++ setPortraitByObject / WND stamping runs on the local player's
     // selected object (ControlBar.cpp:2567+); a playerless world has no analog.
@@ -2407,7 +2391,6 @@ fn leftover_wnd_stamps_single_use_subdued_and_unsellable() {
 
 #[test]
 fn leftover_strip_single_use_restricts_whole_strip() {
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = GameLogic::new();
     // C++ hasSingleUseCommandBeenUsed restriction runs on the local player's
     // selection (ControlBarCommand.cpp:1033-1036).
@@ -2443,7 +2426,6 @@ fn leftover_strip_single_use_restricts_whole_strip() {
 
 #[test]
 fn leftover_strip_subdued_restricts_sell_and_evacuate() {
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = GameLogic::new();
     // C++ DISABLED_SUBDUED sell/evacuate restrictions run on the local player's
     // selection (ControlBarCommand.cpp:1164-1165, 1368-1369).
@@ -2514,7 +2496,6 @@ fn leftover_strip_subdued_restricts_sell_and_evacuate() {
 
 #[test]
 fn ocl_timer_selection_hides_command_set_strip() {
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
@@ -2565,7 +2546,6 @@ fn under_construction_keeps_cancel_when_script_disabled() {
         KindOf, Player, ThingTemplate,
         buildings::{BuildingData, BuildingType},
     };
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
     // Controlling-player provenance: C++ populateUnderConstruction runs on a
     // locally-owned building (Object::getControllingPlayer); a playerless
@@ -2605,7 +2585,6 @@ fn under_construction_keeps_cancel_when_script_disabled() {
 fn empty_transport_exit_slot_starts_disabled() {
     // C++ doTransportInventoryUI winEnable(FALSE) until an occupant binds.
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
@@ -2647,7 +2626,6 @@ fn empty_transport_exit_slot_starts_disabled() {
 
 #[test]
 fn empty_command_set_garrison_builds_structure_inventory() {
-    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     use crate::game_logic::{
         KindOf, Player, Team, ThingTemplate,
         buildings::{BuildingData, BuildingType},

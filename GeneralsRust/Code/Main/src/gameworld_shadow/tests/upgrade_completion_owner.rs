@@ -142,7 +142,7 @@ fn tick(logic: &mut GameLogic, shadow: &mut GameWorldShadow) {
         frame + 1,
         "ordinary simulation tick"
     );
-    super::super::run_post_logic_shadow_boundary(Some(shadow), logic);
+    crate::gameworld_shadow::run_owned_host_boundary(Some(shadow), logic);
 }
 
 fn complete(logic: &GameLogic, infantry: ObjectId, foreign: ObjectId, at_frame: u32) {
@@ -186,7 +186,6 @@ fn complete(logic: &GameLogic, infantry: ObjectId, foreign: ObjectId, at_frame: 
 
 #[test]
 fn upgrade_completion_owner_two_worlds_and_reset_reuse_keep_canonical_effects() {
-    let _serial = authority_env_lock();
     let mut a = GameLogic::new();
     install_rules(&mut a, 321, 1);
     let a_ids = admit(&mut a);
@@ -217,7 +216,7 @@ fn upgrade_completion_owner_two_worlds_and_reset_reuse_keep_canonical_effects() 
     complete(&a, a_ids.1, a_ids.2, 39);
     let a_complete = only_entry(&a);
     let b_pending = only_entry(&b);
-    super::super::run_post_logic_shadow_boundary(Some(&mut a_shadow), &mut a);
+    crate::gameworld_shadow::run_owned_host_boundary(Some(&mut a_shadow), &mut a);
     assert_eq!(
         only_entry(&a),
         a_complete,
@@ -252,7 +251,6 @@ fn upgrade_completion_owner_two_worlds_and_reset_reuse_keep_canonical_effects() 
 
 #[test]
 fn upgrade_completion_owner_actual_file_writer_restores_pending_and_completed_research() {
-    let _serial = authority_env_lock();
     let dir = tempfile::TempDir::new().expect("save directory");
     let mut manager = SaveFileManager::with_save_directory(dir.path());
     manager

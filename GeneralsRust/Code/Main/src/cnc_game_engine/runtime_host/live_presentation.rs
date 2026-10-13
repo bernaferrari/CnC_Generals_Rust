@@ -9,13 +9,10 @@ impl CnCGameEngine {
         let action = args
             .get("action")
             .map(|v| v.trim().to_ascii_lowercase())
-            .unwrap_or_else(|| "prepare".to_string());
-        let wnd_ok = match action.as_str() {
-            "refresh" => crate::gameworld_shadow::simulate_gameworld_authority_refresh_env(),
-            "shadow" => crate::gameworld_shadow::simulate_gameworld_shadow_enable_check(),
-            "probe" => self.host_simulate_gameworld_authority_probe(),
-            _ => crate::gameworld_shadow::simulate_gameworld_authority_prepare_defaults(),
-        };
+            .unwrap_or_else(|| "probe".to_string());
+        // This diagnostic checks a read-only projection. Authority switches
+        // are retired; unknown actions cannot enable another simulation.
+        let wnd_ok = action == "probe" && self.host_simulate_gameworld_authority_probe();
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             format!("click_gameworld_authority_ok_wnd_{action}")
         } else {

@@ -333,14 +333,12 @@ impl DieModuleInterface for FireWeaponWhenDeadBehavior {
 
             // Fire the death weapon using weapon store singleton
             // Matches C++ line 93: TheWeaponStore->createAndFireTempWeapon(d->m_deathWeapon, obj, obj->getPosition());
-            crate::weapon::with_weapon_store_mut(|store| {
-                store.create_and_fire_temp_weapon(
-                    death_weapon_tmpl,
-                    obj_id,
-                    None,
-                    Some(&obj_position),
-                )
-            })
+            crate::weapon::WeaponStore::create_and_fire_temp_weapon(
+                death_weapon_tmpl,
+                obj_id,
+                None,
+                Some(&obj_position),
+            )
             .ok();
         }
 

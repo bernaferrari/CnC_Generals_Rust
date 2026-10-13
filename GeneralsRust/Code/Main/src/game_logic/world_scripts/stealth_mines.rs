@@ -525,10 +525,7 @@ impl GameLogic {
                         continue;
                     }
                     enemy.set_target(Some(rid));
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                        crate::game_logic::host_ai_decision_log::record_attack(eid, rid);
-                        crate::game_logic::host_ai_decision_log::record_set_state(eid, 2);
-                    }
+                    {}
                     self.camo_netting_order_idle_enemies_count =
                         self.camo_netting_order_idle_enemies_count.saturating_add(1);
                 }
@@ -2427,11 +2424,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;
@@ -2640,14 +2633,10 @@ impl GameLogic {
 
         // C++ StickyBombUpdate::update residual — stick to target / die with target.
         // Wave 807: under coupled shadow, attach follow owned by GW expire + logs.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.update_sticky_bomb_attachments();
         }
         // Wave 807: under coupled shadow, attach follow owned by GW expire + logs.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.capture_booby_plant_xy();
             self.update_booby_trap_special_attachments();
@@ -3060,15 +3049,7 @@ impl GameLogic {
                 ) || obj.target.is_none()
                 {
                     obj.set_ai_state(AIState::Moving);
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                        let ordinal =
-                            crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-                                &AIState::Moving,
-                            );
-                        crate::game_logic::host_ai_decision_log::record_set_state(
-                            clearer_id, ordinal,
-                        );
-                    }
+                    {}
                     obj.movement.target_position = Some(mine_pos);
                     self.movement_events.record(
                         self.frame,
@@ -3253,12 +3234,7 @@ impl GameLogic {
             }
             if matches!(clearer.ai_state, AIState::Attacking | AIState::Moving) {
                 clearer.set_ai_state(AIState::Idle);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-                        &AIState::Idle,
-                    );
-                    crate::game_logic::host_ai_decision_log::record_set_state(clearer_id, ordinal);
-                }
+                {}
                 clearer.movement.target_position = None;
                 clearer.set_status_moving(false);
                 clearer.set_status_attacking(false);
@@ -3798,10 +3774,7 @@ impl GameLogic {
                     continue;
                 }
                 enemy.set_target(Some(victim_id));
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_attack(eid, victim_id);
-                    crate::game_logic::host_ai_decision_log::record_set_state(eid, 2);
-                }
+                {}
                 self.camo_netting_order_idle_enemies_count =
                     self.camo_netting_order_idle_enemies_count.saturating_add(1);
             }

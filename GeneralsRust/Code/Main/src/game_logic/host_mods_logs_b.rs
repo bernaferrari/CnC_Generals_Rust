@@ -29,9 +29,6 @@ pub mod host_fire_sound_loop_log;
 #[path = "host_fire_spawn_log.rs"]
 pub mod host_fire_spawn_log;
 
-#[path = "host_guard_log.rs"]
-pub mod host_guard_log;
-
 #[path = "host_heal_log.rs"]
 pub mod host_heal_log;
 
@@ -56,29 +53,18 @@ pub mod host_paradrop_cargo_drop_log;
 #[path = "host_physics_motive_log.rs"]
 pub mod host_physics_motive_log;
 
-#[path = "host_economy_ready_log.rs"]
-pub mod host_economy_ready_log;
 
 #[path = "host_entity_power_log.rs"]
 pub mod host_entity_power_log;
 
-#[path = "host_entity_power_ready_log.rs"]
-pub mod host_entity_power_ready_log;
 
 #[path = "host_eva_log.rs"]
 pub mod host_eva_log;
 
-#[path = "host_experience_log.rs"]
-pub mod host_experience_log;
-
 #[path = "host_faerie_fire_log.rs"]
 pub mod host_faerie_fire_log;
 
-#[path = "host_faerie_fire_ready_log.rs"]
-pub mod host_faerie_fire_ready_log;
 
-#[path = "host_fire_intent_ready_log.rs"]
-pub mod host_fire_intent_ready_log;
 
 #[path = "host_formation_log.rs"]
 pub mod host_formation_log;
@@ -89,35 +75,20 @@ pub mod host_fow_log;
 #[path = "host_ground_height_log.rs"]
 pub mod host_ground_height_log;
 
-#[path = "host_ground_height_ready_log.rs"]
-pub mod host_ground_height_ready_log;
 
-#[path = "host_guard_ready_log.rs"]
-pub mod host_guard_ready_log;
 
-#[path = "host_hijacker_ready_log.rs"]
-pub mod host_hijacker_ready_log;
-
-#[path = "host_hive_ready_log.rs"]
-pub mod host_hive_ready_log;
 
 #[path = "host_identity_log.rs"]
 pub mod host_identity_log;
 
-#[path = "host_identity_ready_log.rs"]
-pub mod host_identity_ready_log;
 
 #[path = "host_kind_of_log.rs"]
 pub mod host_kind_of_log;
 
-#[path = "host_locomotor_ready_log.rs"]
-pub mod host_locomotor_ready_log;
 
 #[path = "host_model_condition_log.rs"]
 pub mod host_model_condition_log;
 
-#[path = "host_model_condition_ready_log.rs"]
-pub mod host_model_condition_ready_log;
 
 #[path = "host_model_mesh_log.rs"]
 pub mod host_model_mesh_log;
@@ -128,35 +99,23 @@ pub(crate) mod movement_events;
 #[path = "host_move_ambient_audio.rs"]
 pub mod host_move_ambient_audio;
 
-#[path = "host_move_target_ready_log.rs"]
-pub mod host_move_target_ready_log;
 
 #[path = "host_movement_log.rs"]
 pub mod host_movement_log;
 
-#[path = "host_movement_ready_log.rs"]
-pub mod host_movement_ready_log;
 
 #[path = "host_overcharge_log.rs"]
 pub mod host_overcharge_log;
 
-#[path = "host_overcharge_ready_log.rs"]
-pub mod host_overcharge_ready_log;
 
 #[path = "host_overlord_log.rs"]
 pub mod host_overlord_log;
 
-#[path = "host_overlord_ready_log.rs"]
-pub mod host_overlord_ready_log;
 
 #[path = "host_owner_log.rs"]
 pub mod host_owner_log;
 
-#[path = "host_owner_ready_log.rs"]
-pub mod host_owner_ready_log;
 
-#[path = "host_physics_motive_ready_log.rs"]
-pub mod host_physics_motive_ready_log;
 
 #[path = "host_player_cooldown_log.rs"]
 pub mod host_player_cooldown_log;

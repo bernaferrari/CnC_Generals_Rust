@@ -3,51 +3,15 @@
 use super::ShellSmokeResult;
 
 pub(super) fn assert_waves_183_243(r: &ShellSmokeResult) {
-    assert!(
-        r.live_gameworld_economy_movement_method_names_wave183_ok,
-        "live gameworld economy movement method names residual pack wave183: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_economy_movement_nav_commands_wave183_ok,
-        "live gameworld economy movement nav commands residual pack wave183: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_economy_movement_live_wave183_ok,
-        "live gameworld economy movement live residual wave183: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_projectile_ai_method_names_wave184_ok,
-        "live gameworld projectile ai method names residual pack wave184: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_projectile_ai_nav_commands_wave184_ok,
-        "live gameworld projectile ai nav commands residual pack wave184: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_projectile_ai_live_wave184_ok,
-        "live gameworld projectile ai live residual wave184: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_fire_special_power_method_names_wave185_ok,
-        "live gameworld fire special power method names residual pack wave185: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_fire_special_power_nav_commands_wave185_ok,
-        "live gameworld fire special power nav commands residual pack wave185: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_fire_special_power_live_wave185_ok,
-        "live gameworld fire special power live residual wave185: {}",
-        r.detail
-    );
+
+
+
+
+
+
+
+
+
     assert!(
         r.live_gameworld_presentation_view_method_names_wave186_ok,
         "live gameworld presentation view method names residual pack wave186: {}",
@@ -138,66 +102,18 @@ pub(super) fn assert_waves_183_243(r: &ShellSmokeResult) {
         "live gameworld entity view deepen live residual wave191: {}",
         r.detail
     );
-    assert!(
-        r.live_presentation_append_missing_method_names_wave192_ok,
-        "live presentation append missing method names residual pack wave192: {}",
-        r.detail
-    );
-    assert!(
-        r.live_presentation_append_missing_nav_commands_wave192_ok,
-        "live presentation append missing nav commands residual pack wave192: {}",
-        r.detail
-    );
-    assert!(
-        r.live_presentation_append_missing_live_wave192_ok,
-        "live presentation append missing live residual wave192: {}",
-        r.detail
-    );
-    assert!(
-        r.live_presentation_build_from_gameworld_method_names_wave193_ok,
-        "live presentation build from gameworld method names residual pack wave193: {}",
-        r.detail
-    );
-    assert!(
-        r.live_presentation_build_from_gameworld_nav_commands_wave193_ok,
-        "live presentation build from gameworld nav commands residual pack wave193: {}",
-        r.detail
-    );
-    assert!(
-        r.live_presentation_build_from_gameworld_live_wave193_ok,
-        "live presentation build from gameworld live residual wave193: {}",
-        r.detail
-    );
-    assert!(
-        r.live_presentation_from_gameworld_default_method_names_wave194_ok,
-        "live presentation from gameworld default method names residual pack wave194: {}",
-        r.detail
-    );
-    assert!(
-        r.live_presentation_from_gameworld_default_nav_commands_wave194_ok,
-        "live presentation from gameworld default nav commands residual pack wave194: {}",
-        r.detail
-    );
-    assert!(
-        r.live_presentation_from_gameworld_default_live_wave194_ok,
-        "live presentation from gameworld default live residual wave194: {}",
-        r.detail
-    );
-    assert!(
-        r.live_presentation_build_for_engine_method_names_wave195_ok,
-        "live presentation build for engine method names residual pack wave195: {}",
-        r.detail
-    );
-    assert!(
-        r.live_presentation_build_for_engine_nav_commands_wave195_ok,
-        "live presentation build for engine nav commands residual pack wave195: {}",
-        r.detail
-    );
-    assert!(
-        r.live_presentation_build_for_engine_live_wave195_ok,
-        "live presentation build for engine live residual wave195: {}",
-        r.detail
-    );
+
+
+
+
+
+
+
+
+
+
+
+
     assert!(
         r.live_presentation_rebuilt_vertical_gate_method_names_wave196_ok,
         "live presentation rebuilt vertical gate method names residual pack wave196: {}",

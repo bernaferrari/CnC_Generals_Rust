@@ -27,6 +27,11 @@ pub(super) fn normalize_orientation_angle(mut angle: Real) -> Real {
     angle
 }
 
+pub(crate) struct OwnedObjectTransform {
+    pub(crate) position_changed: bool,
+    pub(crate) pose_changed: bool,
+}
+
 impl Object {
     /// Get unit direction vector in 2D (x, y) based on the object's facing angle.
     /// Returns (cos(angle), sin(angle)) representing the forward direction.
@@ -322,7 +327,57 @@ impl Object {
             }
         }
         drop(empty_contain);
-        if (pos_diff || ang_diff) && self.partition_data.is_some() {
+        self.dirty_partition_for_owned_pose(pos_diff || ang_diff, collision)?;
+        self.finish_owned_transform_with_services(
+            OwnedObjectTransform {
+                position_changed: pos_diff,
+                pose_changed: pos_diff || ang_diff,
+            },
+            terrain,
+            frame,
+            changed,
+            notify_terrain_moved,
+        )?;
+        Ok(())
+    }
+
+    /// Original local pose/Drawable and partition phase. The driving instance
+    /// releases the Object loan before the synchronous containment callback.
+    pub(crate) fn begin_owned_transform_with_services(
+        &mut self,
+        matrix: &Matrix3D,
+        terrain: &crate::terrain::TerrainLogic,
+        collision: &mut crate::object::collide::collision_system::CollisionSystem,
+    ) -> Result<OwnedObjectTransform, String> {
+        if !matrix.is_finite() {
+            return Err("owned transform is nonfinite".into());
+        }
+        let (position_changed, angle_changed) =
+            self.apply_transform_local(matrix, None, &mut |object| {
+                let position = object.get_position();
+                position.z
+                    - terrain.get_layer_height(
+                        position.x,
+                        position.y,
+                        crate::path::PathfindLayerEnum::from_u32(object.get_layer() as u32),
+                        None,
+                        false,
+                    )
+            });
+        let pose_changed = position_changed || angle_changed;
+        self.dirty_partition_for_owned_pose(pose_changed, collision)?;
+        Ok(OwnedObjectTransform {
+            position_changed,
+            pose_changed,
+        })
+    }
+
+    fn dirty_partition_for_owned_pose(
+        &mut self,
+        pose_changed: bool,
+        collision: &mut crate::object::collide::collision_system::CollisionSystem,
+    ) -> Result<(), String> {
+        if pose_changed && self.partition_data.is_some() {
             let p = self.geometry_info.position;
             let position = crate::object::collide::Coord3D::new(p.x, p.y, p.z);
             if collision
@@ -339,7 +394,19 @@ impl Object {
                     .map_err(|error| error.to_string())?;
             }
         }
-        if pos_diff {
+        Ok(())
+    }
+
+    pub(crate) fn finish_owned_transform_with_services(
+        &mut self,
+        observation: OwnedObjectTransform,
+        terrain: &crate::terrain::TerrainLogic,
+        frame: u32,
+        changed: &mut dyn FnMut(ObjectID),
+        notify_terrain_moved: &mut dyn FnMut(&Object),
+    ) -> Result<(), String> {
+        let position_changed = observation.position_changed;
+        if position_changed {
             let triggers = terrain
                 .get_trigger_areas()
                 .get_triggers()
@@ -366,6 +433,58 @@ impl Object {
             }
         }
         Ok(())
+    }
+
+    pub(crate) fn containment_turret_firepoint(&self, index: usize) -> Result<Matrix3D, String> {
+        let yaw = if self.cached_main_turret_valid {
+            self.cached_main_turret_yaw
+        } else {
+            let ai = self
+                .get_ai_update_interface()
+                .ok_or("turret containment AI absent")?;
+            let ai = ai
+                .try_lock()
+                .map_err(|_| "turret containment AI is already borrowed")?;
+            ai.get_turret_angle(crate::common::TurretType::Primary)
+        };
+        // Literal OpenContain.cpp1261 naming, including its zero-prefix branch.
+        let name = if index < 10 {
+            format!("FIREPOINT0{}", index + 1)
+        } else {
+            format!("FIREPOINT{}", index + 1)
+        };
+        Ok(self
+            .turret_firepoint_matrix_at_yaw(&name, yaw)
+            .unwrap_or_else(|| self.get_transform_matrix()))
+    }
+
+    pub(crate) fn containment_firepoint_matrices(
+        &self,
+        turret: bool,
+    ) -> Result<Vec<Matrix3D>, String> {
+        if !turret {
+            return Ok(self.get_multi_logical_bone_matrix("FIREPOINT", 32));
+        }
+        let yaw = if self.cached_main_turret_valid {
+            self.cached_main_turret_yaw
+        } else {
+            let ai = self
+                .get_ai_update_interface()
+                .ok_or("turret containment AI absent")?;
+            let ai = ai
+                .try_lock()
+                .map_err(|_| "turret containment AI is already borrowed")?;
+            ai.get_turret_angle(crate::common::TurretType::Primary)
+        };
+        let mut bones = Vec::new();
+        for index in 1..=32 {
+            let name = format!("FIREPOINT{index:02}");
+            let Some(matrix) = self.turret_firepoint_matrix_at_yaw(&name, yaw) else {
+                break;
+            };
+            bones.push(matrix);
+        }
+        Ok(bones)
     }
 
     pub fn get_multi_logical_bone_position(

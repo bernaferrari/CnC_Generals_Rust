@@ -412,8 +412,6 @@ pub enum HostSupportResult {
 /// Wave 937: production complete/spawn authority payload.
 #[derive(Debug, Clone)]
 pub enum ProductionAuthorityOp {
-    /// Sole-tick path: collect ready producers after GW writeback, then apply.
-    ApplyCompletionsAfterReadyWriteback { dt: f32 },
     /// Spawn one completed unit (ObjectId host bind residual).
     SpawnUnit {
         template: String,
@@ -425,8 +423,6 @@ pub enum ProductionAuthorityOp {
     },
     /// Drain production spawn-ready log into host door/notify residuals.
     ApplySpawnReadyCompletions,
-    /// Drain production door-ready log into host door model residuals.
-    ApplyDoorReadyCompletions,
 }
 
 /// Wave 937: result for [`ProductionAuthorityOp`].
@@ -434,70 +430,6 @@ pub enum ProductionAuthorityOp {
 pub enum ProductionAuthorityResult {
     Unit,
     Spawned(Option<ObjectId>),
-}
-
-/// Wave 938: post-writeback sole-tick complete authority (construction/sell/SP).
-#[derive(Debug, Clone, Copy)]
-pub enum PostWritebackCompleteOp {
-    /// Wave 717: special-power ready EVA after GW SP writeback.
-    SpecialPowerReadyAfterWriteback,
-}
-
-/// Wave 939: post-writeback ready-log drain authority payload.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReadyLogDrainOp {
-    Contain,
-    Projectiles,
-    AttackTarget,
-    Movement,
-    FireIntent,
-    MoveTarget,
-    Transform,
-    Locomotor,
-    AiRequest,
-    Hijacker,
-    PhysicsMotive,
-    BounceLand,
-    CombatStatus,
-    BodyDamage,
-    DeathType,
-    RadarExtend,
-    ShockStun,
-    SoleHealing,
-    Owner,
-    Veterancy,
-    WeaponBonus,
-    FaerieFire,
-    Repulsor,
-    DisableTimers,
-    WeaponSlot,
-    EntityPower,
-    Turret,
-    StealthDelay,
-    CombatAttack,
-    TargetLocation,
-    Detector,
-    ContinuousFire,
-    Guard,
-    AiAttitude,
-    WeaponSet,
-    Overcharge,
-    Hive,
-    StealthFlags,
-    Overlord,
-    CommandSet,
-    Disguise,
-    VisionCamo,
-    WeaponStats,
-    SelectionRadius,
-    ModelCondition,
-    DemoMineCheer,
-    CrushVision,
-    BuildingType,
-    Identity,
-    GroundHeight,
-    Economy,
-    StoredSupplies,
 }
 
 /// Wave 940: post-writeback sole-tick batch is a single authority call (no enum).
@@ -590,9 +522,6 @@ pub enum HostResidualMutationOp {
         target: glam::Vec3,
         kind: SpawnedPayloadKind,
     },
-    /// Host-only raw HP damage for combat events with no shadow entity mapping.
-    /// `amount` is already post-armor — do not re-run armor/log.
-    ApplyRawHpDamage { id: ObjectId, amount: f32 },
 }
 
 /// Wave 942: which projectile/identity flag to clear on lethal expire.
@@ -639,123 +568,4 @@ pub enum SpawnedPayloadKind {
     CarpetBomb,
     LeafletContainer,
     ParadropParachute,
-}
-
-/// Wave 944: shadow→host writeback payload (core combat/pose channels).
-#[derive(Debug, Clone)]
-pub enum HostWritebackOp {
-    /// Health/max + optional destroy bookkeeping fields.
-    Health {
-        id: ObjectId,
-        current: f32,
-        maximum: f32,
-        /// When true, mark destroyed + clear AI target.
-        destroy: bool,
-    },
-    /// Experience points and/or veterancy level.
-    Experience {
-        id: ObjectId,
-        points: Option<f32>,
-        level: Option<crate::game_logic::VeterancyLevel>,
-    },
-    /// World pose last-write.
-    Transform {
-        id: ObjectId,
-        position: glam::Vec3,
-        orientation: f32,
-    },
-    /// Attack target last-write (direct assign; ready-log handles residuals).
-    AttackTarget {
-        id: ObjectId,
-        target: Option<ObjectId>,
-        clear_target_location: bool,
-    },
-    /// Move destination last-write.
-    MoveTarget {
-        id: ObjectId,
-        destination: Option<glam::Vec3>,
-    },
-    /// Wave 945: AI attitude last-write.
-    AiAttitude { id: ObjectId, attitude: i8 },
-    /// Wave 945: owner last-write. `team` remains faction/presentation state;
-    /// `owner_player_id` distinguishes same-faction skirmish slots.
-    Owner {
-        id: ObjectId,
-        team: Team,
-        team_color: [f32; 4],
-        owner_player_id: Option<u32>,
-    },
-    /// Wave 945: special-power ready/cooldown last-write.
-    SpecialPower {
-        id: ObjectId,
-        ready: bool,
-        cooldown_remaining: f32,
-        cooldown: f32,
-    },
-    /// Wave 945: overcharge flag last-write.
-    Overcharge { id: ObjectId, enabled: bool },
-    /// Wave 945: active weapon slot last-write.
-    WeaponSlot { id: ObjectId, slot: u8 },
-    /// Wave 945: selection radius last-write.
-    SelectionRadius { id: ObjectId, radius: f32 },
-    /// Wave 945: entity power provided/consumed last-write.
-    EntityPower {
-        id: ObjectId,
-        provided: i32,
-        consumed: i32,
-    },
-    /// Wave 945: target location last-write.
-    TargetLocation {
-        id: ObjectId,
-        location: Option<glam::Vec3>,
-    },
-    /// Wave 945: command-set override last-write.
-    CommandSet {
-        id: ObjectId,
-        override_name: Option<String>,
-    },
-    /// Wave 945: ground height last-write.
-    GroundHeight {
-        id: ObjectId,
-        height: f32,
-        from_terrain: bool,
-    },
-    /// Wave 945: body damage state last-write.
-    BodyDamage {
-        id: ObjectId,
-        state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
-    },
-    /// Wave 945: death type last-write.
-    DeathType {
-        id: ObjectId,
-        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
-    },
-    /// Wave 945: stored supplies last-write.
-    StoredSupplies { id: ObjectId, supplies: u32 },
-    /// Wave 945: faerie-fire status last-write.
-    FaerieFire {
-        id: ObjectId,
-        active: bool,
-        until_frame: u32,
-    },
-    /// Wave 945: repulsor status last-write.
-    Repulsor {
-        id: ObjectId,
-        active: bool,
-        until_frame: u32,
-    },
-    /// Wave 945: detector residual last-write.
-    Detector {
-        id: ObjectId,
-        is_detector: bool,
-        range: f32,
-        rate_frames: u32,
-    },
-    /// Wave 945: guard residual last-write.
-    Guard {
-        id: ObjectId,
-        position: Option<glam::Vec3>,
-        target: Option<ObjectId>,
-        radius: f32,
-    },
 }

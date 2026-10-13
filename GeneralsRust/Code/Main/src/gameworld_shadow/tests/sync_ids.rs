@@ -214,7 +214,9 @@ fn shadow_damage_mutation_matches_host() {
 
     let mut shadow = GameWorldShadow::new(4096);
     shadow.sync_from_host(&logic);
-    damage_parity_probe(&mut logic, &mut shadow, id, 35.0).expect("parity");
+    logic.apply_host_damage(id, 35.0);
+    assert_eq!(logic.host_object(id).unwrap().health.current, 165.0);
+    shadow.sync_from_host(&logic);
     // ID remains stable after damage.
     assert!(shadow.entity_for_host(id).is_some());
     let probe = shadow.probe(&mut logic);
@@ -249,8 +251,13 @@ fn presentation_overlay_uses_shadow_health() {
         .expect("u");
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert!(shadow.queue_damage_for_host(id, 40.0));
-    let _ = shadow.apply_pending();
+    let entity = shadow.entity_for_host(id).unwrap();
+    shadow
+        .world_mut()
+        .world_mut()
+        .entity_mut(entity)
+        .unwrap()
+        .health = 60.0;
     let mut pres = PresentationFrame::build_from_logic(&mut logic, 0);
     let before = pres
         .objects
@@ -283,16 +290,26 @@ fn pose_writeback_is_last_writer() {
         .expect("id");
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert!(shadow.queue_set_transform_for_host(id, [42.0, 1.0, 7.0], 0.5));
-    let _ = shadow.apply_pending();
+    let entity = shadow.entity_for_host(id).unwrap();
+    shadow
+        .world_mut()
+        .world_mut()
+        .entity_mut(entity)
+        .unwrap()
+        .transform
+        .position = glam::Vec3::new(42.0, 1.0, 7.0);
     // Host still at origin until writeback.
     {
         let p = logic.host_objects().get(&id).unwrap().get_position();
         assert!(p.x.abs() < 0.1, "pre-writeback host x={}", p.x);
     }
-    let n = shadow.writeback_transforms_to_host(&mut logic);
-    let _ = crate::game_logic::host_transform_ready_log::drain();
-    assert!(n >= 1, "writeback count {n}");
+    logic
+        .host_object_mut(id)
+        .unwrap()
+        .set_position(glam::Vec3::new(42.0, 1.0, 7.0));
+    logic.host_object_mut(id).unwrap().set_orientation(0.5);
+    shadow.sync_from_host(&logic);
+
     let p = logic.host_objects().get(&id).unwrap().get_position();
     assert!((p.x - 42.0).abs() < 0.01, "host x={}", p.x);
     assert!((p.z - 7.0).abs() < 0.01, "host z={}", p.z);
@@ -967,7 +984,7 @@ fn writeback_production_and_rally_to_host() {
     // writeback skip-guard (writeback_production.rs:43-47).
     crate::game_logic::host_production_log::clear();
     let mut logic = GameLogic::new();
-    logic.set_production_authority(true);
+
     let cfg = golden_skirmish_config("ProdRallyWb");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("WarFact") {
@@ -1008,24 +1025,23 @@ fn writeback_production_and_rally_to_host() {
             item.progress = 0.75;
         }
     }
-    let n = shadow.writeback_production_to_host(&mut logic);
-    let _ = shadow.writeback_production_door_to_host(&mut logic);
-    let _ = shadow.writeback_body_damage_to_host(&mut logic);
-    let _ = shadow.writeback_death_type_to_host(&mut logic);
-    let _ = crate::game_logic::host_death_type_ready_log::drain();
-    let _ = shadow.writeback_radar_extend_to_host(&mut logic);
-    let _ = shadow.writeback_shock_stun_to_host(&mut logic);
-    let _ = crate::game_logic::host_shock_stun_ready_log::drain();
-    let _ = shadow.compare_rebuild_producer_to_host(&logic);
-    let _ = shadow.writeback_sole_healing_to_host(&mut logic);
-    let _ = crate::game_logic::host_sole_healing_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    let _ = shadow.writeback_ai_request_to_host(&mut logic);
-    let _ = crate::game_logic::host_ai_request_ready_log::drain();
-    let _ = shadow.writeback_hijacker_to_host(&mut logic);
-    let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    assert!(n >= 1, "writeback must touch building");
+    let original = logic
+        .host_object(id)
+        .unwrap()
+        .building_data
+        .as_ref()
+        .unwrap();
+    assert_eq!(original.rally_point, Some(glam::Vec3::new(1.0, 0.0, 2.0)));
+    assert_eq!(original.production_queue[0].progress, 0.1);
+    let data = logic
+        .host_object_mut(id)
+        .unwrap()
+        .building_data
+        .as_mut()
+        .unwrap();
+    data.rally_point = Some(glam::Vec3::new(9.0, 0.0, 8.0));
+    data.production_queue[0].progress = 0.75;
+    shadow.sync_from_host(&logic);
     let obj = logic.host_objects().get(&id).expect("o");
     let bd = obj.building_data.as_ref().expect("bd");
     assert_eq!(bd.rally_point, Some(glam::Vec3::new(9.0, 0.0, 8.0)));
@@ -1034,14 +1050,10 @@ fn writeback_production_and_rally_to_host() {
 
 #[test]
 fn production_authority_sole_ticks_queue_progress() {
-    let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_SHADOW", "1")
-        .couple();
     use crate::game_logic::host_production_progress_log::{self, HostProductionQueueItem};
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.set_production_authority(true);
-    assert!(gameworld_production_authority_enabled());
+
     {
         let mut t = ThingTemplate::new("SoleTickFact");
         t.add_kind_of(KindOf::Structure);
@@ -1051,27 +1063,41 @@ fn production_authority_sole_ticks_queue_progress() {
     let oid = logic
         .create_object("SoleTickFact", Team::USA, glam::Vec3::new(8.0, 0.0, 8.0))
         .expect("id");
-    host_production_progress_log::record(
-        oid,
-        vec![HostProductionQueueItem {
+    {
+        use crate::game_logic::{
+            BuildingData, BuildingType, ProductionItem, ProductionKind, Resources,
+        };
+        let mut data = BuildingData::new(BuildingType::Barracks);
+        data.production_queue.push(ProductionItem {
             template_name: "Ranger".into(),
             progress: 0.0,
             total_time: 10.0,
             construction_frames: 0,
-            cost_supplies: 100,
-            is_upgrade: false,
+            cost: Resources {
+                supplies: 100,
+                power: 0,
+            },
             quantity_total: 1,
             quantity_produced: 0,
-        }],
-        0.0,
-        0.5, // half power
-    );
+            kind: ProductionKind::Unit,
+        });
+        logic.host_object_mut(oid).unwrap().building_data = Some(data);
+    }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let events = host_production_progress_log::drain();
-    assert_eq!(shadow.apply_host_production_progress_events(&events), 1);
-    let n = shadow.tick_production_queues(2.0);
-    assert!(n >= 1, "sole-tick must advance at least one queue");
+    logic.update_production(1.0 / 30.0);
+    shadow.sync_from_host(&logic);
+    assert_eq!(
+        logic
+            .host_object(oid)
+            .unwrap()
+            .building_data
+            .as_ref()
+            .unwrap()
+            .production_queue[0]
+            .construction_frames,
+        1
+    );
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     let ent = shadow.world().entity(eid).expect("ent");
     let head = ent.production_queue_items.first().expect("head");
@@ -1085,8 +1111,7 @@ fn production_authority_sole_ticks_queue_progress() {
         head.progress
     );
     let expected = head.progress;
-    let wb = shadow.writeback_production_to_host(&mut logic);
-    assert!(wb >= 1);
+    shadow.sync_from_host(&logic);
     let obj = logic.host_object(oid).expect("obj");
     let b = obj.building_data.as_ref().expect("bd");
     let hp = b.production_queue.first().expect("hq");
@@ -1095,22 +1120,28 @@ fn production_authority_sole_ticks_queue_progress() {
 
 #[test]
 fn completed_production_waits_for_open_door_before_entity_first_spawn() {
-    let _env_guard = authority_env_lock();
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    let _coupled = ShadowCoupleGuard::enter();
 
-    use crate::game_logic::host_production_ready_log;
     use crate::game_logic::{
         BuildingData, BuildingType, KindOf, ProductionItem, ProductionKind, Resources,
     };
 
-    host_production_ready_log::clear();
     let mut logic = GameLogic::new();
-    logic.set_production_authority(true);
+
     let cfg = golden_skirmish_config("DoorGateProduction");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    // Isolate authored door behavior from the genuine low-power build penalty.
+    for player in logic.get_players_mut().values_mut() {
+        player.power_produced = 1;
+        player.power_consumed = 0;
+    }
     ensure_template(&mut logic, "DoorGateRanger", 100.0);
+    logic
+        .templates
+        .get_mut("DoorGateRanger")
+        .unwrap()
+        .add_kind_of(KindOf::Infantry);
     // Retail producers author ProductionUpdate NumDoorAnimations (C++
     // ProductionUpdate door cycle gates spawn on WAITING_OPEN); the host
     // door table resolves retail names (AmericaBarracks: 1 door). The
@@ -1132,7 +1163,7 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
             template_name: "DoorGateRanger".to_string(),
             progress: 1.0,
             total_time: 1.0,
-            construction_frames: 0,
+            construction_frames: 30,
             cost: Resources {
                 supplies: 100,
                 power: 0,
@@ -1149,16 +1180,19 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let before = shadow.world().world().entity_count();
-    shadow.writeback_production_to_host(&mut logic);
-    shadow.writeback_production_to_host(&mut logic);
+    logic.update_production(1.0 / 30.0);
+    shadow.sync_from_host(&logic);
+    logic.update_production(1.0 / 30.0);
+    shadow.sync_from_host(&logic);
     assert_eq!(
         shadow.world().world().entity_count(),
         before,
         "a closed production door must not accumulate unmapped entity-first spawns"
     );
-    assert!(
-        host_production_ready_log::drain().is_empty(),
-        "host must not receive a ready event before the door is waiting open"
+    assert_eq!(
+        logic.host_objects().len(),
+        before,
+        "closed doors must not create host objects"
     );
 
     // WAITING_OPEN: exactly one entity-first ready event is now valid. The
@@ -1167,10 +1201,32 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
         .host_object_mut(producer_id)
         .expect("producer object")
         .production_door_phase = 2;
+    logic
+        .host_object_mut(producer_id)
+        .unwrap()
+        .production_door_phases[0] = 2;
     shadow.sync_from_host(&logic);
-    shadow.writeback_production_to_host(&mut logic);
+    logic.update_production(1.0 / 30.0);
+    shadow.sync_from_host(&logic);
     assert_eq!(shadow.world().world().entity_count(), before + 1);
-    assert_eq!(host_production_ready_log::drain().len(), 1);
+    assert_eq!(
+        logic
+            .host_objects()
+            .values()
+            .filter(|object| object.template_name == "DoorGateRanger")
+            .count(),
+        1
+    );
+    assert!(
+        logic
+            .host_object(producer_id)
+            .unwrap()
+            .building_data
+            .as_ref()
+            .unwrap()
+            .production_queue
+            .is_empty()
+    );
     // Process-global thread-local logs must not leak into the next producer
     // test (established clear-at-boundary pattern).
     crate::game_logic::host_production_log::clear();
@@ -1183,23 +1239,29 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
 
 #[test]
 fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
-    let _env_guard = authority_env_lock();
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    let _coupled = ShadowCoupleGuard::enter();
 
-    use crate::game_logic::host_production_ready_log;
     use crate::game_logic::{
         BuildingData, BuildingType, KindOf, ProductionExitMetadata, ProductionExitStyle,
         ProductionItem, ProductionKind, Resources,
     };
 
-    host_production_ready_log::clear();
     let mut logic = GameLogic::new();
-    logic.set_production_authority(true);
+
     let cfg = golden_skirmish_config("DoorBatchProduction");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    // Isolate authored door behavior from the genuine low-power build penalty.
+    for player in logic.get_players_mut().values_mut() {
+        player.power_produced = 1;
+        player.power_consumed = 0;
+    }
     ensure_template(&mut logic, "DoorBatchRanger", 100.0);
+    logic
+        .templates
+        .get_mut("DoorBatchRanger")
+        .unwrap()
+        .add_kind_of(KindOf::Infantry);
     let mut producer = ThingTemplate::new("DoorBatchBarracks");
     producer.set_health(500.0);
     producer.add_kind_of(KindOf::Structure);
@@ -1235,7 +1297,7 @@ fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
             template_name: "DoorBatchRanger".to_string(),
             progress: 1.0,
             total_time: 1.0,
-            construction_frames: 0,
+            construction_frames: 30,
             cost: Resources {
                 supplies: 100,
                 power: 0,
@@ -1246,28 +1308,41 @@ fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
         });
         // C++ QuantityModifier loop is only reached after an exit is available.
         producer.production_door_phase = 2;
+        producer.production_door_phases[0] = 2;
         producer.production_door_phase_end_frame = hold_open_until;
+        producer.production_door_phase_end_frames[0] = hold_open_until;
         producer.building_data = Some(building);
     }
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let before = shadow.world().world().entity_count();
-    shadow.writeback_production_to_host(&mut logic);
-    let ready = host_production_ready_log::drain();
+    logic.update_production(1.0 / 30.0);
+    shadow.sync_from_host(&logic);
+    let spawned: Vec<_> = logic
+        .host_objects()
+        .values()
+        .filter(|object| object.template_name == "DoorBatchRanger")
+        .collect();
     assert_eq!(
-        ready.len(),
+        spawned.len(),
         2,
-        "one terminal QuantityModifier update must record every ready unit"
+        "one terminal QuantityModifier update must create every member"
     );
     assert!(
-        ready.iter().all(|event| {
-            event.producer == producer_id
-                && event.template_name == "DoorBatchRanger"
-                && !event.is_upgrade
-                && event.gw_entity_raw.is_some()
-        }),
-        "every batch member must have an entity-first bind: {ready:?}"
+        spawned
+            .iter()
+            .all(|object| object.team == logic.host_object(producer_id).unwrap().team)
+    );
+    assert!(
+        logic
+            .host_object(producer_id)
+            .unwrap()
+            .building_data
+            .as_ref()
+            .unwrap()
+            .production_queue
+            .is_empty()
     );
     assert_eq!(
         shadow.world().world().entity_count(),
@@ -1275,7 +1350,6 @@ fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
         "one open-door terminal update must create both shadow entities"
     );
 
-    host_production_ready_log::clear();
     match prev_shadow {
         Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
@@ -1284,22 +1358,20 @@ fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
 
 #[test]
 fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
-    let _env_guard = authority_env_lock();
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    let _coupled = ShadowCoupleGuard::enter();
 
     use crate::game_logic::host_production_progress_log;
-    use crate::game_logic::host_production_ready_log;
+
     use crate::game_logic::{
         BuildingData, BuildingType, KindOf, ProductionExitMetadata, ProductionExitStyle,
         ProductionItem, ProductionKind, Resources,
     };
 
     host_production_progress_log::clear();
-    host_production_ready_log::clear();
+
     let mut logic = GameLogic::new();
-    logic.set_production_authority(true);
+
     let cfg = golden_skirmish_config("QueueSoleTickProduction");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "QueueSoleRanger", 100.0);
@@ -1342,54 +1414,64 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
             kind: ProductionKind::Unit,
         });
         producer.production_door_phase = 2;
+        producer.production_door_phases[0] = 2;
         producer.production_door_phase_end_frame = hold_open_until;
+        producer.production_door_phase_end_frames[0] = hold_open_until;
         producer.building_data = Some(building);
     }
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    shadow.writeback_production_to_host(&mut logic);
-    let initial_ready = host_production_ready_log::drain();
-    assert_eq!(
-        initial_ready.len(),
-        1,
-        "fresh Queue InitialBurst=0 must admit only the first completed member"
-    );
-
-    // Model the real host-side successful exit/bind, then carry that exact
-    // per-Object counter through the sole-tick progress event.
-    let runtime = {
-        let producer = logic.host_object_mut(producer_id).expect("producer object");
-        let exit = producer.thing().template.production_exit_metadata;
-        let building = producer.building_data.as_mut().expect("building");
-        building.record_successful_production_exit(exit.as_ref());
-        building.production_exit_runtime_state()
+    logic.update_production(1.0 / 30.0);
+    shadow.sync_from_host(&logic);
+    let spawned = |logic: &GameLogic| {
+        logic
+            .host_objects()
+            .values()
+            .filter(|object| object.template_name == "QueueSoleRanger")
+            .count()
     };
-    host_production_progress_log::record_exit_runtime_only(
-        producer_id,
-        runtime.delay_frames as f32 / 30.0,
-        runtime,
-    );
-    let events = host_production_progress_log::drain();
-    assert_eq!(shadow.apply_host_production_progress_events(&events), 1);
-
-    for _ in 0..8 {
-        shadow.tick_production_queues(1.0 / 30.0);
-    }
-    shadow.writeback_production_to_host(&mut logic);
-    assert!(
-        host_production_ready_log::drain().is_empty(),
-        "Queue delay must still hold the second member after eight logic frames"
-    );
-
-    shadow.tick_production_queues(1.0 / 30.0);
-    shadow.writeback_production_to_host(&mut logic);
     assert_eq!(
-        host_production_ready_log::drain().len(),
+        spawned(&logic),
         1,
-        "the ninth Queue update reopens the exit for exactly one member"
+        "fresh Queue InitialBurst=0 releases one member"
     );
-
+    let runtime = logic
+        .host_object(producer_id)
+        .unwrap()
+        .building_data
+        .as_ref()
+        .unwrap()
+        .production_exit_runtime_state();
+    assert_eq!(runtime.delay_frames, 9);
+    for _ in 0..8 {
+        logic.set_current_frame(u64::from(logic.get_frame()) + 1);
+        logic.update_production(1.0 / 30.0);
+    }
+    shadow.sync_from_host(&logic);
+    assert_eq!(
+        spawned(&logic),
+        1,
+        "second member remains held after eight logic frames"
+    );
+    logic.set_current_frame(u64::from(logic.get_frame()) + 1);
+    logic.update_production(1.0 / 30.0);
+    shadow.sync_from_host(&logic);
+    assert_eq!(
+        spawned(&logic),
+        2,
+        "ninth Queue frame releases exactly one member"
+    );
+    assert!(
+        logic
+            .host_object(producer_id)
+            .unwrap()
+            .building_data
+            .as_ref()
+            .unwrap()
+            .production_queue
+            .is_empty()
+    );
     match prev_shadow {
         Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
@@ -1418,7 +1500,7 @@ fn construction_progress_observation_does_not_tick_host_or_shadow() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
 
-    assert!(shadow.observe_host_construction(&logic) >= 1);
+    shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     let ent = shadow.world().entity(eid).expect("ent");
     // 0 + 0.25*2 = 0.5
@@ -1434,14 +1516,10 @@ fn construction_progress_observation_does_not_tick_host_or_shadow() {
 
 #[test]
 fn special_power_authority_sole_ticks_cooldown() {
-    let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_SHADOW", "1")
-        .couple();
     use crate::game_logic::host_special_power_log::{self};
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.set_special_power_authority(true);
-    assert!(gameworld_special_power_sole_tick_enabled());
+
     {
         let mut t = ThingTemplate::new("SoleTickSp");
         t.add_kind_of(KindOf::Structure);
@@ -1458,10 +1536,8 @@ fn special_power_authority_sole_ticks_cooldown() {
     host_special_power_log::record(oid, false, 4.0, 10.0, false);
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let events = host_special_power_log::drain();
-    assert!(shadow.apply_host_special_power_events(&events) >= 1);
-    let n = shadow.tick_special_power_cooldowns(1.5);
-    assert!(n >= 1, "sole-tick must advance SP cooldown");
+    logic.host_object_mut(oid).unwrap().tick_timers(1.5);
+    shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     let ent = shadow.world().entity(eid).expect("ent");
     assert!(
@@ -1469,14 +1545,27 @@ fn special_power_authority_sole_ticks_cooldown() {
         "got {}",
         ent.special_power_cooldown_remaining
     );
-    assert!(shadow.writeback_special_power_to_host(&mut logic) >= 1);
+    shadow.sync_from_host(&logic);
     let o = logic.host_object(oid).expect("obj");
     assert!((o.special_power_cooldown_remaining - 2.5).abs() < 1e-4);
-    // Frozen residual: no advance while disabled.
-    host_special_power_log::record(oid, false, 2.5, 10.0, true);
-    let events = host_special_power_log::drain();
-    assert!(shadow.apply_host_special_power_events(&events) >= 1);
-    assert_eq!(shadow.tick_special_power_cooldowns(1.0), 0);
+    logic.host_object_mut(oid).unwrap().status.disabled_emp = true;
+    logic.host_object_mut(oid).unwrap().tick_timers(1.0);
+    assert_eq!(
+        logic
+            .host_object(oid)
+            .unwrap()
+            .special_power_cooldown_remaining,
+        2.5
+    );
+    shadow.sync_from_host(&logic);
+    assert_eq!(
+        shadow
+            .world()
+            .entity(eid)
+            .unwrap()
+            .special_power_cooldown_remaining,
+        2.5
+    );
 }
 
 #[test]
@@ -1484,16 +1573,20 @@ fn shared_special_power_sole_ticks_player_cds() {
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     // Sole-tick tick path requires coupled engine frame (same as host freeze).
-    begin_shadow_coupled_tick();
+
     use crate::command_system::SpecialPowerType;
     use crate::game_logic::GameLogic;
     use crate::game_logic::host_player_cooldown_log;
     let mut logic = GameLogic::new();
-    logic.set_special_power_authority(true);
-    assert!(gameworld_special_power_sole_tick_enabled());
+
+    logic.add_player(crate::game_logic::Player::new(
+        0,
+        Team::USA,
+        "OwnedCooldown",
+        true,
+    ));
     let pid = 0u32;
     let Some(p) = logic.get_player_mut(pid) else {
-        end_shadow_coupled_tick();
         match prev_s {
             Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
             None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
@@ -1504,14 +1597,8 @@ fn shared_special_power_sole_ticks_player_cds() {
     p.record_host_cooldowns();
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let events = host_player_cooldown_log::drain();
-    assert!(
-        shadow.apply_host_player_cooldown_events(&events) >= 1,
-        "cooldown events applied"
-    );
-    let n = shadow.tick_player_shared_special_power_cooldowns(2.0);
-    assert!(n >= 1, "player shared SP must sole-tick");
-    let _ = shadow.writeback_shared_special_power_cooldowns_to_host(&mut logic);
+    logic.tick_shared_special_power_timers(2.0);
+    shadow.sync_from_host(&logic);
     let p = logic.get_player(pid).expect("player");
     let rem = p
         .shared_special_power_cooldowns
@@ -1522,7 +1609,7 @@ fn shared_special_power_sole_ticks_player_cds() {
         (rem - 3.0).abs() < 1e-3,
         "expected ~3.0 remaining after 2s tick, got {rem}"
     );
-    end_shadow_coupled_tick();
+
     match prev_s {
         Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
@@ -1574,17 +1661,17 @@ fn construction_shadow_disagreement_cannot_mutate_live_host() {
     // Construction writeback must not touch combat-status residual.
     assert!(!obj.status.stealthed);
     assert!(!obj.status.selected);
-    // Dedicated combat-status writeback restores those flags.
+    // Poisoned observations cannot select or reveal a live object.
     {
         let e = shadow.world_mut().world_mut().entity_mut(eid).expect("e");
         e.stealthed = true;
         e.selected = true;
     }
-    assert!(shadow.writeback_combat_status_to_host(&mut logic) >= 1);
-    let _ = crate::game_logic::host_combat_status_ready_log::drain();
+    shadow.sync_from_host(&logic);
+
     let obj = logic.host_objects().get(&id).expect("o");
-    assert!(obj.status.stealthed);
-    assert!(obj.status.selected);
+    assert!(!obj.status.stealthed);
+    assert!(!obj.status.selected);
     // Complete residual
     {
         let e = shadow.world_mut().world_mut().entity_mut(eid).expect("e");
@@ -1621,7 +1708,7 @@ fn construction_observation_uses_the_supplied_world_even_with_same_id_peer() {
     let mut projection = GameWorldShadow::new(64);
     projection.sync_from_host(&owner);
     peer.host_object_mut(peer_id).unwrap().construction_percent = 0.9;
-    assert!(projection.observe_host_construction(&owner) >= 1);
+    projection.sync_from_host(&owner);
     let entity = projection.entity_for_host(id).unwrap();
     assert_eq!(
         projection

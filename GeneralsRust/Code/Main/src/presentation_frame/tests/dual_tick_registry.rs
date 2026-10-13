@@ -1217,7 +1217,7 @@ fn construction_progress_has_one_host_writer_and_read_only_shadow_observation() 
     assert!(host.contains("obj.construction_percent = projected"));
     assert!(host.contains("if projected >= 1.0"));
     assert!(!host.contains("gameworld_construction_sole_tick_enabled"));
-    let shadow = include_str!("../../gameworld_shadow/writeback_production.rs");
+    let shadow = include_str!("../../gameworld_shadow/construction_observation.rs");
     assert!(shadow.contains("pub fn compare_construction_to_host(&self, logic: &GameLogic)"));
     assert!(!shadow.contains("pub fn tick_construction_progress"));
     assert!(!shadow.contains("pub fn writeback_construction_to_host"));
@@ -1357,67 +1357,6 @@ fn runtime_host_move_prefers_presentation_selection() {
     assert!(
         window.contains("host_set_selection"),
         "move must re-sync host player selection from presentation/engine residual"
-    );
-}
-
-#[test]
-fn production_authority_host_skips_progress_advance() {
-    // Facade split: host production sole-tick gates live in
-    // game_logic/world_tick/production.rs (GAME_LOGIC_FACADE_SRC concat no
-    // longer carries them) — same repoint as construction_sole_tick above.
-    let gl = include_str!("../../game_logic/world_tick/production.rs");
-    assert!(
-        gl.contains("gameworld_production_sole_tick_enabled()")
-            && gl.contains("record_power_factor_only")
-            && gl.contains("try_complete_production_at_power_with_exit_metadata"),
-        "host under sole-tick must try_complete + power factor only (no progress stomp)"
-    );
-    let b = include_str!("../../game_logic/buildings.rs");
-    assert!(
-        b.contains("fn advance_production_progress")
-            && b.contains("fn try_complete_production")
-            && b.contains("fn tick_exit_delay"),
-        "building production must split advance/exit vs complete"
-    );
-    let sw = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
-    assert!(
-        sw.contains("fn tick_production_queues")
-            && sw.contains("tick_production_queues(")
-            && sw.contains("if ev.power_factor_only"),
-        "shadow session must sole-tick queues and skip power-factor-only stomps"
-    );
-}
-
-#[test]
-fn special_power_sole_tick_host_skips_advance() {
-    let obj = crate::game_logic::object::OBJECT_SRC;
-    assert!(
-        obj.contains("gameworld_special_power_sole_tick_enabled()") && obj.contains("!sole_sp"),
-        "host tick_timers must skip SP advance under sole-tick"
-    );
-    let log = include_str!("../../game_logic/host_special_power_log.rs");
-    assert!(
-        log.contains("frozen: bool"),
-        "SP progress log must carry disabled/freeze residual"
-    );
-    let sw = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
-    assert!(
-        sw.contains("fn tick_special_power_cooldowns")
-            && sw.contains("fn tick_player_shared_special_power_cooldowns")
-            && sw.contains("writeback_special_power_to_host(logic)"),
-        "shadow session must sole-tick object+player SP and writeback under authority"
-    );
-    // Facade split: the shared SP tick lives in game_logic/game_logic/player.rs
-    // (tick_shared_special_power_timers + record_host_cooldowns); the sole-tick
-    // gate lives in world_tick/production.rs. Wave 479 marker moved to the
-    // residuals honesty pack.
-    let gl = include_str!("../../game_logic/game_logic/player.rs");
-    let tick = include_str!("../../game_logic/world_tick/production.rs");
-    assert!(
-        gl.contains("fn tick_shared_special_power_timers")
-            && gl.contains("record_host_cooldowns")
-            && tick.contains("gameworld_special_power_sole_tick_enabled()"),
-        "host shared SP tick must defer under sole-tick without per-frame cooldown stomp"
     );
 }
 
@@ -1710,11 +1649,6 @@ fn production_progress_log_carries_power_factor() {
     assert!(
         log.contains("power_factor: f32") && log.contains("power_factor: power_factor"),
         "production progress events must carry host power_factor"
-    );
-    let sw = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
-    assert!(
-        sw.contains("production_power_factor_by_host") && sw.contains("if ev.power_factor_only"),
-        "shadow sole-tick must apply host power_factor residual"
     );
 }
 

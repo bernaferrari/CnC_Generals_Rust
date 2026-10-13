@@ -216,6 +216,7 @@ pub(crate) fn xfer_live_game_client_state(
                     .map_err(|_| RuntimeXferStatus::InvalidData)?
             } else {
                 client.drawable_map.clear();
+                client.ray_effects.reset();
                 client.drawable_object_map.clear();
                 client.presentation_direct_drawable_bindings.clear();
                 Vec::new()

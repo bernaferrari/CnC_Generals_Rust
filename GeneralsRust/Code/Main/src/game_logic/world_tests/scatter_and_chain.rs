@@ -60,19 +60,7 @@ fn continue_attack_range_chains_to_nearby_same_team_target() {
     assert!(logic.try_continue_attack_after_kill(atk, mine1, pos, 100.0, team,));
     // Under AI_DECISION_AUTHORITY (default), continue-attack logs AttackTarget and
     // leaves host target untouched for GameWorld writeback.
-    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-        let events = crate::game_logic::host_ai_decision_log::snapshot();
-        assert!(
-            events.iter().any(|e| {
-                e.host_object == atk
-                    && e.kind == crate::game_logic::host_ai_decision_log::AI_DECISION_ATTACK
-                    && e.target_host == mine2.0
-            }),
-            "continue-attack must log AttackTarget(mine2) under decision authority"
-        );
-        // Host target remains the prior engagement (writeback owns the swap).
-        assert_eq!(logic.objects.get(&atk).and_then(|a| a.target), Some(mine1));
-    } else {
+    {
         let next = logic.objects.get(&atk).and_then(|a| a.target);
         assert_eq!(next, Some(mine2), "must chain to nearer same-team mine");
     }

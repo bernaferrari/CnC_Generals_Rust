@@ -5,17 +5,40 @@ pub struct InvalidPositionFix {
     pub extra_push: Option<Coord3D>,
 }
 
-/// Result of C++ `doLocomotor` NONE-goal settle + maintain (AIUpdate.cpp:2234-2265).
-#[derive(Debug, Clone, Copy)]
-pub struct GoalNoneUpdate {
-    pub pos: Coord3D,
-    pub angle: Real,
-    pub speed: Real,
-    pub requires_constant: bool,
-    pub do_final_position: bool,
-}
-
 impl Locomotor {
+    fn begin_maintenance_at(&mut self, current_pos: Coord3D, frame: u32) {
+        if !self.get_flag(FLAG_MAINTAIN_POS_VALID) {
+            self.maintain_pos = current_pos;
+            self.set_flag(FLAG_MAINTAIN_POS_VALID, true);
+        }
+        self.donut_timer =
+            frame.wrapping_add((DONUT_TIME_DELAY_SECONDS * LOGICFRAMES_PER_SECOND as Real) as u32);
+        self.set_flag(FLAG_IS_BRAKING, false);
+    }
+
+    /// Locomotor.cpp:2412–2477 and 2579–2588 operate on actual Physics,
+    /// not a desired-speed approximation. Ground appearances share this stop.
+    pub(crate) fn maintain_ground_with_physics_at(
+        &mut self,
+        position: Coord3D,
+        frame: u32,
+        physics: &mut dyn crate::modules::PhysicsBehavior,
+    ) -> Result<bool, String> {
+        if !matches!(
+            self.template.appearance,
+            LocomotorAppearance::TwoLegs | LocomotorAppearance::Other
+        ) || self.template.behavior_z != LocomotorBehaviorZ::NoZMotiveForce
+        {
+            return Err("ground maintenance requires TWO_LEGS/OTHER and NO_Z_MOTIVE_FORCE".into());
+        }
+        let motive = physics.is_motive_at(frame)?;
+        self.begin_maintenance_at(position, frame);
+        physics.set_turning(0);
+        if motive {
+            physics.scrub_velocity_2d(0.0);
+        }
+        Ok(self.template.appearance == LocomotorAppearance::Other)
+    }
     // ========================================================================
     // MISSING METHODS — Ported from C++ Locomotor.cpp
     // ========================================================================
@@ -63,7 +86,6 @@ impl Locomotor {
         // C++ rotateTowardsPosition uses full maxTurnRate when minSpeed==0 (Locomotor.cpp:887-895).
         self.wheeled_turn_factor = 1.0;
 
-
         let min_speed = self.template.min_speed;
         if min_speed > 0.0 {
             // Can't stay still — move at min_speed toward goal_angle
@@ -91,226 +113,6 @@ impl Locomotor {
         let new_angle = self.step_angle(current_angle, desired_angle, condition, delta_time);
         let z_accel = self.compute_z_force(current_pos, current_pos, condition);
         (current_pos, new_angle, z_accel)
-    }
-
-    /// Maintain current position — dispatches to appearance-specific methods.
-    /// Returns `true` if constant per-frame calling is required (hovering, circling).
-    /// Matches C++ Locomotor::locoUpdate_maintainCurrentPosition (Locomotor.cpp:2412-2477)
-    pub fn loco_update_maintain_current_position(
-        &mut self,
-        current_pos: Coord3D,
-        current_angle: Real,
-        current_speed: Real,
-        condition: BodyDamageType,
-        delta_time: Real,
-    ) -> (Coord3D, Real, Real, bool) {
-        // Reset donut timer and braking
-        self.donut_timer = TheGameLogic::get_frame()
-            + (DONUT_TIME_DELAY_SECONDS * LOGICFRAMES_PER_SECOND as Real) as u32;
-        self.set_flag(FLAG_IS_BRAKING, false);
-
-        if !self.get_flag(FLAG_MAINTAIN_POS_VALID) {
-            self.maintain_pos = current_pos;
-            self.set_flag(FLAG_MAINTAIN_POS_VALID, true);
-        }
-
-        let _requires_constant = match self.template.appearance {
-            LocomotorAppearance::Thrust => {
-                let (pos, angle, speed) = self.maintain_current_position_thrust(
-                    current_pos,
-                    current_angle,
-                    current_speed,
-                    condition,
-                    delta_time,
-                );
-                return (pos, angle, speed, true);
-            }
-            LocomotorAppearance::TwoLegs | LocomotorAppearance::Climber => {
-                let (pos, angle, speed) = self.maintain_current_position_other(
-                    current_pos,
-                    current_angle,
-                    current_speed,
-                    condition,
-                    delta_time,
-                );
-                return (pos, angle, speed, false);
-            }
-            LocomotorAppearance::FourWheels | LocomotorAppearance::Motorcycle => {
-                let (pos, angle, speed) = self.maintain_current_position_other(
-                    current_pos,
-                    current_angle,
-                    current_speed,
-                    condition,
-                    delta_time,
-                );
-                return (pos, angle, speed, false);
-            }
-            LocomotorAppearance::Treads => {
-                let (pos, angle, speed) = self.maintain_current_position_other(
-                    current_pos,
-                    current_angle,
-                    current_speed,
-                    condition,
-                    delta_time,
-                );
-                return (pos, angle, speed, false);
-            }
-            LocomotorAppearance::Hover => {
-                let (pos, angle, speed) = self.maintain_current_position_hover(
-                    current_pos,
-                    current_angle,
-                    current_speed,
-                    condition,
-                    delta_time,
-                );
-                return (pos, angle, speed, true);
-            }
-            LocomotorAppearance::Wings => {
-                let (pos, angle, speed) = self.maintain_current_position_wings(
-                    current_pos,
-                    current_angle,
-                    current_speed,
-                    condition,
-                    delta_time,
-                );
-                return (pos, angle, speed, true);
-            }
-            _ => {
-                let (pos, angle, speed) = self.maintain_current_position_other(
-                    current_pos,
-                    current_angle,
-                    current_speed,
-                    condition,
-                    delta_time,
-                );
-                return (pos, angle, speed, true);
-            }
-        };
-    }
-
-    /// Helicopter hover maintenance — keeps thrust locomotor at position using min_speed.
-    /// Matches C++ Locomotor::maintainCurrentPositionThrust (Locomotor.cpp:2480-2485)
-    fn maintain_current_position_thrust(
-        &mut self,
-        current_pos: Coord3D,
-        current_angle: Real,
-        current_speed: Real,
-        condition: BodyDamageType,
-        _delta_time: Real,
-    ) -> (Coord3D, Real, Real) {
-        // C++ delegates to moveTowardsPositionThrust at minSpeed
-        self.move_towards_position_thrust_physics(
-            current_pos,
-            current_angle,
-            current_pos, // goal = current position
-            0.0,
-            self.template.min_speed,
-            current_speed,
-            condition,
-        )
-    }
-
-    /// Fixed-wing circling maintenance — orbits the maintain position.
-    /// Matches C++ Locomotor::maintainCurrentPositionWings (Locomotor.cpp:2488-2524)
-    fn maintain_current_position_wings(
-        &mut self,
-        current_pos: Coord3D,
-        current_angle: Real,
-        current_speed: Real,
-        condition: BodyDamageType,
-        _delta_time: Real,
-    ) -> (Coord3D, Real, Real) {
-        if current_speed == 0.0 {
-            return (current_pos, current_angle, 0.0);
-        }
-
-        // C++ computes a circle target offset from maintain pos
-        let mut turn_radius = self.template.circling_radius;
-        if turn_radius == 0.0 {
-            turn_radius = self.calc_min_turn_radius(condition);
-        }
-
-        // C++ Locomotor.cpp:2502-2521 — orbit relative to m_maintainPos, not current pos.
-        let dx = self.maintain_pos.x - current_pos.x;
-        let dy = self.maintain_pos.y - current_pos.y;
-        let angle_toward = if dx.abs() < 0.001 && dy.abs() < 0.001 {
-            current_angle
-        } else {
-            dy.atan2(dx)
-        };
-
-        let mut aim_dir = std::f32::consts::PI - std::f32::consts::FRAC_PI_8;
-        if turn_radius < 0.0 {
-            turn_radius = -turn_radius;
-            aim_dir = -aim_dir;
-        }
-        let circle_angle = angle_toward + aim_dir;
-
-        let circle_target = Coord3D::new(
-            self.maintain_pos.x + circle_angle.cos() * turn_radius,
-            self.maintain_pos.y + circle_angle.sin() * turn_radius,
-            self.maintain_pos.z,
-        );
-
-        self.move_towards_position_other_physics(
-            current_pos,
-            current_angle,
-            circle_target,
-            0.0,
-            self.template.min_speed,
-            current_speed,
-            condition,
-            0.0,
-        )
-    }
-
-    /// Hover vehicle position hold — applies braking to zero velocity.
-    /// Matches C++ Locomotor::maintainCurrentPositionHover (Locomotor.cpp:2527-2576)
-    fn maintain_current_position_hover(
-        &mut self,
-        current_pos: Coord3D,
-        current_angle: Real,
-        current_speed: Real,
-        condition: BodyDamageType,
-        _delta_time: Real,
-    ) -> (Coord3D, Real, Real) {
-        if current_speed == 0.0 {
-            return (current_pos, current_angle, 0.0);
-        }
-
-        let max_acceleration = self.get_max_acceleration(condition);
-        let braking = self.get_braking();
-        let min_speed = self.template.min_speed.max(1.0e-10);
-        let speed_delta = min_speed - current_speed;
-
-        let acceleration = if speed_delta.abs() > min_speed {
-            if speed_delta > 0.0 {
-                max_acceleration
-            } else {
-                -braking
-            }
-        } else {
-            0.0
-        };
-
-        (current_pos, current_angle, acceleration)
-    }
-
-    /// Generic position hold — scrub velocity to zero.
-    /// Matches C++ Locomotor::maintainCurrentPositionOther (Locomotor.cpp:2579-2588)
-    fn maintain_current_position_other(
-        &mut self,
-        current_pos: Coord3D,
-        current_angle: Real,
-        _current_speed: Real,
-        _condition: BodyDamageType,
-        _delta_time: Real,
-    ) -> (Coord3D, Real, Real) {
-        if _current_speed == 0.0 {
-            return (current_pos, current_angle, 0.0);
-        }
-        let braking = self.get_braking();
-        (current_pos, current_angle, -braking)
     }
 
     /// Infantry wander variant of moveTowardsPosition.
@@ -439,7 +241,8 @@ impl Locomotor {
         layer: crate::common::PathfindLayerEnum,
         pos: Coord3D,
     ) -> bool {
-        let ai_store = crate::ai::the_ai();let Some(ai) = ai_store.read().ok() else {
+        let ai_store = crate::ai::the_ai();
+        let Some(ai) = ai_store.read().ok() else {
             return true;
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -467,6 +270,17 @@ impl Locomotor {
         final_position: Coord3D,
         on_ground: bool,
     ) -> (Coord3D, bool) {
+        Self::settle_final_position_with_height(current_pos, final_position, on_ground, |x, y| {
+            TheTerrainLogic::get().map(|terrain| terrain.get_ground_height(x, y, None))
+        })
+    }
+
+    pub(crate) fn settle_final_position_with_height(
+        current_pos: Coord3D,
+        final_position: Coord3D,
+        on_ground: bool,
+        mut ground_height: impl FnMut(Real, Real) -> Option<Real>,
+    ) -> (Coord3D, bool) {
         const DARN_CLOSE: Real = 0.25;
         let dx = final_position.x - current_pos.x;
         let dy = final_position.y - current_pos.y;
@@ -474,9 +288,8 @@ impl Locomotor {
         if d_sqr < DARN_CLOSE {
             let mut pos = final_position;
             if on_ground {
-                pos.z = TheTerrainLogic::get()
-                    .map(|terrain| terrain.get_ground_height(final_position.x, final_position.y, None))
-                    .unwrap_or(final_position.z);
+                pos.z =
+                    ground_height(final_position.x, final_position.y).unwrap_or(final_position.z);
             } else {
                 pos.z = current_pos.z;
             }
@@ -491,45 +304,9 @@ impl Locomotor {
             pos.x += 2.0 * PATHFIND_CELL_SIZE_F * dx / (dist * frames);
             pos.y += 2.0 * PATHFIND_CELL_SIZE_F * dy / (dist * frames);
             if on_ground {
-                pos.z = TheTerrainLogic::get()
-                    .map(|terrain| terrain.get_ground_height(pos.x, pos.y, None))
-                    .unwrap_or(pos.z);
+                pos.z = ground_height(pos.x, pos.y).unwrap_or(pos.z);
             }
             (pos, true)
-        }
-    }
-
-    /// C++ NONE-goal update: optional final-position settle, then `locoUpdate_maintainCurrentPosition`.
-    /// AIUpdate.cpp:2234-2265.
-    pub fn loco_update_when_goal_none(
-        &mut self,
-        current_pos: Coord3D,
-        current_angle: Real,
-        current_speed: Real,
-        condition: BodyDamageType,
-        delta_time: Real,
-        do_final_position: bool,
-        final_position: Coord3D,
-        on_ground: bool,
-    ) -> GoalNoneUpdate {
-        let (pos, still_do_final) = if do_final_position {
-            Self::settle_final_position(current_pos, final_position, on_ground)
-        } else {
-            (current_pos, false)
-        };
-        let (pos, angle, speed, requires_constant) = self.loco_update_maintain_current_position(
-            pos,
-            current_angle,
-            current_speed,
-            condition,
-            delta_time,
-        );
-        GoalNoneUpdate {
-            pos,
-            angle,
-            speed,
-            requires_constant,
-            do_final_position: still_do_final,
         }
     }
 
@@ -699,5 +476,4 @@ impl Locomotor {
             0.0
         }
     }
-
 }

@@ -60,11 +60,6 @@ pub use crate::game_logic::host_live_host_command_pipeline_boundary_residual_wav
     honesty_host_command_pipeline_boundary_nav_commands_residual_wave932,
     simulate_live_host_command_pipeline_boundary_honesty,
 };
-pub use crate::game_logic::host_live_host_destroy_list_if_needed_residual_wave912::{
-    honesty_host_destroy_list_if_needed_method_names_residual_wave912,
-    honesty_host_destroy_list_if_needed_nav_commands_residual_wave912,
-    simulate_live_host_destroy_list_if_needed_honesty,
-};
 pub use crate::game_logic::host_live_host_direct_order_boundary_residual_wave929::{
     honesty_host_direct_order_boundary_method_names_residual_wave929,
     honesty_host_direct_order_boundary_nav_commands_residual_wave929,
@@ -84,11 +79,6 @@ pub use crate::game_logic::host_live_host_dual_tick_queue_destroy_peels_residual
     honesty_host_dual_tick_queue_destroy_peels_method_names_residual_wave916,
     honesty_host_dual_tick_queue_destroy_peels_nav_commands_residual_wave916,
     simulate_live_host_dual_tick_queue_destroy_peels_honesty,
-};
-pub use crate::game_logic::host_live_host_eager_apply_batch_residual_wave925::{
-    honesty_host_eager_apply_batch_method_names_residual_wave925,
-    honesty_host_eager_apply_batch_nav_commands_residual_wave925,
-    simulate_live_host_eager_apply_batch_honesty,
 };
 pub use crate::game_logic::host_live_host_event_drain_failclosed_residual_wave900::{
     honesty_host_event_drain_failclosed_method_names_residual_wave900,

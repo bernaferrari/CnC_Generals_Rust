@@ -63,11 +63,9 @@ impl Installed {
             None,
         )));
         assert!(owner.read().unwrap().get_physics().is_none());
-        assert!(
-            crate::object::registry::OBJECT_REGISTRY
-                .get_object(ID)
-                .is_none()
-        );
+        assert!(crate::object::registry::OBJECT_REGISTRY
+            .get_object(ID)
+            .is_none());
         Object::init_modules_for(&owner, template.as_ref()).unwrap();
         let (module, physics) = {
             let guard = owner.read().unwrap();
@@ -129,20 +127,16 @@ fn authored_physics_same_id_owners_install_distinct_canonical_state() {
         Vec3::new(1.0, 2.0, 3.0)
     );
     assert_eq!(second.physics.access().unwrap().get_mass(), 9.0);
-    assert!(
-        second
-            .owner
-            .read()
-            .unwrap()
-            .get_physics()
-            .unwrap()
-            .same_instance(&second.physics)
-    );
-    assert!(
-        crate::object::registry::OBJECT_REGISTRY
-            .get_object(ID)
-            .is_none()
-    );
+    assert!(second
+        .owner
+        .read()
+        .unwrap()
+        .get_physics()
+        .unwrap()
+        .same_instance(&second.physics));
+    assert!(crate::object::registry::OBJECT_REGISTRY
+        .get_object(ID)
+        .is_none());
 }
 
 #[test]

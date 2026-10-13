@@ -15,9 +15,6 @@ use generals_main::game_logic::object::ObjectType;
 use generals_main::game_logic::{
     GameLogic, KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate,
 };
-use generals_main::gameworld_shadow::{
-    gameworld_movement_authority_live, shadow_coupled_tick_active,
-};
 use glam::Vec3;
 
 const ORIGINAL: &str = include_str!("fixtures/airborne_targeting_original.txt");
@@ -300,8 +297,6 @@ fn max_named_fallback_ambiguity_is_preserved_not_redefined() {
 }
 
 fn live_case(token: &str, height: f32, initial: bool) {
-    assert!(!shadow_coupled_tick_active());
-    assert!(!gameworld_movement_authority_live());
     let mut game = GameLogic::new();
     assert_eq!(game.get_frame(), 0);
     assert!(game.host_objects().is_empty());
@@ -338,8 +333,7 @@ fn live_case(token: &str, height: f32, initial: bool) {
     assert_eq!((tick.frame, tick.steps_run), (2, 1));
     assert!(!tick.budget_hit);
     assert_eq!(tick.accumulated_time_seconds, 0.0);
-    assert!(!shadow_coupled_tick_active());
-    assert!(!gameworld_movement_authority_live());
+
     let host = game.host_object(id).unwrap();
     let actual_height = host.get_position().y - host.ground_height;
     println!(

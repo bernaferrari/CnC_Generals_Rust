@@ -26,6 +26,7 @@ mod store;
 mod template;
 mod weapon_approach;
 pub(crate) mod weapon_bonus;
+mod weapon_history;
 mod weapon_instance;
 mod weapon_instance_combat;
 mod weapon_range;
@@ -55,6 +56,9 @@ pub(crate) use helpers::{
     map_common_bonus_flags, map_weapon_slot_to_common, weapon_slot_from_u32, weapon_slot_to_u32,
     weapon_status_from_u32, weapon_status_to_u32,
 };
+
+#[cfg(test)]
+mod weapon_history_tests;
 
 #[cfg(test)]
 mod tests;

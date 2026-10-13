@@ -18,6 +18,7 @@ impl CombatSystem {
     pub(crate) fn restore_pending_combat(&mut self, snapshot: &PendingCombatSnapshot) {
         // Commit after roster and fixups: a source can have been destroyed
         // before capture. Do not resolve it or restamp frozen launch data.
+        self.fire_sound_loop_events.clear();
         self.pending_projectiles.clone_from(&snapshot.accepted);
         self.projectileless_delayed.clone_from(&snapshot.delayed);
     }

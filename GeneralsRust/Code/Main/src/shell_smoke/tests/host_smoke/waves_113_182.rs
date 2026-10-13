@@ -453,21 +453,9 @@ pub(super) fn assert_waves_113_182(r: &ShellSmokeResult) {
         "challenge generals nav commands residual pack wave152: {}",
         r.detail
     );
-    assert!(
-        r.gameworld_authority_env_names_wave153_ok,
-        "gameworld authority env names residual pack wave153: {}",
-        r.detail
-    );
-    assert!(
-        r.gameworld_authority_method_names_wave153_ok,
-        "gameworld authority method names residual pack wave153: {}",
-        r.detail
-    );
-    assert!(
-        r.gameworld_authority_nav_commands_wave153_ok,
-        "gameworld authority nav commands residual pack wave153: {}",
-        r.detail
-    );
+
+
+
     assert!(
         r.window_video_type_state_names_wave154_ok,
         "window video type state names residual pack wave154: {}",
@@ -813,109 +801,25 @@ pub(super) fn assert_waves_113_182(r: &ShellSmokeResult) {
         "executable presentation boundary live residual wave176: {}",
         r.detail
     );
-    assert!(
-        r.production_authority_env_ok,
-        "production authority env residual wave177: {}",
-        r.detail
-    );
-    assert!(
-        r.gameworld_production_authority_method_names_wave177_ok,
-        "gameworld production authority method names residual pack wave177: {}",
-        r.detail
-    );
-    assert!(
-        r.gameworld_production_authority_nav_commands_wave177_ok,
-        "gameworld production authority nav commands residual pack wave177: {}",
-        r.detail
-    );
-    assert!(
-        r.gameworld_production_authority_live_wave177_ok,
-        "gameworld production authority live residual wave177: {}",
-        r.detail
-    );
-    assert!(
-        r.movement_authority_env_ok,
-        "movement authority env residual wave178: {}",
-        r.detail
-    );
-    assert!(
-        r.gameworld_sole_tick_coupling_method_names_wave178_ok,
-        "gameworld sole tick coupling method names residual pack wave178: {}",
-        r.detail
-    );
-    assert!(
-        r.gameworld_sole_tick_coupling_nav_commands_wave178_ok,
-        "gameworld sole tick coupling nav commands residual pack wave178: {}",
-        r.detail
-    );
-    assert!(
-        r.gameworld_sole_tick_coupling_live_wave178_ok,
-        "gameworld sole tick coupling live residual wave178: {}",
-        r.detail
-    );
-    assert!(
-        r.ai_fire_construction_authority_env_ok,
-        "ai/fire/construction authority env residual wave179: {}",
-        r.detail
-    );
-    assert!(
-        r.gameworld_authority_matrix_method_names_wave179_ok,
-        "gameworld authority matrix method names residual pack wave179: {}",
-        r.detail
-    );
-    assert!(
-        r.gameworld_authority_matrix_nav_commands_wave179_ok,
-        "gameworld authority matrix nav commands residual pack wave179: {}",
-        r.detail
-    );
-    assert!(
-        r.gameworld_authority_matrix_live_wave179_ok,
-        "gameworld authority matrix live residual wave179: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_production_writeback_method_names_wave180_ok,
-        "live gameworld production writeback method names residual pack wave180: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_production_writeback_nav_commands_wave180_ok,
-        "live gameworld production writeback nav commands residual pack wave180: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_production_writeback_live_wave180_ok,
-        "live gameworld production writeback live residual wave180: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_construction_writeback_method_names_wave181_ok,
-        "live gameworld construction writeback method names residual pack wave181: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_construction_writeback_nav_commands_wave181_ok,
-        "live gameworld construction writeback nav commands residual pack wave181: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_construction_writeback_live_wave181_ok,
-        "live gameworld construction writeback live residual wave181: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_damage_channel_method_names_wave182_ok,
-        "live gameworld damage channel method names residual pack wave182: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_damage_channel_nav_commands_wave182_ok,
-        "live gameworld damage channel nav commands residual pack wave182: {}",
-        r.detail
-    );
-    assert!(
-        r.live_gameworld_damage_channel_live_wave182_ok,
-        "live gameworld damage channel live residual wave182: {}",
-        r.detail
-    );
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 }

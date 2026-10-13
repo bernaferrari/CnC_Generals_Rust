@@ -67,8 +67,6 @@ pub struct GameLogic {
     /// GameWorld shadow last-writer authority switches (per-instance context;
     /// replaces the retired `GENERALS_GAMEWORLD_*_AUTHORITY` env flags).
     /// Defaults all-off: host `GameLogic` is the sole writer (C++ single store).
-    pub(crate) gameworld_authority:
-        crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority,
     /// Reject a nested step on this same instance; it never selects read authority.
     pub(in crate::game_logic) host_logic_step_active: bool,
     /// Canonical mutable Object values for this match. Ordinary reads, scripts,
@@ -1117,6 +1115,8 @@ pub struct GameLogic {
 
     /// Combat system for parallel projectile processing
     pub(crate) combat_system: CombatSystem,
+    pub(crate) production_spawn_completions:
+        Vec<crate::game_logic::host_production_spawn_ready_log::HostProductionSpawnReadyEvent>,
 
     /// Pathfinding system for parallel path computation
     pub(crate) pathfinding_system: PathfindingSystem,

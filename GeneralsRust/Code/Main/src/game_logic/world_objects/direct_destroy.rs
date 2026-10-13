@@ -22,7 +22,6 @@ impl GameLogic {
         self.objects_to_destroy
             .push_back(DestructionEvent::direct(id));
         self.apply_object_delete_callbacks(id);
-        let _ = crate::gameworld_shadow::eager_mark_host_destroy_if_coupled(id);
     }
 
     /// Complete the supported onDelete slice on the installed Object.
@@ -298,7 +297,7 @@ impl GameLogic {
         self.remove_host_radar_provider(id);
         self.host_radar_remove_object(id);
         crate::game_logic::host_destroy_log::record(id);
-        let _ = crate::gameworld_shadow::eager_unmap_host_destroy_if_coupled(id);
+
         self.clear_removed_object_references(id);
         object.is_kind_of(KindOf::Structure)
     }
@@ -322,9 +321,7 @@ impl GameLogic {
                 object.guard_target = None;
                 if object.ai_state == AIState::GuardingObject {
                     object.set_ai_state(AIState::Idle);
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                        idle.push(*other);
-                    }
+                    {}
                 }
             }
         }

@@ -8,9 +8,8 @@
         dual_tick_presentation_ok,
         dual_tick_counters_ok,
         gameworld_shadow_ok,
-        damage_authority_env_ok,
-        economy_authority_env_ok,
-        production_authority_env_ok,
+
+
         dual_tick_policy_authority_only,
-        engine_bridge_off,
+
         hud_selection_ok,

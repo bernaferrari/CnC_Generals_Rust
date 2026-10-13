@@ -3,9 +3,8 @@
 //! prevent reintroducing the retired competing writer/selector.
 pub(super) fn host_owns_construction() -> bool {
     let host = include_str!("../world_tick/production.rs");
-    let shadow = include_str!("../../gameworld_shadow/writeback_production.rs");
-    let session = include_str!("../../gameworld_shadow/session.rs");
-    let authority = include_str!("../game_logic/gameworld_authority.rs");
+    let shadow = include_str!("../../gameworld_shadow/construction_observation.rs");
+    let boundary = include_str!("../../gameworld_shadow/host_observation_boundary.rs");
     host.contains("obj.construction_percent = projected")
         && host.contains("if projected >= 1.0")
         && host.contains("obj.set_status_under_construction(false)")
@@ -15,7 +14,5 @@ pub(super) fn host_owns_construction() -> bool {
         && !shadow.contains("pub fn writeback_construction_to_host")
         && !shadow.contains("pub fn writeback_rebuild_producer_to_host")
         && !shadow.contains("pub fn tick_construction_progress")
-        && session.contains("shadow.compare_construction_to_host(logic)")
-        && session.contains("shadow.compare_rebuild_producer_to_host(logic)")
-        && !authority.contains("pub construction: bool")
+        && boundary.contains("shadow.sync_from_host(logic)")
 }

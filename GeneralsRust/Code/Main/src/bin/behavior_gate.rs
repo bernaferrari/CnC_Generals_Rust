@@ -19,7 +19,7 @@ use std::time::Duration;
 
 fn main() {
     // Gate default: GameWorld damage last-writer for HP (opt out DAMAGE_AUTHORITY=0).
-    generals_main::gameworld_shadow::ensure_gate_damage_authority();
+
     let mut failed = Vec::new();
 
     // 1) Map frames — when assets present require load + advance.

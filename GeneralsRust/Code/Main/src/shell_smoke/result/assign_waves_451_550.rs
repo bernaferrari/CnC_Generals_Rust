@@ -37,9 +37,7 @@
         production_quantity_writeback_method_names_wave463_ok,
         production_quantity_writeback_nav_commands_wave463_ok,
         production_quantity_writeback_live_wave463_ok,
-        production_exit_delay_sole_tick_method_names_wave464_ok,
-        production_exit_delay_sole_tick_nav_commands_wave464_ok,
-        production_exit_delay_sole_tick_live_wave464_ok,
+
         minimap_heightmap_repair_presentation_first_method_names_wave465_ok,
         minimap_heightmap_repair_presentation_first_nav_commands_wave465_ok,
         minimap_heightmap_repair_presentation_first_live_wave465_ok,

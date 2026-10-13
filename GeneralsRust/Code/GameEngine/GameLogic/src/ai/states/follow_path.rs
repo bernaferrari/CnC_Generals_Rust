@@ -220,16 +220,20 @@ impl AIFollowPathState {
                     return Err("follow path failed to adjust destination".to_string());
                 }
                 self.set_goal_position(adjusted_goal);
-                let terrain_owner_handle = crate::terrain::get_terrain_logic();
-                let layer = terrain_owner_handle
-                    .read()
-                    .ok()
-                    .map(|terrain| terrain.get_layer_for_destination(&adjusted_goal))
-                    .unwrap_or(crate::path::PathfindLayerEnum::Ground);
-                let _ = ai_guard.update_goal_position(
-                    &adjusted_goal,
-                    crate::common::PathfindLayerEnum::from_u32(layer as u32),
-                );
+                let layer = if let Some(world) = ai_guard.world() {
+                    world.layer_for_destination(&adjusted_goal)?
+                } else {
+                    let terrain_owner_handle = crate::terrain::get_terrain_logic();
+                    let layer = terrain_owner_handle
+                        .read()
+                        .ok()
+                        .map(|terrain| terrain.get_layer_for_destination(&adjusted_goal))
+                        .unwrap_or(crate::path::PathfindLayerEnum::Ground);
+                    crate::common::PathfindLayerEnum::from_u32(layer as u32)
+                };
+                ai_guard
+                    .update_goal_position(&adjusted_goal, layer)
+                    .map_err(|error| error.to_string())?;
             }
             if projectile {
                 let _ = ai_guard.set_precise_z_pos(true);

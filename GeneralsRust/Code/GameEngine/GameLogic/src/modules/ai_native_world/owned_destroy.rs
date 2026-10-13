@@ -4,11 +4,22 @@ use game_engine::common::thing::update_module::UpdateSleepTime;
 
 impl BorrowedAiWorld<'_> {
     pub(crate) fn validate_owned_destroy(&self, id: ObjectID) -> Result<(), String> {
+        self.validate_owned_destroy_impl(id, false)
+    }
+    pub(super) fn validate_destroy_after_tunnel_detach(&self, id: ObjectID) -> Result<(), String> {
+        self.validate_owned_destroy_impl(id, true)
+    }
+    fn validate_owned_destroy_impl(
+        &self,
+        id: ObjectID,
+        detached_by_tunnel: bool,
+    ) -> Result<(), String> {
         let owner = self.object(id).ok_or("native destroy owner absent")?;
         let object = owner
             .try_read()
             .map_err(|_| "native destroy object already borrowed")?;
-        object.native_destroy_plan()?;
+        object.native_destroy_plan_with_containment()?;
+        self.validate_group_departure_owned(&object)?;
         if let Some(data) = object.owned_radar_data() {
             if data.object_id != id || !self.services.radar.contains_object(id) {
                 return Err("native destroy radar link belongs to another owner".into());
@@ -34,7 +45,15 @@ impl BorrowedAiWorld<'_> {
         }
         let controller = self.controller(&object);
         let ai = object.get_ai_update_interface();
+        let parent = object.get_contained_by();
         drop(object);
+        if !detached_by_tunnel {
+            if let Some(parent) = parent {
+                let parent = self.object(parent).ok_or("destroy container absent")?;
+                self.validate_remove_operation(&owner, &parent, false)?;
+            }
+        }
+        self.validate_containment_delete_owned(&owner)?;
         if let Some(controller) = controller {
             if controller
                 .try_read()
@@ -48,7 +67,7 @@ impl BorrowedAiWorld<'_> {
         if let Some(ai) = ai {
             ai.try_lock()
                 .map_err(|_| "native destroy AI already borrowed")?
-                .validate_owned_removal_callbacks(&owner)?;
+                .validate_owned_removal_callbacks_with_world(&owner, self)?;
         }
         Ok(())
     }
@@ -68,7 +87,7 @@ impl BorrowedAiWorld<'_> {
         let (plan, ai, proxies, wall) = {
             let object = owner.read().map_err(|_| "native destroy object poisoned")?;
             (
-                object.native_destroy_plan()?,
+                object.native_destroy_plan_with_containment()?,
                 object.get_ai_update_interface(),
                 object.named_update_registrations("AutoHealBehavior"),
                 object.is_kind_of(KindOf::WalkOnTopOfWall),
@@ -92,7 +111,18 @@ impl BorrowedAiWorld<'_> {
             .write()
             .map_err(|_| "native destroy object poisoned")?
             .mark_native_destroy_notified();
-        plan.notify_delete()?;
+        // CPP Object::onDestroy removes this object from its actual container
+        // before delivering onDelete to authored modules in literal tag order.
+        let parent = owner
+            .read()
+            .map_err(|_| "destroy owner poisoned")?
+            .get_contained_by();
+        if let Some(parent) = parent {
+            self.remove_contained(id, parent, false)?;
+        }
+        plan.notify_delete_with_containment(|entry| {
+            self.finish_containment_delete_owned(&owner, entry)
+        })?;
         for proxy in proxies {
             self.services
                 .update_scheduler

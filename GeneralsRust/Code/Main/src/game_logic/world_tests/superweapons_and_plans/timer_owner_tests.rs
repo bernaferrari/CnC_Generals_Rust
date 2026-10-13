@@ -4,17 +4,11 @@
 //! Parsed known-range Main residual coverage; not arbitrary module installation.
 use super::*;
 use crate::game_logic::combat::DamageType;
-use crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority;
 use crate::game_logic::game_logic::world_tick::heli_motion_tests::isolated_at;
 use crate::game_logic::host_usa_pilot::HostDeathType;
 
-fn with_authority(test: &str, movement: bool, damage: bool, run: impl FnOnce()) {
-    isolated_at(module_path!(), test, || {
-        let mut authority = GameWorldAuthority::DEFAULT_OFF;
-        authority.movement = movement;
-        authority.damage = damage;
-        crate::gameworld_shadow::with_gameworld_authority(authority, run);
-    });
+fn run_isolated_owner(test: &str, run: impl FnOnce()) {
+    isolated_at(module_path!(), test, run);
 }
 
 fn parsed_owner(world: &mut GameLogic, lifetime: bool) -> ObjectId {
@@ -98,23 +92,22 @@ End
     id
 }
 
-fn coupled_update(
+fn owned_update(
     world: &mut GameLogic,
     shadow: &mut crate::gameworld_shadow::GameWorldShadow,
 ) -> u32 {
     let before = world.getFrame();
-    let _coupled = crate::gameworld_shadow::CoupledTickGuard::enter();
+
     assert!(crate::gameworld_shadow::gameworld_shadow_enabled());
     world.update();
     assert_eq!(world.getFrame(), before + 1);
-    crate::gameworld_shadow::shadow_session_after_host_tick(shadow, world);
+    crate::gameworld_shadow::run_owned_host_boundary(Some(shadow), world);
     before
 }
 
-fn lifetime_case(movement: bool, damage: bool) {
+fn lifetime_case() {
     let mut world = GameLogic::new();
-    world.set_movement_authority(movement);
-    world.set_damage_authority(damage);
+
     let start = world.getFrame();
     let id = parsed_owner(&mut world, true);
     let lifetime = world
@@ -135,7 +128,7 @@ fn lifetime_case(movement: bool, damage: bool) {
             !owner.status.on_die_started,
             "CPP Lifetime hasn't executed its due frame yet"
         );
-        let before = coupled_update(&mut world, &mut shadow);
+        let before = owned_update(&mut world, &mut shadow);
         assert!(before < due);
         let owner = world
             .host_object(id)
@@ -147,7 +140,7 @@ fn lifetime_case(movement: bool, damage: bool) {
         assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
     }
     // Ordinary tick executes frame300, then advances the public clock to301.
-    assert_eq!(coupled_update(&mut world, &mut shadow), due);
+    assert_eq!(owned_update(&mut world, &mut shadow), due);
     assert_eq!(world.getFrame(), due + 1);
     assert!(
         world.host_object(id).is_none(),
@@ -155,7 +148,7 @@ fn lifetime_case(movement: bool, damage: bool) {
     );
     assert!(shadow.entity_for_host(id).is_none());
     assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
-    coupled_update(&mut world, &mut shadow);
+    owned_update(&mut world, &mut shadow);
     assert!(
         world.host_object(id).is_none(),
         "no second timer execution resurrects the owner"
@@ -164,31 +157,25 @@ fn lifetime_case(movement: bool, damage: bool) {
 
 #[test]
 fn coupled_default_lifetime_ordinary_deadline_is_not_disabled() {
-    with_authority(
+    run_isolated_owner(
         "coupled_default_lifetime_ordinary_deadline_is_not_disabled",
-        false,
-        false,
-        || lifetime_case(false, false),
+        || lifetime_case(),
     );
 }
 
 #[test]
 fn coupled_movement_lifetime_does_not_kill_one_frame_early() {
-    with_authority(
+    run_isolated_owner(
         "coupled_movement_lifetime_does_not_kill_one_frame_early",
-        true,
-        false,
-        || lifetime_case(true, false),
+        || lifetime_case(),
     );
 }
 
 #[test]
 fn coupled_movement_damage_lifetime_keeps_initial_kill_deadline() {
-    with_authority(
+    run_isolated_owner(
         "coupled_movement_damage_lifetime_keeps_initial_kill_deadline",
-        true,
-        true,
-        || lifetime_case(true, true),
+        || lifetime_case(),
     );
 }
 
@@ -217,10 +204,9 @@ fn infect(world: &mut GameLogic, id: ObjectId, amount: f32) {
     assert_eq!(poison.poison_overall_stop_frame, frame + 90);
 }
 
-fn poison_case(movement: bool, damage: bool) {
+fn poison_case() {
     let mut world = GameLogic::new();
-    world.set_movement_authority(movement);
-    world.set_damage_authority(damage);
+
     world.update();
     assert_eq!(world.getFrame(), 1);
     let id = parsed_owner(&mut world, false);
@@ -240,14 +226,14 @@ fn poison_case(movement: bool, damage: bool) {
     // At public clock4, frame4 is still awaiting ordinary execution. The
     // deadline assertion is after its execution (clock5), not a synthetic tick.
     while world.getFrame() < 4 {
-        coupled_update(&mut world, &mut shadow);
+        owned_update(&mut world, &mut shadow);
         if world.getFrame() < 4 {
             assert_eq!(world.host_object(id).unwrap().health.current, 90.0);
         }
     }
     for executing_frame in 4..=7 {
         assert_eq!(world.getFrame(), executing_frame);
-        assert_eq!(coupled_update(&mut world, &mut shadow), executing_frame);
+        assert_eq!(owned_update(&mut world, &mut shadow), executing_frame);
         let owner = world.host_object(id).unwrap();
         let expected_ticks = if executing_frame < 7 { 1 } else { 2 };
         assert_eq!(
@@ -276,51 +262,42 @@ fn poison_case(movement: bool, damage: bool) {
 
 #[test]
 fn coupled_default_poison_keeps_owned_periodic_damage_and_tint() {
-    with_authority(
+    run_isolated_owner(
         "coupled_default_poison_keeps_owned_periodic_damage_and_tint",
-        false,
-        false,
-        || poison_case(false, false),
+        || poison_case(),
     );
 }
 
 #[test]
 fn coupled_movement_poison_preserves_periodic_damage_not_repeated_sync_damage() {
-    with_authority(
+    run_isolated_owner(
         "coupled_movement_poison_preserves_periodic_damage_not_repeated_sync_damage",
-        true,
-        false,
-        || poison_case(true, false),
+        || poison_case(),
     );
 }
 
 #[test]
 fn coupled_movement_damage_poison_applies_each_accepted_pulse_once() {
-    with_authority(
+    run_isolated_owner(
         "coupled_movement_damage_poison_applies_each_accepted_pulse_once",
-        true,
-        true,
-        || poison_case(true, true),
+        || poison_case(),
     );
 }
 
 #[test]
 fn coupled_movement_damage_reinfection_replaces_amount_without_postponing_pulse() {
-    with_authority(
+    run_isolated_owner(
         "coupled_movement_damage_reinfection_replaces_amount_without_postponing_pulse",
-        true,
-        true,
         || {
             let mut world = GameLogic::new();
-            world.set_movement_authority(true);
-            world.set_damage_authority(true);
+
             world.update();
             let id = parsed_owner(&mut world, false);
             let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
             shadow.sync_from_host(&world);
             infect(&mut world, id, 10.0);
             while world.getFrame() < 5 {
-                coupled_update(&mut world, &mut shadow);
+                owned_update(&mut world, &mut shadow);
             }
             assert_eq!(world.host_object(id).unwrap().health.current, 80.0);
             infect(&mut world, id, 5.0);
@@ -336,7 +313,7 @@ fn coupled_movement_damage_reinfection_replaces_amount_without_postponing_pulse(
                 7
             );
             while world.getFrame() <= 7 {
-                let before = coupled_update(&mut world, &mut shadow);
+                let before = owned_update(&mut world, &mut shadow);
                 let owner = world.host_object(id).unwrap();
                 assert_eq!(owner.health.current, if before < 7 { 75.0 } else { 70.0 });
                 let poison = owner.poisoned_behavior.as_ref().unwrap();
@@ -352,10 +329,8 @@ fn coupled_movement_damage_reinfection_replaces_amount_without_postponing_pulse(
 
 #[test]
 fn coupled_default_same_id_poison_uses_each_owners_actual_dose_and_clock() {
-    with_authority(
+    run_isolated_owner(
         "coupled_default_same_id_poison_uses_each_owners_actual_dose_and_clock",
-        false,
-        false,
         || {
             let mut first = GameLogic::new();
             first.update();
@@ -373,8 +348,8 @@ fn coupled_default_same_id_poison_uses_each_owners_actual_dose_and_clock() {
             first_shadow.sync_from_host(&first);
             second_shadow.sync_from_host(&second);
             for _ in 0..4 {
-                coupled_update(&mut second, &mut second_shadow);
-                coupled_update(&mut first, &mut first_shadow);
+                owned_update(&mut second, &mut second_shadow);
+                owned_update(&mut first, &mut first_shadow);
             }
             let a = first.host_object(first_id).unwrap();
             let b = second.host_object(second_id).unwrap();
@@ -413,10 +388,8 @@ fn coupled_default_same_id_poison_uses_each_owners_actual_dose_and_clock() {
 
 #[test]
 fn admitted_lifetime_consumes_one_wake_without_rebuilding_its_deadline() {
-    with_authority(
+    run_isolated_owner(
         "admitted_lifetime_consumes_one_wake_without_rebuilding_its_deadline",
-        false,
-        false,
         || {
             let mut world = GameLogic::new();
             let id = parsed_owner(&mut world, true);

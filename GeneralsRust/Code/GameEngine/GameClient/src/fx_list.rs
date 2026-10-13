@@ -2,6 +2,18 @@
 //!
 //! Ported from `GameClient/FXList.cpp` and `GameClient/FXList.h`.
 
+#[path = "fx_owned_light_scene.rs"]
+mod owned_light_scene;
+pub use owned_light_scene::DisplayLightScene;
+#[path = "fx_owned_sound.rs"]
+mod owned_sound;
+pub use owned_sound::submit_sound_fx_owned;
+#[path = "fx_owned_execution.rs"]
+mod owned_execution;
+pub use owned_execution::{
+    FxDrawableExecution, FxExecution, FxInvocation, FxRayRequest, FxTracerRequest,
+};
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
@@ -248,7 +260,7 @@ impl std::fmt::Display for FXListError {
 
 impl std::error::Error for FXListError {}
 
-pub trait FXNugget: Send + Sync {
+pub trait FXNugget: Send + Sync + std::any::Any {
     fn do_fx_pos(
         &self,
         primary: Option<&Coord3D>,
@@ -309,9 +321,9 @@ thread_local! {
         const { RefCell::new(None) };
     static FX_SHAKE_SYSTEM: RefCell<Option<Arc<Mutex<CameraShakeSystem>>>> =
         const { RefCell::new(None) };
-    static DISPLAY_LIGHT_PULSES: RefCell<Vec<DisplayLightPulse>> = RefCell::new(Vec::new());
+    // Compatibility adapter only. Owned FX execution receives a scene directly.
+    static LEGACY_LIGHT_SCENE: RefCell<DisplayLightScene> = RefCell::new(DisplayLightScene::default());
     static LIGHT_PULSE_HOOK: RefCell<Option<LightPulseHook>> = const { RefCell::new(None) };
-    static SCENE_DYNAMIC_LIGHTS: RefCell<Vec<DisplayDynamicLight>> = RefCell::new(Vec::new());
 }
 
 /// C++ `TheDisplay->createLightPulse` request (W3DDisplay.cpp).
@@ -356,31 +368,10 @@ pub fn light_pulse_too_small(inner_radius: f32, outer_radius: f32) -> bool {
 /// C++ `TheDisplay->createLightPulse(pos, color, innerRadius, outerRadius, increase, decay)`.
 /// Records the pulse and notifies an optional display hook (W3D scene).
 pub fn create_display_light_pulse(pulse: DisplayLightPulse) -> bool {
-    if light_pulse_too_small(pulse.inner_radius, pulse.outer_radius) {
+    if !LEGACY_LIGHT_SCENE.with_borrow_mut(|scene| scene.create_pulse(pulse.clone())) {
         return false;
     }
-    DISPLAY_LIGHT_PULSES.with_borrow_mut(|pulses| pulses.push(pulse.clone()));
-    // C++ W3DDisplay::createLightPulse allocates a W3DDynamicLight:
-    // Set_Far_Attenuation_Range(inner, inner+atten), setFrameFade, setDecayRange/Color,
-    // FAR_ATTENUATION flag.
-    SCENE_DYNAMIC_LIGHTS.with_borrow_mut(|lights| {
-        lights.push(DisplayDynamicLight {
-            pos: pulse.pos,
-            color: pulse.color,
-            far_atten_start: pulse.inner_radius,
-            far_atten_end: pulse.inner_radius + pulse.outer_radius,
-            increase_frames: pulse.increase_frames,
-            decay_frames: pulse.decay_frames,
-            cur_increase_frames: pulse.increase_frames,
-            cur_decay_frames: pulse.decay_frames,
-            target_color: pulse.color,
-            target_far_atten_end: pulse.inner_radius + pulse.outer_radius,
-            decay_range: true,
-            decay_color: true,
-            far_attenuation: true,
-            enabled: true,
-        });
-    });
+    // Release the scene before the original display callback can reenter FX.
     LIGHT_PULSE_HOOK.with_borrow_mut(|hook| {
         if let Some(hook) = hook.as_mut() {
             hook(&pulse);
@@ -390,7 +381,7 @@ pub fn create_display_light_pulse(pulse: DisplayLightPulse) -> bool {
 }
 
 pub fn scene_dynamic_lights() -> Vec<DisplayDynamicLight> {
-    SCENE_DYNAMIC_LIGHTS.with_borrow(Clone::clone)
+    LEGACY_LIGHT_SCENE.with_borrow(|scene| scene.lights().to_vec())
 }
 
 /// C++ `Get_Far_Attenuation_Range(midRange, range)` then
@@ -496,47 +487,15 @@ pub fn do_the_dynamic_light_from_scene(
 
 /// C++ `W3DDynamicLight::On_Frame_Update` fade (increase then decay range/color).
 pub fn tick_scene_dynamic_lights() {
-    SCENE_DYNAMIC_LIGHTS.with_borrow_mut(|lights| {
-        for light in lights.iter_mut() {
-            if !light.enabled {
-                continue;
-            }
-            let factor = if light.cur_increase_frames > 0 && light.increase_frames > 0 {
-                light.cur_increase_frames -= 1;
-                (light.increase_frames - light.cur_increase_frames) as f32
-                    / light.increase_frames as f32
-            } else if light.decay_frames == 0 {
-                1.0
-            } else {
-                light.cur_decay_frames = light.cur_decay_frames.saturating_sub(1);
-                if light.cur_decay_frames == 0 {
-                    light.enabled = false;
-                    continue;
-                }
-                light.cur_decay_frames as f32 / light.decay_frames as f32
-            };
-            if light.decay_range {
-                light.far_atten_end =
-                    (factor * light.target_far_atten_end).max(light.far_atten_start);
-            }
-            if light.decay_color {
-                light.color = [
-                    light.target_color[0] * factor,
-                    light.target_color[1] * factor,
-                    light.target_color[2] * factor,
-                ];
-            }
-        }
-        lights.retain(|light| light.enabled);
-    });
+    LEGACY_LIGHT_SCENE.with_borrow_mut(DisplayLightScene::update);
 }
 
 pub fn clear_scene_dynamic_lights() {
-    SCENE_DYNAMIC_LIGHTS.with_borrow_mut(Vec::clear);
+    LEGACY_LIGHT_SCENE.with_borrow_mut(DisplayLightScene::clear_lights);
 }
 
 pub fn drain_display_light_pulses() -> Vec<DisplayLightPulse> {
-    DISPLAY_LIGHT_PULSES.with_borrow_mut(|pulses| pulses.drain(..).collect())
+    LEGACY_LIGHT_SCENE.with_borrow_mut(DisplayLightScene::drain_pulses)
 }
 
 pub fn register_light_pulse_hook(hook: LightPulseHook) {
@@ -636,7 +595,6 @@ fn controlling_player_index(primary: &Object) -> i32 {
 
 /// C++ `SoundFXNugget::doFXObj` / `doFXPos` → `TheAudio->addAudioEvent`.
 fn play_sound_fx_event(sound_name: &str, position: Option<&Coord3D>, player_index: Option<i32>) {
-    use game_engine::common::audio::audio_event_rts::{AudioEventRts, Coord3D as AudioCoord3D};
     use game_engine::common::audio::game_audio::{
         get_global_audio_manager, initialize_global_audio_manager,
     };
@@ -644,17 +602,7 @@ fn play_sound_fx_event(sound_name: &str, position: Option<&Coord3D>, player_inde
     if sound_name.is_empty() {
         return;
     }
-    let mut event = AudioEventRts::with_event_name(sound_name);
-    if let Some(pos) = position {
-        event.set_position(&AudioCoord3D {
-            x: pos.x,
-            y: pos.y,
-            z: pos.z,
-        });
-    }
-    if let Some(index) = player_index {
-        event.set_player_index(index);
-    }
+    let mut event = owned_sound::sound_fx_event(sound_name, position, player_index);
     let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
     let Ok(mut manager) = manager.lock() else {
         return;
@@ -1211,17 +1159,20 @@ impl Default for LightPulseFXNugget {
 }
 
 impl LightPulseFXNugget {
-    /// C++ LightPulseFXNugget::doFXPos / doFXObj → TheDisplay->createLightPulse.
-    /// Inner radius is always 1 (FXList.cpp:312/324).
-    fn emit_pulse(&self, pos: &Coord3D, outer_radius: f32) {
-        let _ = create_display_light_pulse(DisplayLightPulse {
+    fn pulse_at(&self, pos: &Coord3D, outer_radius: f32) -> DisplayLightPulse {
+        DisplayLightPulse {
             pos: [pos.x, pos.y, pos.z],
             color: [self.color.x, self.color.y, self.color.z],
             inner_radius: 1.0,
             outer_radius,
             increase_frames: self.increase_frames,
             decay_frames: self.decrease_frames,
-        });
+        }
+    }
+    /// C++ LightPulseFXNugget::doFXPos / doFXObj → TheDisplay->createLightPulse.
+    /// Inner radius is always 1 (FXList.cpp:312/324).
+    fn emit_pulse(&self, pos: &Coord3D, outer_radius: f32) {
+        let _ = create_display_light_pulse(self.pulse_at(pos, outer_radius));
     }
 }
 
@@ -1344,6 +1295,12 @@ impl FXNugget for TerrainScorchFXNugget {
     }
 }
 
+/// FXList.cpp:42 Rotate_Vector uses the supplied basis directly. glam already
+/// stores that same transform in columns; transposing it reverses the rotation.
+fn particle_fx_basis(matrix: &Matrix3D) -> Mat3 {
+    Mat3::from_mat4(*matrix)
+}
+
 struct ParticleSystemWrapper {
     nugget: ParticleSystemFXNugget,
 }
@@ -1367,13 +1324,7 @@ impl FXNugget for ParticleSystemWrapper {
             return;
         };
         let primary_point = Vec3::new(primary.x, primary.y, primary.z);
-        let mtx = primary_mtx.map(|mtx| {
-            let cols = mtx.to_cols_array_2d();
-            Mat3::from_cols_array(&[
-                cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1], cols[0][2],
-                cols[1][2], cols[2][2],
-            ])
-        });
+        let mtx = primary_mtx.map(|mtx| particle_fx_basis(&mtx));
         let systems = self
             .nugget
             .do_fx_pos(primary_point, mtx.as_ref(), override_radius, manager);
@@ -1407,18 +1358,10 @@ impl FXNugget for ParticleSystemWrapper {
                     Vec3::new(0.0, 0.0, 1.0),
                 ))
             } else {
-                let cols = primary.get_transform_matrix().to_cols_array_2d();
-                Some(Mat3::from_cols_array(&[
-                    cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1],
-                    cols[0][2], cols[1][2], cols[2][2],
-                ]))
+                Some(particle_fx_basis(&primary.get_transform_matrix()))
             }
         } else {
-            let cols = primary.get_transform_matrix().to_cols_array_2d();
-            Some(Mat3::from_cols_array(&[
-                cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1], cols[0][2],
-                cols[1][2], cols[2][2],
-            ]))
+            Some(particle_fx_basis(&primary.get_transform_matrix()))
         };
 
         let object_id = Some(primary.get_id());
@@ -1453,18 +1396,10 @@ impl FXNugget for ParticleSystemWrapper {
                     Vec3::new(0.0, 0.0, 1.0),
                 ))
             } else {
-                let cols = primary.transform.to_cols_array_2d();
-                Some(Mat3::from_cols_array(&[
-                    cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1],
-                    cols[0][2], cols[1][2], cols[2][2],
-                ]))
+                Some(particle_fx_basis(&primary.transform))
             }
         } else {
-            let cols = primary.transform.to_cols_array_2d();
-            Some(Mat3::from_cols_array(&[
-                cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1], cols[0][2],
-                cols[1][2], cols[2][2],
-            ]))
+            Some(particle_fx_basis(&primary.transform))
         };
         let systems = self
             .nugget

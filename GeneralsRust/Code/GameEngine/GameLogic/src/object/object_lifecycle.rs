@@ -835,6 +835,23 @@ impl Object {
     }
 
     // Team management
+    pub(crate) fn admitted_team(&self) -> Result<Option<Arc<RwLock<Team>>>, String> {
+        match (&self.team_pin, self.team_id) {
+            (Some(team), Some(id)) => {
+                if team
+                    .try_read()
+                    .map_err(|_| "admitted team borrowed")?
+                    .get_id()
+                    != id
+                {
+                    return Err("admitted team identity mismatch".into());
+                }
+                Ok(Some(Arc::clone(team)))
+            }
+            (None, None) => Ok(None),
+            _ => Err("object team has no admitted owner".into()),
+        }
+    }
     pub fn get_team(&self) -> Option<Arc<RwLock<Team>>> {
         // An admitted team is an identity, not a request to find another
         // session's team with the same serialized id.
@@ -1391,18 +1408,38 @@ impl Object {
 
     /// Call OnDie hooks on all modules that support the die interface
     pub(super) fn call_on_die_hooks(&mut self, damage_info: Option<&DamageInfo>) {
-        // Collect die module handles (resolved from the index list into `modules`)
-        let die_modules: Vec<Arc<ModuleEntry>> =
-            self.interface_entry_snapshots(&self.die_module_handles);
-
-        for module_entry in die_modules {
-            module_entry.with_module(|module| {
+        let mut authored_contain = false;
+        for entry in self.death_callback_entries() {
+            let contain = entry.with_module(|module| {
+                crate::contain_module_overrides::contain_handle_for_module(module)
+            });
+            if let Some(contain) = contain {
+                authored_contain = true;
+                if let Ok(mut contain) = contain.lock() {
+                    if let Err(error) = contain.on_die_with_owner(self, damage_info) {
+                        log::warn!("Object {} contain on_die failed: {}", self.id, error);
+                    }
+                }
+                continue;
+            }
+            entry.with_module(|module| {
                 if let Some(die_module) = module_die_kind(module) {
                     if let Some(damage) = damage_info {
                         let _ = die_module.into_interface().on_die(damage);
                     }
                 }
             });
+        }
+        // Unauthored helper fixtures have no tag to visit. Factory-installed
+        // containment always took its original authored position above.
+        if !authored_contain {
+            if let Some(contain) = self.contain.clone() {
+                if let Ok(mut contain) = contain.lock() {
+                    if let Err(error) = contain.on_die_with_owner(self, damage_info) {
+                        log::warn!("Object {} contain on_die failed: {}", self.id, error);
+                    }
+                }
+            }
         }
     }
 
@@ -1494,15 +1531,6 @@ impl Object {
         // FIRST, call our die modules
         log::debug!("Object {} calling die modules", self.id);
         self.call_on_die_hooks(Some(damage_info));
-
-        let contain = self.contain.clone();
-        if let Some(contain) = contain {
-            if let Ok(mut contain_guard) = contain.lock() {
-                if let Err(err) = contain_guard.on_die_with_owner(self, Some(damage_info)) {
-                    log::warn!("Object {} contain on_die failed: {}", self.id, err);
-                }
-            }
-        }
 
         self.on_die_remove_from_radar();
 
@@ -1685,8 +1713,8 @@ impl Drop for Object {
 mod team_membership_borrow_tests {
     use super::*;
     use crate::common::DefaultThingTemplate;
-    use crate::object::registry::{OBJECT_REGISTRY, test_isolation_lock};
-    use crate::player::{Player, PlayerTemplate, player_list};
+    use crate::object::registry::{test_isolation_lock, OBJECT_REGISTRY};
+    use crate::player::{player_list, Player, PlayerTemplate};
     use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
     struct RestorePlayers {

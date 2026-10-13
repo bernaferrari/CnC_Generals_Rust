@@ -1422,10 +1422,7 @@ fn strategy_center_turret_mood_target_residual() {
             sc.turret_mood_target,
             "idle mood-target residual must flag m_targetWasSetByIdleMood"
         );
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-            // AttackTarget last-write via decision log; host target stays unset.
-            assert!(sc.target.is_none());
-        } else {
+        {
             assert_eq!(sc.target, Some(enemy_id));
         }
         assert!(

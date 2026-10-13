@@ -2095,10 +2095,7 @@ impl GameLogic {
                 // (dual with GW HP writeback). Project lethal via damage log;
                 // non-authority path keeps host HP clear. Tensile rubble flags
                 // remain host residual either way.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    self.health_events.record_damage(id, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 if let Some(tf) = o.tensile_formation.as_mut() {
@@ -2110,21 +2107,6 @@ impl GameLogic {
                 }
             }
         }
-    }
-
-    pub(crate) fn tick_zone_damage_fields_sole(&mut self) {
-        // Wave 825: post-writeback sole-tick for host zone/field damage residuals.
-        self.update_scud_poison_zones();
-        self.update_nuclear_tanks_radiation_zones();
-        self.update_firewalls();
-        self.update_inferno_fire_zones();
-        self.update_spectre_orbit_fields();
-        self.update_toxin_tractor_poison_zones();
-        self.update_anthrax_toxin_fields();
-        self.update_nuclear_radiation_fields();
-        self.update_neutron_slow_death_fields();
-        self.update_microwave_emitter_field();
-        self.update_microwave_disable();
     }
 
     pub(in super::super) fn update_scud_poison_zones(&mut self) {
@@ -2407,11 +2389,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
-                if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    let hp = o.health.current.max(1.0);
-                    let oid = o.id;
-                    self.health_events.record_damage(oid, hp, None, true);
-                } else {
+                {
                     o.health.current = 0.0;
                 }
                 o.status.destroyed = true;

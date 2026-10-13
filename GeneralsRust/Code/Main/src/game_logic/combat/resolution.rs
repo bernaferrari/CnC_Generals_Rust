@@ -25,6 +25,7 @@ impl CombatSystem {
     pub fn new() -> Self {
         Self {
             projectiles: HashMap::new(),
+            fire_sound_loop_events: Default::default(),
             pending_projectiles: Vec::new(),
             next_projectile_id: ObjectId(100000), // Start high to avoid conflicts with objects
             impact_fx: Vec::new(),
@@ -39,6 +40,7 @@ impl CombatSystem {
     /// Discard accepted shots only when this owning game resets.
     pub(crate) fn reset_pending_projectiles(&mut self) {
         self.pending_projectiles.clear();
+        self.fire_sound_loop_events.clear();
     }
 
     /// Snapshot active projectiles for PresentationFrame freeze (read-only).
@@ -849,16 +851,10 @@ impl CombatSystem {
         &mut self,
         projectiles_to_remove: &[ObjectId],
     ) {
-        // Remove expired/hit projectiles.  Under coupled GameWorld flight
-        // authority, publish an explicit inactive residual here: a later
-        // active-only snapshot cannot otherwise tell the shadow that a host
-        // KILL_SELF delay (or ordinary impact) has actually completed.
+        // CPP projectile destruction follows the full ordered impact batch.
+        // The observation importer discovers retirement from this canonical map.
         for proj_id in projectiles_to_remove {
-            if self.projectiles.remove(proj_id).is_some()
-                && crate::gameworld_shadow::gameworld_projectile_authority_live()
-            {
-                crate::game_logic::host_projectile_log::record_retired(proj_id.0);
-            }
+            self.projectiles.remove(proj_id);
         }
     }
 
@@ -1293,9 +1289,9 @@ fn apply_countermeasure_report_and_decoy(
     frame: u32,
 ) {
     use crate::game_logic::host_countermeasures::{
-        MISSILE_DECOY_DELAY_FRAMES, aircraft_has_countermeasures_upgrade,
-        calculate_countermeasure_to_divert_to, report_missile_for_countermeasures_named,
-        victim_locomotor_is_supersonic,
+        aircraft_has_countermeasures_upgrade, calculate_countermeasure_to_divert_to,
+        report_missile_for_countermeasures_named, victim_locomotor_is_supersonic,
+        MISSILE_DECOY_DELAY_FRAMES,
     };
 
     if !projectile.cm_reported {

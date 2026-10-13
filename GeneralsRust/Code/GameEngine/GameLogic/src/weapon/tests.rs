@@ -36,6 +36,9 @@ struct HistoricWeaponFixture {
 impl HistoricWeaponFixture {
     fn new() -> Self {
         let isolation = weapon_range_test_guard();
+        // This legacy fixture drives the ambient adapter; hit state itself is
+        // owned by its store rather than retained inside immutable definitions.
+        initialize_weapon_store().unwrap();
         let previous_frame = {
             let mut logic = crate::system::game_logic::get_game_logic().lock().unwrap();
             let frame = logic.get_current_frame();

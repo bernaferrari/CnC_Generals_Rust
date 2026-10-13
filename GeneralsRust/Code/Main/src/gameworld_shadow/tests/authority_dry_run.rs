@@ -1,18 +1,10 @@
 //! Guarded authority-flag dry-run. Does not change production defaults.
 
 use super::*;
-use crate::gameworld_shadow::{
-    GAMEWORLD_AUTHORITY_ENV_NAMES, probe_host_vs_gameworld, shadow_session_after_host_tick,
-};
+use crate::gameworld_shadow::probe_host_vs_gameworld;
 
 #[test]
-fn authority_env_guard_dry_run_keeps_probes_true() {
-    let mut env = AuthorityEnvGuard::lock();
-    for name in GAMEWORLD_AUTHORITY_ENV_NAMES {
-        env = env.set(name, "1");
-    }
-    let _env = env.couple();
-
+fn ordinary_owner_frames_keep_observation_metrics_consistent() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AuthDry");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -26,7 +18,7 @@ fn authority_env_guard_dry_run_keeps_probes_true() {
     let mut blockers = Vec::new();
     for frame in 0..4 {
         logic.update_with_dt(1.0 / 30.0);
-        let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
+        let _ = observe_completed_owner(&mut shadow, &mut logic);
         let (_world, probe) = probe_host_vs_gameworld(&mut logic);
         if !probe.counts_match {
             blockers.push(format!("frame {frame}: counts_match"));

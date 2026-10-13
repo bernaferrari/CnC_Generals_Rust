@@ -82,8 +82,6 @@ impl GameLogic {
             retaliate_friends_radius: 120.0,
             max_retaliate_distance: 210.0,
             host_logic_step_active: false,
-            gameworld_authority:
-                crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF,
             objects: HostObjectStore::new(),
             warehouse_crippling_states: HashMap::new(),
             vision_last_looks: HashMap::new(),
@@ -550,6 +548,7 @@ impl GameLogic {
             map_name: String::new(),
             map_loaded: false,
             combat_system: CombatSystem::new(),
+            production_spawn_completions: Vec::new(),
             pathfinding_system: PathfindingSystem::new_with_origin(
                 world_min,
                 world_width,
@@ -768,7 +767,6 @@ impl GameLogic {
         self.production_energy.effective = self.production_energy.base;
         self.apply_aidata_enable_repulsors();
         self.refresh_pathfinding_ai_definitions();
-        self.publish_gameworld_authority_context();
         Self::register_leftover_object_create_overrides_overlay();
         // start_new_game boundary (world_runtime.rs) routes through here: a
         // world starting a game becomes the ambient store context. Staged
@@ -811,6 +809,7 @@ impl GameLogic {
         // C++ WeaponStore::reset also drops pending delayed damage.
         self.combat_system.reset_projectileless_delayed();
         self.combat_system.reset_pending_projectiles();
+        self.production_spawn_completions.clear();
         self.warehouse_crippling_states.clear();
         self.mission_scripts.clear_warehouse_set_values();
         self.host_dock_approach_queues.get_mut().clear();
@@ -1398,7 +1397,7 @@ mod ownership_tests {
     #[test]
     fn constructing_candidate_does_not_publish_it() {
         let mut live = GameLogic::initialize();
-        live.set_damage_authority(true);
+
         let live_stores = Arc::clone(&live.world_services);
 
         let candidate = GameLogic::new();
@@ -1406,7 +1405,7 @@ mod ownership_tests {
             &gamelogic::system::engine_stores::active_services(),
             &live_stores
         ));
-        assert!(super::gameworld_authority::current_gameworld_authority().damage);
+
         assert!(!Arc::ptr_eq(&candidate.world_services, &live_stores));
         drop(candidate);
         assert!(Arc::ptr_eq(
@@ -1421,7 +1420,7 @@ mod ownership_tests {
                 &gamelogic::system::engine_stores::active_services(),
                 &live_stores
             ));
-            assert!(super::gameworld_authority::current_gameworld_authority().damage);
+
             drop(staged);
         }
 
@@ -1430,7 +1429,7 @@ mod ownership_tests {
             &gamelogic::system::engine_stores::active_services(),
             &initialized.world_services
         ));
-        assert!(!super::gameworld_authority::current_gameworld_authority().damage);
+
         drop(initialized);
         assert!(Arc::ptr_eq(
             &gamelogic::system::engine_stores::active_services(),

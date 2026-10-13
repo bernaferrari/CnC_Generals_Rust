@@ -2322,6 +2322,41 @@ impl OpenContain {
         self.redeploy_objects(&contained_ids)
     }
 
+    pub(in crate::object::contain) fn begin_owned_redeployment(&mut self) -> Vec<ObjectID> {
+        self.no_fire_points_in_art = false;
+        self.fire_point_start = -1;
+        self.fire_point_next = 0;
+        self.fire_point_size = 0;
+        self.contained_object_ids.iter().rev().copied().collect()
+    }
+    pub(in crate::object::contain) fn owned_next_firepoint(
+        &mut self,
+        bones: &[Matrix3D],
+    ) -> Option<Matrix3D> {
+        if self.fire_point_size == 0 && !self.no_fire_points_in_art {
+            self.fire_point_size = bones.len().min(MAX_FIRE_POINTS) as i32;
+            for (index, matrix) in bones.iter().take(MAX_FIRE_POINTS).enumerate() {
+                self.fire_points[index] = Self::fire_point_matrix_from_transform(*matrix);
+            }
+            self.no_fire_points_in_art = self.fire_point_size == 0;
+        }
+        if self.no_fire_points_in_art {
+            None
+        } else {
+            Some(Self::fire_point_transform(
+                &self.fire_points[self.fire_point_next as usize],
+            ))
+        }
+    }
+    pub(in crate::object::contain) fn owned_firepoint_index(&self) -> usize {
+        self.fire_point_next as usize
+    }
+    pub(in crate::object::contain) fn advance_owned_firepoint(&mut self) {
+        if self.fire_point_size > 0 {
+            self.fire_point_next = (self.fire_point_next + 1) % self.fire_point_size;
+        }
+    }
+
     pub fn redeploy_riders_at(&mut self, owner_pos: &Coord3D, fire_points: &[Matrix3D]) {
         let ids = self.contained_object_ids.clone();
         let count = fire_points.len();
@@ -2964,6 +2999,39 @@ impl ContainModuleInterface for OpenContain {
         OpenContain::on_selling(self).map_err(|e| e.into())
     }
 
+    fn supports_owned_lifecycle(&self) -> bool {
+        true
+    }
+    fn owned_physical_members(&self) -> Option<Vec<ObjectID>> {
+        Some(self.contained_object_ids.clone())
+    }
+    fn owned_death_policy(
+        &self,
+        owner: &Object,
+        damage: &DamageInfo,
+    ) -> Option<crate::modules::OwnedContainDeathPolicy> {
+        Some(crate::modules::OwnedContainDeathPolicy {
+            applicable: self.is_die_applicable(owner, damage),
+            damage_percent: self.module_data.damage_percentage_to_units,
+            burned: self.module_data.is_burned_death_to_units,
+            destroy_blocked: None,
+        })
+    }
+    fn supports_owned_redeployment(&self) -> bool {
+        true
+    }
+    fn begin_owned_redeployment(&mut self) -> Vec<ObjectID> {
+        OpenContain::begin_owned_redeployment(self)
+    }
+    fn owned_next_firepoint(&mut self, bones: &[Matrix3D]) -> Option<Matrix3D> {
+        OpenContain::owned_next_firepoint(self, bones)
+    }
+    fn owned_firepoint_index(&self) -> usize {
+        self.fire_point_next as usize
+    }
+    fn advance_owned_firepoint(&mut self) {
+        OpenContain::advance_owned_firepoint(self);
+    }
     fn redeploy_riders_at(&mut self, owner_pos: &Coord3D, fire_points: &[Matrix3D]) {
         OpenContain::redeploy_riders_at(self, owner_pos, fire_points);
     }

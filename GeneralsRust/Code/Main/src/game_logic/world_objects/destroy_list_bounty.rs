@@ -14,8 +14,7 @@ impl GameLogic {
         if !self.objects_to_destroy.is_empty() {
             return true;
         }
-        crate::gameworld_shadow::gameworld_damage_authority_live()
-            && crate::game_logic::host_destroy_ready_log::has_pending()
+        false
     }
 
     /// Wave 912: process destroy list only when residual work is pending.
@@ -29,44 +28,7 @@ impl GameLogic {
     pub fn process_destroy_list(&mut self) {
         // Wave 621: under damage authority, GameWorld health writeback records
         // lethal IDs; host marks them here before draining the destroy queue.
-        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-            for ev in crate::game_logic::host_destroy_ready_log::drain() {
-                if self.objects_to_destroy.iter().any(|e| e.id == ev.object) {
-                    continue;
-                }
-                let lethal = self
-                    .objects
-                    .get(&ev.object)
-                    .map(|o| o.status.destroyed || o.health.current <= 0.0)
-                    .unwrap_or(false);
-                if lethal {
-                    // C++ ActiveBody::attemptDamage scores the kill when the
-                    // lethal health write lands: damager = findObjectByID(
-                    // damageInfo->in.m_sourceID) (ActiveBody.cpp:341), then
-                    // `damager->scoreTheKill(obj)` before `obj->onDie`
-                    // (ActiveBody.cpp:640-650). processDestroyList itself only
-                    // tears down (GameLogic.cpp:2445-2511) — unit XP must be
-                    // credited here, or damage-authority kills never promote.
-                    // The Wave-621 ready log carries no killer, so resolve the
-                    // killing blow's source from the victim's lastDamageInfo
-                    // residual (stamp_last_damage_cpp mirrors ActiveBody.cpp
-                    // :593-598). award_score_the_kill_experience is once-only
-                    // (kill_experience_awarded), so direct-fire kills that
-                    // already scored never double-award.
-                    let killer_id = self
-                        .objects
-                        .get(&ev.object)
-                        .and_then(|o| o.last_damage_source);
-                    let killer_team = killer_id
-                        .and_then(|kid| self.objects.get(&kid))
-                        .map(|k| k.team);
-                    if let Some(kid) = killer_id {
-                        self.award_score_the_kill_experience(kid, ev.object);
-                    }
-                    self.mark_object_for_destruction(ev.object, killer_team);
-                }
-            }
-        }
+        {}
         let mut destroyed_structure = false;
         let mut rubble_stamps: Vec<(glam::Vec3, i32)> = Vec::new();
         while let Some(event) = self.objects_to_destroy.pop_front() {
@@ -201,7 +163,7 @@ impl GameLogic {
                 crate::game_logic::host_destroy_log::record(event.id);
                 // Wave 681: mid-frame GameWorld Destroy while coupled shadow tick is live.
                 // End-of-tick host_destroy_log drain remains idempotent for unmapped IDs.
-                let _ = crate::gameworld_shadow::eager_unmap_host_destroy_if_coupled(event.id);
+
                 // Combat particle residual: death → registry entry (explosion + smoke).
                 // PresentationFrame / client can observe systems after the kill.
                 let death_pos = obj.get_position();
@@ -1480,15 +1442,11 @@ mod tests {
     /// victim's lastDamageInfo residual and credit A (C++ scores in
     /// ActiveBody::attemptDamage, ActiveBody.cpp:640-650, before onDie;
     /// GameLogic::processDestroyList, GameLogic.cpp:2445-2511, only tears
-    /// down). Under authority-live, gain_experience routes the award into
-    /// host_experience_log (the GameWorld SetExperience channel).
+    /// down). Under authority-live, gain_experience still commits to the canonical
+    /// host owner before subsequent observers.
     #[test]
     fn damage_authority_destroy_drain_awards_kill_experience() {
         let mut logic = GameLogic::new();
-        logic.set_damage_authority(true);
-        assert!(crate::gameworld_shadow::gameworld_damage_authority_enabled());
-        let _couple = crate::gameworld_shadow::ShadowCoupleGuard::enter();
-        assert!(crate::gameworld_shadow::gameworld_damage_authority_live());
 
         let mut usa = Player::new(0, Team::USA, "USA", true);
         usa.alliance_team = 1;
@@ -1531,29 +1489,23 @@ mod tests {
             "killing blow source must be stamped for killer credit"
         );
 
-        // GameWorld health writeback channel: lethal last-write records the
-        // destroy-ready event (writeback_health_to_host Wave-621 residual).
-        crate::game_logic::host_destroy_ready_log::clear();
-        crate::game_logic::host_experience_log::clear();
-        crate::game_logic::host_destroy_ready_log::record(victim, 0.0);
+        // Canonical lethal damage already queued this receiving owner for removal.
 
         logic.process_destroy_list();
 
         assert!(
             logic.host_object(victim).is_none(),
-            "drained lethal writeback must destroy the victim"
+            "canonical lethal damage must destroy the victim"
         );
-        let xp_events = crate::game_logic::host_experience_log::drain();
-        assert!(
-            xp_events
-                .iter()
-                .any(|e| e.object == killer && (e.points - 25.0).abs() < 1e-3),
-            "kill must award the victim's ExperienceValue through the drain, got {xp_events:?}"
+        assert_eq!(
+            logic.host_object(killer).unwrap().experience.current,
+            25.0,
+            "kill awards the victim ExperienceValue to the canonical killer immediately"
         );
         assert_eq!(
             logic.get_player(0).unwrap().statistics.units_destroyed,
             1,
-            "drained kill must credit the killer team's score keeper"
+            "canonical kill must credit the killer team's score keeper"
         );
         assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 1);
         assert!(

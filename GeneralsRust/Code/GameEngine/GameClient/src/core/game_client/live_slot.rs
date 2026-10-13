@@ -69,9 +69,10 @@ pub(crate) fn clear_live_game_client(client: &mut GameClient) -> bool {
 pub(crate) fn owns_live_game_client_slot(client: &GameClient) -> bool {
     let current = std::ptr::from_ref(client) as usize;
     let current_thread = std::thread::current().id();
-    live_game_client_slot().lock().ok().is_some_and(|slot| {
-        slot.raw == Some(current) && slot.owner_thread == Some(current_thread)
-    })
+    live_game_client_slot()
+        .lock()
+        .ok()
+        .is_some_and(|slot| slot.raw == Some(current) && slot.owner_thread == Some(current_thread))
 }
 
 /// Refresh the scalar frame observable for input translators without borrowing
@@ -144,14 +145,28 @@ pub fn query_live_current_client_bone_positions(
     start: i32,
     max_bones: usize,
 ) -> Vec<(gamelogic::common::Coord3D, gamelogic::common::Matrix3D)> {
-    if max_bones == 0 || bone_name.is_empty() {
-        return Vec::new();
-    }
     with_live_game_client_mut(|client| {
-        let Some(drawable_id) = client.get_drawable_for_object(object_id) else {
+        client.query_current_client_bone_positions(object_id, bone_name, start, max_bones)
+    })
+    .unwrap_or_default()
+}
+
+impl GameClient {
+    /// Actual receiving drawable lookup, without publishing or selecting a client.
+    pub fn query_current_client_bone_positions(
+        &self,
+        object_id: ObjectID,
+        bone_name: &str,
+        start: i32,
+        max_bones: usize,
+    ) -> Vec<(gamelogic::common::Coord3D, gamelogic::common::Matrix3D)> {
+        if max_bones == 0 || bone_name.is_empty() {
+            return Vec::new();
+        }
+        let Some(drawable_id) = self.get_drawable_for_object(object_id) else {
             return Vec::new();
         };
-        let Some(drawable) = client.find_drawable_by_id(drawable_id) else {
+        let Some(drawable) = self.find_drawable_by_id(drawable_id) else {
             return Vec::new();
         };
         let Some(basic) = drawable
@@ -176,8 +191,7 @@ pub fn query_live_current_client_bone_positions(
                 )
             })
             .collect()
-    })
-    .unwrap_or_default()
+    }
 }
 
 fn live_host_object_is_shrouded(object_id: ObjectID) -> bool {
@@ -220,7 +234,6 @@ pub fn query_live_drawable_fx_pose(
     })
     .flatten()
 }
-
 
 impl GameClient {
     /// Capture C++ `BasicDrawable::xfer` visuals from this client.
@@ -304,7 +317,6 @@ pub fn recoil_glam_for_object(object_id: u32) -> Option<glam::Mat4> {
     .flatten()
 }
 
-
 /// Apply a texture-reduction target immediately, mirroring C++ `W3DGameClient::adjustLOD`.
 ///
 /// C++ reference:
@@ -344,7 +356,6 @@ pub fn apply_lod_texture_reduction(target_factor: i32) -> Option<i32> {
     }
     crate::display::shadow_pass::rebuild_shadows();
 
-
     Some(clamped)
 }
 
@@ -361,7 +372,7 @@ pub fn adjust_lod_texture_reduction(delta: i32) -> Option<i32> {
 #[cfg(test)]
 mod live_slot_tests {
     use super::*;
-    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::panic::{AssertUnwindSafe, catch_unwind};
 
     fn live_slot_test_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -446,8 +457,8 @@ mod live_slot_tests {
         live_client.mark_initialized();
 
         {
-            let mut terrain = crate::terrain::terrain_visual::get_terrain_visual()
-                .expect("terrain lock");
+            let mut terrain =
+                crate::terrain::terrain_visual::get_terrain_visual().expect("terrain lock");
             *terrain = Some(crate::terrain::terrain_visual::TerrainVisualSystem::new());
         }
         let previous_pump = register_load_screen_presentation_pump(|| {});
@@ -502,18 +513,20 @@ mod live_slot_tests {
                 [0.0, 0.0, 0.0],
                 [10.0, 0.0, 0.0],
             ));
-            assert!(crate::effects::tracer_fx::create_tracer_fx(
-                "GenericTracer",
-                [0.0, 0.0, 0.0],
-                [20.0, 0.0, 0.0],
-                1.0,
-                2.0,
-                1.0,
-                [1.0, 0.0, 0.0],
-                1.0,
-                0,
-            )
-            .is_some());
+            assert!(
+                crate::effects::tracer_fx::create_tracer_fx(
+                    "GenericTracer",
+                    [0.0, 0.0, 0.0],
+                    [20.0, 0.0, 0.0],
+                    1.0,
+                    2.0,
+                    1.0,
+                    [1.0, 0.0, 0.0],
+                    1.0,
+                    0,
+                )
+                .is_some()
+            );
             assert!(crate::fx_list::create_display_light_pulse(
                 crate::fx_list::DisplayLightPulse {
                     pos: [0.0, 0.0, 0.0],
@@ -527,7 +540,10 @@ mod live_slot_tests {
         }
 
         fn assert_effect_count(count: usize) {
-            assert_eq!(crate::effects::ray_effect_system::live_ray_effects().len(), count);
+            assert_eq!(
+                crate::effects::ray_effect_system::live_ray_effects().len(),
+                count
+            );
             assert_eq!(crate::effects::tracer_fx::live_tracer_fx().len(), count);
             assert_eq!(crate::fx_list::scene_dynamic_lights().len(), count);
         }
@@ -563,3 +579,7 @@ mod live_slot_tests {
         drop(next_client);
     }
 }
+
+#[cfg(test)]
+#[path = "fx_client_bone_tests.rs"]
+mod fx_client_bone_tests;

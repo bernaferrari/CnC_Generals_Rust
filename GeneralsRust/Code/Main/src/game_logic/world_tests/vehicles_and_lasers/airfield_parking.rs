@@ -72,20 +72,7 @@ fn airfield_parking_rearm_docks_and_heals() {
         assert_eq!(jet.contained_by, Some(af_id));
         assert!(jet.needs_return_to_base_rearm());
         // Docked AI state last-write under AI_DECISION_AUTHORITY (default on).
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-            assert_eq!(jet.ai_state, AIState::Idle);
-            let docked =
-                crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&AIState::Docked);
-            let events = crate::game_logic::host_ai_decision_log::snapshot();
-            assert!(
-                events.iter().any(|e| {
-                    e.host_object == jet_id
-                        && e.kind == crate::game_logic::host_ai_decision_log::AI_DECISION_SET_STATE
-                        && e.ai_state_ordinal == docked
-                }),
-                "RTB rearm must log SetAIState(Docked) under decision authority"
-            );
-        } else {
+        {
             assert_eq!(jet.ai_state, AIState::Docked);
         }
     }
@@ -109,16 +96,7 @@ fn airfield_parking_rearm_docks_and_heals() {
         logic.tick_airfield_parking_heal();
     }
     let hp_after = logic.objects.get(&jet_id).unwrap().health.current;
-    if crate::gameworld_shadow::gameworld_damage_authority_live() {
-        let heals = logic.health_events.snapshot_heal();
-        let logged = heals
-            .iter()
-            .any(|e| e.target == jet_id && (e.health - (hp_before + expected)).abs() < 1e-2);
-        assert!(
-            logged || (hp_after - hp_before - expected).abs() < 1e-3,
-            "parking heal must log absolute HP under damage authority (hp {hp_before}->{hp_after}, heals={heals:?}, expect +{expected})"
-        );
-    } else {
+    {
         assert!(
             (hp_after - hp_before - expected).abs() < 1e-3,
             "heal {hp_before} -> {hp_after}, want +{expected}"

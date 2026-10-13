@@ -105,8 +105,21 @@ fn ordinary_boundary_admits_owned_damage_and_removes_dead_objects_before_next_fr
     assert_eq!(logic.host_authoritative_health(id), Some(60.0));
     assert_eq!(shadow.world().entity(entity).unwrap().health, 60.0);
 
-    let (object, events) = logic.host_object_and_health_events_mut(id).unwrap();
-    assert!(object.take_damage_from(1000.0, None, events));
+    logic
+        .apply_owned_damage(
+            id,
+            1000.0,
+            None,
+            crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &crate::game_logic::object::DamageHitContext::new(
+                None,
+                None,
+                crate::game_logic::combat::DamageType::Unresistable,
+            ),
+        )
+        .expect("receiving body and onDie operation");
     advance_owned(&mut logic, Some(&mut shadow));
     assert!(
         logic.host_object(id).is_none(),
