@@ -183,7 +183,6 @@ fn actual_installed_same_id_owners_interleave_and_reset_without_undo() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let a = Installed::new("OwnedArmorA", CHEM, "");
     let b = Installed::new("OwnedArmorB", TRIGGER, "");
     assert!(
@@ -227,7 +226,6 @@ fn installed_chemical_suits_without_a_body_still_apply_decal_and_execution() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     // CPP ArmorUpgrade.cpp:70–80 guards only the body flag. The Chemical
     // Suits branch and UpgradeMux execution follow even without a body.
     let owner = Installed::with_body("OwnedArmorChemicalNoBody", CHEM, "", false);
@@ -274,7 +272,6 @@ fn registered_owner_apply_never_relocks_its_current_object_guard() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let owner = Installed::new("OwnedArmorRegistered", TRIGGER, "");
     crate::object::registry::OBJECT_REGISTRY.register_object(ID, &owner.object);
     let registration = RegisteredOwner(owner.object.clone());
@@ -347,7 +344,6 @@ fn self_removal_and_fx_preserve_cpp_order_outside_the_entry_guard() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let owner = Installed::new(
         "OwnedArmorEffects",
         TRIGGER,
@@ -385,7 +381,6 @@ fn actual_authored_all_triggers_and_conflicts_gate_execution() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let owner = Installed::new(
         "OwnedArmorRequireAll",
         &format!("{TRIGGER} {SECOND}"),
@@ -426,7 +421,6 @@ fn crc_and_xfer_match_cpp_and_do_not_replay_armor_after_load() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let a = Installed::new("OwnedArmorSave", TRIGGER, "");
     let b = Installed::new("OwnedArmorLoad", TRIGGER, "");
     assert_eq!(a.bytes(true), vec![1, 0]);
@@ -512,7 +506,6 @@ fn chemical_suits_real_w3d_callback_releases_guards_and_precedes_description() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let owner = Installed::new("OwnedArmorRealDecal", CHEM, "");
     owner
         .drawable

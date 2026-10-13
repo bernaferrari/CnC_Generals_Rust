@@ -121,8 +121,7 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&object_id) else {
                     continue;
                 };
-                // Wave 778: under coupled shadow, FWWDB continuous is owned by
-                // GW tick_status_timer_expirations + host_fwwd_continuous_log drain.
+                // Advance the receiving object's continuous damaged-weapon state.
                 {
                     if obj.temporary_weapon_runtime.damaged.is_empty() {
                         if let Some(w) = obj.tick_fire_weapon_when_damaged_continuous(self.frame) {
@@ -194,8 +193,7 @@ impl GameLogic {
                         obj.target.is_some(),
                     ));
                 }
-                // Wave 770: under coupled shadow, ToppleUpdate fall is owned by
-                // GW tick_status_timer_expirations + host_topple_kill_log drain.
+                // Advance the receiving object's topple state before height death.
                 {
                     topple_kill = obj.tick_topple();
                     let stump_pos = obj.get_position();
@@ -208,8 +206,7 @@ impl GameLogic {
                 }
                 // C++ StructureToppleUpdate::update residual (buildings).
                 // C++ HeightDieUpdate residual (bombs/missiles).
-                // Wave 771: under coupled shadow, HeightDieUpdate is owned by
-                // GW tick_status_timer_expirations + host_height_die_kill_log drain.
+                // Apply the receiving object's height-death result.
                 {
                     if !topple_kill && obj.tick_height_die(self.frame, height_die_terrain) {
                         topple_kill = true;

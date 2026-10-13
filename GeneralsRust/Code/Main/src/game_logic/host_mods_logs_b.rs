@@ -14,9 +14,6 @@ use super::combat;
 
 use super::host_structure_topple;
 
-#[path = "host_emp_pulse_drop_log.rs"]
-pub mod host_emp_pulse_drop_log;
-
 #[path = "host_fire_intent_log.rs"]
 pub mod host_fire_intent_log;
 
@@ -31,12 +28,6 @@ pub mod host_fire_spawn_log;
 
 #[path = "host_heal_log.rs"]
 pub mod host_heal_log;
-
-#[path = "host_leaflet_b52_drop_log.rs"]
-pub mod host_leaflet_b52_drop_log;
-
-#[path = "host_paradrop_cargo_drop_log.rs"]
-pub mod host_paradrop_cargo_drop_log;
 
 #[path = "host_eva_log.rs"]
 pub mod host_eva_log;
@@ -59,20 +50,5 @@ pub mod host_field_object_expire_log;
 #[path = "host_fire_spread_log.rs"]
 pub mod host_fire_spread_log;
 
-#[path = "host_flashbang_comanche_helix_projectile_log.rs"]
-pub mod host_flashbang_comanche_helix_projectile_log;
-
-#[path = "host_fwwd_continuous_log.rs"]
-pub mod host_fwwd_continuous_log;
-
-#[path = "host_fwwd_reaction_log.rs"]
-pub mod host_fwwd_reaction_log;
-
 #[path = "host_hacker_income_log.rs"]
 pub mod host_hacker_income_log;
-
-#[path = "host_height_die_kill_log.rs"]
-pub mod host_height_die_kill_log;
-
-#[path = "host_inferno_shell_projectile_log.rs"]
-pub mod host_inferno_shell_projectile_log;

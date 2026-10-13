@@ -242,7 +242,6 @@ fn authored_order_and_each_modules_clear_precedence() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let ordered = Installed::new(
         "OwnedStatusOrdered",
         &[
@@ -279,7 +278,6 @@ fn unrelated_removal_and_reset_preserve_external_status_writes() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let set = Installed::new_with_id(
         "OwnedStatusExternalClear",
         &[("Set", "StatusToSet = MASKED")],
@@ -338,7 +336,6 @@ fn inert_same_id_owners_interleave_and_reset_independently() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let a = Installed::new("OwnedStatusA", &[("Set", "StatusToSet = MASKED")]);
     let b = Installed::new("OwnedStatusB", &[("Clear", "StatusToClear = MASKED")]);
     assert!(
@@ -381,7 +378,6 @@ fn self_removal_runs_fx_and_status_outside_the_installed_entry_guard() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let owner = Installed::new(
         "OwnedStatusSelfRemoval",
         &[(
@@ -423,7 +419,6 @@ fn crc_and_xfer_restore_only_execution_without_replaying_status() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let a = Installed::new("OwnedStatusSave", &[("Set", "StatusToSet = MASKED")]);
     let b = Installed::new("OwnedStatusLoad", &[("Clear", "StatusToClear = MASKED")]);
     assert_eq!(a.bytes(true), vec![1, 0]);
@@ -491,7 +486,6 @@ fn player_completion_rechecks_the_existing_authored_module_immediately() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     use crate::player::PlayerArcExt;
 
     // CPP Player.cpp:3034–3039,3054–3081 completes the player bit, then

@@ -14,7 +14,6 @@ use super::{AudioDeviceError, Result, SimpleDeviceCapabilities};
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use std::fmt;
-use std::sync::Arc;
 
 #[cfg(feature = "audio")]
 use super::SampleFormat;
@@ -36,18 +35,18 @@ fn kira_amplitude(amp: f64) -> Decibels {
 pub struct KiraAudioDriver {
     /// Audio manager instance
     #[cfg(feature = "audio")]
-    manager: Arc<RwLock<AudioManager<DefaultBackend>>>,
+    manager: RwLock<AudioManager<DefaultBackend>>,
 
     /// Device capabilities
     capabilities: SimpleDeviceCapabilities,
 
     /// Loaded sounds cache
     #[cfg(feature = "audio")]
-    sounds: Arc<DashMap<String, StaticSoundData>>,
+    sounds: DashMap<String, StaticSoundData>,
 
     /// Active playback handles keyed by Miles-level sound name.
     #[cfg(feature = "audio")]
-    playing: Arc<DashMap<String, Vec<StaticSoundHandle>>>,
+    playing: DashMap<String, Vec<StaticSoundHandle>>,
 
     /// C++ Miles `m_listenerPosition`.
     listener_position: parking_lot::RwLock<[f32; 3]>,
@@ -88,10 +87,10 @@ impl KiraAudioDriver {
         };
 
         Ok(Self {
-            manager: Arc::new(RwLock::new(manager)),
+            manager: RwLock::new(manager),
             capabilities,
-            sounds: Arc::new(DashMap::new()),
-            playing: Arc::new(DashMap::new()),
+            sounds: DashMap::new(),
+            playing: DashMap::new(),
             listener_position: parking_lot::RwLock::new([0.0, 0.0, 0.0]),
             listener_orientation: parking_lot::RwLock::new([0.0, 0.0, -1.0]),
             is_initialized: std::sync::atomic::AtomicBool::new(true),

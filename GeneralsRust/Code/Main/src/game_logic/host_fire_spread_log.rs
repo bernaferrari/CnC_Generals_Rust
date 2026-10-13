@@ -1,8 +1,7 @@
-//! Frame-local fire-spread tick logs for GW shadow parity.
+//! Fire spread data passed directly to receiving Main callbacks.
 
 use super::ObjectId;
 use glam::Vec3;
-use std::cell::RefCell;
 
 #[derive(Debug, Clone)]
 pub struct FireSpreadTickEvent {
@@ -19,20 +18,4 @@ pub struct FireSpreadTickEvent {
     pub pos: Vec3,
     pub spread_try_range: f32,
     pub flame_damage_accum: f32,
-}
-
-thread_local! {
-    static EVENTS: RefCell<Vec<FireSpreadTickEvent>> = RefCell::new(Vec::new());
-}
-
-pub fn record(ev: FireSpreadTickEvent) {
-    EVENTS.with(|l| l.borrow_mut().push(ev));
-}
-
-pub fn drain() -> Vec<FireSpreadTickEvent> {
-    EVENTS.with(|l| std::mem::take(&mut *l.borrow_mut()))
-}
-
-pub fn clear() {
-    EVENTS.with(|l| l.borrow_mut().clear());
 }

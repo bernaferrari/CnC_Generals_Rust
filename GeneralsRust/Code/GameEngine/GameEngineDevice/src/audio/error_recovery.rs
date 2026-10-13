@@ -320,25 +320,25 @@ pub struct ErrorRecoveryManager {
 /// Resource monitoring system
 pub struct ResourceMonitor {
     /// CPU usage history
-    cpu_history: Arc<Mutex<VecDeque<f32>>>,
+    cpu_history: Mutex<VecDeque<f32>>,
     /// Memory usage history
-    memory_history: Arc<Mutex<VecDeque<u64>>>,
+    memory_history: Mutex<VecDeque<u64>>,
     /// I/O statistics
-    io_stats: Arc<RwLock<IoStatistics>>,
+    io_stats: RwLock<IoStatistics>,
     /// Last monitoring update
-    last_update: Arc<RwLock<Instant>>,
+    last_update: RwLock<Instant>,
 }
 
 /// Performance tracking system
 pub struct PerformanceTracker {
     /// Frame timing history
-    frame_times: Arc<Mutex<VecDeque<Duration>>>,
+    frame_times: Mutex<VecDeque<Duration>>,
     /// Latency measurements
-    latency_measurements: Arc<Mutex<VecDeque<Duration>>>,
+    latency_measurements: Mutex<VecDeque<Duration>>,
     /// Drop/underrun counter
-    drop_counter: Arc<AtomicU64>,
+    drop_counter: AtomicU64,
     /// Quality degradation events
-    quality_events: Arc<Mutex<Vec<QualityEvent>>>,
+    quality_events: Mutex<Vec<QualityEvent>>,
 }
 
 /// Quality degradation event
@@ -908,10 +908,10 @@ impl ResourceMonitor {
     /// Create new resource monitor
     pub fn new() -> Result<Self> {
         Ok(Self {
-            cpu_history: Arc::new(Mutex::new(VecDeque::with_capacity(300))), // 5 minutes at 1Hz
-            memory_history: Arc::new(Mutex::new(VecDeque::with_capacity(300))),
-            io_stats: Arc::new(RwLock::new(IoStatistics::default())),
-            last_update: Arc::new(RwLock::new(Instant::now())),
+            cpu_history: Mutex::new(VecDeque::with_capacity(300)), // 5 minutes at 1Hz
+            memory_history: Mutex::new(VecDeque::with_capacity(300)),
+            io_stats: RwLock::new(IoStatistics::default()),
+            last_update: RwLock::new(Instant::now()),
         })
     }
 
@@ -936,10 +936,10 @@ impl PerformanceTracker {
     /// Create new performance tracker
     pub fn new() -> Self {
         Self {
-            frame_times: Arc::new(Mutex::new(VecDeque::with_capacity(1000))),
-            latency_measurements: Arc::new(Mutex::new(VecDeque::with_capacity(1000))),
-            drop_counter: Arc::new(AtomicU64::new(0)),
-            quality_events: Arc::new(Mutex::new(Vec::new())),
+            frame_times: Mutex::new(VecDeque::with_capacity(1000)),
+            latency_measurements: Mutex::new(VecDeque::with_capacity(1000)),
+            drop_counter: AtomicU64::new(0),
+            quality_events: Mutex::new(Vec::new()),
         }
     }
 

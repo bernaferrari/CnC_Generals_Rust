@@ -247,7 +247,6 @@ fn authored_same_id_owners_interleave_reset_and_query_clone() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let a = Installed::new("OwnedExperienceA", "AddXPScalar = 0.5");
     let b = Installed::new("OwnedExperienceB", "AddXPScalar = 2.0");
     assert!(
@@ -306,7 +305,6 @@ fn registered_owner_grant_completes_under_existing_object_write_guard() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let fixture = Installed::new("OwnedExperienceRegistered", "AddXPScalar = 0.75");
     if crate::player::player_list()
         .read()
@@ -374,7 +372,6 @@ fn no_tracker_still_commits_execution_and_reset() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let fixture = Installed::new("OwnedExperienceNoTracker", "AddXPScalar = 9.0");
     // Exercise CPP's optional tracker branch after the actual factory install.
     fixture.object.write().unwrap().experience_tracker = None;
@@ -403,7 +400,6 @@ fn self_removal_fx_and_scalar_preserve_cpp_order_outside_module_guard() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let fixture = Installed::new(
         "OwnedExperienceSelfRemoval",
         &format!(
@@ -442,7 +438,6 @@ fn authored_all_triggers_conflicts_and_xfer_restore_only_installed_state() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let a = Installed::with_activation(
         "OwnedExperienceSave",
         &format!("{TRIGGER} {SECOND}"),
@@ -500,7 +495,6 @@ fn authored_default_negative_and_ordered_additions_do_not_clamp_or_multiply() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let default = Installed::new("OwnedExperienceDefault", "");
     default.apply(mask(TRIGGER));
     assert!(default.applied(0));
@@ -533,7 +527,6 @@ fn registered_same_id_decoy_never_receives_driving_scalar() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let driving = Installed::new("OwnedExperienceDriving", "AddXPScalar = 0.5");
     let decoy = Installed::new("OwnedExperienceDecoy", "AddXPScalar = 2.0");
     driving.set_scalar(2.0);

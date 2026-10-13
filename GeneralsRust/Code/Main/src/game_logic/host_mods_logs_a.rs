@@ -20,21 +20,6 @@ pub mod host_a10_strike_drop_log;
 #[path = "host_ai_request_log.rs"]
 pub mod host_ai_request_log;
 
-#[path = "host_anthrax_bomb_drop_log.rs"]
-pub mod host_anthrax_bomb_drop_log;
-
-#[path = "host_artillery_barrage_drop_log.rs"]
-pub mod host_artillery_barrage_drop_log;
-
-#[path = "host_carpet_bomb_drop_log.rs"]
-pub mod host_carpet_bomb_drop_log;
-
-#[path = "host_cluster_mines_drop_log.rs"]
-pub mod host_cluster_mines_drop_log;
-
-#[path = "host_daisy_cutter_drop_log.rs"]
-pub mod host_daisy_cutter_drop_log;
-
 #[path = "host_damage_log.rs"]
 pub mod host_damage_log;
 pub use host_damage_log::HostDamageEvent;
@@ -61,29 +46,5 @@ pub mod host_disable_timers_log;
 pub mod host_economy_log;
 pub use host_economy_log::HostEconomyEvent;
 
-#[path = "host_actively_constructing_log.rs"]
-pub mod host_actively_constructing_log;
-
-#[path = "host_angry_mob_member_follow_log.rs"]
-pub mod host_angry_mob_member_follow_log;
-
-#[path = "host_angry_mob_projectile_log.rs"]
-pub mod host_angry_mob_projectile_log;
-
-#[path = "host_aurora_bomb_projectile_log.rs"]
-pub mod host_aurora_bomb_projectile_log;
-
 #[path = "host_auto_deposit_log.rs"]
 pub mod host_auto_deposit_log;
-
-#[path = "host_battlemaster_horde_log.rs"]
-pub mod host_battlemaster_horde_log;
-
-#[path = "host_cannon_shell_projectile_log.rs"]
-pub mod host_cannon_shell_projectile_log;
-
-#[path = "host_china_infantry_horde_log.rs"]
-pub mod host_china_infantry_horde_log;
-
-#[path = "host_dozer_bored_log.rs"]
-pub mod host_dozer_bored_log;

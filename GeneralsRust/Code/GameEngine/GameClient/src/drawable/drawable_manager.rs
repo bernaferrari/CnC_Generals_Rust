@@ -1029,7 +1029,16 @@ mod tests {
         let mut manager = DrawableManager::new();
 
         // Create drawables at different distances
-        manager.camera_position = Vector3::zero();
+        manager.set_camera(
+            Matrix4::identity(),
+            Matrix4::from_glam(glam::Mat4::perspective_rh_gl(
+                std::f32::consts::FRAC_PI_2,
+                1.0,
+                0.1,
+                200.0,
+            )),
+            Vector3::zero(),
+        );
 
         let far_id = manager.create_drawable(DrawableType::Model {
             model_name: "far.w3d".to_string(),

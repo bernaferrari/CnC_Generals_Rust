@@ -123,7 +123,6 @@ fn give_upgrade_combines_two_completed_object_bits() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let owner = owner("OwnedAdmissionBothObject", &both_modules(), true);
     owner
         .write()
@@ -155,7 +154,6 @@ fn give_upgrade_combines_completed_player_and_object_bits_without_mixing_authori
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let player = player();
     let first = upgrade(FIRST, UpgradeType::Player);
     player.add_upgrade(&first, UpgradeStatus::Complete, None);
@@ -184,7 +182,6 @@ fn construction_guard_preserves_grants_and_repeated_grant_rechecks_completion() 
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let owner = owner(
         "OwnedAdmissionConstruction",
         &format!(
@@ -228,7 +225,6 @@ fn destroyed_and_missing_player_skip_implementation_but_retain_object_bits() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let modules = format!(
         " Behavior = StatusBitsUpgrade Guarded\n TriggeredBy = {FIRST}\n StatusToSet = MASKED\n End\n"
     );
@@ -263,7 +259,6 @@ fn removals_preserve_original_combined_key_for_later_authored_modules() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let modules = format!(
         " Behavior = StatusBitsUpgrade FirstRemoves\n TriggeredBy = {SECOND}\n RemovesUpgrades = {FIRST}\n StatusToClear = MASKED\n End\n Behavior = StatusBitsUpgrade SecondSeesOriginal\n TriggeredBy = {FIRST} {SECOND}\n RequiresAllTriggers = Yes\n StatusToSet = MASKED\n End\n"
     );
@@ -300,7 +295,6 @@ fn nonnull_zero_mask_grant_rechecks_completed_player_upgrade() {
     )) {
         return;
     }
-    let _guard = crate::test_sync::lock();
     let player = player();
     let first = upgrade(FIRST, UpgradeType::Player);
     player.add_upgrade(&first, UpgradeStatus::Complete, None);

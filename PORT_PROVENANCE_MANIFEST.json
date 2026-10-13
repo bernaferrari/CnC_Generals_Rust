@@ -159121,7 +159121,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "335a85ff4fcc9bd6747dce4c13e953c38258129e98a5aafaa232b4582aa475b4",
+  "input_digest": "f45a7f55a3ee7195895d9fe85a3f3ec54777d44eed43a7ad6b313a351be08422",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -168593,11 +168593,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1078,
+        "end_line": 1087,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable_manager.rs",
-      "sha256": "a8494fa5ffaf8fb619638406a7563814f99de7f0a7312796402a71c861023081",
+      "sha256": "6e26e70c0019859a86d32b49a1d15fe614d6c7736d0e2f9c2ff8dbb1f53a03d7",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -202098,11 +202098,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 206,
+        "end_line": 204,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/current_bone_owner_tests.rs",
-      "sha256": "16800d06f1a5aa9439de3de6b2da3b51b6c3a6cd6e51e8ddc9bc1a8835aa5d94",
+      "sha256": "88d8ae9f1fbd6680ee6de8d53322cc879ba4ccba764fb5a1fde8e56672832dcb",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203778,11 +203778,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 364,
+        "end_line": 358,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_upgrade_admission_tests.rs",
-      "sha256": "6b6c81683531dd0848a4fa587af086b65bd4493026485b60d120b2d90ca04f08",
+      "sha256": "20e4fbafa4e691dd5cf94eadc2c988ce885ebd679db67a3176d65476d8e0aa8d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203994,11 +203994,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 338,
+        "end_line": 333,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/pristine_bone_aggregation_tests.rs",
-      "sha256": "a4bf428fd4734ad07d430115d8e00a62aab0887970f3b7f864653eb0293d618f",
+      "sha256": "d012b917638e54b483004540bea926cdfd6177cb8f0ae757fce0faa6e3b867a1",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206610,11 +206610,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 602,
+        "end_line": 595,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/armor_upgrade/tests.rs",
-      "sha256": "1c5c47181bc01f9220a6ea526e23cc08332d5499df1032ff138b4c35002271c2",
+      "sha256": "7cb2be9706644fe6641cb0e493f77018695fea4f47a118229c8d69ab4bacb624",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206658,11 +206658,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 580,
+        "end_line": 573,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/experience_scalar_upgrade/tests.rs",
-      "sha256": "97862d3e8cfc58bf85192cbece306a330153915cf28b337b7be3d92a2f1530e3",
+      "sha256": "781f89f416f78d5d4eb5ae3c45d5f7cebf5017c6c5c5ca6086ba123fd53247ca",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206862,11 +206862,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 590,
+        "end_line": 584,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/status_bits_upgrade/tests.rs",
-      "sha256": "d7ab01b1765b86c91cd26cf14ae0ba5043bcf99d8b390efd85e7555ad047a6e3",
+      "sha256": "496d29f0d671806f346ff0b663167cb4ab3b2a13398b5b1c24da312381974c62",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

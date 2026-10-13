@@ -50,7 +50,6 @@ fn pristine_bones_append_module_results_in_order_with_remaining_capacity() {
     {
         return;
     }
-    let _serial = crate::test_sync::lock();
     const PRONE: ModelConditionFlags = ModelConditionFlags::PRONE;
     let a1 = Coord3D::new(1.0, 0.0, 0.0);
     let b1 = Coord3D::new(2.0, 0.0, 0.0);
@@ -133,7 +132,6 @@ fn pristine_bone_miss_does_not_substitute_drawable_skeleton() {
     {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let mut drawable = Drawable::new(
         0xA54_9002,
         0xA54_9002,
@@ -186,7 +184,6 @@ fn pristine_bone_transforms_append_the_same_ordered_module_results() {
     {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let first = Coord3D::new(4.0, 5.0, 6.0);
     let second = Coord3D::new(7.0, 8.0, 9.0);
     let mut drawable = Drawable::new(
@@ -245,7 +242,6 @@ fn pristine_bone_transform_miss_does_not_substitute_drawable_skeleton() {
     {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let mut drawable = Drawable::new(
         0xA54_9004,
         0xA54_9004,
@@ -287,7 +283,6 @@ fn exhausted_bone_capacity_does_not_lock_an_installed_entry_again() {
     {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let position = Coord3D::new(11.0, 12.0, 13.0);
     let mut drawable = Drawable::new(
         0xA54_9005,

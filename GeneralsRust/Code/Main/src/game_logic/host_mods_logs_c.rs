@@ -31,27 +31,3 @@ pub mod host_spawn_log;
 
 #[path = "host_status_log.rs"]
 pub mod host_status_log;
-
-#[path = "host_power_plant_rods_log.rs"]
-pub mod host_power_plant_rods_log;
-
-#[path = "host_scorpion_missile_projectile_log.rs"]
-pub mod host_scorpion_missile_projectile_log;
-
-#[path = "host_spy_satellite_ping_log.rs"]
-pub mod host_spy_satellite_ping_log;
-
-#[path = "host_sticky_booby_attach_log.rs"]
-pub mod host_sticky_booby_attach_log;
-
-#[path = "host_stinger_hive_log.rs"]
-pub mod host_stinger_hive_log;
-
-#[path = "host_structure_topple_crush_log.rs"]
-pub mod host_structure_topple_crush_log;
-
-#[path = "host_topple_kill_log.rs"]
-pub mod host_topple_kill_log;
-
-#[path = "host_toxin_stream_projectile_log.rs"]
-pub mod host_toxin_stream_projectile_log;

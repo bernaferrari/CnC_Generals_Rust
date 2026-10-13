@@ -129,7 +129,6 @@ fn current_bone_owner_query_preserves_before_active_after_search_order() {
     {
         return;
     }
-    let _serial = crate::test_sync::lock();
 
     let expected_local = Coord3D::new(12.0, 13.0, 14.0);
     let expected_world = Coord3D::new(17.0, 19.0, 21.0);
@@ -178,7 +177,6 @@ fn current_bone_owner_query_uses_exact_same_id_driving_drawable() {
     {
         return;
     }
-    let _serial = crate::test_sync::lock();
 
     let expected = Coord3D::new(12.0, 13.0, 14.0);
     let decoy_bone = Coord3D::new(80.0, 81.0, 82.0);

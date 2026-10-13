@@ -21,7 +21,7 @@ use thiserror::Error;
 
 use super::{AssetError, AssetHandle};
 use crate::display::texture_system::TextureHandle;
-use glam::{Vec3, Vec4, Mat4, Quat};
+use glam::{Mat4, Quat, Vec3, Vec4};
 
 /// W3D loading errors
 #[derive(Error, Debug)]
@@ -443,20 +443,20 @@ pub struct W3DMetadata {
 /// W3D Loader implementation
 pub struct W3DLoader {
     // Cache for loaded models
-    model_cache: Arc<RwLock<HashMap<PathBuf, Arc<W3DModel>>>>,
+    model_cache: RwLock<HashMap<PathBuf, Arc<W3DModel>>>,
 
     // Statistics
-    load_count: Arc<RwLock<u64>>,
-    parse_time_total: Arc<RwLock<std::time::Duration>>,
+    load_count: RwLock<u64>,
+    parse_time_total: RwLock<std::time::Duration>,
 }
 
 impl W3DLoader {
     /// Create new W3D loader
     pub fn new() -> Result<Self, W3DError> {
         Ok(Self {
-            model_cache: Arc::new(RwLock::new(HashMap::new())),
-            load_count: Arc::new(RwLock::new(0)),
-            parse_time_total: Arc::new(RwLock::new(std::time::Duration::ZERO)),
+            model_cache: RwLock::new(HashMap::new()),
+            load_count: RwLock::new(0),
+            parse_time_total: RwLock::new(std::time::Duration::ZERO),
         })
     }
 
@@ -1094,7 +1094,9 @@ mod tests {
     #[test]
     fn test_chunk_type_conversion() {
         assert_eq!(W3DChunkType::from(0x00000000), W3DChunkType::Mesh);
-        assert_eq!(W3DChunkType::from(0x00000001), W3DChunkType::Hierarchy);
+        // C++ w3d_file.h assigns hierarchy trees to 0x100, not 0x1.
+        assert_eq!(W3DChunkType::from(0x00000100), W3DChunkType::Hierarchy);
+        assert_eq!(W3DChunkType::from(0x00000001), W3DChunkType::Unknown);
         assert_eq!(W3DChunkType::from(0xFFFFFFFF), W3DChunkType::Unknown);
     }
 
