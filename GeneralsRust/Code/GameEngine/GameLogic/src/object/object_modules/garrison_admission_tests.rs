@@ -172,7 +172,9 @@ fn installed_garrison_admission_uses_held_owner_and_cpp_body_kind_relation_capac
         "Xfer does not replace authored capacity"
     );
     assert!(full.admit(&infantry, false));
-    assert!(crate::object::registry::OBJECT_REGISTRY
-        .get_object(OWNER_ID)
-        .is_none());
+    assert!(
+        crate::object::registry::OBJECT_REGISTRY
+            .get_object(OWNER_ID)
+            .is_none()
+    );
 }

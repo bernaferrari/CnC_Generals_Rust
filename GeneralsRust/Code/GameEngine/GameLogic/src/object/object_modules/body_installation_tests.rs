@@ -9,7 +9,7 @@ use crate::object::body::body_module::{BodyModuleInterface, MaxHealthChangeType}
 use crate::object::body::inactive_body::InactiveBody;
 use crate::object::{ModuleEntry, Object};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave, Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, xfer_load::XferLoad, xfer_save::XferSave};
 use game_engine::common::thing::module::{
     BaseModuleData, Module, ModuleData, ModuleInterfaceType, ModuleType, Thing,
 };
@@ -341,9 +341,11 @@ fn authored_body_kinds_same_id_install_distinct_state_before_callbacks() {
             assert_eq!(first.body.lock().unwrap().get_damage_scalar(), 2.0);
             assert_eq!(second.body.lock().unwrap().get_damage_scalar(), 1.0);
         }
-        assert!(crate::object::registry::OBJECT_REGISTRY
-            .get_object(ID)
-            .is_none());
+        assert!(
+            crate::object::registry::OBJECT_REGISTRY
+                .get_object(ID)
+                .is_none()
+        );
         assert!(TheGameLogic::find_object_by_id(ID).is_none());
         let retained = first.body.clone();
         drop(first);

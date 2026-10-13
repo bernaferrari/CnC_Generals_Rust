@@ -71,9 +71,11 @@ impl Installed {
             owner.read().unwrap().get_contain().is_none(),
             "constructor is inert"
         );
-        assert!(crate::object::registry::OBJECT_REGISTRY
-            .get_object(ID)
-            .is_none());
+        assert!(
+            crate::object::registry::OBJECT_REGISTRY
+                .get_object(ID)
+                .is_none()
+        );
         Object::init_modules_for(&owner, template.as_ref()).unwrap();
         let (entry, contain) = {
             let guard = owner.read().unwrap();
@@ -148,9 +150,11 @@ fn authored_transport_same_id_owners_attach_distinct_runtime_and_upgrade() {
     assert!(!second.fires());
     drop(first);
     assert_eq!(second.contain.lock().unwrap().get_max_capacity(), 7);
-    assert!(crate::object::registry::OBJECT_REGISTRY
-        .get_object(ID)
-        .is_none());
+    assert!(
+        crate::object::registry::OBJECT_REGISTRY
+            .get_object(ID)
+            .is_none()
+    );
 }
 
 #[test]
@@ -340,9 +344,11 @@ fn authored_transport_admission_uses_borrowed_same_id_owner_without_registry() {
         foreign_team.read().unwrap().get_members().is_empty(),
         "detached construction does not admit membership"
     );
-    assert!(crate::object::registry::OBJECT_REGISTRY
-        .get_object(ID + 3)
-        .is_none());
+    assert!(
+        crate::object::registry::OBJECT_REGISTRY
+            .get_object(ID + 3)
+            .is_none()
+    );
     let ambient_team = crate::team::get_team_factory()
         .lock()
         .unwrap()
@@ -373,22 +379,28 @@ fn authored_transport_admission_uses_borrowed_same_id_owner_without_registry() {
     drop(contain);
     drop(owner);
     let owner = second.owner.read().unwrap();
-    assert!(!second
-        .contain
-        .lock()
-        .unwrap()
-        .is_valid_container_for_with_owner(&passenger, &owner, true));
-    assert!(second
-        .contain
-        .lock()
-        .unwrap()
-        .is_valid_container_for_with_owner(&passenger, &owner, false));
+    assert!(
+        !second
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&passenger, &owner, true)
+    );
+    assert!(
+        second
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&passenger, &owner, false)
+    );
     drop(owner);
     assert_eq!(first.save(), before_first);
     assert_eq!(second.save(), before_second);
-    assert!(crate::object::registry::OBJECT_REGISTRY
-        .get_object(ID)
-        .is_none());
+    assert!(
+        crate::object::registry::OBJECT_REGISTRY
+            .get_object(ID)
+            .is_none()
+    );
 }
 
 #[test]
@@ -449,28 +461,36 @@ fn authored_helix_and_rider_admission_use_exact_borrowed_owner() {
     // The outer write borrow makes rediscovery impossible. Admission receives
     // this exact owner through the factory-installed interface instead.
     let owner = helix.owner.write().unwrap();
-    assert!(helix
-        .contain
-        .lock()
-        .unwrap()
-        .is_valid_container_for_with_owner(&rider, &owner, true));
-    assert!(!helix
-        .contain
-        .lock()
-        .unwrap()
-        .is_valid_container_for_with_owner(&foreign, &owner, false));
+    assert!(
+        helix
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&rider, &owner, true)
+    );
+    assert!(
+        !helix
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&foreign, &owner, false)
+    );
     drop(owner);
     let owner = helix_full.owner.write().unwrap();
-    assert!(!helix_full
-        .contain
-        .lock()
-        .unwrap()
-        .is_valid_container_for_with_owner(&rider, &owner, true));
-    assert!(helix_full
-        .contain
-        .lock()
-        .unwrap()
-        .is_valid_container_for_with_owner(&rider, &owner, false));
+    assert!(
+        !helix_full
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&rider, &owner, true)
+    );
+    assert!(
+        helix_full
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&rider, &owner, false)
+    );
     assert!(
         helix_full
             .contain
@@ -488,21 +508,27 @@ fn authored_helix_and_rider_admission_use_exact_borrowed_owner() {
             .is_valid_container_for_with_owner(&rider, &owner, true),
         "CPP replacement deliberately ignores capacity"
     );
-    assert!(!bike
-        .contain
-        .lock()
-        .unwrap()
-        .is_valid_container_for_with_owner(&other, &owner, false));
-    assert!(!bike
-        .contain
-        .lock()
-        .unwrap()
-        .is_valid_container_for_with_owner(&foreign, &owner, false));
+    assert!(
+        !bike
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&other, &owner, false)
+    );
+    assert!(
+        !bike
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&foreign, &owner, false)
+    );
     drop(owner);
     assert_eq!([helix.save(), helix_full.save(), bike.save()], before);
-    assert!(crate::object::registry::OBJECT_REGISTRY
-        .get_object(ID)
-        .is_none());
+    assert!(
+        crate::object::registry::OBJECT_REGISTRY
+            .get_object(ID)
+            .is_none()
+    );
 }
 
 #[test]
@@ -555,37 +581,48 @@ fn authored_railed_and_internet_admission_use_borrowed_container() {
         );
         let before = [owner.save(), full.save()];
         let guard = owner.owner.write().unwrap();
-        assert!(owner
-            .contain
-            .lock()
-            .unwrap()
-            .is_valid_container_for_with_owner(&passenger, &guard, true));
-        assert!(!owner
-            .contain
-            .lock()
-            .unwrap()
-            .is_valid_container_for_with_owner(&wrong, &guard, false));
-        assert!(!owner
-            .contain
-            .lock()
-            .unwrap()
-            .is_valid_container_for_with_owner(&foreign, &guard, false));
+        assert!(
+            owner
+                .contain
+                .lock()
+                .unwrap()
+                .is_valid_container_for_with_owner(&passenger, &guard, true)
+        );
+        assert!(
+            !owner
+                .contain
+                .lock()
+                .unwrap()
+                .is_valid_container_for_with_owner(&wrong, &guard, false)
+        );
+        assert!(
+            !owner
+                .contain
+                .lock()
+                .unwrap()
+                .is_valid_container_for_with_owner(&foreign, &guard, false)
+        );
         drop(guard);
         let guard = full.owner.write().unwrap();
-        assert!(!full
-            .contain
-            .lock()
-            .unwrap()
-            .is_valid_container_for_with_owner(&passenger, &guard, true));
-        assert!(full
-            .contain
-            .lock()
-            .unwrap()
-            .is_valid_container_for_with_owner(&passenger, &guard, false));
+        assert!(
+            !full
+                .contain
+                .lock()
+                .unwrap()
+                .is_valid_container_for_with_owner(&passenger, &guard, true)
+        );
+        assert!(
+            full.contain
+                .lock()
+                .unwrap()
+                .is_valid_container_for_with_owner(&passenger, &guard, false)
+        );
         drop(guard);
         assert_eq!([owner.save(), full.save()], before);
     }
-    assert!(crate::object::registry::OBJECT_REGISTRY
-        .get_object(ID)
-        .is_none());
+    assert!(
+        crate::object::registry::OBJECT_REGISTRY
+            .get_object(ID)
+            .is_none()
+    );
 }
