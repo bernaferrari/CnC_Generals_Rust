@@ -1995,30 +1995,6 @@ mod staged_restore_tests {
     /// stayed attached to the live world.
     fn record_all_stage_queue_events(object: crate::game_logic::ObjectId, label: &str) {
         crate::game_logic::host_spawn_log::record(object, label.to_string(), 7, [1.0, 2.0, 3.0]);
-
-        crate::game_logic::host_movement_log::record(
-            object,
-            glam::Vec3::new(1.0, 2.0, 3.0),
-            4.0,
-            5.0,
-            1.0,
-            0,
-            &[glam::Vec3::new(5.0, 6.0, 7.0)],
-            false,
-            0x11,
-            false,
-            false,
-            false,
-            true,
-            8,
-            9,
-            10.0,
-            11,
-            false,
-            Some(12),
-            Some(13),
-        );
-        crate::game_logic::host_demo_mine_cheer_log::record(object, true, true, 14.0);
     }
 
     fn retail_map_path_for_test() -> Option<String> {

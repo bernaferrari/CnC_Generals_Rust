@@ -669,7 +669,6 @@ impl Object {
     /// C++ AIUpdateInterface::notifyCrate residual.
     pub fn notify_crate(&mut self, crate_id: ObjectId) {
         self.crate_created = Some(crate_id);
-        self.record_host_ai_request();
     }
 
     /// C++ AIUpdateInterface::checkForCrateToPickup residual.
@@ -696,7 +695,7 @@ impl Object {
         }
         let anchor_pos = anchor.unwrap_or_else(|| self.get_position());
         self.guard_retaliate_victim = Some(victim);
-        self.record_host_ai_request();
+
         self.guard_retaliate_anchor = Some(anchor_pos);
         // Preserve ordinary guard anchors if already guarding.
         if self.guard_position.is_none() && self.guard_target.is_none() {

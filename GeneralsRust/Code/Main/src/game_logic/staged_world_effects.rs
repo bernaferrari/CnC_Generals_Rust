@@ -6,7 +6,7 @@
 //! never `clear` the active world at stage entry, discard candidate events on
 //! rollback, and clear the old world's events only once commit is certain.
 
-use super::{host_demo_mine_cheer_log, host_movement_log, host_spawn_log};
+use super::host_spawn_log;
 use std::cell::Cell;
 
 thread_local! {
@@ -24,37 +24,23 @@ pub(crate) fn world_stage_effects_active() -> bool {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct WorldStageEffectsState {
     spawn: Vec<host_spawn_log::HostSpawnEvent>,
-
-    movement: Vec<host_movement_log::HostMovementEvent>,
-    demo_mine_cheer: Vec<host_demo_mine_cheer_log::HostDemoMineCheerEvent>,
 }
 
 impl WorldStageEffectsState {
     fn take_for_world_stage() -> Self {
         Self {
             spawn: host_spawn_log::take_for_world_stage(),
-
-            movement: host_movement_log::take_for_world_stage(),
-            demo_mine_cheer: host_demo_mine_cheer_log::take_for_world_stage(),
         }
     }
 
     fn replace_for_world_stage(next: Self) -> Self {
         Self {
             spawn: host_spawn_log::replace_for_world_stage(next.spawn),
-
-            movement: host_movement_log::replace_for_world_stage(next.movement),
-            demo_mine_cheer: host_demo_mine_cheer_log::replace_for_world_stage(
-                next.demo_mine_cheer,
-            ),
         }
     }
 
     fn discard_for_world_replace() {
         host_spawn_log::clear();
-
-        host_movement_log::clear();
-        host_demo_mine_cheer_log::clear();
     }
 
     #[cfg(test)]

@@ -45,10 +45,8 @@ pub(crate) fn run_owned_host_boundary(
 /// Construction completion also stays pending for PresentationFrame's direct
 /// drain; unlike production completion it has no LAST_DRAIN transport.
 fn freeze_host_observations(logic: &mut GameLogic) {
-    let _ = crate::game_logic::host_ai_request_log::drain();
     logic.attack_events.complete_boundary();
 
-    let _ = crate::game_logic::host_demo_mine_cheer_log::drain();
     let _ = crate::game_logic::host_destroy_log::drain();
 
     let _ = crate::game_logic::host_fire_intent_log::drain();
@@ -58,7 +56,6 @@ fn freeze_host_observations(logic: &mut GameLogic) {
         .complete_boundary();
 
     let _ = logic.movement_events.drain_for_host_boundary();
-    let _ = crate::game_logic::host_movement_log::drain();
 
     logic.ownership_events.complete_boundary();
 

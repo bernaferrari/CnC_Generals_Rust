@@ -248,7 +248,6 @@ fn factory_enter_hostile_full_container_issues_attack_in_same_update() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     definitions();
     {
         let mut players = ThePlayerList().write().unwrap();
@@ -356,7 +355,6 @@ fn factory_enter_empty_hostile_target_does_not_attack() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     definitions();
     {
         let mut players = ThePlayerList().write().unwrap();
@@ -417,7 +415,6 @@ fn factory_enter_allied_occupied_target_does_not_attack() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     definitions();
     {
         let mut players = ThePlayerList().write().unwrap();
@@ -483,7 +480,6 @@ fn factory_enter_unarmed_hostile_occupied_target_does_not_attack() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     definitions();
     {
         let mut players = ThePlayerList().write().unwrap();
@@ -823,7 +819,6 @@ fn native_enter_terminal_sink_error_preserves_borrowed_machine_and_runtime() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     definitions();
     {
         let mut players = ThePlayerList().write().unwrap();
@@ -940,7 +935,6 @@ fn factory_enter_terminal_player_attack_honors_authored_command_filter() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     definitions();
     {
         let mut players = ThePlayerList().write().unwrap();
@@ -1052,7 +1046,6 @@ fn factory_enter_filter_uses_actual_owner_with_locked_same_id_foreign_unit() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     definitions();
     {
         let mut players = ThePlayerList().write().unwrap();
@@ -1192,7 +1185,6 @@ fn factory_enter_restored_hostile_occupancy_dispatches_in_same_update() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     definitions();
     {
         let mut players = ThePlayerList().write().unwrap();

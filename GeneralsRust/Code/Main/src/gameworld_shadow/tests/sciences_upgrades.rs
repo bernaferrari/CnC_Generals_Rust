@@ -850,10 +850,9 @@ fn canonical_crush_vision_is_projected_from_receiving_owner() {
 }
 
 #[test]
-fn host_demo_mine_cheer_log_drives_set_demo_mine_cheer_channel() {
+fn canonical_mine_cheer_is_projected_from_receiving_owner() {
     use crate::game_logic::{
-        KindOf, Team, ThingTemplate, host_demo_mine_cheer_log, host_mines::HostMineData,
-        host_mines::HostMineKind,
+        KindOf, Team, ThingTemplate, host_mines::HostMineData, host_mines::HostMineKind,
     };
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DmcCh");

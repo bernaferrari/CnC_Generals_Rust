@@ -74,7 +74,6 @@ fn explicit_idle_id_precedes_virtual_classification_cpp() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let (_owner, unit, ai) = fixture(AIStateType::Idle, false);
     let mut unit = unit.write().unwrap();
     unit.movement_state = MovementState::Moving;
@@ -94,7 +93,6 @@ fn native_idle_query_does_not_reborrow_held_unit() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let (_owner, unit, ai) = fixture(AIStateType::Idle, true);
     let _unit = unit.write().unwrap();
     assert!(ai.is_idle());
@@ -108,7 +106,6 @@ fn ai_move_command_borrows_busy_machine_and_enters_temporary_move() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     with_flat_pathfind_map(|| {
         let (_owner, _unit, mut ai) = fixture(AIStateType::Busy, false);
         let mut command = crate::ai::AiCommandParams::new(
@@ -168,7 +165,6 @@ fn idle_path_append_does_not_reborrow_unit_and_uses_single_new_point() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     append(
         AIStateType::Idle,
         false,
@@ -184,7 +180,6 @@ fn busy_without_locomotor_goal_is_not_effectively_moving_cpp() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     append(
         AIStateType::Busy,
         false,
@@ -200,7 +195,6 @@ fn movement_and_waiting_append_after_current_goal_cpp() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let expected = [Coord3D::new(40.0, 50.0, 0.0), Coord3D::new(80.0, 90.0, 0.0)];
     append(AIStateType::Busy, true, false, &expected);
     append(AIStateType::Idle, false, true, &expected);
@@ -214,7 +208,6 @@ fn waiting_query_reads_owned_flag_without_clock_or_unit_loans() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let (_owner, unit, mut ai) = fixture(AIStateType::Busy, false);
     ai.runtime.data.queue_for_path_frame = u32::MAX;
     ai.runtime.data.waiting_for_path = false;

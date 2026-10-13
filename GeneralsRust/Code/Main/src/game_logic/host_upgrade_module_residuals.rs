@@ -726,7 +726,6 @@ fn apply_swap_fields(obj: &mut crate::game_logic::object::Object, swap: &Locomot
     obj.movement.turn_rate_damaged = swap.turn_rate_damaged;
     obj.braking = swap.braking;
     obj.locomotor_surfaces = swap.locomotor_surfaces;
-    obj.record_host_movement();
 }
 
 /// C++ `AIUpdateInterface::chooseLocomotorSet` residual — swap the whole template.

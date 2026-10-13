@@ -1077,7 +1077,6 @@ impl GameLogic {
             object.producer_id = Some(producer_id);
             object.set_position(ground_position);
             object.set_orientation(orientation);
-            object.record_host_movement();
         }
         self.movement_events.record(
             self.frame,
@@ -1546,7 +1545,6 @@ impl GameLogic {
                 has_anthrax_gamma,
             ) {
                 object.mine_data = Some(mine_data);
-                object.record_host_demo_mine_cheer();
             }
 
             // Host residual: GLA Battle Bus TransportContain Slots=8 + passenger fire.

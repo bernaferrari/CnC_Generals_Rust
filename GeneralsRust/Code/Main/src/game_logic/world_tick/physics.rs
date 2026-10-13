@@ -1242,7 +1242,6 @@ impl GameLogic {
                         let mut p = obj.get_position();
                         p.y += obj.movement.velocity.y;
                         obj.set_position(p);
-                        obj.record_host_movement();
                     }
                 }
             }

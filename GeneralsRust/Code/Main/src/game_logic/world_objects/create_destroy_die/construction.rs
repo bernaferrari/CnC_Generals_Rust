@@ -187,7 +187,6 @@ impl GameLogic {
             let object = self.objects.get_mut(&id)?;
             object.set_position(position);
             object.set_orientation(orientation);
-            object.record_host_movement();
         }
         // DozerAIUpdate.cpp:1692-1702: flatten, snap, then path admission.
         self.flatten_and_snap_construction(id);

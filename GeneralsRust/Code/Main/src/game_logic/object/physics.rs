@@ -1256,9 +1256,9 @@ impl Object {
     ) -> bool {
         // Returns false if should defer (repath too soon).
         self.requested_destination = Some(victim_pos);
-        self.record_host_ai_request();
+
         self.requested_victim_id = victim_id;
-        self.record_host_ai_request();
+
         self.is_attack_path = true;
         self.is_approach_path = false;
         self.is_safe_path = false;
@@ -1270,7 +1270,7 @@ impl Object {
             self.set_locomotor_goal_none();
             return false;
         }
-        self.record_host_ai_request();
+
         true
     }
 
@@ -1295,9 +1295,9 @@ impl Object {
         allow_quick: bool,
     ) -> bool {
         self.requested_destination = Some(destination);
-        self.record_host_ai_request();
+
         self.requested_victim_id = None;
-        self.record_host_ai_request();
+
         self.is_attack_path = false;
         self.is_approach_path = false;
         self.is_safe_path = false;
@@ -1310,7 +1310,7 @@ impl Object {
             self.queue_for_path_frames = crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
             return false;
         }
-        self.record_host_ai_request();
+
         true
     }
 
@@ -1389,7 +1389,7 @@ impl Object {
             self.safe_path_repulsor2 = previous;
         }
         self.requested_victim_id = Some(repulsor);
-        self.record_host_ai_request();
+
         ok
     }
 
@@ -1554,7 +1554,6 @@ impl Object {
         self.num_frames_blocked = 0;
         self.is_blocked_and_stuck = false;
         self.set_status_moving(true);
-        self.record_host_movement();
     }
 
     /// C++ Locomotor::startMove (Locomotor.cpp:761-765) — reset donut timer only.
@@ -1839,7 +1838,6 @@ impl Object {
             self.movement.velocity += diff.normalize() * max_accel;
         }
         self.invalidate_velocity_magnitude();
-        self.record_host_movement();
     }
 
     /// C++ PhysicsBehavior::applyMotiveForce residual.
@@ -1863,7 +1861,6 @@ impl Object {
         self.shock_pitch_rate = 0.0;
         self.shock_roll_rate = 0.0;
         self.motive_frames_remaining = 0;
-        self.record_host_movement();
     }
 
     /// C++ `PhysicsBehavior::getAcceleration()` = previous-frame accel.

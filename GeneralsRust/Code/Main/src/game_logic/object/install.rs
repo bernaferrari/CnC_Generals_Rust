@@ -694,7 +694,6 @@ impl Object {
         self.selection_flash_remaining =
             crate::game_logic::host_saboteur::SABOTEUR_FLASH_DECAY_FRAMES;
         self.selection_flash_color = None;
-        self.record_host_ai_request();
     }
 
     /// C++ `Drawable::flashAsSelected(&color)` — explicit envelope RGB (already saturated).
@@ -702,7 +701,6 @@ impl Object {
         self.selection_flash_remaining =
             crate::game_logic::host_saboteur::SABOTEUR_FLASH_DECAY_FRAMES;
         self.selection_flash_color = Some(color);
-        self.record_host_ai_request();
     }
 
     /// True while selection flash envelope residual is active.
@@ -716,7 +714,6 @@ impl Object {
         if self.selection_flash_remaining == 0 {
             self.selection_flash_color = None;
         }
-        self.record_host_ai_request();
     }
 
     pub fn apply_disabled_hacked(

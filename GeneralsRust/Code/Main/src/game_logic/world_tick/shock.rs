@@ -811,7 +811,7 @@ impl GameLogic {
         if let Some(a) = self.objects.get_mut(&attacker_id) {
             a.movement.path.clear();
             a.movement.current_path_index = 0;
-            a.record_host_movement();
+
             a.movement.target_position = Some(dest);
             let entered_attack = !matches!(
                 a.ai_state,

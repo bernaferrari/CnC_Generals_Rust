@@ -121,19 +121,9 @@ impl Object {
         }
     }
 
-    pub fn record_host_demo_mine_cheer(&self) {
-        crate::game_logic::host_demo_mine_cheer_log::record(
-            self.id,
-            self.demo_suicided_detonating,
-            self.mine_data.is_some(),
-            self.cheer_timer,
-        );
-    }
-
     pub fn set_formation(&mut self, formation_id: u32, formation_offset: glam::Vec2) {
         self.formation_id = formation_id;
         self.formation_offset = formation_offset;
-        // Wave 204: last-write SetFormation.
     }
 
     pub fn begin_cheer(&mut self, duration_secs: f32, cheer_bit: Option<usize>) {
@@ -144,39 +134,12 @@ impl Object {
                 self.model_condition_bits |= 1u128 << bit;
             }
         }
-        // Wave 202: last-write SetDemoMineCheer (cheer_timer residual).
-        self.record_host_demo_mine_cheer();
     }
 
     pub fn set_selection_radius(&mut self, selection_radius: f32) {
         if (self.selection_radius - selection_radius).abs() > f32::EPSILON {
             self.selection_radius = selection_radius;
         }
-    }
-
-    pub fn record_host_movement(&self) {
-        crate::game_logic::host_movement_log::record(
-            self.id,
-            self.movement.velocity,
-            self.movement.max_speed,
-            self.movement.acceleration,
-            self.movement.turn_rate,
-            self.movement.current_path_index,
-            &self.movement.path,
-            self.waiting_for_path,
-            self.locomotor_surfaces,
-            self.is_attack_path,
-            self.is_blocked_and_stuck,
-            self.is_braking,
-            self.is_safe_path,
-            self.queue_for_path_frames,
-            self.path_timestamp,
-            self.cur_max_blocked_speed,
-            self.num_frames_blocked,
-            self.is_blocked,
-            self.move_away_from.map(|id| id.0),
-            self.requested_victim_id.map(|id| id.0),
-        );
     }
 
     pub fn set_command_set_override(&mut self, command_set: Option<String>) {

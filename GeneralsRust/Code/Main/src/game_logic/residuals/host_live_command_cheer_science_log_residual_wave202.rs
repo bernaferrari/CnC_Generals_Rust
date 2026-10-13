@@ -10,7 +10,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const LIVE_COMMAND_CHEER_SCIENCE_LOG_METHOD_NAMES_WAVE202: &[&str] = &[
     "begin_cheer",
     "Object.model_condition_bits",
-    "record_host_demo_mine_cheer",
+    "Object.cheer_model_bits",
     "record_host_progress",
     "playable_claim = false",
 ];

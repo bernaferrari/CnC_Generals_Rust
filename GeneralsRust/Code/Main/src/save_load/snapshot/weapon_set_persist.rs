@@ -171,7 +171,6 @@ fn apply_payload(game_logic: &mut GameLogic, payload: WeaponSetPersistPayload) {
         stamp_crate_weaponset_model_bits(object);
         stamp_veterancy_weaponset_model_bits(object);
         object.validate_armor_and_damage_fx();
-        object.record_host_ai_request();
     }
 }
 

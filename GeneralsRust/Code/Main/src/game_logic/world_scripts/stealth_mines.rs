@@ -1645,7 +1645,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.mine_data = Some(data);
             obj.producer_id = producer;
-            obj.record_host_demo_mine_cheer();
+
             obj.movement.max_speed = 0.0;
             obj.weapon = None;
             obj.secondary_weapon = None;
@@ -2156,7 +2156,7 @@ impl GameLogic {
                     obj.owner_player_id = Some(owner);
                 }
             }
-            obj.record_host_demo_mine_cheer();
+
             // Mines/charges are not combat movers.
             obj.movement.max_speed = 0.0;
             obj.weapon = None;

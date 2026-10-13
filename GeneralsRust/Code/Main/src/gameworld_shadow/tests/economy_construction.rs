@@ -733,7 +733,6 @@ fn canonical_front_crushed_is_projected_from_receiving_owner() {
 
 #[test]
 fn waiting_for_path_channel_via_set_movement() {
-    use crate::game_logic::host_movement_log::{self, HostMovementEvent};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
@@ -769,7 +768,6 @@ fn waiting_for_path_channel_via_set_movement() {
 
 #[test]
 fn locomotor_path_flags_channel_via_set_movement() {
-    use crate::game_logic::host_movement_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
@@ -871,7 +869,6 @@ fn canonical_shock_stun_is_projected_from_receiving_owner() {
 
 #[test]
 fn blocked_path_channel_via_set_movement() {
-    use crate::game_logic::host_movement_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();

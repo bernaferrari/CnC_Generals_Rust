@@ -281,7 +281,6 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
         // authority frames exercise a marching pose, not a ramp from standstill.
         o.movement.acceleration = 240.0;
         o.move_to(glam::Vec3::new(50.0, 0.0, 0.0), &mut movement_events);
-        o.record_host_movement();
     }
     // A real logic step (not the trailing observational probe) evaluates
     // victory. Per C++

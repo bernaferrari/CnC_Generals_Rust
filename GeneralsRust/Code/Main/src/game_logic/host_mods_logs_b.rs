@@ -38,9 +38,6 @@ pub(crate) mod movement_events;
 #[path = "host_move_ambient_audio.rs"]
 pub mod host_move_ambient_audio;
 
-#[path = "host_movement_log.rs"]
-pub mod host_movement_log;
-
 #[path = "host_owner_log.rs"]
 pub mod host_owner_log;
 

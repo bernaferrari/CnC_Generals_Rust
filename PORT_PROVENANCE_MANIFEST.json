@@ -159121,7 +159121,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "f45a7f55a3ee7195895d9fe85a3f3ec54777d44eed43a7ad6b313a351be08422",
+  "input_digest": "c802584312826edf5d7e83eff4f2f6239bc6c253aec848edff4c8eca1511419d",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -204822,11 +204822,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 230,
+        "end_line": 223,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/command_idle_query_tests.rs",
-      "sha256": "91549edcf5b5619c04c30fde856b1463410d9e13d802f65524cc6609caeb5449",
+      "sha256": "ac99bd9e8ea4fbb3177e54b89c1a999d8f4b6235344d7086253de8b78cd46cce",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204882,11 +204882,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 99,
+        "end_line": 97,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_busy_classification_tests.rs",
-      "sha256": "52fe52a98d771c1d6ef2640280145025230cfbac6b7187b39c41a647b3be7bb5",
+      "sha256": "4d274b419c1ca842adb71a0dc8128ace7223abec3c16877fc5b77d4b7c490347",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204918,11 +204918,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 1288,
+        "end_line": 1280,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_enter_command_tests.rs",
-      "sha256": "133c7258b5bc6685b56d47ad5dd7795d78340e3d2e79ccfb3e77170bc955268e",
+      "sha256": "cc34541eba4579996bbd07cce9463e92f0f48e0029348b12270e47148a60ee84",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204942,11 +204942,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 684,
+        "end_line": 670,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_mood_policy_tests.rs",
-      "sha256": "715a53544e821f0a7a40e4ac6a7c8e39839f747383590e2ad83a6821e6667f47",
+      "sha256": "af8943b2d24daa43c580b12f155af47525bdee3f955cac293be0ebffef8fa9a5",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204990,11 +204990,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 568,
+        "end_line": 560,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_target_filter_tests.rs",
-      "sha256": "9ced9745c93f74a829e2c8e2cf766aef882d3858244be5dfa4fe9bd16c8d273f",
+      "sha256": "165fe968dbc8c570975361f9b048a18a4458fe6f2e2c374abf07b2bf56bd64a7",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205014,11 +205014,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 497,
+        "end_line": 489,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_worker_owner_tests.rs",
-      "sha256": "1b7e643aad6604b4cf5fb4b236877f29024e6a45e3a90f5a45376bcdedc8730b",
+      "sha256": "3942319a05dc5c5ae0e30bf5f0825dfc8a80201d4fcca41df53adcc5f45dac43",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205170,11 +205170,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 923,
+        "end_line": 910,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/temporary_lifecycle_control_tests.rs",
-      "sha256": "298d595b9ba17576b87c4c7786084af5db7379b131f2959ae922d29c2d4d23ac",
+      "sha256": "3d270071258f48ed8f71a2e890732d732cb0095c0eef494233dad45a3924d313",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

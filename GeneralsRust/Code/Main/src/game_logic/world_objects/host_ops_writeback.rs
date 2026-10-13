@@ -1168,7 +1168,7 @@ impl GameLogic {
                                         a.set_status_attacking(true);
                                         a.set_status_moving(false);
                                         a.movement.velocity = glam::Vec3::ZERO;
-                                        a.record_host_movement();
+
                                         a.movement.target_position = None;
                                         a.movement.path.clear();
                                     }

@@ -94,7 +94,7 @@ impl Object {
         self.move_away_from = Some(threat_id);
         self.move_away_destination = path.last().copied();
         self.move_away_frames = 10 * 30;
-        self.record_host_movement();
+
         true
     }
 
@@ -569,7 +569,7 @@ impl Object {
         let mass_inv = if mass.abs() > 1.0e-6 { 1.0 / mass } else { 0.0 };
         self.movement.velocity += applied * mass_inv;
         self.invalidate_velocity_magnitude();
-        self.record_host_movement();
+
         force
     }
 

@@ -11,7 +11,6 @@ fn factory_attack_with_live_victim_is_not_busy() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     definitions();
     let actual = FactoryRuntime::new();
     let target_id = actual.id + 1000;
@@ -66,7 +65,6 @@ fn factory_busy_and_idle_keep_cpp_classification() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     definitions();
     let actual = FactoryRuntime::new();
     let mut ai = actual.ai.lock().unwrap();

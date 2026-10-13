@@ -176,7 +176,6 @@ fn factory_worker_supply_interface_uses_authored_worker_capacity() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     worker_definitions();
     let _frame = RestoreAmbientFrame::set(17);
     let actual = WorkerRuntime::new("WorkerOwnerWorker", None);
@@ -230,7 +229,6 @@ fn factory_generic_supply_interface_keeps_authored_truck_capacity() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     worker_definitions();
     let _frame = RestoreAmbientFrame::set(17);
     let actual = WorkerRuntime::new("WorkerOwnerSupplyTruck", None);
@@ -256,7 +254,6 @@ fn factory_native_mine_query_reads_owner_and_preserves_ready_wire() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     worker_definitions();
     let _frame = RestoreAmbientFrame::set(17);
     let actual = WorkerRuntime::new(
@@ -286,7 +283,6 @@ fn factory_native_mine_query_rejects_nonattacking_missing_weapon_and_ground_only
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     worker_definitions();
     let _frame = RestoreAmbientFrame::set(17);
     for (mask, attacking) in [
@@ -308,7 +304,6 @@ fn factory_worker_full_mine_attack_drops_actual_carried_box() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     worker_definitions();
     let _frame = RestoreAmbientFrame::set(17);
     let actual = WorkerRuntime::new(
@@ -359,7 +354,6 @@ fn factory_worker_ground_attack_retains_carried_box() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     worker_definitions();
     let _frame = RestoreAmbientFrame::set(17);
     let actual = WorkerRuntime::new("WorkerOwnerWorker", Some(WeaponAntiMask::GROUND));
@@ -387,7 +381,6 @@ fn factory_native_mine_query_ignores_locked_foreign_same_id_unit() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     worker_definitions();
     let _frame = RestoreAmbientFrame::set(17);
     let actual = WorkerRuntime::new(
@@ -449,7 +442,6 @@ fn factory_worker_cargo_survives_native_derived_snapshot() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     worker_definitions();
     let _frame = RestoreAmbientFrame::set(17);
     let actual = WorkerRuntime::new("WorkerOwnerWorker", None);

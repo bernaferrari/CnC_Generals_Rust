@@ -192,7 +192,6 @@ fn named_priority_reads_passengers_added_by_optional_filter() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = ContainerFixture::new(50.0);
     let info = fixture.priority();
     crate::ai::the_ai()
@@ -237,7 +236,6 @@ fn all_optional_filters_finish_before_priority_scan() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let mut fixture = ContainerFixture::new(20.0);
     let info = fixture.priority();
     // The later candidate inserts into an earlier accepted candidate.
@@ -291,7 +289,6 @@ fn null_and_default_priority_avoid_post_filter_containment_access() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = ContainerFixture::new(20.0);
     let mut default_info = AttackPriorityInfo::new();
     default_info.default_priority = 0; // Default row still uses the closest path.
@@ -326,7 +323,6 @@ fn rejected_optional_filter_avoids_priority_containment_access() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = ContainerFixture::new(20.0);
     let info = fixture.priority();
     let filter = HoldContainAfterFilter {
@@ -358,7 +354,6 @@ fn zero_named_priority_avoids_post_filter_containment_access() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = ContainerFixture::new(20.0);
     let mut info = fixture.priority();
     info.set_priority("QueryPriorityContainer", 0);
@@ -391,7 +386,6 @@ fn weapon_range_filter_is_independent_of_attack_eligibility() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = MoodFixture::new("Yes");
     fixture
         ._factory
@@ -436,7 +430,6 @@ fn possible_after_moving_passes_attack_filter_but_not_range_filter() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = MoodFixture::new("Yes");
     let target = fixture
         ._factory
@@ -486,7 +479,6 @@ fn equal_priority_uses_near_to_far_iterator_order() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = ContainerFixture::new(50.0);
     let mut info = fixture.priority();
     info.set_priority("QueryPriorityContainer", 10);

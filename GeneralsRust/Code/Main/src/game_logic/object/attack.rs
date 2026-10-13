@@ -609,7 +609,6 @@ impl Object {
         if !overlay && matches!(self.ai_state, AIState::Moving | AIState::AttackMoving) {
             self.set_ai_state(AIState::Idle);
         }
-        self.record_host_movement();
     }
 
     pub fn attack_target(

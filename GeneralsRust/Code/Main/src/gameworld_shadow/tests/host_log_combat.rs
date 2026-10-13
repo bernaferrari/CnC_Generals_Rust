@@ -3,8 +3,8 @@
 use super::*;
 
 #[test]
-fn host_movement_log_drives_set_movement_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_movement_log};
+fn canonical_movement_is_projected_from_receiving_owner() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MvCh");

@@ -67,7 +67,6 @@ fn native_auto_acquire_reads_authored_mask_without_legacy_unit() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = MoodFixture::new("Yes STEALTHED");
     assert!(super::super::super::super::registry::get_unit_arc(fixture.source_id).is_none());
     let ai = fixture.ai.lock().unwrap();
@@ -86,7 +85,6 @@ fn native_auto_acquire_zero_mask_is_false() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = MoodFixture::new("");
     let ai = fixture.ai.lock().unwrap();
     assert!(!ai.can_auto_acquire());
@@ -101,7 +99,6 @@ fn native_auto_acquire_no_bit_is_still_a_nonzero_cpp_mask() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = MoodFixture::new("No");
     let mut ai = fixture.ai.lock().unwrap();
     assert!(
@@ -120,7 +117,6 @@ fn native_stealthed_mask_allows_idle_scan_without_rng() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let _frame = super::super::super::RestoreAmbientFrame::set(17);
     let fixture = MoodFixture::new("Yes STEALTHED");
     fixture
@@ -145,7 +141,6 @@ fn native_vision_without_controller_ignores_sleep_mood() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = fixture_without_controller();
     assert!(
         fixture
@@ -177,7 +172,6 @@ fn native_vision_without_controller_ignores_aggressive_mood() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = fixture_without_controller();
     crate::ai::the_ai()
         .write()
@@ -201,7 +195,6 @@ fn native_vision_applies_computer_mood_but_not_human_mood() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = MoodFixture::new("Yes");
     crate::ai::the_ai()
         .write()
@@ -252,7 +245,6 @@ fn factory_object_without_ai_has_zero_adjusted_vision() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = MoodFixture::new("Yes");
     let target = target(&fixture);
     target.write().unwrap().set_vision_range(600.0);
@@ -279,7 +271,6 @@ fn native_mood_timer_and_offset_survive_base_xfer() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let _frame = super::super::super::RestoreAmbientFrame::set(17);
     let fixture = MoodFixture::new("Yes");
     let _rng = RestoreRng::set();
@@ -345,7 +336,6 @@ fn native_team_common_target_precedes_timer_and_rng() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let _frame = super::super::super::RestoreAmbientFrame::set(17);
     let mut fixture = MoodFixture::new("Yes");
     let enemy_team = target(&fixture).read().unwrap().get_team().unwrap();
@@ -419,7 +409,6 @@ fn native_passive_damage_target_is_not_a_range_or_enemy_search() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let _frame = super::super::super::RestoreAmbientFrame::set(17);
     let mut fixture = MoodFixture::new("Yes");
     let own_team = source_team(&fixture);
@@ -558,7 +547,6 @@ fn native_special_power_stealth_exempts_idle_veto() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let _frame = super::super::super::RestoreAmbientFrame::set(17);
     let mut fixture = MoodFixture::new("Yes");
     let ordinary = stealth_source(&mut fixture, false);
@@ -586,7 +574,6 @@ fn native_firing_container_exempts_idle_stealth_veto() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let _frame = super::super::super::RestoreAmbientFrame::set(17);
     let mut fixture = MoodFixture::new("Yes");
     assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(
@@ -648,7 +635,6 @@ fn native_auto_acquire_getters_ignore_locked_foreign_owner() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let fixture = MoodFixture::new("Yes STEALTHED");
     // The source and AI are genuine factory objects. Only the unrelated
     // compatibility Unit is synthetic, with the same ID and opposite flags.

@@ -382,7 +382,6 @@ impl GameLogic {
                     unit.set_ai_state(AIState::Moving);
                 }
                 unit.set_status_moving(true);
-                unit.record_host_movement();
             }
             self.movement_events.record(
                 self.frame,
@@ -818,7 +817,7 @@ impl GameLogic {
         }
         unit.path_timestamp = self.frame;
         unit.refresh_follow_path_extra_distance();
-        unit.record_host_movement();
+
         unit.start_move();
         self.movement_events.record(
             self.frame,
@@ -1792,9 +1791,9 @@ impl GameLogic {
                     unit.path_timestamp = self.frame;
                     unit.num_frames_blocked = 0;
                     unit.is_blocked_and_stuck = false;
-                    unit.record_host_movement();
+
                     unit.movement.current_path_index = 1;
-                    unit.record_host_movement();
+
                     unit.movement.target_position = Some(unit.movement.path[1]);
                     if contact {
                         unit.is_attack_path = true;

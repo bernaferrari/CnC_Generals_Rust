@@ -220,7 +220,6 @@ fn quickexit_preserves_lock_and_orders_replacement_callbacks() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     fixture(|owner, handle| {
         let mut ai = handle.lock().unwrap();
         let sentinel = Coord3D::new(19.0, 23.0, 0.0);
@@ -301,7 +300,6 @@ fn failed_entry_publishes_exits_normally_then_clears() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     fixture(|_, handle| {
         let mut ai = handle.lock().unwrap();
         ai.set_current_goal_path_index(8).unwrap();
@@ -339,7 +337,6 @@ fn temporary_timeout_is_strict_capped_and_resumes_ordinary_same_step() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let _frame = super::super::RestoreAmbientFrame::set(10);
     fixture(|_, handle| {
         let mut ai = handle.lock().unwrap();
@@ -397,7 +394,6 @@ fn diagnostic_failed_path_results_preserve_follow_segment_publication_timing() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     fixture(|_, handle| {
         let mut ai = handle.lock().unwrap();
         let points = [
@@ -433,7 +429,6 @@ fn quickexit_preserves_unlocked_machine_and_terminal_body_resumes_ordinary() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     fixture(|_, handle| {
         let mut ai = handle.lock().unwrap();
         assert!(!machine(&mut *ai).is_locked());
@@ -479,7 +474,6 @@ fn real_busy_ai_move_command_uses_borrowed_temporary_move_to() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     fixture(|owner, handle| {
         let mut ai = handle.lock().unwrap();
         let mut command =
@@ -521,7 +515,6 @@ fn ordinary_follow_path_command_installs_registered_body_without_relocking_ai() 
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     fixture(|_, handle| {
         let mut ai = handle.lock().unwrap();
         let mut command =
@@ -557,7 +550,6 @@ fn native_move_out_missing_path_fails_with_its_own_synchronous_cleanup() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     fixture(|owner, handle| {
         let mut ai = handle.lock().unwrap();
         // This is genuine failed-entry coverage, not successful MoveOut motion.
@@ -603,7 +595,6 @@ fn dirty_native_formation_recompute_uses_held_members_exact_identity() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     fixture(|owner, handle| {
         let id = owner.read().unwrap().get_id();
         assert!(Arc::ptr_eq(
@@ -664,7 +655,6 @@ fn dirty_formation_move_to_command_uses_same_borrowed_speed_metric() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     fixture(|owner, handle| {
         let id = owner.read().unwrap().get_id();
         let group = crate::ai::the_ai().write().unwrap().create_group();
@@ -706,7 +696,6 @@ fn formation_recompute_rejects_mismatched_handles_and_preserves_ordinary_cache()
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     terrain(|| {
         definitions();
         let mut factory = ObjectFactory::new();
@@ -776,7 +765,6 @@ fn native_projectile_distance_uses_live_goal_when_path_has_no_tail() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     fixture(|owner, handle| {
         let fallback_goal = Coord3D::new(90.0, 30.0, 40.0);
         let owner_position = *owner.read().unwrap().get_position();
@@ -818,7 +806,6 @@ fn owner_aware_physics_queries_use_held_factory_object_facing_and_real_cargo() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     terrain(|| {
         definitions();
         assert_eq!(

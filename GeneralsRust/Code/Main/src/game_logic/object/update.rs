@@ -59,7 +59,6 @@ impl Object {
             if self.cheer_timer <= 0.0 && self.ai_state == AIState::SpecialAbility {
                 self.set_ai_state(AIState::Idle);
                 self.cheer_timer = 0.0;
-                self.record_host_demo_mine_cheer();
             }
         }
 
@@ -661,7 +660,6 @@ impl Object {
                 }
             }
         }
-        self.record_host_movement();
     }
 
     /// C++ SalvageCrateCollide::doWeaponSet residual.
@@ -707,7 +705,6 @@ impl Object {
                 let _ = self.replace_weapon_set_slot(0, Some(weapon));
             }
         }
-        self.record_host_ai_request();
     }
 
     /// C++ SalvageCrateCollide::doArmorSet residual.
@@ -725,7 +722,6 @@ impl Object {
         };
         self.applied_upgrades.insert(tag.to_string());
         self.validate_armor_and_damage_fx();
-        self.record_host_ai_request();
     }
 
     /// C++ ActiveBody::validateArmorAndDamageFX + crate model bits.

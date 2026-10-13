@@ -78,7 +78,6 @@ impl Object {
         if transition_frames == 0 {
             self.status.disguise_transition_opacity = 1.0;
         }
-        self.record_host_ai_request();
     }
 
     /// Apply Bomb Truck disguise residual (StealthUpdate::disguiseAsObject).
@@ -92,7 +91,7 @@ impl Object {
             return;
         }
         self.disguise_pending_template = Some(template_name.to_string());
-        self.record_host_ai_request();
+
         self.disguise_pending_team = Some(as_team);
         // Not fully disguised until halfpoint residual.
         self.set_status_disguised(false);
@@ -133,7 +132,7 @@ impl Object {
         self.disguise_as_template = None;
         self.disguise_as_team = None;
         self.disguise_pending_template = None;
-        self.record_host_ai_request();
+
         self.disguise_pending_team = None;
         self.set_status_stealthed(false);
         self.set_status_detected(false);
@@ -193,7 +192,7 @@ impl Object {
                 self.disguise_as_template = None;
                 self.disguise_as_team = None;
                 self.disguise_pending_template = None;
-                self.record_host_ai_request();
+
                 self.disguise_pending_team = None;
                 // C++ changeVisualDisguise (StealthUpdate.cpp:1052-1057): after
                 // swapping back to the true bomb-truck drawable, rebuild W3D

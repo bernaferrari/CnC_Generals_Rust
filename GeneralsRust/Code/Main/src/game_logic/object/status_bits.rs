@@ -626,33 +626,6 @@ impl Object {
             );
     }
 
-    pub fn record_host_ai_request(&self) {
-        let pending_team = self
-            .disguise_pending_team
-            .map(|t| match t {
-                crate::game_logic::Team::USA => 0u8,
-                crate::game_logic::Team::China => 1u8,
-                crate::game_logic::Team::GLA => 2u8,
-                crate::game_logic::Team::Neutral => 3u8,
-            })
-            .unwrap_or(255u8);
-        crate::game_logic::host_ai_request_log::record(
-            self.id,
-            self.requested_victim_id.map(|id| id.0).unwrap_or(0),
-            self.requested_destination.map(|p| [p.x, p.y, p.z]),
-            self.prev_victim_pos.map(|p| [p.x, p.y, p.z]),
-            self.crate_created.map(|id| id.0).unwrap_or(0),
-            self.guard_retaliate_victim.map(|id| id.0).unwrap_or(0),
-            self.guard_retaliate_anchor.map(|p| [p.x, p.y, p.z]),
-            self.path_timestamp,
-            self.disguise_pending_template.clone().unwrap_or_default(),
-            pending_team,
-            self.weapon_crate_upgrade,
-            self.armor_crate_upgrade,
-            self.selection_flash_remaining,
-        );
-    }
-
     pub fn record_host_fire_intent(&self) {
         crate::game_logic::host_fire_intent_log::record(
             self.id,

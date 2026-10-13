@@ -96,7 +96,7 @@ impl GameLogic {
                     obj.can_path_through_units = false;
                     obj.movement.path = waypoints;
                     accepted_goal = obj.movement.path.last().copied();
-                    obj.record_host_movement();
+
                     obj.movement.current_path_index = 1; // skip start node
                     obj.movement.target_position = Some(obj.movement.path[1]);
                     obj.is_attack_path = false;
@@ -120,7 +120,7 @@ impl GameLogic {
                     let dest = waypoints.last().copied().unwrap_or(target_position);
                     obj.movement.path = vec![start_pos, dest];
                     accepted_goal = Some(dest);
-                    obj.record_host_movement();
+
                     obj.movement.current_path_index = 1;
                     obj.movement.target_position = Some(dest);
                     obj.is_attack_path = false;
@@ -650,7 +650,6 @@ impl GameLogic {
                     obj.retry_path = false;
                     obj.path_timestamp = self.frame;
                     obj.set_status_moving(true);
-                    obj.record_host_movement();
                 }
             }
             if path.len() >= 2 {
@@ -736,7 +735,6 @@ impl GameLogic {
             obj.is_blocked_and_stuck = false;
             obj.retry_path = false;
             obj.set_status_moving(false);
-            obj.record_host_movement();
         }
 
         for &id in object_ids {
@@ -852,7 +850,6 @@ impl GameLogic {
                             );
                         } else {
                             obj.movement.velocity = Vec3::ZERO;
-                            obj.record_host_movement();
                         }
                         break 'unit;
                     }
@@ -1324,7 +1321,7 @@ impl GameLogic {
                                         }
                                     }
                                 }
-                                obj.record_host_movement();
+
                                 Self::apply_live_handle_behavior_z(
                                     obj,
                                     surface_y,
@@ -1443,7 +1440,6 @@ impl GameLogic {
                             if matches!(obj.loco_appearance, LocomotorAppearance::LegsTwo)
                                 && obj.downhill_only_blocks_goal(current_pos.y, goal_y)
                             {
-                                obj.record_host_movement();
                                 Self::apply_live_handle_behavior_z(
                                     obj,
                                     surface_y,
@@ -1733,7 +1729,7 @@ impl GameLogic {
                                         flat_target,
                                         obj.effective_turn_rate() * dt,
                                     );
-                                    obj.record_host_movement();
+
                                     Self::apply_live_handle_behavior_z(
                                         obj,
                                         surface_y,
@@ -1884,7 +1880,6 @@ impl GameLogic {
                                     obj.movement.velocity += force_direction * applied;
                                 }
                                 obj.invalidate_velocity_magnitude();
-                                obj.record_host_movement();
 
                                 // Keep the rotated pose. Physics integrates once,
                                 // after the cheat and the projectile force-on.
@@ -2737,7 +2732,7 @@ fn try_fix_invalid_position_3x3(
         obj.apply_motive_force(glam::Vec3::new(nx * mag * mass, 0.0, nz * mag * mass));
     }
     obj.apply_motive_force(correction);
-    obj.record_host_movement();
+
     true
 }
 

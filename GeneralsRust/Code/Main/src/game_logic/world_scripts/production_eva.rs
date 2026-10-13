@@ -248,7 +248,7 @@ impl GameLogic {
         // Mark before blast so destroy path skips DestroyedWeapon double-fire.
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.demo_suicided_detonating = true;
-            obj.record_host_demo_mine_cheer();
+
             Self::mark_object_destroyed_authority_aware(
                 obj,
                 Some(unit_id),

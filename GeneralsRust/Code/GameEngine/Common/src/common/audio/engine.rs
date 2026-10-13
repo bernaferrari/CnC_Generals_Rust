@@ -335,11 +335,11 @@ pub enum AudioResponse {
 /// they keep their locks.
 struct AudioEngineShared {
     /// Currently active audio sources
-    sources: Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
+    sources: ParkingRwLock<HashMap<AudioHandle, AudioSource>>,
     /// Audio listener parameters
-    listener: Arc<ParkingRwLock<AudioListener>>,
+    listener: ParkingRwLock<AudioListener>,
     /// Master volume controls
-    master_volumes: Arc<ParkingRwLock<HashMap<AudioAffect, f32>>>,
+    master_volumes: ParkingRwLock<HashMap<AudioAffect, f32>>,
 }
 
 /// High-performance audio engine
@@ -393,9 +393,9 @@ impl AudioEngine {
         let engine = Self {
             config,
             shared: Arc::new(AudioEngineShared {
-                sources: Arc::new(ParkingRwLock::new(HashMap::new())),
-                listener: Arc::new(ParkingRwLock::new(AudioListener::default())),
-                master_volumes: Arc::new(ParkingRwLock::new(master_volumes)),
+                sources: ParkingRwLock::new(HashMap::new()),
+                listener: ParkingRwLock::new(AudioListener::default()),
+                master_volumes: ParkingRwLock::new(master_volumes),
             }),
             next_handle: AtomicU32::new(1),
             command_sender: Some(command_sender),
@@ -831,11 +831,7 @@ impl AudioEngine {
     }
 
     #[cfg(feature = "audio")]
-    fn handle_set_volume_command(
-        handle: AudioHandle,
-        volume: f32,
-        shared: &AudioEngineShared,
-    ) {
+    fn handle_set_volume_command(handle: AudioHandle, volume: f32, shared: &AudioEngineShared) {
         let mut sources_guard = shared.sources.write();
         if let Some(source) = sources_guard.get_mut(&handle) {
             source.volume = volume;
@@ -915,12 +911,7 @@ impl AudioEngine {
     }
 
     #[cfg(not(feature = "audio"))]
-    fn handle_set_volume_command(
-        _handle: AudioHandle,
-        _volume: f32,
-        _shared: &AudioEngineShared,
-    ) {
-    }
+    fn handle_set_volume_command(_handle: AudioHandle, _volume: f32, _shared: &AudioEngineShared) {}
 
     #[cfg(not(feature = "audio"))]
     fn cleanup_finished_sources(

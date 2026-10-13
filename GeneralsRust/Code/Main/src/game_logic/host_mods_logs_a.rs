@@ -17,9 +17,6 @@ use super::host_structure_topple;
 #[path = "host_a10_strike_drop_log.rs"]
 pub mod host_a10_strike_drop_log;
 
-#[path = "host_ai_request_log.rs"]
-pub mod host_ai_request_log;
-
 #[path = "host_damage_log.rs"]
 pub mod host_damage_log;
 pub use host_damage_log::HostDamageEvent;
@@ -32,9 +29,6 @@ pub mod host_attack_log;
 
 #[path = "host_construction_log.rs"]
 pub mod host_construction_log;
-
-#[path = "host_demo_mine_cheer_log.rs"]
-pub mod host_demo_mine_cheer_log;
 
 #[path = "host_destroy_log.rs"]
 pub mod host_destroy_log;

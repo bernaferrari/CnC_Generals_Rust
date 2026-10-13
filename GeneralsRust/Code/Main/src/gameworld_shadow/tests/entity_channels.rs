@@ -538,8 +538,7 @@ fn locomotor_channel_via_set_locomotor() {
 }
 
 #[test]
-fn ai_request_channel_via_set_ai_request() {
-    use crate::game_logic::host_ai_request_log;
+fn canonical_ai_request_is_projected_from_receiving_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();

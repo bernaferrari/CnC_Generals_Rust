@@ -15,7 +15,7 @@ use crate::audio::{
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{
-    Arc, Mutex, RwLock,
+    Mutex, RwLock,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use std::time::{Duration, Instant, SystemTime};
@@ -300,21 +300,21 @@ pub struct ThreadTiming {
 /// Main error recovery manager
 pub struct ErrorRecoveryManager {
     /// Error history storage
-    error_history: Arc<RwLock<VecDeque<HistoricalError>>>,
+    error_history: RwLock<VecDeque<HistoricalError>>,
     /// Current system state
-    system_state: Arc<RwLock<SystemState>>,
+    system_state: RwLock<SystemState>,
     /// Recovery strategies configuration
-    recovery_strategies: Arc<RwLock<HashMap<String, Vec<RecoveryStrategy>>>>,
+    recovery_strategies: RwLock<HashMap<String, Vec<RecoveryStrategy>>>,
     /// Resource monitors
-    resource_monitor: Arc<ResourceMonitor>,
+    resource_monitor: ResourceMonitor,
     /// Performance tracker
-    performance_tracker: Arc<PerformanceTracker>,
+    performance_tracker: PerformanceTracker,
     /// Recovery statistics
-    recovery_stats: Arc<RwLock<RecoveryStatistics>>,
+    recovery_stats: RwLock<RecoveryStatistics>,
     /// Configuration
     config: ErrorRecoveryConfig,
     /// Shutdown flag for cleanup
-    shutdown_flag: Arc<AtomicBool>,
+    shutdown_flag: AtomicBool,
 }
 
 /// Resource monitoring system
@@ -440,16 +440,14 @@ impl Default for PerformanceThresholds {
 impl ErrorRecoveryManager {
     /// Create a new error recovery manager
     pub fn new(config: ErrorRecoveryConfig) -> Result<Self> {
-        let error_history = Arc::new(RwLock::new(VecDeque::with_capacity(
-            config.max_error_history,
-        )));
-        let system_state = Arc::new(RwLock::new(SystemState::default()));
-        let recovery_strategies = Arc::new(RwLock::new(Self::initialize_default_strategies()));
+        let error_history = RwLock::new(VecDeque::with_capacity(config.max_error_history));
+        let system_state = RwLock::new(SystemState::default());
+        let recovery_strategies = RwLock::new(Self::initialize_default_strategies());
 
-        let resource_monitor = Arc::new(ResourceMonitor::new()?);
-        let performance_tracker = Arc::new(PerformanceTracker::new());
-        let recovery_stats = Arc::new(RwLock::new(RecoveryStatistics::default()));
-        let shutdown_flag = Arc::new(AtomicBool::new(false));
+        let resource_monitor = ResourceMonitor::new()?;
+        let performance_tracker = PerformanceTracker::new();
+        let recovery_stats = RwLock::new(RecoveryStatistics::default());
+        let shutdown_flag = AtomicBool::new(false);
 
         Ok(Self {
             error_history,
