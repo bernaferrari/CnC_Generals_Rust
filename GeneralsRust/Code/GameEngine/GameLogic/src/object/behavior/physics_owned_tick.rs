@@ -14,6 +14,7 @@ pub(crate) struct OwnedPhysicsStep {
 /// results, not a clone or alternate owner of canonical Physics state.
 pub(crate) struct PreparedOwnedPhysicsStep {
     pub(crate) landing_expected: bool,
+    pub(crate) resting_kill_expected: bool,
     pub(crate) landing_damage: Option<DamageInfo>,
     owner: Weak<RwLock<GameObject>>,
     owner_id: ObjectID,
@@ -71,7 +72,6 @@ impl PhysicsBehaviorUpdate {
             || obj.is_kind_of(KindOf::Projectile)
             || obj.get_layer() != crate::common::PathfindLayerEnum::Ground
             || obj.test_status(ObjectStatusTypes::DeckHeightOffset)
-            || self.module_data.kill_when_resting_on_ground
             || state.has_flag(FLAG_ALLOW_BOUNCE)
             || state.has_flag(FLAG_IS_IN_UPDATE)
             || state.current_overlap != crate::common::INVALID_ID
@@ -185,6 +185,13 @@ impl PhysicsBehaviorUpdate {
         let landing_expected =
             was_airborne && !GameObject::is_above_terrain_height(pos.z, ground) && !immune_landing;
         Ok(PreparedOwnedPhysicsStep {
+            resting_kill_expected: !obj.is_effectively_dead()
+                && self.module_data.kill_when_resting_on_ground
+                && !GameObject::is_above_terrain_height(pos.z, ground)
+                && is_very_small3d(velocity)
+                && (!obj.is_kind_of(KindOf::Drone)
+                    || obj.is_effectively_dead()
+                    || obj.is_disabled_by_type(DisabledType::DisabledUnmanned)),
             landing_expected,
             landing_damage: if landing_expected {
                 Self::falling_damage(
@@ -381,6 +388,20 @@ impl PhysicsBehaviorUpdate {
             * Mat4::from_rotation_x(roll_rate * factor)
             * Mat4::from_rotation_y(pitch)
             * Mat4::from_rotation_z(yaw_rate * factor)
+    }
+
+    /// CPP PhysicsUpdate.cpp:883–895 rereads the actual velocity after landing.
+    pub(in crate::object) fn should_kill_resting_owned(
+        &self,
+        obj: &GameObject,
+        airborne: bool,
+    ) -> bool {
+        self.module_data.kill_when_resting_on_ground
+            && !airborne
+            && is_very_small3d(self.physics_handle.state.vel)
+            && (!obj.is_kind_of(KindOf::Drone)
+                || obj.is_effectively_dead()
+                || obj.is_disabled_by_type(DisabledType::DisabledUnmanned))
     }
 
     pub(in crate::object) fn prepare_freefall_cleanup_at(&mut self) {

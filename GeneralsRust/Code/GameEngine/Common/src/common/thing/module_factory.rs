@@ -577,7 +577,9 @@ impl ModuleFactory {
             ));
         }
         let module = template.create_module(thing, module_data);
-
+        module.validate_initialization().map_err(|error| {
+            format!("Module '{name}' ({module_type:?}) initialization failed: {error}")
+        })?;
         Ok(module)
     }
 

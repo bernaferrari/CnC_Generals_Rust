@@ -332,6 +332,15 @@ impl PhysicsInterfaceHandle {
         })
     }
 
+    pub(crate) fn should_kill_resting_owned(
+        &self,
+        owner: &super::Object,
+        airborne: bool,
+    ) -> Result<bool, String> {
+        self.installed_update_proxy(owner)?;
+        self.with_installed_update(|physics| Ok(physics.should_kill_resting_owned(owner, airborne)))
+    }
+
     pub(crate) fn prepare_freefall_cleanup_at(&self, owner: &super::Object) -> Result<(), String> {
         self.installed_update_proxy(owner)?;
         self.with_installed_update(|physics| {

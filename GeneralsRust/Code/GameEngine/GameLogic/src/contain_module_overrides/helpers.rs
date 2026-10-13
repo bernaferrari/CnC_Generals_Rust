@@ -18,22 +18,29 @@ pub(super) fn resolve_owner_info(thing: &Arc<dyn ModuleThing>) -> (ObjectID, Coo
     (owner_id, position)
 }
 
-/// Wave 449: host-only / missing-owner factory path — fail closed instead of panic.
+/// Error carrier for the engine's infallible create-proc ABI. ModuleFactory
+/// rejects it before installation or scheduling; it never substitutes behavior.
 struct MissingOwnerModule {
     module_name_key: NameKeyType,
     data: Arc<dyn ModuleData>,
+    error: String,
 }
 
 impl MissingOwnerModule {
-    fn new(module_name: &str, data: Arc<dyn ModuleData>) -> Self {
+    fn new(module_name: &str, data: Arc<dyn ModuleData>, error: String) -> Self {
         Self {
             module_name_key: NameKeyGenerator::name_to_key(module_name),
             data,
+            error,
         }
     }
 }
 
 impl Module for MissingOwnerModule {
+    fn validate_initialization(&self) -> Result<(), String> {
+        Err(self.error.clone())
+    }
+
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -49,24 +56,35 @@ impl Module for MissingOwnerModule {
 
 impl Snapshotable for MissingOwnerModule {
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+        self.validate_initialization()
     }
 
     fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+        self.validate_initialization()
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.validate_initialization()
     }
+}
+
+fn failed_initialization_module(
+    module_name: &str,
+    module_data: Arc<dyn ModuleData>,
+    error: String,
+) -> Box<dyn Module> {
+    Box::new(MissingOwnerModule::new(module_name, module_data, error))
 }
 
 pub(super) fn missing_owner_module(
     module_name: &str,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    warn!("Wave 449: {module_name} factory missing owner object; installing no-op module");
-    Box::new(MissingOwnerModule::new(module_name, module_data))
+    failed_initialization_module(
+        module_name,
+        module_data,
+        "supplied module owner unavailable".into(),
+    )
 }
 
 pub(super) fn missing_owner_module_auto(
@@ -181,7 +199,14 @@ where
     TBehavior: BehaviorModuleInterface + Snapshotable + 'static,
     TData: ModuleData + LegacyModuleData + Clone + 'static,
 {
-    let data_arc = cloned_module_data::<TData>(module_name, &module_data);
+    let Some(data) = module_data.as_any().downcast_ref::<TData>() else {
+        return failed_initialization_module(
+            module_name,
+            module_data,
+            format!("expected module data {}", std::any::type_name::<TData>()),
+        );
+    };
+    let data_arc = Arc::new(data.clone());
     let engine_data: Arc<dyn ModuleData> = data_arc.clone();
     let legacy_data: Arc<dyn LegacyModuleData> = data_arc;
     // C++ constructs the module for the supplied Thing. A numeric ID cannot
@@ -189,15 +214,13 @@ where
     let object = match crate::object::supplied_module_owner(thing.as_ref()) {
         Ok(object) => object,
         Err(error) => {
-            warn!("{module_name} supplied owner unavailable: {error}");
-            return missing_owner_module(module_name, engine_data);
+            return failed_initialization_module(module_name, engine_data, error);
         }
     };
     let behavior = match create(object, legacy_data) {
         Ok(behavior) => behavior,
         Err(err) => {
-            warn!("{module_name} init failed: {err}; installing no-op module");
-            return missing_owner_module(module_name, engine_data);
+            return failed_initialization_module(module_name, engine_data, err.to_string());
         }
     };
     Box::new(ActiveBehaviorModule::new(
@@ -434,3 +457,7 @@ macro_rules! active_behavior_factories {
         }
     };
 }
+
+#[cfg(test)]
+#[path = "factory_initialization_tests.rs"]
+mod factory_initialization_tests;

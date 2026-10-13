@@ -551,6 +551,13 @@ impl<T: Any> ModuleAny for T {
 }
 
 pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
+    /// Check an infallible create-proc's result before the factory exposes it.
+    /// Successful modules need no extra state. Adapters for a failed constructor
+    /// retain its error instead of presenting an unusable module as initialized.
+    fn validate_initialization(&self) -> Result<(), String> {
+        Ok(())
+    }
+
     fn as_any(&self) -> &dyn Any {
         ModuleAny::module_as_any(self)
     }

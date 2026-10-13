@@ -158709,7 +158709,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "60630ee82eac53261fa87675ff9bae2013244be91cbd060a8660d6040621c42a",
+  "input_digest": "9ccbc19362f6202f0c560eb6ec1e4f25fb838ca9924bd70b21b6509b96e8d9fe",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -163847,11 +163847,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1368,
+        "end_line": 1375,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module.rs",
-      "sha256": "37551b0f5573acf225680d38ab659179617274128fdb90ef5cc19414438196ae",
+      "sha256": "ecdb07e0b624a392a2dc3f3fe5fcf67335ffc170a46e35e1c371c8527f97268d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -163883,11 +163883,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1384,
+        "end_line": 1386,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs",
-      "sha256": "dbae6396f2ddf0a071e875e55b11c7267e41edc8d04bb0b5a28002c4ba75ef8b",
+      "sha256": "dbd97392747732dfc9af3f410f31f29a1f11423b3365923f44f9736bda4d4488",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -199295,11 +199295,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1168,
+        "end_line": 1162,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/flammable_update.rs",
-      "sha256": "3e3a41d6f9d2fa12fe33eeabfa5e17bdb7454198d2cac9cd8fb565379faf47c5",
+      "sha256": "e87a92fad2cd86ae71546cb80d4570a5c731bfeee40f2ec1371223e2fcd475ab",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -199703,11 +199703,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 650,
+        "end_line": 671,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_owned_tick.rs",
-      "sha256": "931928b887d517f9ee50507e4bcac37543393bdcbea9d5fcf35c7cd3bc68c55d",
+      "sha256": "697336fc78618b2b740a2ad82f2755c0649f7d57dbb64cfdcdc2756dd90360bb",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203171,11 +203171,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 562,
+        "end_line": 571,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/physics_interfaces.rs",
-      "sha256": "a10105dc27ea73a9454c67c7bf69ecfe61ace688d6cdd19e1995607c3b588ee6",
+      "sha256": "6c15557c61b040d8c1502bf3902eff0eace54890703e192c810aa28cf2284173",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

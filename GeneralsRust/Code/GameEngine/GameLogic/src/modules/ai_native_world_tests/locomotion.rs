@@ -474,6 +474,83 @@ fn installed_physics_stunned_flag_prevents_native_force_and_turn() {
 }
 
 #[test]
+fn other_authored_wandering_is_ignored_by_actual_owned_motion() {
+    let mut configured = NativeMatch::with_source_template(
+        150.0,
+        container_template(),
+        false,
+        source_template_with_motion(
+            "OwnedOtherWander",
+            0.1,
+            LocomotorAppearance::Other,
+            0.5,
+            0.3,
+        ),
+    );
+    let mut ordinary = NativeMatch::with_source_template(
+        150.0,
+        container_template(),
+        false,
+        source_template_with_motion("OwnedOtherPlain", 0.1, LocomotorAppearance::Other, 0.5, 0.0),
+    );
+    let peer = NativeMatch::with_source_template(
+        150.0,
+        container_template(),
+        false,
+        source_template_with_motion("OwnedOtherPeer", 0.1, LocomotorAppearance::Other, 0.5, 0.3),
+    );
+    for game in [&mut configured, &mut ordinary] {
+        Object::admit_update_schedule_from_handle(&game.source, &mut game.scheduler).unwrap();
+    }
+    assert_eq!(
+        configured.source.read().unwrap().get_id(),
+        peer.source.read().unwrap().get_id()
+    );
+    let peer_pose = peer.source.read().unwrap().get_transform_matrix();
+    // Run the real path phase first while turning, then along its post-turn
+    // heading. OTHER must not consume the infantry wandering state or alter
+    // either its pivot matrix or subsequent canonical motive force.
+    for frame in [41, 42] {
+        let target = if frame == 41 {
+            Coord3D::new(50.0, 150.0, 0.0)
+        } else {
+            let owner = ordinary.source.read().unwrap();
+            let position = owner.get_position();
+            let angle = owner.get_orientation();
+            Coord3D::new(
+                position.x + 100.0 * angle.cos(),
+                position.y + 100.0 * angle.sin(),
+                position.z,
+            )
+        };
+        move_step(&mut configured, frame, target).unwrap();
+        move_step(&mut ordinary, frame, target).unwrap();
+        assert_eq!(
+            configured.source.read().unwrap().get_transform_matrix(),
+            ordinary.source.read().unwrap().get_transform_matrix()
+        );
+        assert_eq!(
+            physics_handle(&configured.source).accumulated_force_acceleration(),
+            physics_handle(&ordinary.source).accumulated_force_acceleration()
+        );
+        assert_eq!(
+            peer.source.read().unwrap().get_transform_matrix(),
+            peer_pose
+        );
+        assert_eq!(
+            physics_handle(&peer.source).accumulated_force_acceleration(),
+            Coord3D::ZERO
+        );
+    }
+    assert!(
+        physics_handle(&configured.source)
+            .accumulated_force_acceleration()
+            .length()
+            > 0.0
+    );
+}
+
+#[test]
 fn authored_pivot_and_wander_move_only_the_exact_factory_owner() {
     for (name, appearance, pivot, wander) in [
         ("OwnedPivot", LocomotorAppearance::Other, 0.5, 0.0),
@@ -495,6 +572,32 @@ fn authored_pivot_and_wander_move_only_the_exact_factory_owner() {
         let after = owner.read().unwrap().get_transform_matrix();
         assert_ne!(after, before);
         assert!(after.is_finite());
+        if appearance == LocomotorAppearance::Other {
+            let radius = owner
+                .read()
+                .unwrap()
+                .get_geometry_info()
+                .get_bounding_circle_radius();
+            let position = before.w_axis.truncate();
+            let turn_point = glam::Vec3::new(position.x + pivot * radius, position.y, 0.0);
+            // CPP Locomotor.cpp2113-2188 premultiplies the entire existing
+            // transform around the geometry-derived pivot, with the authored
+            // 0.1 turn limit. Checking only yaw would miss a lost translation.
+            let expected = glam::Mat4::from_translation(turn_point)
+                * glam::Mat4::from_rotation_z(0.1)
+                * glam::Mat4::from_translation(-turn_point)
+                * before;
+            for (actual, expected) in after
+                .to_cols_array()
+                .into_iter()
+                .zip(expected.to_cols_array())
+            {
+                assert!(
+                    (actual - expected).abs() < 0.0001,
+                    "pivot component {actual} != {expected}"
+                );
+            }
+        }
         assert_eq!(
             peer.source.read().unwrap().get_transform_matrix(),
             peer_before

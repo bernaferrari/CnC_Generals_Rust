@@ -993,17 +993,11 @@ mod tests {
             "retired construction owner cannot select the same-ID peer"
         );
         assert!(crate::object::object_thing::supplied_module_owner(thing.as_ref()).is_err());
-        // The old infallible create-proc adapter remains an unavailable module;
-        // it must never turn the retained peer into this retired Thing's owner.
-        let retired = factory
+        let error = factory
             .new_module(thing, "FlammableUpdate", data, ModuleType::Behavior)
-            .unwrap();
-        assert!(
-            !retired
-                .as_ref()
-                .as_any()
-                .is::<crate::contain_module_overrides::ActiveBehaviorModule<FlammableUpdate>>()
-        );
+            .err()
+            .expect("retired owner must fail actual factory construction");
+        assert!(error.contains("owner has retired"), "{error}");
         assert!(
             !peer
                 .read()

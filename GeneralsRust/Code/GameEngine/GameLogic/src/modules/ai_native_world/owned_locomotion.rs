@@ -25,13 +25,13 @@ impl BorrowedAiWorld<'_> {
                 "native path locomotion admits only ordinary ground TWO_LEGS / OTHER".into(),
             );
         }
-        if (locomotor.get_appearance() == LocomotorAppearance::TwoLegs
-            && locomotor.template.min_speed > 0.0)
-            || (locomotor.get_appearance() != LocomotorAppearance::TwoLegs
-                && locomotor.template.wander_width_factor != 0.0)
+        if locomotor.get_appearance() == LocomotorAppearance::TwoLegs
+            && locomotor.template.min_speed > 0.0
         {
-            return Err("native ground path requires zero infantry minimum speed and infantry-only wandering".into());
+            return Err("native ground path requires zero infantry minimum speed".into());
         }
+        // C++ applies wanderWidthFactor only in moveTowardsPositionLegs.
+        // Authored OTHER locomotors ignore it; it is not an admission constraint.
         let actual_owner = self
             .factory
             .get_object(

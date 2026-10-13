@@ -19,6 +19,8 @@ fn actor(
     heals: bool,
     lethal: bool,
     structure: bool,
+    resting: bool,
+    drone: bool,
 ) -> Arc<dyn ThingTemplate> {
     let mut base = DefaultThingTemplate::new("OwnedLandingActor".into());
     base.add_kind_of(if structure {
@@ -26,6 +28,9 @@ fn actor(
     } else {
         KindOf::Infantry
     });
+    if drone {
+        base.add_kind_of(KindOf::Drone);
+    }
     let mut modules = vec![
         TemplateModuleInfo {
             name: "ActiveBody".into(),
@@ -42,6 +47,7 @@ fn actor(
             module_tag: "LandingPhysics".into(),
             data: Arc::new(PhysicsBehaviorModuleData {
                 mass,
+                kill_when_resting_on_ground: resting,
                 forward_friction: 0.01,
                 lateral_friction: 0.01,
                 aerodynamic_friction: 0.0,
@@ -77,8 +83,19 @@ fn actor(
 }
 
 fn game(mass: f32, factor: f32, heals: bool, lethal: bool, structure: bool) -> NativeMatch {
+    game_config(mass, factor, heals, lethal, structure, false, false)
+}
+fn game_config(
+    mass: f32,
+    factor: f32,
+    heals: bool,
+    lethal: bool,
+    structure: bool,
+    resting: bool,
+    drone: bool,
+) -> NativeMatch {
     let mut game = NativeMatch::new(150.0);
-    let template = actor(mass, factor, heals, lethal, structure);
+    let template = actor(mass, factor, heals, lethal, structure, resting, drone);
     let mut factory = ObjectFactory::new();
     let mut catalog = game_engine::common::thing::module_factory::ModuleFactory::new();
     crate::contain_module_overrides::register_native_module_overrides(&mut catalog).unwrap();
@@ -336,4 +353,59 @@ fn lethal_self_fall_uses_actual_instant_death_then_deferred_cleanup() {
     assert_eq!(game.audio.pending_play_request_count_for(SOUND), 1);
     assert_eq!(game.dispose_destroyed(2).unwrap(), 1);
     assert!(game.factory.get_object(1).is_none());
+}
+
+#[test]
+fn resting_kill_uses_actual_body_and_preserves_drone_exemption() {
+    let peer = game_config(3.0, 1.0, false, true, false, true, false);
+    let peer_bytes = bytes(&peer);
+    let peer_owner = Arc::clone(&peer.source);
+    let _peer_loan = peer_owner.write().unwrap();
+    let mut killed = game_config(1.0, 1.0, false, true, false, true, false);
+    phase(&mut killed, 17).unwrap();
+    assert_eq!(health(&killed), 0.0);
+    assert!(killed.source.read().unwrap().is_destroyed());
+    let body = killed.source.read().unwrap().get_body_module().unwrap();
+    let body = body.lock().unwrap();
+    let hit = body.get_last_damage_info().unwrap();
+    assert!(hit.input.kill);
+    assert_eq!(hit.input.amount, 100.0);
+    assert_eq!(hit.input.source_id, crate::common::INVALID_ID);
+    assert_eq!(hit.input.damage_type, DamageType::Unresistable);
+    assert_eq!(hit.input.death_type, DeathType::Normal);
+    assert_eq!(body.get_last_damage_timestamp(), 17);
+    drop(body);
+    drop(_peer_loan);
+    assert_eq!(bytes(&peer), peer_bytes);
+    let mut drone = game_config(1.0, 1.0, false, true, false, true, true);
+    phase(&mut drone, 17).unwrap();
+    assert_eq!(health(&drone), 100.0);
+    assert!(!drone.source.read().unwrap().is_effectively_dead());
+}
+
+#[test]
+fn resting_kill_rejects_unadmitted_callback_before_physics_mutation() {
+    let mut game = game_config(1.0, 1.0, false, false, true, true, false);
+    // Structure damage requires callback families beyond the native leaf.
+    let before = bytes(&game);
+    let position = *game.source.read().unwrap().get_position();
+    assert!(phase(&mut game, 17).is_err());
+    assert_eq!(bytes(&game), before);
+    assert_eq!(*game.source.read().unwrap().get_position(), position);
+    assert_eq!(health(&game), 100.0);
+}
+
+#[test]
+fn resting_kill_after_lethal_fall_does_not_repeat_body_callbacks() {
+    let mut game = game_config(2.0, 10.0, false, true, false, true, false);
+    start(&mut game, 20.0, Coord3D::new(0.0, 0.0, -8.0));
+    phase(&mut game, 1).unwrap();
+    assert_eq!(health(&game), 0.0);
+    phase(&mut game, 2).unwrap();
+    let body = game.source.read().unwrap().get_body_module().unwrap();
+    let body = body.lock().unwrap();
+    assert_eq!(
+        body.get_last_damage_info().unwrap().input.death_type,
+        DeathType::Splatted
+    );
 }

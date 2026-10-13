@@ -54,6 +54,10 @@ impl BorrowedAiWorld<'_> {
                 self.validate_damage_owned(owner, damage)?;
             }
         }
+        if prepared.resting_kill_expected {
+            let damage = Self::physics_resting_kill_damage(owner)?;
+            self.validate_damage_owned(owner, &damage)?;
+        }
         let (step, pose_result) = {
             let mut object = owner.write().map_err(|_| "Physics owner poisoned")?;
             let step = physics.commit_owned_at(&mut object, prepared)?;
@@ -125,9 +129,49 @@ impl BorrowedAiWorld<'_> {
             }
             object.clear_model_condition_state(crate::common::MODELCONDITION_FREEFALL);
         }
-        let sleep = physics.finish_owned_at(&mut object, frame, airborne_at_end)?;
+        // CPP ActiveBody.cpp:338 returns immediately for an already-dead owner;
+        // kill's shockwave fields are zero, so no later effect remains.
+        let kill_resting = !object.is_effectively_dead()
+            && physics.should_kill_resting_owned(&object, airborne_at_end)?;
+        drop(object);
+        let kill_result = if landing_result.is_ok() && kill_resting {
+            let mut damage = Self::physics_resting_kill_damage(owner)?;
+            self.attempt_damage_owned(owner, &mut damage).map(|_| ())
+        } else {
+            Ok(())
+        };
+        // Kill callbacks execute before the original final flags and sleep test.
+        let sleep = physics.finish_owned_at(
+            &mut *owner.write().map_err(|_| "Physics finish owner poisoned")?,
+            frame,
+            airborne_at_end,
+        )?;
         landing_result?;
+        kill_result?;
         Ok(sleep)
+    }
+
+    fn physics_resting_kill_damage(
+        owner: &Arc<RwLock<Object>>,
+    ) -> Result<crate::damage::DamageInfo, String> {
+        let body = owner
+            .try_read()
+            .map_err(|_| "resting kill owner borrowed")?
+            .get_body_module()
+            .ok_or("resting kill body absent")?;
+        let health = body
+            .try_lock()
+            .map_err(|_| "resting kill body borrowed")?
+            .get_max_health();
+        let mut damage = crate::damage::DamageInfo::with_simple(
+            health,
+            crate::common::INVALID_ID,
+            crate::damage::DamageType::Unresistable,
+            crate::damage::DeathType::Normal,
+        );
+        damage.input.kill = true;
+        damage.sync_from_input();
+        Ok(damage)
     }
 
     pub(crate) fn run_scheduled_physics_update(
