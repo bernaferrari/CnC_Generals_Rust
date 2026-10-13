@@ -472,7 +472,12 @@ fn player_all_destroyed_resolves_local_player_token_like_cpp() {
 
 #[test]
 fn player_credits_resolves_side_tokens_and_missing_players_fail_closed_like_cpp() {
-    let _test_lock = crate::test_sync::lock();
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        "scripting::evaluator::tests::player_credits_resolves_side_tokens_and_missing_players_fail_closed_like_cpp",
+        "GENERALS_SCRIPT_CREDITS_SIDE_CHILD",
+    ) {
+        return;
+    }
     const SENTINEL_ID: u32 = 0xE7A1_2003;
 
     let mut fixture = PlayerScienceTokenConditionFixture {
@@ -544,6 +549,12 @@ fn player_credits_resolves_side_tokens_and_missing_players_fail_closed_like_cpp(
 
 #[tokio::test]
 async fn player_has_credits_compares_threshold_to_player_money_like_cxx() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        "scripting::evaluator::tests::player_has_credits_compares_threshold_to_player_money_like_cxx",
+        "GENERALS_SCRIPT_CREDITS_THRESHOLD_CHILD",
+    ) {
+        return;
+    }
     initialize_script_engine().unwrap();
     player_list().write().unwrap().clear();
     let player = Arc::new(RwLock::new(crate::player::Player::new(0)));

@@ -222,6 +222,12 @@ mod tests {
 
     #[tokio::test]
     async fn research_complete_checks_player_science_store() {
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            "scripting::conditions::tests::research_complete_checks_player_science_store",
+            "GENERALS_SCRIPT_RESEARCH_PLAYER_CHILD",
+        ) {
+            return;
+        }
         use game_engine::common::rts::science::{
             ScienceInfo, get_science_store_mut, init_science_store,
         };

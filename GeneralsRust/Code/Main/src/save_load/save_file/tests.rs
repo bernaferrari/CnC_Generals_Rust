@@ -551,37 +551,43 @@ fn load_prefers_embedded_scratch_over_installed_same_named_map() {
 
 #[test]
 fn game_state_map_round_trips_live_game_mode() {
-    set_pending_save_game_mode(Some(CPP_GAME_SKIRMISH));
-    let mut payload = Vec::new();
-    {
-        let mut cursor = Cursor::new(&mut payload);
-        let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
-        let info = SaveGameInfo {
-            pristine_map_name: None,
-            filename: "mode".into(),
-            display_name: "Mode".into(),
-            description: "mode".into(),
-            map_name: String::new(),
-            campaign_side: None,
-            mission_number: None,
-            save_date: UNIX_EPOCH,
-            game_version: "test".into(),
-            play_time: std::time::Duration::from_secs(0),
-            difficulty: GameDifficulty::Medium,
-            save_type: SaveFileType::Normal,
-        };
-        write_game_state_map_block(&mut xfer, &info, Path::new("Save")).expect("write map");
-    }
-    set_pending_save_game_mode(None);
-    store_loaded_game_state_map_mode(None);
-    let dest = unique_fixture_directory();
-    let _ = extract_embedded_map(&payload, &dest);
-    assert_eq!(
-        take_loaded_game_state_map_mode(),
-        Some(CPP_GAME_SKIRMISH),
-        "CHUNK_GameStateMap v2 must persist TheGameLogic game mode"
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "game_state_map_round_trips_live_game_mode",
+        || {
+            set_pending_save_game_mode(Some(CPP_GAME_SKIRMISH));
+            let mut payload = Vec::new();
+            {
+                let mut cursor = Cursor::new(&mut payload);
+                let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
+                let info = SaveGameInfo {
+                    pristine_map_name: None,
+                    filename: "mode".into(),
+                    display_name: "Mode".into(),
+                    description: "mode".into(),
+                    map_name: String::new(),
+                    campaign_side: None,
+                    mission_number: None,
+                    save_date: UNIX_EPOCH,
+                    game_version: "test".into(),
+                    play_time: std::time::Duration::from_secs(0),
+                    difficulty: GameDifficulty::Medium,
+                    save_type: SaveFileType::Normal,
+                };
+                write_game_state_map_block(&mut xfer, &info, Path::new("Save")).expect("write map");
+            }
+            set_pending_save_game_mode(None);
+            store_loaded_game_state_map_mode(None);
+            let dest = unique_fixture_directory();
+            let _ = extract_embedded_map(&payload, &dest);
+            assert_eq!(
+                take_loaded_game_state_map_mode(),
+                Some(CPP_GAME_SKIRMISH),
+                "CHUNK_GameStateMap v2 must persist TheGameLogic game mode"
+            );
+            let _ = std::fs::remove_dir_all(dest);
+        },
     );
-    let _ = std::fs::remove_dir_all(dest);
 }
 
 #[test]
