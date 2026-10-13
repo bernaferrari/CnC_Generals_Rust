@@ -66,8 +66,20 @@ impl GameLogic {
         self.requeue_expired_path_requests(&expired_paths);
         let mut landed: Vec<ObjectId> = Vec::new();
         for (id, ground_y) in ground_heights {
+            let source_players = self.physics_damage_source_players(id);
+            let frame = self.frame;
+            let players = &mut self.players;
+            let mut attacked_by = |victim, source| {
+                Self::notify_residual_attacked_by(players, frame, &source_players, victim, source)
+            };
+            let mut services = crate::game_logic::object::PhysicsDamageServices {
+                frame,
+                health_events: &mut self.health_events,
+                repulsors: &self.enable_repulsors,
+                attacked_by: &mut attacked_by,
+            };
             if let Some(o) = self.objects.get_mut(&id) {
-                let _ = o.tick_physics_motion_step(ground_y, &mut self.health_events);
+                let _ = o.tick_physics_motion_step_with_services(ground_y, &mut services);
                 if o.pending_ground_collide {
                     landed.push(id);
                 }
@@ -227,16 +239,24 @@ impl GameLogic {
                 .get(&id)
                 .map(|o| self.physics_ground_y_with_deck(o, terrain_y))
                 .unwrap_or(terrain_y);
+            let source_players = self.physics_damage_source_players(id);
+            let frame = self.frame;
+            let players = &mut self.players;
+            let mut attacked_by = |victim, source| {
+                Self::notify_residual_attacked_by(players, frame, &source_players, victim, source)
+            };
+            let mut services = crate::game_logic::object::PhysicsDamageServices {
+                frame,
+                health_events: &mut self.health_events,
+                repulsors: &self.enable_repulsors,
+                attacked_by: &mut attacked_by,
+            };
             if let Some(o) = self.objects.get_mut(&id) {
                 o.cell_is_cliff = cliff;
                 o.cell_is_underwater = water;
                 o.ground_height = ground_y;
                 if o.shock_stun_frames > 0 {
-                    // Wave 764: under coupled shadow, GW sole-decrements frames;
-                    // host keeps tumble/bounce physics only.
-                    {
-                        o.tick_shock_stun(&mut self.health_events);
-                    }
+                    o.tick_shock_stun_with_services(&mut services);
                 }
                 while let Some((name, vol)) = o.take_bounce_audio_pending() {
                     let p = o.get_position();

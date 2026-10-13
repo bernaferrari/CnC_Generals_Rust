@@ -471,14 +471,19 @@ impl GameLogic {
             r.set_status_unselectable(false);
             r.set_status_no_collisions(false);
             // DAMAGE_FALLING / DEATH_SPLATTED residual if this kill finishes them.
-            let killed = r.take_damage_from_typed_death_with_repulsor_policy(
+            let receiving_damage_id = r.id;
+            let killed = self.apply_residual_damage_owned(
+                receiving_damage_id,
                 dmg,
                 None,
                 crate::game_logic::combat::DamageType::Falling,
                 HostDeathType::Splatted,
-                &mut self.health_events,
-                &self.enable_repulsors,
+                None,
             );
+            let r = self
+                .objects
+                .get_mut(&receiving_damage_id)
+                .expect("bounded residual victim remains installed");
             if !killed {
                 r.allow_to_fall = true;
                 r.is_in_freefall = true;
@@ -2077,14 +2082,23 @@ impl GameLogic {
                         (ANGRY_MOB_ROCK_DAMAGE_TYPE, ANGRY_MOB_ROCK_DEATH_TYPE)
                     }
                 };
-                let destroyed = v.take_damage_from_immediate_residual_with_repulsor_policy(
+                let receiving_damage_id = v.id;
+                let destroyed = self.apply_residual_damage_owned(
+                    receiving_damage_id,
                     dmg,
                     source,
-                    dt_name,
-                    death_name,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
+                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                        dt_name,
+                    ),
+                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                        death_name,
+                    ),
+                    None,
                 );
+                let v = self
+                    .objects
+                    .get_mut(&receiving_damage_id)
+                    .expect("bounded residual victim remains installed");
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -2191,7 +2205,7 @@ impl GameLogic {
                 continue;
             }
             let before = target.health.current;
-            target.heal(heal_amount, &mut self.health_events);
+            target.heal(heal_amount, &mut self.health_events, self.frame);
             let restored = (target.health.current - before).max(0.0);
             if restored > 0.01 {
                 heals = heals.saturating_add(1);

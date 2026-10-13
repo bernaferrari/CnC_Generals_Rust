@@ -603,12 +603,21 @@ impl GameLogic {
         let mut kill_xp = 0.0;
         if let Some(target) = self.objects.get_mut(&target_id) {
             // Source-attributed residual: BodyModule last_damage_source + damage log.
-            destroyed = target.take_damage_from_with_repulsor_policy(
+            let receiving_damage_id = target.id;
+            destroyed = self.apply_residual_damage_owned(
+                receiving_damage_id,
                 damage,
                 Some(attacker_id),
-                &mut self.health_events,
-                &self.enable_repulsors,
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                    crate::game_logic::combat::DamageType::Unresistable,
+                ),
+                None,
             );
+            let target = self
+                .objects
+                .get_mut(&receiving_damage_id)
+                .expect("bounded residual victim remains installed");
             if destroyed {
                 kill_xp = target.kill_experience_value();
             }

@@ -175,8 +175,9 @@ pub(crate) fn perform_owner_health(
         return;
     };
     if health > current {
+        let body_frame = logic.frame;
         let (object, observations) = logic.host_object_and_health_events_mut(id).unwrap();
-        object.heal(health - current, observations);
+        object.heal(health - current, observations, body_frame);
     } else {
         logic.set_health_absolute_authority_aware(id, health);
     }

@@ -732,13 +732,21 @@ impl GameLogic {
                 let was = target.is_subdued();
                 // C++ ActiveBody.cpp:471-487 SUBDUAL_BUILDING — no HP; disable
                 // when currentSubdual >= maxHealth (:1292-1294).
-                let _ = target.take_damage_from_typed_with_repulsor_policy(
+                let receiving_damage_id = target.id;
+                let _ = self.apply_residual_damage_owned(
+                    receiving_damage_id,
                     HOST_MICROWAVE_SUBDUAL_PULSE,
                     None,
                     crate::game_logic::combat::DamageType::SubdualBuilding,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
+                    crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                        crate::game_logic::combat::DamageType::SubdualBuilding,
+                    ),
+                    None,
                 );
+                let target = self
+                    .objects
+                    .get_mut(&receiving_damage_id)
+                    .expect("bounded residual victim remains installed");
                 if !was && target.is_subdued() {
                     new_grants = new_grants.saturating_add(1);
                 } else if target.is_subdued() {
@@ -934,13 +942,21 @@ impl GameLogic {
                     continue;
                 }
                 any_pos = Some(o.get_position());
-                let killed = o.take_damage_from_immediate_typed_with_repulsor_policy(
+                let receiving_damage_id = o.id;
+                let killed = self.apply_residual_damage_owned(
+                    receiving_damage_id,
                     dmg,
                     Some(src),
                     crate::game_logic::combat::DamageType::Microwave,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
+                    crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                        crate::game_logic::combat::DamageType::Microwave,
+                    ),
+                    None,
                 );
+                let o = self
+                    .objects
+                    .get_mut(&receiving_damage_id)
+                    .expect("bounded residual victim remains installed");
                 applications = applications.saturating_add(1);
                 if killed {
                     destroy_ids.push((tid, Some(o.team)));
@@ -1247,7 +1263,7 @@ impl GameLogic {
             if heal_amt > 0.0 {
                 let before = target.health.current;
                 if before + 0.01 < target.health.maximum {
-                    target.heal(heal_amt, &mut self.health_events);
+                    target.heal(heal_amt, &mut self.health_events, self.frame);
                     if target.health.current > before + 0.0001 {
                         heal_ticks = heal_ticks.saturating_add(1);
                     }
@@ -1446,7 +1462,7 @@ impl GameLogic {
                 ah.tick_heal_amount(frame, cur, max_h)
             };
             if amount > 0.0 {
-                obj.heal(amount, &mut self.health_events);
+                obj.heal(amount, &mut self.health_events, self.frame);
             }
         }
     }

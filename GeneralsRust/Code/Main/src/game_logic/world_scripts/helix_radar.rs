@@ -144,14 +144,23 @@ impl GameLogic {
             }
             if let Some(victim) = self.objects.get_mut(&vid) {
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage_from_immediate_residual_with_repulsor_policy(
-                    dmg,
-                    Some(tank_id),
-                    NUCLEAR_TANK_DAMAGE_TYPE,
-                    NUCLEAR_TANK_DEATH_TYPE,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
-                ) {
+                if {
+                    let owned_victim_id = victim.id;
+                    let owned_damage_type =
+                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                            NUCLEAR_TANK_DAMAGE_TYPE,
+                        );
+                    self.apply_residual_damage_owned(
+                        owned_victim_id,
+                        dmg,
+                        Some(tank_id),
+                        owned_damage_type,
+                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                            NUCLEAR_TANK_DEATH_TYPE,
+                        ),
+                        None,
+                    )
+                } {
                     destroy_ids.push((vid, tank_team));
                 }
             }
@@ -488,14 +497,23 @@ impl GameLogic {
             }
             if let Some(victim) = self.objects.get_mut(&vid) {
                 hits = hits.saturating_add(1);
-                if victim.take_damage_from_immediate_residual_with_repulsor_policy(
-                    dmg,
-                    Some(plant.planter_id),
-                    crate::game_logic::host_booby_trap::BOOBY_DAMAGE_TYPE,
-                    crate::game_logic::host_booby_trap::BOOBY_DEATH_TYPE,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
-                ) {
+                if {
+                    let owned_victim_id = victim.id;
+                    let owned_damage_type =
+                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                            crate::game_logic::host_booby_trap::BOOBY_DAMAGE_TYPE,
+                        );
+                    self.apply_residual_damage_owned(
+                        owned_victim_id,
+                        dmg,
+                        Some(plant.planter_id),
+                        owned_damage_type,
+                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                            crate::game_logic::host_booby_trap::BOOBY_DEATH_TYPE,
+                        ),
+                        None,
+                    )
+                } {
                     destroy_ids.push((vid, plant.planter_team));
                 }
             }
@@ -776,14 +794,11 @@ impl GameLogic {
                 if let Some(victim) = self.objects.get_mut(&vid) {
                     blast_damage += dmg.min(victim.health.current.max(0.0));
                     blast_hits = blast_hits.saturating_add(1);
-                    if victim.take_damage_from_immediate_residual_with_repulsor_policy(
-                        dmg,
-                        Some(source_object),
-                        crate::game_logic::host_helix_napalm::HELIX_NAPALM_DAMAGE_TYPE,
-                        crate::game_logic::host_helix_napalm::HELIX_NAPALM_DEATH_TYPE,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
-                    ) {
+                    if {
+                        let owned_victim_id = victim.id;
+                        let owned_damage_type = crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(crate::game_logic::host_helix_napalm::HELIX_NAPALM_DAMAGE_TYPE);
+                        self.apply_residual_damage_owned(owned_victim_id, dmg, Some(source_object), owned_damage_type, crate::game_logic::host_armor_residual::host_death_type_from_residual_name(crate::game_logic::host_helix_napalm::HELIX_NAPALM_DEATH_TYPE), None)
+                    } {
                         destroy_ids.push((vid, source_team));
                     }
                 }
@@ -853,13 +868,20 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from_immediate_typed_with_repulsor_policy(
-                        hit.damage,
-                        Some(plan.source_object),
-                        crate::game_logic::combat::DamageType::Flame,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
-                    );
+                    let killed = {
+                        let owned_victim_id = target.id;
+                        let owned_damage_type = crate::game_logic::combat::DamageType::Flame;
+                        self.apply_residual_damage_owned(
+                            owned_victim_id,
+                            hit.damage,
+                            Some(plan.source_object),
+                            owned_damage_type,
+                            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                                owned_damage_type,
+                            ),
+                            None,
+                        )
+                    };
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -953,14 +975,23 @@ impl GameLogic {
             }
             if let Some(victim) = self.objects.get_mut(&vid) {
                 damage_dealt += dmg.min(victim.health.current.max(0.0));
-                if victim.take_damage_from_immediate_residual_with_repulsor_policy(
-                    dmg,
-                    Some(car_id),
-                    crate::game_logic::host_car_bomb::SUICIDE_CAR_BOMB_DAMAGE_TYPE,
-                    crate::game_logic::host_car_bomb::SUICIDE_CAR_BOMB_DEATH_TYPE,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
-                ) {
+                if {
+                    let owned_victim_id = victim.id;
+                    let owned_damage_type =
+                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                            crate::game_logic::host_car_bomb::SUICIDE_CAR_BOMB_DAMAGE_TYPE,
+                        );
+                    self.apply_residual_damage_owned(
+                        owned_victim_id,
+                        dmg,
+                        Some(car_id),
+                        owned_damage_type,
+                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                            crate::game_logic::host_car_bomb::SUICIDE_CAR_BOMB_DEATH_TYPE,
+                        ),
+                        None,
+                    )
+                } {
                     destroy_ids.push((vid, car_team));
                 }
             }

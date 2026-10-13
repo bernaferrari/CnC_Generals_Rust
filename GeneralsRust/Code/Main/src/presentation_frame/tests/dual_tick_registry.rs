@@ -1362,16 +1362,16 @@ fn runtime_host_move_prefers_presentation_selection() {
 
 #[test]
 fn superweapon_damage_applies_host_hp() {
-    let obj = crate::game_logic::object::OBJECT_SRC;
-    assert!(
-        obj.contains("fn take_damage_from_immediate") && obj.contains("force_host_hp"),
-        "object must support immediate host HP damage for superweapons"
-    );
+    // Structural admission evidence, not an independent C++ behavior proof.
+    let owner = include_str!("../../game_logic/world_objects/damage_application.rs");
+    let owner: String = owner.split_whitespace().collect();
+    assert!(owner.contains("victim.begin_damage_with_context_and_attacked_by(amount,source_id,damage_type,death_type,fx_override,frame,") && owner.contains("letframe=self.frame;"),
+        "strikes must enter the actual typed Body operation with the receiving frame");
     // Facade split: superweapon strikes live in the world_scripts module.
     let gl = include_str!("../../game_logic/world_scripts/special_power_strikes.rs");
     let gl: String = gl.split_whitespace().collect();
     assert!(
-        gl.contains("take_damage_from_immediate_typed_death_with_repulsor_policy(hit.damage,Some(plan.source_object),plan.kind.authored_damage_type(),plan.kind.authored_death_type(),&mutself.health_events,&self.enable_repulsors,"),
+        gl.contains("letowned_damage_type=plan.kind.authored_damage_type();") && gl.contains("apply_residual_damage_owned(owned_victim_id,hit.damage,Some(plan.source_object),owned_damage_type,plan.kind.authored_death_type(),None"),
         "update_special_power_strikes must apply attributed, typed host HP immediately using its owner's health transport"
     );
 }

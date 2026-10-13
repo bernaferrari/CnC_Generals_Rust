@@ -432,13 +432,18 @@ impl GameLogic {
                     continue;
                 }
                 if let Some(obj) = self.objects.get_mut(&id) {
-                    let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
+                    let receiving_damage_target_id = obj.id;
+                    let destroyed = self.apply_residual_damage_owned(
+                        receiving_damage_target_id,
                         dmg,
                         source,
-                        STEALTH_FIGHTER_DAMAGE_TYPE,
-                        STEALTH_FIGHTER_DEATH_TYPE,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
+                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                            STEALTH_FIGHTER_DAMAGE_TYPE,
+                        ),
+                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                            STEALTH_FIGHTER_DEATH_TYPE,
+                        ),
+                        None,
                     );
                     hits = hits.saturating_add(1);
                     if destroyed {
@@ -529,13 +534,18 @@ impl GameLogic {
                 .unwrap_or(false);
             if legal {
                 if let Some(obj) = self.objects.get_mut(&tid) {
-                    let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
+                    let receiving_damage_target_id = obj.id;
+                    let destroyed = self.apply_residual_damage_owned(
+                        receiving_damage_target_id,
                         dmg,
                         source,
-                        COMANCHE_CANNON_DAMAGE_TYPE,
-                        COMANCHE_CANNON_DEATH_TYPE,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
+                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                            COMANCHE_CANNON_DAMAGE_TYPE,
+                        ),
+                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                            COMANCHE_CANNON_DEATH_TYPE,
+                        ),
+                        None,
                     );
                     hits = 1;
                     if destroyed {
@@ -627,13 +637,18 @@ impl GameLogic {
                 .unwrap_or(false);
             if legal {
                 if let Some(obj) = self.objects.get_mut(&tid) {
-                    let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
+                    let receiving_damage_target_id = obj.id;
+                    let destroyed = self.apply_residual_damage_owned(
+                        receiving_damage_target_id,
                         dmg,
                         source,
-                        HELIX_MINIGUN_DAMAGE_TYPE,
-                        HELIX_MINIGUN_DEATH_TYPE,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
+                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                            HELIX_MINIGUN_DAMAGE_TYPE,
+                        ),
+                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                            HELIX_MINIGUN_DEATH_TYPE,
+                        ),
+                        None,
                     );
                     hits = 1;
                     if destroyed {
@@ -798,13 +813,18 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
+                let receiving_damage_target_id = obj.id;
+                let destroyed = self.apply_residual_damage_owned(
+                    receiving_damage_target_id,
                     dmg,
                     source,
-                    COMANCHE_AT_DAMAGE_TYPE,
-                    COMANCHE_AT_DEATH_TYPE,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
+                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                        COMANCHE_AT_DAMAGE_TYPE,
+                    ),
+                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                        COMANCHE_AT_DEATH_TYPE,
+                    ),
+                    None,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -875,13 +895,18 @@ impl GameLogic {
         if let Some(tid) = intended_target {
             if let Some(obj) = self.objects.get_mut(&tid) {
                 if obj.is_alive() && !obj.status.under_construction {
-                    let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
+                    let receiving_damage_target_id = obj.id;
+                    let destroyed = self.apply_residual_damage_owned(
+                        receiving_damage_target_id,
                         BATTLE_DRONE_GUN_DAMAGE,
                         source,
-                        BATTLE_DRONE_GUN_DAMAGE_TYPE,
-                        BATTLE_DRONE_GUN_DEATH_TYPE,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
+                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                            BATTLE_DRONE_GUN_DAMAGE_TYPE,
+                        ),
+                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                            BATTLE_DRONE_GUN_DEATH_TYPE,
+                        ),
+                        None,
                     );
                     hits = 1;
                     if destroyed {
@@ -1352,13 +1377,18 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
+                let receiving_damage_target_id = obj.id;
+                let destroyed = self.apply_residual_damage_owned(
+                    receiving_damage_target_id,
                     dmg,
                     source,
-                    OVERLORD_DAMAGE_TYPE,
-                    OVERLORD_DEATH_TYPE,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
+                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                        OVERLORD_DAMAGE_TYPE,
+                    ),
+                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                        OVERLORD_DEATH_TYPE,
+                    ),
+                    None,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1475,13 +1505,18 @@ impl GameLogic {
                     obj.status.under_construction,
                     combat_kind,
                 ) {
-                    let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
+                    let receiving_damage_target_id = obj.id;
+                    let destroyed = self.apply_residual_damage_owned(
+                        receiving_damage_target_id,
                         damage,
                         source,
-                        JARMEN_KELL_DAMAGE_TYPE,
-                        JARMEN_KELL_DEATH_TYPE,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
+                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                            JARMEN_KELL_DAMAGE_TYPE,
+                        ),
+                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                            JARMEN_KELL_DEATH_TYPE,
+                        ),
+                        None,
                     );
                     hits = 1;
                     if destroyed {
@@ -2013,13 +2048,18 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
+                let receiving_damage_target_id = obj.id;
+                let destroyed = self.apply_residual_damage_owned(
+                    receiving_damage_target_id,
                     dmg,
                     source,
-                    USA_TANK_GUN_DAMAGE_TYPE,
-                    USA_TANK_GUN_DEATH_TYPE,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
+                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                        USA_TANK_GUN_DAMAGE_TYPE,
+                    ),
+                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                        USA_TANK_GUN_DEATH_TYPE,
+                    ),
+                    None,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {

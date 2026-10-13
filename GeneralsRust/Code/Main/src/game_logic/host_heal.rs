@@ -417,7 +417,7 @@ impl GameLogic {
                 }
                 let regen = leftover_transport_embarked_heal_amount(max_health, percent, dt);
                 if regen > 0.0 {
-                    rider.heal(regen, &mut self.health_events);
+                    rider.heal(regen, &mut self.health_events, self.frame);
                 }
             }
         }

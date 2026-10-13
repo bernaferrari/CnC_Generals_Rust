@@ -238,8 +238,14 @@ impl Object {
     }
 
     /// C++ FlammableUpdate tryToIgnite / update status + model + body setAflame.
-    pub fn apply_flammable_visuals(&mut self, aflame: bool, smoldering: bool, burned: bool) {
-        self.apply_flammable_visuals_with_source(aflame, smoldering, burned, None);
+    pub fn apply_flammable_visuals(
+        &mut self,
+        aflame: bool,
+        smoldering: bool,
+        burned: bool,
+        frame: u32,
+    ) {
+        self.apply_flammable_visuals_with_source(aflame, smoldering, burned, None, frame);
     }
 
     fn apply_flammable_visuals_with_source(
@@ -248,6 +254,7 @@ impl Object {
         smoldering: bool,
         burned: bool,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        frame: u32,
     ) {
         if aflame {
             let _ = self.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
@@ -267,29 +274,30 @@ impl Object {
                 fs.smoldering = true;
             }
         }
-        self.refresh_model_condition_bits_with_source(source);
+        self.refresh_model_condition_bits_with_source(source, frame);
     }
 
     pub(super) fn apply_flammable_ignite_visuals_with_source(
         &mut self,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        frame: u32,
     ) {
-        self.apply_flammable_visuals_with_source(true, false, false, source);
+        self.apply_flammable_visuals_with_source(true, false, false, source, frame);
     }
 
     /// C++ tryToIgnite: AFLAME status, body setAflame, MODELCONDITION_AFLAME.
-    pub fn apply_flammable_ignite_visuals(&mut self) {
-        self.apply_flammable_visuals(true, false, false);
+    pub fn apply_flammable_ignite_visuals(&mut self, frame: u32) {
+        self.apply_flammable_visuals(true, false, false, frame);
     }
 
     /// C++ burned timer: BURNED + SMOLDERING while still AFLAME.
-    pub fn apply_flammable_smoldering_visuals(&mut self) {
-        self.apply_flammable_visuals(true, true, false);
+    pub fn apply_flammable_smoldering_visuals(&mut self, frame: u32) {
+        self.apply_flammable_visuals(true, true, false, frame);
     }
 
     /// C++ aflame_end: clear AFLAME / setAflame(FALSE); keep BURNED if already burned.
-    pub fn apply_flammable_extinguish_visuals(&mut self, burned: bool) {
-        self.apply_flammable_visuals(false, burned, burned);
+    pub fn apply_flammable_extinguish_visuals(&mut self, burned: bool, frame: u32) {
+        self.apply_flammable_visuals(false, burned, burned, frame);
     }
 
     /// C++ `Object::isScriptUnsellable`.

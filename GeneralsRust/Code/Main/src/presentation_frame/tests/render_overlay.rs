@@ -1678,9 +1678,10 @@ fn heal_applied_freezes_from_last_drain() {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.health_events.clear_heal();
     let target = super::admit_health_fixture_objects(&mut logic, 3);
+    let body_frame = logic.frame;
     let (object, events) = logic.host_object_and_health_events_mut(target).unwrap();
     object.health.current = 40.0;
-    object.heal(48.0, events);
+    object.heal(48.0, events, body_frame);
     assert_eq!(object.health.current, 88.0);
     let _ = logic.health_events.drain_heal();
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);

@@ -102,12 +102,20 @@ impl GameLogic {
                 }
                 damage_dealt += hit.damage.min(victim.health.current.max(0.0));
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage_from_immediate_with_repulsor_policy(
-                    hit.damage,
-                    Some(source_id),
-                    &mut self.health_events,
-                    &self.enable_repulsors,
-                ) {
+                if {
+                    let owned_victim_id = victim.id;
+                    let owned_damage_type = crate::game_logic::combat::DamageType::Unresistable;
+                    self.apply_residual_damage_owned(
+                        owned_victim_id,
+                        hit.damage,
+                        Some(source_id),
+                        owned_damage_type,
+                        crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                            owned_damage_type,
+                        ),
+                        None,
+                    )
+                } {
                     destroy_ids.push((hit.target_id, source_team));
                 }
             }
@@ -169,12 +177,20 @@ impl GameLogic {
                 }
                 damage_dealt += hit.damage.min(victim.health.current.max(0.0));
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage_from_immediate_with_repulsor_policy(
-                    hit.damage,
-                    Some(source_id),
-                    &mut self.health_events,
-                    &self.enable_repulsors,
-                ) {
+                if {
+                    let owned_victim_id = victim.id;
+                    let owned_damage_type = crate::game_logic::combat::DamageType::Unresistable;
+                    self.apply_residual_damage_owned(
+                        owned_victim_id,
+                        hit.damage,
+                        Some(source_id),
+                        owned_damage_type,
+                        crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                            owned_damage_type,
+                        ),
+                        None,
+                    )
+                } {
                     destroy_ids.push((hit.target_id, source_team));
                 }
             }
@@ -1625,15 +1641,16 @@ impl GameLogic {
                     if damage > 0.0 {
                         // C++ explicitly issues DAMAGE_PENALTY here, rather
                         // than the generic unresistable residual damage type.
-                        let _ = obj.take_damage_from_typed_with_repulsor_policy(
-                            damage,
-                            Some(id),
-                            crate::game_logic::combat::DamageType::Penalty,
-                            &mut self.health_events,
-                            &self.enable_repulsors,
-                        );
+                        let _ = {
+                            let owned_victim_id = obj.id;
+                            let owned_damage_type = crate::game_logic::combat::DamageType::Penalty;
+                            self.apply_residual_damage_owned(owned_victim_id, damage, Some(id), owned_damage_type, crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(owned_damage_type), None)
+                        };
                     }
                     self.overcharge_drain_ticks = self.overcharge_drain_ticks.saturating_add(1);
+                    let Some(obj) = self.objects.get(&id) else {
+                        continue;
+                    };
                     (
                         !obj.is_alive() || obj.health.current <= 0.0,
                         obj.health.current

@@ -561,7 +561,7 @@ impl GameLogic {
                             _ => 0.0,
                         };
                         let before = obj.health.current;
-                        obj.heal(rate * dt, &mut self.health_events);
+                        obj.heal(rate * dt, &mut self.health_events, self.frame);
                         let healed = obj.health.current > before + 0.0001;
                         if healed && matches!(state, AIState::SeekingRepair) {
                             vehicle_healed = true;
@@ -2216,23 +2216,18 @@ impl GameLogic {
                                         SaboteurEffectKind::FakeBuilding => {
                                             // C++ SabotageFakeBuildingCrateCollide:
                                             // DAMAGE_UNRESISTABLE / DEATH_DETONATED for max health.
-                                            let destroyed = self
-                                                .objects
-                                                .get_mut(&special_target_id)
-                                                .map(|target| {
-                                                    let max_hp = target
+                                            let max_hp = self.objects.get(&special_target_id).map(
+                                                |target| {
+                                                    target
                                                         .health
                                                         .maximum
                                                         .max(target.max_health)
-                                                        .max(1.0);
-                                                    target.take_damage_from_typed_death_with_repulsor_policy(
-                                                        max_hp,
-                                                        Some(object_id),
-                                                        crate::game_logic::combat::DamageType::Unresistable,
-                                                        crate::game_logic::host_usa_pilot::HostDeathType::Detonated,
-                                                     &mut self.health_events, &self.enable_repulsors,)
-                                                })
-                                                .unwrap_or(false);
+                                                        .max(1.0)
+                                                },
+                                            );
+                                            let destroyed = max_hp.is_some_and(|max_hp| {
+                                                self.apply_residual_damage_owned(special_target_id, max_hp, Some(object_id), crate::game_logic::combat::DamageType::Unresistable, crate::game_logic::host_usa_pilot::HostDeathType::Detonated, None)
+                                            });
                                             if destroyed {
                                                 self.mark_object_for_destruction(
                                                     special_target_id,
@@ -2512,20 +2507,14 @@ impl GameLogic {
                             if booby {
                                 // Detonate trap residual damage on both.
                                 if let Some(t) = self.objects.get_mut(&special_target_id) {
-                                    let _ = t.take_damage_from_with_repulsor_policy(
-                                        t.health.maximum.max(1.0),
-                                        Some(object_id),
-                                        &mut self.health_events,
-                                        &self.enable_repulsors,
-                                    );
+                                    let receiving_damage_target_id = t.id;
+                                    let receiving_damage_argument_1 = t.health.maximum.max(1.0);
+                                    let _ = self.apply_residual_damage_owned(receiving_damage_target_id, receiving_damage_argument_1, Some(object_id), crate::game_logic::combat::DamageType::Unresistable, crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(crate::game_logic::combat::DamageType::Unresistable), None);
                                 }
                                 if let Some(b) = self.objects.get_mut(&object_id) {
-                                    let _ = b.take_damage_from_with_repulsor_policy(
-                                        b.health.maximum.max(1.0),
-                                        Some(special_target_id),
-                                        &mut self.health_events,
-                                        &self.enable_repulsors,
-                                    );
+                                    let receiving_damage_target_id = b.id;
+                                    let receiving_damage_argument_1 = b.health.maximum.max(1.0);
+                                    let _ = self.apply_residual_damage_owned(receiving_damage_target_id, receiving_damage_argument_1, Some(special_target_id), crate::game_logic::combat::DamageType::Unresistable, crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(crate::game_logic::combat::DamageType::Unresistable), None);
                                 }
                                 let t_dead = self
                                     .objects

@@ -58,10 +58,13 @@ fn fixture() -> Fixture {
     // Encoding control only: dead HP without dispatch must not invent retained state.
     logic.host_object_mut(zero_hp).unwrap().health.current = 0.0;
     // Compatibility control uses the real existing bridge-husk operation, not KeepObject dispatch.
-    logic
-        .host_object_mut(bridge)
-        .unwrap()
-        .convert_bridge_to_rubble_husk();
+    {
+        let body_frame = logic.frame;
+        logic
+            .host_object_mut(bridge)
+            .unwrap()
+            .convert_bridge_to_rubble_husk(body_frame);
+    };
     Fixture {
         logic,
         kept,
@@ -102,9 +105,20 @@ fn save_and_load(source: &GameLogic, target: &mut GameLogic) {
 }
 
 fn heal(logic: &mut GameLogic, id: ObjectId) {
-    // Exercise the same public typed Healing path whose retained-state guards regress.
-    let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
-    assert!(!object.take_damage_from_typed(25.0, None, DamageType::Healing, health_events,));
+    // The receiving Body path preserves retained-state guards and supplies its
+    // session frame; a loaded object must not adopt another world's clock.
+    let result = logic
+        .apply_owned_damage(
+            id,
+            25.0,
+            None,
+            DamageType::Healing,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &crate::game_logic::object::DamageHitContext::default(),
+        )
+        .unwrap();
+    assert!(!result.destroyed());
 }
 
 #[test]

@@ -153,13 +153,24 @@ impl GameLogic {
             } else if avenger_air {
                 self.avenger.record_air_laser_fire();
                 if let Some(target) = self.objects.get_mut(&target_id) {
-                    let destroyed = target.take_damage_from_with_repulsor_policy(
-                        weapon_damage,
-                        Some(attacker_id),
-                        &mut self.health_events,
-                        &self.enable_repulsors,
-                    );
+                    let destroyed = {
+                        let owned_victim_id = target.id;
+                        let owned_damage_type = crate::game_logic::combat::DamageType::Unresistable;
+                        self.apply_residual_damage_owned(
+                            owned_victim_id,
+                            weapon_damage,
+                            Some(attacker_id),
+                            owned_damage_type,
+                            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                                owned_damage_type,
+                            ),
+                            None,
+                        )
+                    };
                     if destroyed {
+                        let Some(target) = self.objects.get(&target_id) else {
+                            return;
+                        };
                         let victim_pos = target.get_position();
                         let victim_team = target.team;
                         self.mark_object_for_destruction(target_id, Some(attacker_team));

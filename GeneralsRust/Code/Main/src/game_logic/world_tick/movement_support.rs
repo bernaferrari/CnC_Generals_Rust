@@ -741,6 +741,7 @@ impl GameLogic {
 
         for &id in object_ids {
             self.prepare_transport_return_path(id);
+            let physics_source_players = self.physics_damage_source_players(id);
             let (ground_y, surface_y, climber_ahead_y, cell_type, underwater) = {
                 let Some(obj) = self.objects.get(&id) else {
                     continue;
@@ -843,7 +844,11 @@ impl GameLogic {
                             Self::stamp_object_airborne_target(
                                 obj,
                                 ground_y,
+                                self.frame,
+                                &mut self.players,
+                                &physics_source_players,
                                 &mut self.health_events,
+                                &self.enable_repulsors,
                             );
                         } else {
                             obj.movement.velocity = Vec3::ZERO;
@@ -854,7 +859,15 @@ impl GameLogic {
                     // C++ Locomotor.cpp:954-958 getIsStunned — no motive walk.
                     // Leave velocity for PhysicsBehavior tumble / shock tick.
                     if obj.is_shock_stunned() {
-                        Self::stamp_object_airborne_target(obj, ground_y, &mut self.health_events);
+                        Self::stamp_object_airborne_target(
+                            obj,
+                            ground_y,
+                            self.frame,
+                            &mut self.players,
+                            &physics_source_players,
+                            &mut self.health_events,
+                            &self.enable_repulsors,
+                        );
                         break 'unit;
                     }
                     // C++ locoUpdate_moveTowardsPosition always applyMotiveForce(0)
@@ -880,7 +893,15 @@ impl GameLogic {
                             obj.leftover_surface_ht(surface_y)
                         };
                         Self::apply_live_handle_behavior_z(obj, sy, None, Some(&flight_terrain));
-                        Self::stamp_object_airborne_target(obj, ground_y, &mut self.health_events);
+                        Self::stamp_object_airborne_target(
+                            obj,
+                            ground_y,
+                            self.frame,
+                            &mut self.players,
+                            &physics_source_players,
+                            &mut self.health_events,
+                            &self.enable_repulsors,
+                        );
                         obj.cur_max_blocked_speed = 999_999.0;
                         break 'unit;
                     }
@@ -905,7 +926,15 @@ impl GameLogic {
                         );
                     if obj.is_rappelling() {
                         // C++ AIRappelState owns Z; handleBehaviorZ must not snap to Y=0.
-                        Self::stamp_object_airborne_target(obj, ground_y, &mut self.health_events);
+                        Self::stamp_object_airborne_target(
+                            obj,
+                            ground_y,
+                            self.frame,
+                            &mut self.players,
+                            &physics_source_players,
+                            &mut self.health_events,
+                            &self.enable_repulsors,
+                        );
                         break 'unit;
                     }
 
@@ -987,7 +1016,11 @@ impl GameLogic {
                                 Self::stamp_object_airborne_target(
                                     obj,
                                     ground_y,
+                                    self.frame,
+                                    &mut self.players,
+                                    &physics_source_players,
                                     &mut self.health_events,
+                                    &self.enable_repulsors,
                                 );
                                 if !blocked_out && obj.num_frames_blocked > 1 {
                                     obj.num_frames_blocked = 1;
@@ -1008,7 +1041,15 @@ impl GameLogic {
                             None,
                             Some(&flight_terrain),
                         );
-                        Self::stamp_object_airborne_target(obj, ground_y, &mut self.health_events);
+                        Self::stamp_object_airborne_target(
+                            obj,
+                            ground_y,
+                            self.frame,
+                            &mut self.players,
+                            &physics_source_players,
+                            &mut self.health_events,
+                            &self.enable_repulsors,
+                        );
                         break 'unit;
                     }
 
@@ -1155,7 +1196,11 @@ impl GameLogic {
                                 Self::stamp_object_airborne_target(
                                     obj,
                                     ground_y,
+                                    self.frame,
+                                    &mut self.players,
+                                    &physics_source_players,
                                     &mut self.health_events,
+                                    &self.enable_repulsors,
                                 );
                                 break 'unit;
                             }
@@ -1290,7 +1335,11 @@ impl GameLogic {
                                 Self::stamp_object_airborne_target(
                                     obj,
                                     ground_y,
+                                    self.frame,
+                                    &mut self.players,
+                                    &physics_source_players,
                                     &mut self.health_events,
+                                    &self.enable_repulsors,
                                 );
                                 obj.cur_max_blocked_speed = 999_999.0;
                                 break 'unit;
@@ -1405,7 +1454,11 @@ impl GameLogic {
                                 Self::stamp_object_airborne_target(
                                     obj,
                                     ground_y,
+                                    self.frame,
+                                    &mut self.players,
+                                    &physics_source_players,
                                     &mut self.health_events,
+                                    &self.enable_repulsors,
                                 );
                                 break 'unit;
                             }
@@ -1425,7 +1478,11 @@ impl GameLogic {
                                 Self::stamp_object_airborne_target(
                                     obj,
                                     ground_y,
+                                    self.frame,
+                                    &mut self.players,
+                                    &physics_source_players,
                                     &mut self.health_events,
+                                    &self.enable_repulsors,
                                 );
                                 let mut reached_target = obj
                                     .host_locomotor_distance_to_goal(current_pos, target_pos)
@@ -1689,7 +1746,11 @@ impl GameLogic {
                                     Self::stamp_object_airborne_target(
                                         obj,
                                         ground_y,
+                                        self.frame,
+                                        &mut self.players,
+                                        &physics_source_players,
                                         &mut self.health_events,
+                                        &self.enable_repulsors,
                                     );
                                     break 'unit;
                                 }
@@ -2155,7 +2216,15 @@ impl GameLogic {
                         }
                     }
                     if let Some(obj) = self.objects.get_mut(&id) {
-                        Self::stamp_object_airborne_target(obj, gy, &mut self.health_events);
+                        Self::stamp_object_airborne_target(
+                            obj,
+                            gy,
+                            self.frame,
+                            &mut self.players,
+                            &physics_source_players,
+                            &mut self.health_events,
+                            &self.enable_repulsors,
+                        );
                     }
                 }
             }
@@ -2371,17 +2440,64 @@ impl GameLogic {
                 continue;
             };
             let gy = self.terrain_height_at(pos).unwrap_or(fallback);
+            let physics_source_players = self.physics_damage_source_players(id);
             if let Some(obj) = self.objects.get_mut(&id) {
-                Self::stamp_object_airborne_target(obj, gy, &mut self.health_events);
+                Self::stamp_object_airborne_target(
+                    obj,
+                    gy,
+                    self.frame,
+                    &mut self.players,
+                    &physics_source_players,
+                    &mut self.health_events,
+                    &self.enable_repulsors,
+                );
             }
             self.admit_host_radar_disabled_edges(id);
         }
     }
 
+    pub(in super::super) fn physics_damage_source_players(
+        &self,
+        victim_id: ObjectId,
+    ) -> [Option<(ObjectId, u32)>; 2] {
+        let previous = self
+            .objects
+            .get(&victim_id)
+            .and_then(|object| object.last_damage_source);
+        [Some(victim_id), previous].map(|source| {
+            source.and_then(|id| {
+                self.objects
+                    .get(&id)
+                    .and_then(|object| object.owner_player_id.map(|player| (id, player)))
+            })
+        })
+    }
+
     fn stamp_object_airborne_target(
         obj: &mut Object,
         ground_y: f32,
+        frame: u32,
+        players: &mut std::collections::HashMap<u32, crate::game_logic::Player>,
+        source_players: &[Option<(ObjectId, u32)>],
         health_events: &mut crate::game_logic::HostHealthEvents,
+        repulsors: &bool,
+    ) {
+        let mut attacked_by = |victim, source| {
+            Self::notify_residual_attacked_by(players, frame, source_players, victim, source)
+        };
+        let mut services = crate::game_logic::object::PhysicsDamageServices {
+            frame,
+            health_events,
+            repulsors,
+            attacked_by: &mut attacked_by,
+        };
+        Self::stamp_object_airborne_target_body(obj, ground_y, &mut services);
+    }
+
+    fn stamp_object_airborne_target_body(
+        obj: &mut Object,
+        ground_y: f32,
+        services: &mut crate::game_logic::object::PhysicsDamageServices<'_>,
     ) {
         obj.ground_height = ground_y;
         let mut pos = obj.get_position();
@@ -2404,11 +2520,11 @@ impl GameLogic {
             if was_airborne && !obj.immune_to_falling_damage {
                 obj.record_bounce_land(old_y);
                 obj.pending_ground_collide = true;
-                let _ = obj.apply_shock_fall_damage(impact_vy, health_events);
+                let _ = obj.apply_shock_fall_damage_with_services(impact_vy, services);
                 obj.landing_splat_done = true;
             }
             if obj.velocity_is_very_small() {
-                let _ = obj.maybe_kill_when_resting_on_ground(health_events);
+                let _ = obj.maybe_kill_when_resting_on_ground_with_services(services);
             }
             obj.was_airborne_last_frame = false;
             obj.is_in_freefall = false;
@@ -2491,27 +2607,12 @@ impl GameLogic {
         self.execute_pending_weapon_fire_ocls();
     }
 
-    /// Hit-only projectile pass after GameWorld flight integrate writeback.
+    /// Complete projectile contacts without advancing their flight positions.
     pub(crate) fn resolve_projectiles_hits_only(&mut self) -> Vec<ObjectId> {
         self.combat_system.refresh_homing_aims(&self.objects);
-        let terrain = super::flight_terrain::FlightTerrainView {
-            grid: &self.pathfinding_system.grid,
-            terrain: self.terrain.as_ref(),
-            samples: self.pathfinding_height_samples.as_ref(),
-        };
-        let hits = self
-            .combat_system
-            .update_projectiles_with_relationships_and_terrain(
-                0.0,
-                &mut self.objects,
-                Some(&mut self.countermeasures),
-                self.frame,
-                Some(&self.players),
-                Some(&self.team_factory),
-                &mut self.health_events,
-                Some(&terrain),
-                &mut self.ownership_events,
-            );
+        // Use the same installed receiving-owner completion as the ordinary
+        // projectile step; zero dt preserves this hit-only admission boundary.
+        let hits = self.update_owned_projectile_impacts(0.0);
         self.flush_projectile_impact_fx();
         hits
     }

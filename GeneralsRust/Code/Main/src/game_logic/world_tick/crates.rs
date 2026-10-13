@@ -1478,13 +1478,20 @@ impl GameLogic {
         for (pid, dmg) in passenger_hits {
             if let Some(p) = self.objects.get_mut(&pid) {
                 if p.is_alive() {
-                    let _ = p.take_damage_from_typed_with_repulsor_policy(
-                        dmg,
-                        None,
-                        DamageType::Explosive,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
-                    );
+                    let _ = {
+                        let owned_victim_id = p.id;
+                        let owned_damage_type = DamageType::Explosive;
+                        self.apply_residual_damage_owned(
+                            owned_victim_id,
+                            dmg,
+                            None,
+                            owned_damage_type,
+                            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                                owned_damage_type,
+                            ),
+                            None,
+                        )
+                    };
                 }
             }
         }

@@ -238,6 +238,33 @@ impl Object {
         health_events: &mut crate::game_logic::HostHealthEvents,
         ownership_events: Option<&mut crate::game_logic::host_owner_log::OwnershipEvents>,
     ) -> DamageApplication {
+        self.begin_damage_with_context_and_attacked_by(
+            damage,
+            source,
+            damage_type,
+            death_type,
+            fx_override,
+            frame,
+            context,
+            health_events,
+            ownership_events,
+            |_, _| {},
+        )
+    }
+
+    pub(in crate::game_logic) fn begin_damage_with_context_and_attacked_by(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
+        frame: u32,
+        context: &DamageHitContext,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+        ownership_events: Option<&mut crate::game_logic::host_owner_log::OwnershipEvents>,
+        mut attacked_by: impl FnMut(Option<u32>, Option<ObjectId>),
+    ) -> DamageApplication {
         // C++ InactiveBody::attemptDamage (InactiveBody.cpp:53-86): no HP except
         // DAMAGE_UNRESISTABLE (onDie once, never DamageFX).
         if self.is_inactive_body() {
@@ -333,7 +360,7 @@ impl Object {
             if is_bridge && amount > 0.0 && amount.is_finite() {
                 self.revive_from_bridge_rubble();
             }
-            self.heal_with_source(amount.max(0.0), context.source(), health_events);
+            self.heal_with_source(amount.max(0.0), context.source(), health_events, frame);
             if is_bridge && self.health.current > before_hp {
                 // A repairable body can die again after leaving rubble.
                 self.status.on_die_started = false;
@@ -542,10 +569,11 @@ impl Object {
             frame,
             context,
             health_events,
+            &mut attacked_by,
         )
     }
 
-    fn begin_damage_from_typed_death_with_host_hp_at_frame(
+    pub(in crate::game_logic) fn begin_damage_from_typed_death_with_host_hp_at_frame(
         &mut self,
         damage: f32,
         source: Option<ObjectId>,
@@ -556,6 +584,7 @@ impl Object {
         frame: u32,
         context: &DamageHitContext,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        attacked_by: &mut dyn FnMut(Option<u32>, Option<ObjectId>),
     ) -> DamageApplication {
         if self.status.destroyed {
             return DamageApplication::Complete(false);
@@ -636,7 +665,7 @@ impl Object {
         // subclass raw clamp, bail before armor / lastDamage / FX.
         if self.indestructible {
             if battle_bus_start_second {
-                self.start_battle_bus_second_life_at_frame(frame);
+                self.start_battle_bus_second_life_at_frame(frame, context.source());
             }
             return DamageApplication::Complete(false);
         }
@@ -715,7 +744,7 @@ impl Object {
         // C++ ActiveBody.cpp:501-572: lastDamageInfo only when amount>0 or kill,
         // after armor+scalar. Same-or-next-frame prefers VEHICLE/INFANTRY/faction
         // structure over projectiles; 0-amount crush FX does not stamp.
-        if actual_damage > 0.0 || destroyed {
+        if actual_damage > 0.0 || context.is_kill() {
             self.stamp_last_damage_cpp(source, destroyed, damage_type, frame);
         }
         health_events.record_applied_damage(
@@ -734,12 +763,8 @@ impl Object {
             },
         );
         // C++ ActiveBody.cpp:574-581 setAttackedBy + :653 doDamageFX.
-        crate::game_logic::host_transition_damage_fx::queue_attacked_by(
-            self.owner_player_id,
-            source,
-        );
-        if let Some(src) = source {
-            crate::game_logic::host_attacked_by_log::record(self.id, src);
+        if actual_damage > 0.0 || context.is_kill() {
+            attacked_by(self.owner_player_id, self.last_damage_source);
         }
         // C++ PoisonedBehavior::onDamage residual.
         if actual_damage > 0.0 {
@@ -755,14 +780,14 @@ impl Object {
         {
             if let Some(fs) = self.fire_spread.as_mut() {
                 if fs.apply_flame_damage(actual_damage, frame) {
-                    self.apply_flammable_ignite_visuals_with_source(context.source());
+                    self.apply_flammable_ignite_visuals_with_source(context.source(), frame);
                 }
             }
         }
         // C++ FireWeaponWhenDamagedBehavior::onDamage residual (frame filled by GameLogic).
         if actual_damage > 0.0 {
-            // Wave 779: under damage authority, FWWDB onDamage reaction is owned by
-            // GW apply_host_damage_events + host_fwwd_reaction_log drain (post-HP).
+            // Retain the named reaction for the driving owner to consume
+            // after releasing this Body borrow.
             {
                 self.ensure_fire_weapon_when_damaged();
                 if let Some(fw) = self.fire_weapon_when_damaged.as_mut() {
@@ -784,7 +809,7 @@ impl Object {
             }
         }
 
-        self.refresh_model_condition_bits_with_source(context.source());
+        self.refresh_model_condition_bits_with_source(context.source(), frame);
         let voice_fear_id = self.id;
         let voice_fear_pos = self.get_position();
         let voice_fear_player = self.owner_player_id;
@@ -830,12 +855,12 @@ impl Object {
     }
 
     /// C++ KeepObjectDie-style husk so rubble spans/towers stay repairable.
-    pub fn convert_bridge_to_rubble_husk(&mut self) {
+    pub fn convert_bridge_to_rubble_husk(&mut self, frame: u32) {
         self.status.destroyed = false;
         self.status.keep_as_rubble = true;
         self.status.effectively_dead = true;
         self.health.current = 0.0;
-        self.refresh_model_condition_bits();
+        self.refresh_model_condition_bits_with_source(None, frame);
     }
 
     /// C++ rubble heal: leaving BODY_RUBBLE clears effectively-dead.
@@ -977,15 +1002,6 @@ impl Object {
         }
         false
     }
-    fn stamp_last_damage_always(&mut self, _source: Option<ObjectId>) {
-        let frame = crate::game_logic::host_historic_bonus::logic_frame();
-        // C++ lastDamageInfo.m_damageType = HEALING so Guard/stealth skip the healer.
-        self.last_damage_source = None;
-        self.last_damage_source_preferred = false;
-        self.last_damage_timestamp = Some(frame);
-        self.last_damage_info_type = Some(crate::game_logic::combat::DamageType::Healing);
-    }
-
     /// C++ ActiveBody.cpp:501-572 lastDamageInfo: amount>0 or kill, after armor.
     /// Same-or-next-frame overwrites only if new source exists and (old is gone
     /// or new is VEHICLE/INFANTRY/faction structure).
@@ -1584,13 +1600,12 @@ mod tests {
     }
 
     #[test]
-    fn take_damage_queues_template_voice_fear_and_attacked_by() {
+    fn take_damage_queues_template_voice_fear() {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         // C++ ActiveBody.cpp:574 setAttackedBy, :624-637 VoiceFear.
         use crate::game_logic::host_transition_damage_fx::{
             TemplateDamageAudio, set_test_template_audio, set_test_voice_fear_roll,
-            take_pending_attacked_by,
         };
         crate::game_logic::host_transition_damage_fx::clear_test_template_audio();
         crate::game_logic::host_voice_fear_log::clear();
@@ -1603,7 +1618,6 @@ mod tests {
             },
         );
         set_test_voice_fear_roll(Some(0));
-        let _ = take_pending_attacked_by();
         let mut tmpl = ThingTemplate::new("FearRanger");
         tmpl.set_health(100.0);
         tmpl.add_kind_of(KindOf::Infantry);
@@ -1634,33 +1648,118 @@ mod tests {
         assert_eq!(fear[0].position, glam::Vec3::new(120.0, 4.0, 80.0));
         assert_eq!(fear[0].player_id, Some(1));
         assert_ne!(fear[0].event_name, "FearRangerVoiceFear");
-        let attacked = take_pending_attacked_by();
-        assert_eq!(attacked, vec![(1, ObjectId(77))]);
         set_test_voice_fear_roll(None);
         crate::game_logic::host_transition_damage_fx::clear_test_template_audio();
     }
 
     #[test]
-    fn apply_set_attacked_by_marks_crate_player() {
-        // C++ Player::setAttackedBy (Player.cpp:3173) for PLAYER_ATTACKED_BY.
-        use crate::game_logic::host_transition_damage_fx::{
-            apply_victim_attacked_by, take_attacked_by_log,
-        };
-        let _ = take_attacked_by_log();
-        let victim = std::sync::Arc::new(std::sync::RwLock::new(gamelogic::player::Player::new(3)));
-        let attacker =
-            std::sync::Arc::new(std::sync::RwLock::new(gamelogic::player::Player::new(4)));
-        if let Ok(mut list) = gamelogic::player::ThePlayerList().write() {
-            list.add_player(victim.clone());
-            list.add_player(attacker);
+    fn receiving_damage_marks_player_before_world_callbacks_without_peer_writes() {
+        use crate::game_logic::{GameLogic, Player};
+        fn world() -> (GameLogic, ObjectId, ObjectId) {
+            let mut world = GameLogic::new();
+            world.add_player(Player::new(1, Team::USA, "Victim", true));
+            world.add_player(Player::new(2, Team::GLA, "Attacker", false));
+            let mut template = ThingTemplate::new("AttackedByInfantry");
+            template.set_health(100.0).add_kind_of(KindOf::Infantry);
+            world.templates.insert(template.name.clone(), template);
+            let victim = world
+                .create_object_for_player("AttackedByInfantry", 1, glam::Vec3::ZERO)
+                .unwrap();
+            let attacker = world
+                .create_object_for_player("AttackedByInfantry", 2, glam::Vec3::ZERO)
+                .unwrap();
+            (world, victim, attacker)
         }
-        apply_victim_attacked_by(3, 4);
-        assert!(
-            victim.read().unwrap().get_attacked_by(4),
-            "victim player must record attacker index"
+        let (mut a, victim, attacker) = world();
+        let (mut b, peer_victim, peer_attacker) = world();
+        assert_eq!((victim, attacker), (peer_victim, peer_attacker));
+        a.frame = 91;
+        let context =
+            DamageHitContext::new(a.objects.get(&attacker), None, DamageType::Unresistable);
+        let mut observed = false;
+        a.apply_owned_damage_with_killer_team_and_after_fx(
+            victim,
+            10.0,
+            Some(attacker),
+            DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &context,
+            None,
+            |owner, _| {
+                assert!(owner.get_player(1).unwrap().get_attacked_by(2));
+                assert_eq!(owner.get_player(1).unwrap().get_attacked_frame(), 91);
+                observed = true;
+            },
         );
-        let log = take_attacked_by_log();
-        assert!(log.contains(&(3, 4)));
+        assert!(observed);
+        assert!(!b.get_player(1).unwrap().get_attacked_by(2));
+        // Last-damage selection retains the previous valid source when this
+        // same-frame hit supplies none. The marker uses that selected source.
+        a.get_player_mut(1).unwrap().attacked_by[2] = false;
+        a.apply_owned_damage(
+            victim,
+            1.0,
+            None,
+            DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &context,
+        );
+        assert!(a.get_player(1).unwrap().get_attacked_by(2));
+        // A vanished retained source cannot mark a Player via cached metadata.
+        a.get_player_mut(1).unwrap().attacked_by[2] = false;
+        a.objects.remove(&attacker);
+        a.apply_owned_damage(
+            victim,
+            1.0,
+            None,
+            DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &context,
+        );
+        assert!(!a.get_player(1).unwrap().get_attacked_by(2));
+        b.frame = 7;
+        let context = DamageHitContext::new(
+            b.objects.get(&peer_attacker),
+            None,
+            DamageType::Unresistable,
+        );
+        b.apply_owned_damage(
+            peer_victim,
+            1.0,
+            Some(peer_attacker),
+            DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &context,
+        );
+        assert_eq!(b.get_player(1).unwrap().get_attacked_frame(), 7);
+        // The real hit-only production ingress must use the same receiving
+        // completion, never CombatSystem's detached-map fixture executor.
+        b.get_player_mut(1).unwrap().attacked_by[2] = false;
+        b.frame = 8;
+        let weapon = crate::game_logic::Weapon {
+            damage: 3.0,
+            ..Default::default()
+        };
+        let projectile = b.combat_system.fire_projectile(
+            glam::Vec3::ZERO,
+            glam::Vec3::ZERO,
+            &weapon,
+            peer_attacker,
+            Some(peer_victim),
+            0.0,
+        );
+        let before = b.objects[&peer_victim].health.current;
+        let retired = b.resolve_projectiles_hits_only();
+        assert!(retired.contains(&projectile));
+        assert!(b.objects[&peer_victim].health.current < before);
+        assert!(b.get_player(1).unwrap().get_attacked_by(2));
+        assert_eq!(b.get_player(1).unwrap().get_attacked_frame(), 8);
+        assert!(b.resolve_projectiles_hits_only().is_empty());
+        assert_eq!(a.get_player(1).unwrap().get_attacked_frame(), 91);
     }
 
     #[test]

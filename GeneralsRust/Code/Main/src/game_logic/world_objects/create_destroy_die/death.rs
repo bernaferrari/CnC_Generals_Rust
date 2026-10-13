@@ -18,25 +18,31 @@ impl GameLogic {
         transfer_dmg: f32,
         source: Option<ObjectId>,
     ) {
-        let Some(n) = self.objects.get_mut(id) else {
+        let Some(receiving_damage_id) = self.objects.get(id).map(|object| object.id) else {
             return;
         };
         if subdual > 0.0 {
-            let _ = n.take_damage_from_typed_with_repulsor_policy(
+            let _ = self.apply_residual_damage_owned(
+                receiving_damage_id,
                 subdual,
                 None,
                 crate::game_logic::combat::DamageType::SubdualUnresistable,
-                &mut self.health_events,
-                &self.enable_repulsors,
+                crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                    crate::game_logic::combat::DamageType::SubdualUnresistable,
+                ),
+                None,
             );
         }
         if transfer_dmg > 0.0 {
-            let _ = n.take_damage_from_typed_with_repulsor_policy(
+            let _ = self.apply_residual_damage_owned(
+                receiving_damage_id,
                 transfer_dmg,
                 source,
                 crate::game_logic::combat::DamageType::Unresistable,
-                &mut self.health_events,
-                &self.enable_repulsors,
+                crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                    crate::game_logic::combat::DamageType::Unresistable,
+                ),
+                None,
             );
         }
     }
@@ -121,11 +127,16 @@ impl GameLogic {
             if dmg <= 0.0 {
                 continue;
             }
-            let destroyed = v.take_damage_from_immediate_with_repulsor_policy(
+            let receiving_damage_target_id = v.id;
+            let destroyed = self.apply_residual_damage_owned(
+                receiving_damage_target_id,
                 dmg,
                 Some(dying_id),
-                &mut self.health_events,
-                &self.enable_repulsors,
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                    crate::game_logic::combat::DamageType::Unresistable,
+                ),
+                None,
             );
             if destroyed {
                 destroy_ids.push(vid);
@@ -552,7 +563,7 @@ impl GameLogic {
         if is_bridge_member {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if !obj.status.keep_as_rubble {
-                    obj.convert_bridge_to_rubble_husk();
+                    obj.convert_bridge_to_rubble_husk(self.frame);
                 }
             }
             self.apply_owned_bridge_death_links(id);

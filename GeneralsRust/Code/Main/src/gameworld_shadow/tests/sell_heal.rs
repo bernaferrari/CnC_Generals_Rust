@@ -5,64 +5,106 @@ use super::*;
 #[test]
 fn explosion_detonation_damage_source_authority_source() {
     let src = GAME_LOGIC_HOST_SRC;
-    for (fn_name, token) in [
-        ("fn apply_bunker_buster_to_target", "take_damage_from"),
-        ("fn apply_kill_garrisoned_to_target", "take_damage_from"),
-        ("fn apply_neutron_blast_at", "take_damage_from"),
+    // Structural routing evidence only. These exact calls retain amount,
+    // attribution, damage family through the real synchronous Body operation.
+    for (name, call, damage_kind) in [
         (
-            "fn apply_bomb_truck_death_detonation_at",
-            "take_damage_from(dmg, Some(truck_id))",
+            "apply_bunker_buster_to_target",
+            "apply_residual_damage_owned(receiving_damage_target_id,structure_dmg,attacker_id,",
+            "STEALTH_JET_MISSILE_DAMAGE_TYPE",
         ),
         (
-            "fn apply_nuclear_tanks_death_detonation_at",
-            "take_damage_from(dmg, Some(tank_id))",
+            "apply_kill_garrisoned_to_target",
+            "apply_residual_damage_owned(receiving_damage_id,999_999.0,attacker_id,",
+            "DamageType::Unresistable",
         ),
         (
-            "fn detonate_booby_trap_at",
-            "take_damage_from(dmg, Some(plant.planter_id))",
+            "apply_neutron_blast_at",
+            "apply_residual_damage_owned(receiving_damage_id,999_999.0,caster_id,",
+            "DamageType::Unresistable",
         ),
         (
-            "fn activate_helix_napalm_bomb",
-            "take_damage_from(dmg, Some(source_object))",
+            "apply_bomb_truck_death_detonation_at",
+            "apply_residual_damage_owned(owned_victim_id,dmg,Some(truck_id),owned_damage_type,",
+            "BOMB_TRUCK_DAMAGE_TYPE",
         ),
         (
-            "fn detonate_car_bomb",
-            "take_damage_from(dmg, Some(car_id))",
+            "apply_nuclear_tanks_death_detonation_at",
+            "apply_residual_damage_owned(owned_victim_id,dmg,Some(tank_id),owned_damage_type,",
+            "NUCLEAR_TANK_DAMAGE_TYPE",
         ),
         (
-            "fn detonate_mine_internal",
-            "take_damage_from(dmg, Some(mine_id))",
+            "detonate_booby_trap_at",
+            "apply_residual_damage_owned(owned_victim_id,dmg,Some(plant.planter_id),owned_damage_type,",
+            "BOOBY_DAMAGE_TYPE",
         ),
         (
-            "fn update_sneak_attacks",
-            "take_damage_from_immediate(pulse.damage, Some(pulse.source_object))",
-        ),
-        ("fn update_overcharge_drain", "take_damage_from_typed("),
-        (
-            "fn apply_host_hive_damage_from",
-            "take_damage_from(damage, source_id)",
+            "activate_helix_napalm_bomb",
+            "apply_residual_damage_owned(owned_victim_id,dmg,Some(source_object),owned_damage_type,",
+            "HELIX_NAPALM_DAMAGE_TYPE",
         ),
         (
-            "fn process_destroy_list",
-            "take_damage_from(dmg, Some(event.id))",
+            "detonate_car_bomb",
+            "apply_residual_damage_owned(owned_victim_id,dmg,Some(car_id),owned_damage_type,",
+            "SUICIDE_CAR_BOMB_DAMAGE_TYPE",
+        ),
+        (
+            "detonate_mine_internal",
+            "apply_residual_damage_owned(owned_victim_id,dmg,Some(mine_id),owned_damage_type,",
+            "DamageType::Explosive",
+        ),
+        (
+            "update_sneak_attacks",
+            "apply_residual_damage_owned(owned_victim_id,pulse.damage,Some(pulse.source_object),owned_damage_type,",
+            "DamageType::Unresistable",
+        ),
+        (
+            "update_overcharge_drain",
+            "apply_residual_damage_owned(owned_victim_id,damage,Some(id),owned_damage_type,",
+            "DamageType::Penalty",
+        ),
+        (
+            "apply_host_hive_damage_from",
+            "apply_residual_damage_owned(owned_victim_id,damage,source_id,owned_damage_type,",
+            "DamageType::Unresistable",
+        ),
+        (
+            "process_destroy_list",
+            "apply_residual_damage_owned(receiving_damage_target_id,1.0e9,Some(event.id),",
+            "DamageType::Falling",
         ),
     ] {
-        let short = fn_name.trim_start_matches("fn ");
-        let w = last_rust_fn_body(src, short)
-            .or_else(|| rust_fn_body(src, short))
-            .unwrap_or_else(|| panic!("missing {fn_name}"));
+        let body = last_rust_fn_body(src, name)
+            .or_else(|| rust_fn_body(src, name))
+            .unwrap_or_else(|| panic!("missing {name}"));
+        let normalized: String = body.split_whitespace().collect();
         assert!(
-            w.contains(token) || w.contains("take_damage_from(") || w.contains("take_damage_from_"),
-            "{fn_name} must source-attribute damage via {token}"
+            normalized.contains(call),
+            "{name} must retain its attributed amount through the receiving owner"
         );
-        // No anonymous take_damage(amount) residual in these paths.
         assert!(
-            !w.contains(".take_damage(dmg)")
-                && !w.contains(".take_damage(damage)")
-                && !w.contains(".take_damage(structure_dmg)"),
-            "{fn_name} must not keep anonymous take_damage"
+            body.contains(damage_kind),
+            "{name} must retain authored damage family {damage_kind}"
+        );
+        assert!(
+            !normalized.contains(".take_damage(dmg)")
+                && !normalized.contains(".take_damage(damage)")
+                && !normalized.contains(".take_damage(structure_dmg)"),
+            "{name} must not keep anonymous Object damage"
         );
     }
+    let owner =
+        last_rust_fn_body(src, "apply_residual_damage_owned").expect("receiving body owner");
+    let owner: String = owner.split_whitespace().collect();
+    assert!(
+        owner.contains("letframe=self.frame;")
+            && owner.contains("amount,source_id,damage_type,death_type,fx_override,frame,")
+    );
+    assert!(
+        owner.contains("victim.begin_damage_with_context_and_attacked_by("),
+        "all typed families must enter the outer Body admission kernel"
+    );
+    assert!(owner.contains("Self::notify_residual_attacked_by(players,frame,&source_players,victim_player,selected_source,)"), "Player mutation must use the selected source at the real receiving Body callback");
 }
 
 #[test]
@@ -560,8 +602,8 @@ fn residual_auto_fire_keeps_live_primary_damage() {
     let helper =
         last_rust_fn_body(GAME_LOGIC_HOST_SRC, "residual_auto_fire_apply_damage").expect("helper");
     assert!(
-        helper.contains("take_damage_from_with_repulsor_policy"),
-        "the residual hit applies damage to the canonical body"
+        helper.contains("apply_residual_damage_owned"),
+        "the residual hit applies damage to the receiving canonical Body/Player"
     );
     assert!(
         helper.contains("damage,"),

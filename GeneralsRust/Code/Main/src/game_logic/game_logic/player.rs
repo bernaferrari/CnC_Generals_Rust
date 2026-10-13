@@ -610,10 +610,10 @@ impl Player {
     }
 
     /// C++ `Player::setAttackedBy` (Player.cpp:3864-3868).
-    pub fn set_attacked_by(&mut self, player_index: i32) {
+    pub fn set_attacked_by_at(&mut self, player_index: i32, frame: u32) {
         if player_index >= 0 && (player_index as usize) < Self::MAX_ATTACKED_BY_PLAYERS {
             self.attacked_by[player_index as usize] = true;
-            self.attacked_frame = crate::game_logic::host_historic_bonus::logic_frame();
+            self.attacked_frame = frame;
         }
     }
 

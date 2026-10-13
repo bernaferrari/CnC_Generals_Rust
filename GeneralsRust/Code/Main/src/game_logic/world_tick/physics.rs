@@ -708,17 +708,37 @@ impl GameLogic {
         crushee_id: ObjectId,
         is_ally: bool,
     ) -> bool {
-        // Split borrow: take crushee out, mutate both, put back.
-        let Some(mut crushee) = self.objects.remove(&crushee_id) else {
+        if crusher_id == crushee_id {
+            return false;
+        }
+        let previous_source = self
+            .objects
+            .get(&crushee_id)
+            .and_then(|object| object.last_damage_source);
+        let source_players = [Some(crusher_id), previous_source].map(|source| {
+            source.and_then(|id| {
+                self.objects
+                    .get(&id)
+                    .and_then(|object| object.owner_player_id.map(|player| (id, player)))
+            })
+        });
+        let players = &mut self.players;
+        let frame = self.frame;
+        let mut attacked_by = |victim, source| {
+            Self::notify_residual_attacked_by(players, frame, &source_players, victim, source)
+        };
+        let mut services = crate::game_logic::object::PhysicsDamageServices {
+            frame,
+            health_events: &mut self.health_events,
+            repulsors: &self.enable_repulsors,
+            attacked_by: &mut attacked_by,
+        };
+        let [Some(crusher), Some(crushee)] =
+            self.objects.get_disjoint_mut([&crusher_id, &crushee_id])
+        else {
             return false;
         };
-        let result = if let Some(crusher) = self.objects.get_mut(&crusher_id) {
-            crusher.check_for_overlap_collision(&mut crushee, is_ally, &mut self.health_events)
-        } else {
-            false
-        };
-        self.objects.insert(crushee_id, crushee);
-        result
+        crusher.check_for_overlap_collision_with_services(crushee, is_ally, &mut services)
     }
 
     pub fn apply_immobile_collide_bounce(
@@ -1297,3 +1317,7 @@ impl GameLogic {
         self.transfer_attack(from_id, to_id)
     }
 }
+
+#[cfg(test)]
+#[path = "physics_damage_owner_tests.rs"]
+mod physics_damage_owner_tests;

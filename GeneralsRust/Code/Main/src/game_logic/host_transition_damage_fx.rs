@@ -1010,8 +1010,6 @@ thread_local! {
     static TEMPLATE_AUDIO_OVERRIDE: RefCell<HashMap<String, TemplateDamageAudio>> =
         RefCell::new(HashMap::new());
     static DISPATCHED_ARMOR_DAMAGE_FX: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-    static PENDING_ATTACKED_BY: RefCell<Vec<(u32, ObjectId)>> = const { RefCell::new(Vec::new()) };
-    static ATTACKED_BY_LOG: RefCell<Vec<(i32, i32)>> = const { RefCell::new(Vec::new()) };
     static VOICE_FEAR_ROLL: Cell<Option<i32>> = const { Cell::new(None) };
 }
 
@@ -1256,43 +1254,6 @@ pub fn dispatch_armor_damage_fx(
 
 pub fn take_dispatched_armor_damage_fx() -> Vec<String> {
     DISPATCHED_ARMOR_DAMAGE_FX.with(|v| std::mem::take(&mut *v.borrow_mut()))
-}
-
-/// C++ `ActiveBody.cpp:574-581` — victim `Player::setAttackedBy(srcIndex)`.
-pub fn queue_attacked_by(victim_player: Option<u32>, source: Option<ObjectId>) {
-    let (Some(victim), Some(src)) = (victim_player, source) else {
-        return;
-    };
-    PENDING_ATTACKED_BY.with(|p| p.borrow_mut().push((victim, src)));
-}
-
-pub fn take_pending_attacked_by() -> Vec<(u32, ObjectId)> {
-    PENDING_ATTACKED_BY.with(|p| std::mem::take(&mut *p.borrow_mut()))
-}
-
-pub fn apply_victim_attacked_by(victim_player: i32, attacker_player: i32) {
-    ATTACKED_BY_LOG.with(|l| l.borrow_mut().push((victim_player, attacker_player)));
-    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
-        return;
-    };
-    for arc in list.iter() {
-        let Ok(player) = arc.read() else {
-            continue;
-        };
-        if player.get_player_index() != victim_player {
-            continue;
-        }
-        drop(player);
-        if let Ok(mut player) = arc.write() {
-            player.set_attacked_by(attacker_player);
-        }
-        return;
-    }
-}
-
-#[cfg(test)]
-pub fn take_attacked_by_log() -> Vec<(i32, i32)> {
-    ATTACKED_BY_LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }
 
 /// Queue C++ VoiceFear when health crosses yellow (ActiveBody.cpp:624-637).

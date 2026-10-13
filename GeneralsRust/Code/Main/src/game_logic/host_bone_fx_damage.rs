@@ -169,11 +169,12 @@ impl HostBoneFxDamageData {
         _template_name: &str,
         old_state: HostBodyDamageType,
         new_state: HostBodyDamageType,
+        frame: u32,
     ) -> Option<HostBoneFxEvent> {
         if self.authored.is_empty() {
             return None;
         }
-        let now = crate::game_logic::host_historic_bonus::logic_frame() as i32;
+        let now = frame as i32;
         // C++ changeBodyDamageState: set state, killRunningParticleSystems, initTimes.
         self.cur_state = new_state.ordinal();
         self.kill_running_particle_systems();
@@ -740,6 +741,7 @@ mod tests {
                 "GLAVehicleScudLauncher",
                 HostBodyDamageType::Pristine,
                 HostBodyDamageType::Damaged,
+                0,
             )
             .expect("fx");
         assert_eq!(
@@ -759,6 +761,7 @@ mod tests {
                 "AmericaTankCrusader",
                 HostBodyDamageType::Pristine,
                 HostBodyDamageType::Damaged,
+                0,
             )
             .is_none()
         );
@@ -825,6 +828,7 @@ mod tests {
                 "GLAVehicleScudLauncher",
                 HostBodyDamageType::Pristine,
                 HostBodyDamageType::Damaged,
+                0,
             )
             .is_none()
         );
@@ -843,6 +847,7 @@ mod tests {
                 "GLAVehicleScudLauncher",
                 HostBodyDamageType::Pristine,
                 HostBodyDamageType::Damaged,
+                0,
             )
             .expect("flame-gated fx");
         assert_eq!(
@@ -860,6 +865,7 @@ mod tests {
             "GLAVehicleScudLauncher",
             HostBodyDamageType::Pristine,
             HostBodyDamageType::Damaged,
+            0,
         );
         assert_eq!(d.running_particle_count(), 0);
         let _ = d.drain_pending();
@@ -887,5 +893,159 @@ mod tests {
         let flags = parse_damage_type_flags_attr("ALL -HEALING");
         assert!(flags.contains_damage_type(DamageType::Flame));
         assert!(!flags.contains_damage_type(DamageType::Healing));
+    }
+}
+
+#[cfg(test)]
+mod owned_body_frame_tests {
+    use super::*;
+    use crate::game_logic::combat::DamageType;
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    use crate::game_logic::object::DamageHitContext;
+    use crate::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate};
+
+    fn world(frame: u32) -> (GameLogic, ObjectId) {
+        let mut world = GameLogic::new();
+        world.set_current_frame(frame as u64);
+        world.add_player(Player::new(0, Team::USA, "BodyClockOwner", true));
+        let mut template = ThingTemplate::new("OwnedBodyClockTank");
+        template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        world.templates.insert(template.name.clone(), template);
+        let id = world
+            .create_object_for_player("OwnedBodyClockTank", 0, Vec3::ZERO)
+            .unwrap();
+        let mut authored = HostBoneFxAuthored::default();
+        for (state, delay, name) in [
+            (HostBodyDamageType::Pristine, 7.0, "BodyClockPristineFx"),
+            (HostBodyDamageType::Damaged, 5.0, "BodyClockDamagedFx"),
+            (
+                HostBodyDamageType::ReallyDamaged,
+                5.0,
+                "BodyClockReallyDamagedFx",
+            ),
+        ] {
+            authored.fx[state.ordinal() as usize][0] = Some(HostBoneFxSlot {
+                bone: "BodyClockBone".into(),
+                only_once: true,
+                delay_min: delay,
+                delay_max: delay,
+                name: name.into(),
+            });
+        }
+        world.host_object_mut(id).unwrap().bone_fx_damage =
+            Some(HostBoneFxDamageData::from_authored(authored));
+        (world, id)
+    }
+    fn damage(world: &mut GameLogic, id: ObjectId, amount: f32, kind: DamageType) {
+        world
+            .apply_owned_damage(
+                id,
+                amount,
+                None,
+                kind,
+                HostDeathType::Normal,
+                None,
+                &DamageHitContext::default(),
+            )
+            .unwrap();
+    }
+    fn deadline(world: &GameLogic, id: ObjectId, state: HostBodyDamageType) -> i32 {
+        world
+            .host_object(id)
+            .unwrap()
+            .bone_fx_damage
+            .as_ref()
+            .unwrap()
+            .next_fx_frame[state.ordinal() as usize][0]
+    }
+    fn fire_due(world: &mut GameLogic, id: ObjectId, frame: u32) -> Vec<String> {
+        world.set_current_frame(frame as u64);
+        let bone = world
+            .host_object_mut(id)
+            .unwrap()
+            .bone_fx_damage
+            .as_mut()
+            .unwrap();
+        bone.tick(frame as i32);
+        bone.drain_pending()
+            .into_iter()
+            .filter_map(|event| event.fx_list)
+            .collect()
+    }
+
+    #[test]
+    fn actual_body_damage_schedules_bone_fx_from_receiving_frames_not_peer_identity() {
+        let (mut owner, id) = world(100);
+        let (mut peer, peer_id) = world(900);
+        assert_eq!(id, peer_id);
+        damage(&mut owner, id, 40.0, DamageType::Unresistable);
+        assert_eq!(owner.host_object(id).unwrap().health.current, 60.0);
+        assert_eq!(
+            owner.host_object(id).unwrap().body_damage_state,
+            HostBodyDamageType::Damaged
+        );
+        assert_eq!(deadline(&owner, id, HostBodyDamageType::Damaged), 105);
+        damage(&mut peer, peer_id, 40.0, DamageType::Unresistable);
+        assert_eq!(deadline(&peer, peer_id, HostBodyDamageType::Damaged), 905);
+        assert_eq!(deadline(&owner, id, HostBodyDamageType::Damaged), 105);
+        assert!(fire_due(&mut owner, id, 104).is_empty());
+        assert_eq!(fire_due(&mut owner, id, 105), vec!["BodyClockDamagedFx"]);
+        assert!(fire_due(&mut owner, id, 106).is_empty());
+        assert_eq!(deadline(&peer, peer_id, HostBodyDamageType::Damaged), 905);
+    }
+
+    #[test]
+    fn actual_body_healing_and_saved_bone_fx_future_keep_receiving_deadline() {
+        let (mut owner, id) = world(100);
+        let (mut peer, peer_id) = world(900);
+        damage(&mut owner, id, 40.0, DamageType::Unresistable);
+        damage(&mut peer, peer_id, 40.0, DamageType::Unresistable);
+        owner.set_current_frame(222);
+        // DAMAGE_HEALING uses the same production Body callback path, including
+        // lastDamageInfo and lastHealingTimestamp, before visual evaluation.
+        damage(&mut owner, id, 40.0, DamageType::Healing);
+        assert_eq!(owner.host_object(id).unwrap().health.current, 100.0);
+        assert_eq!(
+            owner.host_object(id).unwrap().last_healing_timestamp,
+            Some(222)
+        );
+        assert_eq!(deadline(&owner, id, HostBodyDamageType::Pristine), 229);
+        assert_eq!(deadline(&peer, peer_id, HostBodyDamageType::Damaged), 905);
+        let builder = crate::save_load::SnapshotBuilder::new();
+        let saved = builder.create_world_snapshot(&owner).unwrap();
+        builder.restore_from_snapshot(&saved, &mut peer).unwrap();
+        assert_eq!(deadline(&peer, id, HostBodyDamageType::Pristine), 229);
+        assert!(fire_due(&mut owner, id, 228).is_empty());
+        assert!(fire_due(&mut peer, id, 228).is_empty());
+        assert_eq!(fire_due(&mut owner, id, 229), vec!["BodyClockPristineFx"]);
+        assert_eq!(fire_due(&mut peer, id, 229), vec!["BodyClockPristineFx"]);
+    }
+
+    #[test]
+    fn actual_undead_body_second_life_recalculates_bone_fx_at_same_impact_frame() {
+        let (mut owner, id) = world(500);
+        let (peer, peer_id) = world(900);
+        assert_eq!(id, peer_id);
+        owner.host_object_mut(id).unwrap().is_battle_bus_transport = true;
+        // CPP UndeadBody excludes UNRESISTABLE; PENALTY is ordinary HP.
+        damage(&mut owner, id, 200.0, DamageType::Penalty);
+        let object = owner.host_object(id).unwrap();
+        assert_eq!(
+            object.health.current,
+            crate::game_logic::host_battle_bus::BATTLE_BUS_SECOND_LIFE_MAX_HEALTH
+        );
+        assert!(!object.status.destroyed && !object.status.effectively_dead);
+        let body = object.battle_bus_body.as_ref().unwrap();
+        assert!(body.is_second_life && body.is_in_first_death);
+        assert_eq!(
+            body.ground_check_frame,
+            500 + crate::game_logic::host_battle_bus::BATTLE_BUS_GROUND_CHECK_DELAY_FRAMES
+        );
+        assert_eq!(object.body_damage_state, HostBodyDamageType::Pristine);
+        assert_eq!(deadline(&owner, id, HostBodyDamageType::Pristine), 507);
+        assert_eq!(peer.host_object(peer_id).unwrap().health.current, 100.0);
+        assert!(peer.host_object(peer_id).unwrap().battle_bus_body.is_none());
+        assert!(fire_due(&mut owner, id, 506).is_empty());
+        assert_eq!(fire_due(&mut owner, id, 507), vec!["BodyClockPristineFx"]);
     }
 }

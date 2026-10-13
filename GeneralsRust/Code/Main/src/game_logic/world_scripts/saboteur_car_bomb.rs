@@ -693,14 +693,18 @@ impl GameLogic {
 
         if water_kill {
             if let Some(r) = self.objects.get_mut(&rider_id) {
-                let _ = r.take_damage_from_typed_death_with_repulsor_policy(
-                    PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
-                    None,
-                    crate::game_logic::combat::DamageType::Water,
-                    HostDeathType::Flooded,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
-                );
+                let _ = {
+                    let owned_victim_id = r.id;
+                    let owned_damage_type = crate::game_logic::combat::DamageType::Water;
+                    self.apply_residual_damage_owned(
+                        owned_victim_id,
+                        PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
+                        None,
+                        owned_damage_type,
+                        HostDeathType::Flooded,
+                        None,
+                    )
+                };
             }
         }
 
@@ -1208,12 +1212,23 @@ impl GameLogic {
                 return (false, false);
             };
             let before = obj.status.stealthed && obj.stealth_breaks_on_damage;
-            let destroyed = obj.take_damage_from_with_repulsor_policy(
-                damage,
-                source_id,
-                &mut self.health_events,
-                &self.enable_repulsors,
-            );
+            let destroyed = {
+                let owned_victim_id = obj.id;
+                let owned_damage_type = crate::game_logic::combat::DamageType::Unresistable;
+                self.apply_residual_damage_owned(
+                    owned_victim_id,
+                    damage,
+                    source_id,
+                    owned_damage_type,
+                    crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                        owned_damage_type,
+                    ),
+                    None,
+                )
+            };
+            let Some(obj) = self.objects.get(&id) else {
+                return (destroyed, false);
+            };
             let revealed = before && (!obj.status.stealthed || obj.stealth_delay_pending);
             (destroyed, revealed)
         };
@@ -1456,14 +1471,23 @@ impl GameLogic {
             if let Some(victim) = self.objects.get_mut(&vid) {
                 damage_dealt += dmg.min(victim.health.current.max(0.0));
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage_from_immediate_residual_with_repulsor_policy(
-                    dmg,
-                    Some(truck_id),
-                    BOMB_TRUCK_DAMAGE_TYPE,
-                    BOMB_TRUCK_DEATH_TYPE,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
-                ) {
+                if {
+                    let owned_victim_id = victim.id;
+                    let owned_damage_type =
+                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                            BOMB_TRUCK_DAMAGE_TYPE,
+                        );
+                    self.apply_residual_damage_owned(
+                        owned_victim_id,
+                        dmg,
+                        Some(truck_id),
+                        owned_damage_type,
+                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                            BOMB_TRUCK_DEATH_TYPE,
+                        ),
+                        None,
+                    )
+                } {
                     destroy_ids.push((vid, truck_team));
                 }
             }
@@ -1713,15 +1737,19 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target
-                        .take_damage_from_immediate_typed_death_with_repulsor_policy(
+                    let killed = {
+                        let owned_victim_id = target.id;
+                        let owned_damage_type =
+                            crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type();
+                        self.apply_residual_damage_owned(
+                            owned_victim_id,
                             hit.damage,
                             Some(plan.source_object),
-                            crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
+                            owned_damage_type,
                             plan.death_type,
-                            &mut self.health_events,
-                            &self.enable_repulsors,
-                        );
+                            None,
+                        )
+                    };
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {

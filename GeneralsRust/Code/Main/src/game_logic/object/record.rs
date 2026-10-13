@@ -581,8 +581,13 @@ impl Object {
         }
     }
 
-    pub fn heal(&mut self, amount: f32, health_events: &mut crate::game_logic::HostHealthEvents) {
-        self.heal_with_source(amount, None, health_events);
+    pub fn heal(
+        &mut self,
+        amount: f32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+        frame: u32,
+    ) {
+        self.heal_with_source(amount, None, health_events, frame);
     }
 
     pub(super) fn heal_with_source(
@@ -590,6 +595,7 @@ impl Object {
         amount: f32,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        frame: u32,
     ) {
         if self.status.destroyed {
             return;
@@ -621,6 +627,6 @@ impl Object {
         self.previous_health = before;
         self.health.current = projected;
         health_events.record_applied_heal(self.id, self.health.current);
-        self.refresh_model_condition_bits_with_source(source);
+        self.refresh_model_condition_bits_with_source(source, frame);
     }
 }

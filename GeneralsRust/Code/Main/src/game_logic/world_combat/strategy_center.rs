@@ -1671,13 +1671,18 @@ impl GameLogic {
                         .unwrap_or(true);
                 } else if let Some(target) = self.objects.get_mut(&target_id) {
                     impact_pos = target.get_position();
-                    destroyed = target.take_damage_from_immediate_residual_with_repulsor_policy(
+                    let receiving_damage_target_id = target.id;
+                    destroyed = self.apply_residual_damage_owned(
+                        receiving_damage_target_id,
                         damage,
                         Some(carrier_id),
-                        crate::game_logic::host_usa_tanks::PALADIN_PDL_DAMAGE_TYPE,
-                        crate::game_logic::host_usa_tanks::PALADIN_PDL_DEATH_TYPE,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
+                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                            crate::game_logic::host_usa_tanks::PALADIN_PDL_DAMAGE_TYPE,
+                        ),
+                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                            crate::game_logic::host_usa_tanks::PALADIN_PDL_DEATH_TYPE,
+                        ),
+                        None,
                     );
                     // Under damage authority take_damage does not zero host HP; project kill for
                     // mark_object_for_destruction when lethal residual is logged.

@@ -710,13 +710,20 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from_immediate_typed_with_repulsor_policy(
-                        hit.damage,
-                        Some(plan.source_object),
-                        crate::game_logic::combat::DamageType::Flame,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
-                    );
+                    let killed = {
+                        let owned_victim_id = target.id;
+                        let owned_damage_type = crate::game_logic::combat::DamageType::Flame;
+                        self.apply_residual_damage_owned(
+                            owned_victim_id,
+                            hit.damage,
+                            Some(plan.source_object),
+                            owned_damage_type,
+                            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                                owned_damage_type,
+                            ),
+                            None,
+                        )
+                    };
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -1053,14 +1060,23 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
-                    dmg,
-                    source,
-                    INFERNO_CANNON_DAMAGE_TYPE,
-                    INFERNO_CANNON_DEATH_TYPE,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
-                );
+                let destroyed = {
+                    let owned_victim_id = obj.id;
+                    let owned_damage_type =
+                        crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                            INFERNO_CANNON_DAMAGE_TYPE,
+                        );
+                    self.apply_residual_damage_owned(
+                        owned_victim_id,
+                        dmg,
+                        source,
+                        owned_damage_type,
+                        crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                            INFERNO_CANNON_DEATH_TYPE,
+                        ),
+                        None,
+                    )
+                };
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1229,13 +1245,20 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from_immediate_typed_with_repulsor_policy(
-                        hit.damage,
-                        Some(plan.source_object),
-                        crate::game_logic::combat::DamageType::Flame,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
-                    );
+                    let killed = {
+                        let owned_victim_id = target.id;
+                        let owned_damage_type = crate::game_logic::combat::DamageType::Flame;
+                        self.apply_residual_damage_owned(
+                            owned_victim_id,
+                            hit.damage,
+                            Some(plan.source_object),
+                            owned_damage_type,
+                            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                                owned_damage_type,
+                            ),
+                            None,
+                        )
+                    };
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -1740,14 +1763,11 @@ impl GameLogic {
                     if audio_pos.is_none() {
                         audio_pos = Some(target.get_position());
                     }
-                    let killed = target.take_damage_from_immediate_residual_with_repulsor_policy(
-                        hit.damage,
-                        Some(plan.mob_id),
-                        crate::game_logic::host_angry_mob::ANGRY_MOB_PISTOL_DAMAGE_TYPE,
-                        crate::game_logic::host_angry_mob::ANGRY_MOB_PISTOL_DEATH_TYPE,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
-                    );
+                    let killed = {
+                        let owned_victim_id = target.id;
+                        let owned_damage_type = crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(crate::game_logic::host_angry_mob::ANGRY_MOB_PISTOL_DAMAGE_TYPE);
+                        self.apply_residual_damage_owned(owned_victim_id, hit.damage, Some(plan.mob_id), owned_damage_type, crate::game_logic::host_armor_residual::host_death_type_from_residual_name(crate::game_logic::host_angry_mob::ANGRY_MOB_PISTOL_DEATH_TYPE), None)
+                    };
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -2195,12 +2215,20 @@ impl GameLogic {
                         continue;
                     }
                     // BodyModule last_damage_source residual for cash bounty killer.
-                    let destroyed = target.take_damage_from_immediate_with_repulsor_policy(
-                        hit.damage,
-                        Some(plan.source_object),
-                        &mut self.health_events,
-                        &self.enable_repulsors,
-                    );
+                    let destroyed = {
+                        let owned_victim_id = target.id;
+                        let owned_damage_type = crate::game_logic::combat::DamageType::Unresistable;
+                        self.apply_residual_damage_owned(
+                            owned_victim_id,
+                            hit.damage,
+                            Some(plan.source_object),
+                            owned_damage_type,
+                            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                                owned_damage_type,
+                            ),
+                            None,
+                        )
+                    };
                     total_damage += hit.damage;
                     objects_hit += 1;
                     if destroyed {

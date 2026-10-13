@@ -111,9 +111,10 @@ fn another_world_boundary_cannot_admit_the_owners_lethal_damage() {
 fn interleaved_worlds_keep_mixed_health_events_totals_and_presentation_receipts() {
     let (mut owner, id) = admitted_world();
     let (mut other, other_id) = admitted_world();
+    let body_frame = owner.frame;
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
     object.take_damage(20.0, events);
-    object.heal(10.0, events);
+    object.heal(10.0, events, body_frame);
     let pending = owner.health_events.snapshot_ordered();
     let (object, events) = other.host_object_and_health_events_mut(other_id).unwrap();
     object.take_damage(30.0, events);
@@ -245,8 +246,9 @@ fn health_handoff_session_admits_events_recorded_after_eager_damage() {
     shadow.sync_from_host(&owner);
     let entity = shadow.entity_for_host(id).unwrap();
     assert_eq!(shadow.world().entity(entity).unwrap().health, 80.0);
+    let body_frame = owner.frame;
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
-    object.heal(10.0, events);
+    object.heal(10.0, events, body_frame);
     assert_eq!(object.health.current, 90.0);
     object.take_damage(20.0, events);
     assert_eq!(object.health.current, 70.0);
@@ -313,8 +315,9 @@ fn health_handoff_preserves_completed_body_writes_after_eager_admission() {
     shadow.sync_from_host(&owner);
     let entity = shadow.entity_for_host(id).unwrap();
     assert_eq!(shadow.world().entity(entity).unwrap().health, 80.0);
+    let body_frame = owner.frame;
     let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
-    object.heal(10.0, events);
+    object.heal(10.0, events, body_frame);
     assert_eq!(object.health.current, 90.0);
     object.take_damage(20.0, events);
     assert_eq!(object.health.current, 70.0);

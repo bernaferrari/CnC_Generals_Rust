@@ -1379,7 +1379,7 @@ mod tests {
         );
         usa.can_build_units = false;
         usa.radar_disabled = true;
-        usa.set_attacked_by(3);
+        usa.set_attacked_by_at(3, 0);
         usa.units_should_hunt = true;
         usa.selected_objects = vec![ObjectId(11), ObjectId(22)];
         usa.did_preorder = true;

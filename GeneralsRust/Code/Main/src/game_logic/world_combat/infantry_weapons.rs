@@ -73,13 +73,18 @@ impl GameLogic {
                 } else {
                     (SCUD_DAMAGE_TYPE, SCUD_DEATH_TYPE)
                 };
-                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
+                let receiving_damage_target_id = obj.id;
+                let destroyed = self.apply_residual_damage_owned(
+                    receiving_damage_target_id,
                     dmg,
                     source,
-                    dt_name,
-                    death_name,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
+                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                        dt_name,
+                    ),
+                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                        death_name,
+                    ),
+                    None,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1742,14 +1747,14 @@ impl GameLogic {
             obj.fire_spread = Some(fs);
             if ev.became_burned {
                 self.fire_spread_reg.record_burned();
-                obj.apply_flammable_extinguish_visuals(true);
+                obj.apply_flammable_extinguish_visuals(true, self.frame);
             } else if ev.aflame {
                 let smolder = obj
                     .fire_spread
                     .as_ref()
                     .map(|f| f.smoldering)
                     .unwrap_or(false);
-                obj.apply_flammable_visuals(true, smolder, false);
+                obj.apply_flammable_visuals(true, smolder, false, self.frame);
             }
         }
         if ev.spawn_embers {
@@ -1874,22 +1879,22 @@ impl GameLogic {
                     .as_ref()
                     .map(|f| f.smoldering)
                     .unwrap_or(false);
-                o.apply_flammable_visuals(true, smolder, false);
+                o.apply_flammable_visuals(true, smolder, false, self.frame);
             }
         }
         for id in status_smolder {
             if let Some(o) = self.objects.get_mut(&id) {
-                o.apply_flammable_smoldering_visuals();
+                o.apply_flammable_smoldering_visuals(self.frame);
             }
         }
         for id in status_burned {
             if let Some(o) = self.objects.get_mut(&id) {
-                o.apply_flammable_extinguish_visuals(true);
+                o.apply_flammable_extinguish_visuals(true, self.frame);
             }
         }
         for id in status_normal {
             if let Some(o) = self.objects.get_mut(&id) {
-                o.apply_flammable_extinguish_visuals(false);
+                o.apply_flammable_extinguish_visuals(false, self.frame);
             }
         }
         for (id, pos, ocl) in ember_spawns {
@@ -1910,13 +1915,14 @@ impl GameLogic {
         // C++ FlammableUpdate.cpp:202-212 doAflameDamage DAMAGE_FLAME / DEATH_BURNED.
         for (id, dmg) in aflame_dots {
             if let Some(o) = self.objects.get_mut(&id) {
-                let _ = o.take_damage_from_typed_death_with_repulsor_policy(
+                let receiving_damage_target_id = o.id;
+                let _ = self.apply_residual_damage_owned(
+                    receiving_damage_target_id,
                     dmg,
                     Some(id),
                     crate::game_logic::combat::DamageType::Flame,
                     crate::game_logic::host_usa_pilot::HostDeathType::Burned,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
+                    None,
                 );
             }
         }
@@ -2140,15 +2146,15 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target
-                        .take_damage_from_immediate_typed_death_with_repulsor_policy(
-                            hit.damage,
-                            Some(plan.source_object),
-                            crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
-                            plan.death_type,
-                            &mut self.health_events,
-                            &self.enable_repulsors,
-                        );
+                    let receiving_damage_target_id = target.id;
+                    let killed = self.apply_residual_damage_owned(
+                        receiving_damage_target_id,
+                        hit.damage,
+                        Some(plan.source_object),
+                        crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
+                        plan.death_type,
+                        None,
+                    );
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {

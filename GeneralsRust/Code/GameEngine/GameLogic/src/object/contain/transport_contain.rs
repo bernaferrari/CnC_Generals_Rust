@@ -31,6 +31,16 @@ use crate::weapon::WeaponSetType;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
+/// Object.cpp3336: query the selected locomotor using the AI loan the
+/// exit operation already owns; AirborneTarget is a targeting-height status.
+pub(crate) fn selected_locomotor_is_airborne(ai: &dyn crate::modules::AIUpdateInterface) -> bool {
+    let mut airborne = false;
+    ai.with_cur_locomotor(&mut |locomotor| {
+        airborne = locomotor.get_legal_surfaces() & crate::locomotor::SURFACE_AIR != 0
+    });
+    airborne
+}
+
 /// C++ `TransportContain::isPassengerAllowedToFire` (TransportContain.cpp:576-578):
 /// only infantry may fire out. Vehicles ride silent (Combat Chinook
 /// `AllowInsideKindOf = INFANTRY VEHICLE`).
@@ -1110,21 +1120,24 @@ impl TransportContain {
                 return false;
             };
             let owner_bits = self.with_owner_object(|owner| {
+                let mut airborne = false;
                 if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(ai_guard) = ai.try_lock() {
-                        if !matches!(
-                            ai_guard.get_ai_free_to_exit(&rider),
-                            crate::object::production::AIFreeToExitType::FreeToExit
-                        ) {
+                    let ai_guard = match ai.try_lock() {
+                        Ok(guard) => guard,
+                        Err(error) => {
+                            log::warn!("Transport exit owner AI unavailable: {error}");
                             return None;
                         }
+                    };
+                    if !matches!(
+                        ai_guard.get_ai_free_to_exit(&rider),
+                        crate::object::production::AIFreeToExitType::FreeToExit
+                    ) {
+                        return None;
                     }
+                    airborne = selected_locomotor_is_airborne(&*ai_guard);
                 }
-                Some((
-                    owner.is_using_airborne_locomotor(),
-                    owner.get_layer(),
-                    *owner.get_position(),
-                ))
+                Some((airborne, owner.get_layer(), *owner.get_position()))
             });
             let rider_ai = rider.get_ai_update_interface();
             owner_bits
@@ -1175,21 +1188,24 @@ impl TransportContain {
 
         let Some((airborne, layer, pos)) = self
             .with_owner_object(|owner| {
+                let mut airborne = false;
                 if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(ai_guard) = ai.try_lock() {
-                        if !matches!(
-                            ai_guard.get_ai_free_to_exit(obj),
-                            crate::object::production::AIFreeToExitType::FreeToExit
-                        ) {
+                    let ai_guard = match ai.try_lock() {
+                        Ok(guard) => guard,
+                        Err(error) => {
+                            log::warn!("Transport exit owner AI unavailable: {error}");
                             return None;
                         }
+                    };
+                    if !matches!(
+                        ai_guard.get_ai_free_to_exit(obj),
+                        crate::object::production::AIFreeToExitType::FreeToExit
+                    ) {
+                        return None;
                     }
+                    airborne = selected_locomotor_is_airborne(&*ai_guard);
                 }
-                Some((
-                    owner.is_using_airborne_locomotor(),
-                    owner.get_layer(),
-                    *owner.get_position(),
-                ))
+                Some((airborne, owner.get_layer(), *owner.get_position()))
             })
             .flatten()
         else {

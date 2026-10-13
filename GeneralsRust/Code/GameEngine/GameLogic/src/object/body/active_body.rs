@@ -1831,7 +1831,7 @@ impl ActiveBody {
                         });
                         if let Some(Some(src_index)) = src_index {
                             owner_guard.with_controlling_player_mut(|player| {
-                                player.set_attacked_by(src_index)
+                                player.set_attacked_by_at(src_index, frame_now)
                             });
                         }
                     }

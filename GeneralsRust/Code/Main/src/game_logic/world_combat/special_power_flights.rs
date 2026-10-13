@@ -1835,7 +1835,7 @@ impl GameLogic {
             if obj.status.keep_as_rubble && obj.health.current <= 0.0 {
                 return;
             }
-            obj.convert_bridge_to_rubble_husk();
+            obj.convert_bridge_to_rubble_husk(self.frame);
         }
     }
 
@@ -1887,20 +1887,25 @@ impl GameLogic {
                                     crate::game_logic::host_usa_pilot::HostDeathType::from_ordinal(
                                         ev.death_type as u8,
                                     );
-                                let _ = obj.take_damage_from_typed_death_with_repulsor_policy(
+                                let receiving_damage_id = obj.id;
+                                let _ = self.apply_residual_damage_owned(
+                                    receiving_damage_id,
                                     amount,
                                     Some(ev.victim),
                                     dtype,
                                     death,
-                                    &mut self.health_events,
-                                    &self.enable_repulsors,
+                                    None,
                                 );
+                                let obj = self
+                                    .objects
+                                    .get_mut(&receiving_damage_id)
+                                    .expect("bounded residual victim remains installed");
                             }
                         }
                         HostBridgeMirrorKind::Heal => {
                             if let Some(obj) = self.objects.get_mut(&tid) {
                                 obj.revive_from_bridge_rubble();
-                                obj.heal(amount, &mut self.health_events);
+                                obj.heal(amount, &mut self.health_events, self.frame);
                             }
                         }
                     }
@@ -2104,13 +2109,14 @@ impl GameLogic {
                     }
                     for uid in occupants {
                         if let Some(unit) = self.objects.get_mut(&uid) {
-                            let _ = unit.take_damage_from_typed_death_with_repulsor_policy(
+                            let receiving_damage_target_id = unit.id;
+                            let _ = self.apply_residual_damage_owned(
+                                receiving_damage_target_id,
                                 crate::game_logic::host_bridge_behavior::BRIDGE_SPLAT_DAMAGE,
                                 Some(id),
                                 crate::game_logic::combat::DamageType::Falling,
                                 crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
-                                &mut self.health_events,
-                                &self.enable_repulsors,
+                                None,
                             );
                         }
                     }

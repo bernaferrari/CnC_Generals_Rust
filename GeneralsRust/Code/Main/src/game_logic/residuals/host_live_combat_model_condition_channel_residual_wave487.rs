@@ -6,7 +6,8 @@
 //! Never flips shell `playable_claim`.
 //!
 //! Orthogonal to Wave 486 production-door model log.
-//! Architecture residual - writeback_model_condition is last-writer from GW snapshot.
+//! Structural source checks only. Main owns model state; the shadow observes it.
+//! Source-aware Body evaluation requires a frame; general pose clock debt remains.
 //!
 //! Sources:
 //! - object.rs refresh_model_condition_bits WEAPON_MC_PRESERVE
@@ -164,7 +165,13 @@ pub fn simulate_combat_model_condition_channel_refresh_source() -> bool {
     let Some(body) = function_body(src, "fn refresh_model_condition_bits_with_source(") else {
         return false;
     };
-    let ok = wrapper.contains("self.refresh_model_condition_bits_with_source(None)")
+    let normalized_wrapper: String = wrapper.split_whitespace().collect();
+    let normalized_body: String = body.split_whitespace().collect();
+    // The general pose adapter remains explicit parent clock debt. The shared
+    // Body evaluation itself requires its caller's frame and forwards it to FX.
+    let ok = normalized_wrapper.contains("self.refresh_model_condition_bits_with_source(None,crate::game_logic::host_historic_bonus::logic_frame(),)")
+        && normalized_body.contains("bfx.on_body_damage_state_change(&self.template_name,old_state,state,frame")
+        && !body.contains("host_historic_bonus::logic_frame")
         && body.contains(
             "Wave 487: preserve combat/presentation bits refresh rebuild does not recompute",
         )

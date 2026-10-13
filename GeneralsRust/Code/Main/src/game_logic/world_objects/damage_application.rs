@@ -21,7 +21,94 @@ pub(crate) struct OwnedDamageResult {
     pub(in crate::game_logic) victim_team: Team,
 }
 
+impl OwnedDamageResult {
+    pub(crate) fn destroyed(&self) -> bool {
+        self.destroyed
+    }
+}
+
 impl GameLogic {
+    /// Shared bounded Body callback; source observations belong to this owner
+    /// and are captured before its non-reentrant body mutation.
+    pub(in crate::game_logic) fn notify_residual_attacked_by(
+        players: &mut std::collections::HashMap<u32, crate::game_logic::Player>,
+        frame: u32,
+        source_players: &[Option<(ObjectId, u32)>],
+        victim_player: Option<u32>,
+        selected_source: Option<ObjectId>,
+    ) {
+        let Some(victim_player) = victim_player else {
+            return;
+        };
+        let Some(attacker) = selected_source.and_then(|source| {
+            source_players
+                .iter()
+                .flatten()
+                .find(|(id, _)| *id == source)
+                .map(|(_, player)| *player)
+        }) else {
+            return;
+        };
+        if let Some(player) = players.get_mut(&victim_player) {
+            player.set_attacked_by_at(attacker as i32, frame);
+        }
+    }
+
+    /// Residual callers retain their original batched death dispatch, but Body
+    /// and Player mutations execute immediately on this receiving session.
+    pub(in crate::game_logic) fn apply_residual_damage_owned(
+        &mut self,
+        victim_id: ObjectId,
+        amount: f32,
+        source_id: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
+    ) -> bool {
+        let Some(previous_source) = self
+            .objects
+            .get(&victim_id)
+            .map(|object| object.last_damage_source)
+        else {
+            return false;
+        };
+        let source_players = [source_id, previous_source].map(|source| {
+            source.and_then(|id| {
+                self.objects
+                    .get(&id)
+                    .and_then(|object| object.owner_player_id.map(|player| (id, player)))
+            })
+        });
+        let players = &mut self.players;
+        let frame = self.frame;
+        let context = DamageHitContext::default();
+        let victim = self
+            .objects
+            .get_mut(&victim_id)
+            .expect("validated receiving victim");
+        let application = victim.begin_damage_with_context_and_attacked_by(
+            amount,
+            source_id,
+            damage_type,
+            death_type,
+            fx_override,
+            frame,
+            &context,
+            &mut self.health_events,
+            Some(&mut self.ownership_events),
+            |victim_player, selected_source| {
+                Self::notify_residual_attacked_by(
+                    players,
+                    frame,
+                    &source_players,
+                    victim_player,
+                    selected_source,
+                );
+            },
+        );
+        application.finish_standalone(victim, None, &self.enable_repulsors)
+    }
+
     /// CPP Object1930–1940: preserve the requested damage/death types and
     /// invalid source, with the kill bit carried by this owned impact context.
     pub(in crate::game_logic) fn apply_owned_kill(
@@ -113,9 +200,23 @@ impl GameLogic {
         killer_team_override: Option<Team>,
         after_damage_fx: impl FnOnce(&mut Self, ObjectId),
     ) -> Option<OwnedDamageResult> {
+        // Before any reentrant world callback, ActiveBody can select either
+        // this impact's source or its retained same/previous-frame source.
+        // Resolve both from this receiving object store; the bounded body phase
+        // cannot remove or transfer either source before its Player callback.
+        let previous_source = self.objects.get(&victim_id)?.last_damage_source;
+        let source_players = [source_id, previous_source].map(|source| {
+            source.and_then(|id| {
+                self.objects
+                    .get(&id)
+                    .and_then(|object| object.owner_player_id.map(|player| (id, player)))
+            })
+        });
+        let players = &mut self.players;
+        let frame = self.frame;
         let victim = self.objects.get_mut(&victim_id)?;
         let before_hp = victim.health.current;
-        let mut application: DamageApplication = victim.begin_damage_with_context(
+        let mut application: DamageApplication = victim.begin_damage_with_context_and_attacked_by(
             damage,
             source_id,
             damage_type,
@@ -125,6 +226,15 @@ impl GameLogic {
             context,
             &mut self.health_events,
             Some(&mut self.ownership_events),
+            |victim_player, selected_source| {
+                Self::notify_residual_attacked_by(
+                    players,
+                    frame,
+                    &source_players,
+                    victim_player,
+                    selected_source,
+                );
+            },
         );
         let hp_lost = (before_hp - victim.health.current).max(0.0);
         let victim_position = victim.get_position();

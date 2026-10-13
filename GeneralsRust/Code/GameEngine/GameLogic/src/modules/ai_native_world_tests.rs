@@ -1328,3 +1328,6 @@ fn held_enter_completion_rejects_wrong_container_missing_roster_and_non_held() {
             .is_empty()
     );
 }
+
+#[path = "ai_native_world_tests/airborne_locomotor.rs"]
+mod airborne_locomotor;

@@ -684,7 +684,7 @@ impl Object {
             return false;
         }
         let before = self.health.current;
-        self.heal(amount, health_events);
+        self.heal(amount, health_events, now);
         self.health.current > before + 0.0001 || self.health.current >= self.health.maximum - 0.01
     }
 
@@ -864,91 +864,20 @@ impl Object {
         self.pending_transition_damage_fx.push(ev);
     }
 
-    /// Wave 623: apply BodyDamageType transition residual after GW writeback.
-    ///
-    /// Does not recompute state from HP (GameWorld is last-writer for the enum).
-    /// Applies model bits + BoneFX/TransitionDamageFX/FXListDie peels.
-    pub(crate) fn apply_body_damage_state_change_residual(
-        &mut self,
-        old_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
-        state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
-    ) {
-        use crate::game_logic::host_enum_table_residual::{
-            HostBodyDamageType, host_apply_body_damage_model_bits,
-        };
-        self.body_damage_state = state;
-        if old_state != state {
-            crate::game_logic::host_move_ambient_audio::record_ambient_restart(self.id);
-        }
-        crate::game_logic::host_body_damage_log::record(self.id, state.ordinal());
-        // C++ ActiveBody.cpp:1219 — no damaged-art visuals while building.
-        let show_health_visuals = !self.status.under_construction || self.status.destroyed;
-        if old_state != state && show_health_visuals {
-            if self.bone_fx_damage.is_none() {
-                self.bone_fx_damage =
-                    crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_template(
-                        &self.template_name,
-                    );
-            }
-            if let Some(bfx) = self.bone_fx_damage.as_mut() {
-                bfx.stamp_last_damage_type(self.last_damage_info_type);
-                let _ = bfx.on_body_damage_state_change(&self.template_name, old_state, state);
-            }
-        }
-        if show_health_visuals {
-            self.ensure_transition_damage_fx();
-            if let Some(cfg) = self.transition_damage_fx.as_ref() {
-                if let Some(ev) =
-                    crate::game_logic::host_transition_damage_fx::on_body_damage_state_change_for_damage(
-                        cfg,
-                        old_state,
-                        state,
-                        self.last_damage_info_type.map(|d| d.to_store()),
-                    )
-                {
-                    self.queue_transition_damage_fx_event(ev);
-                }
-            }
-        }
-
-        // C++ ActiveBody::setCorrectDamageState rubble (ActiveBody.cpp:189-208)
-        // is independent of UNDER_CONSTRUCTION visual skip.
-        if matches!(state, HostBodyDamageType::Rubble)
-            && !matches!(old_state, HostBodyDamageType::Rubble)
-        {
-            self.apply_structure_rubble_collision_effects();
-        }
-        if show_health_visuals
-            && matches!(state, HostBodyDamageType::Rubble)
-            && !matches!(old_state, HostBodyDamageType::Rubble)
-        {
-            self.fire_fx_list_die();
-            self.fire_create_object_die();
-            if !matches!(
-                self.status.death_type,
-                crate::game_logic::host_usa_pilot::HostDeathType::Crushed
-            ) {
-                self.fire_crush_die();
-            }
-        }
-        let visual_state = if show_health_visuals {
-            state
-        } else {
-            HostBodyDamageType::Pristine
-        };
-        self.model_condition_bits =
-            host_apply_body_damage_model_bits(self.model_condition_bits, visual_state);
-        self.record_host_model_condition();
-        self.sync_overlord_addon_body_damage();
-    }
-
+    /// Temporary non-body pose adapter. Authoritative Body operations pass
+    /// their receiving frame to the shared source-aware kernel directly.
+    /// Remaining callers belong to hq-vrkh8; this does not establish isolation.
     pub fn refresh_model_condition_bits(&mut self) {
-        self.refresh_model_condition_bits_with_source(None);
+        self.refresh_model_condition_bits_with_source(
+            None,
+            crate::game_logic::host_historic_bonus::logic_frame(),
+        );
     }
 
     pub(super) fn refresh_model_condition_bits_with_source(
         &mut self,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        frame: u32,
     ) {
         use crate::game_logic::host_enum_table_residual::{
             HostBodyDamageType, MC_BIT_ATTACKING, MC_BIT_DISGUISED, MC_BIT_DYING, MC_BIT_MOVING,
@@ -998,7 +927,8 @@ impl Object {
             }
             if let Some(bfx) = self.bone_fx_damage.as_mut() {
                 bfx.stamp_last_damage_type(self.last_damage_info_type);
-                let _ = bfx.on_body_damage_state_change(&self.template_name, old_state, state);
+                let _ =
+                    bfx.on_body_damage_state_change(&self.template_name, old_state, state, frame);
             }
         }
         if show_health_visuals {

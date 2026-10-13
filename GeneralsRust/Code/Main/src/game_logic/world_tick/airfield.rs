@@ -596,10 +596,22 @@ impl GameLogic {
                 }
             }
         }
-        if let Some(jet) = self.objects.get_mut(&jet_id) {
+        let damage = self.objects.get(&jet_id).map_or(0.0, |jet| {
             if jet.jet_circling_dead_airfield {
-                let _ = jet.apply_out_of_ammo_damage_frame(&mut self.health_events);
+                jet.out_of_ammo_damage_amount()
+            } else {
+                0.0
             }
+        });
+        if damage > 0.0 {
+            let _ = self.apply_residual_damage_owned(
+                jet_id,
+                damage,
+                None,
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+            );
         }
     }
 
@@ -3049,13 +3061,11 @@ impl GameLogic {
                 }
                 if amount > 0.0 && jet.health.current + 1e-3 < jet.health.maximum {
                     if let Some(jet) = self.objects.get_mut(&jet_id) {
-                        let _ = jet.take_damage_from_typed_with_repulsor_policy(
-                            amount,
-                            Some(airfield_id),
-                            crate::game_logic::combat::DamageType::Healing,
-                            &mut self.health_events,
-                            &self.enable_repulsors,
-                        );
+                        let _ = {
+                            let owned_victim_id = jet.id;
+                            let owned_damage_type = crate::game_logic::combat::DamageType::Healing;
+                            self.apply_residual_damage_owned(owned_victim_id, amount, Some(airfield_id), owned_damage_type, crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(owned_damage_type), None)
+                        };
                     }
                 }
             }
@@ -3148,5 +3158,88 @@ impl GameLogic {
 
     pub fn restore_airfield_runway_was_in_line(&mut self, rows: Vec<(ObjectId, Vec<bool>)>) {
         self.airfield_runway_was_in_line = rows.into_iter().collect();
+    }
+}
+
+#[cfg(test)]
+mod owned_out_of_ammo_tests {
+    use super::*;
+
+    fn world(frame: u32) -> (GameLogic, ObjectId, ObjectId) {
+        let mut world = GameLogic::new();
+        world.set_current_frame(frame as u64);
+        world.add_player(Player::new(0, Team::USA, "AircraftOwner", true));
+        world.add_player(Player::new(1, Team::China, "DamageSource", false));
+        let mut jet = ThingTemplate::new("OwnedEmptyJet");
+        jet.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
+        jet.add_kind_of(KindOf::Aircraft).set_health(100.0);
+        world.templates.insert(jet.name.clone(), jet);
+        let mut source = ThingTemplate::new("OwnedAircraftDamageSource");
+        source.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        world.templates.insert(source.name.clone(), source);
+        let jet = world
+            .create_object_for_player("OwnedEmptyJet", 0, Vec3::new(0.0, 50.0, 0.0))
+            .unwrap();
+        let source = world
+            .create_object_for_player("OwnedAircraftDamageSource", 1, Vec3::new(100.0, 0.0, 0.0))
+            .unwrap();
+        let object = world.objects.get_mut(&jet).unwrap();
+        object.status.airborne_target = true;
+        object.weapon = Some(Weapon {
+            ammo: Some(0),
+            clip_size: 2,
+            reload_time: 0.0,
+            can_target_air: true,
+            can_target_ground: true,
+            ..Weapon::default()
+        });
+        assert!(object.needs_return_to_base_rearm());
+        (world, jet, source)
+    }
+
+    #[test]
+    fn actual_circling_damage_updates_receiving_player_at_body_callback() {
+        let (mut owner, jet, source) = world(40);
+        let (mut peer, peer_jet, peer_source) = world(900);
+        assert_eq!((jet, source), (peer_jet, peer_source));
+        owner
+            .apply_owned_damage(
+                jet,
+                1.0,
+                Some(source),
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+                &crate::game_logic::object::DamageHitContext::default(),
+            )
+            .unwrap();
+        assert_eq!(owner.get_player(0).unwrap().get_attacked_frame(), 40);
+        assert!(owner.get_player(0).unwrap().get_attacked_by(1));
+        let before = owner.host_object(jet).unwrap().health.current;
+        owner.set_current_frame(41);
+        owner.tick_return_or_circle_dead_airfield(jet);
+        let aircraft = owner.host_object(jet).unwrap();
+        assert!(aircraft.jet_circling_dead_airfield);
+        let expected = Object::OUT_OF_AMMO_DAMAGE_PER_SECOND * (1.0 / 30.0) * 100.0;
+        assert!((before - aircraft.health.current - expected).abs() < 0.0001);
+        assert_eq!(aircraft.last_damage_source, Some(source));
+        assert_eq!(
+            owner.get_player(0).unwrap().get_attacked_frame(),
+            41,
+            "the invalid new source retains CPP same/next-frame last source before Player callback"
+        );
+        assert_eq!(peer.get_player(0).unwrap().get_attacked_frame(), 0);
+        assert!(!peer.get_player(0).unwrap().get_attacked_by(1));
+        peer.tick_return_or_circle_dead_airfield(peer_jet);
+        assert!(
+            (peer.host_object(peer_jet).unwrap().health.current - (100.0 - expected)).abs()
+                < 0.0001
+        );
+        assert_eq!(owner.get_player(0).unwrap().get_attacked_frame(), 41);
+        assert_eq!(
+            peer.get_player(0).unwrap().get_attacked_frame(),
+            0,
+            "no selected source must not fabricate a peer attacker"
+        );
     }
 }

@@ -106,13 +106,14 @@ impl GameLogic {
                     if let Some(unit) = self.objects.get_mut(&sid) {
                         // C++ DAMAGE_FALLING / DEATH_SPLATTED / HUGE_DAMAGE_AMOUNT
                         // (AIPathfind.cpp:4143-4148).
-                        if unit.take_damage_from_immediate_typed_death_with_repulsor_policy(
+                        let receiving_damage_target_id = unit.id;
+                        if self.apply_residual_damage_owned(
+                            receiving_damage_target_id,
                             1.0e9,
                             Some(event.id),
                             crate::game_logic::combat::DamageType::Falling,
                             crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
-                            &mut self.health_events,
-                            &self.enable_repulsors,
+                            None,
                         ) {
                             self.objects_to_destroy
                                 .push_back(DestructionEvent::after_death(sid, event.killer));

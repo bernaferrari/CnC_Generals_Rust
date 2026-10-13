@@ -338,9 +338,14 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
     logic.health_events.clear_heal();
 
     {
+        let body_frame = logic.frame;
         let (o, health_events) = logic.host_object_and_health_events_mut(oid).expect("o");
         let full = o.health.maximum;
-        o.heal((full - o.health.current).max(0.0), health_events);
+        o.heal(
+            (full - o.health.current).max(0.0),
+            health_events,
+            body_frame,
+        );
 
         o.construction_percent = 1.0;
         o.status.under_construction = false;

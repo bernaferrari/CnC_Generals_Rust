@@ -1515,13 +1515,18 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
+                let receiving_damage_target_id = obj.id;
+                let destroyed = self.apply_residual_damage_owned(
+                    receiving_damage_target_id,
                     dmg,
                     source,
-                    BUGGY_DAMAGE_TYPE,
-                    BUGGY_DEATH_TYPE,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
+                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                        BUGGY_DAMAGE_TYPE,
+                    ),
+                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                        BUGGY_DEATH_TYPE,
+                    ),
+                    None,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {

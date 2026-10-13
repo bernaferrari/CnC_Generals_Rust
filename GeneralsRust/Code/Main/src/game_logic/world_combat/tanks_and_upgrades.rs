@@ -337,13 +337,18 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
+                let receiving_damage_target_id = obj.id;
+                let destroyed = self.apply_residual_damage_owned(
+                    receiving_damage_target_id,
                     dmg,
                     source,
-                    BATTLE_MASTER_DAMAGE_TYPE,
-                    BATTLE_MASTER_DEATH_TYPE,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
+                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                        BATTLE_MASTER_DAMAGE_TYPE,
+                    ),
+                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                        BATTLE_MASTER_DEATH_TYPE,
+                    ),
+                    None,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -767,13 +772,18 @@ impl GameLogic {
             } else {
                 (REDGUARD_DAMAGE_TYPE, REDGUARD_DEATH_TYPE)
             };
-            let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
+            let receiving_damage_target_id = obj.id;
+            let destroyed = self.apply_residual_damage_owned(
+                receiving_damage_target_id,
                 damage,
                 source,
-                dt_name,
-                death_name,
-                &mut self.health_events,
-                &self.enable_repulsors,
+                crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                    dt_name,
+                ),
+                crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                    death_name,
+                ),
+                None,
             );
             hits = 1;
             if destroyed {
@@ -1131,13 +1141,18 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
+                let receiving_damage_target_id = obj.id;
+                let destroyed = self.apply_residual_damage_owned(
+                    receiving_damage_target_id,
                     dmg,
                     source,
-                    TANK_HUNTER_DAMAGE_TYPE,
-                    TANK_HUNTER_DEATH_TYPE,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
+                    crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
+                        TANK_HUNTER_DAMAGE_TYPE,
+                    ),
+                    crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
+                        TANK_HUNTER_DEATH_TYPE,
+                    ),
+                    None,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {

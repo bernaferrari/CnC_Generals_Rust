@@ -3387,13 +3387,20 @@ impl GameLogic {
                 }
                 if let Some(victim) = self.objects.get_mut(&vid) {
                     // C++ DemoTrap/LandMine weapons are EXPLOSION, not UNRESISTABLE.
-                    if victim.take_damage_from_typed_with_repulsor_policy(
-                        dmg,
-                        Some(mine_id),
-                        crate::game_logic::combat::DamageType::Explosive,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
-                    ) && !chain_pad
+                    if {
+                        let owned_victim_id = victim.id;
+                        let owned_damage_type = crate::game_logic::combat::DamageType::Explosive;
+                        self.apply_residual_damage_owned(
+                            owned_victim_id,
+                            dmg,
+                            Some(mine_id),
+                            owned_damage_type,
+                            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                                owned_damage_type,
+                            ),
+                            None,
+                        )
+                    } && !chain_pad
                     {
                         destroy_ids.push((vid, mine_team));
                     } else if chain_pad {
@@ -3512,12 +3519,20 @@ impl GameLogic {
                 continue;
             }
             if let Some(victim) = self.objects.get_mut(&vid) {
-                if victim.take_damage_from_with_repulsor_policy(
-                    dmg,
-                    Some(mine_id),
-                    &mut self.health_events,
-                    &self.enable_repulsors,
-                ) && !chain_pad
+                if {
+                    let owned_victim_id = victim.id;
+                    let owned_damage_type = crate::game_logic::combat::DamageType::Unresistable;
+                    self.apply_residual_damage_owned(
+                        owned_victim_id,
+                        dmg,
+                        Some(mine_id),
+                        owned_damage_type,
+                        crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                            owned_damage_type,
+                        ),
+                        None,
+                    )
+                } && !chain_pad
                 {
                     destroy_ids.push((vid, mine_team));
                 } else if chain_pad {
@@ -3841,14 +3856,19 @@ impl GameLogic {
                             None,
                         );
                     } else if let Some(obj) = self.objects.get_mut(&mine_id) {
-                        obj.take_damage_from_typed_death_with_repulsor_policy(
-                            obj.health.maximum.max(1.0),
-                            Some(building_id),
-                            crate::game_logic::combat::DamageType::LandMine,
-                            crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
-                            &mut self.health_events,
-                            &self.enable_repulsors,
-                        );
+                        {
+                            let owned_victim_id = obj.id;
+                            let owned_damage_amount = obj.health.maximum.max(1.0);
+                            let owned_damage_type = crate::game_logic::combat::DamageType::LandMine;
+                            self.apply_residual_damage_owned(
+                                owned_victim_id,
+                                owned_damage_amount,
+                                Some(building_id),
+                                owned_damage_type,
+                                crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
+                                None,
+                            )
+                        };
                     }
                 }
                 Relationship::Allies | Relationship::Neutral => {

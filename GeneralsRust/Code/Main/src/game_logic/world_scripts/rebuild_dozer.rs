@@ -1884,7 +1884,7 @@ impl GameLogic {
             if let Some(h) = self.objects.get_mut(&hole_id) {
                 if h.health.current + 1e-3 < h.health.maximum {
                     let add = h.health.maximum * heal_frac;
-                    h.heal(add, &mut self.health_events);
+                    h.heal(add, &mut self.health_events, self.frame);
                     self.rebuild_hole_heals = self.rebuild_hole_heals.saturating_add(1);
                 }
             }

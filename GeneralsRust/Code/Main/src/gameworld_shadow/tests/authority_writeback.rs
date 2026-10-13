@@ -8,8 +8,9 @@ fn owner_damage(logic: &mut GameLogic, id: ObjectId, amount: f32) -> bool {
 }
 
 fn owner_heal(logic: &mut GameLogic, id: ObjectId, health: f32) {
+    let body_frame = logic.frame;
     let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
-    object.heal(health, health_events);
+    object.heal(health, health_events, body_frame);
 }
 
 #[test]
@@ -183,8 +184,9 @@ fn heal_authority_commits_host_hp_before_shadow_writeback() {
     logic.health_events.clear_heal();
 
     {
+        let body_frame = logic.frame;
         let (o, health_events) = logic.host_object_and_health_events_mut(oid).expect("o");
-        o.heal(30.0, health_events);
+        o.heal(30.0, health_events, body_frame);
     };
 
     let mid = logic.host_objects().get(&oid).expect("o").health.current;
@@ -1790,19 +1792,20 @@ fn no_shadow_boundary_preserves_committed_heal_damage_order() {
             .expect("target");
         let previous;
         {
+            let body_frame = logic.frame;
             let (object, health_events) =
                 logic.host_object_and_health_events_mut(id).expect("target");
             object.health.current = 40.0;
             object.previous_health = 40.0;
             if heal_first {
-                object.heal(50.0, health_events);
+                object.heal(50.0, health_events, body_frame);
                 assert_eq!(object.health.current, 90.0);
                 assert!(!object.take_damage(20.0, health_events));
                 previous = 90.0;
             } else {
                 assert!(!object.take_damage(20.0, health_events));
                 assert_eq!(object.health.current, 20.0);
-                object.heal(50.0, health_events);
+                object.heal(50.0, health_events, body_frame);
                 previous = 20.0;
             }
             assert_eq!(object.health.current, 70.0);

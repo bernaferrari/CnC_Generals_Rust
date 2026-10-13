@@ -631,7 +631,7 @@ impl Object {
             return false;
         };
         if fs.try_to_ignite(current_frame) {
-            self.apply_flammable_ignite_visuals();
+            self.apply_flammable_ignite_visuals(current_frame);
             true
         } else {
             false

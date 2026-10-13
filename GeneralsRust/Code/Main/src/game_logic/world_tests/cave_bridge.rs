@@ -382,8 +382,9 @@ fn rubble_span_is_repairable() {
     // Exercise body revival directly, not the rejected ordinary repair command.
     let mut logic = GameLogic::new();
     let (span, _, _) = spawn_linked_bridge(&mut logic);
+    let body_frame = logic.frame;
     if let Some(s) = logic.host_object_mut(span) {
-        s.convert_bridge_to_rubble_husk();
+        s.convert_bridge_to_rubble_husk(body_frame);
     }
     assert!(!logic.host_object(span).expect("span").is_alive());
 
@@ -405,8 +406,9 @@ fn rubble_span_is_repairable() {
     // Heal on the clicked tower mirrors percent onto the rubble span.
     let mut logic = GameLogic::new();
     let (span, t0, _) = spawn_linked_bridge(&mut logic);
+    let body_frame = logic.frame;
     if let Some(s) = logic.host_object_mut(span) {
-        s.convert_bridge_to_rubble_husk();
+        s.convert_bridge_to_rubble_husk(body_frame);
     }
     let t0_max = logic.host_object(t0).expect("t0").health.maximum;
     crate::game_logic::host_bridge_behavior::record_mirror(

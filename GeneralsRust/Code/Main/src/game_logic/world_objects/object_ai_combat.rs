@@ -396,12 +396,21 @@ impl GameLogic {
                 return;
             };
             let before = target.health.current;
-            let destroyed = target.take_damage_from_with_repulsor_policy(
+            let receiving_damage_id = target.id;
+            let destroyed = self.apply_residual_damage_owned(
+                receiving_damage_id,
                 weapon_damage,
                 Some(attacker_id),
-                &mut self.health_events,
-                &self.enable_repulsors,
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                    crate::game_logic::combat::DamageType::Unresistable,
+                ),
+                None,
             );
+            let target = self
+                .objects
+                .get_mut(&receiving_damage_id)
+                .expect("bounded residual victim remains installed");
             let hp_lost = (before - target.health.current).max(0.0);
             if destroyed {
                 let victim_pos = target.get_position();

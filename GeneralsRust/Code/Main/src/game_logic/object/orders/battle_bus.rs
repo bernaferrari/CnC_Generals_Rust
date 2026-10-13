@@ -32,14 +32,12 @@ impl Object {
         self.is_battle_bus_transport
     }
 
-    /// C++ UndeadBody::startSecondLife + BattleBus first-death begin residual.
-    pub fn start_battle_bus_second_life(&mut self) {
-        self.start_battle_bus_second_life_at_frame(
-            crate::game_logic::host_historic_bonus::logic_frame(),
-        );
-    }
-
-    pub(in crate::game_logic) fn start_battle_bus_second_life_at_frame(&mut self, frame: u32) {
+    /// C++ UndeadBody::startSecondLife + BattleBus first-death begin.
+    pub(in crate::game_logic) fn start_battle_bus_second_life_at_frame(
+        &mut self,
+        frame: u32,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+    ) {
         use crate::game_logic::host_battle_bus::{
             BATTLE_BUS_MC_BIT_SECOND_LIFE, BATTLE_BUS_SECOND_LIFE_MAX_HEALTH,
             BATTLE_BUS_THROW_FORCE, HostBattleBusBodyData, battle_bus_start_undeath_fx_name,
@@ -57,6 +55,9 @@ impl Object {
         self.armor_set_second_life = true;
         self.status.destroyed = false;
         self.status.effectively_dead = false;
+        // setMaxHealth(FULLY_HEAL) evaluates the Body immediately. Do this
+        // before ordinary AI/pose setters can observe the restored health.
+        self.refresh_model_condition_bits_with_source(source, frame);
         // C++ applyShock throwForce.z (up). Host is Y-up, so +Y.
         // scrubVelocity2D then throw — do not stop_moving (that zeroes the hop).
         let _ = self.apply_shock_wave_impulse(glam::Vec3::new(0.0, BATTLE_BUS_THROW_FORCE, 0.0));

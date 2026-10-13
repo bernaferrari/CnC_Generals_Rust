@@ -198,10 +198,7 @@ impl ActiveDamageContinuation {
         }
         // C++ UndeadBody.cpp:68–72 completes ActiveBody before second life.
         if self.start_second_life {
-            victim.start_battle_bus_second_life_at_frame(self.frame);
-            // C++ setMaxHealth(FULLY_HEAL) calls internalChangeHealth, which
-            // immediately recalculates the healthy body and model state.
-            victim.refresh_model_condition_bits_with_source(source);
+            victim.start_battle_bus_second_life_at_frame(self.frame, source);
         }
 
         if victim.is_host_bridge_member() {
@@ -209,7 +206,7 @@ impl ActiveDamageContinuation {
                 // World onDie already converted the bridge. Standalone Object
                 // calls retain their immediate repairable-husk adapter.
                 if !victim.status.keep_as_rubble {
-                    victim.convert_bridge_to_rubble_husk();
+                    victim.convert_bridge_to_rubble_husk(self.frame);
                 }
                 return false;
             }

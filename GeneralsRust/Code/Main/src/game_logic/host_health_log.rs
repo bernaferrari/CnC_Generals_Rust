@@ -265,7 +265,7 @@ mod completed_receipt_tests {
         let mut object = body();
         let mut events = HostHealthEvents::default();
         assert!(!object.take_damage(20.0, &mut events));
-        object.heal(5.0, &mut events);
+        object.heal(5.0, &mut events, 0);
         assert_eq!(object.health.current, 85.0);
         let ordered = events.drain_for_host_boundary();
         assert_eq!(ordered.len(), 2);
@@ -298,13 +298,13 @@ mod completed_receipt_tests {
         let mut events = HostHealthEvents::default();
         let mut peer_events = HostHealthEvents::default();
         owner.take_damage(10.0, &mut events);
-        owner.heal(5.0, &mut events);
+        owner.heal(5.0, &mut events, 0);
         events.drain_for_host_boundary();
         peer.take_damage(30.0, &mut peer_events);
         peer_events.drain_for_host_boundary();
         peer_events.clear();
         owner.take_damage(20.0, &mut events);
-        owner.heal(5.0, &mut events);
+        owner.heal(5.0, &mut events, 0);
         events.drain_for_host_boundary();
         assert!(events.drain_for_host_boundary().is_empty());
         let damage = events.take_last_damage();

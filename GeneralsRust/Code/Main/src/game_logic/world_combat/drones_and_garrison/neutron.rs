@@ -280,23 +280,42 @@ impl GameLogic {
             match effect {
                 NeutronEffect::KillInfantry => {
                     // Residual: kill infantry (take full health damage).
-                    let _ = obj.take_damage_from_with_repulsor_policy(
-                        obj.health.current.max(1.0) * 10.0,
+                    let receiving_damage_id = obj.id;
+                    let receiving_damage_argument_1 = obj.health.current.max(1.0) * 10.0;
+                    let _ = self.apply_residual_damage_owned(
+                        receiving_damage_id,
+                        receiving_damage_argument_1,
                         caster_id,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
+                        crate::game_logic::combat::DamageType::Unresistable,
+                        crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                            crate::game_logic::combat::DamageType::Unresistable,
+                        ),
+                        None,
                     );
+                    let obj = self
+                        .objects
+                        .get_mut(&receiving_damage_id)
+                        .expect("bounded residual victim remains installed");
                     if !obj.is_alive() || obj.health.current <= 0.0 {
                         infantry_kills = infantry_kills.saturating_add(1);
                         destroy_ids.push(id);
                     } else {
                         // Force kill residual.
-                        let _ = obj.take_damage_from_with_repulsor_policy(
+                        let receiving_damage_id = obj.id;
+                        let _ = self.apply_residual_damage_owned(
+                            receiving_damage_id,
                             999_999.0,
                             caster_id,
-                            &mut self.health_events,
-                            &self.enable_repulsors,
+                            crate::game_logic::combat::DamageType::Unresistable,
+                            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                                crate::game_logic::combat::DamageType::Unresistable,
+                            ),
+                            None,
                         );
+                        let obj = self
+                            .objects
+                            .get_mut(&receiving_damage_id)
+                            .expect("bounded residual victim remains installed");
                         infantry_kills = infantry_kills.saturating_add(1);
                         destroy_ids.push(id);
                     }
@@ -319,11 +338,17 @@ impl GameLogic {
                     }
                 }
                 NeutronEffect::KillVehicle => {
-                    let _ = obj.take_damage_from_with_repulsor_policy(
-                        obj.health.current.max(1.0) * 10.0,
+                    let receiving_damage_target_id = obj.id;
+                    let receiving_damage_argument_1 = obj.health.current.max(1.0) * 10.0;
+                    let _ = self.apply_residual_damage_owned(
+                        receiving_damage_target_id,
+                        receiving_damage_argument_1,
                         caster_id,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
+                        crate::game_logic::combat::DamageType::Unresistable,
+                        crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                            crate::game_logic::combat::DamageType::Unresistable,
+                        ),
+                        None,
                     );
                     vehicle_kills = vehicle_kills.saturating_add(1);
                     destroy_ids.push(id);
@@ -350,18 +375,33 @@ impl GameLogic {
                 }
                 occ.set_contained_by(None);
                 occ.set_ai_state(AIState::Idle);
-                let _ = occ.take_damage_from_with_repulsor_policy(
-                    occ.health.current.max(1.0) * 10.0,
+                let receiving_damage_id = occ.id;
+                let receiving_damage_argument_1 = occ.health.current.max(1.0) * 10.0;
+                let _ = self.apply_residual_damage_owned(
+                    receiving_damage_id,
+                    receiving_damage_argument_1,
                     caster_id,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
+                    crate::game_logic::combat::DamageType::Unresistable,
+                    crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                        crate::game_logic::combat::DamageType::Unresistable,
+                    ),
+                    None,
                 );
+                let occ = self
+                    .objects
+                    .get_mut(&receiving_damage_id)
+                    .expect("bounded residual victim remains installed");
                 if occ.is_alive() && occ.health.current > 0.0 && !occ.status.destroyed {
-                    let _ = occ.take_damage_from_with_repulsor_policy(
+                    let receiving_damage_target_id = occ.id;
+                    let _ = self.apply_residual_damage_owned(
+                        receiving_damage_target_id,
                         999_999.0,
                         caster_id,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
+                        crate::game_logic::combat::DamageType::Unresistable,
+                        crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                            crate::game_logic::combat::DamageType::Unresistable,
+                        ),
+                        None,
                     );
                 }
                 passengers_killed = passengers_killed.saturating_add(1);

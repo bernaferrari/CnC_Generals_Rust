@@ -445,12 +445,22 @@ mod tests {
     fn body_damage_restarts_damaged_ambient() {
         let (mut logic, id) = tank_logic();
         logic.queued_audio_events.clear();
-        if let Some(unit) = logic.objects.get_mut(&id) {
-            unit.apply_body_damage_state_change_residual(
-                HostBodyDamageType::Pristine,
-                HostBodyDamageType::Damaged,
-            );
-        }
+        let damage = logic.host_object(id).unwrap().health.maximum * 0.5;
+        logic
+            .apply_owned_damage(
+                id,
+                damage,
+                None,
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+                &crate::game_logic::object::DamageHitContext::default(),
+            )
+            .unwrap();
+        assert_eq!(
+            logic.host_object(id).unwrap().body_damage_state,
+            HostBodyDamageType::Damaged
+        );
         logic.drain_pending_move_ambient_audio();
         assert!(
             logic
@@ -538,12 +548,22 @@ mod tests {
         );
 
         logic.queued_audio_events.clear();
-        if let Some(unit) = logic.objects.get_mut(&id) {
-            unit.apply_body_damage_state_change_residual(
-                HostBodyDamageType::Pristine,
-                HostBodyDamageType::Damaged,
-            );
-        }
+        let damage = logic.host_object(id).unwrap().health.maximum * 0.5;
+        logic
+            .apply_owned_damage(
+                id,
+                damage,
+                None,
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+                &crate::game_logic::object::DamageHitContext::default(),
+            )
+            .unwrap();
+        assert_eq!(
+            logic.host_object(id).unwrap().body_damage_state,
+            HostBodyDamageType::Damaged
+        );
         logic.drain_pending_move_ambient_audio();
         assert!(
             logic

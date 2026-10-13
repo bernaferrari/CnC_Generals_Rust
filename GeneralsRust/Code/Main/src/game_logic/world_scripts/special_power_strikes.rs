@@ -570,15 +570,18 @@ impl GameLogic {
                     }
                     // C++ Weapon.cpp dealDamage / NeutronMissileSlowDeath: authored
                     // DamageType through Armor.ini. Not DAMAGE_UNRESISTABLE.
-                    let destroyed = target
-                        .take_damage_from_immediate_typed_death_with_repulsor_policy(
+                    let destroyed = {
+                        let owned_victim_id = target.id;
+                        let owned_damage_type = plan.kind.authored_damage_type();
+                        self.apply_residual_damage_owned(
+                            owned_victim_id,
                             hit.damage,
                             Some(plan.source_object),
-                            plan.kind.authored_damage_type(),
+                            owned_damage_type,
                             plan.kind.authored_death_type(),
-                            &mut self.health_events,
-                            &self.enable_repulsors,
-                        );
+                            None,
+                        )
+                    };
 
                     total_damage += hit.damage;
                     objects_hit += 1;
@@ -883,15 +886,18 @@ impl GameLogic {
                 }
                 if hit.damage > 0.0 && alive {
                     // C++ NeutronMissileSlowDeathUpdate.cpp:284-286 DAMAGE_EXPLOSION / DEATH_EXPLODED.
-                    let destroyed = obj
-                        .take_damage_from_immediate_typed_death_with_repulsor_policy(
+                    let destroyed = {
+                        let owned_victim_id = obj.id;
+                        let owned_damage_type = crate::game_logic::combat::DamageType::Explosive;
+                        self.apply_residual_damage_owned(
+                            owned_victim_id,
                             hit.damage,
                             Some(meta.source_object),
-                            crate::game_logic::combat::DamageType::Explosive,
+                            owned_damage_type,
                             crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
-                            &mut self.health_events,
-                            &self.enable_repulsors,
-                        );
+                            None,
+                        )
+                    };
 
                     if destroyed {
                         destroy_ids.push((id, meta.source_team));
@@ -1206,15 +1212,18 @@ impl GameLogic {
                         .map(|o| o.team)
                         .unwrap_or(Team::Neutral);
                     if let Some(obj) = self.objects.get_mut(&vid) {
-                        let destroyed = obj
-                            .take_damage_from_immediate_typed_death_with_repulsor_policy(
+                        let destroyed = {
+                            let owned_victim_id = obj.id;
+                            let owned_damage_type = crate::game_logic::combat::DamageType::Water;
+                            self.apply_residual_damage_owned(
+                                owned_victim_id,
                                 dmg,
                                 Some(gid),
-                                crate::game_logic::combat::DamageType::Water,
+                                owned_damage_type,
                                 HostDeathType::Flooded,
-                                &mut self.health_events,
-                                &self.enable_repulsors,
-                            );
+                                None,
+                            )
+                        };
                         if destroyed {
                             destroy_ids.push((vid, team));
                         }
@@ -1326,15 +1335,19 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target
-                        .take_damage_from_immediate_typed_death_with_repulsor_policy(
+                    let killed = {
+                        let owned_victim_id = target.id;
+                        let owned_damage_type =
+                            crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type();
+                        self.apply_residual_damage_owned(
+                            owned_victim_id,
                             hit.damage,
                             Some(plan.source_object),
-                            crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
+                            owned_damage_type,
                             plan.death_type,
-                            &mut self.health_events,
-                            &self.enable_repulsors,
-                        );
+                            None,
+                        )
+                    };
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -1829,22 +1842,25 @@ impl GameLogic {
                     // DeathType EXPLODED (armor multipliers + death FX routing).
                     // Gattling keeps its immediate residual path.
                     let killed = match hit.stream {
-                        HostSpectreOrbitDamageStream::Howitzer => target
-                            .take_damage_from_immediate_typed_death_with_repulsor_policy(
+                        HostSpectreOrbitDamageStream::Howitzer => {
+                            let owned_victim_id = target.id;
+                            let owned_damage_type =
+                                crate::game_logic::combat::DamageType::Explosive;
+                            self.apply_residual_damage_owned(
+                                owned_victim_id,
                                 hit.damage,
                                 Some(plan.source_object),
-                                crate::game_logic::combat::DamageType::Explosive,
+                                owned_damage_type,
                                 crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
-                                &mut self.health_events,
-                                &self.enable_repulsors,
-                            ),
-                        HostSpectreOrbitDamageStream::Gattling => target
-                            .take_damage_from_immediate_with_repulsor_policy(
-                                hit.damage,
-                                Some(plan.source_object),
-                                &mut self.health_events,
-                                &self.enable_repulsors,
-                            ),
+                                None,
+                            )
+                        }
+                        HostSpectreOrbitDamageStream::Gattling => {
+                            let owned_victim_id = target.id;
+                            let owned_damage_type =
+                                crate::game_logic::combat::DamageType::Unresistable;
+                            self.apply_residual_damage_owned(owned_victim_id, hit.damage, Some(plan.source_object), owned_damage_type, crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(owned_damage_type), None)
+                        }
                     };
                     total_damage += hit.damage;
                     applications += 1;
@@ -2027,15 +2043,18 @@ impl GameLogic {
                         continue;
                     }
                     // C++ ParticleUplinkCannonUpdate.cpp:633-634 module DamageType/DeathType.
-                    let killed = target
-                        .take_damage_from_immediate_typed_death_with_repulsor_policy(
+                    let killed = {
+                        let owned_victim_id = target.id;
+                        let owned_damage_type = damage_type;
+                        self.apply_residual_damage_owned(
+                            owned_victim_id,
                             hit.damage,
                             Some(plan.source_object),
-                            damage_type,
+                            owned_damage_type,
                             death_type,
-                            &mut self.health_events,
-                            &self.enable_repulsors,
-                        );
+                            None,
+                        )
+                    };
 
                     total_damage += hit.damage;
                     applications += 1;
@@ -2794,15 +2813,18 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target
-                        .take_damage_from_immediate_typed_death_with_repulsor_policy(
+                    let killed = {
+                        let owned_victim_id = target.id;
+                        let owned_damage_type = damage_type;
+                        self.apply_residual_damage_owned(
+                            owned_victim_id,
                             hit.damage,
                             Some(plan.source_object),
-                            damage_type,
+                            owned_damage_type,
                             death_type,
-                            &mut self.health_events,
-                            &self.enable_repulsors,
-                        );
+                            None,
+                        )
+                    };
 
                     total_damage += hit.damage;
                     applications += 1;

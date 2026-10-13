@@ -153,9 +153,9 @@ impl BorrowedAiWorld<'_> {
             {
                 return Ok(false);
             }
-            owner_ai.with_cur_locomotor(&mut |loco| {
-                airborne = loco.get_legal_surfaces() & crate::locomotor::SURFACE_AIR != 0
-            });
+            airborne = crate::object::contain::transport_contain::selected_locomotor_is_airborne(
+                &*owner_ai,
+            );
         }
         drop(passenger);
         if airborne {

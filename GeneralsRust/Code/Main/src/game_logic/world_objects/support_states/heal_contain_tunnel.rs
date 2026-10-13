@@ -52,7 +52,7 @@ impl GameLogic {
                     let amount =
                         tunnel_tracker_heal_amount(unit.health.maximum, contained_frames, frames);
                     if amount > 0.0 {
-                        unit.heal(amount, &mut self.health_events);
+                        unit.heal(amount, &mut self.health_events, self.frame);
                         healed = true;
                     }
                 }
@@ -109,7 +109,7 @@ impl GameLogic {
                     let amount =
                         tunnel_tracker_heal_amount(unit.health.maximum, contained_frames, frames);
                     if amount > 0.0 {
-                        unit.heal(amount, &mut self.health_events);
+                        unit.heal(amount, &mut self.health_events, self.frame);
                     }
                 }
             }
@@ -147,7 +147,7 @@ impl GameLogic {
                     let amount =
                         tunnel_tracker_heal_amount(unit.health.maximum, contained_frames, frames);
                     if amount > 0.0 {
-                        unit.heal(amount, &mut self.health_events);
+                        unit.heal(amount, &mut self.health_events, self.frame);
                         healed = true;
                     }
                 }
@@ -197,7 +197,7 @@ impl GameLogic {
                         frames as f32,
                     );
                     if amount > 0.0 {
-                        unit.heal(amount, &mut self.health_events);
+                        unit.heal(amount, &mut self.health_events, self.frame);
                     }
                 }
             }

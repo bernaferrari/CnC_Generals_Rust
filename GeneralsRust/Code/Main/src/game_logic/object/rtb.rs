@@ -381,15 +381,13 @@ impl Object {
     /// Retail JetAIUpdate OutOfAmmoDamagePerSecond = **10%**.
     pub const OUT_OF_AMMO_DAMAGE_PER_SECOND: f32 = 0.10;
 
-    /// Apply one logic-frame of out-of-ammo damage while RTB weapons are empty.
+    /// Calculate one logic-frame of out-of-ammo damage while RTB weapons are empty.
     ///
     /// C++ JetOrHeliCirclingDeadAirfieldState:
     /// `damageRate = pct * SECONDS_PER_LOGICFRAME * maxHealth`, DAMAGE_UNRESISTABLE.
-    /// Returns damage applied (0 if not eligible).
-    pub fn apply_out_of_ammo_damage_frame(
-        &mut self,
-        health_events: &mut crate::game_logic::HostHealthEvents,
-    ) -> f32 {
+    /// The receiving world applies this amount after releasing its Object loan,
+    /// so the real Body callback can immediately update that world's Player.
+    pub(crate) fn out_of_ammo_damage_amount(&self) -> f32 {
         if !self.is_alive() {
             return 0.0;
         }
@@ -414,8 +412,20 @@ impl Object {
         if dmg <= 0.0 {
             return 0.0;
         }
-        self.take_damage(dmg, health_events);
         dmg
+    }
+
+    /// Detached Object fixture adapter. Admitted aircraft use the receiving
+    /// world's Body/Player path; both share the same eligibility and amount.
+    pub fn apply_out_of_ammo_damage_frame(
+        &mut self,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) -> f32 {
+        let amount = self.out_of_ammo_damage_amount();
+        if amount > 0.0 {
+            self.take_damage(amount, health_events);
+        }
+        amount
     }
 
     /// C++ `FROM_BOUNDINGSPHERE_2D` (Weapon.cpp ATTACK_RANGE_IS_2D).

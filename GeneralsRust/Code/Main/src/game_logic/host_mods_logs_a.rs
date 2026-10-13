@@ -45,9 +45,6 @@ pub mod host_daisy_cutter_drop_log;
 pub mod host_damage_log;
 pub use host_damage_log::HostDamageEvent;
 
-#[path = "host_attacked_by_log.rs"]
-pub mod host_attacked_by_log;
-
 #[path = "host_voice_fear_log.rs"]
 pub mod host_voice_fear_log;
 

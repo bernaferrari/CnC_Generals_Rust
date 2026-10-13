@@ -673,8 +673,9 @@ fn host_heal_log_feeds_set_health_mutation() {
     let mut shadow = GameWorldShadow::new(4096);
     shadow.sync_from_host(&logic);
     {
+        let body_frame = logic.frame;
         let (o, events) = logic.host_object_and_health_events_mut(id).unwrap();
-        o.heal(30.0, events);
+        o.heal(30.0, events, body_frame);
     }
     let heals = logic.health_events.drain_heal();
     assert_eq!(heals.len(), 1);
@@ -816,8 +817,8 @@ fn residual_auto_fire_damage_source_attribution_source() {
         .expect("residual_auto_fire_apply_damage");
     let helper: String = helper.split_whitespace().collect();
     assert!(
-        helper.contains("take_damage_from_with_repulsor_policy(damage,Some(attacker_id),&mutself.health_events,&self.enable_repulsors,)"),
-        "residual auto-fire helper must source-attribute hitscan damage and borrow its world policy after FX"
+        helper.contains("apply_residual_damage_owned(receiving_damage_id,damage,Some(attacker_id),crate::game_logic::combat::DamageType::Unresistable,crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(crate::game_logic::combat::DamageType::Unresistable,),None"),
+        "residual auto-fire must forward actual damage and attacker through the receiving Body/Player operation"
     );
     for name in [
         "try_sentry_drone_residual_fire",

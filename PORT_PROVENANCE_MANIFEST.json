@@ -159085,7 +159085,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "96065dbc7a370bea46fd96faf5e50257301f730e7cd7aa833871a6d2db134adb",
+  "input_digest": "43411565c923f8690a471bef55c0f9c4f2542537ae6374587ea2327e3b4c935f",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -200903,7 +200903,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/body/active_body.rs",
-      "sha256": "eaa9fbf0dfe2c2e196c3281b4736212a7d8a12fad5b1f4ec4da1dcb78035204e",
+      "sha256": "e4b0611147b1c8260006c5c09e631c421272228e9b7dd553078fc4225b7f2de3",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -201751,11 +201751,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2557,
+        "end_line": 2573,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_contain.rs",
-      "sha256": "7394f8c98e1c074dc15f5e5003510493d98724603cb94d573813cca3e5c43921",
+      "sha256": "bc2faf70d81c625de3a3c738b24795bde4b498d56af3e4ab27f8b587c1e8f1e5",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

@@ -1388,7 +1388,7 @@ fn healing_clears_poison() {
     host_historic_bonus::set_logic_frame(5);
     let _ = o.take_damage_from_typed(10.0, None, DamageType::Toxin, &mut health_events);
     assert!(o.is_poison_tinted());
-    o.heal(5.0, &mut health_events);
+    o.heal(5.0, &mut health_events, 5);
     assert!(!o.is_poison_tinted());
 }
 

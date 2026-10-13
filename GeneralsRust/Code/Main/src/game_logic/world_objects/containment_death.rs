@@ -354,14 +354,19 @@ impl GameLogic {
             if damage_percentage > 0.0 {
                 if let Some(rider) = self.objects.get_mut(id) {
                     let damage = rider.max_health * damage_percentage;
-                    died = rider.take_damage_from_typed_death_with_repulsor_policy(
+                    let receiving_damage_id = rider.id;
+                    died = self.apply_residual_damage_owned(
+                        receiving_damage_id,
                         damage,
                         Some(container_id),
                         crate::game_logic::combat::DamageType::Unresistable,
                         crate::game_logic::host_usa_pilot::HostDeathType::Burned,
-                        &mut self.health_events,
-                        &self.enable_repulsors,
+                        None,
                     );
+                    let rider = self
+                        .objects
+                        .get_mut(&receiving_damage_id)
+                        .expect("bounded residual victim remains installed");
                     if !died && damage_percentage == 1.0 && rider.is_alive() {
                         died = rider.kill(&mut self.health_events);
                     }
