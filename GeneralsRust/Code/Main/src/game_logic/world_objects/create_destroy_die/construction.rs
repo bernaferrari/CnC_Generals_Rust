@@ -181,7 +181,7 @@ impl GameLogic {
             let player = self.players.get_mut(&player_id)?;
             // Money::withdraw clamps if onCreate changed the available cash.
             // Power is activated on completion, not bought with the scaffold.
-            player.withdraw_construction_money(cost.supplies);
+            player.withdraw_construction_money(cost.supplies, &mut self.economy_events);
         }
         {
             let object = self.objects.get_mut(&id)?;

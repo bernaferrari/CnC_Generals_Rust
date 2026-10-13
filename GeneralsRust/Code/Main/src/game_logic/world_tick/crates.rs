@@ -104,7 +104,7 @@ impl GameLogic {
             if let Some(chute) = self.objects.get_mut(&chute_id) {
                 // Force 1-slot AmericaParachute residual capacity.
                 chute.max_transport = 1;
-                chute.record_host_contain_capacity();
+
                 if !chute.enter_transport(rider_id) {
                     // Fail-closed: force occupant list even if kind gate rejects.
                     if !chute.occupants.contains(&rider_id) {
@@ -1320,7 +1320,7 @@ impl GameLogic {
         use crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
 
         if let Some(c) = self.objects.get_mut(&crawler_id) {
-            c.remove_occupant(member_id);
+            c.remove_occupant(member_id, &mut self.ownership_events);
         }
         let _ = self.unit_command_exit_via_open_contain(member_id, crawler_id);
         if let Some(unit) = self.objects.get_mut(&member_id) {
@@ -1621,7 +1621,6 @@ impl GameLogic {
         };
         if let Some(t) = self.objects.get_mut(&to_id) {
             t.name = n.clone();
-            t.record_host_identity();
         }
         if let Some(f) = self.objects.get_mut(&from_id) {
             f.name.clear();

@@ -540,24 +540,25 @@ impl HostSpecialPowerStrikeRegistry {
             // One hit entry per (target, stream); howitzer blast and gattling
             // pick are separate typed applications (C++ EXPLOSION vs GATTLING).
             let mut hits: Vec<HostSpectreOrbitDamageHit> = Vec::new();
-            let mut add_damage = |hits: &mut Vec<HostSpectreOrbitDamageHit>,
-                                  target_id: ObjectId,
-                                  damage: f32,
-                                  stream: HostSpectreOrbitDamageStream| {
-                if let Some(h) = hits
-                    .iter_mut()
-                    .find(|h| h.target_id == target_id && h.stream == stream)
-                {
-                    h.damage += damage;
-                } else {
-                    hits.push(HostSpectreOrbitDamageHit {
-                        target_id,
-                        damage,
-                        field_id: field.id,
-                        stream,
-                    });
-                }
-            };
+            let mut add_damage =
+                |hits: &mut Vec<HostSpectreOrbitDamageHit>,
+                 target_id: ObjectId,
+                 damage: f32,
+                 stream: HostSpectreOrbitDamageStream| {
+                    if let Some(h) = hits
+                        .iter_mut()
+                        .find(|h| h.target_id == target_id && h.stream == stream)
+                    {
+                        h.damage += damage;
+                    } else {
+                        hits.push(HostSpectreOrbitDamageHit {
+                            target_id,
+                            damage,
+                            field_id: field.id,
+                            stream,
+                        });
+                    }
+                };
             let mut wide_acquire_position: Option<Vec3> = None;
 
             if howitzer_due && field.howitzer_follow_ready() {

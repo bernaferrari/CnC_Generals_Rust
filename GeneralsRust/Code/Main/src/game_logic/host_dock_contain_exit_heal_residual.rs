@@ -137,7 +137,6 @@ pub fn dock_allows_passthrough(template_name: &str) -> bool {
     DOCK_DEFAULT_ALLOWS_PASSTHROUGH
 }
 
-
 /// C++ RailedTransportDockUpdateModuleData default ToleranceDistance residual.
 pub const RAILED_DOCK_DEFAULT_TOLERANCE_DISTANCE: f32 = 50.0;
 /// C++ RailedTransportDockUpdateModuleData default PullInsideDuration residual (frames).

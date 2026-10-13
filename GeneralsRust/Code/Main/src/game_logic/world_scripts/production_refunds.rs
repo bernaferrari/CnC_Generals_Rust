@@ -28,19 +28,19 @@ impl GameLogic {
 
         let mut cancelled_upgrade = None;
 
-        if let Some(player) = self.get_player_mut(player_id) {
+        if let Some((player, economy_events)) = self.player_and_economy_events_mut(player_id) {
             if item.is_upgrade() {
                 let player_id = player.id;
-                if !player.cancel_queued_upgrade(&item.template_name, &item.cost) {
+                if !player.cancel_queued_upgrade(&item.template_name, &item.cost, economy_events) {
                     // A normal queue always has the matching player state.
                     // If a restored/legacy save left only the producer entry,
                     // still refund its recorded cost rather than deleting paid
                     // research with no recovery path.
-                    player.refund_production_cost(&item.cost);
+                    player.refund_production_cost(&item.cost, economy_events);
                 }
                 cancelled_upgrade = Some((player_id, item.template_name.clone()));
             } else {
-                player.refund_production_cost(&item.cost);
+                player.refund_production_cost(&item.cost, economy_events);
             }
         }
 

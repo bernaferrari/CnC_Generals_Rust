@@ -414,3 +414,220 @@ fn actual_host_direct_drawable_is_converted_once_into_cpp_laser_coordinates() {
         (17.0, 31.0, 53.0)
     );
 }
+
+#[test]
+fn actual_classic_module_rejects_owned_services_before_any_mutation() {
+    let mut client = GameClient::new().unwrap();
+    let mut drawable = BasicDrawable::new(DrawableId::INVALID);
+    drawable.set_position(crate::drawable::Vector3::new(13.0, 29.0, 47.0));
+    drawable.add_draw_module(Box::new(
+        LogicDrawModuleSnapshotAdapter::client_update_module(
+            "ClassicLaser",
+            Box::new(LaserUpdateModule::new(
+                NameKeyGenerator::name_to_key("LaserUpdate"),
+                Arc::new(LaserUpdateModuleData::default()),
+                None,
+            )),
+        ),
+    ));
+    let id = client
+        .register_drawable_with_template(Box::new(drawable), Some("ClassicLaser".into()))
+        .unwrap();
+    let mut particles = crate::effects::particle_manager::ParticleSystemManager::new();
+    let mut random = RandomState::default();
+    let mut services = ClientLaserServices {
+        frame: 20,
+        particles: &mut particles,
+        random: &mut random,
+        effectively_dead: &|_| Ok(false),
+    };
+    let result = client.initialize_owned_laser(
+        id,
+        None,
+        None,
+        Some(Coord3D::ZERO),
+        Some(Coord3D::new(50.0, 0.0, 0.0)),
+        "",
+        -4,
+        &mut services,
+    );
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("classic LaserUpdate")
+    );
+    assert_eq!(services.particles.active_system_count(), 0);
+    assert!(
+        client
+            .owned_laser_geometry(id, &|_| Err("unexpected texture".into()), &mut |_, _| None)
+            .unwrap_err()
+            .to_string()
+            .contains("classic LaserUpdate")
+    );
+    let drawable = client.drawable_map.get_mut(&id).unwrap();
+    let position = drawable.get_position();
+    assert_eq!((position.x, position.y, position.z), (13.0, 29.0, 47.0));
+    let basic = drawable
+        .as_any_mut()
+        .downcast_mut::<BasicDrawable>()
+        .unwrap();
+    let module = basic.get_draw_modules_mut()[0]
+        .logic_module_mut()
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<LaserUpdateModule>()
+        .unwrap();
+    assert!(!module.uses_owned_services());
+    assert_eq!(module.update_mut().get_width_scale(), 1.0);
+    assert!(!module.update_mut().is_dirty());
+    assert_eq!(module.tracked_drawables().0, None);
+    assert_eq!(module.tracked_drawables().1, None);
+    assert!(client.owned_laser_order.is_empty());
+    assert_eq!(client.ray_effects.iter().count(), 0);
+}
+
+#[test]
+fn normal_template_factory_binds_one_owned_callback_without_ray_enrollment() {
+    let mut client = GameClient::new().unwrap();
+    let template = template();
+    let first = client.create_drawable_from_template(&template).unwrap();
+    let second = client.create_drawable_from_template(&template).unwrap();
+    assert_eq!(client.owned_laser_order, vec![second, first]);
+    assert_eq!(client.ray_effects.iter().count(), 0);
+    for id in [first, second] {
+        let drawable = client.drawable_map.get_mut(&id).unwrap();
+        assert_eq!(GameClient::owned_laser_count(drawable.as_mut()), 1);
+        client
+            .with_owned_laser(id, |module| {
+                assert!(module.uses_owned_services());
+                Ok(())
+            })
+            .unwrap();
+    }
+    let mut particles = crate::effects::particle_manager::ParticleSystemManager::new();
+    let mut random = RandomState::default();
+    let mut services = ClientLaserServices {
+        frame: 10,
+        particles: &mut particles,
+        random: &mut random,
+        effectively_dead: &|_| Ok(false),
+    };
+    client
+        .initialize_owned_laser(
+            first,
+            None,
+            None,
+            Some(Coord3D::ZERO),
+            Some(Coord3D::new(30.0, 0.0, 0.0)),
+            "",
+            -4,
+            &mut services,
+        )
+        .unwrap();
+    services.frame = 12;
+    client.tick_owned_lasers(&mut services).unwrap();
+    let first_geometry = client
+        .owned_laser_geometry(first, &|_| Err("no texture".into()), &mut |_, _| None)
+        .unwrap();
+    assert_eq!(first_geometry[0].width, 2.0);
+    assert_eq!(client.owned_laser_order, vec![second, first]);
+    assert_eq!(client.ray_effects.iter().count(), 0);
+}
+
+#[test]
+fn invalid_normal_laser_data_is_rejected_before_native_id_or_slot_admission() {
+    let mut client = GameClient::new().unwrap();
+    let mut malformed = ThingTemplate::new();
+    malformed.add_client_update_module_info(
+        "LaserUpdate".into(),
+        "BadLaser".into(),
+        Arc::new(W3DLaserDrawModuleData::default()),
+        ModuleInterfaceType::CLIENT_UPDATE,
+    );
+    let counter = client.get_drawable_id_counter();
+    assert!(
+        client
+            .create_drawable_from_template(&malformed)
+            .unwrap_err()
+            .to_string()
+            .contains("LaserUpdate module data type mismatch")
+    );
+    assert_eq!(client.get_drawable_id_counter(), counter);
+    assert!(client.drawable_map.is_empty());
+    assert!(client.owned_laser_order.is_empty());
+    assert_eq!(client.ray_effects.iter().count(), 0);
+}
+
+#[test]
+fn supplied_native_reset_marks_real_laser_particles_and_preserves_other_drawables() {
+    let mut template = template();
+    // Replace the template's single client bucket with an authored particle-bearing definition.
+    let mut authored = ThingTemplate::new();
+    for entry in template.get_draw_module_info().iter() {
+        authored.add_draw_module_info(
+            entry.name.clone(),
+            entry.module_tag.clone(),
+            Arc::clone(entry.data),
+            ModuleInterfaceType::DRAW,
+        );
+    }
+    authored.add_client_update_module_info(
+        "LaserUpdate".into(),
+        "Laser".into(),
+        Arc::new(LaserUpdateModuleData {
+            particle_system_name: "Lens".into(),
+            target_particle_system_name: "Target".into(),
+            ..LaserUpdateModuleData::default()
+        }),
+        ModuleInterfaceType::CLIENT_UPDATE,
+    );
+    let mut client = GameClient::new().unwrap();
+    let first = client.create_drawable_from_template(&authored).unwrap();
+    let second = client.create_drawable_from_template(&authored).unwrap();
+    let other = client
+        .register_drawable_with_template(
+            Box::new(BasicDrawable::new(DrawableId::INVALID)),
+            Some("Other".into()),
+        )
+        .unwrap();
+    let mut particles = crate::effects::particle_manager::ParticleSystemManager::new();
+    particles.new_template("Lens".into());
+    particles.new_template("Target".into());
+    let mut random = RandomState::default();
+    let mut services = ClientLaserServices {
+        frame: 17,
+        particles: &mut particles,
+        random: &mut random,
+        effectively_dead: &|_| Ok(false),
+    };
+    for id in [first, second] {
+        client
+            .initialize_owned_laser(
+                id,
+                None,
+                None,
+                Some(Coord3D::ZERO),
+                Some(Coord3D::new(30.0, 0.0, 0.0)),
+                "",
+                0,
+                &mut services,
+            )
+            .unwrap();
+    }
+    assert_eq!(services.particles.active_system_count(), 4);
+    client.reset_owned_lasers(&mut services).unwrap();
+    assert!(client.find_drawable_by_id(first).is_none());
+    assert!(client.find_drawable_by_id(second).is_none());
+    assert!(client.find_drawable_by_id(other).is_some());
+    assert!(client.owned_laser_order.is_empty());
+    assert_eq!(client.ray_effects.iter().count(), 0);
+    assert!(
+        services
+            .particles
+            .all_particle_systems()
+            .all(|system| system.is_destroyed())
+    );
+    services.particles.update(0, 18);
+    assert_eq!(services.particles.active_system_count(), 0);
+}

@@ -17,8 +17,6 @@ use super::host_structure_topple;
 #[path = "host_a10_strike_drop_log.rs"]
 pub mod host_a10_strike_drop_log;
 
-
-
 #[path = "host_ai_request_log.rs"]
 pub mod host_ai_request_log;
 
@@ -40,8 +38,6 @@ pub mod host_carpet_bomb_drop_log;
 #[path = "host_cluster_mines_drop_log.rs"]
 pub mod host_cluster_mines_drop_log;
 
-
-
 #[path = "host_daisy_cutter_drop_log.rs"]
 pub mod host_daisy_cutter_drop_log;
 
@@ -58,65 +54,36 @@ pub mod host_voice_fear_log;
 #[path = "host_death_type_log.rs"]
 pub mod host_death_type_log;
 
-
 #[path = "host_attack_log.rs"]
 pub mod host_attack_log;
-
-
-
 
 #[path = "host_building_type_log.rs"]
 pub mod host_building_type_log;
 
-
-
-
 #[path = "host_command_set_log.rs"]
 pub mod host_command_set_log;
-
 
 #[path = "host_construction_log.rs"]
 pub mod host_construction_log;
 
-#[path = "host_contain_capacity_log.rs"]
-pub mod host_contain_capacity_log;
-
-#[path = "host_contain_log.rs"]
-pub mod host_contain_log;
-
-
 #[path = "host_continuous_fire_log.rs"]
 pub mod host_continuous_fire_log;
-
 
 #[path = "host_crush_vision_log.rs"]
 pub mod host_crush_vision_log;
 
-
-
 #[path = "host_demo_mine_cheer_log.rs"]
 pub mod host_demo_mine_cheer_log;
-
 
 #[path = "host_destroy_log.rs"]
 pub mod host_destroy_log;
 
-
-#[path = "host_detector_log.rs"]
-pub mod host_detector_log;
-
-
 #[path = "host_disable_timers_log.rs"]
 pub mod host_disable_timers_log;
 
-
-#[path = "host_disguise_log.rs"]
-pub mod host_disguise_log;
-
-
 #[path = "host_economy_log.rs"]
 pub mod host_economy_log;
-pub use host_economy_log::{HostEconomyEvent, drain as drain_host_economy_events};
+pub use host_economy_log::HostEconomyEvent;
 
 #[path = "host_actively_constructing_log.rs"]
 pub mod host_actively_constructing_log;

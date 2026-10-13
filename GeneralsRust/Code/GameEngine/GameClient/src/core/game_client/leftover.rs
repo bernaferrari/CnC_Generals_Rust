@@ -200,8 +200,16 @@ impl GameClient {
             }
         }
 
+        let native_lasers = Self::owned_laser_count(drawable.as_mut());
+        if native_lasers > 1 {
+            return Err(GameClientError::InvalidOperation(
+                "multiple owned LaserUpdate callbacks require an explicit native update domain"
+                    .into(),
+            ));
+        }
         let id = self.alloc_drawable_id();
         drawable.set_id(id);
+        Self::bind_owned_laser_module(drawable.as_mut(), id);
 
         let object_id = drawable.get_object_id();
         if let Some(object_id) = object_id {
@@ -223,6 +231,10 @@ impl GameClient {
             }
         }
         self.drawable_map.insert(id, drawable);
+        if native_lasers == 1 {
+            // GameClient.cpp480 prepends actual Drawables, independently of RayEffect bookkeeping.
+            self.owned_laser_order.insert(0, id);
+        }
         if let Some(object_id) = object_id {
             self.drawable_object_map.insert(object_id, id);
         }
@@ -236,14 +248,27 @@ impl GameClient {
         template: &ThingTemplate,
     ) -> GameClientResult<DrawableId> {
         let mut drawable = BasicDrawable::new(DrawableId::INVALID);
-        for module in Self::create_snapshot_modules_from_template(template) {
+        for module in Self::create_snapshot_modules_from_template(template)? {
             drawable.add_draw_module(module);
         }
         let drawable: Box<dyn Drawable> = Box::new(drawable);
         self.register_drawable_with_template(drawable, Some(template.get_name().to_string()))
     }
 
-    fn create_snapshot_modules_from_template(template: &ThingTemplate) -> Vec<Box<dyn DrawModule>> {
+    fn create_snapshot_modules_from_template(
+        template: &ThingTemplate,
+    ) -> GameClientResult<Vec<Box<dyn DrawModule>>> {
+        if template
+            .get_client_update_module_info()
+            .iter()
+            .filter(|entry| entry.name.as_str() == "LaserUpdate")
+            .count()
+            > 1
+        {
+            return Err(GameClientError::InvalidOperation(
+                "multiple authored LaserUpdate callbacks are not admitted".into(),
+            ));
+        }
         let mut snapshot_modules: Vec<Box<dyn DrawModule>> = Vec::new();
 
         for entry in template.get_draw_module_info().iter() {
@@ -418,6 +443,16 @@ impl GameClient {
             let module_name_key = NameKeyGenerator::name_to_key(entry.name.as_str());
 
             match entry.name.as_str() {
+                "LaserUpdate" => {
+                    let module =
+                        Self::make_owned_laser_module(module_name_key, entry.data.as_ref())?;
+                    snapshot_modules.push(Box::new(
+                        LogicDrawModuleSnapshotAdapter::client_update_module(
+                            identifier,
+                            Box::new(module),
+                        ),
+                    ));
+                }
                 "BeaconClientUpdate" => {
                     if let Some(module) = BeaconClientUpdateModule::from_module_data(
                         module_name_key,
@@ -460,7 +495,7 @@ impl GameClient {
             }
         }
 
-        snapshot_modules
+        Ok(snapshot_modules)
     }
 
     /// Finds a drawable by its ID
@@ -616,7 +651,11 @@ impl GameClient {
     /// Sets the local player identifier used for command routing.
     pub fn set_local_player_id(&mut self, player_id: i32) {
         self.local_player_id = player_id;
-        set_local_player_id(player_id);
+        // Only the admitted application client publishes the input scalar.
+        // Detached worlds and load candidates update their own field only.
+        if owns_live_game_client_slot(self) {
+            set_local_player_id(player_id);
+        }
     }
 
     /// Gets the current frame number
@@ -1446,33 +1485,20 @@ impl GameClient {
     // Private implementation methods
 
     fn alloc_drawable_id(&mut self) -> DrawableId {
-        let global_next = GLOBAL_NEXT_DRAWABLE_ID.load(Ordering::Relaxed).max(1);
-        if self.next_drawable_id.0 < global_next {
-            self.next_drawable_id = DrawableId(global_next);
-        }
+        // GameClient.cpp461-467: allocation advances this client's counter.
+        // Another client, including a detached load candidate, cannot reserve
+        // IDs in this one. The unsigned increment deliberately wraps as in C++.
         let id = self.next_drawable_id;
-        let next = self.next_drawable_id.0.saturating_add(1).max(1);
-        self.next_drawable_id = DrawableId(next);
-        GLOBAL_NEXT_DRAWABLE_ID.fetch_max(next, Ordering::Relaxed);
+        self.next_drawable_id = DrawableId(id.0.wrapping_add(1));
         id
     }
 
     fn get_drawable_id_counter(&self) -> u32 {
-        self.next_drawable_id.0.max(1)
+        self.next_drawable_id.0
     }
 
     fn set_drawable_id_counter(&mut self, next_drawable_id: u32) {
-        let normalized = next_drawable_id.max(1);
-        self.next_drawable_id = DrawableId(normalized);
-        GLOBAL_NEXT_DRAWABLE_ID.fetch_max(normalized, Ordering::Relaxed);
-    }
-
-    fn global_drawable_id_counter() -> u32 {
-        GLOBAL_NEXT_DRAWABLE_ID.load(Ordering::Relaxed).max(1)
-    }
-
-    fn set_global_drawable_id_counter(next_drawable_id: u32) {
-        GLOBAL_NEXT_DRAWABLE_ID.store(next_drawable_id.max(1), Ordering::Relaxed);
+        self.next_drawable_id = DrawableId(next_drawable_id);
     }
 
     /// Pull this world's DRAWABLE_STATE objectless rows into this archive so
@@ -1791,6 +1817,7 @@ impl Snapshotable for GameClient {
                             created_id.0
                         )
                     })?;
+                    self.owned_laser_order.retain(|owner| *owner != created_id);
                     if object_id != INVALID_ID {
                         created.set_object_id(Some(object_id));
                     }
@@ -1803,6 +1830,15 @@ impl Snapshotable for GameClient {
                 let id = drawable.get_id();
                 if let Some(object_id) = drawable.get_object_id() {
                     self.drawable_object_map.insert(object_id, id);
+                }
+                let native_lasers = Self::owned_laser_count(drawable.as_mut());
+                if native_lasers > 1 {
+                    return Err("multiple owned LaserUpdate callbacks in restored drawable".into());
+                }
+                Self::bind_owned_laser_module(drawable.as_mut(), id);
+                self.owned_laser_order.retain(|owner| *owner != id);
+                if native_lasers == 1 {
+                    self.owned_laser_order.insert(0, id);
                 }
                 self.drawable_map.insert(id, drawable);
 

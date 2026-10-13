@@ -14,7 +14,11 @@ pub trait CommandableObject {
     fn provides_repair(&self) -> bool;
     fn provides_healing(&self) -> bool;
     fn has_capacity_for(&self, other: &Object) -> bool;
-    fn set_target(&mut self, target: Option<ObjectId>);
+    fn set_target(
+        &mut self,
+        target: Option<ObjectId>,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+    );
     fn set_target_location(&mut self, location: Option<Vec3>);
     fn set_guard_position(&mut self, position: Option<Vec3>);
     fn set_guard_target(&mut self, target: Option<ObjectId>);
@@ -86,8 +90,12 @@ impl CommandableObject for Object {
         Object::has_capacity_for(self, 1)
     }
 
-    fn set_target(&mut self, target: Option<ObjectId>) {
-        Object::set_target(self, target);
+    fn set_target(
+        &mut self,
+        target: Option<ObjectId>,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+    ) {
+        Object::set_target(self, target, attack_events);
     }
 
     fn set_target_location(&mut self, location: Option<Vec3>) {

@@ -331,7 +331,6 @@ struct PresentationSpecializedDrawModule {
     debris_frames: u32,
     debris_anim_time: f32,
     model_name: String,
-    scene_line_id: Option<game_engine::common::system::scene_submission::SceneLineId>,
     science_hidden: bool,
 }
 
@@ -357,7 +356,6 @@ impl PresentationSpecializedDrawModule {
             debris_anim_time: 0.0,
             model_name,
             science_hidden: false,
-            scene_line_id: None,
         }
     }
 
@@ -419,7 +417,6 @@ impl PresentationSpecializedDrawModule {
         if self.kind == PresentationSpecializedDrawKind::Laser {
             // C++ W3DLaserDraw.h getLaserTemplateWidth = m_outerBeamWidth * 0.5.
             self.laser_width = DEFAULT_LASER_OUTER_BEAM_WIDTH * 0.5;
-            self.publish_laser_line(e);
         }
         let visual = if e.visual_template_name.is_empty() {
             e.template_name.as_str()
@@ -470,38 +467,7 @@ impl PresentationSpecializedDrawModule {
         }
     }
 
-    fn publish_laser_line(&mut self, e: &PresentationDrawableSync) {
-        use game_engine::common::system::geometry::Coord3D;
-        use game_engine::common::system::scene_submission::SceneLineDesc;
-        use gamelogic::helpers::{submit_scene_line, update_scene_line};
 
-        let start = Coord3D::new(e.position[0], e.position[1], e.position[2]);
-        let heading = e.orientation;
-        let end = Coord3D::new(
-            e.position[0] + heading.cos() * 8.0,
-            e.position[1] + heading.sin() * 8.0,
-            e.position[2],
-        );
-        let desc = SceneLineDesc {
-            start,
-            end,
-            width: self.laser_width.max(DEFAULT_LASER_OUTER_BEAM_WIDTH * 0.5),
-            color_r: 1.0,
-            color_g: 0.2,
-            color_b: 0.2,
-            opacity: 1.0,
-            texture_name: None,
-            tile_factor: 1.0,
-            scroll_rate: 0.0,
-            visible: true,
-        };
-        match self.scene_line_id {
-            None => {
-                self.scene_line_id = submit_scene_line(e.object_id, &desc);
-            }
-            Some(id) => update_scene_line(id, &desc),
-        }
-    }
 }
 
 impl DrawModule for PresentationSpecializedDrawModule {
@@ -584,7 +550,14 @@ fn attach_factory_snapshot_modules(drawable: &mut BasicDrawable, template_name: 
     let Some(template) = factory.find_template(template_name, false) else {
         return;
     };
-    for module in GameClient::create_snapshot_modules_from_template(template.as_ref()) {
+    let modules = match GameClient::create_snapshot_modules_from_template(template.as_ref()) {
+        Ok(modules) => modules,
+        Err(error) => {
+            log::error!("Authored presentation modules rejected for {template_name}: {error}");
+            return;
+        }
+    };
+    for module in modules {
         drawable.add_draw_module(module);
     }
 }

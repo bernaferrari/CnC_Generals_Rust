@@ -25,8 +25,6 @@ impl Object {
             self.health.current = crate::game_logic::host_battle_bus::BATTLE_BUS_MAX_HEALTH;
         }
         self.record_host_weapon_set();
-        self.record_host_contain_capacity();
-        self.record_host_stealth_flags();
     }
 
     /// True when this vehicle is a Battle Bus residual transport.

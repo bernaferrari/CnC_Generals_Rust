@@ -1992,12 +1992,7 @@ mod staged_restore_tests {
         crate::game_logic::host_spawn_log::record(object, label.to_string(), 7, [1.0, 2.0, 3.0]);
         crate::game_logic::host_ground_height_log::record(object, 7.0, true);
         crate::game_logic::host_model_mesh_log::record(object, label, 1.25);
-        crate::game_logic::host_kind_of_log::record(object, 0x55aa_1234);
-        crate::game_logic::host_identity_log::record(
-            object,
-            label.to_string(),
-            [0.25, 0.5, 0.75, 1.0],
-        );
+
         crate::game_logic::host_movement_log::record(
             object,
             glam::Vec3::new(1.0, 2.0, 3.0),
@@ -2021,60 +2016,22 @@ mod staged_restore_tests {
             Some(13),
         );
         crate::game_logic::host_demo_mine_cheer_log::record(object, true, true, 14.0);
-        crate::game_logic::host_detector_log::record(object, true, 15.0, 16);
-        crate::game_logic::host_overlord_log::record(object, true, false, 17, false);
-        crate::game_logic::host_stealth_flags_log::record(
-            crate::game_logic::host_stealth_flags_log::HostStealthFlagsEvent {
-                object,
-                innate_stealth: true,
-                stealth_breaks_on_attack: false,
-                stealth_breaks_on_move: true,
-                is_tunnel_network: false,
-                passengers_allowed_to_fire: true,
-            },
-        );
+
         crate::game_logic::host_hive_log::record(object, 18, 19.0);
         crate::game_logic::host_weapon_set_log::record(object, true, false);
-        crate::game_logic::host_contain_capacity_log::record(object, 20, 21);
-        crate::game_logic::host_status_log::record_selected(object, true);
-        crate::game_logic::host_special_power_log::record(object, false, 22.0, 23.0, true);
-        crate::game_logic::host_player_cooldown_log::record(
-            24,
-            vec![(format!("{label}-cooldown"), 25.0)],
-        );
+
         crate::game_logic::host_stored_supplies_log::record(object, 26);
-        crate::game_logic::host_contain_log::record_contained_by(
-            object,
-            Some(crate::game_logic::ObjectId(0x00ff_ee13)),
-        );
+
         crate::game_logic::host_locomotor_log::record(
             object, false, false, true, false, true, false, 29.0, 30.0, true, false, 31.0, 32.0,
             33.0, 34, 35, 36.0, -1,
         );
-        crate::game_logic::host_combat_attack_log::record(
-            object,
-            37,
-            38.0,
-            39,
-            40,
-            41,
-            42,
-            43,
-            true,
-            Some([44.0, 45.0, 46.0]),
-            47,
-            48.0,
-        );
-
-        crate::game_logic::host_target_location_log::record(object, Some([49.0, 50.0, 51.0]));
-        crate::game_logic::host_ai_decision_log::record_set_state(object, 14);
         crate::game_logic::host_command_set_log::record(
             object,
             Some(format!("{label}-command-set")),
         );
         crate::game_logic::host_continuous_fire_log::record(object, 52, 53, 54);
-        crate::game_logic::host_player_meta_log::record_sciences(55, [format!("{label}-science")]);
-        crate::game_logic::host_player_progress_log::record(56, 57, 58, 59, 60.0);
+
         crate::game_logic::host_max_health_log::record(object, 61.0);
         crate::game_logic::host_building_type_log::record(object, true, 12);
         crate::game_logic::host_physics_motive_log::record(

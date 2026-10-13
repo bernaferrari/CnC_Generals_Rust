@@ -147,9 +147,10 @@ impl HostFireWeaponWhenDamagedData {
         let state = host_calc_body_damage_state(health, max_health);
         let name = self.weapon_for_state(state, false)?.to_string();
         // C++ getStatus()==READY_TO_FIRE. DelayBetweenShots 0 stays ready every hit.
-        let reload = crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_nominal(&name)
-            .map(|secs| (secs * 30.0).round() as u32)
-            .unwrap_or(0);
+        let reload =
+            crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_nominal(&name)
+                .map(|secs| (secs * 30.0).round() as u32)
+                .unwrap_or(0);
         if reload > 0
             && self.last_reaction_frame != 0
             && current_frame.saturating_sub(self.last_reaction_frame) < reload

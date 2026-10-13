@@ -185,6 +185,9 @@ impl LaserUpdateModule {
             update,
         }
     }
+    pub fn uses_owned_services(&self) -> bool {
+        self.update.external_particle_lifetime
+    }
     pub fn requires_owned_particle_retirement(&self) -> bool {
         self.update.external_particle_lifetime
             && (self.update.particle_system_id.is_some()

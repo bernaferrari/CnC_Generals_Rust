@@ -102,17 +102,17 @@ fn authored_deposit_emits_money_audio_once_and_neutral_emits_none() {
         || {
             use crate::game_logic::host_economy_log::{self, HostMoneyAudio, HostMoneyAudioEvent};
             let mut world = configured(12_500);
-            host_economy_log::take_money_audio();
+            world.economy_events.take_money_audio();
             let id = prepare(&mut world, &rows("Civilian", Some(700)));
             assert_eq!(
-                host_economy_log::take_money_audio(),
+                world.economy_events.take_money_audio(),
                 vec![HostMoneyAudioEvent {
                     player_id: id,
                     kind: HostMoneyAudio::Deposit
                 }]
             );
             prepare(&mut world, &rows("Civilian", Some(0)));
-            assert!(host_economy_log::take_money_audio().is_empty());
+            assert!(world.economy_events.take_money_audio().is_empty());
         },
     );
 }

@@ -306,7 +306,7 @@ impl GameLogic {
                         // Dead-man trigger residual — detonate after this borrow ends.
                         bomb_detonate_ids.push(id);
                     } else {
-                        obj.apply_kill_pilot_unmanned();
+                        obj.apply_kill_pilot_unmanned(&mut self.health_events);
                         // C++ NeutonBlastBehavior.cpp:124-127 neutronBlastToObject:
                         //   getAI()->aiIdle(CMD_FROM_AI);
                         //   TheGameLogic->deselectObject(obj, PLAYERMASK_ALL, TRUE);
@@ -335,7 +335,7 @@ impl GameLogic {
         for (container_id, occupants) in contain_pairs {
             if let Some(container) = self.objects.get_mut(&container_id) {
                 for &occ_id in &occupants {
-                    container.remove_occupant(occ_id);
+                    container.remove_occupant(occ_id, &mut self.ownership_events);
                 }
             }
             for occ_id in occupants {

@@ -5,14 +5,12 @@ impl Object {
         if self.is_selectable() {
             self.selected = true;
             self.status.selected = true;
-            crate::game_logic::host_status_log::record_selected(self.id, true);
         }
     }
 
     pub fn deselect(&mut self) {
         self.selected = false;
         self.status.selected = false;
-        crate::game_logic::host_status_log::record_selected(self.id, false);
     }
 
     /// C++ `Drawable::m_hidden || m_hiddenByStealth`.
@@ -43,7 +41,6 @@ impl Object {
     /// Host combat residual: mark attacking and log for GameWorld status channel.
     pub fn set_status_attacking(&mut self, attacking: bool) {
         self.status.attacking = attacking;
-        crate::game_logic::host_status_log::record_attacking(self.id, attacking);
     }
 
     /// Host weapon fire residual + status channel log.
@@ -52,25 +49,21 @@ impl Object {
         if firing {
             self.blow_defector_cover();
         }
-        crate::game_logic::host_status_log::record_firing(self.id, firing);
     }
 
     /// Host weapon aim residual + status channel log.
     pub fn set_status_aiming_weapon(&mut self, aiming: bool) {
         self.status.is_aiming_weapon = aiming;
-        crate::game_logic::host_status_log::record_aiming(self.id, aiming);
     }
 
     /// Host stealth residual + status channel log.
     pub fn set_status_stealthed(&mut self, stealthed: bool) {
         self.status.stealthed = stealthed;
-        crate::game_logic::host_status_log::record_stealthed(self.id, stealthed);
     }
 
     /// Host detection residual + status channel log.
     pub fn set_status_detected(&mut self, detected: bool) {
         self.status.detected = detected;
-        crate::game_logic::host_status_log::record_detected(self.id, detected);
     }
 
     /// Host EMP disable residual + status channel log.
@@ -78,13 +71,11 @@ impl Object {
         let was_disabled = self.is_disabled();
         self.status.disabled_emp = disabled;
         self.note_disabled_status_transition(was_disabled);
-        crate::game_logic::host_status_log::record_disabled_emp(self.id, disabled);
     }
 
     /// Host weapon jam residual + status channel log.
     pub fn set_status_weapons_jammed(&mut self, jammed: bool) {
         self.status.weapons_jammed = jammed;
-        crate::game_logic::host_status_log::record_weapons_jammed(self.id, jammed);
     }
 
     pub fn set_status_moving(&mut self, moving: bool) {
@@ -103,7 +94,6 @@ impl Object {
                 self.model_condition_bits &= !dock_mask;
             }
         }
-        crate::game_logic::host_status_log::record_moving(self.id, moving);
     }
 
     /// Clears `MODELCONDITION_MOVING` only. Does not touch `status.moving`.
@@ -171,28 +161,24 @@ impl Object {
         let was_disabled = self.is_disabled();
         self.status.disabled_hacked = v;
         self.note_disabled_status_transition(was_disabled);
-        crate::game_logic::host_status_log::record_disabled_hacked(self.id, v);
     }
 
     pub fn set_status_disabled_unmanned(&mut self, v: bool) {
         let was_disabled = self.is_disabled();
         self.status.disabled_unmanned = v;
         self.note_disabled_status_transition(was_disabled);
-        crate::game_logic::host_status_log::record_disabled_unmanned(self.id, v);
     }
 
     pub fn set_status_disabled_paralyzed(&mut self, v: bool) {
         let was_disabled = self.is_disabled();
         self.status.disabled_paralyzed = v;
         self.note_disabled_status_transition(was_disabled);
-        crate::game_logic::host_status_log::record_disabled_paralyzed(self.id, v);
     }
 
     pub fn set_status_disabled_subdued(&mut self, v: bool) {
         let was_disabled = self.is_disabled();
         self.status.disabled_subdued = v;
         self.note_disabled_status_transition(was_disabled);
-        crate::game_logic::host_status_log::record_disabled_subdued(self.id, v);
     }
 
     /// C++ Object::setStatus / clearStatus residual via StatusBitsUpgrade.
@@ -469,7 +455,7 @@ impl Object {
     /// C++ `Object::maskObject`: change this object's MASKED bit and deselect.
     pub fn set_status_masked(&mut self, v: bool) {
         self.status.masked = v;
-        crate::game_logic::host_status_log::record_masked(self.id, v);
+
         if v {
             self.deselect();
         }
@@ -477,69 +463,55 @@ impl Object {
 
     pub fn set_status_disguised(&mut self, v: bool) {
         self.status.disguised = v;
-        crate::game_logic::host_status_log::record_disguised(self.id, v);
     }
     pub fn set_status_no_collisions(&mut self, v: bool) {
         self.status.no_collisions = v;
-        crate::game_logic::host_status_log::record_no_collisions(self.id, v);
     }
 
     pub fn set_status_private_captured(&mut self, v: bool) {
         self.status.private_captured = v;
-        crate::game_logic::host_status_log::record_private_captured(self.id, v);
     }
 
     pub fn set_status_disguise_transitioning_to(&mut self, v: bool) {
         self.status.disguise_transitioning_to = v;
-        crate::game_logic::host_status_log::record_disguise_transitioning_to(self.id, v);
     }
 
     pub fn set_status_disguise_halfpoint_reached(&mut self, v: bool) {
         self.status.disguise_halfpoint_reached = v;
-        crate::game_logic::host_status_log::record_disguise_halfpoint_reached(self.id, v);
     }
 
     pub fn set_status_faerie_fire(&mut self, v: bool) {
         self.status.faerie_fire = v;
-        crate::game_logic::host_status_log::record_faerie_fire(self.id, v);
     }
 
     pub fn set_status_booby_trapped(&mut self, v: bool) {
         self.status.booby_trapped = v;
-        crate::game_logic::host_status_log::record_booby_trapped(self.id, v);
     }
 
     pub fn set_status_eject_invulnerable(&mut self, v: bool) {
         self.status.eject_invulnerable = v;
-        crate::game_logic::host_status_log::record_eject_invulnerable(self.id, v);
     }
 
     pub fn set_status_pilot_did_move_to_base(&mut self, v: bool) {
         self.status.pilot_did_move_to_base = v;
-        crate::game_logic::host_status_log::record_pilot_did_move_to_base(self.id, v);
     }
 
     pub fn set_status_parachuting(&mut self, v: bool) {
         self.status.parachuting = v;
-        crate::game_logic::host_status_log::record_parachuting(self.id, v);
     }
 
     pub fn set_status_parachute_open(&mut self, v: bool) {
         self.status.parachute_open = v;
-        crate::game_logic::host_status_log::record_parachute_open(self.id, v);
     }
 
     pub fn set_status_parachute_landing_override_set(&mut self, v: bool) {
         self.status.parachute_landing_override_set = v;
-        crate::game_logic::host_status_log::record_parachute_landing_override_set(self.id, v);
     }
     pub fn set_status_using_ability(&mut self, v: bool) {
         self.status.using_ability = v;
-        crate::game_logic::host_status_log::record_using_ability(self.id, v);
     }
     pub fn set_status_deployed(&mut self, v: bool) {
         self.status.deployed = v;
-        crate::game_logic::host_status_log::record_deployed(self.id, v);
     }
     pub fn set_status_under_construction(&mut self, v: bool) {
         if v && !self.status.under_construction {
@@ -549,28 +521,21 @@ impl Object {
             crate::game_logic::host_status_log::request_under_construction_mine_sweep(self.id);
         }
         self.status.under_construction = v;
-        crate::game_logic::host_status_log::record_under_construction(self.id, v);
     }
     pub fn set_status_sold(&mut self, v: bool) {
         self.status.sold = v;
-        crate::game_logic::host_status_log::record_sold(self.id, v);
     }
     pub fn set_status_reconstructing(&mut self, v: bool) {
         self.status.reconstructing = v;
-        crate::game_logic::host_status_log::record_reconstructing(self.id, v);
     }
     pub fn set_status_unselectable(&mut self, v: bool) {
         self.status.unselectable = v;
-        crate::game_logic::host_status_log::record_unselectable(self.id, v);
     }
     pub fn set_status_ignoring_stealth(&mut self, v: bool) {
         self.status.ignoring_stealth = v;
-        crate::game_logic::host_status_log::record_ignoring_stealth(self.id, v);
     }
     pub fn set_status_repulsor(&mut self, v: bool) {
         self.status.repulsor = v;
-        crate::game_logic::host_status_log::record_repulsor(self.id, v);
-        crate::game_logic::host_repulsor_log::record(self.id, v, self.repulsor_until_frame);
     }
 
     /// Arm temporary repulsor helper countdown (C++ ObjectRepulsorHelper residual).
@@ -582,25 +547,20 @@ impl Object {
         let was_disabled = self.is_disabled();
         self.status.disabled_underpowered = v;
         self.note_disabled_status_transition(was_disabled);
-        crate::game_logic::host_status_log::record_disabled_underpowered(self.id, v);
     }
     pub fn set_status_disabled_freefall(&mut self, v: bool) {
         let was_disabled = self.is_disabled();
         self.status.disabled_freefall = v;
         self.note_disabled_status_transition(was_disabled);
-        crate::game_logic::host_status_log::record_disabled_freefall(self.id, v);
     }
     pub fn set_status_is_carbomb(&mut self, v: bool) {
         self.status.is_carbomb = v;
-        crate::game_logic::host_status_log::record_is_carbomb(self.id, v);
     }
     pub fn set_status_hijacked(&mut self, v: bool) {
         self.status.hijacked = v;
-        crate::game_logic::host_status_log::record_hijacked(self.id, v);
     }
     pub fn set_status_force_attack(&mut self, v: bool) {
         self.force_attack = v;
-        crate::game_logic::host_status_log::record_force_attack(self.id, v);
     }
 
     pub fn record_host_continuous_fire(&self) {
@@ -610,15 +570,6 @@ impl Object {
             self.continuous_fire_level,
             consecutive,
             self.continuous_fire_coast_until_frame,
-        );
-    }
-
-    pub fn record_host_detector(&self) {
-        crate::game_logic::host_detector_log::record(
-            self.id,
-            self.is_detector,
-            self.detection_range,
-            self.detection_rate_frames,
         );
     }
 
@@ -636,7 +587,6 @@ impl Object {
             self.is_detector = is_detector;
             self.detection_range = detection_range;
             self.detection_rate_frames = detection_rate_frames;
-            self.record_host_detector();
         }
         if self.is_detector {
             self.apply_leftover_extra_detect_kindof();
@@ -669,7 +619,6 @@ impl Object {
                 crate::game_logic::host_strategy_center::stealth_detector_rate_frames_for_template(
                     &self.template_name,
                 );
-            self.record_host_detector();
         }
         self.apply_leftover_extra_detect_kindof();
         self.next_detection_scan_frame =
@@ -678,8 +627,6 @@ impl Object {
                 frame,
             );
     }
-
-
 
     pub fn record_host_hijacker(&self) {
         crate::game_logic::host_hijacker_log::record(
@@ -757,8 +704,6 @@ impl Object {
         );
     }
 
-
-
     pub fn record_host_stealth_delay(&self) {
         crate::game_logic::host_stealth_delay_log::record(
             self.id,
@@ -799,21 +744,12 @@ impl Object {
         );
     }
 
-    pub fn record_host_entity_power(&self) {
-        crate::game_logic::host_entity_power_log::record(
-            self.id,
-            self.power_provided,
-            self.power_consumed,
-        );
-    }
-
     pub fn set_entity_power(&mut self, provided: i32, consumed: i32) {
         let provided = provided.max(0);
         let consumed = consumed.max(0);
         if self.power_provided != provided || self.power_consumed != consumed {
             self.power_provided = provided;
             self.power_consumed = consumed;
-            self.record_host_entity_power();
         }
     }
 
@@ -927,16 +863,6 @@ impl Object {
         }
     }
 
-    pub fn record_host_special_power(&self) {
-        crate::game_logic::host_special_power_log::record(
-            self.id,
-            self.special_power_ready,
-            self.special_power_cooldown_remaining,
-            self.special_power_cooldown,
-            self.is_disabled(),
-        );
-    }
-
     pub fn set_special_power_ready(&mut self, ready: bool) {
         self.special_power_ready = ready;
         if ready {
@@ -948,7 +874,6 @@ impl Object {
             // (SpecialPowerModule.cpp:86-94) could never cast at frame 0.
             self.special_power_cooldowns.clear();
         }
-        self.record_host_special_power();
     }
 
     pub fn set_stored_supplies(&mut self, supplies: u32) {

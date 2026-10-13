@@ -226,7 +226,7 @@ impl GameLogic {
             .get(&host_id)
             .and_then(|host| host.owner_player_id);
         if let Some(addon) = self.objects.get_mut(&addon_id) {
-            addon.set_team_and_owner(new_team, owner);
+            addon.set_team_and_owner(new_team, owner, &mut self.ownership_events);
         }
         self.attach_overlord_portable_occupant(host_id, addon_id);
         Some(addon_id)

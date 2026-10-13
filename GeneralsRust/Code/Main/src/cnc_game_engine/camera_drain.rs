@@ -1693,7 +1693,7 @@ impl CnCGameEngine {
         }
         let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
         let local_id = self.current_player_id;
-        if with_victory {
+        let mut frame = if with_victory {
             crate::presentation_frame::PresentationFrame::build_with_victory_for_engine_with_runtime_heightmap(
                 &mut self.game_logic,
                 local_id,
@@ -1707,7 +1707,38 @@ impl CnCGameEngine {
                 self.gameworld_shadow.as_ref(),
                 runtime_heightmap,
             )
+        };
+        #[cfg(feature = "game_client")]
+        {
+            // The asset cache is a native service shared with loader workers;
+            // only immutable authored texture dimensions cross this boundary.
+            let texture_store = crate::assets::get_asset_manager();
+            let texture_aspect = |name: &str| -> Result<f32, String> {
+                let mut manager = texture_store
+                    .as_ref()
+                    .ok_or_else(|| format!("laser texture service unavailable: {name}"))?
+                    .lock()
+                    .map_err(|_| "laser texture service poisoned".to_string())?;
+                if manager.get_raw_texture(name).is_none() {
+                    manager.prime_texture_raw_blocking(name);
+                }
+                let texture = manager
+                    .get_raw_texture(name)
+                    .filter(|texture| texture.width > 0 && texture.height > 0)
+                    .ok_or_else(|| format!("authored laser texture not resident: {name}"))?;
+                Ok(texture.width as f32 / texture.height as f32)
+            };
+            let logic = &self.game_logic;
+            match crate::presentation_frame::freeze_owned_laser_scene_lines(
+                &mut self.game_client,
+                &texture_aspect,
+                &mut |x, y| logic.terrain_height_at(glam::Vec3::new(x, 0.0, y)),
+            ) {
+                Ok(lines) => frame.scene_lines.extend(lines),
+                Err(error) => log::warn!("receiving laser geometry unavailable: {error}"),
+            }
         }
+        frame
     }
 
     pub(super) fn host_seed_presentation_after_match_start(&mut self) {

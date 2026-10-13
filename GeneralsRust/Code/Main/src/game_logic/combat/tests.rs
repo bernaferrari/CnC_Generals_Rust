@@ -111,6 +111,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn retail_dumb_projectile_expiry_detonates_through_pending_host_path() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let mut combat = CombatSystem::new();
@@ -142,11 +144,21 @@ pub(in crate::game_logic) mod tests {
         );
 
         for _ in 0..299 {
-            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+            let _ = combat.update_projectiles(
+                1.0 / 30.0,
+                &mut objects,
+                &mut health_events,
+                &mut _ownership_output,
+            );
             assert_eq!(combat.projectile_count(), 1);
             assert!(combat.take_impact_fx().is_empty());
         }
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         assert_eq!(combat.projectile_count(), 0);
         let impacts = combat.take_impact_fx();
         assert_eq!(impacts.len(), 1);
@@ -159,6 +171,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn retail_missile_fuel_detonation_and_target_loss_use_distinct_authored_paths() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -178,12 +192,21 @@ pub(in crate::game_logic) mod tests {
         );
         drain_pending_projectiles(&mut fuel_combat, &fuel_objects, 0);
         for _ in 0..10 {
-            let _ =
-                fuel_combat.update_projectiles(1.0 / 30.0, &mut fuel_objects, &mut health_events);
+            let _ = fuel_combat.update_projectiles(
+                1.0 / 30.0,
+                &mut fuel_objects,
+                &mut health_events,
+                &mut _ownership_output,
+            );
             assert_eq!(fuel_combat.projectile_count(), 1);
             assert!(fuel_combat.take_impact_fx().is_empty());
         }
-        let _ = fuel_combat.update_projectiles(1.0 / 30.0, &mut fuel_objects, &mut health_events);
+        let _ = fuel_combat.update_projectiles(
+            1.0 / 30.0,
+            &mut fuel_objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         assert_eq!(
             fuel_combat.projectile_count(),
             1,
@@ -191,12 +214,21 @@ pub(in crate::game_logic) mod tests {
         );
         assert_eq!(fuel_combat.take_impact_fx().len(), 1);
         for _ in 0..2 {
-            let _ =
-                fuel_combat.update_projectiles(1.0 / 30.0, &mut fuel_objects, &mut health_events);
+            let _ = fuel_combat.update_projectiles(
+                1.0 / 30.0,
+                &mut fuel_objects,
+                &mut health_events,
+                &mut _ownership_output,
+            );
             assert_eq!(fuel_combat.projectile_count(), 1);
             assert!(fuel_combat.take_impact_fx().is_empty());
         }
-        let _ = fuel_combat.update_projectiles(1.0 / 30.0, &mut fuel_objects, &mut health_events);
+        let _ = fuel_combat.update_projectiles(
+            1.0 / 30.0,
+            &mut fuel_objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         assert_eq!(fuel_combat.projectile_count(), 0);
 
         // PatriotMissile follows an object and has DetonateOnNoFuel=No. Its
@@ -238,6 +270,7 @@ pub(in crate::game_logic) mod tests {
                 1.0 / 30.0,
                 &mut target_loss_objects,
                 &mut health_events,
+                &mut _ownership_output,
             );
             assert_eq!(target_loss_combat.projectile_count(), 1);
             assert!(target_loss_combat.take_impact_fx().is_empty());
@@ -246,6 +279,7 @@ pub(in crate::game_logic) mod tests {
             1.0 / 30.0,
             &mut target_loss_objects,
             &mut health_events,
+            &mut _ownership_output,
         );
         assert_eq!(target_loss_combat.projectile_count(), 0);
         assert!(target_loss_combat.take_impact_fx().is_empty());
@@ -253,6 +287,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn coupled_missile_kill_self_removal_publishes_inactive_shadow_residual() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -290,6 +326,7 @@ pub(in crate::game_logic) mod tests {
                 None,
                 0,
                 &mut health_events,
+                &mut _ownership_output,
             );
             assert_eq!(removed, vec![id]);
         }
@@ -309,6 +346,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn projectile_hits_intervening_structure() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -369,7 +408,12 @@ pub(in crate::game_logic) mod tests {
         let wall_hp0 = objects.get(&wall).unwrap().health.current;
         let tgt_hp0 = objects.get(&tgt).unwrap().health.current;
         for _ in 0..120 {
-            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+            let _ = combat.update_projectiles(
+                1.0 / 30.0,
+                &mut objects,
+                &mut health_events,
+                &mut _ownership_output,
+            );
             if combat.projectile_count() == 0 {
                 break;
             }
@@ -388,6 +432,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn aa_projectile_detonates_on_intervening_building() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -450,7 +496,12 @@ pub(in crate::game_logic) mod tests {
         let factory_hp0 = objects.get(&factory).unwrap().health.current;
         let jet_hp0 = objects.get(&jet).unwrap().health.current;
         for _ in 0..120 {
-            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+            let _ = combat.update_projectiles(
+                1.0 / 30.0,
+                &mut objects,
+                &mut health_events,
+                &mut _ownership_output,
+            );
             if combat.projectile_count() == 0 {
                 break;
             }
@@ -481,6 +532,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn projectile_skips_own_structure_unless_controlled_bit() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -551,7 +604,12 @@ pub(in crate::game_logic) mod tests {
             p.source_team = Team::USA;
         }
         for _ in 0..120 {
-            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+            let _ = combat.update_projectiles(
+                1.0 / 30.0,
+                &mut objects,
+                &mut health_events,
+                &mut _ownership_output,
+            );
             if combat.projectile_count() == 0 {
                 break;
             }
@@ -584,7 +642,12 @@ pub(in crate::game_logic) mod tests {
             p.source_team = Team::USA;
         }
         for _ in 0..120 {
-            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+            let _ = combat.update_projectiles(
+                1.0 / 30.0,
+                &mut objects,
+                &mut health_events,
+                &mut _ownership_output,
+            );
             if combat.projectile_count() == 0 {
                 break;
             }
@@ -603,6 +666,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn projectile_reaches_target_without_wall() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -650,7 +715,12 @@ pub(in crate::game_logic) mod tests {
         );
         let tgt_hp0 = objects.get(&tgt).unwrap().health.current;
         for _ in 0..60 {
-            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+            let _ = combat.update_projectiles(
+                1.0 / 30.0,
+                &mut objects,
+                &mut health_events,
+                &mut _ownership_output,
+            );
             if combat.projectile_count() == 0 {
                 break;
             }
@@ -664,6 +734,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn projectile_splash_damages_nearby() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -725,7 +797,12 @@ pub(in crate::game_logic) mod tests {
         let tgt0 = objects.get(&tgt).unwrap().health.current;
         let near0 = objects.get(&near).unwrap().health.current;
         for _ in 0..60 {
-            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+            let _ = combat.update_projectiles(
+                1.0 / 30.0,
+                &mut objects,
+                &mut health_events,
+                &mut _ownership_output,
+            );
             if combat.projectile_count() == 0 {
                 break;
             }
@@ -743,6 +820,8 @@ pub(in crate::game_logic) mod tests {
     /// primaryRadius and secondaryDamage outside it. No quadratic falloff.
     #[test]
     fn projectile_splash_is_flat_primary_not_quadratic() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -804,7 +883,12 @@ pub(in crate::game_logic) mod tests {
         let tgt0 = objects.get(&tgt).unwrap().health.current;
         let edge0 = objects.get(&edge).unwrap().health.current;
         for _ in 0..60 {
-            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+            let _ = combat.update_projectiles(
+                1.0 / 30.0,
+                &mut objects,
+                &mut health_events,
+                &mut _ownership_output,
+            );
             if combat.projectile_count() == 0 {
                 break;
             }
@@ -830,6 +914,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn instant_hit_laser_damages_same_frame() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -874,7 +960,12 @@ pub(in crate::game_logic) mod tests {
             0.0,
         );
         let hp0 = objects.get(&tgt).unwrap().health.current;
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         let hp1 = objects.get(&tgt).unwrap().health.current;
         assert!(
             hp1 < hp0 - 1.0,
@@ -889,6 +980,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn homing_projectile_tracks_moving_target() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -954,7 +1047,12 @@ pub(in crate::game_logic) mod tests {
                 // Move +Z so a non-homing shot at (30,0,0) would miss.
                 o.set_position(Vec3::new(30.0, 0.0, (step as f32) * 0.35));
             }
-            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+            let _ = combat.update_projectiles(
+                1.0 / 30.0,
+                &mut objects,
+                &mut health_events,
+                &mut _ownership_output,
+            );
             if combat.projectile_count() == 0 {
                 break;
             }
@@ -981,6 +1079,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn projectile_impact_queues_detonation_fx() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -1027,7 +1127,12 @@ pub(in crate::game_logic) mod tests {
             p.detonation_fx_name = "FX_GenericTankShellDetonation".into();
             p.detonation_ocl_name = "OCL_FireFieldSmall".into();
         }
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         let fx = combat.take_impact_fx();
         assert_eq!(fx.len(), 1, "impact must queue detonation fx");
         assert_eq!(fx[0].detonation_fx_name, "FX_GenericTankShellDetonation");
@@ -1037,6 +1142,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn garrison_hit_kill_fx_uses_do_fx_obj_not_detonation_pos() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -1107,7 +1214,12 @@ pub(in crate::game_logic) mod tests {
             );
             p.detonation_fx_name = "FX_ShouldNotPlay".into();
         }
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         assert_eq!(
             combat.projectile_count(),
             0,
@@ -1134,6 +1246,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn missile_calls_on_die_fires_missile_fx_not_victim_death() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -1188,7 +1302,12 @@ pub(in crate::game_logic) mod tests {
             p.die_on_detonate = true;
             p.projectile_object_name = "ScudStormMissile".into();
         }
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         crate::game_logic::host_fx_list_die::clear_test_fx_list_die();
         let victim = objects.get(&target).expect("victim");
         assert_eq!(
@@ -1290,6 +1409,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn dual_ring_secondary_damage_residual() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -1349,7 +1470,12 @@ pub(in crate::game_logic) mod tests {
             // Primary ring uses explosion_radius from splash_radius.
             p.explosion_radius = 10.0;
         }
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         let near1 = objects.get(&near).unwrap().health.current;
         let far1 = objects.get(&far).unwrap().health.current;
         assert!(
@@ -1364,6 +1490,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn shock_wave_pushes_mobile_units_outward() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -1403,7 +1531,12 @@ pub(in crate::game_logic) mod tests {
             p.shock_wave_taper_off = 0.5;
         }
         let pos0 = objects.get(&tgt).unwrap().get_position();
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         let victim = objects.get(&tgt).unwrap();
         assert!(
             victim.is_shock_stunned(),
@@ -1422,6 +1555,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn radius_damage_affects_skips_allies_by_default() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -1487,7 +1622,12 @@ pub(in crate::game_logic) mod tests {
                 crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
                     | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS;
         }
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         let ally1 = objects.get(&ally).unwrap().health.current;
         let enemy1 = objects.get(&enemy).unwrap().health.current;
         assert_eq!(ally1, ally0, "ENEMIES|NEUTRALS INI must skip allies");
@@ -1496,6 +1636,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn radius_damage_affects_cpp_default_hits_allies() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -1547,7 +1689,12 @@ pub(in crate::game_logic) mod tests {
             p.radius_damage_affects = crate::game_logic::weapon_bootstrap::WEAPON_AFFECTS_DEFAULT;
             p.target_id = None; // splash neighbor, not primary victim
         }
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         let ally1 = objects.get(&ally).unwrap().health.current;
         assert!(
             ally1 < ally0 - 1.0,
@@ -1557,6 +1704,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn radius_damage_affects_not_airborne_skips_significantly_above() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -1629,7 +1778,12 @@ pub(in crate::game_logic) mod tests {
                     | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_DOESNT_AFFECT_AIRBORNE;
             p.target_id = None;
         }
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         let ground1 = objects.get(&ground).unwrap().health.current;
         let high1 = objects.get(&high).unwrap().health.current;
         assert!(
@@ -1644,6 +1798,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn splash_uses_from_bounding_sphere_3d() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -1684,7 +1840,12 @@ pub(in crate::game_logic) mod tests {
             p.explosion_radius = 10.0;
         }
         let hp0 = objects.get(&building).unwrap().health.current;
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         let hp1 = objects.get(&building).unwrap().health.current;
         assert!(
             hp1 <= hp0 - 49.0,
@@ -1694,6 +1855,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn splash_primary_victim_skips_radius_damage_affects() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -1760,7 +1923,12 @@ pub(in crate::game_logic) mod tests {
                 crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
                     | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS;
         }
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         let ally1 = objects.get(&ally).unwrap().health.current;
         let by1 = objects.get(&bystander).unwrap().health.current;
         assert!(
@@ -1772,6 +1940,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn splash_damage_dealt_at_self_position_recenters_and_clears_victim() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -1847,7 +2017,12 @@ pub(in crate::game_logic) mod tests {
                 crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
                     | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS;
         }
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         let near1 = objects.get(&near).unwrap().health.current;
         let far1 = objects.get(&far).unwrap().health.current;
         assert!(
@@ -1862,6 +2037,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn splash_kills_self_deals_huge_damage() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -1914,7 +2091,12 @@ pub(in crate::game_logic) mod tests {
                     | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS
                     | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF;
         }
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         assert!(
             !objects.get(&atk).unwrap().is_alive(),
             "WEAPON_KILLS_SELF must destroy the shooter"
@@ -1923,6 +2105,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn projectile_collides_mask_gates_structure_intercept() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
@@ -1988,7 +2172,12 @@ pub(in crate::game_logic) mod tests {
             p.projectile_collides = 0;
         }
         for _ in 0..60 {
-            let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+            let _ = combat.update_projectiles(
+                1.0 / 30.0,
+                &mut objects,
+                &mut health_events,
+                &mut _ownership_output,
+            );
             if combat.projectile_count() == 0 {
                 break;
             }
@@ -2277,6 +2466,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn parsed_weapon_speed_advances_one_cpp_logic_frame_distance() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let mut combat = CombatSystem::new();
@@ -2312,7 +2503,12 @@ pub(in crate::game_logic) mod tests {
             "frame speed is converted back to runtime units/second"
         );
 
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         let projectile = combat
             .projectiles_snapshot()
             .into_iter()
@@ -2327,6 +2523,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn parsed_weapon_speed_uses_frame_units_for_authored_dumb_path() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let mut combat = CombatSystem::new();
@@ -2392,7 +2590,12 @@ pub(in crate::game_logic) mod tests {
         assert_eq!(projectile.flight_runtime.path.len(), expected_segments);
         let first_path_position = projectile.flight_runtime.path[0];
 
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         let stepped = combat
             .projectiles_snapshot()
             .into_iter()
@@ -2439,6 +2642,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn materialized_missile_close_distance_uses_normalized_weapon_speed() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let mut combat = CombatSystem::new();
@@ -2475,7 +2680,12 @@ pub(in crate::game_logic) mod tests {
         projectile.flight_runtime.missile_phase =
             crate::game_logic::weapon_bootstrap::HostMissilePhase::Attack;
 
-        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects, &mut health_events);
+        let _ = combat.update_projectiles(
+            1.0 / 30.0,
+            &mut objects,
+            &mut health_events,
+            &mut _ownership_output,
+        );
         assert_eq!(
             combat.projectile_count(),
             0,
@@ -2488,6 +2698,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn projectileless_finite_speed_queues_leftover_delayed_damage() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let mut combat = CombatSystem::new();
@@ -2544,6 +2756,7 @@ pub(in crate::game_logic) mod tests {
             29,
             None,
             &mut health_events,
+            &mut _ownership_output,
         );
         let hp_mid = objects.get(&ObjectId(502)).unwrap().health.current;
         assert_eq!(hp_mid, hp0, "damage waits travel frames");
@@ -2554,6 +2767,7 @@ pub(in crate::game_logic) mod tests {
             30,
             None,
             &mut health_events,
+            &mut _ownership_output,
         );
         let hp1 = objects.get(&ObjectId(502)).unwrap().health.current;
         assert!(
@@ -2565,6 +2779,8 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn projectileless_subframe_delay_applies_same_frame() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let mut combat = CombatSystem::new();
@@ -2604,6 +2820,7 @@ pub(in crate::game_logic) mod tests {
             7,
             None,
             &mut health_events,
+            &mut _ownership_output,
         );
         let hp1 = objects.get(&ObjectId(502)).unwrap().health.current;
         assert!(hp1 < hp0 - 1.0, "sub-frame projectileless must apply now");

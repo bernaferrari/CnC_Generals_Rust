@@ -1491,3 +1491,54 @@ fn aircraft_final_cell_stamps_only_after_the_path_is_cleared() {
     assert_eq!(g.goal_aircraft(final_cell), 8);
     assert_eq!(g.goal_aircraft(path_cell), 0);
 }
+
+#[test]
+fn obstacle_start_quick_path_preserves_surface_combiner_zone_identity() {
+    for (barrier, surface) in [
+        (PathfindCellType::Water, SURFACE_WATER),
+        (PathfindCellType::Cliff, SURFACE_CLIFF),
+        (PathfindCellType::Rubble, SURFACE_RUBBLE),
+    ] {
+        let mut grid = open_grid(8, 5);
+        let start = GridPos::new(1, 2);
+        grid.set_cell_type(start, PathfindCellType::Obstacle);
+        for y in 0..5 {
+            grid.set_cell_type(GridPos::new(3, y), barrier);
+        }
+        grid.rebuild_path_zones();
+        let from = grid.grid_to_world(start);
+        let nearby = grid.grid_to_world(GridPos::new(2, 2));
+        let beyond = grid.grid_to_world(GridPos::new(6, 2));
+        assert!(
+            grid.quick_path_exists_for(from, nearby, SURFACE_GROUND),
+            "factory obstacle maps into adjacent clear terrain"
+        );
+        assert!(
+            !grid.quick_path_exists_for(from, beyond, SURFACE_GROUND),
+            "{barrier:?} still divides ground locomotion"
+        );
+        assert!(
+            grid.quick_path_exists_for(from, beyond, SURFACE_GROUND | surface),
+            "{barrier:?} must use the original surface combiner after terrain mapping"
+        );
+        assert!(
+            !grid.quick_path_exists_for(beyond, from, SURFACE_GROUND | surface),
+            "blocked building destination remains inadmissible"
+        );
+    }
+}
+
+#[test]
+fn obstacle_start_terrain_mapping_never_bridges_an_impassable_wall() {
+    let mut grid = open_grid(8, 5);
+    grid.set_cell_type(GridPos::new(1, 2), PathfindCellType::Obstacle);
+    for y in 0..5 {
+        grid.set_cell_type(GridPos::new(3, y), PathfindCellType::Impassable);
+    }
+    grid.rebuild_path_zones();
+    let from = grid.grid_to_world(GridPos::new(1, 2));
+    let to = grid.grid_to_world(GridPos::new(6, 2));
+    assert!(!grid.quick_path_exists_for(from, to, SURFACE_GROUND | SURFACE_WATER));
+    assert!(!grid.quick_path_exists_for(from, to, SURFACE_GROUND | SURFACE_CLIFF));
+    assert!(!grid.quick_path_exists_for(from, to, SURFACE_GROUND | SURFACE_RUBBLE));
+}

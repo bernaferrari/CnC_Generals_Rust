@@ -51,8 +51,6 @@ impl GameClient {
         // C++ lines 612-619: window manager and video player update BEFORE drawables
         self.update_pre_draw_ui()?;
 
-
-
         // Host/presentation residual: Main owns OS WindowEvent→commands and sole
         // RenderPipeline 3D present. When OBJECT_REGISTRY is empty, skip dual-world
         // shroud bind and dual Display DRAW present.
@@ -131,7 +129,6 @@ impl GameClient {
         self.drain_logic_hud_messages();
         self.sync_superweapon_strip_from_logic();
         let _ = self.draw_live_ingame_hud();
-
 
         // C++ line 740: DisplayStringManager update
         self.update_display_string_manager()?;
@@ -244,9 +241,7 @@ impl GameClient {
             audio.lock().unwrap_or_else(|e| e.into_inner()).update()?;
         }
 
-        if let (Some(queue), Some(engine)) =
-            (&mut self.audio_event_queue, &mut self.audio_engine)
-        {
+        if let (Some(queue), Some(engine)) = (&mut self.audio_event_queue, &mut self.audio_engine) {
             for request in queue.drain() {
                 match request {
                     crate::audio::AudioRequest::Play { event, .. } => {
@@ -263,15 +258,11 @@ impl GameClient {
             }
         }
 
-        if let (Some(music), Some(engine)) =
-            (&mut self.music_system, &mut self.audio_engine)
-        {
+        if let (Some(music), Some(engine)) = (&mut self.music_system, &mut self.audio_engine) {
             music.update(engine);
         }
 
-        if let (Some(speech), Some(engine)) =
-            (&mut self.speech_system, &mut self.audio_engine)
-        {
+        if let (Some(speech), Some(engine)) = (&mut self.speech_system, &mut self.audio_engine) {
             speech.update(engine);
         }
 
@@ -308,7 +299,6 @@ impl GameClient {
         for id in expired {
             let _ = self.destroy_drawable(id);
         }
-
     }
 
     /// Apply presentation-owned FOW shroud to bound drawables (no OBJECT_REGISTRY).
@@ -710,9 +700,14 @@ impl GameClient {
                 .mul(&Matrix4::rotation_x(e.float_pitch));
             drawable.set_instance_transform(transform);
             Self::stamp_presentation_object_residual(&mut drawable, &e);
+            let native_laser = Self::owned_laser_count(&mut drawable) == 1;
             let id = self.alloc_drawable_id();
             drawable.set_id(id);
+            Self::bind_owned_laser_module(&mut drawable, id);
             self.drawable_map.insert(id, Box::new(drawable));
+            if native_laser {
+                self.owned_laser_order.insert(0, id);
+            }
             self.drawable_object_map.insert(e.object_id, id);
             let binding_generation = self.alloc_presentation_direct_binding_generation();
             let binding_key = PresentationDirectDrawableBindingKey {
@@ -780,7 +775,7 @@ impl GameClient {
         drawable: &mut BasicDrawable,
         e: &PresentationDrawableSync,
     ) {
-        use game_engine::common::bit_flags::{create_model_condition_flags, ModelConditionFlags};
+        use game_engine::common::bit_flags::{ModelConditionFlags, create_model_condition_flags};
         use gamelogic::common::types::BodyDamageType;
 
         let bit_names = ModelConditionFlags::BIT_NAMES;
@@ -792,10 +787,8 @@ impl GameClient {
         // set the same way and the logic sync never clears either. Keep both
         // client-owned bits out of the wipe so restamping a presentation
         // object cannot flash night/snow models for one frame.
-        const CLIENT_OWNED_CONDITION_BITS: [usize; 2] = [
-            ModelConditionFlags::NIGHT,
-            ModelConditionFlags::SNOW,
-        ];
+        const CLIENT_OWNED_CONDITION_BITS: [usize; 2] =
+            [ModelConditionFlags::NIGHT, ModelConditionFlags::SNOW];
         for i in 0..n {
             if CLIENT_OWNED_CONDITION_BITS.contains(&i) {
                 continue;
@@ -870,7 +863,6 @@ impl GameClient {
             // C++ W3DScienceModelDraw::doDrawModule setHidden(TRUE).
             drawable.set_drawable_hidden(true);
         }
-
     }
 
     /// Apply presentation cinematic letterbox residual to GraphicsDisplay.
@@ -940,7 +932,11 @@ impl GameClient {
         // remove+recreate. Re-arm when leftover remaining_ms jumps up
         // for the same string (scripts_camera re-fire).
         if self.last_applied_military_caption.as_deref() == text {
-            if incoming_ms > self.last_applied_military_caption_remaining_ms.unwrap_or(-1) {
+            if incoming_ms
+                > self
+                    .last_applied_military_caption_remaining_ms
+                    .unwrap_or(-1)
+            {
                 if let Some(text) = text {
                     self.push_presentation_military_caption(text, remaining_ms);
                 }
@@ -1002,10 +998,7 @@ impl GameClient {
     }
 
     /// Presentation PublicTimer residual → InGameUI postDraw countdown strip.
-    pub fn apply_presentation_superweapon_timers(
-        &mut self,
-        timers: &[(String, String, bool)],
-    ) {
+    pub fn apply_presentation_superweapon_timers(&mut self, timers: &[(String, String, bool)]) {
         let Some(ui) = &self.subsystem_manager.in_game_ui else {
             return;
         };
@@ -1174,9 +1167,7 @@ impl GameClient {
     }
 
     fn arm_cinematic_overlay(&mut self, remaining_ms: Option<i32>, font: Option<&str>) {
-        self.cinematic_overlay_font = font
-            .filter(|f| !f.is_empty())
-            .map(|f| f.to_string());
+        self.cinematic_overlay_font = font.filter(|f| !f.is_empty()).map(|f| f.to_string());
         // C++ frames = LOGICFRAMES_PER_SECOND * time; remaining_ms is the
         // live residual of that countdown.
         const LOGICFRAMES_PER_SECOND: u32 = 30;
@@ -1431,11 +1422,7 @@ impl GameClient {
     /// C++ InGameUI.cpp:2462 — TheRecorder playback + LookAtXlat
     /// `hasMouseMovedRecently`. Live host owns both signals and must stamp
     /// leftover InGameUI before `create_mouseover_hint`.
-    pub fn feed_look_at_replay_hover_gate(
-        &mut self,
-        playback: bool,
-        mouse_moved_recently: bool,
-    ) {
+    pub fn feed_look_at_replay_hover_gate(&mut self, playback: bool, mouse_moved_recently: bool) {
         if let Some(ui) = &self.subsystem_manager.in_game_ui {
             if let Ok(mut guard) = ui.lock() {
                 guard.set_recorder_playback_active(playback);
@@ -1443,7 +1430,6 @@ impl GameClient {
             }
         }
     }
-
 
     /// Shell/presentation client tick without dual-world OBJECT_REGISTRY drawable bind.
     ///
@@ -1485,7 +1471,7 @@ impl GameClient {
             crate::message_stream::meta_event::take_host_model_condition_weather_residual()
         {
             use game_engine::common::bit_flags::{
-                create_model_condition_flags, ModelConditionFlags,
+                ModelConditionFlags, create_model_condition_flags,
             };
             let mut clear = create_model_condition_flags();
             let mut set = create_model_condition_flags();

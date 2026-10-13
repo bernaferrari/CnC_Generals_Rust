@@ -639,6 +639,8 @@ fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
     assert_eq!(building.producer_id, Some(ObjectId(9201)));
     assert_eq!(building.builder_id, Some(ObjectId(9201)));
 
+    // Keep this actual cancel's output separate from the paid scaffold birth.
+    logic.economy_events.clear();
     let cancel = {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         exec.execute_cancel_construction(building_id, 0)
@@ -648,6 +650,28 @@ fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
         logic.get_player(0).unwrap().effective_supplies(),
         1_000,
         "hq-iherw: cancel refunds calcCostToBuild, not raw INI BuildCost"
+    );
+    logic.economy_events.complete_boundary();
+    assert_eq!(
+        logic
+            .economy_events
+            .take_completed()
+            .last()
+            .unwrap()
+            .supplies,
+        1_000
+    );
+    assert_eq!(
+        logic.economy_events.take_money_audio(),
+        vec![crate::game_logic::host_economy_log::HostMoneyAudioEvent {
+            player_id: 0,
+            kind: crate::game_logic::host_economy_log::HostMoneyAudio::Deposit
+        }]
+    );
+    assert!(
+        logic
+            .host_object(building_id)
+            .is_some_and(|object| object.status.destroyed)
     );
 }
 

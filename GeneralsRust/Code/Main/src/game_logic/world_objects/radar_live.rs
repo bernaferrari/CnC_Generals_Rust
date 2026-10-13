@@ -1021,23 +1021,27 @@ mod tests {
             .expect("bunker");
         // C++ Object.cpp:297 gives map civilians the neutral player's default
         // team. Neutral faction admission alone does not select a host owner.
-        logic
-            .host_object_mut(bunker)
-            .expect("civilian bunker")
-            .set_team_and_owner(Team::Neutral, Some(9));
+        {
+            let (bunker, events) = logic
+                .host_object_and_ownership_events_mut(bunker)
+                .expect("civilian bunker");
+            bunker.set_team_and_owner(Team::Neutral, Some(9), events);
+        }
         assert_eq!(logic.host_object(bunker).unwrap().owner_player_id, Some(9));
         let ninja = logic
             .create_object_for_player("JarmenKell", 1, Vec3::new(2.0, 0.0, 0.0))
             .expect("ninja");
         {
-            let obj = logic.host_object_mut(bunker).expect("bunker mut");
+            let (obj, ownership_events) = logic
+                .host_object_and_ownership_events_mut(bunker)
+                .expect("bunker mut");
             if let Some(bd) = obj.building_data.as_mut() {
                 bd.original_team = Some(Team::Neutral);
                 bd.hide_garrisoned_state = true;
                 bd.garrisoned_units.push(ninja);
                 bd.max_garrison = 5;
             }
-            obj.set_team_and_owner(Team::USA, Some(1));
+            obj.set_team_and_owner(Team::USA, Some(1), ownership_events);
         }
 
         let spec = insert_spec_for(&logic, bunker);
@@ -1086,23 +1090,27 @@ mod tests {
             .expect("bunker");
         // C++ Object.cpp:297 gives map civilians the neutral player's default
         // team. Neutral faction admission alone does not select a host owner.
-        logic
-            .host_object_mut(bunker)
-            .expect("civilian bunker")
-            .set_team_and_owner(Team::Neutral, Some(9));
+        {
+            let (bunker, events) = logic
+                .host_object_and_ownership_events_mut(bunker)
+                .expect("civilian bunker");
+            bunker.set_team_and_owner(Team::Neutral, Some(9), events);
+        }
         assert_eq!(logic.host_object(bunker).unwrap().owner_player_id, Some(9));
         let ninja = logic
             .create_object_for_player("JarmenKell", 1, Vec3::new(2.0, 0.0, 0.0))
             .expect("ninja");
         {
-            let obj = logic.host_object_mut(bunker).expect("bunker mut");
+            let (obj, ownership_events) = logic
+                .host_object_and_ownership_events_mut(bunker)
+                .expect("bunker mut");
             if let Some(bd) = obj.building_data.as_mut() {
                 bd.original_team = Some(Team::Neutral);
                 bd.hide_garrisoned_state = true;
                 bd.garrisoned_units.push(ninja);
                 bd.max_garrison = 5;
             }
-            obj.set_team_and_owner(Team::USA, Some(1));
+            obj.set_team_and_owner(Team::USA, Some(1), ownership_events);
         }
 
         let spec = insert_spec_for(&logic, bunker);

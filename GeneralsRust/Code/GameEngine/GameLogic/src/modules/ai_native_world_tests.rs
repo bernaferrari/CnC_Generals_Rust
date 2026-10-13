@@ -801,7 +801,23 @@ fn cached_native_enter_installed_path_save_load_continues_on_its_factory() {
 #[test]
 fn cached_native_enter_queued_path_routes_around_actual_wall_through_gap() {
     use crate::ai::pathfind_astar::{GridCoord, PathfindCellType};
-    let mut game = containment_lifecycle::lifecycle_world(0.0, false);
+    // Actual BasicHumanLocomotor INI: TWO_LEGS, 500 degrees/sec turns,
+    // 20 units/sec, 100 units/sec² acceleration/braking. The inert template
+    // defaults OTHER/zero turn rate cannot execute a bent ground route.
+    let fps = 30.0;
+    let mut human = crate::locomotor::LocomotorTemplate::new("OwnedContainGround".into());
+    human.surfaces = crate::locomotor::SURFACE_GROUND | crate::locomotor::SURFACE_RUBBLE;
+    human.appearance = crate::locomotor::LocomotorAppearance::TwoLegs;
+    human.max_speed = 20.0 / fps;
+    human.max_speed_damaged = 10.0 / fps;
+    human.max_turn_rate = 500.0_f32.to_radians() / fps;
+    human.max_turn_rate_damaged = human.max_turn_rate;
+    human.acceleration = 100.0 / (fps * fps);
+    human.acceleration_damaged = 50.0 / (fps * fps);
+    human.braking = 100.0 / (fps * fps);
+    human.stick_to_ground = true;
+    human.move_priority = crate::locomotor::LocomotorPriority::Front;
+    let mut game = containment_lifecycle::lifecycle_world_with_locomotor(human);
     let actor = Arc::clone(&game.source);
     let target = Arc::clone(&game.target);
     // This is an AI-issued order by a human controller: C++ still rejects
@@ -812,8 +828,11 @@ fn cached_native_enter_queued_path_routes_around_actual_wall_through_gap() {
         world
             .set_object_position_handle(&actor, &Coord3D::new(50.0, 50.0, 0.0))
             .unwrap();
+        // The synthetic one-unit box sits at its actual C++ path-cell centre.
+        // Its strict force-entry border cannot enclose a diagonal five-unit
+        // snapped offset; the original border predicate remains unchanged.
         world
-            .set_object_position_handle(&target, &Coord3D::new(150.0, 50.0, 0.0))
+            .set_object_position_handle(&target, &Coord3D::new(155.0, 55.0, 0.0))
             .unwrap();
     });
     let source_pos = *game.source.read().unwrap().get_position();
@@ -842,6 +861,74 @@ fn cached_native_enter_queued_path_routes_around_actual_wall_through_gap() {
             source.get_contained_by(), receiver.get_contained_by(),
             source.is_disabled_by_type(crate::common::DisabledType::Held), receiver.is_effectively_dead());
     });
+    let surfaces = actor
+        .read()
+        .unwrap()
+        .get_ai_update_interface()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .get_locomotor_set_clone()
+        .unwrap()
+        .get_valid_surfaces();
+    let observations = crate::ai::pathfind_complete::PathfindObservations::admit(
+        &game.factory,
+        &game.players,
+        &game.terrain,
+    )
+    .unwrap();
+    let grid = game.pathfinder.pathfinding_system_mut();
+    let valid = grid.valid_movement_position_with_observations(
+        surfaces,
+        false,
+        &target_pos,
+        Some(2),
+        Some(&observations),
+    );
+    let quick = grid.client_safe_quick_does_path_exist_ignoring_with_observations(
+        surfaces,
+        &source_pos,
+        &target_pos,
+        Some(2),
+        Some(&observations),
+    );
+    let mut request =
+        crate::ai::pathfind_complete::PathRequest::new(source_pos, target_pos, surfaces);
+    request.object_id = 1;
+    request.unit_radius = actor.read().unwrap().get_geometry_info().get_major_radius();
+    request.ignore_obstacle_id = Some(2);
+    let raw = grid
+        .find_path_internal_with_observations(request, Some(false), Some(&observations))
+        .unwrap();
+    assert!(
+        valid && quick && raw.success,
+        "actual receiver path prerequisites: valid={valid}, quick={quick}, raw={raw:?}, start={source_pos:?}, goal={target_pos:?}, surfaces={surfaces}, radius={}, starttype={:?}, goaltype={:?}, grid={}x{}, rawzones={:?}, effectivezones={:?}",
+        actor.read().unwrap().get_geometry_info().get_major_radius(),
+        grid.get_cell_type(&source_pos),
+        grid.get_cell_type(&target_pos),
+        grid.width,
+        grid.height,
+        (
+            grid.zones.zone_at(GridCoord::from_world(&source_pos)),
+            grid.zones.zone_at(GridCoord::from_world(&target_pos))
+        ),
+        (
+            grid.zones.get_effective_zone(
+                surfaces,
+                false,
+                grid.zones.zone_at(GridCoord::from_world(&source_pos))
+            ),
+            grid.zones.get_effective_zone(
+                surfaces,
+                false,
+                grid.zones.zone_at(GridCoord::from_world(&target_pos))
+            )
+        )
+    );
+    assert!(
+        raw.waypoints.iter().any(|position| position.y >= 140.0),
+        "the real optimized A* route must reach the authored gap: {raw:?}"
+    );
     game.issue_enter(61);
     let admitted = installed_path_observation(&game);
     let mut phases = Vec::new();
@@ -857,9 +944,30 @@ fn cached_native_enter_queued_path_routes_around_actual_wall_through_gap() {
         "actual queued search must find the distant wall gap: admitted={admitted:?}, phases={phases:?}, final={:?}",
         installed_path_observation(&game)
     );
+    let installed = actor
+        .read()
+        .unwrap()
+        .get_ai_update_interface()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .unit_ai_for_test()
+        .unwrap()
+        .native_waypoint_observation_for_test();
+    assert!(
+        installed
+            .path_points
+            .iter()
+            .any(|position| position.y >= 140.0),
+        "queued install must preserve actual detour: {installed:?}; raw={raw:?}"
+    );
     assert!(game.source.read().unwrap().get_contained_by().is_none());
     let ai = actor.read().unwrap().get_ai_update_interface().unwrap();
     let mut crossed_actual_gap = false;
+    let mut maximum_y = source_pos.y;
+    let mut route_phases = Vec::new();
+    let mut crossing_observations = Vec::new();
+    let mut boarding_frame = None;
     for frame in 65..1065 {
         let ai_proxy = actor
             .read()
@@ -874,7 +982,18 @@ fn cached_native_enter_queued_path_routes_around_actual_wall_through_gap() {
                 .update_scheduled_tick_with_world(world)
                 .unwrap();
         });
+        if frame <= 68 {
+            route_phases.push((
+                frame,
+                ai.lock()
+                    .unwrap()
+                    .unit_ai_for_test()
+                    .unwrap()
+                    .native_waypoint_observation_for_test(),
+            ));
+        }
         if actor.read().unwrap().get_contained_by().is_some() {
+            boarding_frame = Some(frame);
             break;
         }
         let physics_proxy = actor
@@ -887,19 +1006,79 @@ fn cached_native_enter_queued_path_routes_around_actual_wall_through_gap() {
             world.update_physics_phase(&actor).unwrap();
         });
         let position = *actor.read().unwrap().get_position();
+        maximum_y = maximum_y.max(position.y);
+        if position.x >= 90.0 && position.x <= 120.0 {
+            crossing_observations.push((
+                frame,
+                position,
+                game.pathfinder
+                    .pathfinding_system_mut()
+                    .get_cell_type(&Coord3D::new(105.0, 55.0, 0.0)),
+            ));
+        }
         if position.x >= 90.0 && position.x <= 120.0 && position.y >= 140.0 {
             crossed_actual_gap = true;
         }
     }
+    // Drive the actual next Enter tick after boarding, including terminal Idle
+    // and its contained maintenance. No duplicated entry or rider motion occurs.
+    let boarded_pose = *actor.read().unwrap().get_position();
+    let roster = game
+        .target
+        .read()
+        .unwrap()
+        .get_contain()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .get_contained_objects()
+        .into_owned();
+    let next_frame = boarding_frame.expect("actual route must board within original budget") + 1;
+    let ai_proxy = actor
+        .read()
+        .unwrap()
+        .named_update_registrations("AIUpdateInterface")
+        .pop()
+        .unwrap();
+    game.operate_with_current(next_frame, Some(ai_proxy), |world| {
+        ai.lock()
+            .unwrap()
+            .update_scheduled_tick_with_world(world)
+            .unwrap();
+    });
+    assert_eq!(*actor.read().unwrap().get_position(), boarded_pose);
+    assert_eq!(
+        game.target
+            .read()
+            .unwrap()
+            .get_contain()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get_contained_objects()
+            .as_ref(),
+        roster.as_slice()
+    );
+    assert_eq!(
+        ai.lock().unwrap().get_current_state_id(),
+        Some(crate::ai::states::AIStateType::Idle as u32)
+    );
     assert!(
         crossed_actual_gap,
-        "actual Physics must cross the wall through its gap; final pose {:?}, path {:?}",
+        "actual Physics must cross the wall through its gap; maxY={maximum_y}, crossings={crossing_observations:?}, phases={route_phases:?}, original route={raw:?}; final pose {:?}, path {:?}",
         actor.read().unwrap().get_position(),
         installed_path_observation(&game)
     );
     assert_eq!(
         game.source.read().unwrap().get_contained_by(),
-        Some(game.target.read().unwrap().get_id())
+        Some(game.target.read().unwrap().get_id()),
+        "actual entry must board after the detour; source {:?}, controller {:?}",
+        game.source.read().unwrap().get_position(),
+        ai.lock()
+            .unwrap()
+            .unit_ai_for_test()
+            .unwrap()
+            .native_waypoint_observation_for_test()
     );
 }
 
@@ -1088,3 +1267,64 @@ mod containment_lifecycle;
 
 #[path = "ai_native_world_tests/idle.rs"]
 mod idle;
+
+#[test]
+fn held_enter_completion_rejects_wrong_container_missing_roster_and_non_held() {
+    use crate::modules::ai_world::AiWorld;
+    let mut game = containment_lifecycle::lifecycle_world(0.0, false);
+    let actor = Arc::clone(&game.source);
+    game.operate(61, |world| {
+        world.remove_contained(1, 2, false).unwrap();
+    });
+    game.issue_enter(62);
+    let ai = actor.read().unwrap().get_ai_update_interface().unwrap();
+    // Corrupted saved references must never turn HELD into generic admission.
+    actor.write().unwrap().admit_contained_by_at(99, true, 62);
+    actor.write().unwrap().set_held_for_owned_leaf();
+    game.operate(63, |world| {
+        let error = ai
+            .lock()
+            .unwrap()
+            .unit_ai_for_test()
+            .unwrap()
+            .validate_enter_completion_for_test(world)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("another container"), "{error}");
+    });
+    actor.write().unwrap().admit_contained_by_at(2, true, 62);
+    game.operate(63, |world| {
+        let error = ai
+            .lock()
+            .unwrap()
+            .unit_ai_for_test()
+            .unwrap()
+            .validate_enter_completion_for_test(world)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("actual container roster"), "{error}");
+    });
+    actor.write().unwrap().clear_held_for_owned_leaf();
+    game.operate(63, |world| {
+        let error = ai
+            .lock()
+            .unwrap()
+            .unit_ai_for_test()
+            .unwrap()
+            .validate_enter_completion_for_test(world)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("another container"), "{error}");
+    });
+    assert!(
+        game.target
+            .read()
+            .unwrap()
+            .get_contain()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get_contained_objects()
+            .is_empty()
+    );
+}

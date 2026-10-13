@@ -64,6 +64,7 @@ fn impact(
         Some(&world.players),
         Some(&world.team_factory),
         &mut world.health_events,
+        &mut world.ownership_events,
     );
     assert_eq!(
         world.combat_system.projectile_count(),
@@ -240,6 +241,7 @@ fn delayed_impact_uses_consumer_frame_for_historic_expiration() {
         199,
         Some(&world.players),
         &mut world.health_events,
+        &mut world.ownership_events,
     );
     assert_eq!(
         live_projectileless_delayed_count_for_test(&world.combat_system),
@@ -252,6 +254,7 @@ fn delayed_impact_uses_consumer_frame_for_historic_expiration() {
         world.frame,
         Some(&world.players),
         &mut world.health_events,
+        &mut world.ownership_events,
     );
     assert_eq!(
         live_projectileless_delayed_count_for_test(&world.combat_system),

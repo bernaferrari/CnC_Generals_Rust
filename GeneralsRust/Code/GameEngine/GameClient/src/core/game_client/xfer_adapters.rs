@@ -332,6 +332,9 @@ pub(crate) fn xfer_live_game_client_state(
                             .drawable_map
                             .remove(&created_id)
                             .ok_or(RuntimeXferStatus::InvalidData)?;
+                        client
+                            .owned_laser_order
+                            .retain(|owner| *owner != created_id);
                         if object_id != INVALID_ID {
                             created.set_object_id(Some(object_id));
                         }
@@ -345,6 +348,15 @@ pub(crate) fn xfer_live_game_client_state(
                     let id = drawable.get_id();
                     if let Some(object_id) = drawable.get_object_id() {
                         client.drawable_object_map.insert(object_id, id);
+                    }
+                    let native_lasers = GameClient::owned_laser_count(drawable.as_mut());
+                    if native_lasers > 1 {
+                        return Err(RuntimeXferStatus::InvalidData);
+                    }
+                    GameClient::bind_owned_laser_module(drawable.as_mut(), id);
+                    client.owned_laser_order.retain(|owner| *owner != id);
+                    if native_lasers == 1 {
+                        client.owned_laser_order.insert(0, id);
                     }
                     client.drawable_map.insert(id, drawable);
 

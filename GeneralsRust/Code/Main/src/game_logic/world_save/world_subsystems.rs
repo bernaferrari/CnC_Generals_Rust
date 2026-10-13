@@ -154,7 +154,6 @@ impl GameLogic {
             if !name.is_empty() {
                 if let Some(created) = self.objects.get_mut(&id) {
                     created.name = name;
-                    created.record_host_identity();
                 }
             }
         }

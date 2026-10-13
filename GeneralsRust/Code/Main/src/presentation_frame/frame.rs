@@ -4,6 +4,12 @@ use crate::fow_rendering::ProjectedShroudSnapshot;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
     pub frame: LogicFrame,
+    /// Frozen C++ disabled-state callbacks from the receiving body owner.
+    #[serde(skip)]
+    pub(crate) disable_audio_receipts:
+        Vec<crate::game_logic::host_disable_timers_log::HostDisableAudioEvent>,
+    #[serde(skip)]
+    pub(crate) money_audio_receipts: Vec<crate::game_logic::host_economy_log::HostMoneyAudioEvent>,
     /// Native ModelDraw scale components, bound to the exact admitted actor.
     #[serde(skip)]
     pub(crate) native_ghost_scale_sources: std::collections::HashMap<

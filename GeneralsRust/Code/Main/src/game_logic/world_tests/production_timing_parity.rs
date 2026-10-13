@@ -619,11 +619,15 @@ fn queued_duration_restore_keeps_upgrade_authored_frames_without_general_or_powe
                 supplies: 40,
                 power: 0,
             };
-            assert!(source.get_player_mut(0).unwrap().queue_upgrade(
-                UPGRADE,
-                &cost,
-                gamelogic::upgrade::UpgradeType::Player
-            ));
+            assert!({
+                let (player, economy_events) = source.player_and_economy_events_mut(0).unwrap();
+                player.queue_upgrade(
+                    UPGRADE,
+                    &cost,
+                    gamelogic::upgrade::UpgradeType::Player,
+                    economy_events,
+                )
+            });
             let authored_time = source.upgrade_research_time_secs(UPGRADE);
             assert!(
                 source
@@ -906,11 +910,10 @@ fn queue_upgrade_restore_rule(world: &mut GameLogic, producer: ObjectId, name: &
         supplies: definition.get_cost().try_into().unwrap(),
         power: 0,
     };
-    assert!(world.get_player_mut(0).unwrap().queue_upgrade(
-        name,
-        &cost,
-        definition.get_upgrade_type()
-    ));
+    assert!({
+        let (player, economy_events) = world.player_and_economy_events_mut(0).unwrap();
+        player.queue_upgrade(name, &cost, definition.get_upgrade_type(), economy_events)
+    });
     assert!(
         world
             .host_object_mut(producer)

@@ -107,7 +107,7 @@ pub fn honesty_engine_calls_overlay_source() -> bool {
 /// Live residual: build_from_logic then overlay stamps shadow health/pose.
 pub fn simulate_live_presentation_gameworld_overlay_honesty() -> bool {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::gameworld_shadow::{GameWorldShadow};
+    use crate::gameworld_shadow::GameWorldShadow;
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
@@ -121,7 +121,6 @@ pub fn simulate_live_presentation_gameworld_overlay_honesty() -> bool {
     if !honesty_engine_calls_overlay_source() {
         return false;
     }
-
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PresGwOverlay187");
@@ -146,7 +145,9 @@ pub fn simulate_live_presentation_gameworld_overlay_honesty() -> bool {
     };
 
     // Desync shadow health as last-writer residual (pose via Transform if available).
-    let Some(object) = logic.host_object_mut(oid) else { return false; };
+    let Some(object) = logic.host_object_mut(oid) else {
+        return false;
+    };
     object.health.current = 77.0;
     object.set_position(Vec3::new(42.0, 0.0, 43.0));
     object.set_orientation(1.25);

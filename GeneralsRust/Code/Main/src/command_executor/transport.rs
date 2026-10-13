@@ -870,6 +870,13 @@ impl<'a> CommandExecutor<'a> {
             if !can {
                 continue;
             }
+            if self.game_logic.apply_locked_transport_command(unit_id) {
+                if let Some(object) = self.game_logic.host_object_mut(unit_id) {
+                    object.last_command_source = crate::game_logic::HUNT_CMD_FROM_PLAYER;
+                }
+                any = true;
+                continue;
+            }
             let taking_off = if let Some(obj) = self.game_logic.host_object_mut(unit_id) {
                 let name = obj.template_name.clone();
                 if obj.chinook_ai.is_none()
@@ -904,26 +911,22 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            // Wave 233: pending evacuate prep via GameLogic authority API.
-            let _ = self
+            // The entered C++ transport state locks its parent machine.
+            if !self
                 .game_logic
-                .unit_command_set_pending_evacuate(unit_id, true, and_exit, true);
+                .unit_command_set_pending_evacuate(unit_id, true, and_exit, true)
+            {
+                continue;
+            }
             if self.path_to_goal_with_state(unit_id, destination, AIState::Moving) {
                 any = true;
             } else {
-                // C++ AI_MOVE_AND_EVACUATE unloads only on arrival. A path
-                // failure is not an arrival: keep the pending flag so
-                // passengers stay contained instead of dumping mid-route.
-                let has_passengers = self
+                // A failed onEnter never invokes the state's update callback.
+                // Clear the inert continuation; delayed path failures are handled
+                // by the actual movement phase after admission.
+                let _ = self
                     .game_logic
-                    .host_object(unit_id)
-                    .is_some_and(|obj| !obj.contained_units().is_empty());
-                if !has_passengers {
-                    // Wave 233: clear pending evacuate via GameLogic authority API.
-                    let _ = self
-                        .game_logic
-                        .unit_command_set_pending_evacuate(unit_id, false, false, false);
-                }
+                    .unit_command_set_pending_evacuate(unit_id, false, false, false);
             }
         }
         if any {

@@ -73,6 +73,6 @@ impl GameLogic {
         self.players
             .get_mut(&id)
             .expect("just admitted civilian")
-            .apply_map_side_dict(dict, true);
+            .apply_map_side_dict(dict, true, &mut self.economy_events);
     }
 }

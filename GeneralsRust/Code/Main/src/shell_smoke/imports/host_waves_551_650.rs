@@ -45,11 +45,6 @@ pub use crate::game_logic::host_live_logic_steps_presentation_helper_residual_wa
     honesty_logic_steps_presentation_helper_nav_commands_residual_wave561,
     simulate_live_logic_steps_presentation_helper_honesty,
 };
-pub use crate::game_logic::host_live_combat_kill_particle_observe_residual_wave562::{
-    honesty_combat_kill_particle_observe_method_names_residual_wave562,
-    honesty_combat_kill_particle_observe_nav_commands_residual_wave562,
-    simulate_live_combat_kill_particle_observe_honesty,
-};
 pub use crate::game_logic::host_live_template_name_presentation_helper_residual_wave563::{
     honesty_template_name_presentation_helper_method_names_residual_wave563,
     honesty_template_name_presentation_helper_nav_commands_residual_wave563,

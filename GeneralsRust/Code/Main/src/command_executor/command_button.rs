@@ -34,6 +34,13 @@ impl<'a> CommandExecutor<'a> {
         if definition.command.eq_ignore_ascii_case("STOP") {
             return self.execute_stop(units);
         }
+        // C++ Object::doCommandButton dispatches the authored GUI command,
+        // independently of the special-power source used by the script query.
+        if definition.command.eq_ignore_ascii_case("HIJACK_VEHICLE") {
+            return target.map_or(CommandResult::InvalidTarget, |target| {
+                self.execute_hijack(units, target)
+            });
+        }
         if !definition.command.eq_ignore_ascii_case("SPECIAL_POWER") {
             return CommandResult::InvalidCommand;
         }

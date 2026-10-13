@@ -806,6 +806,8 @@ impl GameLogic {
         let Some(state) = self.flight_decks.get_mut(&carrier_id) else {
             return true;
         };
+        let mut movement_events = self.movement_events.writer(self.frame);
+        let attack_events = &mut self.attack_events;
         match command {
             HostFlightDeckCommand::GuardPosition
             | HostFlightDeckCommand::AttackPosition
@@ -864,10 +866,11 @@ impl GameLogic {
             .iter()
             .find(|space| space.object_id == Some(jet_id))
             .map(|space| space.position);
-        let Some((jet, mut movement_events)) = self.host_object_and_movement_events_mut(jet_id)
-        else {
+        let Some(jet) = self.objects.get_mut(&jet_id) else {
             return;
         };
+        let mut movement_events = self.movement_events.writer(self.frame);
+        let attack_events = &mut self.attack_events;
         match command {
             HostFlightDeckCommand::GuardPosition => {
                 jet.status.airborne_target = true;
@@ -883,7 +886,7 @@ impl GameLogic {
                 if let Some(target_id) = target {
                     jet.status.airborne_target = true;
                     jet.set_force_attack(command == HostFlightDeckCommand::ForceAttackObject);
-                    jet.attack_target(target_id, &mut self.attack_events);
+                    jet.attack_target(target_id, attack_events);
                 }
             }
             HostFlightDeckCommand::AttackMoveToPosition => {

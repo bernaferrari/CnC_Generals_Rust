@@ -20,8 +20,8 @@ impl GameLogic {
             let owner = self.player_owner_for_host_object(object);
             let restores_generation = object.power_provided > 0;
             let object = self.objects.get_mut(&id).unwrap();
-            object.tick_disabled_hacked(self.frame);
-            object.tick_disabled_emp(self.frame);
+            object.tick_disabled_hacked(self.frame, &mut self.health_events);
+            object.tick_disabled_emp(self.frame, &mut self.health_events);
             object.tick_disabled_paralyzed(self.frame);
             let reenabled = !object.is_disabled();
 
@@ -76,12 +76,17 @@ impl GameLogic {
             let was = object.status.disabled_underpowered;
             let was_disabled = object.is_disabled();
             let already_power = object.is_power_style_disabled();
-            object.status.disabled_underpowered = disabled;
             if disabled && !was && !already_power {
-                object.queue_power_disable_misc_audio(true);
-            } else if !disabled && was && !object.is_power_style_disabled() {
-                object.queue_power_disable_misc_audio(false);
+                object.queue_power_disable_misc_audio(true, &mut self.health_events);
+            } else if !disabled
+                && was
+                && !(object.status.disabled_emp
+                    || object.status.disabled_subdued
+                    || object.status.disabled_hacked)
+            {
+                object.queue_power_disable_misc_audio(false, &mut self.health_events);
             }
+            object.status.disabled_underpowered = disabled;
             if was_disabled != object.is_disabled() {
                 object.on_disabled_edge(object.is_disabled());
             }

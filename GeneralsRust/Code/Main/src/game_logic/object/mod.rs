@@ -1591,6 +1591,9 @@ pub struct Object {
     /// C++ AICMD_MOVE_TO_POSITION_AND_EVACUATE_AND_EXIT residual — destroy transport after unload.
     #[serde(default)]
     pub pending_exit_after_evacuate: bool,
+    /// Original move/evacuate origin and return-state continuation, owned by this object.
+    #[serde(default)]
+    pub transport_return_state: Option<crate::game_logic::host_transport_return::TransportReturnState>,
     /// C++ AIExitState::update — riders already ordered out stream one per
     /// ExitDelay with no hull-stop requirement (hq-ksb4t). Distinct from
     /// move-to-and-evacuate, which waits for arrival.

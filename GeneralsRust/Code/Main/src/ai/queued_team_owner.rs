@@ -511,7 +511,7 @@ impl GameLogic {
                 };
                 object.team_instance_name = default.clone();
                 object.apply_named_team_ai_profile(&factory, true);
-                object.record_host_identity();
+
                 source_team
                     .write()
                     .unwrap_or_else(|e| e.into_inner())

@@ -2,6 +2,7 @@
 
 #![allow(unused_imports)]
 
+use super::UnitAiStateRuntime;
 use super::ai_command_owner::CommandOwner;
 use super::ai_helpers::*;
 use super::identity::Unit;
@@ -10,7 +11,6 @@ use super::registry::{
     dual_world_registry_unavailable, get_unit_arc, with_unit_mut, with_unit_ref,
 };
 use super::types::*;
-use super::UnitAiStateRuntime;
 use crate::ai::states::AIStateMachineDriver;
 use crate::modules::ai_state_runtime::AiStateRuntime;
 
@@ -418,10 +418,6 @@ impl UnitAiStateRuntime<'_, '_> {
                     }
                     return Ok(());
                 }
-
-                guard
-                    .legacy()?
-                    .give_move_order(clipped, Vec::new(), false, false)?;
             }
             crate::ai::AiCommandType::TightenToPosition => {
                 let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
@@ -439,10 +435,6 @@ impl UnitAiStateRuntime<'_, '_> {
                     machine.ai_do_command_with_ai(&params, self)?;
                     return Ok(());
                 }
-
-                guard
-                    .legacy()?
-                    .give_move_order(clipped, Vec::new(), false, false)?;
             }
             crate::ai::AiCommandType::MoveToObject => {
                 let mut machine = &mut *native_driver;
@@ -521,10 +513,6 @@ impl UnitAiStateRuntime<'_, '_> {
                                 );
                                 return Ok(());
                             }
-
-                            guard
-                                .legacy()?
-                                .give_move_order(clipped, Vec::new(), false, false)?;
                         }
                     }
                 }
@@ -543,19 +531,6 @@ impl UnitAiStateRuntime<'_, '_> {
                     machine.ai_do_command_with_ai(command, self)?;
                     return Ok(());
                 }
-
-                if command.coords.is_empty() {
-                    return Ok(());
-                }
-                let mut coords = command.coords.clone();
-                let first = coords.remove(0);
-                let waypoints = coords
-                    .iter()
-                    .map(|pos| Waypoint::new(INVALID_ID, *pos, String::new()))
-                    .collect::<Vec<_>>();
-                guard
-                    .legacy()?
-                    .give_move_order(first, waypoints, false, false)?;
             }
             crate::ai::AiCommandType::FollowPathAppend => {
                 let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
@@ -944,24 +919,6 @@ impl UnitAiStateRuntime<'_, '_> {
                         return Ok(());
                     }
                 }
-                if let Some(container_id) = command.obj {
-                    if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                        if let Ok(container_guard) = container.write() {
-                            if let Some(contain) = container_guard.get_contain() {
-                                if let Ok(mut contain_guard) = contain.lock() {
-                                    let base_arc = guard.base_arc();
-                                    let base_lock = base_arc.read();
-                                    if let Ok(base_guard) = base_lock {
-                                        let _ = contain_guard.on_object_wants_to_enter_or_exit(
-                                            &base_guard,
-                                            crate::modules::ContainWant::WantsToEnter,
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
             }
             crate::ai::AiCommandType::Exit => {
                 let exit_container = command
@@ -991,28 +948,6 @@ impl UnitAiStateRuntime<'_, '_> {
                     machine.ai_do_command_with_ai(&exit_command, self)?;
                     return Ok(());
                 }
-
-                let container_id = command
-                    .obj
-                    .or_else(|| guard.base_arc().read().ok()?.get_contained_by());
-                if let Some(container_id) = container_id {
-                    if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                        if let Ok(container_guard) = container.write() {
-                            if let Some(contain) = container_guard.get_contain() {
-                                if let Ok(mut contain_guard) = contain.lock() {
-                                    let base_arc = guard.base_arc();
-                                    let base_lock = base_arc.read();
-                                    if let Ok(base_guard) = base_lock {
-                                        let _ = contain_guard.on_object_wants_to_enter_or_exit(
-                                            &base_guard,
-                                            crate::modules::ContainWant::WantsToExit,
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
             }
             crate::ai::AiCommandType::ExitInstantly => {
                 let exit_container = command
@@ -1041,27 +976,6 @@ impl UnitAiStateRuntime<'_, '_> {
                     exit_command.obj = Some(exit_container);
                     machine.ai_do_command_with_ai(&exit_command, self)?;
                     return Ok(());
-                }
-                let container_id = command
-                    .obj
-                    .or_else(|| guard.base_arc().read().ok()?.get_contained_by());
-                if let Some(container_id) = container_id {
-                    if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                        if let Ok(container_guard) = container.write() {
-                            if let Some(contain) = container_guard.get_contain() {
-                                if let Ok(mut contain_guard) = contain.lock() {
-                                    let base_arc = guard.base_arc();
-                                    let base_lock = base_arc.read();
-                                    if let Ok(base_guard) = base_lock {
-                                        let _ = contain_guard.on_object_wants_to_enter_or_exit(
-                                            &base_guard,
-                                            crate::modules::ContainWant::WantsToExit,
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
             }
             crate::ai::AiCommandType::Dock => {

@@ -682,13 +682,9 @@ impl SnapshotBuilder {
                             object.stealth_delay_frames = crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_STEALTH_DELAY_FRAMES;
                         }
                         object.template_mut().add_kind_of(KindOf::Attackable);
-                        object.record_host_detector();
-                        object.record_host_contain_capacity();
-                        object.record_host_stealth_flags();
                     }
                     if snapshot.max_capacity > 0 {
                         object.max_transport = snapshot.max_capacity;
-                        object.record_host_contain_capacity();
                     }
                 }
                 _ => {}
@@ -885,7 +881,7 @@ impl SnapshotBuilder {
                 team: snap.team,
                 name: snap.name.clone(),
                 resources: snap.resources,
-                pending_supply_delta: 0,
+
                 power_available: snap.resources.power,
                 power_produced: 0,
                 power_consumed: 0,

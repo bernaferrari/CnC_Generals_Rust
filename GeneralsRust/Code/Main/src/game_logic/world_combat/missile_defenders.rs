@@ -2036,7 +2036,7 @@ impl GameLogic {
         // Remove occupants from container bookkeeping first.
         if let Some(target) = self.objects.get_mut(&target_id) {
             for &occ_id in &occupants {
-                target.remove_occupant(occ_id);
+                target.remove_occupant(occ_id, &mut self.ownership_events);
             }
         }
         // C++ OpenContain/TunnelContain::harmAndForceExitAllContained:
@@ -2069,7 +2069,7 @@ impl GameLogic {
                 if let Some(entry) = self.tunnel_network.record_exit(player_id, id, target_id) {
                     if entry != target_id {
                         if let Some(c) = self.objects.get_mut(&entry) {
-                            c.remove_occupant(id);
+                            c.remove_occupant(id, &mut self.ownership_events);
                         }
                     }
                 }
@@ -2098,6 +2098,7 @@ impl GameLogic {
                 &context,
                 &mut self.health_events,
                 &self.enable_repulsors,
+                Some(&mut self.ownership_events),
             );
             if killed || !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
                 kills = kills.saturating_add(1);
@@ -2274,7 +2275,7 @@ impl GameLogic {
         }
         if let Some(target) = self.objects.get_mut(&target_id) {
             for &occ_id in &destroy_ids {
-                target.remove_occupant(occ_id);
+                target.remove_occupant(occ_id, &mut self.ownership_events);
             }
         }
         if let Ok(list) = gamelogic::player::player_list().read() {

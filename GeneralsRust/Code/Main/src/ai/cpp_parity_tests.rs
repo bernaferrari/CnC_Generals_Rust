@@ -1227,9 +1227,9 @@ fn captured_pad_unbinds_and_gla_hole_rebinds() {
     ai.building_queue[0].is_built = true;
 
     // Capture: new owner, same live object.
-    if let Some(obj) = logic.host_object_mut(factory_id) {
+    if let Some((obj, ownership_events)) = logic.host_object_and_ownership_events_mut(factory_id) {
         obj.owner_player_id = Some(0);
-        obj.set_team(Team::China);
+        obj.set_team(Team::China, ownership_events);
     }
     ai.sync_build_list_object_status(&logic, 12.0);
     assert!(ai.building_queue[0].object_id.is_none());
@@ -1240,11 +1240,11 @@ fn captured_pad_unbinds_and_gla_hole_rebinds() {
     let hole_id = logic
         .create_object("AmericaBarracks", Team::GLA, Vec3::new(4.0, 0.0, 0.0))
         .expect("hole");
-    if let Some(hole) = logic.host_object_mut(hole_id) {
+    if let Some((hole, ownership_events)) = logic.host_object_and_ownership_events_mut(hole_id) {
         hole.is_rebuild_hole = true;
         hole.rebuild_spawner_id = Some(factory_id);
         hole.owner_player_id = Some(1);
-        hole.set_team(Team::USA);
+        hole.set_team(Team::USA, ownership_events);
     }
     ai.building_queue[0].object_id = Some(factory_id);
     logic.destroy_object(factory_id);
@@ -2230,7 +2230,6 @@ fn retain_queue_object_ids_drops_missing_pad_binding() {
 
 #[test]
 fn launch_attack_sets_target_and_logs_host_attack() {
-
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 
@@ -2292,7 +2291,9 @@ fn launch_attack_sets_target_and_logs_host_attack() {
         "under AI decision authority host target engages immediately"
     );
     assert!(
-        targeted.iter().any(|event| event.attacker == usa_unit && Some(event.target) == unit.target),
+        targeted
+            .iter()
+            .any(|event| event.attacker == usa_unit && Some(event.target) == unit.target),
         "launch_attack must report its actual canonical target: {targeted:?}"
     );
     assert_eq!(unit.ai_state, crate::game_logic::AIState::AttackMoving);

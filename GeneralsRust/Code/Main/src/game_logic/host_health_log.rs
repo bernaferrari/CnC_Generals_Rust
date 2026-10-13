@@ -11,7 +11,9 @@ pub(crate) enum HostHealthEvent {
     Heal(super::host_heal_log::HostHealEvent),
 }
 
-/// Host-to-shadow event state for one GameLogic instance.
+/// Completed Body effects for one GameLogic instance.
+/// Health observations and disabled-state sound cues share the synchronous
+/// body-operation lifetime; their consumers drain them independently.
 ///
 /// Completed presentation receipts are transient frame state and are
 /// intentionally not part of GameLogic's Xfer representation.
@@ -20,11 +22,34 @@ pub struct HostHealthEvents {
     events: Vec<HostHealthEvent>,
     last_damage: Vec<super::host_damage_log::HostDamageEvent>,
     last_heal: Vec<super::host_heal_log::HostHealEvent>,
+    disable_audio: Vec<super::host_disable_timers_log::HostDisableAudioEvent>,
     cumulative_damage: f32,
     cumulative_kills: u32,
 }
 
 impl HostHealthEvents {
+    pub(crate) fn record_disable_audio(
+        &mut self,
+        object: ObjectId,
+        position: [f32; 3],
+        event_name: String,
+    ) {
+        if !event_name.is_empty() {
+            self.disable_audio
+                .push(super::host_disable_timers_log::HostDisableAudioEvent {
+                    object,
+                    position,
+                    event_name,
+                });
+        }
+    }
+
+    pub(crate) fn take_disable_audio(
+        &mut self,
+    ) -> Vec<super::host_disable_timers_log::HostDisableAudioEvent> {
+        std::mem::take(&mut self.disable_audio)
+    }
+
     /// Observe damage already committed by Object's C++-ordered body operation.
     pub(crate) fn record_applied_damage(
         &mut self,
@@ -46,7 +71,7 @@ impl HostHealthEvents {
     }
 
     fn push_damage(&mut self, event: super::host_damage_log::HostDamageEvent) {
-        if event.amount <= 0.0 && !event.destroyed {
+        if !event.amount.is_finite() || (event.amount <= 0.0 && !event.destroyed) {
             return;
         }
         self.cumulative_damage += event.amount.max(0.0);
@@ -191,6 +216,7 @@ impl HostHealthEvents {
 
     /// Clear one owner's event and receipt state; used by that owner's reset.
     pub(crate) fn clear(&mut self) {
+        self.disable_audio.clear();
         self.events.clear();
         self.last_damage.clear();
         self.last_heal.clear();

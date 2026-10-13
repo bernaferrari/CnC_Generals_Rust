@@ -1439,7 +1439,7 @@ fn america_parachute_land_releases_hijacker() {
     {
         let v = logic.objects.get_mut(&vid).unwrap();
         v.apply_hijacked();
-        v.set_team(Team::GLA);
+        v.set_team(Team::GLA, &mut logic.ownership_events);
     }
     {
         let h = logic.objects.get_mut(&hid).unwrap();
@@ -1812,7 +1812,7 @@ fn hijack_takes_max_veterancy_and_marks_status() {
     logic.objects.insert(hid, {
         let mut o = Object::new(ht, hid, Team::GLA);
         o.name = "NamedJacker".into();
-        o.record_host_identity();
+
         o.experience.level = VeterancyLevel::Elite;
         o.experience.current = 200.0;
         o
@@ -1832,7 +1832,7 @@ fn hijack_takes_max_veterancy_and_marks_status() {
     {
         let v = logic.objects.get_mut(&vid).unwrap();
         v.apply_hijacked_from(donor.as_ref());
-        v.set_team(Team::GLA);
+        v.set_team(Team::GLA, &mut logic.ownership_events);
     }
     let _ = logic.transfer_script_object_name(hid, vid);
     let v = &logic.objects[&vid];
@@ -1904,7 +1904,7 @@ fn car_bomb_convert_endows_vision_and_veterancy() {
     {
         let car = logic.objects.get_mut(&vid).unwrap();
         car.apply_convert_to_car_bomb_from(donor.as_ref());
-        car.set_team(Team::GLA);
+        car.set_team(Team::GLA, &mut logic.ownership_events);
     }
     let car = &logic.objects[&vid];
     assert!(car.status.is_carbomb);

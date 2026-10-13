@@ -119,7 +119,7 @@ impl GameLogic {
         if let Some(player) = self.players.get_mut(&player_id) {
             Self::apply_derived_power(player, totals);
             Self::apply_power_sabotage(player);
-            crate::game_logic::host_economy_log::record(
+            self.economy_events.record(
                 player_id,
                 player.resources.supplies,
                 player.power_available,
@@ -148,7 +148,7 @@ impl GameLogic {
             Self::apply_power_sabotage(player);
 
             // Shadow economy channel: effective supplies + power after host tick residual.
-            crate::game_logic::host_economy_log::record(
+            self.economy_events.record(
                 player.id,
                 { player.resources.supplies },
                 player.power_available,
@@ -209,8 +209,8 @@ impl GameLogic {
             return;
         }
         if let Some(pid) = owner_player_id {
-            if let Some(player) = self.get_player_mut(pid) {
-                player.credit_supplies(deposited);
+            if let Some((player, economy_events)) = self.player_and_economy_events_mut(pid) {
+                player.credit_supplies(deposited, economy_events);
                 // C++ AutoDepositUpdate.cpp:148 addMoneyEarned(m_depositAmount)
                 // — SupplyLines boost is deposited but not scored.
                 let earned = match ev.kind {
@@ -360,8 +360,10 @@ impl GameLogic {
                 .unwrap_or(false);
             if actual_money {
                 if let Some(player_id) = owner_player_id {
-                    if let Some(player) = self.get_player_mut(player_id) {
-                        player.credit_supplies(deposited);
+                    if let Some((player, economy_events)) =
+                        self.player_and_economy_events_mut(player_id)
+                    {
+                        player.credit_supplies(deposited, economy_events);
                         player.add_money_earned(deposited);
                     }
                 }
@@ -495,8 +497,10 @@ impl GameLogic {
                 .try_capture_bonus(derrick_id, OIL_DERRICK_INITIAL_CAPTURE_BONUS);
             if bonus > 0 {
                 if let Some(player_id) = owner_player_id {
-                    if let Some(player) = self.get_player_mut(player_id) {
-                        player.credit_supplies(bonus);
+                    if let Some((player, economy_events)) =
+                        self.player_and_economy_events_mut(player_id)
+                    {
+                        player.credit_supplies(bonus, economy_events);
                         // C++ AutoDepositUpdate.cpp:103 addMoneyEarned(initialCaptureBonus).
                         player.add_money_earned(bonus);
                     }
@@ -552,8 +556,10 @@ impl GameLogic {
                     self.supply_lines_bonus_cash_total.saturating_add(boost);
             }
             if let Some(player_id) = owner_player_id {
-                if let Some(player) = self.get_player_mut(player_id) {
-                    player.credit_supplies(deposited);
+                if let Some((player, economy_events)) =
+                    self.player_and_economy_events_mut(player_id)
+                {
+                    player.credit_supplies(deposited, economy_events);
                     // C++ AutoDepositUpdate.cpp:148 addMoneyEarned(m_depositAmount)
                     // — not moneyAmount (deposit + SupplyLines boost).
                     player.add_money_earned(deposited.saturating_sub(boost));
@@ -621,8 +627,8 @@ impl GameLogic {
         }
         let owner_player_id = self.player_owner_for_event(ev.owner_player_id, ev.team);
         if let Some(pid) = owner_player_id {
-            if let Some(player) = self.get_player_mut(pid) {
-                player.credit_supplies(deposited);
+            if let Some((player, economy_events)) = self.player_and_economy_events_mut(pid) {
+                player.credit_supplies(deposited, economy_events);
                 player.add_money_earned(deposited);
             }
         }
@@ -922,8 +928,10 @@ impl GameLogic {
             }
             let owner_player_id = self.player_owner_for_event(h.owner_player_id, h.team);
             if let Some(player_id) = owner_player_id {
-                if let Some(player) = self.get_player_mut(player_id) {
-                    player.credit_supplies(deposited);
+                if let Some((player, economy_events)) =
+                    self.player_and_economy_events_mut(player_id)
+                {
+                    player.credit_supplies(deposited, economy_events);
                     player.add_money_earned(deposited);
                 }
             }

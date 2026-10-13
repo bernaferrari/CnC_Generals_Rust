@@ -35,9 +35,8 @@ fn fill_waves_551_650(
     out.logic_steps_presentation_helper_method_names_wave561_ok = waves.logic_steps_presentation_helper_method_names_wave561_ok;
     out.logic_steps_presentation_helper_nav_commands_wave561_ok = waves.logic_steps_presentation_helper_nav_commands_wave561_ok;
     out.logic_steps_presentation_helper_live_wave561_ok = waves.logic_steps_presentation_helper_live_wave561_ok;
-    out.combat_kill_particle_observe_method_names_wave562_ok = waves.combat_kill_particle_observe_method_names_wave562_ok;
-    out.combat_kill_particle_observe_nav_commands_wave562_ok = waves.combat_kill_particle_observe_nav_commands_wave562_ok;
-    out.combat_kill_particle_observe_live_wave562_ok = waves.combat_kill_particle_observe_live_wave562_ok;
+
+
     out.template_name_presentation_helper_method_names_wave563_ok = waves.template_name_presentation_helper_method_names_wave563_ok;
     out.template_name_presentation_helper_nav_commands_wave563_ok = waves.template_name_presentation_helper_nav_commands_wave563_ok;
     out.template_name_presentation_helper_live_wave563_ok = waves.template_name_presentation_helper_live_wave563_ok;

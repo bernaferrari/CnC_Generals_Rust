@@ -1954,6 +1954,13 @@ impl GameLogic {
         if u.is_kind_of(crate::game_logic::KindOf::Immobile) || u.is_disabled() || !u.is_alive() {
             return false;
         }
+        // Locked setGoalPosition ignores the incoming AI diversion; the
+        // temporary state still enters using the retained machine goal.
+        let pos = if u.transport_return_state.is_some() {
+            u.requested_destination.unwrap_or(pos)
+        } else {
+            pos
+        };
         let was_idle = matches!(u.ai_state, AIState::Idle);
         let frame = self.frame;
         let landed_chinook = u.chinook_ai.as_ref().is_some_and(|ai| {
@@ -2034,6 +2041,15 @@ impl GameLogic {
         if try_adjust {
             self.register_ground_path_goal(unit_id, goal);
         }
+        let temporary_transport = self.objects.get(&unit_id).is_some_and(|object| {
+            !was_idle
+                && object.last_command_source
+                    == crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI
+                && object.transport_return_state.is_some()
+        });
+        if temporary_transport {
+            self.suspend_transport_for_temporary_move(unit_id);
+        }
         let delayed = if let Some(u) = self.objects.get_mut(&unit_id) {
             u.is_blocked = false;
             let from_ai = u.last_command_source
@@ -2043,6 +2059,10 @@ impl GameLogic {
                 u.temporary_move_saved_path_goal = u.path_goal_position;
                 u.temporary_move_frames = 20
                     * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+                if temporary_transport {
+                    // CPP expires only when currentFrame > entryFrame +600.
+                    u.temporary_move_frames += 1;
+                }
             } else {
                 u.clear_order_target();
                 u.set_status_attacking(false);

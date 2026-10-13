@@ -615,7 +615,11 @@ impl GameLogic {
                 if player.map_side.role != PlayerSideRole::Authored
                     || dict.get_ascii_string(key_player_faction()) != "FactionCivilian"
                 {
-                    player.apply_map_side_dict(dict, replace_default_money);
+                    player.apply_map_side_dict(
+                        dict,
+                        replace_default_money,
+                        &mut self.economy_events,
+                    );
                 }
             }
         }

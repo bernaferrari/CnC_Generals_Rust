@@ -109,7 +109,6 @@ fn apply_payload(game_logic: &mut GameLogic, payload: BattlePlanPersistPayload) 
         object.weapon_bonus_battle_plan_search_and_destroy = bonus.search_and_destroy;
         object.battle_plan_sight_scalar_applied = bonus.sight_scalar_applied;
         object.record_host_weapon_bonus();
-        object.record_host_detector();
     }
 }
 

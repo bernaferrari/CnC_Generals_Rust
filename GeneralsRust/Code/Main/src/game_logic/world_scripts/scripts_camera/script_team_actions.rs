@@ -314,9 +314,9 @@ impl GameLogic {
             if !obj.is_alive() || obj.status.destroyed {
                 return;
             }
-            obj.apply_kill_pilot_unmanned();
+            obj.apply_kill_pilot_unmanned(&mut self.health_events);
             obj.deselect();
-            obj.set_team(Team::Neutral);
+            obj.set_team(Team::Neutral, &mut self.ownership_events);
         }
         self.admit_host_radar_disabled_edges(id);
         self.admit_local_drawable_deselected(id);

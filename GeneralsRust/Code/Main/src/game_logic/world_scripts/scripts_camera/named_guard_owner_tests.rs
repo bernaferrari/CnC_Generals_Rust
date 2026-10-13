@@ -198,10 +198,10 @@ fn guard_does_not_idle_passengers() {
     let passenger = world
         .create_object_for_player("OwnedNamedInfantry", 1, Vec3::ZERO)
         .unwrap();
-    world
-        .host_object_mut(passenger)
-        .unwrap()
-        .set_target(Some(target), &mut world.attack_events);
+    {
+        let (object, attack_events) = world.host_object_and_attack_events_mut(passenger).unwrap();
+        object.set_target(Some(target), attack_events);
+    };
     world.host_object_mut(id).unwrap().occupants.push(passenger);
     guard(&mut world, "NamedUnit");
     assert_eq!(world.host_object(passenger).unwrap().target, Some(target));

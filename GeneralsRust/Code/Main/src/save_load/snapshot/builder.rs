@@ -1111,7 +1111,6 @@ impl SnapshotBuilder {
                 continue;
             };
             object.vision_spied_mask = entry.vision_spied_mask;
-            object.record_host_vision_camo();
         }
 
         let mut seen_builder = HashSet::new();

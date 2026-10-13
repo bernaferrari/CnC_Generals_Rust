@@ -217,14 +217,14 @@ fn host_emp_status_log_drives_set_combat_status_channel() {
 
     let until = logic.get_frame().saturating_add(300);
     {
-        let o = logic.host_object_mut(id).expect("o");
-        o.apply_disabled_emp(until);
+        let (o, health_events) = logic.host_object_and_health_events_mut(id).expect("o");
+        o.apply_disabled_emp(until, health_events);
     }
 
     let until2 = logic.get_frame().saturating_add(300);
     {
-        let o = logic.host_object_mut(id).expect("o");
-        o.apply_disabled_emp(until2);
+        let (o, health_events) = logic.host_object_and_health_events_mut(id).expect("o");
+        o.apply_disabled_emp(until2, health_events);
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -251,9 +251,9 @@ fn host_emp_status_log_drives_set_combat_status_channel() {
 }
 
 #[test]
-fn host_player_cooldown_log_drives_set_player_cooldowns_channel() {
+fn canonical_player_cooldowns_project_without_writeback() {
     use crate::command_system::SpecialPowerType;
-    use crate::game_logic::host_player_cooldown_log;
+
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PlayerCdCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -307,8 +307,7 @@ fn host_player_cooldown_log_drives_set_player_cooldowns_channel() {
 }
 
 #[test]
-fn host_player_meta_log_drives_sciences_and_alive_channel() {
-    use crate::game_logic::host_player_meta_log;
+fn canonical_player_meta_projects_without_writeback() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PlayerMetaCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -351,8 +350,7 @@ fn host_player_meta_log_drives_sciences_and_alive_channel() {
 }
 
 #[test]
-fn host_player_progress_log_drives_set_player_progress_channel() {
-    use crate::game_logic::host_player_progress_log;
+fn canonical_player_progress_projects_without_writeback() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PlayerProgCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -448,10 +446,8 @@ fn host_radar_log_drives_set_player_radar_channel() {
 }
 
 #[test]
-fn host_contain_log_drives_set_contain_channel() {
-    use crate::game_logic::{
-        BuildingData, BuildingType, KindOf, Team, ThingTemplate, host_contain_log,
-    };
+fn canonical_containment_projects_without_writeback() {
+    use crate::game_logic::{BuildingData, BuildingType, KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ContainCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -595,7 +591,7 @@ fn host_ai_state_is_canonical_and_shadow_only_observes() {
 
 #[test]
 fn host_special_power_cooldown_remaining_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_special_power_log};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SpCdCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -644,8 +640,8 @@ fn host_special_power_cooldown_remaining_channel() {
 }
 
 #[test]
-fn host_special_power_log_drives_set_special_power_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_special_power_log};
+fn canonical_special_power_projects_without_writeback() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SpReadyCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -816,16 +812,16 @@ fn host_owner_log_drives_transfer_owner_channel() {
         .expect("capture player");
 
     {
-        let o = logic.host_object_mut(id).expect("o");
-        o.set_team_and_owner(capture_team, Some(capture_pid));
+        let (o, ownership_events) = logic.host_object_and_ownership_events_mut(id).expect("o");
+        o.set_team_and_owner(capture_team, Some(capture_pid), ownership_events);
     }
 
     // Re-set for mutation path after drain.
     {
-        let o = logic.host_object_mut(id).expect("o");
-        o.set_team_and_owner(Team::USA, None);
-        host_owner_log::clear();
-        o.set_team_and_owner(capture_team, Some(capture_pid));
+        let (o, ownership_events) = logic.host_object_and_ownership_events_mut(id).expect("o");
+        o.set_team_and_owner(Team::USA, None, ownership_events);
+        ownership_events.clear();
+        o.set_team_and_owner(capture_team, Some(capture_pid), ownership_events);
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);

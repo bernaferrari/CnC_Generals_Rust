@@ -1,15 +1,11 @@
 //! Host random draws share Common's owned Rust RNG backend.
 //!
 //! Index-seeded streams keep repeated scatter and strike queries stable.
-//! Live logic, client, and audio draws use Common's existing stream APIs.
+//! Diagnostic logic, client, and audio draws use independent local streams.
 //! The RNG sequence differs from the original C++ generator by explicit
 //! user approval; range semantics and stream ownership remain unchanged.
 
-use game_engine::common::random_value::{
-    RandomState as CommonRandomState, get_game_audio_random_value, get_game_client_random_value,
-    get_game_client_random_value_real, get_game_logic_random_seed, get_game_logic_random_seed_crc,
-    get_game_logic_random_value, get_game_logic_random_value_real, init_random_with_seed,
-};
+use game_engine::common::random_value::RandomState as CommonRandomState;
 
 /// Multiplication factor matching C++ `theMultFactor` (1 / (2^32 - 1)).
 pub const MULT_FACTOR: f32 = 1.0 / 4_294_967_295.0;
@@ -122,11 +118,9 @@ pub fn pure_client_structure_scatter(
     (dx, dz)
 }
 
-/// Live GameClient stream residual: one-shot structure floating-text scatter.
-///
-/// Advances the global client stream (presentation residual). Prefer for live
-/// deposit paths; store the result on the floating-text entry.
-pub fn client_stream_structure_scatter(
+/// Draw structure scatter from the explicitly supplied stream.
+fn structure_scatter(
+    random: &mut HostRandomState,
     major_radius: f32,
     minor_radius: f32,
     scale: f32,
@@ -139,25 +133,25 @@ pub fn client_stream_structure_scatter(
     let w = width.floor() as i32;
     let d = depth.floor() as i32;
     let dx = if w != 0 {
-        get_game_client_random_value(-w, w) as f32
+        random.next_int(-w, w) as f32
     } else {
         0.0
     };
     let dz = if d != 0 {
-        get_game_client_random_value(-d, d) as f32
+        random.next_int(-d, d) as f32
     } else {
         0.0
     };
     (dx, dz)
 }
 
-/// Live GameLogic stream residual: WeaponErrorRadius polar scatter (one-shot).
-pub fn logic_stream_error_radius_offset(error_radius: f32) -> (f32, f32) {
+/// Draw polar weapon scatter from the explicitly supplied stream.
+fn error_radius_offset(random: &mut HostRandomState, error_radius: f32) -> (f32, f32) {
     if error_radius <= 1.0 {
         return (0.0, 0.0);
     }
-    let radius = get_game_logic_random_value_real(0.0, error_radius);
-    let angle = get_game_logic_random_value_real(0.0, std::f32::consts::TAU);
+    let radius = random.next_real(0.0, error_radius);
+    let angle = random.next_real(0.0, std::f32::consts::TAU);
     (radius * angle.cos(), radius * angle.sin())
 }
 
@@ -187,70 +181,49 @@ impl HostRngResidualHonesty {
     }
 }
 
-/// Seed streams and exercise their existing range and ownership contracts.
+/// Exercise the existing backend without touching any live match or service.
 pub fn exercise_host_rng_residual(seed: u32) -> HostRngResidualHonesty {
-    init_random_with_seed(seed);
+    let mut logic = HostRandomState::seeded(seed);
+    let mut client = HostRandomState::seeded(seed);
+    let mut audio = HostRandomState::seeded(seed);
     let mut honesty = HostRngResidualHonesty::default();
-
-    // Logic / client / audio stream draws.
-    let logic_a = get_game_logic_random_value(0, 1000);
-    let logic_b = get_game_logic_random_value_real(0.0, 1.0);
+    let _ = (logic.next_int(0, 1000), logic.next_real(0.0, 1.0));
     honesty.logic_draws = 2;
-    let _ = (logic_a, logic_b);
-
-    let client_a = get_game_client_random_value(-10, 10);
-    let client_b = get_game_client_random_value_real(0.0, 5.0);
+    let _ = (client.next_int(-10, 10), client.next_real(0.0, 5.0));
     honesty.client_draws = 2;
-    let _ = (client_a, client_b);
-
-    let audio_a = get_game_audio_random_value(1, 4);
+    let _ = audio.next_int(1, 4);
     honesty.audio_draws = 1;
-    let _ = audio_a;
 
-    // Owned and live streams use the same backend after identical seeding.
-    init_random_with_seed(seed);
-    let stream_real = get_game_logic_random_value_real(0.0, 50.0);
-    let pure_real = {
-        let mut s = HostRandomState::seeded(seed);
-        s.next_real(0.0, 50.0)
+    logic.seed_random(seed);
+    let mut reference = HostRandomState::seeded(seed);
+    honesty.owned_stream_consistency_ok = logic.next_real(0.0, 50.0)
+        == reference.next_real(0.0, 50.0)
+        && logic.next_int(0, 90) == reference.next_int(0, 90);
+
+    client.seed_random(seed);
+    let client_only = client.next_int(0, 999);
+    client.seed_random(seed);
+    let _ = logic.next_int(0, 999);
+    honesty.stream_separation_ok = client_only == client.next_int(0, 999);
+
+    let state_crc = |state: &HostRandomState| {
+        let mut crc = game_engine::common::crc::Crc::new();
+        for word in state.seed_words() {
+            crc.compute_single(&word);
+        }
+        crc.get()
     };
-    honesty.owned_stream_consistency_ok = (stream_real - pure_real).abs() < 1e-5;
+    logic.seed_random(seed);
+    let crc_before = state_crc(&logic);
+    logic.seed_random(seed);
+    honesty.seed_crc_ok = crc_before == state_crc(&logic);
 
-    init_random_with_seed(seed);
-    let stream_int = get_game_logic_random_value(0, 90);
-    let pure_int = {
-        let mut s = HostRandomState::seeded(seed);
-        s.next_int(0, 90)
-    };
-    honesty.owned_stream_consistency_ok =
-        honesty.owned_stream_consistency_ok && stream_int == pure_int;
-
-    // Stream separation: consuming logic must not change next client after reseed pair.
-    init_random_with_seed(seed);
-    let client_only = get_game_client_random_value(0, 999);
-    init_random_with_seed(seed);
-    let _ = get_game_logic_random_value(0, 999);
-    let client_after_logic = get_game_client_random_value(0, 999);
-    honesty.stream_separation_ok = client_only == client_after_logic;
-
-    // Seed CRC residual.
-    init_random_with_seed(seed);
-    let crc1 = get_game_logic_random_seed_crc();
-    init_random_with_seed(seed);
-    let crc2 = get_game_logic_random_seed_crc();
-    honesty.seed_crc_ok = crc1 == crc2 && get_game_logic_random_seed() == seed;
-
-    // Structure scatter via live client stream residual.
-    init_random_with_seed(seed);
-    let (dx, dz) = client_stream_structure_scatter(50.0, 40.0, STRUCTURE_SCATTER_SCALE);
+    client.seed_random(seed);
+    let (dx, dz) = structure_scatter(&mut client, 50.0, 40.0, STRUCTURE_SCATTER_SCALE);
     honesty.structure_scatter_stream_ok = dx.abs() <= 15.0 + 0.001 && dz.abs() <= 12.0 + 0.001;
-
-    // Error radius via live logic stream residual.
-    init_random_with_seed(seed);
-    let (ox, oz) = logic_stream_error_radius_offset(100.0);
-    let dist = (ox * ox + oz * oz).sqrt();
-    honesty.error_radius_stream_ok = dist <= 100.0 + 0.001;
-
+    logic.seed_random(seed);
+    let (ox, oz) = error_radius_offset(&mut logic, 100.0);
+    honesty.error_radius_stream_ok = (ox * ox + oz * oz).sqrt() <= 100.0 + 0.001;
     honesty
 }
 
@@ -280,9 +253,9 @@ pub fn honesty_rng_pure_index_residual_ok() -> bool {
         && scatter_a.1.abs() <= 12.0 + 0.001
 }
 
-/// Check live stream separation and owned-stream consistency.
+/// Check local stream separation and backend consistency.
 ///
-/// Uses a fixed seed so unit tests are deterministic under the RNG test lock.
+/// Uses a fixed seed without global state or synchronization.
 pub fn honesty_rng_stream_exercise_residual_ok() -> bool {
     exercise_host_rng_residual(0xC0FFEE_u32).honesty_ok()
 }
@@ -297,13 +270,9 @@ pub fn honesty_rng_residual_pack_ok() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static RNG_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn owned_rng_matches_common_stream_after_seed() {
-        let _g = RNG_TEST_LOCK.lock().unwrap();
+    fn owned_rng_diagnostics_preserve_independent_streams() {
         let h = exercise_host_rng_residual(0xC0FFEE);
         assert!(h.honesty_ok(), "{h:?}");
     }
@@ -329,11 +298,10 @@ mod tests {
     }
 
     #[test]
-    fn client_stream_structure_scatter_bounds() {
-        let _g = RNG_TEST_LOCK.lock().unwrap();
-        init_random_with_seed(12345);
+    fn owned_structure_scatter_bounds() {
+        let mut random = HostRandomState::seeded(12345);
         for _ in 0..32 {
-            let (dx, dz) = client_stream_structure_scatter(25.0, 25.0, STRUCTURE_SCATTER_SCALE);
+            let (dx, dz) = structure_scatter(&mut random, 25.0, 25.0, STRUCTURE_SCATTER_SCALE);
             assert!(dx.abs() <= 7.0 + 0.001);
             assert!(dz.abs() <= 7.0 + 0.001);
         }
@@ -342,7 +310,6 @@ mod tests {
     /// Wave 72 residual pack honesty gate (only host missing residual_pack_ok).
     #[test]
     fn rng_residual_pack_honesty_wave72() {
-        let _g = RNG_TEST_LOCK.lock().unwrap();
         assert!(honesty_rng_seed_table_residual_ok());
         assert!(honesty_rng_pure_index_residual_ok());
         assert!(honesty_rng_stream_exercise_residual_ok());

@@ -17,8 +17,10 @@ fn strip_troop_crawler_payload(game_logic: &mut GameLogic, crawler_id: ObjectId)
         .map(|c| c.contained_units())
         .unwrap_or_default();
     for oid in old_occ {
-        if let Some(c) = game_logic.host_object_mut(crawler_id) {
-            c.remove_occupant(oid);
+        if let Some((c, ownership_events)) =
+            game_logic.host_object_and_ownership_events_mut(crawler_id)
+        {
+            c.remove_occupant(oid, ownership_events);
         }
         if let Some(u) = game_logic.host_object_mut(oid) {
             u.set_contained_by(None);

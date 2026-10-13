@@ -297,8 +297,10 @@ impl<'a> CommandExecutor<'a> {
                 }
                 continue;
             }
-            if let Some(player) = self.game_logic.get_player_mut(player_id) {
-                if player.queue_upgrade(upgrade_name, &cost, upgrade_type) {
+            if let Some((player, economy_events)) =
+                self.game_logic.player_and_economy_events_mut(player_id)
+            {
+                if player.queue_upgrade(upgrade_name, &cost, upgrade_type, economy_events) {
                     recorded.push((player_id, team, unit_id));
                 }
             }
@@ -316,8 +318,10 @@ impl<'a> CommandExecutor<'a> {
             );
             if !building_queued {
                 // Fail-closed: refund player if PRODUCTION_UPGRADE could not be placed.
-                if let Some(player) = self.game_logic.get_player_mut(player_id) {
-                    let _ = player.cancel_queued_upgrade(upgrade_name, &cost);
+                if let Some((player, economy_events)) =
+                    self.game_logic.player_and_economy_events_mut(player_id)
+                {
+                    let _ = player.cancel_queued_upgrade(upgrade_name, &cost, economy_events);
                 }
                 continue;
             }
@@ -410,8 +414,10 @@ impl<'a> CommandExecutor<'a> {
             if !player_is_matching_owner {
                 continue;
             }
-            if let Some(player) = self.game_logic.get_player_mut(player_id) {
-                if player.cancel_queued_upgrade(&upgrade_name, &refund) {
+            if let Some((player, economy_events)) =
+                self.game_logic.player_and_economy_events_mut(player_id)
+            {
+                if player.cancel_queued_upgrade(&upgrade_name, &refund, economy_events) {
                     refunded = true;
                     cancelled_players.push(player_id);
                 }

@@ -106,7 +106,6 @@ impl Object {
             }
         }
         self.record_host_weapon_bonus();
-        self.record_host_detector();
     }
 
     /// Clear residual Strategy Center battle-plan bonuses.
@@ -128,7 +127,6 @@ impl Object {
         }
         self.battle_plan_sight_scalar_applied = 1.0;
         self.record_host_weapon_bonus();
-        self.record_host_detector();
     }
 
     /// Retail BATTLEPLAN_BOMBARDMENT DAMAGE multiplier (1.0 when clear).

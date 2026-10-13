@@ -548,6 +548,8 @@ impl GameLogic {
             map_name: String::new(),
             map_loaded: false,
             combat_system: CombatSystem::new(),
+            ownership_events: Default::default(),
+            economy_events: Default::default(),
             attack_events: Default::default(),
             production_events: Default::default(),
             production_spawn_completions: Vec::new(),
@@ -811,6 +813,8 @@ impl GameLogic {
         // C++ WeaponStore::reset also drops pending delayed damage.
         self.combat_system.reset_projectileless_delayed();
         self.combat_system.reset_pending_projectiles();
+        self.ownership_events.clear();
+        self.economy_events.clear();
         self.attack_events.clear();
         self.production_events.clear();
         self.production_spawn_completions.clear();

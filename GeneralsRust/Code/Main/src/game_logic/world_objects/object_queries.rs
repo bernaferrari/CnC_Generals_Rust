@@ -419,7 +419,7 @@ impl GameLogic {
         let Some(object) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        object.set_team_and_owner(team, Some(player_id));
+        object.set_team_and_owner(team, Some(player_id), &mut self.ownership_events);
 
         if let Some(bonus) = retained_overcharge_bonus {
             if let Some(old_player_id) = old_owner_player_id {
@@ -1835,14 +1835,20 @@ impl GameLogic {
         let Some(p) = self.players.get_mut(&id) else {
             return false;
         };
-        p.spend_resources(cost)
+        p.spend_resources(cost, &mut self.economy_events)
     }
 
     /// Wave 243: refund supplies without exposing `&mut Player`.
     #[inline]
     pub fn player_refund_supplies(&mut self, id: u32, supplies: u32) {
-        if let Some(p) = self.players.get_mut(&id) {
-            p.resources.supplies = p.resources.supplies.saturating_add(supplies);
+        if supplies == 0 {
+            return;
+        }
+        if let Some(player) = self.players.get_mut(&id) {
+            player.refund_production_cost(
+                &Resources { supplies, power: 0 },
+                &mut self.economy_events,
+            );
         }
     }
 
@@ -1876,6 +1882,32 @@ impl GameLogic {
     /// Get mutable player by ID
     pub fn get_player_mut(&mut self, player_id: u32) -> Option<&mut Player> {
         self.players.get_mut(&player_id)
+    }
+
+    pub(crate) fn player_and_economy_events_mut(
+        &mut self,
+        player_id: u32,
+    ) -> Option<(
+        &mut Player,
+        &mut crate::game_logic::host_economy_log::EconomyEvents,
+    )> {
+        self.players
+            .get_mut(&player_id)
+            .map(|player| (player, &mut self.economy_events))
+    }
+
+    pub(crate) fn player_for_team_and_economy_events_mut(
+        &mut self,
+        team: Team,
+    ) -> Option<(
+        &mut Player,
+        &mut crate::game_logic::host_economy_log::EconomyEvents,
+    )> {
+        let key = self
+            .players
+            .iter()
+            .find_map(|(id, player)| (player.team == team).then_some(*id))?;
+        self.player_and_economy_events_mut(key)
     }
 
     pub fn get_player_mut_by_team(&mut self, team: Team) -> Option<&mut Player> {
@@ -2920,7 +2952,7 @@ impl GameLogic {
                         || obj.is_helix_transport
                     {
                         obj.passengers_allowed_to_fire = true;
-                        obj.record_host_stealth_flags();
+
                         self.passengers_fire_upgrade_reg.record_apply(1);
                     }
                     installed_bunker = true;

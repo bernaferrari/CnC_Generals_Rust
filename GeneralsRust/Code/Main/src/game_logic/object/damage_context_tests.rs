@@ -30,7 +30,8 @@ fn live_hit_context_selects_slave_nearest_to_shooter() {
         None,
         23,
         &context,
-        &mut health_events
+        &mut health_events,
+        None,
     ));
     assert_eq!(
         site.hive_slaves[0].hp, initial[0],
@@ -163,7 +164,8 @@ fn prepared_hive_context_keeps_pose_across_same_id_world_capture_and_generic_hit
                 None,
                 41,
                 &context_a,
-                &mut a.health_events
+                &mut a.health_events,
+                Some(&mut a.ownership_events),
             )
     );
     assert_eq!(a.objects[&victim_a].hive_slaves[2].hp, roster[2].hp - 5.0);
@@ -184,7 +186,8 @@ fn prepared_hive_context_keeps_pose_across_same_id_world_capture_and_generic_hit
                 None,
                 42,
                 &context_b,
-                &mut b.health_events
+                &mut b.health_events,
+                Some(&mut b.ownership_events),
             )
     );
     assert_eq!(b.objects[&victim_b].hive_slaves[1].hp, roster[1].hp - 7.0);
@@ -273,7 +276,8 @@ fn prepared_context_freezes_source_veterancy_and_does_not_leak_status_or_fx_sour
                 None,
                 51,
                 &context_a,
-                &mut a.health_events
+                &mut a.health_events,
+                Some(&mut a.ownership_events),
             )
     );
     assert!(a.objects[&victim_a].is_faerie_fire());
@@ -301,7 +305,8 @@ fn prepared_context_freezes_source_veterancy_and_does_not_leak_status_or_fx_sour
                 None,
                 52,
                 &context_b,
-                &mut b.health_events
+                &mut b.health_events,
+                Some(&mut b.ownership_events),
             )
     );
     let events = take_dispatched_armor_damage_fx();

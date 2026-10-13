@@ -129,11 +129,9 @@ pub fn oil_derrick_ms_to_frames(ms: u32) -> u32 {
 /// Residual structure floating-text scatter (C++ GameClientRandomValue
 /// ± width/depth for KINDOF_STRUCTURE). Returns host XZ offset.
 ///
-/// Uses pure ADC RandomValue algorithm seeded by `seed` (object_id + frame) so
+/// Uses the owned Rust stream seeded by `seed` (object_id + frame) so
 /// re-query is stable and matches C++ integer client stream math
 /// (`GameClientRandomValue(-width, width)` with Real→Int truncation).
-/// Live deposit paths also have `client_stream_structure_scatter` for global
-/// stream residual honesty.
 ///
 /// Fail-closed vs full GeometryInfo major/minor matrix / live DisplayString GPU.
 pub fn structure_floating_text_scatter(

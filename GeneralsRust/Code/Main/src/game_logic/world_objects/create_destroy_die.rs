@@ -1730,14 +1730,13 @@ impl GameLogic {
                     template_name,
                 ) {
                     object.is_detector = true;
-                    object.record_host_detector();
+
                     if let Some(range) =
                         crate::game_logic::host_troop_crawler::troop_crawler_detection_range(
                             template_name,
                         )
                     {
                         object.detection_range = range;
-                        object.record_host_detector();
                     }
                 }
                 // VisionRange residual (175) for effective_detection_range fallback.
@@ -1753,7 +1752,7 @@ impl GameLogic {
             if crate::game_logic::host_overlord_addons::is_overlord_tank_template(template_name) {
                 // OverlordContain style: portable slot reserved; bunker residual separate.
                 object.overlord_bunker_capacity = Some(0);
-                object.record_host_overlord();
+
             }
             if crate::game_logic::host_overlord_addons::is_helix_template(template_name) {
                 object.install_helix_transport();
@@ -1764,9 +1763,9 @@ impl GameLogic {
             if crate::game_logic::host_overlord_addons::is_emperor_template(template_name) {
                 // Innate PropagandaTowerBehavior AffectsSelf residual.
                 object.has_overlord_propaganda_addon = true;
-                object.record_host_overlord();
+
                 object.overlord_bunker_capacity = Some(0);
-                object.record_host_overlord();
+
             }
             let emperor_spawn =
                 crate::game_logic::host_overlord_addons::is_emperor_template(template_name);
@@ -1791,12 +1790,11 @@ impl GameLogic {
             // Always detector from spawn; gun is PLAYER_UPGRADE residual.
             if crate::game_logic::host_sentry_drone::sentry_spawn_is_detector(template_name) {
                 object.is_detector = true;
-                object.record_host_detector();
+
                 if let Some(range) =
                     crate::game_logic::host_sentry_drone::sentry_detection_range(template_name)
                 {
                     object.detection_range = range;
-                    object.record_host_detector();
                 }
                 // C++ StealthUpdate ctor: m_stealthAllowedFrame = now + StealthDelay.
                 // InnateStealth only sets CAN_STEALTH, not STEALTHED (StealthUpdate.cpp:110-137).
@@ -1809,9 +1807,8 @@ impl GameLogic {
                 object.stealth_allowed_frame =
                     self.frame.saturating_add(object.stealth_delay_frames);
                 object.stealth_delay_pending = false;
-                object.record_host_stealth_flags();
+
                 object.record_host_stealth_delay();
-                object.record_host_stealth_flags();
 
                 // Retail WeaponSet Conditions=None has PRIMARY None until PLAYER_UPGRADE.
                 // Strip kind-based Weapon::default fallback from resolve_primary_weapon.
@@ -1840,21 +1837,19 @@ impl GameLogic {
             // uncloaks only while MOVING (StealthForbiddenConditions = MOVING).
             if crate::game_logic::host_pathfinder::pathfinder_spawn_is_detector(template_name) {
                 object.is_detector = true;
-                object.record_host_detector();
+
                 if let Some(range) =
                     crate::game_logic::host_pathfinder::pathfinder_detection_range(template_name)
                 {
                     object.detection_range = range;
-                    object.record_host_detector();
                 }
                 object.set_status_stealthed(true);
                 object.innate_stealth = true;
                 object.is_pathfinder_unit = true;
-                object.record_host_stealth_flags();
+
                 object.stealth_breaks_on_attack = false;
-                object.record_host_stealth_flags();
+
                 object.stealth_breaks_on_move = true;
-                object.record_host_stealth_flags();
             }
 
             // C++ StealthUpdate.cpp:111 ctor: m_stealthAllowedFrame = now + StealthDelay.
@@ -1879,7 +1874,7 @@ impl GameLogic {
                     object.stealth_allowed_frame =
                         self.frame.saturating_add(object.stealth_delay_frames);
                     object.stealth_delay_pending = false;
-                    object.record_host_stealth_flags();
+
                     object.record_host_stealth_delay();
                 }
             }
@@ -2310,12 +2305,11 @@ impl GameLogic {
             // Host residual: America Scout Drone StealthDetectorUpdate (VisionRange 150).
             if crate::game_logic::host_slave_drones::scout_spawn_is_detector(template_name) {
                 object.is_detector = true;
-                object.record_host_detector();
+
                 if let Some(range) =
                     crate::game_logic::host_slave_drones::scout_detection_range(template_name)
                 {
                     object.detection_range = range;
-                    object.record_host_detector();
                 }
                 // Sensor drone: strip kind-based default gun if no explicit primary.
                 // Reuse sentry_had_explicit_primary (same template fields, captured pre-move).
@@ -2624,7 +2618,6 @@ impl GameLogic {
 
             if let Some(obj) = self.host_objects_mut().get_mut(&id) {
                 obj.record_model_mesh_from_template();
-                obj.record_kind_of_bits_from_template();
             }
             // C++ Object.cpp:473 TheRadar->addObject(this) after modules ready.
             self.host_radar_add_object(id);

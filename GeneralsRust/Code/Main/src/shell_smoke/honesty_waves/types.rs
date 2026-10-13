@@ -3,7 +3,6 @@
 //! Flat public type. Callers must keep seeing these field names.
 
 pub struct WaveHonesty {
-
     pub live_slaved_update_dual_world_empty_gate_method_names_wave402_ok: bool,
     pub live_slaved_update_dual_world_empty_gate_nav_commands_wave402_ok: bool,
     pub live_slaved_update_dual_world_empty_gate_live_wave402_ok: bool,
@@ -13,8 +12,6 @@ pub struct WaveHonesty {
     pub live_bone_fx_update_dual_world_empty_gate_method_names_wave404_ok: bool,
     pub live_bone_fx_update_dual_world_empty_gate_nav_commands_wave404_ok: bool,
     pub live_bone_fx_update_dual_world_empty_gate_live_wave404_ok: bool,
-
-
 
     pub live_railed_transport_ai_update_dual_world_empty_gate_method_names_wave407_ok: bool,
     pub live_railed_transport_ai_update_dual_world_empty_gate_nav_commands_wave407_ok: bool,
@@ -52,7 +49,6 @@ pub struct WaveHonesty {
     pub live_build_placement_dual_world_empty_gate_method_names_wave418_ok: bool,
     pub live_build_placement_dual_world_empty_gate_nav_commands_wave418_ok: bool,
     pub live_build_placement_dual_world_empty_gate_live_wave418_ok: bool,
-
 
     pub live_experience_tracker_dual_world_empty_gate_method_names_wave420_ok: bool,
     pub live_experience_tracker_dual_world_empty_gate_nav_commands_wave420_ok: bool,
@@ -109,7 +105,6 @@ pub struct WaveHonesty {
     pub live_nuclear_missile_power_dual_world_empty_gate_nav_commands_wave441_ok: bool,
     pub live_nuclear_missile_power_dual_world_empty_gate_live_wave441_ok: bool,
 
-
     pub live_stealth_integration_dual_world_empty_gate_method_names_wave443_ok: bool,
     pub live_stealth_integration_dual_world_empty_gate_nav_commands_wave443_ok: bool,
     pub live_stealth_integration_dual_world_empty_gate_live_wave443_ok: bool,
@@ -122,11 +117,6 @@ pub struct WaveHonesty {
     pub live_replace_object_upgrade_dual_world_empty_gate_method_names_wave446_ok: bool,
     pub live_replace_object_upgrade_dual_world_empty_gate_nav_commands_wave446_ok: bool,
     pub live_replace_object_upgrade_dual_world_empty_gate_live_wave446_ok: bool,
-
-
-
-
-
 
     pub live_golden_mopup_honesty_method_names_wave451_ok: bool,
     pub live_golden_mopup_honesty_nav_commands_wave451_ok: bool,
@@ -156,8 +146,6 @@ pub struct WaveHonesty {
     pub terrain_visual_presentation_only_nav_commands_wave459_ok: bool,
     pub terrain_visual_presentation_only_live_wave459_ok: bool,
 
-
-
     pub presentation_world_bounds_probe_method_names_wave461_ok: bool,
     pub presentation_world_bounds_probe_nav_commands_wave461_ok: bool,
     pub presentation_world_bounds_probe_live_wave461_ok: bool,
@@ -165,16 +153,12 @@ pub struct WaveHonesty {
     pub render_ui_pipeline_presentation_nav_commands_wave462_ok: bool,
     pub render_ui_pipeline_presentation_live_wave462_ok: bool,
 
-
-
     pub minimap_heightmap_repair_presentation_first_method_names_wave465_ok: bool,
     pub minimap_heightmap_repair_presentation_first_nav_commands_wave465_ok: bool,
     pub minimap_heightmap_repair_presentation_first_live_wave465_ok: bool,
     pub presentation_env_seed_gameworld_method_names_wave466_ok: bool,
     pub presentation_env_seed_gameworld_nav_commands_wave466_ok: bool,
     pub presentation_env_seed_gameworld_live_wave466_ok: bool,
-
-
 
     pub dead_model_preload_removed_method_names_wave472_ok: bool,
     pub dead_model_preload_removed_nav_commands_wave472_ok: bool,
@@ -194,18 +178,13 @@ pub struct WaveHonesty {
     pub construction_sole_tick_no_progress_stomp_nav_commands_wave478_ok: bool,
     pub construction_sole_tick_no_progress_stomp_live_wave478_ok: bool,
 
-
-
     pub sell_deconstruction_sole_tick_no_stomp_method_names_wave481_ok: bool,
     pub sell_deconstruction_sole_tick_no_stomp_nav_commands_wave481_ok: bool,
     pub sell_deconstruction_sole_tick_no_stomp_live_wave481_ok: bool,
 
-
-
     pub cancel_clears_exit_delay_method_names_wave485_ok: bool,
     pub cancel_clears_exit_delay_nav_commands_wave485_ok: bool,
     pub cancel_clears_exit_delay_live_wave485_ok: bool,
-
 
     pub combat_model_condition_channel_method_names_wave487_ok: bool,
     pub combat_model_condition_channel_nav_commands_wave487_ok: bool,
@@ -235,7 +214,6 @@ pub struct WaveHonesty {
     pub presentation_mesh_door_phase_method_names_wave496_ok: bool,
     pub presentation_mesh_door_phase_nav_commands_wave496_ok: bool,
     pub presentation_mesh_door_phase_live_wave496_ok: bool,
-
 
     pub presentation_host_fx_overlay_method_names_wave498_ok: bool,
     pub presentation_host_fx_overlay_nav_commands_wave498_ok: bool,
@@ -279,7 +257,6 @@ pub struct WaveHonesty {
     pub presentation_burn_cheer_carry_method_names_wave511_ok: bool,
     pub presentation_burn_cheer_carry_nav_commands_wave511_ok: bool,
     pub presentation_burn_cheer_carry_live_wave511_ok: bool,
-
 
     pub presentation_jam_die_reload_pack_method_names_wave513_ok: bool,
     pub presentation_jam_die_reload_pack_nav_commands_wave513_ok: bool,
@@ -339,7 +316,6 @@ pub struct WaveHonesty {
     pub command_integration_presentation_fill_nav_commands_wave531_ok: bool,
     pub command_integration_presentation_fill_live_wave531_ok: bool,
 
-
     pub presentation_eva_pulse_audio_method_names_wave533_ok: bool,
     pub presentation_eva_pulse_audio_nav_commands_wave533_ok: bool,
     pub presentation_eva_pulse_audio_live_wave533_ok: bool,
@@ -394,8 +370,6 @@ pub struct WaveHonesty {
     pub time_frozen_presentation_helper_nav_commands_wave551_ok: bool,
     pub time_frozen_presentation_helper_live_wave551_ok: bool,
 
-
-
     pub play_time_local_player_presentation_helper_method_names_wave553_ok: bool,
     pub play_time_local_player_presentation_helper_nav_commands_wave553_ok: bool,
     pub play_time_local_player_presentation_helper_live_wave553_ok: bool,
@@ -421,9 +395,7 @@ pub struct WaveHonesty {
     pub logic_steps_presentation_helper_method_names_wave561_ok: bool,
     pub logic_steps_presentation_helper_nav_commands_wave561_ok: bool,
     pub logic_steps_presentation_helper_live_wave561_ok: bool,
-    pub combat_kill_particle_observe_method_names_wave562_ok: bool,
-    pub combat_kill_particle_observe_nav_commands_wave562_ok: bool,
-    pub combat_kill_particle_observe_live_wave562_ok: bool,
+
     pub template_name_presentation_helper_method_names_wave563_ok: bool,
     pub template_name_presentation_helper_nav_commands_wave563_ok: bool,
     pub template_name_presentation_helper_live_wave563_ok: bool,
@@ -451,8 +423,6 @@ pub struct WaveHonesty {
     pub popup_music_helper_method_names_wave571_ok: bool,
     pub popup_music_helper_nav_commands_wave571_ok: bool,
     pub popup_music_helper_live_wave571_ok: bool,
-
-
 
     pub boot_player_info_helper_method_names_wave573_ok: bool,
     pub boot_player_info_helper_nav_commands_wave573_ok: bool,
@@ -485,8 +455,6 @@ pub struct WaveHonesty {
     pub host_enqueue_shell_cmd_helper_nav_commands_wave582_ok: bool,
     pub host_enqueue_shell_cmd_helper_live_wave582_ok: bool,
 
-
-
     pub host_ui_shell_world_helper_method_names_wave585_ok: bool,
     pub host_ui_shell_world_helper_nav_commands_wave585_ok: bool,
     pub host_ui_shell_world_helper_live_wave585_ok: bool,
@@ -500,12 +468,9 @@ pub struct WaveHonesty {
     pub host_game_client_menu_shell_helper_nav_commands_wave588_ok: bool,
     pub host_game_client_menu_shell_helper_live_wave588_ok: bool,
 
-
-
     pub host_render_ui_finalize_helper_method_names_wave593_ok: bool,
     pub host_render_ui_finalize_helper_nav_commands_wave593_ok: bool,
     pub host_render_ui_finalize_helper_live_wave593_ok: bool,
-
 
     pub host_camera_queue_drain_helper_method_names_wave596_ok: bool,
     pub host_camera_queue_drain_helper_nav_commands_wave596_ok: bool,
@@ -520,7 +485,6 @@ pub struct WaveHonesty {
     pub host_post_presentation_client_helper_method_names_wave600_ok: bool,
     pub host_post_presentation_client_helper_nav_commands_wave600_ok: bool,
     pub host_post_presentation_client_helper_live_wave600_ok: bool,
-
 
     pub host_paused_endgame_boot_ui_helper_method_names_wave603_ok: bool,
     pub host_paused_endgame_boot_ui_helper_nav_commands_wave603_ok: bool,
@@ -549,14 +513,9 @@ pub struct WaveHonesty {
     pub host_combat_cursor_transition_helper_nav_commands_wave612_ok: bool,
     pub host_combat_cursor_transition_helper_live_wave612_ok: bool,
 
-
-
-
-
     pub host_production_spawn_helper_method_names_wave615_ok: bool,
     pub host_production_spawn_helper_nav_commands_wave615_ok: bool,
     pub host_production_spawn_helper_live_wave615_ok: bool,
-
 
     pub host_construction_ready_log_helper_method_names_wave617_ok: bool,
     pub host_construction_ready_log_helper_nav_commands_wave617_ok: bool,
@@ -570,37 +529,25 @@ pub struct WaveHonesty {
     pub host_construction_complete_clear_ready_log_helper_nav_commands_wave626_ok: bool,
     pub host_construction_complete_clear_ready_log_helper_live_wave626_ok: bool,
 
-
     pub host_ai_state_ready_log_helper_method_names_wave630_ok: bool,
     pub host_ai_state_ready_log_helper_nav_commands_wave630_ok: bool,
     pub host_ai_state_ready_log_helper_live_wave630_ok: bool,
-
 
     pub host_ai_mood_ready_log_helper_method_names_wave645_ok: bool,
     pub host_ai_mood_ready_log_helper_nav_commands_wave645_ok: bool,
     pub host_ai_mood_ready_log_helper_live_wave645_ok: bool,
 
-
     pub host_ai_attitude_ready_log_helper_method_names_wave659_ok: bool,
     pub host_ai_attitude_ready_log_helper_nav_commands_wave659_ok: bool,
     pub host_ai_attitude_ready_log_helper_live_wave659_ok: bool,
-
-
-
 
     pub host_guard_ready_log_helper_method_names_wave669_ok: bool,
     pub host_guard_ready_log_helper_nav_commands_wave669_ok: bool,
     pub host_guard_ready_log_helper_live_wave669_ok: bool,
 
-
-
-
     pub host_construction_same_frame_ready_complete_method_names_wave715_ok: bool,
     pub host_construction_same_frame_ready_complete_nav_commands_wave715_ok: bool,
     pub host_construction_same_frame_ready_complete_live_wave715_ok: bool,
-
-
-
 
     pub host_train_force_complete_opt_in_method_names_wave718_ok: bool,
     pub host_train_force_complete_opt_in_nav_commands_wave718_ok: bool,
@@ -654,11 +601,6 @@ pub struct WaveHonesty {
     pub host_seed_starting_building_opt_in_nav_commands_wave734_ok: bool,
     pub host_seed_starting_building_opt_in_live_wave734_ok: bool,
 
-
-
-
-
-
     pub host_eject_pilot_die_death_start_method_names_wave754_ok: bool,
     pub host_eject_pilot_die_death_start_nav_commands_wave754_ok: bool,
     pub host_eject_pilot_die_death_start_live_wave754_ok: bool,
@@ -666,9 +608,6 @@ pub struct WaveHonesty {
     pub host_fire_sound_loop_dual_peel_method_names_wave767_ok: bool,
     pub host_fire_sound_loop_dual_peel_nav_commands_wave767_ok: bool,
     pub host_fire_sound_loop_dual_peel_live_wave767_ok: bool,
-
-
-
 
     pub host_actively_constructing_complete_peel_method_names_wave828_ok: bool,
     pub host_actively_constructing_complete_peel_nav_commands_wave828_ok: bool,
@@ -697,8 +636,6 @@ pub struct WaveHonesty {
     pub host_skirmish_map_force_lone_eagle_method_names_wave837_ok: bool,
     pub host_skirmish_map_force_lone_eagle_nav_commands_wave837_ok: bool,
     pub host_skirmish_map_force_lone_eagle_live_wave837_ok: bool,
-
-
 
     pub host_vertical_render_mesh_gate_method_names_wave839_ok: bool,
     pub host_vertical_render_mesh_gate_nav_commands_wave839_ok: bool,
@@ -808,7 +745,6 @@ pub struct WaveHonesty {
     pub host_shell_no_dual_pace_nav_commands_wave876_ok: bool,
     pub host_shell_no_dual_pace_live_wave876_ok: bool,
 
-
     pub host_ci_clippy_peel_method_names_wave878_ok: bool,
     pub host_ci_clippy_peel_nav_commands_wave878_ok: bool,
     pub host_ci_clippy_peel_live_wave878_ok: bool,
@@ -821,7 +757,6 @@ pub struct WaveHonesty {
     pub host_ui_framework_clippy_method_names_wave881_ok: bool,
     pub host_ui_framework_clippy_nav_commands_wave881_ok: bool,
     pub host_ui_framework_clippy_live_wave881_ok: bool,
-
 
     pub host_wwshade_clippy_method_names_wave883_ok: bool,
     pub host_wwshade_clippy_nav_commands_wave883_ok: bool,
@@ -945,13 +880,9 @@ pub struct WaveHonesty {
     pub host_tick_logic_frame_boundary_nav_commands_wave923_ok: bool,
     pub host_tick_logic_frame_boundary_live_wave923_ok: bool,
 
-
-
-
     pub host_presentation_build_boundary_method_names_wave926_ok: bool,
     pub host_presentation_build_boundary_nav_commands_wave926_ok: bool,
     pub host_presentation_build_boundary_live_wave926_ok: bool,
-
 
     pub host_save_load_skirmish_boundaries_method_names_wave928_ok: bool,
     pub host_save_load_skirmish_boundaries_nav_commands_wave928_ok: bool,
@@ -972,16 +903,9 @@ pub struct WaveHonesty {
     pub host_session_control_boundary_nav_commands_wave933_ok: bool,
     pub host_session_control_boundary_live_wave933_ok: bool,
 
-
-
     pub host_production_authority_boundary_method_names_wave937_ok: bool,
     pub host_production_authority_boundary_nav_commands_wave937_ok: bool,
     pub host_production_authority_boundary_live_wave937_ok: bool,
-
-
-
-
-
 }
 
 impl WaveHonesty {
@@ -1418,9 +1342,8 @@ impl WaveHonesty {
             logic_steps_presentation_helper_method_names_wave561_ok: waves_561_600.logic_steps_presentation_helper_method_names_wave561_ok,
             logic_steps_presentation_helper_nav_commands_wave561_ok: waves_561_600.logic_steps_presentation_helper_nav_commands_wave561_ok,
             logic_steps_presentation_helper_live_wave561_ok: waves_561_600.logic_steps_presentation_helper_live_wave561_ok,
-            combat_kill_particle_observe_method_names_wave562_ok: waves_561_600.combat_kill_particle_observe_method_names_wave562_ok,
-            combat_kill_particle_observe_nav_commands_wave562_ok: waves_561_600.combat_kill_particle_observe_nav_commands_wave562_ok,
-            combat_kill_particle_observe_live_wave562_ok: waves_561_600.combat_kill_particle_observe_live_wave562_ok,
+
+
             template_name_presentation_helper_method_names_wave563_ok: waves_561_600.template_name_presentation_helper_method_names_wave563_ok,
             template_name_presentation_helper_nav_commands_wave563_ok: waves_561_600.template_name_presentation_helper_nav_commands_wave563_ok,
             template_name_presentation_helper_live_wave563_ok: waves_561_600.template_name_presentation_helper_live_wave563_ok,

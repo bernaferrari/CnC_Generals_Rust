@@ -727,7 +727,8 @@ fn orbit_override_click_retargets_only_the_bound_ship_field() {
     let new_id = reg.spawn_orbit_field(source, Team::USA, fire_pos, 0, 2);
     let click = Vec3::new(60.0, 0.0, 30.0); // inside the 175 constraint ring
     assert!(reg.apply_source_override_destination(source, click, 1));
-    let old = &reg.orbit_fields()
+    let old = &reg
+        .orbit_fields()
         .iter()
         .find(|f| f.id == old_id)
         .expect("old field")

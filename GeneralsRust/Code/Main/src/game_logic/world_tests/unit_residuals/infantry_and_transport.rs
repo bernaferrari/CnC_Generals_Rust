@@ -1480,10 +1480,14 @@ fn structure_topple_crush_sweep_kills_nearby_infantry() {
 
 #[test]
 fn structure_topple_height_from_geometry_not_maxhp() {
-    use crate::game_logic::host_structure_topple::{
-        STRUCTURE_TOPPLE_CRUSHING_WEAPON_NAME, TOPPLED_STRUCTURE_WEAPON_PRIMARY_DAMAGE,
-    };
+    use crate::game_logic::host_structure_topple::TOPPLED_STRUCTURE_WEAPON_PRIMARY_DAMAGE;
     use crate::game_logic::{HostGeometryInfo, HostGeometryType, KindOf, Team, ThingTemplate};
+    assert_eq!(
+        crate::assets::ini_template_loader::register_weapons_from_ini_text(
+            "Weapon GeometryToppleWeapon\n PrimaryDamage = 9999\n PrimaryDamageRadius = 20\n DamageType = EXPLOSION\n DeathType = EXPLODED\nEnd\n",
+        ),
+        1,
+    );
     let mut logic = GameLogic::new();
     let mut bt = ThingTemplate::new("AmericaWarFactory");
     bt.set_health(5000.0);
@@ -1491,7 +1495,7 @@ fn structure_topple_height_from_geometry_not_maxhp() {
     bt.authored_structure_topple = true;
     let mut definition =
         crate::game_logic::host_structure_topple::definition::StructureToppleDefinition::default();
-    definition.fx.weapon = "ToppledStructureWeapon".into();
+    definition.fx.weapon = "GeometryToppleWeapon".into();
     bt.structure_topple_definition = Some(Ok(std::sync::Arc::new(definition)));
     bt.geometry_info = HostGeometryInfo {
         geom_type: HostGeometryType::Box,
@@ -1518,10 +1522,7 @@ fn structure_topple_height_from_geometry_not_maxhp() {
             "height must come from geometry not maxHP, got {}",
             st.building_height
         );
-        assert_eq!(
-            st.crushing_weapon_name,
-            STRUCTURE_TOPPLE_CRUSHING_WEAPON_NAME
-        );
+        assert_eq!(st.crushing_weapon_name, "GeometryToppleWeapon");
         assert!((st.crush_damage - TOPPLED_STRUCTURE_WEAPON_PRIMARY_DAMAGE).abs() < 1e-3);
         assert!(st.crush_damage < 99999.0);
     }
@@ -2541,8 +2542,10 @@ fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
         .map(|c| c.occupants.clone())
         .unwrap_or_default();
     for oid in old_occ {
-        if let Some(c) = game_logic.host_object_mut(crawler_id) {
-            c.remove_occupant(oid);
+        if let Some((c, ownership_events)) =
+            game_logic.host_object_and_ownership_events_mut(crawler_id)
+        {
+            c.remove_occupant(oid, ownership_events);
         }
         if let Some(u) = game_logic.host_object_mut(oid) {
             u.set_contained_by(None);

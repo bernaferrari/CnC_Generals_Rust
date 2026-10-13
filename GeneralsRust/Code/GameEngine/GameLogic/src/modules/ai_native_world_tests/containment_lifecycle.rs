@@ -14,13 +14,19 @@ fn lifecycle_world_with_tunnel(
     instant_before_contain: bool,
     tunnel: bool,
 ) -> NativeMatch {
-    lifecycle_world_with_tunnel_count(percent, instant_before_contain, tunnel, false)
+    lifecycle_world_with_tunnel_count(percent, instant_before_contain, tunnel, false, None)
+}
+pub(super) fn lifecycle_world_with_locomotor(
+    ground: crate::locomotor::LocomotorTemplate,
+) -> NativeMatch {
+    lifecycle_world_with_tunnel_count(0.0, false, false, false, Some(ground))
 }
 fn lifecycle_world_with_tunnel_count(
     percent: f32,
     instant_before_contain: bool,
     tunnel: bool,
     two_entrances: bool,
+    ground_definition: Option<crate::locomotor::LocomotorTemplate>,
 ) -> NativeMatch {
     let mut game = NativeMatch::new(50.0);
     let mut source_base = DefaultThingTemplate::new("OwnedContainRider".into());
@@ -133,7 +139,7 @@ fn lifecycle_world_with_tunnel_count(
     ground.surfaces = crate::locomotor::SURFACE_GROUND;
     ground.max_speed = 3.0;
     ground.acceleration = 0.1;
-    let ground = Arc::new(ground);
+    let ground = Arc::new(ground_definition.unwrap_or(ground));
     let mut lookup = |name: &str| Ok((name == "OwnedContainGround").then(|| Arc::clone(&ground)));
     let team = game.source.read().unwrap().get_team().unwrap();
     let mut factory = ObjectFactory::new();
@@ -367,8 +373,8 @@ fn last_actual_tunnel_caves_in_its_player_roster_without_touching_peer() {
 
 #[test]
 fn retired_tunnel_retargets_actual_shared_roster_at_original_frame() {
-    let mut game = lifecycle_world_with_tunnel_count(0.0, false, true, true);
-    let peer = lifecycle_world_with_tunnel_count(0.0, false, true, true);
+    let mut game = lifecycle_world_with_tunnel_count(0.0, false, true, true, None);
+    let peer = lifecycle_world_with_tunnel_count(0.0, false, true, true, None);
     let player = game.players.get_player(0).unwrap().clone();
     player
         .write()

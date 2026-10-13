@@ -58,10 +58,10 @@ fn hunt_reentry_clears_previous_route_target_and_scan() {
         .unwrap()
         .unit_ai_runtime
         .set_hunt_scan_deadline(Some(9000));
-    world
-        .host_object_mut(id)
-        .unwrap()
-        .set_target(Some(target), &mut world.attack_events);
+    {
+        let (object, attack_events) = world.host_object_and_attack_events_mut(id).unwrap();
+        object.set_target(Some(target), attack_events);
+    };
     world.host_object_mut(id).unwrap().pending_move = Some(Vec3::splat(200.0));
     assert!(world.append_unit_waypoint(id, Vec3::new(200.0, 0.0, 200.0)));
     hunt(&mut world, "NamedUnit");

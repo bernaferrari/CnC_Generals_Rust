@@ -110,7 +110,7 @@ pub fn honesty_engine_still_calls_overlay_source() -> bool {
 /// Live residual: overlay stamps deepened fields from desynced shadow entity.
 pub fn simulate_live_presentation_overlay_deepen_honesty() -> bool {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::gameworld_shadow::{GameWorldShadow};
+    use crate::gameworld_shadow::GameWorldShadow;
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
@@ -124,7 +124,6 @@ pub fn simulate_live_presentation_overlay_deepen_honesty() -> bool {
     if !honesty_engine_still_calls_overlay_source() {
         return false;
     }
-
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PresOverlayDeep189");
@@ -149,12 +148,15 @@ pub fn simulate_live_presentation_overlay_deepen_honesty() -> bool {
         return false;
     };
 
-    let Some(object) = logic.host_object_mut(oid) else { return false; };
+    let Some(object) = logic.host_object_mut(oid) else {
+        return false;
+    };
     object.movement.velocity = Vec3::new(3.5, 0.0, -2.25);
     object.movement.max_speed = 18.5;
     object.selected = true;
     object.team_color = [0.1, 0.2, 0.3, 1.0];
-    object.body_damage_state = crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged;
+    object.body_damage_state =
+        crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged;
     object.health.current = 88.0;
     shadow.sync_from_host(&logic);
 

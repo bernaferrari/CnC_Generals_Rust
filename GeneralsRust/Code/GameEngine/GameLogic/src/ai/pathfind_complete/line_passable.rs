@@ -892,16 +892,65 @@ impl PathfindingSystem {
         to: &Coord3D,
         observations: Option<&PathfindObservations>,
     ) -> bool {
+        self.client_safe_quick_does_path_exist_ignoring_with_observations(
+            surfaces,
+            from,
+            to,
+            None,
+            observations,
+        )
+    }
+
+    /// CPP findPath's quick gate observes the same ignored receiver as A*.
+    /// The ordinary query wrapper retains no ignored-object policy.
+    pub(crate) fn client_safe_quick_does_path_exist_ignoring_with_observations(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        from: &Coord3D,
+        to: &Coord3D,
+        ignore_obstacle_id: Option<ObjectID>,
+        observations: Option<&PathfindObservations>,
+    ) -> bool {
         // C++ validMovementPosition(false, destLayer, locoSet, to)
-        if !self.valid_movement_position_with_observations(surfaces, false, to, None, observations)
-        {
+        if !self.valid_movement_position_with_observations(
+            surfaces,
+            false,
+            to,
+            ignore_obstacle_id,
+            observations,
+        ) {
             return false;
         }
         // C++: no goals on cliffs
         if self.get_cell_type(to) == Some(PathfindCellType::Cliff) {
             return false;
         }
-        self.zones_connected_for_surfaces(surfaces, from, to)
+        // AIPathfind.cpp:8011–8045 uses terrain connectivity when either
+        // endpoint is inside a building, rather than treating its obstacle
+        // zone as a disconnected terrain island.
+        let start = GridCoord::from_world(from);
+        let goal = GridCoord::from_world(to);
+        let zones = &self.zones;
+        let start_zone = zones.zone_at(start);
+        let goal_zone = zones.zone_at(goal);
+        let start_obstacle = self.get_cell_type(from) == Some(PathfindCellType::Obstacle);
+        let goal_obstacle = self.get_cell_type(to) == Some(PathfindCellType::Obstacle);
+        let start_effective = zones.get_effective_zone(surfaces, false, start_zone);
+        if start_obstacle && start_effective == 0 {
+            return true;
+        }
+        if start_obstacle || goal_obstacle {
+            let terrain_effective = |zone| {
+                zones.get_effective_terrain_zone(zones.get_effective_zone(
+                    surfaces,
+                    false,
+                    zones.get_effective_terrain_zone(zone),
+                ))
+            };
+            terrain_effective(start_zone) == terrain_effective(goal_zone)
+        } else {
+            start_effective == zones.get_effective_zone(surfaces, false, goal_zone)
+        }
     }
 
     /// C++ `Pathfinder::clientSafeQuickDoesPathExistForUI`.

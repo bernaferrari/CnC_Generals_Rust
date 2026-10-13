@@ -1428,18 +1428,18 @@ impl GameLogic {
             return;
         }
         if let Some(src) = self.players.get_mut(&source_player) {
-            crate::game_logic::host_economy_log::record_money_audio(
+            self.economy_events.record_money_audio(
                 source_player,
                 crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
             );
-            src.apply_supply_spend_unchecked(amount);
+            src.apply_supply_spend_unchecked(amount, &mut self.economy_events);
         }
         if let Some(dst) = self.players.get_mut(&dest_player) {
-            crate::game_logic::host_economy_log::record_money_audio(
+            self.economy_events.record_money_audio(
                 dest_player,
                 crate::game_logic::host_economy_log::HostMoneyAudio::Deposit,
             );
-            dst.apply_supply_gain(amount);
+            dst.apply_supply_gain(amount, &mut self.economy_events);
         }
     }
 
@@ -1471,19 +1471,19 @@ impl GameLogic {
         };
         let current = player.effective_supplies();
         if current > 0 {
-            crate::game_logic::host_economy_log::record_money_audio(
+            self.economy_events.record_money_audio(
                 pid,
                 crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
             );
-            player.apply_supply_spend_unchecked(current);
+            player.apply_supply_spend_unchecked(current, &mut self.economy_events);
         }
         let deposit = amount.max(0) as u32;
         if deposit > 0 {
-            crate::game_logic::host_economy_log::record_money_audio(
+            self.economy_events.record_money_audio(
                 pid,
                 crate::game_logic::host_economy_log::HostMoneyAudio::Deposit,
             );
-            player.apply_supply_gain(deposit);
+            player.apply_supply_gain(deposit, &mut self.economy_events);
         }
     }
 
@@ -1496,18 +1496,18 @@ impl GameLogic {
             let want = amount.unsigned_abs();
             let actual = want.min(player.effective_supplies());
             if actual > 0 {
-                crate::game_logic::host_economy_log::record_money_audio(
+                self.economy_events.record_money_audio(
                     pid,
                     crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
                 );
-                player.apply_supply_spend_unchecked(actual);
+                player.apply_supply_spend_unchecked(actual, &mut self.economy_events);
             }
         } else if amount > 0 {
-            crate::game_logic::host_economy_log::record_money_audio(
+            self.economy_events.record_money_audio(
                 pid,
                 crate::game_logic::host_economy_log::HostMoneyAudio::Deposit,
             );
-            player.apply_supply_gain(amount as u32);
+            player.apply_supply_gain(amount as u32, &mut self.economy_events);
         }
     }
 

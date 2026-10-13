@@ -7,14 +7,10 @@
 //! rollback, and clear the old world's events only once commit is certain.
 
 use super::{
-    host_building_type_log, host_command_set_log,
-    host_contain_capacity_log, host_contain_log, host_continuous_fire_log,
-    host_demo_mine_cheer_log, host_detector_log, host_ground_height_log, host_hive_log,
-    host_identity_log, host_kind_of_log, host_locomotor_log, host_max_health_log,
-    host_model_mesh_log, host_movement_log, host_overlord_log, host_physics_motive_log,
-    host_player_cooldown_log, host_player_meta_log, host_player_progress_log, host_spawn_log,
-    host_special_power_log, host_status_log, host_stealth_flags_log, host_stored_supplies_log,
-    host_weapon_set_log,
+    host_building_type_log, host_command_set_log, host_continuous_fire_log,
+    host_demo_mine_cheer_log, host_ground_height_log, host_hive_log, host_locomotor_log,
+    host_max_health_log, host_model_mesh_log, host_movement_log, host_physics_motive_log,
+    host_spawn_log, host_stored_supplies_log, host_weapon_set_log,
 };
 use std::cell::Cell;
 
@@ -35,29 +31,20 @@ pub(crate) struct WorldStageEffectsState {
     spawn: Vec<host_spawn_log::HostSpawnEvent>,
     ground_height: Vec<host_ground_height_log::HostGroundHeightEvent>,
     model_mesh: Vec<host_model_mesh_log::HostModelMeshEvent>,
-    kind_of: Vec<host_kind_of_log::HostKindOfEvent>,
-    identity: Vec<host_identity_log::HostIdentityEvent>,
+
     movement: Vec<host_movement_log::HostMovementEvent>,
     demo_mine_cheer: Vec<host_demo_mine_cheer_log::HostDemoMineCheerEvent>,
-    detector: Vec<host_detector_log::HostDetectorEvent>,
-    overlord: Vec<host_overlord_log::HostOverlordEvent>,
-    stealth_flags: Vec<host_stealth_flags_log::HostStealthFlagsEvent>,
+
     hive: Vec<host_hive_log::HostHiveEvent>,
     weapon_set: Vec<host_weapon_set_log::HostWeaponSetEvent>,
-    contain_capacity: Vec<host_contain_capacity_log::HostContainCapacityEvent>,
-    status: Vec<host_status_log::HostStatusEvent>,
-    special_power: Vec<host_special_power_log::HostSpecialPowerEvent>,
-    player_cooldown: Vec<host_player_cooldown_log::HostPlayerCooldownEvent>,
+
     stored_supplies: Vec<host_stored_supplies_log::HostStoredSuppliesEvent>,
-    contain: Vec<host_contain_log::HostContainEvent>,
+
     locomotor: Vec<host_locomotor_log::HostLocomotorEvent>,
-
-
 
     command_set: Vec<host_command_set_log::HostCommandSetEvent>,
     continuous_fire: Vec<host_continuous_fire_log::HostContinuousFireEvent>,
-    player_meta: Vec<host_player_meta_log::HostPlayerMetaEvent>,
-    player_progress: Vec<host_player_progress_log::HostPlayerProgressEvent>,
+
     max_health: Vec<host_max_health_log::HostMaxHealthEvent>,
     building_type: Vec<host_building_type_log::HostBuildingTypeEvent>,
     physics_motive: Vec<host_physics_motive_log::HostPhysicsMotiveEvent>,
@@ -69,29 +56,20 @@ impl WorldStageEffectsState {
             spawn: host_spawn_log::take_for_world_stage(),
             ground_height: host_ground_height_log::take_for_world_stage(),
             model_mesh: host_model_mesh_log::take_for_world_stage(),
-            kind_of: host_kind_of_log::take_for_world_stage(),
-            identity: host_identity_log::take_for_world_stage(),
+
             movement: host_movement_log::take_for_world_stage(),
             demo_mine_cheer: host_demo_mine_cheer_log::take_for_world_stage(),
-            detector: host_detector_log::take_for_world_stage(),
-            overlord: host_overlord_log::take_for_world_stage(),
-            stealth_flags: host_stealth_flags_log::take_for_world_stage(),
+
             hive: host_hive_log::take_for_world_stage(),
             weapon_set: host_weapon_set_log::take_for_world_stage(),
-            contain_capacity: host_contain_capacity_log::take_for_world_stage(),
-            status: host_status_log::take_for_world_stage(),
-            special_power: host_special_power_log::take_for_world_stage(),
-            player_cooldown: host_player_cooldown_log::take_for_world_stage(),
+
             stored_supplies: host_stored_supplies_log::take_for_world_stage(),
-            contain: host_contain_log::take_for_world_stage(),
+
             locomotor: host_locomotor_log::take_for_world_stage(),
-
-
 
             command_set: host_command_set_log::take_for_world_stage(),
             continuous_fire: host_continuous_fire_log::take_for_world_stage(),
-            player_meta: host_player_meta_log::take_for_world_stage(),
-            player_progress: host_player_progress_log::take_for_world_stage(),
+
             max_health: host_max_health_log::take_for_world_stage(),
             building_type: host_building_type_log::take_for_world_stage(),
             physics_motive: host_physics_motive_log::take_for_world_stage(),
@@ -103,42 +81,26 @@ impl WorldStageEffectsState {
             spawn: host_spawn_log::replace_for_world_stage(next.spawn),
             ground_height: host_ground_height_log::replace_for_world_stage(next.ground_height),
             model_mesh: host_model_mesh_log::replace_for_world_stage(next.model_mesh),
-            kind_of: host_kind_of_log::replace_for_world_stage(next.kind_of),
-            identity: host_identity_log::replace_for_world_stage(next.identity),
+
             movement: host_movement_log::replace_for_world_stage(next.movement),
             demo_mine_cheer: host_demo_mine_cheer_log::replace_for_world_stage(
                 next.demo_mine_cheer,
             ),
-            detector: host_detector_log::replace_for_world_stage(next.detector),
-            overlord: host_overlord_log::replace_for_world_stage(next.overlord),
-            stealth_flags: host_stealth_flags_log::replace_for_world_stage(next.stealth_flags),
+
             hive: host_hive_log::replace_for_world_stage(next.hive),
             weapon_set: host_weapon_set_log::replace_for_world_stage(next.weapon_set),
-            contain_capacity: host_contain_capacity_log::replace_for_world_stage(
-                next.contain_capacity,
-            ),
-            status: host_status_log::replace_for_world_stage(next.status),
-            special_power: host_special_power_log::replace_for_world_stage(next.special_power),
-            player_cooldown: host_player_cooldown_log::replace_for_world_stage(
-                next.player_cooldown,
-            ),
+
             stored_supplies: host_stored_supplies_log::replace_for_world_stage(
                 next.stored_supplies,
             ),
-            contain: host_contain_log::replace_for_world_stage(next.contain),
+
             locomotor: host_locomotor_log::replace_for_world_stage(next.locomotor),
-
-
-
 
             command_set: host_command_set_log::replace_for_world_stage(next.command_set),
             continuous_fire: host_continuous_fire_log::replace_for_world_stage(
                 next.continuous_fire,
             ),
-            player_meta: host_player_meta_log::replace_for_world_stage(next.player_meta),
-            player_progress: host_player_progress_log::replace_for_world_stage(
-                next.player_progress,
-            ),
+
             max_health: host_max_health_log::replace_for_world_stage(next.max_health),
             building_type: host_building_type_log::replace_for_world_stage(next.building_type),
             physics_motive: host_physics_motive_log::replace_for_world_stage(next.physics_motive),
@@ -149,29 +111,20 @@ impl WorldStageEffectsState {
         host_spawn_log::clear();
         host_ground_height_log::clear();
         host_model_mesh_log::clear();
-        host_kind_of_log::clear();
-        host_identity_log::clear();
+
         host_movement_log::clear();
         host_demo_mine_cheer_log::clear();
-        host_detector_log::clear();
-        host_overlord_log::clear();
-        host_stealth_flags_log::clear();
+
         host_hive_log::clear();
         host_weapon_set_log::clear();
-        host_contain_capacity_log::clear();
-        host_status_log::clear();
-        host_special_power_log::clear();
-        host_player_cooldown_log::clear();
+
         host_stored_supplies_log::clear();
-        host_contain_log::clear();
+
         host_locomotor_log::clear();
-
-
 
         host_command_set_log::clear();
         host_continuous_fire_log::clear();
-        host_player_meta_log::clear();
-        host_player_progress_log::clear();
+
         host_max_health_log::clear();
         host_building_type_log::clear();
         host_physics_motive_log::clear();

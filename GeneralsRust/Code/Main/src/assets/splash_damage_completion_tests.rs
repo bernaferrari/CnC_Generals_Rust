@@ -582,15 +582,17 @@ fn missing_source(kind: Splash) {
     );
 }
 fn supplied_team(kind: Splash) {
+    let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
     let (mut world, fx) = install();
     let source = source(&mut world, kind);
     // The caller captured USA before the source changed faction. Keep that
     // explicit event provenance; do not replace it with the fresh FX source.
-    world
-        .objects
-        .get_mut(&source)
-        .unwrap()
-        .set_team_and_owner(Team::GLA, Some(2));
+    world.objects.get_mut(&source).unwrap().set_team_and_owner(
+        Team::GLA,
+        Some(2),
+        &mut _ownership_output,
+    );
     let target = victim(&mut world, "SplashCompletionImmediate");
     assert_eq!(kind.apply(&mut world, source, Team::USA, ObjectId(0)), 1);
     assert_eq!(world.objects[&source].experience.current, 10.0);

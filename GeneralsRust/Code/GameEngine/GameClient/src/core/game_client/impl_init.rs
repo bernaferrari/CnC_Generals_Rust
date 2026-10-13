@@ -30,7 +30,7 @@ impl GameClient {
 
     /// Creates a new GameClient instance
     pub fn new() -> GameClientResult<Self> {
-        let mut client = Self {
+        let client = Self {
             frame: 0,
             last_visual_time_frame: u32::MAX,
             next_drawable_id: DrawableId(1),
@@ -73,8 +73,6 @@ impl GameClient {
             startup_sizzle_pending: false,
             initialized: false,
         };
-
-        client.set_local_player_id(0);
 
         Ok(client)
     }
@@ -235,10 +233,6 @@ impl GameClient {
     }
 
     pub fn init_savegame_counter_bridge(&self) {
-        register_drawable_id_counter_hooks(
-            Some(Arc::new(Self::global_drawable_id_counter)),
-            Some(Arc::new(Self::set_global_drawable_id_counter)),
-        );
         register_save_load_mission_hooks(
             Some(Arc::new(|| {
                 // C++ GameState.cpp:699-700 — clearGameData(FALSE) only if isInGame.

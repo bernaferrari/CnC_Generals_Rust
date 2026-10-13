@@ -124,6 +124,7 @@ impl GameLogic {
             self.frame,
             context,
             &mut self.health_events,
+            Some(&mut self.ownership_events),
         );
         let hp_lost = (before_hp - victim.health.current).max(0.0);
         let victim_position = victim.get_position();
@@ -250,6 +251,7 @@ impl GameLogic {
             Some(&mut self.countermeasures),
             self.frame,
             Some(&terrain),
+            &mut self.ownership_events,
         );
         for event in events {
             self.apply_owned_combat_damage(&event, ImpactRelationships::MovingProjectile);

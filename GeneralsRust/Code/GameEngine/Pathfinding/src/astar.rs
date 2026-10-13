@@ -9,8 +9,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::cell::{
-    GridCoord, PathfindCell, PathfindCellType, PathfindLayerEnum, COST_DIAGONAL, COST_ORTHOGONAL,
-    PATHFIND_CELL_SIZE_F, SURFACE_AIR, ZONE_IMPASSABLE_COST,
+    COST_DIAGONAL, COST_ORTHOGONAL, GridCoord, PATHFIND_CELL_SIZE_F, PathfindCell,
+    PathfindCellType, PathfindLayerEnum, SURFACE_AIR, ZONE_IMPASSABLE_COST,
 };
 use crate::open_set::{AStarNode, OpenSet, SearchKey};
 
@@ -106,7 +106,11 @@ impl AStarPathfinder {
         self.get_ground_cell_mut(coord)
     }
 
-    pub(crate) fn layer_cell(&self, coord: GridCoord, layer: PathfindLayerEnum) -> Option<&PathfindCell> {
+    pub(crate) fn layer_cell(
+        &self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+    ) -> Option<&PathfindCell> {
         if !self.in_bounds(coord) || !Self::is_elevated_layer(layer) {
             return None;
         }
@@ -643,7 +647,10 @@ impl AStarPathfinder {
             }
             force_passable.map(|f| f(c)).unwrap_or(false)
         };
-        if !pass_on(start, start_layer) {
+        // CPP internalFindPath initializes an obstacle start and lets the
+        // existing tunneling expansion leave it. Requiring ordinary start
+        // passability here would reject that route before its first neighbor.
+        if !starts_tunneling && !pass_on(start, start_layer) {
             return None;
         }
         if !pass_on(goal, dest_layer) {

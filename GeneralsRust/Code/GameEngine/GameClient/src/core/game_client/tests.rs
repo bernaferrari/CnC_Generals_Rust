@@ -4,6 +4,9 @@
 
 #[cfg(test)]
 mod tests {
+    mod drawable_id_owner_tests {
+        include!("drawable_id_owner_tests.rs");
+    }
     mod owned_laser_tests {
         include!("owned_laser_tests.rs");
     }
@@ -2295,7 +2298,32 @@ mod tests {
             .filter(|msg| matches!(msg.get_type(), GameMessageType::DoMoveTo(_)))
             .count();
 
-        assert_eq!(pending.len(), 2);
+        // Recorder.cpp1205 stops at EOF and stopPlayback.cpp447 appends
+        // CLEAR_GAME_DATA after the recorded command. Starting playback from
+        // an active game may additionally clear before NEW_GAME; neither
+        // lifecycle clear is a stale replay command.
+        let clear_count = pending
+            .iter()
+            .filter(|msg| matches!(msg.get_type(), GameMessageType::ClearGameData))
+            .count();
+        let start_clear = usize::from(matches!(
+            pending[0].get_type(),
+            GameMessageType::ClearGameData
+        ));
+        assert_eq!(clear_count, 1 + start_clear);
+        assert_eq!(pending.len(), 3 + start_clear);
+        assert!(matches!(
+            pending[start_clear].get_type(),
+            GameMessageType::NewGame
+        ));
+        assert!(matches!(
+            pending[start_clear + 1].get_type(),
+            GameMessageType::DoMoveTo(_)
+        ));
+        assert!(matches!(
+            pending[start_clear + 2].get_type(),
+            GameMessageType::ClearGameData
+        ));
         assert_eq!(new_game_count, 1);
         assert_eq!(move_count, 1);
     }

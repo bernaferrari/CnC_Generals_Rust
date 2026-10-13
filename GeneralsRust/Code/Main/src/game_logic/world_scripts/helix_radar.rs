@@ -1011,16 +1011,13 @@ impl GameLogic {
             // a broke victim yields 0 — never mint attacker cash.
             return 0;
         }
-        if let Some(src) = self.get_player_mut_by_team(from_team) {
-            src.apply_supply_spend_unchecked(stolen);
-            crate::game_logic::host_economy_log::record(
-                src.id,
-                src.resources.supplies,
-                src.power_available,
-            );
+        if let Some((src, economy_events)) = self.player_for_team_and_economy_events_mut(from_team)
+        {
+            src.apply_supply_spend_unchecked(stolen, economy_events);
+            economy_events.record(src.id, src.resources.supplies, src.power_available);
         }
-        if let Some(dest) = self.get_player_mut_by_team(to_team) {
-            dest.credit_supplies(stolen);
+        if let Some((dest, economy_events)) = self.player_for_team_and_economy_events_mut(to_team) {
+            dest.credit_supplies(stolen, economy_events);
         }
         stolen
     }
@@ -1055,16 +1052,14 @@ impl GameLogic {
         if stolen == 0 {
             return 0;
         }
-        if let Some(source) = self.get_player_mut(from_player_id) {
-            source.apply_supply_spend_unchecked(stolen);
-            crate::game_logic::host_economy_log::record(
-                source.id,
-                source.resources.supplies,
-                source.power_available,
-            );
+        if let Some((source, economy_events)) = self.player_and_economy_events_mut(from_player_id) {
+            source.apply_supply_spend_unchecked(stolen, economy_events);
+            economy_events.record(source.id, source.resources.supplies, source.power_available);
         }
-        if let Some(destination) = self.get_player_mut(to_player_id) {
-            destination.credit_supplies(stolen);
+        if let Some((destination, economy_events)) =
+            self.player_and_economy_events_mut(to_player_id)
+        {
+            destination.credit_supplies(stolen, economy_events);
         }
         stolen
     }
@@ -1670,10 +1665,10 @@ impl GameLogic {
                 obj.set_status_unselectable(false);
                 obj.set_status_stealthed(true);
                 obj.innate_stealth = true;
-                obj.record_host_stealth_flags();
+
                 obj.is_detector = true;
                 obj.detection_range = SPY_DRONE_VISION_RANGE;
-                obj.record_host_detector();
+
                 obj.apply_stealth_detector_ctor_stagger(frame);
                 obj.vision_range = SPY_DRONE_VISION_RANGE;
                 obj.shroud_clearing_range = start_radius;

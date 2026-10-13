@@ -1115,6 +1115,8 @@ pub struct GameLogic {
 
     /// Combat system for parallel projectile processing
     pub(crate) combat_system: CombatSystem,
+    pub(crate) ownership_events: crate::game_logic::host_owner_log::OwnershipEvents,
+    pub(crate) economy_events: crate::game_logic::host_economy_log::EconomyEvents,
     pub(crate) attack_events: crate::game_logic::host_attack_log::AttackEvents,
     pub(crate) production_events: crate::game_logic::host_production_log::ProductionEvents,
     pub(crate) production_spawn_completions:

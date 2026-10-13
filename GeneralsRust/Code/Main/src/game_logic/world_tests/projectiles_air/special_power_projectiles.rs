@@ -1120,7 +1120,7 @@ fn particle_cannon_emp_mid_beam_starts_decay_and_stops_killing() {
 
     let abort_frame = logic.frame;
     if let Some(puc_obj) = logic.objects.get_mut(&caster) {
-        puc_obj.apply_disabled_emp(abort_frame.saturating_add(300));
+        puc_obj.apply_disabled_emp(abort_frame.saturating_add(300), &mut logic.health_events);
     }
 
     for _ in 0..PARTICLE_BEAM_DURATION_FRAMES {
@@ -2943,9 +2943,21 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         .create_object("TestTank", Team::USA, Vec3::new(5.0, 0.0, 0.0))
         .expect("heroic tank");
     {
-        let t = game_logic.host_object_mut(heroic_id).expect("heroic");
-        t.apply_kill_pilot_unmanned();
-        t.set_team(Team::Neutral);
+        let (t, health_events, ownership_events) = {
+            let crate::game_logic::GameLogic {
+                objects,
+                health_events,
+                ownership_events,
+                ..
+            } = &mut game_logic;
+            (
+                objects.get_mut(&heroic_id).expect("heroic"),
+                health_events,
+                ownership_events,
+            )
+        };
+        t.apply_kill_pilot_unmanned(health_events);
+        t.set_team(Team::Neutral, ownership_events);
         t.experience.level = VeterancyLevel::Heroic;
         t.health.current = t.max_health;
     }
@@ -2961,9 +2973,21 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         )
         .expect("elevated tank");
     {
-        let t = game_logic.host_object_mut(elevated_id).expect("elevated");
-        t.apply_kill_pilot_unmanned();
-        t.set_team(Team::Neutral);
+        let (t, health_events, ownership_events) = {
+            let crate::game_logic::GameLogic {
+                objects,
+                health_events,
+                ownership_events,
+                ..
+            } = &mut game_logic;
+            (
+                objects.get_mut(&elevated_id).expect("elevated"),
+                health_events,
+                ownership_events,
+            )
+        };
+        t.apply_kill_pilot_unmanned(health_events);
+        t.set_team(Team::Neutral, ownership_events);
         t.experience.level = VeterancyLevel::Rookie;
         t.health.current = t.max_health;
     }
@@ -2973,9 +2997,21 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
         .expect("ok tank");
     {
-        let t = game_logic.host_object_mut(ok_id).expect("ok");
-        t.apply_kill_pilot_unmanned();
-        t.set_team(Team::Neutral);
+        let (t, health_events, ownership_events) = {
+            let crate::game_logic::GameLogic {
+                objects,
+                health_events,
+                ownership_events,
+                ..
+            } = &mut game_logic;
+            (
+                objects.get_mut(&ok_id).expect("ok"),
+                health_events,
+                ownership_events,
+            )
+        };
+        t.apply_kill_pilot_unmanned(health_events);
+        t.set_team(Team::Neutral, ownership_events);
         t.experience.level = VeterancyLevel::Rookie;
         t.health.current = t.max_health;
     }

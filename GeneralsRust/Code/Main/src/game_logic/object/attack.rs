@@ -190,7 +190,6 @@ impl Object {
             // Delay complete — fall through to fire; record_shot clears ready_at.
         } else {
             self.pre_attack_target = Some(target_id);
-
         }
 
         self.note_attack_target(target_id, attack_events);
@@ -521,7 +520,6 @@ impl Object {
             self.break_stealth();
             if can_stealth {
                 self.innate_stealth = true;
-                self.record_host_stealth_flags();
             }
         }
         Some(slot)
@@ -633,7 +631,6 @@ impl Object {
                 self.pre_attack_target = None;
 
                 self.pre_attack_ready_at = 0.0;
-
             }
             self.target = Some(target_id);
             self.target_location = None;

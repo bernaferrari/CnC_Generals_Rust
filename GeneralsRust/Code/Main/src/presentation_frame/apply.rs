@@ -746,17 +746,17 @@ impl PresentationFrame {
         }
 
         // C++ Money.cpp withdraw/deposit — MiscAudio tokens, not invented MoneyTick.
-        for ev in crate::game_logic::host_economy_log::take_money_audio() {
+        for ev in &self.money_audio_receipts {
             let token = crate::game_logic::host_economy_log::money_audio_token(ev.kind);
             let name = crate::game_logic::host_economy_log::resolve_misc_audio_event(token);
-            let _ = ev.player_id;
-            out.push(AudioEventRequest::new(name.as_str()));
+            // Money.cpp32/56 sets the owning player on the event before
+            // AudioManager applies its authored locality policy.
+            out.push(AudioEventRequest::new(name.as_str()).with_player_index(ev.player_id as i32));
         }
 
         // C++ Object::setDisabledUntil / clearDisabled MiscAudio.
-        for ev in crate::game_logic::host_disable_timers_log::take_audio() {
-            let name =
-                crate::game_logic::host_economy_log::resolve_misc_audio_event(&ev.event_name);
+        for ev in &self.disable_audio_receipts {
+            let name = &ev.event_name;
             let pos = glam::Vec3::new(ev.position[0], ev.position[1], ev.position[2]);
             out.push(
                 AudioEventRequest::new(name.as_str())

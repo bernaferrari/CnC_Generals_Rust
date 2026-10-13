@@ -263,7 +263,7 @@ impl GameLogic {
             if !target.is_alive() {
                 continue;
             }
-            target.apply_disabled_emp(until);
+            target.apply_disabled_emp(until, &mut self.health_events);
             self.admit_host_radar_disabled_edges(id);
             disables = disables.saturating_add(1);
             spark_ids.push(id);

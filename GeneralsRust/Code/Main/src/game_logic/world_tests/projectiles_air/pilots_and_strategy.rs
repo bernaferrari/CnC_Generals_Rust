@@ -51,9 +51,21 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
         .expect("tank");
     {
-        let t = game_logic.host_object_mut(tank_id).expect("tank");
-        t.apply_kill_pilot_unmanned();
-        t.set_team(Team::Neutral);
+        let (t, health_events, ownership_events) = {
+            let crate::game_logic::GameLogic {
+                objects,
+                health_events,
+                ownership_events,
+                ..
+            } = &mut game_logic;
+            (
+                objects.get_mut(&tank_id).expect("tank"),
+                health_events,
+                ownership_events,
+            )
+        };
+        t.apply_kill_pilot_unmanned(health_events);
+        t.set_team(Team::Neutral, ownership_events);
         t.health.current = t.max_health;
     }
 
@@ -62,9 +74,21 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         .create_object("TestTank", Team::USA, Vec3::new(5.0, 0.0, 0.0))
         .expect("low tank");
     {
-        let t = game_logic.host_object_mut(low_id).expect("low");
-        t.apply_kill_pilot_unmanned();
-        t.set_team(Team::Neutral);
+        let (t, health_events, ownership_events) = {
+            let crate::game_logic::GameLogic {
+                objects,
+                health_events,
+                ownership_events,
+                ..
+            } = &mut game_logic;
+            (
+                objects.get_mut(&low_id).expect("low"),
+                health_events,
+                ownership_events,
+            )
+        };
+        t.apply_kill_pilot_unmanned(health_events);
+        t.set_team(Team::Neutral, ownership_events);
         t.health.current = t.max_health * (PILOT_FIND_VEHICLE_MIN_HEALTH - 0.1);
     }
 
@@ -142,8 +166,10 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         .create_object("TestTank", Team::Neutral, Vec3::new(10.0, 0.0, 0.0))
         .expect("ht");
     {
-        let t = human_logic.host_object_mut(ht).expect("ht");
-        t.apply_kill_pilot_unmanned();
+        let (t, health_events) = human_logic
+            .host_object_and_health_events_mut(ht)
+            .expect("ht");
+        t.apply_kill_pilot_unmanned(health_events);
     }
     human_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
     human_logic.update_ai(&[hp, ht], 1.0 / 30.0);
@@ -813,9 +839,21 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
         .create_object("TestTank", Team::China, Vec3::new(5.0, 0.0, 0.0))
         .expect("foreign tank");
     {
-        let t = game_logic.host_object_mut(foreign_id).expect("foreign");
-        t.apply_kill_pilot_unmanned();
-        t.set_team(Team::Neutral);
+        let (t, health_events, ownership_events) = {
+            let crate::game_logic::GameLogic {
+                objects,
+                health_events,
+                ownership_events,
+                ..
+            } = &mut game_logic;
+            (
+                objects.get_mut(&foreign_id).expect("foreign"),
+                health_events,
+                ownership_events,
+            )
+        };
+        t.apply_kill_pilot_unmanned(health_events);
+        t.set_team(Team::Neutral, ownership_events);
         t.experience.level = VeterancyLevel::Rookie;
         t.health.current = t.max_health;
         assert_eq!(t.status.unmanned_owner_team, Some(Team::China));
@@ -826,9 +864,21 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
         .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
         .expect("own tank");
     {
-        let t = game_logic.host_object_mut(own_id).expect("own");
-        t.apply_kill_pilot_unmanned();
-        t.set_team(Team::Neutral);
+        let (t, health_events, ownership_events) = {
+            let crate::game_logic::GameLogic {
+                objects,
+                health_events,
+                ownership_events,
+                ..
+            } = &mut game_logic;
+            (
+                objects.get_mut(&own_id).expect("own"),
+                health_events,
+                ownership_events,
+            )
+        };
+        t.apply_kill_pilot_unmanned(health_events);
+        t.set_team(Team::Neutral, ownership_events);
         t.experience.level = VeterancyLevel::Rookie;
         t.health.current = t.max_health;
         assert_eq!(t.status.unmanned_owner_team, Some(Team::USA));

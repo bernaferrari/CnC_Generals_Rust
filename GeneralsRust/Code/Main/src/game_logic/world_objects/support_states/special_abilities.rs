@@ -2017,7 +2017,7 @@ impl GameLogic {
                 .objects
                 .get_mut(&container_id)
                 .expect("RiderChange preflight container disappeared")
-                .remove_occupant(previous_rider_id);
+                .remove_occupant(previous_rider_id, &mut self.ownership_events);
             debug_assert!(removed, "RiderChange preflight must make eject infallible");
             if !removed {
                 return false;
@@ -2183,7 +2183,7 @@ impl GameLogic {
             .objects
             .get_mut(&container_id)
             .expect("RiderChange preflight container disappeared")
-            .remove_occupant(rider_id);
+            .remove_occupant(rider_id, &mut self.ownership_events);
         debug_assert!(removed, "RiderChange preflight must make exit infallible");
         if !removed {
             return false;
@@ -2288,7 +2288,7 @@ impl GameLogic {
 
         if let Some(container) = self.objects.get_mut(&container_id) {
             for (occupant_id, _) in &kicked {
-                let _ = container.remove_occupant(*occupant_id);
+                let _ = container.remove_occupant(*occupant_id, &mut self.ownership_events);
             }
         }
         for (occupant_id, stealth_garrison) in kicked {
@@ -2316,7 +2316,7 @@ impl GameLogic {
 
         if let Some(structure) = self.objects.get_mut(&structure_id) {
             for occupant_id in &occupants {
-                let _ = structure.remove_occupant(*occupant_id);
+                let _ = structure.remove_occupant(*occupant_id, &mut self.ownership_events);
             }
         }
 
@@ -2712,7 +2712,7 @@ impl GameLogic {
             ((metadata.effect_duration_ms as u64 * 30 + 999) / 1_000).min(u32::MAX as u64) as u32;
         let until = self.frame.saturating_add(duration_frames);
         if let Some(target) = self.objects.get_mut(&target_id) {
-            target.apply_disabled_hacked(until);
+            target.apply_disabled_hacked(until, &mut self.health_events);
         } else {
             self.begin_hacker_disable_building_packing(object_id, target_id, metadata.pack_time_ms);
             return;

@@ -148,21 +148,6 @@ impl Object {
         bits
     }
 
-    /// kind_of bits residual → GameWorld SetKindOfBits.
-    pub fn set_kind_of_bits_residual(&mut self, kind_of_bits: u32) {
-        crate::game_logic::host_kind_of_log::record(self.id, kind_of_bits);
-    }
-
-    /// Resolve and log kind_of bits from the active template.
-    pub fn record_kind_of_bits_from_template(&mut self) {
-        let bits = self.presentation_kind_of_bits();
-        self.set_kind_of_bits_residual(bits);
-    }
-
-    pub fn record_host_identity(&self) {
-        crate::game_logic::host_identity_log::record(self.id, self.name.clone(), self.team_color);
-    }
-
     pub fn record_host_building_type(&self) {
         use crate::game_logic::BuildingType as B;
         let (is_building, ordinal) = match self.building_data.as_ref() {
@@ -255,28 +240,14 @@ impl Object {
         self.record_host_demo_mine_cheer();
     }
 
-    pub fn record_host_selection_radius(&self) {
-        crate::game_logic::host_selection_radius_log::record(self.id, self.selection_radius);
-    }
-
     pub fn set_selection_radius(&mut self, selection_radius: f32) {
         if (self.selection_radius - selection_radius).abs() > f32::EPSILON {
             self.selection_radius = selection_radius;
-            self.record_host_selection_radius();
         }
     }
 
     pub fn record_host_model_condition(&self) {
         crate::game_logic::host_model_condition_log::record(self.id, self.model_condition_bits);
-    }
-
-    pub fn record_host_radar_extend(&self) {
-        crate::game_logic::host_radar_extend_log::record(
-            self.id,
-            self.radar_extend_done_frame,
-            self.radar_extend_complete,
-            self.radar_active,
-        );
     }
 
     pub fn record_host_shock_stun(&self) {
@@ -472,15 +443,6 @@ impl Object {
         );
     }
 
-    pub fn record_host_vision_camo(&self) {
-        crate::game_logic::host_vision_camo_log::record(
-            self.id,
-            self.vision_spied_mask,
-            self.camo_friendly_opacity,
-            self.camo_stealth_look,
-        );
-    }
-
     pub fn record_host_command_set(&self) {
         crate::game_logic::host_command_set_log::record(self.id, self.command_set_override.clone());
     }
@@ -492,50 +454,6 @@ impl Object {
         }
     }
 
-    pub fn record_host_disguise(&self) {
-        let team = self
-            .disguise_as_team
-            .map(|t| match t {
-                Team::USA => 0,
-                Team::China => 1,
-                Team::GLA => 2,
-                Team::Neutral => 3,
-            })
-            .unwrap_or(255);
-        crate::game_logic::host_disguise_log::record(
-            self.id,
-            self.disguise_as_template.clone(),
-            team,
-        );
-    }
-
-    pub fn record_host_overlord(&self) {
-        let bunker_capacity = match self.overlord_bunker_capacity {
-            Some(n) => n.min(u16::MAX as usize - 1) as u16,
-            None => u16::MAX,
-        };
-        crate::game_logic::host_overlord_log::record(
-            self.id,
-            self.has_overlord_gattling_addon,
-            self.has_overlord_propaganda_addon,
-            bunker_capacity,
-            self.is_helix_transport,
-        );
-    }
-
-    pub fn record_host_stealth_flags(&self) {
-        crate::game_logic::host_stealth_flags_log::record(
-            crate::game_logic::host_stealth_flags_log::HostStealthFlagsEvent {
-                object: self.id,
-                innate_stealth: self.innate_stealth,
-                stealth_breaks_on_attack: self.stealth_breaks_on_attack,
-                stealth_breaks_on_move: self.stealth_breaks_on_move,
-                is_tunnel_network: self.is_tunnel_network,
-                passengers_allowed_to_fire: self.passengers_allowed_to_fire,
-            },
-        );
-    }
-
     pub fn record_host_hive(&self) {
         crate::game_logic::host_hive_log::record(
             self.id,
@@ -544,27 +462,9 @@ impl Object {
         );
     }
 
-    pub fn record_host_contain_capacity(&self) {
-        let max_garrison = self
-            .building_data
-            .as_ref()
-            .map(|bd| bd.max_garrison.min(u16::MAX as usize) as u16)
-            .unwrap_or(0);
-        crate::game_logic::host_contain_capacity_log::record(
-            self.id,
-            self.max_transport,
-            max_garrison,
-        );
-    }
-
-    pub fn record_host_overcharge(&self) {
-        crate::game_logic::host_overcharge_log::record(self.id, self.overcharge_enabled);
-    }
-
     pub fn set_overcharge_enabled(&mut self, enabled: bool) {
         if self.overcharge_enabled != enabled {
             self.overcharge_enabled = enabled;
-            self.record_host_overcharge();
         }
     }
 

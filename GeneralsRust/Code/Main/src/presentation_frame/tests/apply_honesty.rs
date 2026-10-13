@@ -1482,6 +1482,8 @@ fn presentation_frame_freezes_visible_scene_lines() {
     );
     assert!((frame.scene_lines[0].start.0 - 1.0).abs() < f32::EPSILON);
     assert!((frame.scene_lines[0].end.0 - 4.0).abs() < f32::EPSILON);
+    assert_eq!(frame.scene_lines[0].start, (1.0, 3.0, 2.0));
+    assert_eq!(frame.scene_lines[0].end, (4.0, 6.0, 5.0));
 
     let pack =
         crate::graphics::laser_segment_upload::LaserSegmentUpload::pack_from_presentation(&frame);
@@ -2362,10 +2364,10 @@ fn leftover_wnd_stamps_single_use_subdued_and_unsellable() {
     let id = logic
         .create_object("AmericaBarracks", Team::USA, glam::Vec3::ZERO)
         .expect("b");
-    if let Some(o) = logic.host_object_mut(id) {
+    if let Some((o, health_events)) = logic.host_object_and_health_events_mut(id) {
         o.selected = true;
         o.mark_single_use_command_used();
-        o.set_disabled_subdued(true);
+        o.set_disabled_subdued(true, health_events);
         o.set_script_unsellable(true);
     }
     if let Some(p) = logic.get_player_mut(0) {
@@ -2441,9 +2443,9 @@ fn leftover_strip_subdued_restricts_sell_and_evacuate() {
     let id = logic
         .create_object("AmericaBarracks", Team::USA, glam::Vec3::ZERO)
         .expect("b");
-    if let Some(o) = logic.host_object_mut(id) {
+    if let Some((o, health_events)) = logic.host_object_and_health_events_mut(id) {
         o.selected = true;
-        o.set_disabled_subdued(true);
+        o.set_disabled_subdued(true, health_events);
     }
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![id];
@@ -2477,9 +2479,9 @@ fn leftover_strip_subdued_restricts_sell_and_evacuate() {
     if let Some(o) = logic.host_object_mut(id) {
         o.selected = false;
     }
-    if let Some(o) = logic.host_object_mut(tid) {
+    if let Some((o, health_events)) = logic.host_object_and_health_events_mut(tid) {
         o.selected = true;
-        o.set_disabled_subdued(true);
+        o.set_disabled_subdued(true, health_events);
         o.occupants = vec![ObjectId(9001), ObjectId(9002)];
     }
     if let Some(p) = logic.get_player_mut(0) {

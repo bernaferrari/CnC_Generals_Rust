@@ -1229,19 +1229,19 @@ fn host_transfer_assets_from(logic: &mut GameLogic, dest_player: u32, source_pla
         .map(|p| p.effective_supplies())
         .unwrap_or(0);
     if amount > 0 {
-        if let Some(src) = logic.get_player_mut(source_player) {
-            crate::game_logic::host_economy_log::record_money_audio(
+        if let Some((src, economy_events)) = logic.player_and_economy_events_mut(source_player) {
+            economy_events.record_money_audio(
                 source_player,
                 crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
             );
-            src.apply_supply_spend_unchecked(amount);
+            src.apply_supply_spend_unchecked(amount, economy_events);
         }
-        if let Some(dst) = logic.get_player_mut(dest_player) {
-            crate::game_logic::host_economy_log::record_money_audio(
+        if let Some((dst, economy_events)) = logic.player_and_economy_events_mut(dest_player) {
+            economy_events.record_money_audio(
                 dest_player,
                 crate::game_logic::host_economy_log::HostMoneyAudio::Deposit,
             );
-            dst.apply_supply_gain(amount);
+            dst.apply_supply_gain(amount, economy_events);
         }
     }
 }
@@ -1496,7 +1496,6 @@ impl GameLogic {
             obj.dozer_dock_action = action_dock;
             if obj.target_location.is_some() {
                 obj.target_location = None;
-
             }
         }
         if let Some(st) = self.objects.get_mut(&build_target) {
@@ -1523,7 +1522,6 @@ impl GameLogic {
             obj.dozer_task_repair_order_frame = frame;
             if obj.target_location.is_some() {
                 obj.target_location = None;
-
             }
         }
     }

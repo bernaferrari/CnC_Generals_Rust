@@ -361,11 +361,22 @@ fn supply_spawn_notifies_ai_before_exit_without_replaying_create_or_draining_pai
                 WeaponLockType::NotLocked,
                 "free-spawn exit must not replay Create completion"
             );
-            assert_eq!(
-                world.host_object(spawned).unwrap().movement.path.last(),
-                Some(&Vec3::new(30.0, 0.0, 0.0)),
-                "the actual exit follows the earlier AI callback"
+            // CPP AIFollowPathState::onEnter copies the authored point, but
+            // Pathfinder::prependCells installs adjustCoordToCell output
+            // (AIPathfind.cpp:9005-9017), not the raw model coordinate.
+            let output = world.host_object(spawned).unwrap();
+            let grid = &world.pathfinding_system.grid;
+            let (_, center) = crate::game_logic::PathfindingGrid::radius_and_center(
+                output.selection_radius,
+                grid.grid_size(),
             );
+            let expected_exit = grid.snap_position(Vec3::new(30.0, 0.0, 0.0), center);
+            assert_eq!(
+                output.movement.path.last(),
+                Some(&expected_exit),
+                "the actual snapped exit follows the earlier AI callback"
+            );
+            assert_eq!(output.ignored_obstacle_id, Some(center_id));
             assert!(
                 world
                     .host_object(center_id)

@@ -3,9 +3,7 @@
 //! No shadow tick or reverse write participates in this boundary;
 //! the projection cannot select another simulation authority.
 
-use super::{
-    GameWorldShadow, materialize_host_authority_logs, presentation_entity_count_from_shadow,
-};
+use super::{GameWorldShadow, presentation_entity_count_from_shadow};
 use crate::game_logic::{GameLogic, HostSupportOp};
 
 /// Admit required owner effects before the next fixed step. Only afterward may
@@ -22,7 +20,7 @@ pub(crate) fn run_owned_host_boundary(
     gamelogic::system::engine_stores::with_world_services(&stores, || {
         // Ordered owner admission distinguishes already-applied damage/
         // healing observations from required pending effects.
-        materialize_host_authority_logs(logic);
+        let _ = logic.health_events.drain_for_host_boundary();
         logic.apply_host_support_op(HostSupportOp::ProcessDestroyListIfNeeded);
         freeze_host_observations(logic);
 
@@ -47,7 +45,6 @@ pub(crate) fn run_owned_host_boundary(
 /// Construction completion also stays pending for PresentationFrame's direct
 /// drain; unlike production completion it has no LAST_DRAIN transport.
 fn freeze_host_observations(logic: &mut GameLogic) {
-
     let _ = crate::game_logic::host_ai_request_log::drain();
     logic.attack_events.complete_boundary();
     let _ = crate::game_logic::host_body_damage_log::drain();
@@ -55,17 +52,13 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_building_type_log::drain();
 
     let _ = crate::game_logic::host_command_set_log::drain();
-    let _ = crate::game_logic::host_contain_capacity_log::drain();
-    let _ = crate::game_logic::host_contain_log::drain();
+
     let _ = crate::game_logic::host_continuous_fire_log::drain();
     let _ = crate::game_logic::host_crush_vision_log::drain();
     let _ = crate::game_logic::host_death_type_log::drain();
     let _ = crate::game_logic::host_demo_mine_cheer_log::drain();
     let _ = crate::game_logic::host_destroy_log::drain();
-    let _ = crate::game_logic::host_detector_log::drain();
-    let _ = crate::game_logic::host_disable_timers_log::drain();
-    let _ = crate::game_logic::host_disguise_log::drain();
-    let _ = crate::game_logic::host_entity_power_log::drain();
+
     let _ = crate::game_logic::host_faerie_fire_log::drain();
     let _ = crate::game_logic::host_fire_intent_log::drain();
     logic
@@ -77,44 +70,38 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_ground_height_log::drain();
     let _ = crate::game_logic::host_hijacker_log::drain();
     let _ = crate::game_logic::host_hive_log::drain();
-    let _ = crate::game_logic::host_identity_log::drain();
-    let _ = crate::game_logic::host_kind_of_log::drain();
+
     let _ = crate::game_logic::host_locomotor_log::drain();
     let _ = crate::game_logic::host_max_health_log::drain();
     let _ = crate::game_logic::host_model_condition_log::drain();
     let _ = crate::game_logic::host_model_mesh_log::drain();
     let _ = logic.movement_events.drain_for_host_boundary();
     let _ = crate::game_logic::host_movement_log::drain();
-    let _ = crate::game_logic::host_overcharge_log::drain();
-    let _ = crate::game_logic::host_overlord_log::drain();
-    let _ = crate::game_logic::host_owner_log::drain();
+
+    logic.ownership_events.complete_boundary();
     let _ = crate::game_logic::host_physics_motive_log::drain();
-    let _ = crate::game_logic::host_player_cooldown_log::drain();
-    let _ = crate::game_logic::host_player_meta_log::drain();
-    let _ = crate::game_logic::host_player_progress_log::drain();
+
     let _ = crate::game_logic::host_production_door_log::drain();
     logic.production_events.complete_boundary();
     let _ = crate::game_logic::host_production_progress_log::drain();
     let _ = crate::game_logic::host_projectile_log::drain();
-    let _ = crate::game_logic::host_radar_extend_log::drain();
+
     let _ = crate::game_logic::host_rally_log::drain();
     let _ = crate::game_logic::host_rebuild_producer_log::drain();
-    let _ = crate::game_logic::host_repulsor_log::drain();
-    let _ = crate::game_logic::host_selection_radius_log::drain();
+
     let _ = crate::game_logic::host_shock_stun_log::drain();
     let _ = crate::game_logic::host_sole_healing_log::drain();
     let _ = crate::game_logic::host_spawn_log::drain();
-    let _ = crate::game_logic::host_special_power_log::drain();
-    let _ = crate::game_logic::host_status_log::drain();
+
     let _ = crate::game_logic::host_stealth_delay_log::drain();
-    let _ = crate::game_logic::host_stealth_flags_log::drain();
+
     let _ = crate::game_logic::host_stored_supplies_log::drain();
 
     let _ = crate::game_logic::host_turret_log::drain();
-    let _ = crate::game_logic::host_vision_camo_log::drain();
+
     let _ = crate::game_logic::host_weapon_bonus_log::drain();
     let _ = crate::game_logic::host_weapon_set_log::drain();
     let _ = crate::game_logic::host_weapon_slot_log::drain();
     let _ = crate::game_logic::host_weapon_stats_log::drain();
-    let _ = crate::game_logic::host_economy_log::drain();
+    logic.economy_events.complete_boundary();
 }

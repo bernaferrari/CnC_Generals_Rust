@@ -86,6 +86,8 @@ pub fn simulate_live_command_rally_log_honesty() -> bool {
         t.set_health(600.0);
         t.add_kind_of(KindOf::Structure);
         t.add_kind_of(KindOf::FSWarFactory);
+        t.add_kind_of(KindOf::AutoRallypoint);
+        t.add_kind_of(KindOf::Selectable);
         logic.templates.insert("RallyFactory200".into(), t);
     }
     let Some(factory) =

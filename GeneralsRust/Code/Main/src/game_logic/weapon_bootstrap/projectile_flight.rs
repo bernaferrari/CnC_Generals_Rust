@@ -418,6 +418,7 @@ pub fn apply_garrison_hit_kill(
     container_id: ObjectId,
     launcher_id: ObjectId,
     flight: &HostProjectileFlight,
+    ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
 ) -> Option<Vec3> {
     let count = flight.garrison_hit_kill_count();
     if count <= 0 {
@@ -464,7 +465,7 @@ pub fn apply_garrison_hit_kill(
     }
     if let Some(container) = objects.get_mut(&container_id) {
         for occupant_id in killed {
-            let _ = container.remove_occupant(occupant_id);
+            let _ = container.remove_occupant(occupant_id, ownership_events);
         }
         return Some(container.get_position());
     }

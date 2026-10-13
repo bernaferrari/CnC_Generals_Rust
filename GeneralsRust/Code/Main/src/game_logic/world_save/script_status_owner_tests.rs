@@ -197,10 +197,12 @@ fn contained_hero_query_uses_driving_main_roster_and_survives_save() {
                 .restore_from_snapshot(&saved, &mut receiving)
                 .unwrap();
             assert!(receiving.unit_is_hero(carrier_id));
-            receiving
-                .host_object_mut(carrier_id)
-                .unwrap()
-                .remove_occupant(hero_id);
+            {
+                let (object, ownership_events) = receiving
+                    .host_object_and_ownership_events_mut(carrier_id)
+                    .unwrap();
+                object.remove_occupant(hero_id, ownership_events)
+            };
             assert!(!receiving.unit_is_hero(carrier_id));
             assert!(main.unit_is_hero(carrier_id));
             assert!(!peer.unit_is_hero(carrier_id));

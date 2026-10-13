@@ -44,8 +44,10 @@ impl GameLogic {
     fn stamp_player_command_source(&mut self, id: ObjectId) {
         if let Some(unit) = self.objects.get_mut(&id) {
             stamp_last_command_from_player(unit);
-            // A new parent player command replaces AIStateMachine's goal.
-            unit.set_movement_goal_object(None);
+            // StateMachine::setGoalObject also preserves a locked parent goal.
+            if unit.transport_return_state.is_none() {
+                unit.set_movement_goal_object(None);
+            }
         }
     }
 
@@ -218,6 +220,9 @@ impl GameLogic {
     ) -> bool {
         if !self.unit_can_move(id) {
             return false;
+        }
+        if self.apply_locked_transport_command(id) {
+            return true;
         }
         if self.note_hacker_ai_command(
             id,
@@ -1880,7 +1885,7 @@ impl GameLogic {
         let first = passengers[0];
         for pid in passengers {
             if let Some(c) = self.objects.get_mut(&ferry_id) {
-                let _ = c.remove_occupant(pid);
+                let _ = c.remove_occupant(pid, &mut self.ownership_events);
             }
             if let Some(p) = self.objects.get_mut(&pid) {
                 p.set_contained_by(None);
@@ -1940,7 +1945,7 @@ impl GameLogic {
         let Some(container) = self.objects.get_mut(&container_id) else {
             return false;
         };
-        let removed = container.remove_occupant(occupant_id);
+        let removed = container.remove_occupant(occupant_id, &mut self.ownership_events);
         if removed && is_garrison {
             self.recalc_garrison_apparent_controller(container_id);
         }
@@ -2076,6 +2081,26 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
+        if prep_move && obj.transport_return_state.is_some() {
+            // AIUpdate.cpp3042–3048: clear/goal/state setters are locked,
+            // but command bookkeeping still executes in its original order.
+            obj.num_frames_blocked = 0;
+            obj.is_blocked = false;
+            obj.is_blocked_and_stuck = false;
+            return true;
+        }
+        if prep_move && pending_evacuate_on_stop && obj.chinook_ai.is_none() {
+            if !obj.is_mobile_for_ai_command() {
+                return false;
+            }
+            obj.transport_return_state = if pending_exit_after_evacuate {
+                Some(crate::game_logic::host_transport_return::TransportReturnState::MoveAndEvacuate { origin: obj.get_position() })
+            } else {
+                None
+            };
+        } else if !pending_evacuate_on_stop {
+            obj.transport_return_state = None;
+        }
         obj.pending_evacuate_on_stop = pending_evacuate_on_stop;
         obj.pending_exit_after_evacuate = pending_exit_after_evacuate;
         if !pending_evacuate_on_stop || prep_move {

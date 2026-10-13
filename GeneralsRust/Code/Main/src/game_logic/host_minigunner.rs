@@ -582,7 +582,9 @@ mod tests {
     #[test]
     fn rof_multiplier_stacks_additively() {
         // Contract examples: MEAN 2.0 + HORDE 1.5 → 2.5x; + NATIONALISM 1.25 → 2.75x.
-        assert!((minigunner_rof_multiplier(GattlingFireLevel::Mean, true, false) - 2.5).abs() < 0.01);
+        assert!(
+            (minigunner_rof_multiplier(GattlingFireLevel::Mean, true, false) - 2.5).abs() < 0.01
+        );
         assert!(
             (minigunner_rof_multiplier(GattlingFireLevel::Mean, true, true) - 2.75).abs() < 0.01
         );

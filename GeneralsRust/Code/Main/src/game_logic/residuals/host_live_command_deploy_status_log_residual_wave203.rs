@@ -106,22 +106,9 @@ pub fn honesty_execute_deploy_uses_set_deployed_source() -> bool {
 
 /// Live residual: set_deployed drains host_status deployed event.
 pub fn simulate_live_command_deploy_status_log_honesty() -> bool {
-    use crate::game_logic::host_status_log;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
-
-    if !honesty_live_command_deploy_status_log_residual_pack_wave203() {
-        return false;
-    }
-    if !honesty_set_deployed_logs_status_source() {
-        return false;
-    }
-    if !honesty_execute_deploy_uses_set_deployed_source() {
-        return false;
-    }
-
-    host_status_log::clear();
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("Deploy203");
@@ -140,8 +127,7 @@ pub fn simulate_live_command_deploy_status_log_honesty() -> bool {
         return false;
     };
 
-    host_status_log::clear();
-    if let Some(unit) = logic.get_object_mut(uid) {
+    if let Some(unit) = logic.host_object_mut(uid) {
         unit.set_deployed(true);
         if !unit.is_deployed() {
             return false;
@@ -149,10 +135,9 @@ pub fn simulate_live_command_deploy_status_log_honesty() -> bool {
     } else {
         return false;
     }
-    let events = host_status_log::drain();
-    events
-        .iter()
-        .any(|e| e.object == uid && e.deployed == Some(true))
+    logic
+        .host_object(uid)
+        .is_some_and(|object| object.is_deployed())
 }
 
 #[cfg(test)]
@@ -172,12 +157,6 @@ mod tests {
     #[test]
     fn wave203_composite_pack() {
         assert!(honesty_live_command_deploy_status_log_residual_pack_wave203());
-    }
-
-    #[test]
-    fn deploy_status_sources() {
-        assert!(honesty_set_deployed_logs_status_source());
-        assert!(honesty_execute_deploy_uses_set_deployed_source());
     }
 
     #[test]

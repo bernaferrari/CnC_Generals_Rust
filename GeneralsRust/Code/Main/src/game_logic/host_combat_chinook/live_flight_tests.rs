@@ -208,10 +208,12 @@ fn authored_evacuation_retains_passenger_through_takeoff_and_landing() {
             let second = logic
                 .create_object("Hq46k12Rappeller", Team::USA, Vec3::new(35.0, 0.0, 40.0))
                 .unwrap();
-            assert!(logic
-                .host_object_mut(transport)
-                .unwrap()
-                .add_occupant(second));
+            assert!(
+                logic
+                    .host_object_mut(transport)
+                    .unwrap()
+                    .add_occupant(second)
+            );
             let rider = logic.host_object_mut(second).unwrap();
             rider.set_contained_by(Some(transport));
             rider.set_ai_state(AIState::Docked);
@@ -285,8 +287,10 @@ fn authored_evacuation_retains_passenger_through_takeoff_and_landing() {
                     let p = object.get_position();
                     let horizontal =
                         Vec3::new(p.x - destination.x, 0.0, p.z - destination.z).length();
-                    assert!(horizontal <= 3.0,
-                        "the evacuation approach must reach its requested destination: {p:?} -> {destination:?}");
+                    assert!(
+                        horizontal <= 3.0,
+                        "the evacuation approach must reach its requested destination: {p:?} -> {destination:?}"
+                    );
                     accepted_landing_destination =
                         Some(Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]));
                 }
@@ -307,8 +311,10 @@ fn authored_evacuation_retains_passenger_through_takeoff_and_landing() {
                         p.z - landing_destination.z,
                     )
                     .length();
-                    assert!(horizontal <= 3.0,
-                        "release must occur at the accepted precise landing destination: {p:?} -> {landing_destination:?}");
+                    assert!(
+                        horizontal <= 3.0,
+                        "release must occur at the accepted precise landing destination: {p:?} -> {landing_destination:?}"
+                    );
                     assert!(took_off, "passenger cannot exit before real takeoff");
                     assert!(
                         landed_after_flight,
@@ -357,8 +363,11 @@ fn authored_explicit_vertical_goal_does_not_add_maintain_height_force() {
             let object = logic.host_object(transport).unwrap();
             assert!(object.get_position().y > start.y);
             assert!(object.movement.velocity.y > 0.0);
-            assert!(object.physics_accel.y.abs() < 0.00001,
-                "one explicit-goal height update must consume its force, without a second maintain-height force: {}", object.physics_accel.y);
+            assert!(
+                object.physics_accel.y.abs() < 0.00001,
+                "one explicit-goal height update must consume its force, without a second maintain-height force: {}",
+                object.physics_accel.y
+            );
         },
     );
 }

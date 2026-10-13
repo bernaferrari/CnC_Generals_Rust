@@ -87,8 +87,10 @@ fn continue_attack_range_chains_to_nearby_same_team_target() {
         logic.objects.get(&atk).and_then(|a| a.target).is_none(),
         "far mine outside range must not be acquired"
     );
-    assert!(!logic.objects[&atk].status.attacking,
-        "out-of-range continuation must leave the canonical attacker stopped");
+    assert!(
+        !logic.objects[&atk].status.attacking,
+        "out-of-range continuation must leave the canonical attacker stopped"
+    );
     // continue_or_stop stops when nothing in range
     logic.continue_or_stop_after_kill(
         atk,

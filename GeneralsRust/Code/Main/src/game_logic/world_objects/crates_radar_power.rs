@@ -159,8 +159,10 @@ impl GameLogic {
                 let boost = amount.saturating_sub(SUPPLY_DROP_ZONE_DROP_CASH);
                 self.supply_drop_zones.record_payload_cash(amount, boost);
                 if let Some(player_id) = owner_player_id {
-                    if let Some(player) = self.get_player_mut(player_id) {
-                        player.credit_supplies(amount);
+                    if let Some((player, economy_events)) =
+                        self.player_and_economy_events_mut(player_id)
+                    {
+                        player.credit_supplies(amount, economy_events);
                     }
                 }
                 if boost > 0 {
@@ -683,8 +685,10 @@ impl GameLogic {
             }
             if amount > 0 {
                 if let Some(player_id) = owner_player_id {
-                    if let Some(player) = self.get_player_mut(player_id) {
-                        player.credit_supplies(amount);
+                    if let Some((player, economy_events)) =
+                        self.player_and_economy_events_mut(player_id)
+                    {
+                        player.credit_supplies(amount, economy_events);
                         // C++ ScoreKeeper::addMoneyEarned — crate cash is earned.
                         player.add_money_earned(amount);
                     }
@@ -1060,15 +1064,18 @@ impl GameLogic {
             let was = obj.status.disabled_underpowered;
             if should_disable && !was {
                 let already_power = obj.is_power_style_disabled();
-                obj.status.disabled_underpowered = true;
                 if !already_power {
-                    obj.queue_power_disable_misc_audio(true);
+                    obj.queue_power_disable_misc_audio(true, &mut self.health_events);
                 }
+                obj.status.disabled_underpowered = true;
             } else if !should_disable && was {
-                obj.status.disabled_underpowered = false;
-                if !obj.is_power_style_disabled() {
-                    obj.queue_power_disable_misc_audio(false);
+                if !(obj.status.disabled_emp
+                    || obj.status.disabled_subdued
+                    || obj.status.disabled_hacked)
+                {
+                    obj.queue_power_disable_misc_audio(false, &mut self.health_events);
                 }
+                obj.status.disabled_underpowered = false;
             } else {
                 obj.status.disabled_underpowered = should_disable;
             }

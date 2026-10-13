@@ -1186,7 +1186,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(jet) = self.objects.get_mut(&jet_id) {
-                jet.defect(new_team, now, DEFAULT_DEFECTION_PROTECTION_FRAMES);
+                jet.defect(
+                    new_team,
+                    now,
+                    DEFAULT_DEFECTION_PROTECTION_FRAMES,
+                    &mut self.ownership_events,
+                );
                 jet.owner_player_id = new_owner;
             }
         }
@@ -2361,19 +2366,9 @@ impl GameLogic {
                 .position(|&id| id == jet_id)
             {
                 building.garrisoned_units.remove(pos);
-                crate::game_logic::host_contain_log::record_garrison(
-                    airfield.id,
-                    &building.garrisoned_units,
-                    building.max_garrison.min(u16::MAX as usize) as u16,
-                );
             }
         } else if let Some(pos) = airfield.occupants.iter().position(|&id| id == jet_id) {
             airfield.occupants.remove(pos);
-            crate::game_logic::host_contain_log::record_garrison(
-                airfield.id,
-                &airfield.occupants,
-                0,
-            );
         }
     }
 
@@ -2945,19 +2940,9 @@ impl GameLogic {
             if let Some(building) = airfield.building_data.as_mut() {
                 if !building.garrisoned_units.contains(&jet_id) {
                     building.garrisoned_units.push(jet_id);
-                    crate::game_logic::host_contain_log::record_garrison(
-                        airfield.id,
-                        &building.garrisoned_units,
-                        building.max_garrison.min(u16::MAX as usize) as u16,
-                    );
                 }
             } else if !airfield.occupants.contains(&jet_id) {
                 airfield.occupants.push(jet_id);
-                crate::game_logic::host_contain_log::record_garrison(
-                    airfield.id,
-                    &airfield.occupants,
-                    0,
-                );
             }
         }
         self.release_airfield_runway_for_jet(jet_id);

@@ -346,7 +346,7 @@ impl GameLogic {
             }
         }
         if let Some(target) = self.objects.get_mut(&center_id) {
-            target.apply_disabled_hacked(until_frame);
+            target.apply_disabled_hacked(until_frame, &mut self.health_events);
             target.apply_spy_vision_disabled_until(until_frame);
         }
 
@@ -354,7 +354,7 @@ impl GameLogic {
         // 3) Contained hackers DISABLED_HACKED residual.
         for hid in occupants {
             if let Some(h) = self.objects.get_mut(&hid) {
-                h.apply_disabled_hacked(until_frame);
+                h.apply_disabled_hacked(until_frame, &mut self.health_events);
                 hackers = hackers.saturating_add(1);
             }
             self.admit_host_radar_disabled_edges(hid);
@@ -405,7 +405,7 @@ impl GameLogic {
             for rid in riders {
                 // Exit contain residual.
                 if let Some(chute) = self.objects.get_mut(&id) {
-                    let _ = chute.exit_transport(rid);
+                    let _ = chute.exit_transport(rid, &mut self.ownership_events);
                 }
                 let applied = self.apply_rider_free_fall_damage(rid, chute_pos);
                 any |= applied;
@@ -755,11 +755,11 @@ impl GameLogic {
                     }
                     HostBattlePlan::SearchAndDestroy => {
                         center.detection_range = 0.0;
-                        center.record_host_detector();
+
                         center.is_detector = false;
-                        center.record_host_detector();
+
                         center.detection_rate_frames = 0;
-                        center.record_host_detector();
+
                         center.next_detection_scan_frame = 0;
                         disabled_stealth_detector = true;
                         // C++ BattlePlanUpdate.cpp:745-749 divide vision/shroud by scalar.
@@ -946,7 +946,7 @@ impl GameLogic {
                                 center.detection_range =
                                     strategy_center_stealth_detection_range_when_enabled();
                                 center.is_detector = true;
-                                center.record_host_detector();
+
                                 // DetectionRate residual: 500ms → 15 frames.
                                 // setSDEnabled(true) → first scan immediate (next=0).
                                 center.detection_rate_frames =

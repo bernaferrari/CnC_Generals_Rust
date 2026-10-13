@@ -55,10 +55,11 @@ impl PathfindingSystem {
         }
 
         // C++ findPath: clientSafeQuickDoesPathExist first.
-        if !self.client_safe_quick_does_path_exist_with_observations(
+        if !self.client_safe_quick_does_path_exist_ignoring_with_observations(
             request.surfaces,
             &request.from,
             &request.to,
+            request.ignore_obstacle_id,
             observations,
         ) {
             return Ok(PathResult::none());
@@ -172,18 +173,36 @@ impl PathfindingSystem {
             return Ok(PathResult::none());
         }
 
-        // Check zone connectivity for fast rejection
-        // Matches C++ zone check at AIPathfind.cpp:6531-6559
-        {
-            let zones = &self.zones;
-            if !zones.are_connected(start, goal, request.surfaces, request.is_crusher) {
-                return Ok(PathResult::none());
-            }
+        // C++ internalFindPath determines tunneling before the zone test.
+        let start_is_obstacle =
+            self.pathfinder.get_cell_type(start) == Some(PathfindCellType::Obstacle);
+        let ignored_goal = ignore_cells
+            .as_ref()
+            .is_some_and(|cells| cells.contains(&goal))
+            && self.pathfinder.get_cell_type(goal) == Some(PathfindCellType::Obstacle);
+        let zones = &self.zones;
+        let mut start_zone =
+            zones.get_effective_zone(request.surfaces, request.is_crusher, zones.zone_at(start));
+        let mut goal_zone =
+            zones.get_effective_zone(request.surfaces, request.is_crusher, zones.zone_at(goal));
+        // AIPathfind.cpp:6544–6552 enters/leaves buildings through terrain zones.
+        if ignored_goal || start_is_obstacle {
+            start_zone = zones.get_effective_zone(
+                request.surfaces,
+                request.is_crusher,
+                zones.get_effective_terrain_zone(start_zone),
+            );
+            goal_zone = zones.get_effective_zone(
+                request.surfaces,
+                request.is_crusher,
+                zones.get_effective_terrain_zone(goal_zone),
+            );
+        }
+        if start_zone != goal_zone {
+            return Ok(PathResult::none());
         }
 
         // C++ internalFindPath tunneling: start in obstacle → ignore obstacles until clear.
-        let start_is_obstacle =
-            self.pathfinder.get_cell_type(start) == Some(PathfindCellType::Obstacle);
         let mut tunneling = start_is_obstacle;
         if !tunneling {
             // Source invalid movement → cheat tunnel (C++ validMovementPosition source fail).

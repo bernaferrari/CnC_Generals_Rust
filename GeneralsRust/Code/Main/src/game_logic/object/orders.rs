@@ -553,7 +553,6 @@ impl Object {
         }
         self.special_power_cooldown_remaining = max_rem;
         self.special_power_ready = max_rem <= 0.0;
-        self.record_host_special_power();
     }
 
     pub fn apply_upgrade_tag(&mut self, upgrade: &str) {
@@ -620,7 +619,6 @@ impl Object {
         } else {
             self.set_status_force_attack(false);
         }
-
     }
 
     pub fn set_force_attack(&mut self, force: bool) {
@@ -717,7 +715,6 @@ impl Object {
         self.status.attacking = true;
         if let Some(max) = max_shots {
             self.max_shots_to_fire = max;
-
         }
         attack_events.record(self.id, victim);
     }
@@ -1011,6 +1008,7 @@ impl Object {
         occupant_owner: Option<u32>,
         occupant_stealth_garrison: bool,
         occupant_detected: bool,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) {
         if let Some(bd) = self.building_data.as_mut() {
             if bd.original_team.is_none() {
@@ -1018,11 +1016,14 @@ impl Object {
             }
             bd.hide_garrisoned_state = occupant_stealth_garrison && !occupant_detected;
         }
-        self.set_team_and_owner(occupant_team, occupant_owner);
+        self.set_team_and_owner(occupant_team, occupant_owner, ownership_events);
     }
 
     /// C++ GarrisonContain::onRemoving last-occupant original-team restore.
-    pub fn restore_garrison_original_team_if_empty(&mut self) {
+    pub fn restore_garrison_original_team_if_empty(
+        &mut self,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+    ) {
         let empty = self
             .building_data
             .as_ref()
@@ -1040,7 +1041,7 @@ impl Object {
         }
         self.set_garrison_can_attack(false);
         if let Some(orig) = orig {
-            self.set_team(orig);
+            self.set_team(orig, ownership_events);
         }
     }
 
@@ -1290,7 +1291,7 @@ impl Object {
         if !emperor {
             self.has_overlord_propaganda_addon = false;
         }
-        self.record_host_overlord();
+
         self.sync_overlord_addon_body_damage();
     }
 
@@ -1323,7 +1324,7 @@ impl Object {
 
         self.record_host_continuous_fire();
         self.record_host_weapon_set();
-        self.record_host_overlord();
+
         self.sync_overlord_addon_body_damage();
     }
 
@@ -1337,7 +1338,7 @@ impl Object {
             self.overlord_bunker_capacity = Some(0);
         }
         self.has_overlord_propaganda_addon = true;
-        self.record_host_overlord();
+
         self.sync_overlord_addon_body_damage();
     }
 
@@ -1351,9 +1352,6 @@ impl Object {
         self.passengers_allowed_to_fire = false;
         // Helix can hold infantry / vehicle / portable structure residual.
         // Fail-closed: allow_inside matrix simplified to transport capacity.
-        self.record_host_contain_capacity();
-        self.record_host_overlord();
-        self.record_host_stealth_flags();
     }
 
     pub fn has_portable_overlord_addon(&self) -> bool {
@@ -1423,8 +1421,6 @@ impl Object {
             self.building_data = Some(bd);
             self.record_host_building_type();
         }
-        self.record_host_contain_capacity();
-        self.record_host_stealth_flags();
     }
 
     /// C++ `getControllingPlayer()->getTunnelSystem()` key.
@@ -1450,7 +1446,6 @@ impl Object {
             self.building_data = Some(bd);
             self.record_host_building_type();
         }
-        self.record_host_contain_capacity();
     }
 
     pub fn is_cave_style_container(&self) -> bool {
@@ -1470,8 +1465,6 @@ impl Object {
         self.passengers_allowed_to_fire = false;
         self.armed_riders_upgrade_weapon_set = false;
         self.record_host_weapon_set();
-        self.record_host_contain_capacity();
-        self.record_host_stealth_flags();
     }
 
     /// True when this vehicle is a GLA Technical residual transport.
@@ -1489,8 +1482,6 @@ impl Object {
         self.passengers_allowed_to_fire = false;
         self.armed_riders_upgrade_weapon_set = false;
         self.record_host_weapon_set();
-        self.record_host_contain_capacity();
-        self.record_host_stealth_flags();
     }
 
     /// True when this vehicle is a GLA Combat Cycle residual transport.
@@ -1537,8 +1528,6 @@ impl Object {
         self.passengers_allowed_to_fire = true;
         self.armed_riders_upgrade_weapon_set = false;
         self.record_host_weapon_set();
-        self.record_host_contain_capacity();
-        self.record_host_stealth_flags();
     }
 
     /// True when this vehicle is an America Humvee residual transport.
@@ -1557,8 +1546,6 @@ impl Object {
         self.passengers_allowed_to_fire = false;
         self.armed_riders_upgrade_weapon_set = false;
         self.record_host_weapon_set();
-        self.record_host_contain_capacity();
-        self.record_host_stealth_flags();
     }
 
     /// True when this vehicle is a China Troop Crawler residual transport.
@@ -1597,8 +1584,6 @@ impl Object {
         self.weapon = None;
         self.weapon_set_player_upgrade = false;
         self.record_host_weapon_set();
-        self.record_host_contain_capacity();
-        self.record_host_stealth_flags();
     }
 
     /// Vanilla AmericaVehicleChinook: TransportContain Slots=8 + ChinookAI, no passenger fire.
@@ -1619,7 +1604,6 @@ impl Object {
                 crate::game_logic::host_combat_chinook::HostChinookAI::new_vanilla([p.x, p.z, p.y]),
             );
         }
-        self.record_host_contain_capacity();
     }
 
     /// True when this vehicle is an AirF Combat Chinook residual transport.
@@ -1657,10 +1641,8 @@ impl Object {
         self.weapon_set_player_upgrade = false;
         // KindOf residual includes CAN_ATTACK (for dummy weapon range residual).
         self.thing.template.add_kind_of(KindOf::Attackable);
-        self.record_host_detector();
+
         self.record_host_weapon_set();
-        self.record_host_contain_capacity();
-        self.record_host_stealth_flags();
     }
 
     /// True when this vehicle is a China Listening Outpost residual transport.
@@ -1858,7 +1840,7 @@ impl Object {
             self.set_status_masked(false);
         }
         self.contained_by = container;
-        crate::game_logic::host_contain_log::record_contained_by(self.id, container);
+
         // C++ OpenContain::onContaining setDrawableHidden(true) when enclosing.
         if enclosing {
             self.set_drawable_hidden(container.is_some());
@@ -1874,22 +1856,14 @@ impl Object {
                 return true;
             }
             building.garrisoned_units.push(unit_id);
-            crate::game_logic::host_contain_log::record_garrison(
-                self.id,
-                &building.garrisoned_units,
-                building.max_garrison.min(u16::MAX as usize) as u16,
-            );
+
             true
         } else {
             if self.occupants.contains(&unit_id) {
                 return true;
             }
             self.occupants.push(unit_id);
-            crate::game_logic::host_contain_log::record_garrison(
-                self.id,
-                &self.occupants,
-                self.occupants.len().min(u16::MAX as usize) as u16,
-            );
+
             true
         }
     }
@@ -1902,7 +1876,11 @@ impl Object {
         }
     }
 
-    pub fn remove_occupant(&mut self, unit_id: ObjectId) -> bool {
+    pub fn remove_occupant(
+        &mut self,
+        unit_id: ObjectId,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+    ) -> bool {
         if let Some(building) = self.building_data.as_mut() {
             if let Some(pos) = building
                 .garrisoned_units
@@ -1914,25 +1892,17 @@ impl Object {
                 // (or station) for this occupant, not only when the building
                 // becomes empty. Survivors must inherit the freed window.
                 building.free_garrison_point_for(unit_id);
-                crate::game_logic::host_contain_log::record_garrison(
-                    self.id,
-                    &building.garrisoned_units,
-                    building.max_garrison.min(u16::MAX as usize) as u16,
-                );
+
                 let empty = building.garrisoned_units.is_empty();
                 if empty {
-                    self.restore_garrison_original_team_if_empty();
+                    self.restore_garrison_original_team_if_empty(ownership_events);
                 }
                 return true;
             }
         }
         if let Some(pos) = self.occupants.iter().position(|&id| id == unit_id) {
             self.occupants.remove(pos);
-            crate::game_logic::host_contain_log::record_garrison(
-                self.id,
-                &self.occupants,
-                self.occupants.len().min(u16::MAX as usize) as u16,
-            );
+
             return true;
         }
         false
@@ -1944,7 +1914,11 @@ impl Object {
     }
 
     /// Remove an occupant from this transport/garrison.
-    pub fn exit_transport(&mut self, unit_id: ObjectId) -> bool {
-        self.remove_occupant(unit_id)
+    pub fn exit_transport(
+        &mut self,
+        unit_id: ObjectId,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+    ) -> bool {
+        self.remove_occupant(unit_id, ownership_events)
     }
 }

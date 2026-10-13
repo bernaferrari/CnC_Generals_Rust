@@ -1303,16 +1303,16 @@ mod live_upgrade_mux_tests {
             logic.get_player(1).expect("player").has_radar(),
             "America CC grants radar"
         );
-        if let Some(obj) = logic.host_object_mut(cc) {
-            obj.apply_disabled_emp(100);
+        if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(cc) {
+            obj.apply_disabled_emp(100, health_events);
         }
         logic.update_player_radar();
         assert!(
             !logic.get_player(1).expect("player").has_radar(),
             "EMP on the only CC must take radar offline"
         );
-        if let Some(obj) = logic.host_object_mut(cc) {
-            obj.tick_disabled_emp(100);
+        if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(cc) {
+            obj.tick_disabled_emp(100, health_events);
         }
         logic.update_player_radar();
         assert!(
@@ -1342,8 +1342,8 @@ mod live_upgrade_mux_tests {
             logic.get_player(1).expect("player").has_radar(),
             "Radar Van grants radar"
         );
-        if let Some(obj) = logic.host_object_mut(van) {
-            obj.apply_disabled_hacked(80);
+        if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(van) {
+            obj.apply_disabled_hacked(80, health_events);
         }
         logic.update_player_radar();
         assert!(
@@ -1363,14 +1363,18 @@ mod live_upgrade_mux_tests {
         let a = logic
             .create_object_for_player("ChinaTankOverlord", 1, Vec3::ZERO)
             .expect("overlord");
-        logic.get_player_mut(1).expect("player").queue_upgrade(
-            UPGRADE_OVERLORD_BUNKER,
-            &crate::game_logic::Resources {
-                supplies: 0,
-                power: 0,
-            },
-            gamelogic::upgrade::UpgradeType::Object,
-        );
+        {
+            let (player, economy_events) = logic.player_and_economy_events_mut(1).unwrap();
+            player.queue_upgrade(
+                UPGRADE_OVERLORD_BUNKER,
+                &crate::game_logic::Resources {
+                    supplies: 0,
+                    power: 0,
+                },
+                gamelogic::upgrade::UpgradeType::Object,
+                economy_events,
+            )
+        };
         logic.record_host_upgrade_queued(1, Team::China, UPGRADE_OVERLORD_BUNKER, Some(a));
         logic.apply_host_upgrade_complete(Team::China, 1, UPGRADE_OVERLORD_BUNKER);
         logic
@@ -1401,14 +1405,18 @@ mod live_upgrade_mux_tests {
         let id = logic
             .create_object_for_player("AmericaWarFactory", 0, Vec3::ZERO)
             .expect("factory");
-        logic.get_player_mut(0).expect("player").queue_upgrade(
-            "Upgrade_AmericaCompositeArmor",
-            &crate::game_logic::Resources {
-                supplies: 0,
-                power: 0,
-            },
-            gamelogic::upgrade::UpgradeType::Player,
-        );
+        {
+            let (player, economy_events) = logic.player_and_economy_events_mut(0).unwrap();
+            player.queue_upgrade(
+                "Upgrade_AmericaCompositeArmor",
+                &crate::game_logic::Resources {
+                    supplies: 0,
+                    power: 0,
+                },
+                gamelogic::upgrade::UpgradeType::Player,
+                economy_events,
+            )
+        };
         logic.record_host_upgrade_queued(0, Team::USA, "Upgrade_AmericaCompositeArmor", Some(id));
         logic.objects.remove(&id);
         logic.update_player_upgrades();
@@ -1446,14 +1454,18 @@ mod live_upgrade_mux_tests {
         if let Some(obj) = logic.host_object_mut(id) {
             obj.building_data = Some(BuildingData::new(BuildingType::WarFactory));
         }
-        logic.get_player_mut(0).expect("player").queue_upgrade(
-            "Upgrade_AmericaCompositeArmor",
-            &crate::game_logic::Resources {
-                supplies: 0,
-                power: 0,
-            },
-            gamelogic::upgrade::UpgradeType::Player,
-        );
+        {
+            let (player, economy_events) = logic.player_and_economy_events_mut(0).unwrap();
+            player.queue_upgrade(
+                "Upgrade_AmericaCompositeArmor",
+                &crate::game_logic::Resources {
+                    supplies: 0,
+                    power: 0,
+                },
+                gamelogic::upgrade::UpgradeType::Player,
+                economy_events,
+            )
+        };
         logic.record_host_upgrade_queued(0, Team::USA, "Upgrade_AmericaCompositeArmor", Some(id));
         logic.update_player_upgrades();
         let player = logic.get_player(0).expect("player");

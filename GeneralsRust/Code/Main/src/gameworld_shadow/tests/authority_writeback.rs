@@ -318,7 +318,7 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
 
 #[test]
 fn host_disable_timers_log_drives_set_disable_timers_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_disable_timers_log};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DtCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -335,30 +335,21 @@ fn host_disable_timers_log_drives_set_disable_timers_channel() {
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
 
-    host_disable_timers_log::clear();
     {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.apply_disabled_emp(500);
-        o.apply_disabled_hacked(600);
+        let (o, health_events) = logic.host_object_and_health_events_mut(oid).expect("o");
+        o.apply_disabled_emp(500, health_events);
+        o.apply_disabled_hacked(600, health_events);
         o.apply_disabled_paralyzed(700);
     }
-    let events = host_disable_timers_log::drain();
-    assert!(
-        events.iter().any(|e| {
-            e.object == oid
-                && e.emp_until_frame == 500
-                && e.hacked_until_frame == 600
-                && e.paralyzed_until_frame == 700
-        }),
-        "events {:?}",
-        events
+    let o = logic.host_object(oid).expect("canonical owner");
+    assert_eq!(
+        (
+            o.status.disabled_emp_until_frame,
+            o.status.disabled_hacked_until_frame,
+            o.status.disabled_paralyzed_until_frame
+        ),
+        (500, 600, 700)
     );
-
-    host_disable_timers_log::clear();
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.record_disable_timers();
-    }
     if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
         e.disabled_emp_until_frame = 0;
         e.disabled_hacked_until_frame = 0;
@@ -755,7 +746,10 @@ fn attack_log_feeds_set_attack_target_mutation() {
         e.attack_target = None;
     }
     for ev in &evs {
-        assert_eq!(logic.host_object(ev.attacker).unwrap().target, ev.target);
+        assert_eq!(
+            logic.host_object(ev.attacker).unwrap().target,
+            Some(ev.target)
+        );
     }
     shadow.sync_from_host(&logic);
     let eb = shadow.entity_for_host(b).unwrap();
@@ -822,10 +816,10 @@ fn attack_target_writeback_updates_host() {
         .expect("b");
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    logic
-        .host_object_mut(a)
-        .unwrap()
-        .set_target(Some(b), &mut logic.attack_events);
+    {
+        let (object, attack_events) = logic.host_object_and_attack_events_mut(a).unwrap();
+        object.set_target(Some(b), attack_events);
+    };
     shadow.sync_from_host(&logic);
     shadow.sync_from_host(&logic);
 
@@ -1770,9 +1764,11 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
     assert!(logic.host_object(lethal).is_none());
     assert!(!logic.has_pending_destroy_work());
     let completed = logic.health_events.snapshot_last_damage();
-    assert_eq!(completed.len(), 1);
-    assert_eq!(completed[0].target, lethal);
-    assert!(completed[0].destroyed);
+    assert_eq!(completed.len(), 2);
+    assert_eq!(completed[0].target, ordinary);
+    assert!(!completed[0].destroyed);
+    assert_eq!(completed[1].target, lethal);
+    assert!(completed[1].destroyed);
     crate::gameworld_shadow::run_owned_host_boundary(None, &mut logic);
     assert!(logic.host_object(lethal).is_none());
     assert!(!logic.has_pending_destroy_work());
@@ -1999,12 +1995,13 @@ fn host_logic_step_active_keeps_repeated_object_mutations_and_getters_on_owner()
 
         logic
             .with_host_logic_step(|owner| {
-                owner
-                    .with_host_object_mut(source, |object| {
-                        object.set_order_target(Some(target), &mut logic.attack_events);
-                        object.set_position(glam::Vec3::from_array(owner_position));
-                    })
-                    .expect("first owner mutation");
+                {
+                    let (object, attack_events) = owner
+                        .host_object_and_attack_events_mut(source)
+                        .expect("first owner mutation");
+                    object.set_order_target(Some(target), attack_events);
+                    object.set_position(glam::Vec3::from_array(owner_position));
+                }
 
                 // A second ordinary mutable borrow used to re-overlay the old
                 // GameWorld pose/target, erasing the first host operation.

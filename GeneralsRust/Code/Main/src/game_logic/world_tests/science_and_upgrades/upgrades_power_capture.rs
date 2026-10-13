@@ -1166,8 +1166,8 @@ fn capture_sets_private_captured_and_score() {
         .expect("barracks");
     assert!(!logic.host_object(id).unwrap().is_private_captured());
 
-    if let Some(o) = logic.host_object_mut(id) {
-        o.set_team(Team::GLA);
+    if let Some((o, ownership_events)) = logic.host_object_and_ownership_events_mut(id) {
+        o.set_team(Team::GLA, ownership_events);
     }
     logic.on_capture_object_residual(id, Team::USA, Team::GLA);
 
@@ -1265,9 +1265,10 @@ fn infantry_collision_reclaims_unmanned_vehicle() {
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("humvee");
-    if let Some(v) = logic.host_object_mut(vid) {
-        v.apply_kill_pilot_unmanned();
-        v.set_team(Team::Neutral);
+    if let Some(v) = logic.objects.get_mut(&vid) {
+        let ownership_events = &mut logic.ownership_events;
+        v.apply_kill_pilot_unmanned(&mut logic.health_events);
+        v.set_team(Team::Neutral, ownership_events);
     }
     let iid = logic
         .create_object(
@@ -1322,9 +1323,10 @@ fn unmanned_recrew_transfers_script_name_and_captured_bit() {
     let vid = logic
         .create_object("AmericaVehicleHumvee", Team::GLA, glam::Vec3::ZERO)
         .expect("humvee");
-    if let Some(v) = logic.host_object_mut(vid) {
-        v.apply_kill_pilot_unmanned();
-        v.set_team(Team::Neutral);
+    if let Some(v) = logic.objects.get_mut(&vid) {
+        let ownership_events = &mut logic.ownership_events;
+        v.apply_kill_pilot_unmanned(&mut logic.health_events);
+        v.set_team(Team::Neutral, ownership_events);
         v.name.clear();
     }
     let iid = logic
@@ -1336,7 +1338,6 @@ fn unmanned_recrew_transfers_script_name_and_captured_bit() {
         .expect("ranger");
     if let Some(i) = logic.host_object_mut(iid) {
         i.name = "NamedRanger".into();
-        i.record_host_identity();
     }
 
     assert!(logic.try_infantry_unmanned_reclaim(iid, vid));
@@ -1374,8 +1375,8 @@ fn capture_tech_building_sets_captured_model_condition() {
             .has_captured_model_condition()
     );
 
-    if let Some(o) = logic.host_object_mut(id) {
-        o.set_team(Team::USA);
+    if let Some((o, ownership_events)) = logic.host_object_and_ownership_events_mut(id) {
+        o.set_team(Team::USA, ownership_events);
     }
     logic.on_capture_object_residual(id, Team::Neutral, Team::USA);
     assert!(logic.capture_tech_model_updates > 0);
@@ -1388,8 +1389,8 @@ fn capture_tech_building_sets_captured_model_condition() {
     );
 
     // Return to neutral clears.
-    if let Some(o) = logic.host_object_mut(id) {
-        o.set_team(Team::Neutral);
+    if let Some((o, ownership_events)) = logic.host_object_and_ownership_events_mut(id) {
+        o.set_team(Team::Neutral, ownership_events);
     }
     logic.on_capture_object_residual(id, Team::USA, Team::Neutral);
     assert!(
@@ -1438,8 +1439,8 @@ fn capture_last_tunnel_ejects_shared_pool_for_old_owner() {
     assert_eq!(logic.tunnel_network.contain_count(gla_key), 1);
 
     // Flip ownership then onCapture residual.
-    if let Some(o) = logic.host_object_mut(tnl) {
-        o.set_team_and_owner(Team::USA, Some(0));
+    if let Some((o, ownership_events)) = logic.host_object_and_ownership_events_mut(tnl) {
+        o.set_team_and_owner(Team::USA, Some(0), ownership_events);
     }
     logic.on_capture_object_residual(tnl, Team::GLA, Team::USA);
 
@@ -1504,8 +1505,8 @@ fn capture_non_last_tunnel_keeps_old_team_pool() {
     logic.tunnel_network.stamp_contained_by_frame(uid, 0);
     logic.frame = 25;
 
-    if let Some(o) = logic.host_object_mut(t1) {
-        o.set_team_and_owner(Team::USA, Some(0));
+    if let Some((o, ownership_events)) = logic.host_object_and_ownership_events_mut(t1) {
+        o.set_team_and_owner(Team::USA, Some(0), ownership_events);
     }
     logic.on_capture_object_residual(t1, Team::GLA, Team::USA);
 
@@ -1552,8 +1553,8 @@ fn capture_object_residual_idle_deselect_ai_sell() {
         p.selected_objects.push(id);
     }
     // Flip ownership first (C++ order: setTeam then onCapture).
-    if let Some(obj) = logic.host_object_mut(id) {
-        obj.set_team(Team::GLA);
+    if let Some((obj, ownership_events)) = logic.host_object_and_ownership_events_mut(id) {
+        obj.set_team(Team::GLA, ownership_events);
         obj.set_ai_state(AIState::Attacking);
         obj.set_status_attacking(true);
     }
@@ -1620,8 +1621,8 @@ fn create_stamps_threat_value_not_build_cost_and_capture_restamps_mask() {
         assert_eq!(stamp.mask, 1u32 << 0);
     }
 
-    if let Some(obj) = logic.host_object_mut(id) {
-        obj.set_team_and_owner(Team::GLA, Some(1));
+    if let Some((obj, ownership_events)) = logic.host_object_and_ownership_events_mut(id) {
+        obj.set_team_and_owner(Team::GLA, Some(1), ownership_events);
     }
     logic.on_capture_object_residual(id, Team::USA, Team::GLA);
     let stamp = logic
@@ -1751,8 +1752,8 @@ fn capture_team_flips_overlord_helix_portable_addon() {
     assert_eq!(logic.host_object(addon).unwrap().team, Team::China);
 
     // Capture already flipped host owner (on_capture_object_residual).
-    if let Some(o) = logic.host_object_mut(overlord) {
-        o.set_team_and_owner(Team::USA, Some(1));
+    if let Some((o, ownership_events)) = logic.host_object_and_ownership_events_mut(overlord) {
+        o.set_team_and_owner(Team::USA, Some(1), ownership_events);
     }
     logic.on_capture_kick_passengers(overlord, Team::China, Team::USA);
     let addon_obj = logic.host_object(addon).expect("addon stays live");
@@ -1787,8 +1788,8 @@ fn capture_team_flips_overlord_helix_portable_addon() {
     let helix_addon = logic
         .overlord_helix_portable_occupant_id(helix)
         .expect("helix portable");
-    if let Some(o) = logic.host_object_mut(helix) {
-        o.set_team_and_owner(Team::USA, Some(1));
+    if let Some((o, ownership_events)) = logic.host_object_and_ownership_events_mut(helix) {
+        o.set_team_and_owner(Team::USA, Some(1), ownership_events);
     }
     logic.on_capture_kick_passengers(helix, Team::China, Team::USA);
     let ha = logic.host_object(helix_addon).expect("helix addon");
@@ -2181,10 +2182,10 @@ fn actively_constructing_bit_on_dozer_and_factory() {
     // set_target flips AIState to Attacking, so (re)enter the Constructing
     // state after acquiring the build goal — C++ enters the dozer sub-task
     // after the goal object is set.
-    logic
-        .host_object_mut(did)
-        .unwrap()
-        .set_target(Some(bid), &mut logic.attack_events);
+    {
+        let (object, attack_events) = logic.host_object_and_attack_events_mut(did).unwrap();
+        object.set_target(Some(bid), attack_events);
+    };
     logic
         .host_object_mut(did)
         .unwrap()

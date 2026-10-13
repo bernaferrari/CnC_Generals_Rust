@@ -12,10 +12,11 @@ pub(super) struct UpgradeAttempt {
 impl UpgradeAttempt {
     pub(super) fn execute(&self, world: &mut GameLogic) -> bool {
         let kind = world.upgrade_type(&self.name);
-        let Some(player) = world.get_player_mut(self.player) else {
+        let Some((player, economy_events)) = world.player_and_economy_events_mut(self.player)
+        else {
             return false;
         };
-        if !player.queue_upgrade(&self.name, &self.cost, kind) {
+        if !player.queue_upgrade(&self.name, &self.cost, kind, economy_events) {
             return false;
         }
         let seconds = world.upgrade_research_time_secs(&self.name);
@@ -25,8 +26,9 @@ impl UpgradeAttempt {
             seconds,
             self.cost,
         ) {
-            if let Some(player) = world.get_player_mut(self.player) {
-                let _ = player.cancel_queued_upgrade(&self.name, &self.cost);
+            if let Some((player, economy_events)) = world.player_and_economy_events_mut(self.player)
+            {
+                let _ = player.cancel_queued_upgrade(&self.name, &self.cost, economy_events);
             }
             return false;
         }

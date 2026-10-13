@@ -86,21 +86,11 @@ impl GameLogic {
     }
 
     fn update_player_alive_state(&mut self) {
-        let mut events = Vec::new();
         for player in self.players.values_mut() {
-            let alive = self
+            player.is_alive = self
                 .objects
                 .values()
                 .any(|obj| obj.team == player.team && obj.is_alive());
-            if player.is_alive != alive {
-                player.is_alive = alive;
-                events.push((player.id, alive));
-            } else {
-                player.is_alive = alive;
-            }
-        }
-        for (id, alive) in events {
-            crate::game_logic::host_player_meta_log::record_alive(id, alive);
         }
     }
 

@@ -13,13 +13,6 @@ const UNIT: &str = "AuthoredRefundOwnerInfantry";
 const OWNER: u32 = 4;
 const TEAMMATE: u32 = 0;
 
-struct ClearEconomyLog;
-impl Drop for ClearEconomyLog {
-    fn drop(&mut self) {
-        host_economy_log::clear();
-    }
-}
-
 fn authored_world(cost: u32, bank: u32) -> (GameLogic, ObjectId) {
     let mut logic = GameLogic::new();
     logic.set_current_frame(73);
@@ -102,7 +95,7 @@ End
         logic.get_player(TEAMMATE).unwrap().effective_supplies(),
         9_000
     );
-    host_economy_log::clear();
+
     (logic, producer)
 }
 
@@ -148,7 +141,10 @@ fn enqueue(logic: &mut GameLogic, producer: ObjectId, cost: u32) -> Vec<HostEcon
         logic.get_player(OWNER).unwrap().effective_supplies(),
         before - cost
     );
-    let events = host_economy_log::drain();
+    let events = {
+        logic.economy_events.complete_boundary();
+        logic.economy_events.take_completed()
+    };
     assert_eq!(
         events,
         vec![HostEconomyEvent {
@@ -158,7 +154,7 @@ fn enqueue(logic: &mut GameLogic, producer: ObjectId, cost: u32) -> Vec<HostEcon
         }]
     );
     assert_eq!(
-        host_economy_log::take_money_audio(),
+        logic.economy_events.take_money_audio(),
         vec![HostMoneyAudioEvent {
             player_id: OWNER,
             kind: HostMoneyAudio::Withdraw,
@@ -167,11 +163,14 @@ fn enqueue(logic: &mut GameLogic, producer: ObjectId, cost: u32) -> Vec<HostEcon
     events
 }
 
-fn assert_refund(logic: &GameLogic, expected_bank: u32) {
-    let owner = logic.get_player(OWNER).unwrap();
+fn assert_refund(logic: &mut GameLogic, expected_bank: u32) {
+    let owner = logic.get_player(OWNER).unwrap().clone();
     assert_eq!(owner.effective_supplies(), expected_bank);
     assert_eq!(
-        host_economy_log::drain(),
+        {
+            logic.economy_events.complete_boundary();
+            logic.economy_events.take_completed()
+        },
         vec![HostEconomyEvent {
             player_id: OWNER,
             supplies: expected_bank,
@@ -180,7 +179,7 @@ fn assert_refund(logic: &GameLogic, expected_bank: u32) {
         "one refund publishes exactly one final cash-and-power observation"
     );
     assert_eq!(
-        host_economy_log::take_money_audio(),
+        logic.economy_events.take_money_audio(),
         vec![HostMoneyAudioEvent {
             player_id: OWNER,
             kind: HostMoneyAudio::Deposit,
@@ -196,7 +195,6 @@ fn assert_refund(logic: &GameLogic, expected_bank: u32) {
 
 #[test]
 fn authored_slot_and_name_cancel_refund_once_keep_clock_and_owner() {
-    let _cleanup = ClearEconomyLog;
     {
         let (mut logic, producer) = authored_world(250, 1_000);
         let _ = enqueue(&mut logic, producer, 250);
@@ -212,9 +210,9 @@ fn authored_slot_and_name_cancel_refund_once_keep_clock_and_owner() {
             .production_queue;
         assert_eq!(queue[0].construction_frames, 1);
         assert_eq!(queue[1].construction_frames, 0);
-        host_economy_log::clear();
+
         assert!(logic.cancel_production_at_index(producer, 1));
-        assert_refund(&logic, 750);
+        assert_refund(&mut logic, 750);
         let queue = &logic
             .host_object(producer)
             .unwrap()
@@ -227,16 +225,21 @@ fn authored_slot_and_name_cancel_refund_once_keep_clock_and_owner() {
         assert_eq!(queue[0].cost.supplies, 250);
         assert_eq!(logic.get_current_frame(), 73);
         assert!(logic.cancel_production(producer, UNIT.to_ascii_lowercase()));
-        assert_refund(&logic, 1_000);
+        assert_refund(&mut logic, 1_000);
         assert!(!logic.cancel_production(producer, UNIT.to_string()));
-        assert!(host_economy_log::drain().is_empty());
-        assert!(host_economy_log::take_money_audio().is_empty());
+        assert!(
+            {
+                logic.economy_events.complete_boundary();
+                logic.economy_events.take_completed()
+            }
+            .is_empty()
+        );
+        assert!(logic.economy_events.take_money_audio().is_empty());
     };
 }
 
 #[test]
 fn authored_same_id_worlds_refund_their_own_paid_costs() {
-    let _cleanup = ClearEconomyLog;
     {
         let (mut first, first_producer) = authored_world(250, 1_000);
         let _ = enqueue(&mut first, first_producer, 250);
@@ -245,7 +248,7 @@ fn authored_same_id_worlds_refund_their_own_paid_costs() {
         let _ = enqueue(&mut second, second_producer, 375);
         assert_eq!(first.get_player(OWNER).unwrap().effective_supplies(), 750);
         assert!(first.cancel_production(first_producer, UNIT.to_string()));
-        assert_refund(&first, 1_000);
+        assert_refund(&mut first, 1_000);
         assert_eq!(
             second.get_player(OWNER).unwrap().effective_supplies(),
             1_625
@@ -263,7 +266,7 @@ fn authored_same_id_worlds_refund_their_own_paid_costs() {
             375
         );
         assert!(second.cancel_production_at_index(second_producer, 0));
-        assert_refund(&second, 2_000);
+        assert_refund(&mut second, 2_000);
         assert_eq!(first.get_player(OWNER).unwrap().effective_supplies(), 1_000);
         assert!(
             first
@@ -280,7 +283,6 @@ fn authored_same_id_worlds_refund_their_own_paid_costs() {
 
 #[test]
 fn authored_cancel_all_has_one_final_event_and_deposit_per_paid_entry() {
-    let _cleanup = ClearEconomyLog;
     {
         let (mut logic, producer) = authored_world(250, 1_000);
         let _ = enqueue(&mut logic, producer, 250);
@@ -288,7 +290,10 @@ fn authored_cancel_all_has_one_final_event_and_deposit_per_paid_entry() {
         assert!(logic.cancel_all_production(producer));
         let power = logic.get_player(OWNER).unwrap().power_available;
         assert_eq!(
-            host_economy_log::drain(),
+            {
+                logic.economy_events.complete_boundary();
+                logic.economy_events.take_completed()
+            },
             vec![
                 HostEconomyEvent {
                     player_id: OWNER,
@@ -303,7 +308,7 @@ fn authored_cancel_all_has_one_final_event_and_deposit_per_paid_entry() {
             ]
         );
         assert_eq!(
-            host_economy_log::take_money_audio(),
+            logic.economy_events.take_money_audio(),
             vec![
                 HostMoneyAudioEvent {
                     player_id: OWNER,
@@ -317,15 +322,19 @@ fn authored_cancel_all_has_one_final_event_and_deposit_per_paid_entry() {
         );
         assert_eq!(logic.get_player(OWNER).unwrap().effective_supplies(), 1_000);
         assert!(!logic.cancel_all_production(producer));
-        assert!(host_economy_log::drain().is_empty());
-        assert!(host_economy_log::take_money_audio().is_empty());
+        assert!(
+            {
+                logic.economy_events.complete_boundary();
+                logic.economy_events.take_completed()
+            }
+            .is_empty()
+        );
+        assert!(logic.economy_events.take_money_audio().is_empty());
     };
 }
 
 #[test]
 fn authored_refund_keeps_canonical_cash_and_immutable_observation_contract() {
-    let _cleanup = ClearEconomyLog;
-
     {
         let (mut logic, producer) = authored_world(250, 1_000);
 
@@ -340,10 +349,13 @@ fn authored_refund_keeps_canonical_cash_and_immutable_observation_contract() {
         assert_eq!(shadow.world().player(shadow_owner).unwrap().supplies, 750);
         let player = logic.get_player(OWNER).unwrap();
         assert_eq!(player.resources.supplies, 750);
-        assert_eq!(player.pending_supply_delta, 0);
+
         assert!(logic.cancel_production_at_index(producer, 0));
-        let owner = logic.get_player(OWNER).unwrap();
-        let refund = host_economy_log::drain();
+        let owner = logic.get_player(OWNER).unwrap().clone();
+        let refund = {
+            logic.economy_events.complete_boundary();
+            logic.economy_events.take_completed()
+        };
         assert_eq!(
             refund,
             vec![HostEconomyEvent {
@@ -353,7 +365,7 @@ fn authored_refund_keeps_canonical_cash_and_immutable_observation_contract() {
             }]
         );
         assert_eq!(
-            host_economy_log::take_money_audio(),
+            logic.economy_events.take_money_audio(),
             vec![HostMoneyAudioEvent {
                 player_id: OWNER,
                 kind: HostMoneyAudio::Deposit,
@@ -368,13 +380,11 @@ fn authored_refund_keeps_canonical_cash_and_immutable_observation_contract() {
         shadow.sync_from_host(&logic);
         let player = logic.get_player(OWNER).unwrap();
         assert_eq!(player.resources.supplies, 1_000);
-        assert_eq!(player.pending_supply_delta, 0);
     };
 }
 
 #[test]
 fn parsed_upgrade_ledger_cancel_refunds_once() {
-    let _cleanup = ClearEconomyLog;
     {
         let (mut logic, _) = authored_world(250, 1_000);
         let source = "Upgrade Upgrade_AuthoredRefundLedger\nType = PLAYER\nBuildCost = 321\nBuildTime = 9\nEnd\n";
@@ -403,37 +413,51 @@ fn parsed_upgrade_ledger_cancel_refunds_once() {
             supplies: definition.get_cost() as u32,
             power: 0,
         };
-        let player = logic.get_player_mut(OWNER).unwrap();
+        let (player, economy_events) = logic.player_and_economy_events_mut(OWNER).unwrap();
         let spent_before = player.statistics.resources_spent;
         let income_before = player.statistics.resources_collected;
         assert!(player.queue_upgrade(
             "Upgrade_AuthoredRefundLedger",
             &cost,
-            definition.get_upgrade_type()
+            definition.get_upgrade_type(),
+            economy_events,
         ));
         assert!(player.has_queued_upgrade("Upgrade_AuthoredRefundLedger"));
         assert_eq!(player.statistics.resources_spent, spent_before + 321);
-        host_economy_log::clear();
-        assert!(player.cancel_queued_upgrade("upgrade_authoredrefundledger", &cost));
+
+        assert!(player.cancel_queued_upgrade(
+            "upgrade_authoredrefundledger",
+            &cost,
+            economy_events
+        ));
         assert!(!player.has_queued_upgrade("Upgrade_AuthoredRefundLedger"));
         assert_eq!(
             player.statistics.resources_collected, income_before,
             "refund must not acquire supply-income semantics as an accounting shortcut"
         );
-        assert_refund(&logic, 1_000);
-        let player = logic.get_player_mut(OWNER).unwrap();
-        assert!(!player.cancel_queued_upgrade("Upgrade_AuthoredRefundLedger", &cost));
-        assert!(host_economy_log::drain().is_empty());
-        assert!(host_economy_log::take_money_audio().is_empty());
+        assert_refund(&mut logic, 1_000);
+        let (player, economy_events) = logic.player_and_economy_events_mut(OWNER).unwrap();
+        assert!(!player.cancel_queued_upgrade(
+            "Upgrade_AuthoredRefundLedger",
+            &cost,
+            economy_events
+        ));
+        assert!(
+            {
+                logic.economy_events.complete_boundary();
+                logic.economy_events.take_completed()
+            }
+            .is_empty()
+        );
+        assert!(logic.economy_events.take_money_audio().is_empty());
     };
 }
 
 #[test]
 fn zero_money_ledger_cancel_reverses_power_without_deposit_cue() {
-    let _cleanup = ClearEconomyLog;
     {
         let (mut logic, _) = authored_world(250, 1_000);
-        let player = logic.get_player_mut(OWNER).unwrap();
+        let (player, economy_events) = logic.player_and_economy_events_mut(OWNER).unwrap();
         // Existing public Player ledger edge: zero money still reverses power.
         // This is a ledger boundary control, not an authored producer admission.
         let zero = Resources {
@@ -444,20 +468,28 @@ fn zero_money_ledger_cancel_reverses_power_without_deposit_cue() {
         assert!(player.queue_upgrade(
             "Upgrade_ZeroMoneyLedgerControl",
             &zero,
-            gamelogic::upgrade::UpgradeType::Player
+            gamelogic::upgrade::UpgradeType::Player,
+            economy_events,
         ));
         assert_eq!(player.power_available, before_power - 7);
-        host_economy_log::clear();
-        assert!(player.cancel_queued_upgrade("Upgrade_ZeroMoneyLedgerControl", &zero));
+
+        assert!(player.cancel_queued_upgrade(
+            "Upgrade_ZeroMoneyLedgerControl",
+            &zero,
+            economy_events
+        ));
         assert_eq!(player.power_available, before_power);
         assert_eq!(
-            host_economy_log::drain(),
+            {
+                logic.economy_events.complete_boundary();
+                logic.economy_events.take_completed()
+            },
             vec![HostEconomyEvent {
                 player_id: OWNER,
                 supplies: 1_000,
                 power_available: before_power,
             }]
         );
-        assert!(host_economy_log::take_money_audio().is_empty());
+        assert!(logic.economy_events.take_money_audio().is_empty());
     };
 }

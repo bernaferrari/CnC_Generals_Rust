@@ -210,10 +210,17 @@ fn kill_skill_point_value_uses_experience_value() {
 
 #[test]
 fn pilot_recrew_adds_pilot_levels_not_max() {
+    let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
     let mut vehicle = make_test_object();
     vehicle.status.disabled_unmanned = true;
     vehicle.experience.level = VeterancyLevel::Elite;
-    assert!(vehicle.apply_pilot_recrew(Team::USA, Some(0), VeterancyLevel::Veteran));
+    assert!(vehicle.apply_pilot_recrew(
+        Team::USA,
+        Some(0),
+        VeterancyLevel::Veteran,
+        &mut _ownership_output,
+    ));
     assert_eq!(vehicle.experience.level, VeterancyLevel::Heroic);
 }
 
@@ -302,6 +309,10 @@ fn sold_and_under_construction_cannot_attack_or_fire() {
 
 #[test]
 fn unmanned_enter_wipes_veterancy_and_auto_heal() {
+    let mut _body_output = crate::game_logic::HostHealthEvents::default();
+
+    let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
     let mut vehicle = make_test_object();
     vehicle.experience.level = VeterancyLevel::Elite;
     vehicle.experience.current = 200.0;
@@ -312,7 +323,7 @@ fn unmanned_enter_wipes_veterancy_and_auto_heal() {
             .as_ref()
             .is_some_and(|h| h.upgrade_active)
     );
-    vehicle.apply_kill_pilot_unmanned();
+    vehicle.apply_kill_pilot_unmanned(&mut _body_output);
     assert_eq!(vehicle.experience.level, VeterancyLevel::Rookie);
     assert_eq!(vehicle.experience.current, 0.0);
     assert!(
@@ -321,7 +332,12 @@ fn unmanned_enter_wipes_veterancy_and_auto_heal() {
             .as_ref()
             .is_some_and(|h| !h.upgrade_active)
     );
-    assert!(vehicle.apply_pilot_recrew(Team::USA, Some(0), VeterancyLevel::Veteran));
+    assert!(vehicle.apply_pilot_recrew(
+        Team::USA,
+        Some(0),
+        VeterancyLevel::Veteran,
+        &mut _ownership_output,
+    ));
     assert_eq!(vehicle.experience.level, VeterancyLevel::Veteran);
 }
 
@@ -337,6 +353,8 @@ fn battle_bus_second_life_is_held() {
 
 #[test]
 fn hacked_spawn_site_idles_residual_slaves() {
+    let mut _body_output = crate::game_logic::HostHealthEvents::default();
+
     let mut site = make_test_object();
     site.template_name = "GLAStingerSite".into();
     site.hive_slaves = crate::game_logic::host_base_defense::init_stinger_hive_slave_roster();
@@ -346,7 +364,7 @@ fn hacked_spawn_site_idles_residual_slaves() {
         99,
     );
     assert!(site.hive_slaves.iter().any(|s| s.ai_attacking));
-    site.apply_disabled_hacked(60);
+    site.apply_disabled_hacked(60, &mut _body_output);
     assert!(site.is_hacked_disabled());
     assert!(site.hive_slaves.iter().all(|s| !s.ai_attacking));
 }
@@ -2257,6 +2275,7 @@ fn status_damage_applies_faerie_without_hp_loss() {
         0,
         &context,
         &mut health_events,
+        None,
     );
     assert!(!dead);
     assert!((o.health.current - 100.0).abs() < 1e-3);
@@ -2562,7 +2581,7 @@ fn continuous_fire_coasts_down_after_idle() {
     let mut loop_events =
         crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents::default();
     {
-        let a = logic.host_object_mut(id).unwrap();
+        let (a, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
         a.continuous_fire_one_shots = 1;
         a.continuous_fire_two_shots = 4;
         a.continuous_fire_coast_frames = 10;
@@ -2571,13 +2590,13 @@ fn continuous_fire_coasts_down_after_idle() {
         assert_eq!(a.continuous_fire_level, 1);
         a.stamp_continuous_fire_coast(100);
         assert_eq!(a.continuous_fire_coast_until_frame, 110);
-        a.tick_continuous_fire_coast(109, &mut loop_events);
+        a.tick_continuous_fire_coast(109, &mut loop_events, health_events);
         assert_eq!(a.continuous_fire_level, 1);
         // C++ FiringTracker.cpp:189: strict `now > m_frameToStartCooldown` —
         // the deadline frame itself is still cool-free; cool one frame later.
-        a.tick_continuous_fire_coast(110, &mut loop_events);
+        a.tick_continuous_fire_coast(110, &mut loop_events, health_events);
         assert_eq!(a.continuous_fire_level, 1);
-        a.tick_continuous_fire_coast(111, &mut loop_events);
+        a.tick_continuous_fire_coast(111, &mut loop_events, health_events);
         assert_eq!(a.continuous_fire_level, 0);
         assert_eq!(a.consecutive_shots_at_target, 0);
         let (_, _, rof, _, _) = a.weapon_bonus_fields();

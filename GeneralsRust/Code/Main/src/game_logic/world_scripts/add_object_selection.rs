@@ -606,8 +606,8 @@ impl GameLogic {
                         min_cash
                     );
                     // Economy authority: gain delta to absolute floor, not host poke.
-                    player.apply_supply_gain(need);
-                    crate::game_logic::host_economy_log::record(
+                    player.apply_supply_gain(need, &mut self.economy_events);
+                    self.economy_events.record(
                         player.id,
                         player.effective_supplies(),
                         player.power_available,

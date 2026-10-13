@@ -248,7 +248,11 @@ impl GameLogic {
             if is_tech {
                 // C++ Team::killTeam: KINDOF_TECH_BUILDING → Neutral default team.
                 if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.set_team_and_owner(Team::Neutral, neutral_owner);
+                    obj.set_team_and_owner(
+                        Team::Neutral,
+                        neutral_owner,
+                        &mut self.ownership_events,
+                    );
                 }
                 continue;
             }
@@ -271,7 +275,7 @@ impl GameLogic {
         if let Some(player) = self.players.get_mut(&player_id) {
             player.is_alive = false;
             player.resources.supplies = 0;
-            player.pending_supply_delta = 0;
+
             player.selected_objects.clear();
         }
     }

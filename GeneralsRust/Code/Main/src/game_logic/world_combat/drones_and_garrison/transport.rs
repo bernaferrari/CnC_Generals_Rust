@@ -106,7 +106,6 @@ impl GameLogic {
             if let Some(c) = self.objects.get_mut(&cid) {
                 if !c.passengers_allowed_to_fire {
                     c.passengers_allowed_to_fire = true;
-                    c.record_host_stealth_flags();
                 }
             }
         }

@@ -500,8 +500,8 @@ fn host_command_set_log_drives_set_command_set_channel() {
 }
 
 #[test]
-fn host_selection_radius_log_drives_set_selection_radius_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_selection_radius_log};
+fn canonical_selection_radius_projects_without_writeback() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SrCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -636,10 +636,10 @@ fn host_fow_log_drives_set_fow_channel() {
         .find(|player| player.id != local && player.is_alive)
         .map(|player| (player.id, player.team))
         .expect("other live owner");
-    logic
-        .host_object_mut(oid)
-        .unwrap()
-        .set_team_and_owner(other.1, Some(other.0));
+    {
+        let (object, ownership_events) = logic.host_object_and_ownership_events_mut(oid).unwrap();
+        object.set_team_and_owner(other.1, Some(other.0), ownership_events);
+    };
     {
         let shroud = logic.world_services.shroud();
         let mut shroud = shroud.lock().unwrap();
@@ -663,8 +663,8 @@ fn host_fow_log_drives_set_fow_channel() {
 }
 
 #[test]
-fn host_kind_of_log_drives_set_kind_of_bits_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_kind_of_log};
+fn canonical_kind_of_projects_without_writeback() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("KoCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -701,8 +701,8 @@ fn host_kind_of_log_drives_set_kind_of_bits_channel() {
 }
 
 #[test]
-fn host_identity_log_drives_set_identity_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_identity_log};
+fn canonical_identity_projects_without_writeback() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("IdCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");

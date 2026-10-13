@@ -102,7 +102,7 @@ pub fn honesty_primary_objects_flag_source() -> bool {
 /// Live residual: rebuild sets primary flag; vertical boundary logic is fail-closed soft.
 pub fn simulate_live_presentation_rebuilt_vertical_gate_honesty() -> bool {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::gameworld_shadow::{GameWorldShadow};
+    use crate::gameworld_shadow::GameWorldShadow;
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
@@ -116,7 +116,6 @@ pub fn simulate_live_presentation_rebuilt_vertical_gate_honesty() -> bool {
     if !honesty_primary_objects_flag_source() {
         return false;
     }
-
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("RebuiltVert196");

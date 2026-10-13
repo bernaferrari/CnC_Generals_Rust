@@ -70,8 +70,8 @@ fn internet_center_subdual_idles_occupant_hackers_and_resumes() {
         "contained hacker must auto-start"
     );
 
-    if let Some(obj) = logic.host_object_mut(ic) {
-        obj.set_disabled_subdued(true);
+    if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(ic) {
+        obj.set_disabled_subdued(true, health_events);
     }
     logic.update_hacker_income();
     assert!(
@@ -99,8 +99,8 @@ fn internet_center_subdual_idles_occupant_hackers_and_resumes() {
         "subdued IC must not deposit"
     );
 
-    if let Some(obj) = logic.host_object_mut(ic) {
-        obj.set_disabled_subdued(false);
+    if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(ic) {
+        obj.set_disabled_subdued(false, health_events);
     }
     logic.update_hacker_income();
     assert!(

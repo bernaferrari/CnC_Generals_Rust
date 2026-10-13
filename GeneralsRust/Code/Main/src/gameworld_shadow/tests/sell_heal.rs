@@ -75,9 +75,8 @@ fn cancel_production_refund_economy_authority_source() {
     ] {
         let w = last_rust_fn_body(src, fn_name).unwrap_or_else(|| panic!("missing {fn_name}"));
         assert!(
-            ((w.contains("apply_supply_gain") || w.contains("refund_cancelled_production_item"))
-                || w.contains("pending_supply_delta")),
-            "{fn_name} must honor economy authority for cash mutations"
+            w.contains("apply_supply_gain") || w.contains("refund_cancelled_production_item"),
+            "{fn_name} must use the canonical player cash operation"
         );
         assert!(
             !w.contains("resources.supplies +=")
@@ -95,7 +94,7 @@ fn cancel_production_refund_economy_authority_source() {
 fn cancel_production_refund_commits_to_owner_without_shadow_writeback() {
     use crate::game_logic::host_economy_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_economy_log::clear();
+
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EconRef");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -109,7 +108,6 @@ fn cancel_production_refund_commits_to_owner_without_shadow_writeback() {
     {
         let p = logic.get_player_mut(pid).expect("p");
         p.resources.supplies = 1000;
-        p.pending_supply_delta = 0;
     }
     if !logic.templates.contains_key("EconFac") {
         let mut t = ThingTemplate::new("EconFac");
@@ -156,7 +154,7 @@ fn cancel_production_refund_commits_to_owner_without_shadow_writeback() {
     // CPP ProductionUpdate.cpp:456–464 deposits immediately to the
     // controlling player before removing the production queue entry.
     assert_eq!(p.resources.supplies, 1250);
-    assert_eq!(p.pending_supply_delta, 0);
+
     assert_eq!(p.effective_supplies(), 1250);
     assert!(
         logic
@@ -168,7 +166,10 @@ fn cancel_production_refund_commits_to_owner_without_shadow_writeback() {
             .production_queue
             .is_empty()
     );
-    let evs = host_economy_log::drain();
+    let evs = {
+        logic.economy_events.complete_boundary();
+        logic.economy_events.take_completed()
+    };
     assert!(
         evs.iter()
             .any(|event| event.player_id == pid && event.supplies == 1250)

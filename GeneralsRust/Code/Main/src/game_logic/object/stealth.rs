@@ -85,9 +85,7 @@ impl Object {
             && (self.status.disguised || self.status.disguise_halfpoint_reached)
         {
             self.record_model_mesh_from_template();
-            self.record_kind_of_bits_from_template();
         }
-        self.record_host_disguise();
     }
 
     /// Apply Bomb Truck disguise residual (StealthUpdate::disguiseAsObject).
@@ -114,7 +112,6 @@ impl Object {
         self.set_status_disguise_halfpoint_reached(false);
         self.status.disguise_transition_opacity = 1.0;
         // Keep previous appearance until halfpoint if any.
-        self.record_host_disguise();
     }
 
     /// Clear disguise residual (reveal transition).
@@ -136,7 +133,6 @@ impl Object {
         self.set_status_disguise_halfpoint_reached(false);
         self.status.disguise_transition_opacity = 1.0;
         // Keep disguise_as_* until halfpoint swap back.
-        self.record_host_disguise();
     }
 
     /// Force-clear disguise residual immediately (no transition).
@@ -157,9 +153,8 @@ impl Object {
         self.status.disguise_transition_opacity = 1.0;
         // C++ changeVisualDisguise reveal: new true drawable + payload restore.
         self.record_model_mesh_from_template();
-        self.record_kind_of_bits_from_template();
+
         self.force_refresh_sub_object_upgrade_status();
-        self.record_host_disguise();
     }
 
     /// C++ StealthUpdate disguise transition residual tick.
@@ -201,7 +196,7 @@ impl Object {
                 self.set_status_disguised(true);
 
                 self.record_model_mesh_from_template();
-                self.record_kind_of_bits_from_template();
+
                 self.set_status_stealthed(true);
                 self.set_status_detected(false);
             } else {
@@ -216,7 +211,7 @@ impl Object {
                 // swapping back to the true bomb-truck drawable, rebuild W3D
                 // payload subobjects (BioBomb / HighExplosiveBomb barrels).
                 self.record_model_mesh_from_template();
-                self.record_kind_of_bits_from_template();
+
                 self.force_refresh_sub_object_upgrade_status();
             }
         }
@@ -229,7 +224,7 @@ impl Object {
             self.record_host_stealth_delay();
             self.status.disguise_transition_opacity = 1.0;
         }
-        self.record_host_disguise();
+
         halfpoint
     }
 
@@ -330,9 +325,8 @@ impl Object {
         self.camo_friendly_opacity = MINE_STEALTH_OPACITY_RESIDUAL;
         // Mines aren't auto-acquirable (MinefieldBehavior ctor).
         self.apply_mine_no_attack_from_ai();
-        self.record_host_stealth_flags();
+
         self.record_host_stealth_delay();
-        self.record_host_vision_camo();
     }
 
     /// C++ MinefieldBehavior.cpp:105-106 ctor `OBJECT_STATUS_NO_ATTACK_FROM_AI`.
@@ -373,7 +367,6 @@ impl Object {
             self.camo_opacity_pulse_phase = 0.0;
             self.record_host_stealth_delay();
         }
-        self.record_host_vision_camo();
     }
 
     /// C++ StealthUpdate.cpp:178-201 `receiveGrant(true)`:
@@ -393,7 +386,7 @@ impl Object {
         }
         self.stealth_allowed_frame = 0;
         self.stealth_delay_pending = false;
-        self.record_host_stealth_flags();
+
         self.record_host_stealth_delay();
     }
 
@@ -413,9 +406,8 @@ impl Object {
         self.stealth_allowed_frame = u32::MAX;
         self.stealth_delay_pending = false;
         self.camo_friendly_opacity = 1.0;
-        self.record_host_stealth_flags();
+
         self.record_host_stealth_delay();
-        self.record_host_vision_camo();
     }
 
     /// Leftover `StealthUpdate::update` else-branch (`StealthUpdate.cpp:666-670`).
@@ -452,7 +444,6 @@ impl Object {
         self.camo_opacity_pulse_phase = next;
         if (self.camo_friendly_opacity - op).abs() > 1e-4 {
             self.camo_friendly_opacity = op;
-            self.record_host_vision_camo();
         }
     }
 
@@ -537,7 +528,7 @@ impl Object {
             return;
         }
         self.camo_heat_vision_opacity = 1.0;
-        self.record_host_vision_camo();
+
         self.record_host_stealth_delay();
     }
 
@@ -671,7 +662,6 @@ impl Object {
         } else {
             self.vision_spied_mask &= !bit;
         }
-        self.record_host_vision_camo();
     }
 
     /// True if `player_id` currently has vision-spied residual on this unit.

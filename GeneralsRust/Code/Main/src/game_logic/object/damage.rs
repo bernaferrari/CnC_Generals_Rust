@@ -209,6 +209,7 @@ impl Object {
         frame: u32,
         context: &DamageHitContext,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        ownership_events: Option<&mut crate::game_logic::host_owner_log::OwnershipEvents>,
     ) -> bool {
         self.take_damage_with_context_with_repulsor_policy(
             damage,
@@ -220,6 +221,7 @@ impl Object {
             context,
             health_events,
             &false,
+            ownership_events,
         )
     }
 
@@ -234,6 +236,7 @@ impl Object {
         frame: u32,
         context: &DamageHitContext,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        ownership_events: Option<&mut crate::game_logic::host_owner_log::OwnershipEvents>,
     ) -> DamageApplication {
         // C++ InactiveBody::attemptDamage (InactiveBody.cpp:53-86): no HP except
         // DAMAGE_UNRESISTABLE (onDie once, never DamageFX).
@@ -447,8 +450,12 @@ impl Object {
                 if self.is_car_bomb() {
                     // Detonation handled by combat caller; mark unmanned edge.
                 }
-                self.apply_kill_pilot_unmanned();
-                self.set_team(crate::game_logic::Team::Neutral);
+                self.apply_kill_pilot_unmanned(health_events);
+                if let Some(event) = self.set_team_state(crate::game_logic::Team::Neutral) {
+                    if let Some(output) = ownership_events {
+                        output.record(event.object, event.team, event.owner_player_id);
+                    }
+                }
                 if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
                     record_neutral_vehicle_sniped();
                 }
@@ -478,7 +485,7 @@ impl Object {
                 damage_type,
                 damage,
             );
-            self.apply_subdual_damage(typed);
+            self.apply_subdual_damage(typed, health_events);
             if typed > 0.0 {
                 self.stamp_last_damage_cpp(source, false, damage_type, frame);
             }
@@ -1414,7 +1421,8 @@ mod tests {
             None,
             frame,
             &context,
-            &mut health_events
+            &mut health_events,
+            None,
         ));
         assert!((o.health.current - 100.0).abs() < 1e-3);
         assert!(o.is_faerie_fire());
@@ -1515,7 +1523,8 @@ mod tests {
             None,
             0,
             &context,
-            &mut health_events
+            &mut health_events,
+            None,
         ));
         let dispatched = take_dispatched_armor_damage_fx();
         assert!(

@@ -812,11 +812,13 @@ fn carbomb_attack_structure_detonates_with_observable_damage() {
         .expect("structure should be created");
 
     {
-        let (car, attack_events) = game_logic
-            .host_object_and_attack_events_mut(car_id)
+        let car = game_logic
+            .objects
+            .get_mut(&car_id)
             .expect("car should exist");
+        let attack_events = &mut game_logic.attack_events;
         car.apply_convert_to_car_bomb();
-        car.set_team(Team::GLA);
+        car.set_team(Team::GLA, &mut game_logic.ownership_events);
         // Ensure weapon is ready to fire immediately.
         if let Some(w) = car.weapon.as_mut() {
             w.last_fire_time = 0.0;
@@ -2676,7 +2678,7 @@ fn script_idle_and_guard_for_framecount_write_live() {
         ScriptActionType::UnitIdleForFramecount,
         vec![
             Parameter::with_string(ParameterType::Unit, "NamedRanger".into()),
-            Parameter::with_int(ParameterType::Integer, 0),
+            Parameter::with_int(ParameterType::Int, 0),
         ],
     );
     execute_owned_fixture_action(
@@ -2684,7 +2686,7 @@ fn script_idle_and_guard_for_framecount_write_live() {
         ScriptActionType::TeamIdleForFramecount,
         vec![
             Parameter::with_string(ParameterType::Team, "USA_RangerSquad".into()),
-            Parameter::with_int(ParameterType::Integer, 0),
+            Parameter::with_int(ParameterType::Int, 0),
         ],
     );
     assert!(
@@ -2954,28 +2956,72 @@ fn script_team_nearest_and_partial_command_button_live() {
     use crate::game_logic::AIState;
     use gamelogic::scripting::core::{Parameter, ParameterType, ScriptActionType};
 
+    // Owned command execution resolves actual authored definitions; these
+    // commands are not inferred from a missing catalog's button spelling.
+    let mut ini = game_engine::common::ini::INI::new();
+    ini.with_inline_source(
+        "CommandButton FixturePartialReadyStop\n Command = STOP\n SpecialPower = FixturePartialReadyPower\nEnd\nCommandButton FixtureNearestHijack\n Command = HIJACK_VEHICLE\n SpecialPower = FixtureNearestObjectPower\n Options = NEED_TARGET_ENEMY_OBJECT\nEnd\n",
+        |ini| ini.parse_current_file(),
+    ).expect("authored STOP and HIJACK command definitions");
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
     ensure_test_player_for_team(&mut logic, Team::USA);
     ensure_test_player_for_team(&mut logic, Team::China);
+    // CPP PartitionFilterValidCommandButtonTarget reads the actual controlling
+    // players. A faction label and team roster do not supply object ownership.
+    logic
+        .players
+        .get_mut(&0)
+        .unwrap()
+        .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+    logic
+        .players
+        .get_mut(&1)
+        .unwrap()
+        .set_map_relationship(0, gamelogic::common::Relationship::Enemies);
     ensure_test_infantry_template(&mut logic);
     let mut hijacker = ThingTemplate::new("GLAInfantryHijacker");
     hijacker
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
+    // CPP CommandButton::isValidToUseOn validates this no-target button
+    // against a real special-power module even though its command is STOP.
+    hijacker
+        .special_power_modules
+        .push(crate::game_logic::SpecialPowerModuleMetadata {
+            source_index: 0,
+            module_tag: None,
+            module_kind: crate::game_logic::SpecialPowerModuleKind::SpyVisionSpecialPower,
+            special_power_template: "FixturePartialReadyPower".into(),
+            special_power_template_id: 99,
+            command_power: Some(crate::command_system::SpecialPowerType::CiaIntelligence),
+            reload_time_frames: 1800,
+            required_science: None,
+            public_timer: false,
+            shared_n_sync: false,
+            shortcut_power: false,
+            update_module_starts_attack: false,
+            starts_paused: false,
+            scripted_special_power_only: false,
+        });
+    // CPP AIGroup::getSpecialPowerSourceObject selects the first authored
+    // object-target module for the button before its nearest-target query.
+    let mut nearest_module = hijacker.special_power_modules[0].clone();
+    nearest_module.source_index = 1;
+    nearest_module.special_power_template = "FixtureNearestObjectPower".into();
+    nearest_module.special_power_template_id = 100;
+    nearest_module.command_power =
+        Some(crate::command_system::SpecialPowerType::MissileDefenderLaserGuided);
+    hijacker.special_power_modules.push(nearest_module);
     logic
         .templates
         .insert("GLAInfantryHijacker".into(), hijacker);
     let near = logic
-        .create_object("GLAInfantryHijacker", Team::USA, glam::Vec3::ZERO)
+        .create_object_for_player("GLAInfantryHijacker", 0, glam::Vec3::ZERO)
         .expect("near");
     let far = logic
-        .create_object(
-            "GLAInfantryHijacker",
-            Team::USA,
-            glam::Vec3::new(200.0, 0.0, 0.0),
-        )
+        .create_object_for_player("GLAInfantryHijacker", 0, glam::Vec3::new(200.0, 0.0, 0.0))
         .expect("far");
     register_owned_fixture_team(&mut logic, "teamAmerica", &[near, far]);
     let _ = logic.unit_command_move_to(near, glam::Vec3::new(300.0, 0.0, 0.0));
@@ -2987,7 +3033,10 @@ fn script_team_nearest_and_partial_command_button_live() {
         vec![
             Parameter::with_real(ParameterType::Real, 50.0),
             Parameter::with_string(ParameterType::Team, "teamAmerica".into()),
-            Parameter::with_string(ParameterType::CommandButton, "Command_Stop".into()),
+            Parameter::with_string(
+                ParameterType::CommandButton,
+                "FixturePartialReadyStop".into(),
+            ),
         ],
     );
     let near_idle = logic.host_object(near).expect("near").ai_state == AIState::Idle;
@@ -2997,28 +3046,35 @@ fn script_team_nearest_and_partial_command_button_live() {
         "TEAM_PARTIAL 50% of two members must stop exactly one, near_idle={near_idle} far_idle={far_idle}"
     );
 
-    // C++ ConvertToHijackedVehicleCrateCollide: Command_Hijack targets an
+    // C++ ConvertToHijackedVehicleCrateCollide: FixtureNearestHijack targets an
     // enemy ground VEHICLE; author vehicle targets for the nearest-enemy pick.
     ensure_test_tank_template(&mut logic);
     let enemy_near = logic
-        .create_object("TestTank", Team::China, glam::Vec3::new(40.0, 0.0, 0.0))
+        .create_object_for_player("TestTank", 1, glam::Vec3::new(40.0, 0.0, 0.0))
         .expect("enemy near");
     let enemy_far = logic
-        .create_object("TestTank", Team::China, glam::Vec3::new(400.0, 0.0, 0.0))
+        .create_object_for_player("TestTank", 1, glam::Vec3::new(400.0, 0.0, 0.0))
         .expect("enemy far");
-    if let Some(obj) = logic.host_object_mut(enemy_near) {
-        obj.owner_player_id = Some(1);
-    }
-    if let Some(obj) = logic.host_object_mut(enemy_far) {
-        obj.owner_player_id = Some(1);
-    }
+    assert_eq!(logic.host_object(near).unwrap().owner_player_id, Some(0));
+    assert_eq!(logic.host_object(far).unwrap().owner_player_id, Some(0));
+    assert_eq!(
+        logic.host_object(enemy_near).unwrap().owner_player_id,
+        Some(1)
+    );
+    assert_eq!(
+        logic.object_relationship(
+            logic.host_object(near).unwrap(),
+            logic.host_object(enemy_near).unwrap()
+        ),
+        gamelogic::common::Relationship::Enemies
+    );
 
     execute_owned_fixture_action(
         &mut logic,
         ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyUnit,
         vec![
             Parameter::with_string(ParameterType::Team, "teamAmerica".into()),
-            Parameter::with_string(ParameterType::CommandButton, "Command_Hijack".into()),
+            Parameter::with_string(ParameterType::CommandButton, "FixtureNearestHijack".into()),
         ],
     );
     let near_target = logic.host_object(near).and_then(|o| o.target);

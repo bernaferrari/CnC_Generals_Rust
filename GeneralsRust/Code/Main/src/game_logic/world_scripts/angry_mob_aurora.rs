@@ -315,7 +315,6 @@ impl GameLogic {
                 // Clear all spy player bits that no longer have an active residual.
                 // Residual simplification: clear full mask when no active spy covers unit.
                 obj.vision_spied_mask = 0;
-                obj.record_host_vision_camo();
             }
         }
         if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.world_services.shroud()).lock() {

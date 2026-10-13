@@ -679,6 +679,7 @@ impl GameLogic {
                                             pilot_team,
                                             pilot_owner_player_id,
                                             pilot_level,
+                                            &mut self.ownership_events,
                                         )
                                     })
                                     .unwrap_or(false);
@@ -748,7 +749,11 @@ impl GameLogic {
                                     if veh.ai_state != AIState::Idle {
                                         veh.set_ai_state(AIState::Idle);
                                     }
-                                    veh.set_team_and_owner(inf_team, inf_owner);
+                                    veh.set_team_and_owner(
+                                        inf_team,
+                                        inf_owner,
+                                        &mut self.ownership_events,
+                                    );
                                     veh.set_private_captured(true);
                                 }
                             }
@@ -1090,7 +1095,7 @@ impl GameLogic {
                         {
                             // Capacity race: undo local occupant add.
                             if let Some(container) = self.objects.get_mut(&container_id) {
-                                container.remove_occupant(object_id);
+                                container.remove_occupant(object_id, &mut self.ownership_events);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.clear_target();
@@ -1110,7 +1115,7 @@ impl GameLogic {
                                 .record_enter(idx, object_id, container_id, team);
                         if !ok {
                             if let Some(container) = self.objects.get_mut(&container_id) {
-                                container.remove_occupant(object_id);
+                                container.remove_occupant(object_id, &mut self.ownership_events);
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.clear_target();
@@ -1544,7 +1549,7 @@ impl GameLogic {
                                         if let Some(target) =
                                             self.objects.get_mut(&capture_target_id)
                                         {
-                                            target.set_team(team);
+                                            target.set_team(team, &mut self.ownership_events);
                                             true
                                         } else {
                                             false
@@ -2002,7 +2007,7 @@ impl GameLogic {
                                 }
                                 None => {
                                     if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                        target.set_team(team);
+                                        target.set_team(team, &mut self.ownership_events);
                                     }
                                 }
                             }
@@ -2166,7 +2171,10 @@ impl GameLogic {
                                                 if let Some(target) =
                                                     self.objects.get_mut(&special_target_id)
                                                 {
-                                                    target.apply_disabled_hacked(until);
+                                                    target.apply_disabled_hacked(
+                                                        until,
+                                                        &mut self.health_events,
+                                                    );
                                                 }
                                             }
                                         }
@@ -2297,8 +2305,8 @@ impl GameLogic {
                             if is_bomb {
                                 let _ = self.maybe_detonate_carbomb_on_unmanned(special_target_id);
                             } else if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                target.apply_kill_pilot_unmanned();
-                                target.set_team(Team::Neutral);
+                                target.apply_kill_pilot_unmanned(&mut self.health_events);
+                                target.set_team(Team::Neutral, &mut self.ownership_events);
                                 let sniped_vehicle =
                                     target.is_kind_of(crate::game_logic::KindOf::Vehicle);
                                 drop(target);
@@ -2554,7 +2562,7 @@ impl GameLogic {
                                 }
                                 None => {
                                     if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                        target.set_team(team);
+                                        target.set_team(team, &mut self.ownership_events);
                                     }
                                 }
                             }
@@ -2605,7 +2613,7 @@ impl GameLogic {
                                 crate::game_logic::host_hero_abilities::DISABLE_VEHICLE_HACK_DURATION_FRAMES,
                             );
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                target.apply_disabled_hacked(until);
+                                target.apply_disabled_hacked(until, &mut self.health_events);
                             }
                             self.admit_host_radar_disabled_edges(special_target_id);
                             let do_fx = self
@@ -3326,16 +3334,17 @@ impl GameLogic {
 
                         if credited > 0 {
                             if let Some(player_id) = credited_player_id {
-                                let credited_player =
-                                    if let Some(player) = self.get_player_mut(player_id) {
-                                        player.credit_supplies(credited);
-                                        // C++ SupplyCenterDockUpdate::action:
-                                        // deposit(value) and ScoreKeeper::addMoneyEarned(value).
-                                        player.add_money_earned(credited);
-                                        true
-                                    } else {
-                                        false
-                                    };
+                                let credited_player = if let Some((player, economy_events)) =
+                                    self.player_and_economy_events_mut(player_id)
+                                {
+                                    player.credit_supplies(credited, economy_events);
+                                    // C++ SupplyCenterDockUpdate::action:
+                                    // deposit(value) and ScoreKeeper::addMoneyEarned(value).
+                                    player.add_money_earned(credited);
+                                    true
+                                } else {
+                                    false
+                                };
                                 if credited_player {
                                     self.record_supply_dropoff_event(
                                         crate::game_logic::SupplyDropoffEvent {

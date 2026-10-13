@@ -32,21 +32,14 @@ pub mod host_sole_healing_log;
 #[path = "host_stealth_delay_log.rs"]
 pub mod host_stealth_delay_log;
 
-
 #[path = "host_production_log.rs"]
 pub mod host_production_log;
 
 #[path = "host_production_progress_log.rs"]
 pub mod host_production_progress_log;
 
-
 #[path = "host_production_spawn_ready_log.rs"]
 pub mod host_production_spawn_ready_log;
-
-
-#[path = "host_radar_extend_log.rs"]
-pub mod host_radar_extend_log;
-
 
 #[path = "host_radar_log.rs"]
 pub mod host_radar_log;
@@ -54,64 +47,29 @@ pub mod host_radar_log;
 #[path = "host_rally_log.rs"]
 pub mod host_rally_log;
 
-
-#[path = "host_repulsor_log.rs"]
-pub mod host_repulsor_log;
-
-
-#[path = "host_selection_radius_log.rs"]
-pub mod host_selection_radius_log;
-
-
-
-
-
 #[path = "host_spawn_log.rs"]
 pub mod host_spawn_log;
-
-#[path = "host_special_power_log.rs"]
-pub mod host_special_power_log;
-
 
 #[path = "host_status_log.rs"]
 pub mod host_status_log;
 
-
-#[path = "host_stealth_flags_log.rs"]
-pub mod host_stealth_flags_log;
-
-
 #[path = "host_stored_supplies_log.rs"]
 pub mod host_stored_supplies_log;
-
-
-
-
-
 
 #[path = "host_turret_log.rs"]
 pub mod host_turret_log;
 
-
-#[path = "host_vision_camo_log.rs"]
-pub mod host_vision_camo_log;
-
-
 #[path = "host_weapon_bonus_log.rs"]
 pub mod host_weapon_bonus_log;
-
 
 #[path = "host_weapon_set_log.rs"]
 pub mod host_weapon_set_log;
 
-
 #[path = "host_weapon_slot_log.rs"]
 pub mod host_weapon_slot_log;
 
-
 #[path = "host_weapon_stats_log.rs"]
 pub mod host_weapon_stats_log;
-
 
 #[path = "host_power_plant_rods_log.rs"]
 pub mod host_power_plant_rods_log;

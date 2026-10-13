@@ -32,7 +32,7 @@ use crate::game_logic::host_deliver_payload::{
     RESIDUAL_MAP_EXTENT_MIN_Z, find_closest_edge_point_residual,
 };
 use crate::game_logic::special_power_strikes::{
-    SpectreGunshipScienceTier, SPECTRE_GUNSHIP_ORBIT_RADIUS,
+    SPECTRE_GUNSHIP_ORBIT_RADIUS, SpectreGunshipScienceTier,
 };
 
 /// Retail AttackAreaRadius residual.

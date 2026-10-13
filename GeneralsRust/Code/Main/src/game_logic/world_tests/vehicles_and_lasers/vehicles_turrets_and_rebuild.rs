@@ -1611,7 +1611,7 @@ fn hijack_hides_in_eject_capable_vehicle() {
     logic.objects.insert(hid, {
         let mut o = Object::new(ht, hid, Team::GLA);
         o.name = "Jack".into();
-        o.record_host_identity();
+
         o.vision_range = 100.0;
         o.shroud_clearing_range = 80.0;
         o
@@ -1635,7 +1635,7 @@ fn hijack_hides_in_eject_capable_vehicle() {
     {
         let v = logic.objects.get_mut(&vid).unwrap();
         v.apply_hijacked_from(donor.as_ref());
-        v.set_team(Team::GLA);
+        v.set_team(Team::GLA, &mut logic.ownership_events);
     }
     logic.partition_manager.register_object_at(hid.0, 10.0, 0.0);
     {
@@ -1704,7 +1704,7 @@ fn hijack_airborne_eject_puts_in_america_parachute() {
     {
         let v = logic.objects.get_mut(&vid).unwrap();
         v.apply_hijacked();
-        v.set_team(Team::GLA);
+        v.set_team(Team::GLA, &mut logic.ownership_events);
     }
     {
         let h = logic.objects.get_mut(&hid).unwrap();

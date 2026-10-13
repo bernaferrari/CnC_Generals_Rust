@@ -138,7 +138,7 @@ impl GameLogic {
                         .get(&cid)
                         .is_some_and(|c| c.is_garrison_contain());
                     if let Some(container) = self.objects.get_mut(&cid) {
-                        let _ = container.remove_occupant(event.id);
+                        let _ = container.remove_occupant(event.id, &mut self.ownership_events);
                     }
                     if is_garrison {
                         self.recalc_garrison_apparent_controller(cid);
@@ -471,7 +471,8 @@ impl GameLogic {
                         && score_counts
                         && player.cash_bounty_percent > 0.0
                     {
-                        bounty_awarded = player.do_bounty_for_kill(build_cost);
+                        bounty_awarded =
+                            player.do_bounty_for_kill(build_cost, &mut self.economy_events);
                     }
 
                     // C++ Player::addSkillPointsForKill (scoreTheKill).
@@ -1037,10 +1038,10 @@ mod tests {
 
         let cost = logic.modified_build_cost_supplies(2, "TestTank", 600);
         assert_eq!(cost, 480, "handicap 0.8 * 600");
-        let bounty = logic
-            .get_player_mut(0)
-            .expect("usa")
-            .do_bounty_for_kill(cost);
+        let bounty = {
+            let (player, economy_events) = logic.player_and_economy_events_mut(0).unwrap();
+            player.do_bounty_for_kill(cost, economy_events)
+        };
         assert_eq!(bounty, 96);
         let usa = logic.get_player(0).expect("usa");
         assert_eq!(usa.statistics.money_earned, 96);

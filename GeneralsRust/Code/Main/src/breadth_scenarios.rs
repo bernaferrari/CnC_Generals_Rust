@@ -310,7 +310,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             .host_object(bldg)
             .map(|o| o.thing().template.build_cost.supplies)
             .unwrap_or(0);
-        // Economy authority: refund lands in pending_supply_delta; use effective_supplies.
+        // Refund is immediately visible in this player’s canonical cash balance.
         let before = logic
             .get_player(0)
             .map(|p| p.effective_supplies())

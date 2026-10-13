@@ -398,6 +398,51 @@ impl PathfindingGrid {
         self.crusher_zones = crusher;
     }
 
+    /// CPP terrain() / m_terrainZones: fold OBSTACLE into CLEAR in the
+    /// existing path-zone namespace. Water/cliff/rubble keep distinct zones
+    /// so the ordinary locomotor surface combiners still apply afterward.
+    pub(super) fn terrain_path_zone_equivalences(&self) -> Vec<u16> {
+        let max_zone = self.path_zones.iter().copied().max().unwrap_or(0);
+        let mut equivalents: Vec<u16> = (0..=max_zone).collect();
+        let terrain_type = |kind| {
+            if kind == PathfindCellType::Obstacle {
+                PathfindCellType::Clear
+            } else {
+                kind
+            }
+        };
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let cell = GridPos::new(x, y);
+                let zone = self.path_zone(cell);
+                for neighbor in [GridPos::new(x - 1, y), GridPos::new(x, y - 1)] {
+                    if !self.is_valid_pos(neighbor)
+                        || terrain_type(self.cell_type(cell))
+                            != terrain_type(self.cell_type(neighbor))
+                    {
+                        continue;
+                    }
+                    let other = self.path_zone(neighbor);
+                    if zone == 0 || other == 0 {
+                        continue;
+                    }
+                    let a = equivalents[zone as usize];
+                    let b = equivalents[other as usize];
+                    if a == b {
+                        continue;
+                    }
+                    let representative = a.min(b);
+                    for value in &mut equivalents {
+                        if *value == a || *value == b {
+                            *value = representative;
+                        }
+                    }
+                }
+            }
+        }
+        equivalents
+    }
+
     /// C++ `PathfindZoneManager::getEffectiveZone` (AIPathfind.cpp:3118).
     /// Crusher maps `m_crusherZones` BEFORE ground-cliff/water/rubble lookups.
     pub(super) fn get_effective_zone(&self, surfaces: u32, crusher: bool, mut zone: u16) -> u16 {
@@ -505,6 +550,17 @@ impl PathfindingGrid {
         if z1 == 0 || z2 == 0 {
             // Uninitialized: treat as possible (C++ UNINITIALIZED_ZONE).
             return true;
+        }
+        if self.cell_type(start) == PathfindCellType::Obstacle
+            || self.cell_type(goal) == PathfindCellType::Obstacle
+        {
+            let terrain = self.terrain_path_zone_equivalences();
+            let terrain_effective = |zone: u16| {
+                let zone = terrain.get(zone as usize).copied().unwrap_or(zone);
+                let zone = self.get_effective_zone(surfaces, is_crusher, zone);
+                terrain.get(zone as usize).copied().unwrap_or(zone)
+            };
+            return terrain_effective(z1) == terrain_effective(z2);
         }
         self.get_effective_zone(surfaces, is_crusher, z1)
             == self.get_effective_zone(surfaces, is_crusher, z2)

@@ -1290,10 +1290,16 @@ mod tests {
                 .iter()
                 .position(|&candidate| candidate.eq_ignore_ascii_case(name));
             assert_eq!(model_condition_bit_name_index(name), first_match);
-            assert_eq!(model_condition_bit_name_index(&name.to_ascii_lowercase()), first_match);
+            assert_eq!(
+                model_condition_bit_name_index(&name.to_ascii_lowercase()),
+                first_match
+            );
             assert!(first_match.unwrap() <= bit);
         }
-        assert_eq!(model_condition_bit_name_index("NOT_A_MODEL_CONDITION"), None);
+        assert_eq!(
+            model_condition_bit_name_index("NOT_A_MODEL_CONDITION"),
+            None
+        );
     }
 
     #[test]
@@ -1304,7 +1310,10 @@ mod tests {
             ("RADAR_UPGRADED", radar_upgraded_model_bit),
             ("AWAITING_CONSTRUCTION", awaiting_construction_model_bit),
             ("PARTIALLY_CONSTRUCTED", partially_constructed_model_bit),
-            ("ACTIVELY_BEING_CONSTRUCTED", actively_being_constructed_model_bit),
+            (
+                "ACTIVELY_BEING_CONSTRUCTED",
+                actively_being_constructed_model_bit,
+            ),
             ("ACTIVELY_CONSTRUCTING", actively_constructing_model_bit),
             ("SOLD", sold_model_bit),
             ("DEPLOYED", deployed_model_bit),
@@ -1328,11 +1337,26 @@ mod tests {
             ("WEAPONSET_VETERAN", weaponset_veteran_model_bit),
             ("WEAPONSET_ELITE", weaponset_elite_model_bit),
             ("WEAPONSET_HERO", weaponset_hero_model_bit),
-            ("WEAPONSET_PLAYER_UPGRADE", weaponset_player_upgrade_model_bit),
-            ("WEAPONSET_CRATEUPGRADE_ONE", weaponset_crateupgrade_one_model_bit),
-            ("WEAPONSET_CRATEUPGRADE_TWO", weaponset_crateupgrade_two_model_bit),
-            ("ARMORSET_CRATEUPGRADE_ONE", armorset_crateupgrade_one_model_bit),
-            ("ARMORSET_CRATEUPGRADE_TWO", armorset_crateupgrade_two_model_bit),
+            (
+                "WEAPONSET_PLAYER_UPGRADE",
+                weaponset_player_upgrade_model_bit,
+            ),
+            (
+                "WEAPONSET_CRATEUPGRADE_ONE",
+                weaponset_crateupgrade_one_model_bit,
+            ),
+            (
+                "WEAPONSET_CRATEUPGRADE_TWO",
+                weaponset_crateupgrade_two_model_bit,
+            ),
+            (
+                "ARMORSET_CRATEUPGRADE_ONE",
+                armorset_crateupgrade_one_model_bit,
+            ),
+            (
+                "ARMORSET_CRATEUPGRADE_TWO",
+                armorset_crateupgrade_two_model_bit,
+            ),
             ("ENEMYNEAR", enemynear_model_bit),
             ("ARMED", armed_model_bit),
             ("JETAFTERBURNER", jetafterburner_model_bit),

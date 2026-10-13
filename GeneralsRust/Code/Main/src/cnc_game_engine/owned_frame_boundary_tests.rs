@@ -13,10 +13,10 @@ fn advance_owned(logic: &mut GameLogic, shadow: Option<&mut GameWorldShadow>) {
 }
 
 fn author_timers(logic: &mut GameLogic, id: ObjectId) -> u32 {
-    let object = logic.host_object_mut(id).unwrap();
+    let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
     object.flash_as_selected_with_color([0.1, 0.2, 0.3]);
-    object.apply_disabled_emp(1);
-    object.apply_disabled_hacked(2);
+    object.apply_disabled_emp(1, health_events);
+    object.apply_disabled_hacked(2, health_events);
     object.begin_undetected_defection(0, 1, false);
     object.selection_flash_remaining
 }
@@ -331,9 +331,9 @@ fn ordinary_disabled_producer_resumes_only_after_the_expiry_frame_case() {
         )
         .expect("actual producer");
     assert!(logic.enqueue_production(producer, "OwnedDisableInfantry".into()));
-    let object = logic.host_object_mut(producer).unwrap();
-    object.apply_disabled_emp(1);
-    object.apply_disabled_hacked(1);
+    let (object, health_events) = logic.host_object_and_health_events_mut(producer).unwrap();
+    object.apply_disabled_emp(1, health_events);
+    object.apply_disabled_hacked(1, health_events);
     object.apply_disabled_paralyzed(1);
     shadow.sync_from_host(&logic);
 
@@ -431,10 +431,12 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
             foreign.power_available,
         );
         AudioManagerSubsystem::take_test_queue();
-        logic
-            .host_object_mut(if disable_generator { plant } else { cc })
-            .unwrap()
-            .apply_disabled_emp(1);
+        {
+            let (object, health_events) = logic
+                .host_object_and_health_events_mut(if disable_generator { plant } else { cc })
+                .unwrap();
+            object.apply_disabled_emp(1, health_events);
+        };
         advance_owned(&mut logic, Some(&mut shadow));
         assert_eq!(logic.get_frame(), 2, "processed expiry frame 1 completed");
         assert!(!logic.host_object(cc).unwrap().status.disabled_emp);
@@ -551,8 +553,14 @@ fn ordinary_same_id_worlds_keep_pending_disabled_radar_callbacks_owned_case() {
     let (mut b, id_b, mut observer_b) = make();
     assert_eq!(id_a, id_b);
     let owner = a.get_player_by_team(Team::USA).unwrap().id;
-    a.host_object_mut(id_a).unwrap().apply_disabled_emp(1);
-    b.host_object_mut(id_b).unwrap().apply_disabled_emp(10);
+    {
+        let (object, health_events) = a.host_object_and_health_events_mut(id_a).unwrap();
+        object.apply_disabled_emp(1, health_events);
+    };
+    {
+        let (object, health_events) = b.host_object_and_health_events_mut(id_b).unwrap();
+        object.apply_disabled_emp(10, health_events);
+    };
     assert_eq!(
         b.host_object(id_b)
             .unwrap()

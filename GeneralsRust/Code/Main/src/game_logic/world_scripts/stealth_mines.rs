@@ -388,13 +388,13 @@ impl GameLogic {
                 obj.apply_stealth_allowed_update(frame, allowed);
                 if obj.status.stealthed && !was_stealthed {
                     obj.camo_friendly_opacity = CAMO_NETTING_FRIENDLY_OPACITY_MIN;
-                    obj.record_host_vision_camo();
+
                     obj.camo_opacity_pulse_phase = 0.0;
                     opacity_cloaks = opacity_cloaks.saturating_add(1);
                     recloaks = recloaks.saturating_add(1);
                 } else if !obj.status.stealthed && was_stealthed {
                     obj.camo_friendly_opacity = CAMO_NETTING_FRIENDLY_OPACITY_MAX;
-                    obj.record_host_vision_camo();
+
                     opacity_reveals = opacity_reveals.saturating_add(1);
                     reveals = reveals.saturating_add(1);
                     revealed_ids.push(sid);
@@ -409,14 +409,14 @@ impl GameLogic {
                     }
                     let (op, next_phase) = camo_netting_pulse_opacity(obj.camo_opacity_pulse_phase);
                     obj.camo_friendly_opacity = op;
-                    obj.record_host_vision_camo();
+
                     obj.camo_opacity_pulse_phase = next_phase;
                 } else {
                     // Revealed residual: hold max opacity.
                     if (obj.camo_friendly_opacity - CAMO_NETTING_FRIENDLY_OPACITY_MAX).abs() > 0.01
                     {
                         obj.camo_friendly_opacity = CAMO_NETTING_FRIENDLY_OPACITY_MAX;
-                        obj.record_host_vision_camo();
+
                         opacity_reveals = opacity_reveals.saturating_add(1);
                     }
                 }
@@ -442,7 +442,7 @@ impl GameLogic {
                     obj.camo_heat_vision_opacity = 0.0;
                 }
                 obj.camo_stealth_look = look_u8;
-                obj.record_host_vision_camo();
+
                 // CamoNetting sub-object net mesh residual presentation.
                 if obj.camo_net_sub_object_shown || obj.has_upgrade_tag(UPGRADE_GLA_CAMO_NETTING) {
                     use crate::game_logic::host_upgrades::{
@@ -706,7 +706,6 @@ impl GameLogic {
                 };
                 if !obj.innate_stealth {
                     obj.innate_stealth = true;
-                    obj.record_host_stealth_flags();
                 }
                 if obj.stealth_delay_frames == 0 {
                     obj.stealth_delay_frames = STEALTH_FIGHTER_STEALTH_DELAY_FRAMES_RESIDUAL;
@@ -755,7 +754,6 @@ impl GameLogic {
                     obj.apply_mine_no_attack_from_ai();
                     if (obj.camo_friendly_opacity - MINE_STEALTH_OPACITY_RESIDUAL).abs() > 1e-4 {
                         obj.camo_friendly_opacity = MINE_STEALTH_OPACITY_RESIDUAL;
-                        obj.record_host_vision_camo();
                     }
                 }
             }
@@ -1479,7 +1477,6 @@ impl GameLogic {
                 } else if obj.status.stealthed && !obj.status.detected && !is_mine {
                     obj.camo_heat_vision_opacity = 0.0;
                 }
-                obj.record_host_vision_camo();
             }
             self.admit_object_drawable_deselection(id);
         }

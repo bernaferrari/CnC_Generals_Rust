@@ -215,9 +215,10 @@ fn malformed_exit_goal_cannot_remove_a_different_containers_passenger() {
     let container = transport(&mut a);
     load(&mut a, id, container);
     evacuate(&mut a);
-    a.host_object_mut(id)
-        .unwrap()
-        .set_target(Some(id), &mut a.attack_events);
+    {
+        let (object, attack_events) = a.host_object_and_attack_events_mut(id).unwrap();
+        object.set_target(Some(id), attack_events);
+    };
     a.update_support_states(&[id], 1.0 / 30.0);
     assert_eq!(a.host_object(id).unwrap().contained_by, Some(container));
     assert_eq!(

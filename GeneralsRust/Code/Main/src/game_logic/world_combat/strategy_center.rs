@@ -1268,7 +1268,7 @@ impl GameLogic {
             }
             if disable {
                 if let Some(v) = self.objects.get_mut(&vid) {
-                    v.apply_disabled_emp(until);
+                    v.apply_disabled_emp(until, &mut self.health_events);
                     any = true;
                     spark_ids.push(vid);
                     if intended_target == Some(vid) {
@@ -1298,7 +1298,7 @@ impl GameLogic {
                 });
                 if apply {
                     if let Some(v) = self.objects.get_mut(&victim_id) {
-                        v.apply_disabled_emp(until);
+                        v.apply_disabled_emp(until, &mut self.health_events);
                         any = true;
                     }
                     self.admit_host_radar_disabled_edges(victim_id);

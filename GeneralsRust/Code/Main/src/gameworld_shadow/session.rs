@@ -1,4 +1,4 @@
-//! Host mirror helpers, authority-log materialize, and coupled shadow session tick.
+//! Read-only projection helpers for independently owned simulation sessions.
 
 use super::*;
 use crate::game_logic::{GameLogic, ObjectId, Team};
@@ -31,43 +31,4 @@ pub fn probe_host_vs_gameworld(logic: &GameLogic) -> (GameWorldShadow, GameWorld
     shadow.sync_from_host(logic);
     let probe = shadow.probe(logic);
     (shadow, probe)
-}
-
-pub fn materialize_host_economy_pending(logic: &mut GameLogic) {
-    for p in logic.get_players_mut().values_mut() {
-        if p.pending_supply_delta != 0 {
-            let v = p.resources.supplies as i64 + p.pending_supply_delta;
-            p.resources.supplies = if v <= 0 {
-                0
-            } else if v >= u32::MAX as i64 {
-                u32::MAX
-            } else {
-                v as u32
-            };
-            p.pending_supply_delta = 0;
-        }
-    }
-}
-
-pub fn materialize_host_authority_logs(logic: &mut GameLogic) {
-    // Health receipts only observe completed canonical body operations.
-    // No presentation boundary can write HP or select a death authority.
-    let _ = logic.health_events.drain_for_host_boundary();
-
-    // Construction percent already accumulates on host — do not re-apply clamped log.
-
-    // --- Economy pending deltas → real supplies ---
-    for p in logic.get_players_mut().values_mut() {
-        if p.pending_supply_delta != 0 {
-            let v = p.resources.supplies as i64 + p.pending_supply_delta;
-            p.resources.supplies = if v <= 0 {
-                0
-            } else if v >= u32::MAX as i64 {
-                u32::MAX
-            } else {
-                v as u32
-            };
-            p.pending_supply_delta = 0;
-        }
-    }
 }

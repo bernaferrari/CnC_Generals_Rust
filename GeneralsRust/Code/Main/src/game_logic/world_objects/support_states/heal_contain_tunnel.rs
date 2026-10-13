@@ -13,6 +13,7 @@ impl GameLogic {
             crate::game_logic::buildings::BuildingBehavior::sweep_dead_garrison_occupants(
                 &mut self.objects,
                 self.frame,
+                &mut self.ownership_events,
             );
         for cid in dirty_garrisons {
             self.recalc_garrison_apparent_controller(cid);
@@ -62,7 +63,7 @@ impl GameLogic {
                     continue;
                 }
                 if let Some(container) = self.objects.get_mut(&container_id) {
-                    let _ = container.remove_occupant(unit_id);
+                    let _ = container.remove_occupant(unit_id, &mut self.ownership_events);
                 }
                 // C++ HealContain::update → exitObjectViaDoor (ExitStart/End + path).
                 self.walk_unit_via_open_contain_exit(unit_id, container_id);

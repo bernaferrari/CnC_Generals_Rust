@@ -209,6 +209,7 @@ impl Object {
             &DamageHitContext::default(),
             health_events,
             repulsor_policy,
+            None,
         )
     }
 
@@ -223,6 +224,7 @@ impl Object {
         context: &DamageHitContext,
         health_events: &mut crate::game_logic::HostHealthEvents,
         repulsor_policy: &bool,
+        ownership_events: Option<&mut crate::game_logic::host_owner_log::OwnershipEvents>,
     ) -> bool {
         let application = self.begin_damage_with_context(
             damage,
@@ -233,6 +235,7 @@ impl Object {
             frame,
             context,
             health_events,
+            ownership_events,
         );
         application.finish_standalone(self, context.source(), repulsor_policy)
     }

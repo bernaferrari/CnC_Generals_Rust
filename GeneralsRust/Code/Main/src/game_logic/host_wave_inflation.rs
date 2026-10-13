@@ -126,7 +126,7 @@ mod tests {
 
         for always in [
             "pub mod host_float_update;",
-            "pub mod host_combat_attack_log;",
+            "pub mod host_attack_log;",
             "pub mod host_microwave;",
         ] {
             let idx = listing_src

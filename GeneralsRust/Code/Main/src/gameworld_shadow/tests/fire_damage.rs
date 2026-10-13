@@ -400,9 +400,8 @@ fn death_type_channel_via_set_death_type() {
 
 #[test]
 fn radar_extend_channel_via_set_radar_extend() {
-    use crate::game_logic::host_radar_extend_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_radar_extend_log::clear();
+
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("RadarEx");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -420,7 +419,7 @@ fn radar_extend_channel_via_set_radar_extend() {
         o.radar_extend_complete = false;
         o.radar_active = true;
     }
-    host_radar_extend_log::record(oid, 120, false, true);
+
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
@@ -447,11 +446,11 @@ fn radar_extend_channel_via_set_radar_extend() {
 }
 
 #[test]
-fn special_power_tick_records_host_special_power_log() {
+fn special_power_tick_updates_receiving_owner_timer() {
     // Host-only advance residual: disable SP sole-tick authority for this probe.
 
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_special_power_log};
-    host_special_power_log::clear();
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SpTick");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -471,20 +470,15 @@ fn special_power_tick_records_host_special_power_log() {
         let became = o.tick_timers(1.0);
         let _ = became;
     }
-    let events = host_special_power_log::drain();
-    assert!(
-        events
-            .iter()
-            .any(|e| { e.object == oid && (e.cooldown_remaining - 4.0).abs() < 1e-3 }),
-        "events {:?}",
-        events
-    );
+    let owner = logic.host_object(oid).unwrap();
+    assert!((owner.special_power_cooldown_remaining - 4.0).abs() < 1e-3);
+    assert!(!owner.special_power_ready);
 }
 
 #[test]
 fn special_power_timer_belongs_to_owner_not_projection() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_special_power_log};
-    host_special_power_log::clear();
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SpWb");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -501,12 +495,14 @@ fn special_power_timer_belongs_to_owner_not_projection() {
         o.special_power_cooldown = 10.0;
         o.special_power_cooldown_remaining = 2.0;
         o.set_special_power_ready(false);
-        o.record_host_special_power();
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let events = host_special_power_log::drain();
-    assert!(!events.is_empty());
+    let projected = shadow
+        .world()
+        .entity(shadow.entity_for_host(oid).unwrap())
+        .unwrap();
+    assert_eq!(projected.special_power_cooldown_remaining, 2.0);
     // A stale or corrupt observation cannot change the owner timer.
     {
         let entity = shadow.entity_for_host(oid).unwrap();
@@ -634,7 +630,6 @@ fn lethal_damage_marks_destroyed_and_zero_health_immediately() {
 
 #[test]
 fn host_owner_log_feeds_transfer_owner_mutation() {
-    crate::game_logic::host_owner_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("OwnerLog");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -645,10 +640,11 @@ fn host_owner_log_feeds_transfer_owner_mutation() {
     let mut shadow = GameWorldShadow::new(4096);
     shadow.sync_from_host(&logic);
     {
-        let o = logic.host_object_mut(id).unwrap();
-        o.set_team(Team::USA);
+        let (o, ownership_events) = logic.host_object_and_ownership_events_mut(id).unwrap();
+        o.set_team(Team::USA, ownership_events);
     }
-    let events = crate::game_logic::host_owner_log::drain();
+    logic.ownership_events.complete_boundary();
+    let events = logic.ownership_events.take_completed();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].object, id);
     shadow.sync_from_host(&logic);

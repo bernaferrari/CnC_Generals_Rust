@@ -2,7 +2,6 @@
 // Split from `core/game_client.rs` dump. Included by `game_client/mod.rs`
 // so this stays one logical `game_client` module (public API identical).
 
-static GLOBAL_NEXT_DRAWABLE_ID: AtomicU32 = AtomicU32::new(1);
 /// Published frame for the active client.  Input translators only need this
 /// scalar; borrowing the whole client just to read it would alias the normal
 /// `GameClient::update(&mut self)` path.
@@ -48,6 +47,7 @@ pub(crate) fn register_live_game_client(client: &mut GameClient) {
     slot.raw = Some(std::ptr::from_mut(client) as usize);
     slot.owner_thread = Some(std::thread::current().id());
     LIVE_GAME_CLIENT_FRAME.store(client.frame, Ordering::Release);
+    set_local_player_id(client.local_player_id);
 }
 
 /// Return whether this client owned the published slot. Only that client may

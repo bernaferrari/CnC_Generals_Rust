@@ -129,9 +129,7 @@ pub fn honesty_executable_overlay_stamp_gate_source() -> bool {
 /// Live residual: enriched view reflects desynced shadow entity motion/selection.
 pub fn simulate_live_gameworld_entity_view_deepen_honesty() -> bool {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::gameworld_shadow::{
-        GameWorldShadow, presentation_view_from_shadow,
-    };
+    use crate::gameworld_shadow::{GameWorldShadow, presentation_view_from_shadow};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
 
@@ -147,7 +145,6 @@ pub fn simulate_live_gameworld_entity_view_deepen_honesty() -> bool {
     if !honesty_executable_overlay_stamp_gate_source() {
         return false;
     }
-
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("GwEntityView191");
@@ -172,12 +169,15 @@ pub fn simulate_live_gameworld_entity_view_deepen_honesty() -> bool {
         return false;
     };
     // Author the real Main owner; the observer only copies these completed facts.
-    let Some(object) = logic.host_object_mut(oid) else { return false; };
+    let Some(object) = logic.host_object_mut(oid) else {
+        return false;
+    };
     object.movement.velocity = Vec3::new(1.5, 0.0, 2.5);
     object.movement.max_speed = 22.0;
     object.selected = true;
     object.team_color = [0.2, 0.4, 0.6, 1.0];
-    object.body_damage_state = crate::game_logic::host_enum_table_residual::HostBodyDamageType::Damaged;
+    object.body_damage_state =
+        crate::game_logic::host_enum_table_residual::HostBodyDamageType::Damaged;
     object.health.current = 99.0;
     object.health.maximum = 180.0;
     object.max_health = 180.0;

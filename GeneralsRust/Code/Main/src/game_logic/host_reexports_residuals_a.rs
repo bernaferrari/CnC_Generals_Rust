@@ -453,15 +453,6 @@ pub use super::host_live_collision_system_dual_world_empty_gate_residual_wave313
     simulate_live_collision_system_dual_world_empty_gate_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_combat_kill_particle_observe_residual_wave562::{
-    honesty_combat_kill_particle_observe_method_names_residual_wave562,
-    honesty_combat_kill_particle_observe_nav_commands_residual_wave562,
-    honesty_combat_kill_particle_observe_residual_pack_wave562,
-    honesty_combat_kill_particle_observe_source_markers_residual_wave562,
-    residual_combat_kill_particle_observe_last_action, residual_combat_kill_particle_observe_ok,
-    simulate_live_combat_kill_particle_observe_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_combat_model_condition_channel_residual_wave487::{
     honesty_combat_model_condition_channel_method_names_residual_wave487,
     honesty_combat_model_condition_channel_nav_commands_residual_wave487,

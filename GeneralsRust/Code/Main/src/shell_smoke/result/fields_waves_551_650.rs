@@ -29,9 +29,8 @@
     pub logic_steps_presentation_helper_method_names_wave561_ok: bool,
     pub logic_steps_presentation_helper_nav_commands_wave561_ok: bool,
     pub logic_steps_presentation_helper_live_wave561_ok: bool,
-    pub combat_kill_particle_observe_method_names_wave562_ok: bool,
-    pub combat_kill_particle_observe_nav_commands_wave562_ok: bool,
-    pub combat_kill_particle_observe_live_wave562_ok: bool,
+
+
     pub template_name_presentation_helper_method_names_wave563_ok: bool,
     pub template_name_presentation_helper_nav_commands_wave563_ok: bool,
     pub template_name_presentation_helper_live_wave563_ok: bool,

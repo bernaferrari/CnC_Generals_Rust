@@ -1573,7 +1573,6 @@ fn base_defense_residual_patriot_auto_fires_without_attack_object() {
 
 #[test]
 fn residual_auto_fire_commits_canonical_target_before_observation() {
-
     let mut logic = GameLogic::new();
 
     // Ordering hazard (R6): do NOT create a second GameLogic after this
@@ -2446,7 +2445,6 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         t.set_status_detected(true);
         t.camo_heat_vision_opacity = 0.0;
         t.camo_stealth_look = 0;
-        t.record_host_vision_camo();
     }
     game_logic.update_stealth_and_detection();
     {

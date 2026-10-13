@@ -1,11 +1,7 @@
 //! Host tick `impl GameLogic` — `movement` locomotor pass and path helpers.
 //!
-//! LOC-ratchet split from `movement.rs` (pure code motion):
-//! `GameLogic::update_movement` keeps its repath preamble and the GameWorld
-//! movement-authority early-return there (the shipped integrate text is
-//! scanned by `gameworld_shadow/tests/authority_writeback.rs` and the
-//! wave469 residual); everything after that gate lives here as
-//! `update_movement_locomotor_pass`.
+//! The driving GameLogic owns movement and path delivery. Presentation only
+//! observes the completed pose; it does not select or step another world.
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 impl GameLogic {
@@ -744,6 +740,7 @@ impl GameLogic {
         }
 
         for &id in object_ids {
+            self.prepare_transport_return_path(id);
             let (ground_y, surface_y, climber_ahead_y, cell_type, underwater) = {
                 let Some(obj) = self.objects.get(&id) else {
                     continue;
@@ -2166,6 +2163,7 @@ impl GameLogic {
             if let Some(goal) = plant_goal {
                 self.apply_arrival_goal_snap(id, Some(goal));
             }
+            self.finish_transport_return_phase(id);
         }
 
         self.drain_pending_transport_exits();
@@ -2449,6 +2447,14 @@ impl GameLogic {
             if !obj.pending_evacuate_on_stop {
                 continue;
             }
+            if matches!(
+                obj.transport_return_state,
+                Some(
+                    crate::game_logic::host_transport_return::TransportReturnState::TemporaryMove { .. }
+                )
+            ) {
+                continue;
+            }
             // C++ ChinookAIUpdate::isIdle rejects a saved pending command.
             // A takeoff transition may be idle for one callback before replay;
             // generic exit polling must not auto-land it at the old origin.
@@ -2504,6 +2510,7 @@ impl GameLogic {
                 Some(&self.team_factory),
                 &mut self.health_events,
                 Some(&terrain),
+                &mut self.ownership_events,
             );
         self.flush_projectile_impact_fx();
         hits

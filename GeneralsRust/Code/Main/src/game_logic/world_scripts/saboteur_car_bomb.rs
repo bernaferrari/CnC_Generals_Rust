@@ -567,7 +567,7 @@ impl GameLogic {
         if is_chute && landed {
             for rid in &riders_to_release {
                 if let Some(chute) = self.objects.get_mut(&pilot_id) {
-                    let _ = chute.exit_transport(*rid);
+                    let _ = chute.exit_transport(*rid, &mut self.ownership_events);
                 }
                 if let Some(r) = self.objects.get_mut(rid) {
                     r.set_contained_by(None);
@@ -615,7 +615,7 @@ impl GameLogic {
                     .unwrap_or(true);
                 if gone {
                     if let Some(chute) = self.objects.get_mut(&pilot_id) {
-                        let _ = chute.exit_transport(rid);
+                        let _ = chute.exit_transport(rid, &mut self.ownership_events);
                     }
                     if let Some(r) = self.objects.get_mut(&rid) {
                         if r.contained_by == Some(pilot_id) {

@@ -150,10 +150,10 @@ fn guard_controller_and_attitude_keep_save_semantics_separate_from_local_view() 
                 false,
             );
             // Authored controller admission leaves the view identity intact.
-            source
-                .get_player_mut(0)
-                .unwrap()
-                .apply_map_side_dict(&dict, false);
+            {
+                let (player, economy_events) = source.player_and_economy_events_mut(0).unwrap();
+                player.apply_map_side_dict(&dict, false, economy_events)
+            };
             assert!(source.get_player(0).unwrap().is_local);
             assert!(!source.get_player(0).unwrap().is_human);
             let builder = crate::save_load::snapshot::SnapshotBuilder::new();

@@ -226,8 +226,16 @@ impl CombatSystem {
         dt: f32,
         objects: &mut HashMap<ObjectId, Object>,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> Vec<ObjectId> {
-        self.update_projectiles_with_countermeasures(dt, objects, None, 0, health_events)
+        self.update_projectiles_with_countermeasures(
+            dt,
+            objects,
+            None,
+            0,
+            health_events,
+            ownership_events,
+        )
     }
 
     /// Flight integrate only (lifetime + pose). Hit/detonation behavior is
@@ -400,6 +408,7 @@ impl CombatSystem {
         >,
         frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> Vec<ObjectId> {
         self.update_projectiles_with_relationships(
             dt,
@@ -409,6 +418,7 @@ impl CombatSystem {
             None,
             None,
             health_events,
+            ownership_events,
         )
     }
 
@@ -425,6 +435,7 @@ impl CombatSystem {
         players: Option<&HashMap<u32, crate::game_logic::Player>>,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> Vec<ObjectId> {
         self.update_projectiles_with_relationships_and_terrain(
             dt,
@@ -435,6 +446,7 @@ impl CombatSystem {
             team_factory,
             health_events,
             None,
+            ownership_events,
         )
     }
 
@@ -450,9 +462,16 @@ impl CombatSystem {
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
         health_events: &mut crate::game_logic::HostHealthEvents,
         terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> Vec<ObjectId> {
-        let (damage_events, projectiles_to_remove) =
-            self.prepare_projectile_impacts(dt, objects, countermeasures, frame, terrain);
+        let (damage_events, projectiles_to_remove) = self.prepare_projectile_impacts(
+            dt,
+            objects,
+            countermeasures,
+            frame,
+            terrain,
+            ownership_events,
+        );
         self.apply_damage_events(
             &damage_events,
             objects,
@@ -460,6 +479,7 @@ impl CombatSystem {
             team_factory,
             frame,
             health_events,
+            ownership_events,
         );
         self.retire_projectile_impacts(&projectiles_to_remove);
         projectiles_to_remove
@@ -476,6 +496,7 @@ impl CombatSystem {
         >,
         frame: u32,
         terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> (Vec<DamageEvent>, Vec<ObjectId>) {
         let projectile_ids: Vec<ObjectId> = self.projectiles.keys().copied().collect();
         let historic_damage_limit = game_engine::common::global_data::read().historic_damage_limit;
@@ -675,6 +696,7 @@ impl CombatSystem {
                             sid,
                             projectile.shooter_id,
                             &flight,
+                            ownership_events,
                         )
                         .is_some()
                         {
@@ -741,6 +763,7 @@ impl CombatSystem {
                                     target_id,
                                     projectile.shooter_id,
                                     &flight,
+                                    ownership_events,
                                 )
                                 .is_some()
                                 {
@@ -866,6 +889,7 @@ impl CombatSystem {
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
         frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) {
         for hit in damage_events {
             match hit {
@@ -893,6 +917,7 @@ impl CombatSystem {
                             frame,
                             &context,
                             health_events,
+                            Some(ownership_events),
                         );
                         let hp_lost = (before - target.health.current).max(0.0);
                         self.note_kill_for_on_die(
@@ -1044,6 +1069,7 @@ impl CombatSystem {
                                     frame,
                                     &context,
                                     health_events,
+                                    Some(ownership_events),
                                 );
                                 let hp_lost = (before - obj.health.current).max(0.0);
                                 self.note_kill_for_on_die(
@@ -1084,10 +1110,19 @@ impl CombatSystem {
         frame: u32,
         historic_damage_limit: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) {
         let events =
             self.prepare_projectileless_delayed_shot(shot, objects, frame, historic_damage_limit);
-        self.apply_damage_events(&events, objects, players, None, frame, health_events);
+        self.apply_damage_events(
+            &events,
+            objects,
+            players,
+            None,
+            frame,
+            health_events,
+            ownership_events,
+        );
     }
 
     /// Prepare just this impact; the owner completes it before preparing another.
@@ -1289,9 +1324,9 @@ fn apply_countermeasure_report_and_decoy(
     frame: u32,
 ) {
     use crate::game_logic::host_countermeasures::{
-        aircraft_has_countermeasures_upgrade, calculate_countermeasure_to_divert_to,
-        report_missile_for_countermeasures_named, victim_locomotor_is_supersonic,
-        MISSILE_DECOY_DELAY_FRAMES,
+        MISSILE_DECOY_DELAY_FRAMES, aircraft_has_countermeasures_upgrade,
+        calculate_countermeasure_to_divert_to, report_missile_for_countermeasures_named,
+        victim_locomotor_is_supersonic,
     };
 
     if !projectile.cm_reported {

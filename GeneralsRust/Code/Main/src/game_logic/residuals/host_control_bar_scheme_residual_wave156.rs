@@ -156,7 +156,9 @@ mod tests {
 
         assert!(manager.set_active_scheme_for_side("America").is_ok());
         assert_eq!(
-            manager.get_active_scheme().map(|scheme| scheme.name.as_str()),
+            manager
+                .get_active_scheme()
+                .map(|scheme| scheme.name.as_str()),
             Some("america8x6")
         );
         assert!(manager.set_active_scheme_for_side("Observer").is_ok());

@@ -298,8 +298,8 @@ fn subdued_transport_stops_passenger_residual_fire() {
     );
 
     {
-        let t = logic.host_object_mut(truck).unwrap();
-        t.set_disabled_subdued(true);
+        let (t, health_events) = logic.host_object_and_health_events_mut(truck).unwrap();
+        t.set_disabled_subdued(true, health_events);
     }
     {
         let r = logic.host_object_mut(rider).unwrap();
@@ -474,12 +474,11 @@ fn occupied_building_gets_can_attack_and_loses_it_when_empty() {
             "occupied garrison must accept attack orders"
         );
     }
-    assert!(
-        logic
-            .host_object_mut(bunker)
-            .unwrap()
-            .remove_occupant(ranger_id)
-    );
+    assert!({
+        let (object, ownership_events) =
+            logic.host_object_and_ownership_events_mut(bunker).unwrap();
+        object.remove_occupant(ranger_id, ownership_events)
+    });
     let b = logic.host_object(bunker).unwrap();
     assert!(!b.has_object_status_bit("CAN_ATTACK"));
 }
@@ -730,12 +729,11 @@ fn hide_uses_stealth_garrison_kind_not_stealthed_bits() {
         "ordinary stealthed infantry must not hide the building"
     );
 
-    assert!(
-        logic
-            .host_object_mut(bunker)
-            .unwrap()
-            .remove_occupant(ranger_id)
-    );
+    assert!({
+        let (object, ownership_events) =
+            logic.host_object_and_ownership_events_mut(bunker).unwrap();
+        object.remove_occupant(ranger_id, ownership_events)
+    });
     let ninja_id = logic
         .create_object("JapanNinja", Team::USA, Vec3::new(5.0, 0.0, 0.0))
         .unwrap();

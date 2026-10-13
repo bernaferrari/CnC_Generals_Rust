@@ -2284,6 +2284,7 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
         102,
         Some(&logic.players),
         &mut logic.health_events,
+        &mut logic.ownership_events,
     );
     logic.combat_system.update_projectiles_with_relationships(
         LOGIC_FRAME_TIMESTEP,
@@ -2293,6 +2294,7 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
         Some(&logic.players),
         Some(&logic.team_factory),
         &mut logic.health_events,
+        &mut logic.ownership_events,
     );
     assert!(
         logic.host_object(target_id).unwrap().health.current < hp_before,

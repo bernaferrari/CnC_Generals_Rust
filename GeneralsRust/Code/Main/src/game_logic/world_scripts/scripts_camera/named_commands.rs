@@ -297,9 +297,12 @@ impl GameLogic {
             return;
         }
         if container.is_garrison_contain() {
-            self.host_object_mut(container_id)
-                .unwrap()
-                .remove_occupant(passenger);
+            {
+                let (object, ownership_events) = self
+                    .host_object_and_ownership_events_mut(container_id)
+                    .unwrap();
+                object.remove_occupant(passenger, ownership_events)
+            };
             self.garrison_exit_occupant_via_door(passenger, container_id);
         } else {
             self.unit_command_exit_via_open_contain(passenger, container_id);

@@ -419,7 +419,7 @@ fn inherit_uses_named_team_proto_not_faction() {
     );
 
     if let Some(obj) = logic.objects.get_mut(&id) {
-        obj.set_team_with_factory(Team::USA, &logic.team_factory);
+        obj.set_team_with_factory(Team::USA, &logic.team_factory, &mut logic.ownership_events);
     }
     assert_eq!(
         logic.objects[&id].ai_attitude, 2,

@@ -415,7 +415,6 @@ fn stealth_delay_channel_via_set_stealth_delay() {
 
 #[test]
 fn combat_attack_channel_via_set_combat_attack() {
-
     use crate::game_logic::{AttackSubState, KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
@@ -851,6 +850,7 @@ fn parsed_missile_kill_self_snapshot_holds_shadow_pose_and_retires() {
         None,
         12,
         &mut logic.health_events,
+        &mut logic.ownership_events,
     );
     shadow.sync_from_host(&logic);
     let held = shadow.world().projectile(id.0).expect("held");
@@ -869,6 +869,7 @@ fn parsed_missile_kill_self_snapshot_holds_shadow_pose_and_retires() {
         None,
         13,
         &mut logic.health_events,
+        &mut logic.ownership_events,
     );
     assert!(logic.combat_system.get_projectiles().contains_key(&id));
     logic.combat_system.update_projectiles_with_countermeasures(
@@ -877,6 +878,7 @@ fn parsed_missile_kill_self_snapshot_holds_shadow_pose_and_retires() {
         None,
         14,
         &mut logic.health_events,
+        &mut logic.ownership_events,
     );
     shadow.sync_from_host(&logic);
     assert!(logic.combat_system.get_projectiles().get(&id).is_none());

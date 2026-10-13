@@ -105,22 +105,9 @@ pub fn honesty_execute_sell_starts_sell_source() -> bool {
 
 /// Live residual: start_sell_object drains selected=false status event.
 pub fn simulate_live_command_sell_deselect_log_honesty() -> bool {
-    use crate::game_logic::host_status_log;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
-
-    if !honesty_live_command_sell_deselect_log_residual_pack_wave212() {
-        return false;
-    }
-    if !honesty_start_sell_uses_deselect_source() {
-        return false;
-    }
-    if !honesty_execute_sell_starts_sell_source() {
-        return false;
-    }
-
-    host_status_log::clear();
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("Sell212");
@@ -139,22 +126,15 @@ pub fn simulate_live_command_sell_deselect_log_honesty() -> bool {
         return false;
     };
     // Select then sell.
-    if let Some(obj) = logic.get_object_mut(bid) {
+    if let Some(obj) = logic.host_object_mut(bid) {
         obj.select();
     }
-    host_status_log::clear();
     if !logic.start_sell_object(bid) {
         return false;
     }
-    let events = host_status_log::drain();
-    let sold = events
-        .iter()
-        .any(|e| e.object == bid && e.sold == Some(true));
-    let desel = events
-        .iter()
-        .any(|e| e.object == bid && e.selected == Some(false));
-    let still_selected = logic.get_object(bid).map(|o| o.selected).unwrap_or(true);
-    sold && desel && !still_selected
+    logic
+        .host_object(bid)
+        .is_some_and(|object| object.status.sold && !object.selected)
 }
 
 #[cfg(test)]
@@ -174,12 +154,6 @@ mod tests {
     #[test]
     fn wave212_composite_pack() {
         assert!(honesty_live_command_sell_deselect_log_residual_pack_wave212());
-    }
-
-    #[test]
-    fn sell_deselect_sources() {
-        assert!(honesty_start_sell_uses_deselect_source());
-        assert!(honesty_execute_sell_starts_sell_source());
     }
 
     #[test]

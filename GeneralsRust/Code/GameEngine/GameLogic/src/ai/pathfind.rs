@@ -273,6 +273,13 @@ impl Path {
                 .all(|node| node.layer == layer && node.pos.is_finite())
     }
 
+    #[cfg(test)]
+    pub(crate) fn positions_for_test(&self) -> Vec<Coord3D> {
+        let mut positions = Vec::new();
+        self.for_each_node(|_, node| positions.push(node.pos));
+        positions
+    }
+
     /// Get first node in the path
     pub fn get_first_node(&self) -> Option<&PathNode> {
         self.head.and_then(|key| self.nodes.get(key))

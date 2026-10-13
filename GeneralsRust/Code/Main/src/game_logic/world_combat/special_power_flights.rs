@@ -1618,12 +1618,12 @@ impl GameLogic {
         // Remove from entry tunnel local list (and exit tunnel if mirrored).
         if let Some(entry_id) = entry {
             if let Some(container) = self.objects.get_mut(&entry_id) {
-                container.remove_occupant(unit_id);
+                container.remove_occupant(unit_id, &mut self.ownership_events);
             }
         }
         if entry != Some(exit_tunnel) {
             if let Some(container) = self.objects.get_mut(&exit_tunnel) {
-                container.remove_occupant(unit_id);
+                container.remove_occupant(unit_id, &mut self.ownership_events);
             }
         }
         // C++ TunnelContain::onRemoving setSafeOcclusionFrame(frame + OcclusionDelay).
@@ -1700,12 +1700,12 @@ impl GameLogic {
         let (entry, ev) = self.cave_system.record_exit(index, unit_id, exit_cave);
         if let Some(entry_id) = entry {
             if let Some(container) = self.objects.get_mut(&entry_id) {
-                container.remove_occupant(unit_id);
+                container.remove_occupant(unit_id, &mut self.ownership_events);
             }
         }
         if entry != Some(exit_cave) {
             if let Some(container) = self.objects.get_mut(&exit_cave) {
-                container.remove_occupant(unit_id);
+                container.remove_occupant(unit_id, &mut self.ownership_events);
             }
         }
         self.apply_cave_capture_event(index, ev);
@@ -2796,7 +2796,7 @@ impl GameLogic {
         for (i, occ_id) in eject_ids.into_iter().enumerate() {
             // Remove from container.
             if let Some(crawler) = self.objects.get_mut(&crawler_id) {
-                crawler.remove_occupant(occ_id);
+                crawler.remove_occupant(occ_id, &mut self.ownership_events);
             }
             // Drop near crawler and order attack.
             let angle = (occ_id.0 as f32 + i as f32 * 1.37).sin().atan2(1.0) + i as f32 * 0.7;

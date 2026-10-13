@@ -534,7 +534,7 @@ impl GameLogic {
             .unwrap_or_default();
         if occupants.is_empty() {
             if let Some(container) = self.objects.get_mut(&container_id) {
-                container.restore_garrison_original_team_if_empty();
+                container.restore_garrison_original_team_if_empty(&mut self.ownership_events);
             }
             return;
         }
@@ -561,7 +561,7 @@ impl GameLogic {
                 }
                 bd.hide_garrisoned_state = hide;
             }
-            container.set_team_and_owner(first_team, first_owner);
+            container.set_team_and_owner(first_team, first_owner, &mut self.ownership_events);
         }
     }
 
@@ -641,7 +641,7 @@ impl GameLogic {
                 }
             }
             if let Some(c) = self.objects.get_mut(&container_id) {
-                let _ = c.remove_occupant(pid);
+                let _ = c.remove_occupant(pid, &mut self.ownership_events);
             }
             self.walk_unit_via_open_contain_exit(pid, container_id);
         }
@@ -745,7 +745,7 @@ impl GameLogic {
             }
         }
         if let Some(c) = self.objects.get_mut(&container_id) {
-            let _ = c.remove_occupant(unit_id);
+            let _ = c.remove_occupant(unit_id, &mut self.ownership_events);
         }
         // TransportContain::onRemoving wakes only an idle rider, before
         // OpenContain::exitObjectViaDoor issues its follow-path command.

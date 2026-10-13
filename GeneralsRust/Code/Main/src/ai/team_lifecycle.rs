@@ -91,13 +91,15 @@ impl GameLogic {
         // C++ numeric PlayerList order, before Object::setTeam(NULL).
         notify(self, deletion.name());
         for member in deletion.members() {
-            if let Some(object) = self.host_object_mut(ObjectId(*member)) {
+            if let Some((object, ownership_events)) =
+                self.host_object_and_ownership_events_mut(ObjectId(*member))
+            {
                 if object
                     .team_instance_name
                     .eq_ignore_ascii_case(deletion.name())
                 {
                     object.team_instance_name.clear();
-                    object.set_team_and_owner(Team::Neutral, None);
+                    object.set_team_and_owner(Team::Neutral, None, ownership_events);
                 }
             }
         }

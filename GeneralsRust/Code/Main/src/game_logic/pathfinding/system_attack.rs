@@ -271,7 +271,10 @@ impl PathfindingSystem {
                         break;
                     }
                 }
-                if self.grid.cell_passable_for_ignoring(cell, surfaces, is_crusher, ignore_owner) {
+                if self
+                    .grid
+                    .cell_passable_for_ignoring(cell, surfaces, is_crusher, ignore_owner)
+                {
                     let ddx = (victim_cell.x - cx).abs() as f32;
                     let ddy = (victim_cell.y - cy).abs() as f32;
                     let d2 = ddx * ddx + ddy * ddy;
@@ -311,7 +314,9 @@ impl PathfindingSystem {
                 if PathfindingGrid::skip_diagonal_if_squeezed(i, &neighbor_flags) {
                     continue;
                 }
-                if !self.grid.cell_passable_for_ignoring(nc, surfaces, is_crusher, ignore_owner)
+                if !self
+                    .grid
+                    .cell_passable_for_ignoring(nc, surfaces, is_crusher, ignore_owner)
                     && !(self.grid.is_obstacle_fence(nc) && is_crusher)
                 {
                     continue;
@@ -411,10 +416,10 @@ impl PathfindingSystem {
                 if unit_idle {
                     blocked_by_allies = false;
                 }
-                let move_ok = self
-                    .grid
-                    .cell_passable_for_ignoring(*c, surfaces, is_crusher, ignore_owner)
-                    || (self.grid.is_obstacle_fence(*c) && is_crusher);
+                let move_ok =
+                    self.grid
+                        .cell_passable_for_ignoring(*c, surfaces, is_crusher, ignore_owner)
+                        || (self.grid.is_obstacle_fence(*c) && is_crusher);
                 if !move_ok || enemy_fixed || blocked_by_allies {
                     last_blocked = Some(*c);
                     use_large = true;

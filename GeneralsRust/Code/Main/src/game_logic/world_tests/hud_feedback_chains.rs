@@ -12,7 +12,6 @@ use super::*;
 /// (TheInGameUI store, radar force-on, in-game chat type, window manager).
 static HUD_FEEDBACK_CHAIN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-const SW_OBJECT_ID: u32 = 960_701;
 const SW_POWER_NAME: &str = "SWHudChainScudStorm";
 const UC_OBJECT_ID: u32 = 972_771;
 const OCL_OBJECT_ID: u32 = 972_883;
@@ -50,135 +49,78 @@ fn window_hidden(name: &str) -> Option<bool> {
     })
 }
 
-/// A superweapon object feeding GameLogic's `TheInGameUI::add_superweapon`
-/// store must produce a drawn countdown entry that counts down and hits
-/// READY (C++ InGameUI.cpp:548-580 + 3487-3697).
+/// The production Main object/player owner freezes PublicTimer values into
+/// the receiving HUD. No Core registry or shared UI setup owns this scenario.
 #[test]
 fn superweapon_object_produces_counting_down_strip_entry_that_hits_ready() {
-    let _guard = HUD_FEEDBACK_CHAIN_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    game_client::gui::ingame_ui::live_superweapon_strip_clear();
-
-    // A superweapon structure object in the dual-world registry (no live
-    // module: the stored ready frame owns the countdown, C++ parity for the
-    // residual path).
-    let object = std::sync::Arc::new(std::sync::RwLock::new(
-        gamelogic::object::Object::new_for_xfer_load(SW_OBJECT_ID, 100.0),
-    ));
-    gamelogic::object::registry::OBJECT_REGISTRY.register_object(SW_OBJECT_ID, &object);
-
-    // Public-timer shared-n-sync template with a 5s (150-frame) recharge.
-    let base = gamelogic::object::special_power_template::find_or_create_special_power_template(
-        &gamelogic::common::AsciiString::from(SW_POWER_NAME),
-    );
-    let template = gamelogic::object::special_power_template::SpecialPowerTemplate::new(
-        SW_POWER_NAME.to_string(),
-        base.get_id(),
-    )
-    .with_power_type(gamelogic::object::special_power_types::SpecialPowerType::ScudStorm)
-    .with_reload_time(150)
-    .with_public_timer(true)
-    .with_shared_n_sync(true);
-    if let Some(mut store) =
-        gamelogic::object::special_power_template::get_special_power_store_mut()
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{SpecialPowerModuleKind, SpecialPowerModuleMetadata};
+    use crate::presentation_frame::PresentationFrame;
+    let power = SpecialPowerType::ScudStorm;
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::GLA, "GLA", true);
+    player.apply_faction_intrinsic_sciences();
+    logic.add_player(player);
+    let mut template = ThingTemplate::new("OwnedScudTimer");
+    template.set_health(4000.0);
+    template
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSSuperweapon);
+    template
+        .special_power_modules
+        .push(SpecialPowerModuleMetadata {
+            source_index: 0,
+            module_tag: Some("ModuleTag_Superweapon".into()),
+            module_kind: SpecialPowerModuleKind::OclSpecialPower,
+            special_power_template: SW_POWER_NAME.into(),
+            special_power_template_id: 1,
+            command_power: Some(power.clone()),
+            reload_time_frames: 150,
+            required_science: None,
+            public_timer: true,
+            shared_n_sync: true,
+            shortcut_power: false,
+            update_module_starts_attack: false,
+            starts_paused: false,
+            scripted_special_power_only: false,
+        });
+    logic.templates.insert("OwnedScudTimer".into(), template);
+    let id = logic
+        .create_object_for_player("OwnedScudTimer", 0, glam::Vec3::ZERO)
+        .unwrap();
+    logic
+        .get_player_mut(0)
+        .unwrap()
+        .reset_shared_special_power_timer(&power, 5.0);
+    let mut hud = crate::ui::GameHUD::new();
+    for (elapsed, remaining, ready) in
+        [(2.0, 3.0, false), (2.0, 1.0, false), (4.0 / 3.0, 0.0, true)]
     {
-        store.add_template(template.clone());
+        let became_ready = logic
+            .get_player_mut(0)
+            .unwrap()
+            .tick_shared_special_power_timers(elapsed);
+        assert_eq!(became_ready.contains(&power), ready);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let row = frame
+            .superweapon_timers()
+            .iter()
+            .find(|row| row.template_name == SW_POWER_NAME)
+            .unwrap();
+        assert!((row.remaining - remaining).abs() < 0.001);
+        assert_eq!(row.ready, ready);
+        assert_eq!(row.recharge_time, 5.0);
+        frame.apply_to_game_hud(&mut hud);
+        let drawn = hud
+            .presentation_superweapon_timers()
+            .iter()
+            .find(|row| row.template_name == SW_POWER_NAME)
+            .unwrap();
+        assert!((drawn.remaining - remaining).abs() < 0.001);
+        assert_eq!(drawn.ready, ready);
+        assert!(drawn.unlocked);
+        assert!(logic.host_object(id).unwrap().is_alive());
     }
-    let template = std::sync::Arc::new(template);
-
-    // Special-power attach: GameLogic registers the timer with TheInGameUI.
-    gamelogic::helpers::TheInGameUI::add_superweapon_at_ready_frame(
-        0,
-        SW_POWER_NAME.to_string(),
-        SW_OBJECT_ID,
-        &template,
-        template.get_reload_time(),
-    );
-
-    let mut client = game_client::core::game_client::GameClient::new().expect("GameClient::new");
-    client.set_in_game_ui_subsystem(std::sync::Arc::new(std::sync::Mutex::new(
-        game_client::core::subsystems::InGameUISubsystem::default(),
-    )));
-
-    // Resolve the attach-time ready frame (frame + ReloadTime).
-    let ready_frame = gamelogic::helpers::TheInGameUI::superweapon_entries()
-        .into_iter()
-        .find(|(_, power_name, object_id, _)| {
-            power_name == SW_POWER_NAME && *object_id == SW_OBJECT_ID
-        })
-        .map(|(_, _, _, ready_frame)| ready_frame)
-        .expect("TheInGameUI::add_superweapon store entry");
-
-    // First HUD build: the store drains into the live strip and bridges into
-    // the drawn presentation residual with a live countdown.
-    client.set_frame(ready_frame - 90);
-    client.sync_superweapon_strip_from_logic();
-
-    let strip = game_client::gui::ingame_ui::live_superweapon_draw_entries();
-    assert!(
-        strip
-            .iter()
-            .any(|(name, countdown, ready)| name.contains(SW_POWER_NAME)
-                && countdown == "0:03"
-                && !*ready),
-        "superweapon strip must draw a 0:03 countdown, got {strip:?}"
-    );
-    let residual = client
-        .in_game_ui_subsystem()
-        .expect("in_game_ui subsystem")
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .presentation_superweapon_timers()
-        .to_vec();
-    assert!(
-        residual
-            .iter()
-            .any(|t| t.name.contains(SW_POWER_NAME) && t.countdown_text == "0:03" && !t.ready),
-        "drawn presentation residual must carry the 0:03 countdown, got {residual:?}"
-    );
-
-    // The strip counts down as frames advance.
-    client.set_frame(ready_frame - 30);
-    client.sync_superweapon_strip_from_logic();
-    let strip = game_client::gui::ingame_ui::live_superweapon_draw_entries();
-    assert!(
-        strip
-            .iter()
-            .any(|(name, countdown, ready)| name.contains(SW_POWER_NAME)
-                && countdown == "0:01"
-                && !*ready),
-        "superweapon strip must count down to 0:01, got {strip:?}"
-    );
-
-    // Past the ready frame the entry hits READY (bold/blink state flagged).
-    client.set_frame(ready_frame + 10);
-    client.sync_superweapon_strip_from_logic();
-    let strip = game_client::gui::ingame_ui::live_superweapon_draw_entries();
-    assert!(
-        strip
-            .iter()
-            .any(|(name, countdown, ready)| name.contains(SW_POWER_NAME)
-                && countdown == "0:00"
-                && *ready),
-        "superweapon strip must hit READY at 0:00, got {strip:?}"
-    );
-    let residual = client
-        .in_game_ui_subsystem()
-        .expect("in_game_ui subsystem")
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .presentation_superweapon_timers()
-        .to_vec();
-    assert!(
-        residual
-            .iter()
-            .any(|t| t.name.contains(SW_POWER_NAME) && t.countdown_text == "0:00" && t.ready),
-        "drawn presentation residual must flag READY, got {residual:?}"
-    );
-
-    gamelogic::object::registry::OBJECT_REGISTRY.unregister_object(SW_OBJECT_ID);
-    game_client::gui::ingame_ui::live_superweapon_strip_clear();
 }
 
 /// `GUI:PlayerHasBeenDefeated {name}` must land on the drawn HUD message

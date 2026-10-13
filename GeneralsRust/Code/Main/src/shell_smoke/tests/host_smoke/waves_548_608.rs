@@ -64,8 +64,6 @@ pub(super) fn assert_waves_548_608(r: &ShellSmokeResult) {
         r.detail
     );
 
-
-
     assert!(
         r.play_time_local_player_presentation_helper_method_names_wave553_ok,
         "play-time/local-player presentation helper method names residual pack wave553: {}",
@@ -111,8 +109,6 @@ pub(super) fn assert_waves_548_608(r: &ShellSmokeResult) {
         "science/team presentation helper live residual wave555: {}",
         r.detail
     );
-
-
 
     assert!(
         r.replay_presentation_helper_method_names_wave557_ok,
@@ -189,21 +185,7 @@ pub(super) fn assert_waves_548_608(r: &ShellSmokeResult) {
         "logic steps presentation helper live residual wave561: {}",
         r.detail
     );
-    assert!(
-        r.combat_kill_particle_observe_method_names_wave562_ok,
-        "combat kill particle observe method names residual pack wave562: {}",
-        r.detail
-    );
-    assert!(
-        r.combat_kill_particle_observe_nav_commands_wave562_ok,
-        "combat kill particle observe nav commands residual pack wave562: {}",
-        r.detail
-    );
-    assert!(
-        r.combat_kill_particle_observe_live_wave562_ok,
-        "combat kill particle observe live residual wave562: {}",
-        r.detail
-    );
+
     assert!(
         r.template_name_presentation_helper_method_names_wave563_ok,
         "template name presentation helper method names residual pack wave563: {}",
@@ -339,8 +321,6 @@ pub(super) fn assert_waves_548_608(r: &ShellSmokeResult) {
         "popup/music helper live residual wave571: {}",
         r.detail
     );
-
-
 
     assert!(
         r.boot_player_info_helper_method_names_wave573_ok,
@@ -493,11 +473,6 @@ pub(super) fn assert_waves_548_608(r: &ShellSmokeResult) {
         r.detail
     );
 
-
-
-
-
-
     assert!(
         r.host_ui_shell_world_helper_method_names_wave585_ok,
         "host UI/shell/world helper method names residual pack wave585: {}",
@@ -559,17 +534,6 @@ pub(super) fn assert_waves_548_608(r: &ShellSmokeResult) {
         r.detail
     );
 
-
-
-
-
-
-
-
-
-
-
-
     assert!(
         r.host_render_ui_finalize_helper_method_names_wave593_ok,
         "host render UI finalize helper method names residual pack wave593: {}",
@@ -586,11 +550,6 @@ pub(super) fn assert_waves_548_608(r: &ShellSmokeResult) {
         r.detail
     );
 
-
-
-
-
-
     assert!(
         r.host_camera_queue_drain_helper_method_names_wave596_ok,
         "host camera queue drain helper method names residual pack wave596: {}",
@@ -606,8 +565,6 @@ pub(super) fn assert_waves_548_608(r: &ShellSmokeResult) {
         "host camera queue drain helper live residual wave596: {}",
         r.detail
     );
-
-
 
     assert!(
         r.host_ingame_hud_helper_method_names_wave598_ok,
@@ -654,11 +611,6 @@ pub(super) fn assert_waves_548_608(r: &ShellSmokeResult) {
         "host post presentation client helper live residual wave600: {}",
         r.detail
     );
-
-
-
-
-
 
     assert!(
         r.host_paused_endgame_boot_ui_helper_method_names_wave603_ok,
@@ -735,7 +687,4 @@ pub(super) fn assert_waves_548_608(r: &ShellSmokeResult) {
         "host ui presentation drain helper live residual wave607: {}",
         r.detail
     );
-
-
-
 }

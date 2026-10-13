@@ -1791,8 +1791,10 @@ fn oil_derrick_residual_deposits_cash_on_interval() {
     assert_eq!(mid, cash_before, "neutral derrick must not deposit");
 
     // Capture residual: flip team to USA → InitialCaptureBonus.
-    if let Some(obj) = game_logic.host_object_mut(derrick_id) {
-        obj.set_team(Team::USA);
+    if let Some((obj, ownership_events)) =
+        game_logic.host_object_and_ownership_events_mut(derrick_id)
+    {
+        obj.set_team(Team::USA, ownership_events);
     }
     game_logic.frame = 0;
     game_logic.update_oil_derrick_deposits();

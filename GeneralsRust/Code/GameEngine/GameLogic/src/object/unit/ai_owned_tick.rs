@@ -10,12 +10,6 @@ use game_engine::common::thing::update_module::UpdateSleepTime;
 impl UnitAIUpdate {
     /// Reject unsupported callback families before resetting any frame metadata.
     pub(super) fn validate_scheduled_tick_owned(&self, world: &dyn AiWorld) -> Result<(), String> {
-        self.validate_owned_components_with_world(
-            world,
-            self.runtime.data.locomotor_goal_type == 0,
-            false,
-        )
-        .map_err(|error| error.to_string())?;
         if !world.has_pathfinder() {
             return Err("scheduled UnitAI requires the receiving pathfinder".into());
         }
@@ -39,6 +33,18 @@ impl UnitAIUpdate {
             && matches!(state,
             Some(id) if id == AIStateType::Exit as u32 || id == AIStateType::ExitInstantly as u32);
         let dead = temporary.is_none() && state == Some(AIStateType::Dead as u32);
+        let held_enter_completion = if enter {
+            self.validate_owned_enter_completion_with_world(world)
+                .map_err(|error| error.to_string())?
+        } else {
+            self.validate_owned_components_with_world(
+                world,
+                self.runtime.data.locomotor_goal_type == 0,
+                false,
+            )
+            .map_err(|error| error.to_string())?;
+            false
+        };
         if !path && !idle && !waypoint && !enter && !exit && !dead {
             return Err("scheduled UnitAI state requires its supplied callback domain".into());
         }
@@ -64,7 +70,10 @@ impl UnitAIUpdate {
             if !matches!(self.runtime.data.locomotor_goal_type, 0 | 1 | 2) {
                 return Err("scheduled AI goal requires an owned locomotor family".into());
             }
-            if self.runtime.data.locomotor_goal_type == 0 {
+            // Enter's actual FSM callback clears the old PATH goal before
+            // doLocomotor. Only its exact already-held roster completion may
+            // preflight that future NONE maintenance instead of movement.
+            if self.runtime.data.locomotor_goal_type == 0 || held_enter_completion {
                 world.validate_owned_maintenance_step(&owner, active)?;
             } else {
                 world.validate_owned_locomotor_step(&owner, active)?;
@@ -86,7 +95,16 @@ impl UnitAIUpdate {
         &mut self,
         world: &mut dyn AiWorld,
     ) -> Result<UpdateSleepTime, String> {
-        self.validate_scheduled_tick_owned(&*world)?;
+        self.validate_scheduled_tick_owned(&*world)
+            .map_err(|error| {
+                format!(
+                    "scheduled preflight state={:?} goal={}: {error}",
+                    self.ai_state_machine
+                        .as_ref()
+                        .and_then(|machine| machine.get_current_state_id()),
+                    self.runtime.data.locomotor_goal_type
+                )
+            })?;
         self.runtime.data.completed_waypoint_id = None;
         let machine = self
             .ai_state_machine
@@ -117,7 +135,7 @@ impl UnitAIUpdate {
             <Self as AIUpdateInterface>::update_follow_path_phase_sleep_with_world(self, world)?
         } else if state == Some(AIStateType::Enter as u32) {
             self.update_enter_phase_sleep_with_world(world)
-                .map_err(|error| error.to_string())?
+                .map_err(|error| format!("scheduled Enter FSM: {error}"))?
         } else if matches!(state, Some(id) if id == AIStateType::Exit as u32 || id == AIStateType::ExitInstantly as u32)
         {
             <Self as AIUpdateInterface>::update_exit_phase_sleep_with_world(self, world)?
@@ -128,7 +146,8 @@ impl UnitAIUpdate {
             self.update_waypoint_phase_sleep_with_world(world)
                 .map_err(|error| error.to_string())?
         };
-        self.finish_completed_movement_owned(world)?;
+        self.finish_completed_movement_owned(world)
+            .map_err(|error| format!("scheduled movement completion: {error}"))?;
         let now = world.frame();
         let deadline = self.runtime.data.queue_for_path_frame;
         if deadline != 0 {
@@ -190,7 +209,19 @@ impl UnitAIUpdate {
                 0
             };
             self.runtime.data.is_blocked = false;
-            sleep = minimum_sleep(sleep, self.update_locomotor_phase_with_world(world)?);
+            sleep = minimum_sleep(
+                sleep,
+                self.update_locomotor_phase_with_world(world)
+                    .map_err(|error| {
+                        format!(
+                            "scheduled locomotor after FSM state={:?} goal={}: {error}",
+                            self.ai_state_machine
+                                .as_ref()
+                                .and_then(|machine| machine.get_current_state_id()),
+                            self.runtime.data.locomotor_goal_type
+                        )
+                    })?,
+            );
         }
         Ok(if self.runtime.data.completed_waypoint_id.is_some() {
             UpdateSleepTime::None

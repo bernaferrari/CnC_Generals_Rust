@@ -2391,11 +2391,23 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         .create_object_for_player("TestTank", 1, Vec3::new(0.0, 0.0, 0.0))
         .expect("foreign tank");
     {
-        let t = game_logic
-            .host_object_mut(foreign_tank_id)
-            .expect("foreign tank object");
-        t.apply_kill_pilot_unmanned();
-        t.set_team(Team::Neutral);
+        let (t, health_events, ownership_events) = {
+            let crate::game_logic::GameLogic {
+                objects,
+                health_events,
+                ownership_events,
+                ..
+            } = &mut game_logic;
+            (
+                objects
+                    .get_mut(&foreign_tank_id)
+                    .expect("foreign tank object"),
+                health_events,
+                ownership_events,
+            )
+        };
+        t.apply_kill_pilot_unmanned(health_events);
+        t.set_team(Team::Neutral, ownership_events);
         t.experience.level = VeterancyLevel::Rookie;
         assert_eq!(t.status.unmanned_owner_player_id, Some(1));
     }
@@ -2426,11 +2438,21 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         .create_object_for_player("TestTank", 0, Vec3::new(0.0, 0.0, 0.0))
         .expect("own tank");
     {
-        let t = game_logic
-            .host_object_mut(tank_id)
-            .expect("own tank object");
-        t.apply_kill_pilot_unmanned();
-        t.set_team(Team::Neutral);
+        let (t, health_events, ownership_events) = {
+            let crate::game_logic::GameLogic {
+                objects,
+                health_events,
+                ownership_events,
+                ..
+            } = &mut game_logic;
+            (
+                objects.get_mut(&tank_id).expect("own tank object"),
+                health_events,
+                ownership_events,
+            )
+        };
+        t.apply_kill_pilot_unmanned(health_events);
+        t.set_team(Team::Neutral, ownership_events);
         t.experience.level = VeterancyLevel::Rookie;
         assert_eq!(t.status.unmanned_owner_player_id, Some(0));
     }
@@ -2826,6 +2848,7 @@ fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
         let mut ranger = ThingTemplate::new("GarrEnterRanger");
         ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
         ranger.set_authored_ai_update_interface(Some(true));
+        ranger.transport_slot_count = Some(1);
         logic.templates.insert("GarrEnterRanger".into(), ranger);
         let mut humvee = ThingTemplate::new("GarrEnterHumvee");
         humvee
@@ -2932,6 +2955,17 @@ fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
     // this does not claim that the path arrival admitted the passenger.
     contain(&mut logic, infantry, transport);
     execute(&mut logic, ScriptActionType::NamedExitAll, &["NamedHumvee"]);
+    // CPP privateEvacuate orders Exit; the following AI update performs
+    // physical removal after observing the receiving container's readiness.
+    assert_eq!(
+        logic.host_object(infantry).unwrap().ai_state,
+        AIState::Exiting
+    );
+    assert_eq!(
+        logic.host_object(infantry).unwrap().contained_by,
+        Some(transport)
+    );
+    logic.update_owned_passenger_exit(infantry);
     let infantry_after_exit = logic.host_object(infantry).expect("infantry after exit");
     assert!(
         infantry_after_exit.contained_by.is_none(),

@@ -1010,7 +1010,6 @@ impl CommandSystem {
                     if dozer.target == Some(created_id) {
                         dozer.target = None;
                         dozer.target_location = None;
-
                     }
                 }
                 return CommandResult::InvalidCommand;

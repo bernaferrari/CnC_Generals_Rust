@@ -242,6 +242,68 @@ impl UnitAIUpdate {
         Ok(())
     }
 
+    /// CPP AIStates.cpp6315: a held actor completes Enter after checking its
+    /// goal. Admit only the actual receiving goal's already-attached member.
+    pub(super) fn validate_owned_enter_completion_with_world(
+        &self,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let machine = self
+            .ai_state_machine
+            .as_ref()
+            .ok_or("installed AI has no machine")?;
+        if machine.get_current_state_id() != Some(AIStateType::Enter as u32)
+            || machine.get_temporary_state().is_some()
+        {
+            return Err("held Enter completion requires the actual Enter machine".into());
+        }
+        let owner = self
+            .runtime
+            .native_owner()
+            .ok_or("installed AI owner missing")?;
+        let (id, parent, held) = {
+            let owner = owner
+                .try_read()
+                .map_err(|_| "installed AI owner unavailable")?;
+            (
+                owner.get_id(),
+                owner.get_contained_by(),
+                owner.is_disabled_by_type(crate::common::DisabledType::Held),
+            )
+        };
+        let Some(parent) = parent else {
+            self.validate_owned_components_with_world(world, false, false)?;
+            return Ok(false);
+        };
+        if !held || parent != machine.get_goal_object_id() {
+            return Err("held Enter completion belongs to another container".into());
+        }
+        let container = world.object(parent).ok_or("held Enter container absent")?;
+        let contain = container
+            .try_read()
+            .map_err(|_| "held Enter container borrowed")?
+            .get_contain()
+            .ok_or("held Enter container has no contain module")?;
+        if !contain
+            .try_lock()
+            .map_err(|_| "held Enter contain borrowed")?
+            .get_contained_objects()
+            .contains(&id)
+        {
+            return Err("held Enter actor absent from actual container roster".into());
+        }
+        self.validate_owned_components_with_world(world, true, false)?;
+        Ok(true)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn validate_enter_completion_for_test(
+        &self,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_owned_enter_completion_with_world(world)
+    }
+
     pub(super) fn validate_owned_enter_components(
         &self,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

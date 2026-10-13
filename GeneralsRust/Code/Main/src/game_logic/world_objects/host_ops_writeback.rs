@@ -1014,6 +1014,23 @@ impl GameLogic {
             .map(|object| (object, &mut self.attack_events))
     }
 
+    pub(crate) fn host_object_and_ownership_events_mut(
+        &mut self,
+        id: ObjectId,
+    ) -> Option<(
+        &mut crate::game_logic::object::Object,
+        &mut crate::game_logic::host_owner_log::OwnershipEvents,
+    )> {
+        if let Some(object) = self.objects.get(&id) {
+            if !object.name.is_empty() {
+                self.named_unit_history.insert(object.name.clone());
+            }
+        }
+        self.objects
+            .get_mut(&id)
+            .map(|object| (object, &mut self.ownership_events))
+    }
+
     pub(crate) fn set_host_object_name(&mut self, id: ObjectId, name: &str) -> bool {
         if name.is_empty() {
             return false;
@@ -1026,7 +1043,7 @@ impl GameLogic {
         }
         self.named_unit_history.insert(name.to_owned());
         object.name = name.to_owned();
-        object.record_host_identity();
+
         true
     }
 

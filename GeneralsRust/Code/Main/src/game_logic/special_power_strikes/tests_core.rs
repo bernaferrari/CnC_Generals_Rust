@@ -1120,8 +1120,11 @@ fn spectre_gunship_impact_spawns_orbit_and_ticks_damage() {
     );
 
     // Gattling-only tick after 3 frames (howitzer still waiting).
-    let gattling_only =
-        reg.plan_due_orbit_ticks(90 + SPECTRE_GATTLING_TICK_INTERVAL_FRAMES, &objects, &objects);
+    let gattling_only = reg.plan_due_orbit_ticks(
+        90 + SPECTRE_GATTLING_TICK_INTERVAL_FRAMES,
+        &objects,
+        &objects,
+    );
     reg.record_orbit_tick_complete(
         gattling_only[0].field_id,
         SPECTRE_GATTLING_DAMAGE,
@@ -1131,7 +1134,8 @@ fn spectre_gunship_impact_spawns_orbit_and_ticks_damage() {
     );
 
     // Howitzer residual after HowitzerFiringRate interval.
-    let later = reg.plan_due_orbit_ticks(90 + SPECTRE_ORBIT_TICK_INTERVAL_FRAMES, &objects, &objects);
+    let later =
+        reg.plan_due_orbit_ticks(90 + SPECTRE_ORBIT_TICK_INTERVAL_FRAMES, &objects, &objects);
     assert_eq!(later.len(), 1);
     assert!(!later[0].hits.is_empty());
 }

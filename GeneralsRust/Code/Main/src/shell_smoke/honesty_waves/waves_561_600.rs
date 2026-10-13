@@ -11,9 +11,7 @@ pub(super) struct Waves561600 {
     pub logic_steps_presentation_helper_method_names_wave561_ok: bool,
     pub logic_steps_presentation_helper_nav_commands_wave561_ok: bool,
     pub logic_steps_presentation_helper_live_wave561_ok: bool,
-    pub combat_kill_particle_observe_method_names_wave562_ok: bool,
-    pub combat_kill_particle_observe_nav_commands_wave562_ok: bool,
-    pub combat_kill_particle_observe_live_wave562_ok: bool,
+
     pub template_name_presentation_helper_method_names_wave563_ok: bool,
     pub template_name_presentation_helper_nav_commands_wave563_ok: bool,
     pub template_name_presentation_helper_live_wave563_ok: bool,
@@ -41,8 +39,6 @@ pub(super) struct Waves561600 {
     pub popup_music_helper_method_names_wave571_ok: bool,
     pub popup_music_helper_nav_commands_wave571_ok: bool,
     pub popup_music_helper_live_wave571_ok: bool,
-
-
 
     pub boot_player_info_helper_method_names_wave573_ok: bool,
     pub boot_player_info_helper_nav_commands_wave573_ok: bool,
@@ -75,8 +71,6 @@ pub(super) struct Waves561600 {
     pub host_enqueue_shell_cmd_helper_nav_commands_wave582_ok: bool,
     pub host_enqueue_shell_cmd_helper_live_wave582_ok: bool,
 
-
-
     pub host_ui_shell_world_helper_method_names_wave585_ok: bool,
     pub host_ui_shell_world_helper_nav_commands_wave585_ok: bool,
     pub host_ui_shell_world_helper_live_wave585_ok: bool,
@@ -90,12 +84,9 @@ pub(super) struct Waves561600 {
     pub host_game_client_menu_shell_helper_nav_commands_wave588_ok: bool,
     pub host_game_client_menu_shell_helper_live_wave588_ok: bool,
 
-
-
     pub host_render_ui_finalize_helper_method_names_wave593_ok: bool,
     pub host_render_ui_finalize_helper_nav_commands_wave593_ok: bool,
     pub host_render_ui_finalize_helper_live_wave593_ok: bool,
-
 
     pub host_camera_queue_drain_helper_method_names_wave596_ok: bool,
     pub host_camera_queue_drain_helper_nav_commands_wave596_ok: bool,
@@ -120,12 +111,7 @@ pub(super) fn evaluate() -> Waves561600 {
             honesty_logic_steps_presentation_helper_nav_commands_residual_wave561(),
         logic_steps_presentation_helper_live_wave561_ok:
             simulate_live_logic_steps_presentation_helper_honesty(),
-        combat_kill_particle_observe_method_names_wave562_ok:
-            honesty_combat_kill_particle_observe_method_names_residual_wave562(),
-        combat_kill_particle_observe_nav_commands_wave562_ok:
-            honesty_combat_kill_particle_observe_nav_commands_residual_wave562(),
-        combat_kill_particle_observe_live_wave562_ok:
-            simulate_live_combat_kill_particle_observe_honesty(),
+
         template_name_presentation_helper_method_names_wave563_ok:
             honesty_template_name_presentation_helper_method_names_residual_wave563(),
         template_name_presentation_helper_nav_commands_wave563_ok:
@@ -174,8 +160,6 @@ pub(super) fn evaluate() -> Waves561600 {
         popup_music_helper_nav_commands_wave571_ok:
             honesty_popup_music_helper_nav_commands_residual_wave571(),
         popup_music_helper_live_wave571_ok: simulate_live_popup_music_helper_honesty(),
-
-
 
         boot_player_info_helper_method_names_wave573_ok:
             honesty_boot_player_info_helper_method_names_residual_wave573(),
@@ -233,8 +217,6 @@ pub(super) fn evaluate() -> Waves561600 {
         host_enqueue_shell_cmd_helper_live_wave582_ok:
             simulate_live_host_enqueue_shell_cmd_helper_honesty(),
 
-
-
         host_ui_shell_world_helper_method_names_wave585_ok:
             honesty_host_ui_shell_world_helper_method_names_residual_wave585(),
         host_ui_shell_world_helper_nav_commands_wave585_ok:
@@ -260,15 +242,12 @@ pub(super) fn evaluate() -> Waves561600 {
         host_game_client_menu_shell_helper_live_wave588_ok:
             simulate_live_host_game_client_menu_shell_helper_honesty(),
 
-
-
         host_render_ui_finalize_helper_method_names_wave593_ok:
             honesty_host_render_ui_finalize_helper_method_names_residual_wave593(),
         host_render_ui_finalize_helper_nav_commands_wave593_ok:
             honesty_host_render_ui_finalize_helper_nav_commands_residual_wave593(),
         host_render_ui_finalize_helper_live_wave593_ok:
             simulate_live_host_render_ui_finalize_helper_honesty(),
-
 
         host_camera_queue_drain_helper_method_names_wave596_ok:
             honesty_host_camera_queue_drain_helper_method_names_residual_wave596(),

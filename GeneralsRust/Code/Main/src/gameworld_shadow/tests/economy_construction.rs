@@ -4,13 +4,15 @@ use super::*;
 
 #[test]
 fn host_resource_tick_logs_power_for_shadow() {
-    crate::game_logic::host_economy_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PowerLog");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     // Advance one host frame so update_player_resources runs.
     logic.update_with_dt(1.0 / 30.0);
-    let events = crate::game_logic::host_economy_log::drain();
+    let events = {
+        logic.economy_events.complete_boundary();
+        logic.economy_events.take_completed()
+    };
     assert!(
         !events.is_empty(),
         "resource tick must log economy/power events"
@@ -26,7 +28,6 @@ fn host_resource_tick_logs_power_for_shadow() {
 
 #[test]
 fn steal_cash_logs_economy_for_both_sides() {
-    crate::game_logic::host_economy_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("StealLog");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -52,10 +53,13 @@ fn steal_cash_logs_economy_for_both_sides() {
         let p = logic.get_players_mut().get_mut(&usa).unwrap();
         p.resources.supplies = 100;
     }
-    crate::game_logic::host_economy_log::clear();
+
     let stolen = logic.steal_cash_from_team(Team::GLA, Team::USA, 50);
     assert_eq!(stolen, 50);
-    let ev = crate::game_logic::host_economy_log::drain();
+    let ev = {
+        logic.economy_events.complete_boundary();
+        logic.economy_events.take_completed()
+    };
     assert!(
         ev.iter().any(|e| e.player_id == gla) && ev.iter().any(|e| e.player_id == usa),
         "steal must log src+dest economy: {ev:?}"
@@ -64,23 +68,25 @@ fn steal_cash_logs_economy_for_both_sides() {
 
 #[test]
 fn credit_supplies_logs_economy_channel() {
-    crate::game_logic::host_economy_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CreditLog");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let pid = *logic.get_players().keys().next().expect("player");
-    crate::game_logic::host_economy_log::clear();
+
     {
-        let p = logic.get_players_mut().get_mut(&pid).unwrap();
+        let (p, economy_events) = logic.player_and_economy_events_mut(pid).unwrap();
         let before = p.resources.supplies;
-        p.credit_supplies(123);
-        // Economy authority parks gains in pending_supply_delta.
+        p.credit_supplies(123, economy_events);
+        // The canonical cash gain is visible before any presentation boundary.
         assert_eq!(p.effective_supplies(), before.saturating_add(123));
         {
             assert_eq!(p.resources.supplies, before.saturating_add(123));
         }
     }
-    let ev = crate::game_logic::host_economy_log::drain();
+    let ev = {
+        logic.economy_events.complete_boundary();
+        logic.economy_events.take_completed()
+    };
     assert!(
         ev.iter().any(|e| e.player_id == pid && e.supplies >= 123),
         "credit_supplies must log: {ev:?}"
@@ -89,7 +95,6 @@ fn credit_supplies_logs_economy_channel() {
 
 #[test]
 fn economy_authority_applies_logged_spend() {
-    crate::game_logic::host_economy_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EconSpend");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -102,14 +107,20 @@ fn economy_authority_applies_logged_spend() {
         supplies: 100,
         power: 0,
     };
-    assert!(logic.get_player_mut(hid).unwrap().spend_resources(&cost));
-    // Under economy authority host.resources is deferred; effective reflects spend.
+    assert!({
+        let (player, economy_events) = logic.player_and_economy_events_mut(hid).unwrap();
+        player.spend_resources(&cost, economy_events)
+    });
+    // Spending updates canonical cash before the observing boundary.
     let after_host = logic.get_player(hid).unwrap().resources.supplies;
     let after_eff = logic.get_player(hid).unwrap().effective_supplies();
     {
         assert_eq!(after_host, before.saturating_sub(100));
     }
-    let events = crate::game_logic::host_economy_log::drain();
+    let events = {
+        logic.economy_events.complete_boundary();
+        logic.economy_events.take_completed()
+    };
     assert!(!events.is_empty());
 
     let mut shadow = GameWorldShadow::new(64);
@@ -131,7 +142,6 @@ fn economy_authority_applies_logged_spend() {
     assert_eq!(sh, expect, "shadow supplies from economy log");
     shadow.sync_from_host(&logic);
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, expect);
-    assert_eq!(logic.get_player(hid).unwrap().pending_supply_delta, 0);
 }
 
 #[test]
@@ -166,7 +176,6 @@ fn economy_authority_pending_blocks_double_spend() {
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
 
-    crate::game_logic::host_economy_log::clear();
     let cfg = golden_skirmish_config("EconDbl");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
@@ -175,7 +184,6 @@ fn economy_authority_pending_blocks_double_spend() {
     {
         let p = logic.get_player_mut(hid).unwrap();
         p.resources.supplies = 150;
-        p.pending_supply_delta = 0;
     }
     // Session probe evaluates victory (C++ VictoryConditions.cpp:87-95 /
     // 168-196): an army-less playable side is defeated on frame 0 and
@@ -197,17 +205,22 @@ fn economy_authority_pending_blocks_double_spend() {
         power: 0,
     };
 
-    assert!(logic.get_player_mut(hid).unwrap().spend_resources(&cost));
+    assert!({
+        let (player, economy_events) = logic.player_and_economy_events_mut(hid).unwrap();
+        player.spend_resources(&cost, economy_events)
+    });
     assert!(
-        !logic.get_player_mut(hid).unwrap().spend_resources(&cost),
-        "second spend must fail against pending delta"
+        !{
+            let (player, economy_events) = logic.player_and_economy_events_mut(hid).unwrap();
+            player.spend_resources(&cost, economy_events)
+        },
+        "second spend must fail against the immediately updated canonical balance"
     );
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 50);
     assert_eq!(logic.get_player(hid).unwrap().effective_supplies(), 50);
     let mut shadow = GameWorldShadow::new(64);
     let _ = observe_completed_owner(&mut shadow, &mut logic);
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 50);
-    assert_eq!(logic.get_player(hid).unwrap().pending_supply_delta, 0);
 }
 
 #[test]
@@ -222,18 +235,20 @@ fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
     ids.sort_unstable();
     let hid = ids[0];
     {
-        let p = logic.get_player_mut(hid).unwrap();
+        let (p, economy_events) = logic.player_and_economy_events_mut(hid).unwrap();
         p.resources.supplies = 100;
-        p.pending_supply_delta = 0;
-        p.add_resources(&crate::game_logic::Resources {
-            supplies: 25,
-            power: 0,
-        });
+
+        p.add_resources(
+            &crate::game_logic::Resources {
+                supplies: 25,
+                power: 0,
+            },
+            economy_events,
+        );
         assert_eq!(
             p.resources.supplies, 125,
             "host supplies must apply immediately"
         );
-        assert_eq!(p.pending_supply_delta, 0, "no pending when shadow off");
     }
     match prev_s {
         Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
@@ -246,7 +261,6 @@ fn credit_supplies_defers_under_economy_authority() {
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
 
-    crate::game_logic::host_economy_log::clear();
     let cfg = golden_skirmish_config("EconCredit");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
@@ -255,7 +269,6 @@ fn credit_supplies_defers_under_economy_authority() {
     {
         let p = logic.get_player_mut(hid).unwrap();
         p.resources.supplies = 1000;
-        p.pending_supply_delta = 0;
     }
     // Session probe evaluates victory (C++ VictoryConditions.cpp:87-95 /
     // 168-196): an army-less playable side is defeated on frame 0 and
@@ -273,13 +286,15 @@ fn credit_supplies_defers_under_economy_authority() {
         .create_object_for_player("EconKeepAlive", hid, glam::Vec3::new(3.0, 0.0, 3.0))
         .expect("keep-alive structure");
 
-    logic.get_player_mut(hid).unwrap().credit_supplies(250);
+    {
+        let (player, economy_events) = logic.player_and_economy_events_mut(hid).unwrap();
+        player.credit_supplies(250, economy_events)
+    };
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 1250);
     assert_eq!(logic.get_player(hid).unwrap().effective_supplies(), 1250);
     let mut shadow = GameWorldShadow::new(64);
     let _ = observe_completed_owner(&mut shadow, &mut logic);
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 1250);
-    assert_eq!(logic.get_player(hid).unwrap().pending_supply_delta, 0);
 }
 
 #[test]

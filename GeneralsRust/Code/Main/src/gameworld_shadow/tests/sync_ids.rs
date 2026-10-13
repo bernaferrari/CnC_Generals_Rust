@@ -1514,7 +1514,6 @@ fn construction_progress_observation_does_not_tick_host_or_shadow() {
 
 #[test]
 fn special_power_authority_sole_ticks_cooldown() {
-    use crate::game_logic::host_special_power_log::{self};
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
 
@@ -1531,7 +1530,7 @@ fn special_power_authority_sole_ticks_cooldown() {
         o.special_power_cooldown_remaining = 4.0;
         o.special_power_ready = false;
     }
-    host_special_power_log::record(oid, false, 4.0, 10.0, false);
+
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     logic.host_object_mut(oid).unwrap().tick_timers(1.5);
@@ -1574,7 +1573,7 @@ fn shared_special_power_sole_ticks_player_cds() {
 
     use crate::command_system::SpecialPowerType;
     use crate::game_logic::GameLogic;
-    use crate::game_logic::host_player_cooldown_log;
+
     let mut logic = GameLogic::new();
 
     logic.add_player(crate::game_logic::Player::new(
@@ -1592,7 +1591,7 @@ fn shared_special_power_sole_ticks_player_cds() {
         return;
     };
     p.reset_shared_special_power_timer(&SpecialPowerType::Airstrike, 5.0);
-    p.record_host_cooldowns();
+
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     logic.tick_shared_special_power_timers(2.0);

@@ -216,6 +216,7 @@ impl UnitAIUpdate {
 #[cfg(test)]
 #[derive(Debug)]
 pub(crate) struct NativeWaypointObservation {
+    pub(crate) path_points: Vec<Coord3D>,
     pub(crate) pathfind_goal_cell: ICoord2D,
     pub(crate) locomotor_goal_type: u32,
     pub(crate) locomotor_goal_data: Coord3D,
@@ -252,6 +253,12 @@ impl UnitAIUpdate {
     }
     pub(crate) fn native_waypoint_observation_for_test(&self) -> NativeWaypointObservation {
         NativeWaypointObservation {
+            path_points: self
+                .runtime
+                .data
+                .current_path_snapshot
+                .as_ref()
+                .map_or_else(Vec::new, |path| path.positions_for_test()),
             pathfind_goal_cell: self.runtime.data.pathfind_goal_cell,
             locomotor_goal_type: self.runtime.data.locomotor_goal_type,
             locomotor_goal_data: self.runtime.data.locomotor_goal_data,

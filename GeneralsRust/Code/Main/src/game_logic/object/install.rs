@@ -14,7 +14,11 @@ impl Object {
     }
 
     /// C++ Object.cpp:2078-2088 / 2237-2247 Building/Vehicle Disabled/Reenabled.
-    pub(crate) fn queue_power_disable_misc_audio(&self, becoming: bool) {
+    pub(crate) fn queue_power_disable_misc_audio(
+        &self,
+        becoming: bool,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) {
         let token = if self.is_kind_of(crate::game_logic::KindOf::Structure) {
             if becoming {
                 "BuildingDisabled"
@@ -31,7 +35,7 @@ impl Object {
             return;
         };
         let pos = self.get_position();
-        crate::game_logic::host_disable_timers_log::record_audio(
+        health_events.record_disable_audio(
             self.id,
             [pos.x, pos.y, pos.z],
             crate::game_logic::host_economy_log::resolve_misc_audio_event(token),
@@ -39,12 +43,15 @@ impl Object {
     }
 
     /// C++ Object.cpp:2062-2067 SplatterVehiclePilotsBrain on UNMANNED enter.
-    fn queue_unmanned_splatter_audio(&self) {
+    fn queue_unmanned_splatter_audio(
+        &self,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) {
         if self.is_kind_of(crate::game_logic::KindOf::Drone) {
             return;
         }
         let pos = self.get_position();
-        crate::game_logic::host_disable_timers_log::record_audio(
+        health_events.record_disable_audio(
             self.id,
             [pos.x, pos.y, pos.z],
             crate::game_logic::host_economy_log::resolve_misc_audio_event(
@@ -144,7 +151,11 @@ impl Object {
     }
 
     /// C++ ActiveBody::internalAddSubdualDamage + onSubdualChange residual.
-    pub fn apply_subdual_damage(&mut self, amount: f32) {
+    pub fn apply_subdual_damage(
+        &mut self,
+        amount: f32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) {
         if amount <= 0.0 || !amount.is_finite() {
             return;
         }
@@ -163,14 +174,14 @@ impl Object {
         self.subdual_heal_countdown = self.subdual_heal_rate_frames;
         let now = self.is_subdued();
         if now != was {
-            self.set_disabled_subdued(now);
+            self.set_disabled_subdued(now, health_events);
         } else if now {
-            self.set_disabled_subdued(true);
+            self.set_disabled_subdued(true, health_events);
         }
     }
 
     /// C++ SubdualDamageHelper::update residual heal step.
-    pub fn tick_subdual_damage(&mut self) {
+    pub fn tick_subdual_damage(&mut self, health_events: &mut crate::game_logic::HostHealthEvents) {
         if self.subdual_damage <= 0.0 {
             if self.status.disabled_subdued && !self.is_emp_disabled() {
                 // Keep subdued clear if no other disable source.
@@ -190,14 +201,21 @@ impl Object {
         self.subdual_heal_countdown = self.subdual_heal_rate_frames;
         let now = self.is_subdued();
         if was && !now {
-            self.set_disabled_subdued(false);
+            self.set_disabled_subdued(false, health_events);
         }
     }
 
-    pub fn set_disabled_subdued(&mut self, subdued: bool) {
+    pub fn set_disabled_subdued(
+        &mut self,
+        subdued: bool,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) {
         if subdued {
             let already_power = self.is_power_style_disabled();
             let becoming = !self.status.disabled_subdued;
+            if !already_power {
+                self.queue_power_disable_misc_audio(true, health_events);
+            }
             self.set_status_disabled_subdued(true);
             // C++ orderAllPassengersToIdle residual: drop attack / move orders.
             self.status.attacking = false;
@@ -212,9 +230,6 @@ impl Object {
                     self.set_ai_state(AIState::Idle);
                 }
             }
-            if !already_power {
-                self.queue_power_disable_misc_audio(true);
-            }
             // C++ ActiveBody::onSubdualChange: non-projectile contain
             // `orderAllPassengersToIdle`. Occupants are other HostObjects;
             // GameLogic flushes `pending_subdual_passenger_idle`.
@@ -223,10 +238,14 @@ impl Object {
             }
         } else {
             let was = self.status.disabled_subdued;
-            self.set_status_disabled_subdued(false);
-            if was && !self.is_power_style_disabled() {
-                self.queue_power_disable_misc_audio(false);
+            if was
+                && !(self.status.disabled_underpowered
+                    || self.status.disabled_emp
+                    || self.status.disabled_hacked)
+            {
+                self.queue_power_disable_misc_audio(false, health_events);
             }
+            self.set_status_disabled_subdued(false);
             // C++ Patch 1.01: IC un-subdual → orderAllPassengersToHackInternet.
             if was
                 && !self.is_kind_of(KindOf::Projectile)
@@ -241,13 +260,16 @@ impl Object {
     /// Caller is responsible for team transfer (typically Neutral).
     /// Captures controller provenance for PilotFindVehicle/
     /// VeterancyCrateCollide same-player validation.
-    pub fn apply_kill_pilot_unmanned(&mut self) {
+    pub fn apply_kill_pilot_unmanned(
+        &mut self,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) {
         // Preserve original controller for same-player PartitionFilter residual.
         // Only snapshot on the edge into unmanned (refresh would overwrite Neutral).
         if !self.status.disabled_unmanned {
             self.status.unmanned_owner_team = Some(self.team);
             self.status.unmanned_owner_player_id = self.owner_player_id;
-            self.queue_unmanned_splatter_audio();
+            self.queue_unmanned_splatter_audio(health_events);
         }
         self.set_status_disabled_unmanned(true);
 
@@ -288,6 +310,7 @@ impl Object {
         pilot_team: Team,
         pilot_owner_player_id: Option<u32>,
         pilot_level: crate::game_logic::VeterancyLevel,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> bool {
         use crate::game_logic::host_usa_pilot::{merged_recrew_veterancy, veterancy_rank};
 
@@ -312,7 +335,7 @@ impl Object {
         if self.ai_state != AIState::Idle {
             self.set_ai_state(AIState::Idle);
         }
-        self.set_team_and_owner(pilot_team, pilot_owner_player_id);
+        self.set_team_and_owner(pilot_team, pilot_owner_player_id, ownership_events);
         self.set_private_captured(true);
 
         let previous = self.experience.level;
@@ -700,12 +723,18 @@ impl Object {
         self.record_host_ai_request();
     }
 
-    pub fn apply_disabled_hacked(&mut self, until_frame: u32) {
+    pub fn apply_disabled_hacked(
+        &mut self,
+        until_frame: u32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) {
         let becoming = !self.is_disabled();
         let already_power = self.is_power_style_disabled();
+        if !already_power {
+            self.queue_power_disable_misc_audio(true, health_events);
+        }
         self.set_status_disabled_hacked(true);
         self.status.disabled_hacked_until_frame = until_frame;
-        self.record_disable_timers();
         self.status.attacking = false;
         self.set_status_moving(false);
         self.stop_moving();
@@ -721,49 +750,49 @@ impl Object {
                 &mut self.hive_slaves,
             );
         }
-        if !already_power {
-            self.queue_power_disable_misc_audio(true);
-        }
         if becoming {
             self.on_disabled_edge(true);
         }
     }
 
-    pub fn tick_disabled_hacked(&mut self, current_frame: u32) {
+    pub fn tick_disabled_hacked(
+        &mut self,
+        current_frame: u32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) {
         if self.status.disabled_hacked
             && self.status.disabled_hacked_until_frame > 0
             && current_frame >= self.status.disabled_hacked_until_frame
         {
+            if !(self.status.disabled_underpowered
+                || self.status.disabled_emp
+                || self.status.disabled_subdued)
+            {
+                self.queue_power_disable_misc_audio(false, health_events);
+            }
             self.set_status_disabled_hacked(false);
             self.status.disabled_hacked_until_frame = 0;
-            if !self.is_power_style_disabled() {
-                self.queue_power_disable_misc_audio(false);
-            }
             if !self.is_disabled() {
                 self.on_disabled_edge(false);
             }
         }
     }
 
-    /// Disable until_frame residual → GameWorld SetDisableTimers.
-    pub fn record_disable_timers(&mut self) {
-        crate::game_logic::host_disable_timers_log::record(
-            self.id,
-            self.status.disabled_emp_until_frame,
-            self.status.disabled_hacked_until_frame,
-            self.status.disabled_paralyzed_until_frame,
-        );
-    }
-
     /// Apply DISABLED_EMP residual until `until_frame` (absolute host logic frame).
     /// C++ Object::setDisabledUntil overwrites `m_disabledTillFrame[DISABLED_EMP]`;
     /// a later pulse does not max-extend a longer residual.
-    pub fn apply_disabled_emp(&mut self, until_frame: u32) {
+    pub fn apply_disabled_emp(
+        &mut self,
+        until_frame: u32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) {
         let becoming = !self.is_disabled();
         let already_power = self.is_power_style_disabled();
+        if !already_power {
+            self.queue_power_disable_misc_audio(true, health_events);
+        }
         self.set_status_disabled_emp(true);
         self.status.disabled_emp_until_frame = until_frame;
-        self.record_disable_timers();
         self.set_status_attacking(false);
         self.set_status_moving(false);
         self.stop_moving();
@@ -773,24 +802,28 @@ impl Object {
         if self.ai_state != AIState::Idle {
             self.set_ai_state(AIState::Idle);
         }
-        if !already_power {
-            self.queue_power_disable_misc_audio(true);
-        }
         if becoming {
             self.on_disabled_edge(true);
         }
     }
 
-    pub fn tick_disabled_emp(&mut self, current_frame: u32) {
+    pub fn tick_disabled_emp(
+        &mut self,
+        current_frame: u32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) {
         if self.status.disabled_emp
             && self.status.disabled_emp_until_frame > 0
             && current_frame >= self.status.disabled_emp_until_frame
         {
+            if !(self.status.disabled_underpowered
+                || self.status.disabled_hacked
+                || self.status.disabled_subdued)
+            {
+                self.queue_power_disable_misc_audio(false, health_events);
+            }
             self.set_status_disabled_emp(false);
             self.status.disabled_emp_until_frame = 0;
-            if !self.is_power_style_disabled() {
-                self.queue_power_disable_misc_audio(false);
-            }
             if !self.is_disabled() {
                 self.on_disabled_edge(false);
             }
@@ -806,7 +839,6 @@ impl Object {
         if until_frame > self.status.disabled_paralyzed_until_frame {
             self.status.disabled_paralyzed_until_frame = until_frame;
         }
-        self.record_disable_timers();
         self.status.attacking = false;
         self.set_status_moving(false);
         self.stop_moving();

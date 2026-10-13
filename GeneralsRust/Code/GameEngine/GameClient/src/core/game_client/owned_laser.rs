@@ -114,61 +114,17 @@ impl GameClient {
                 "ray requires actual W3DLaserDraw".into(),
             ));
         }
-        let entry = updates[0];
-        let data = if let Some(data) = entry.data.as_any().downcast_ref::<LaserUpdateModuleData>() {
-            data.clone()
-        } else if let Some(data) = entry
-            .data
-            .as_any()
-            .downcast_ref::<gamelogic::object::behavior::laser_update::LaserUpdateModuleData>(
-        ) {
-            LaserUpdateModuleData {
-                module_tag_name_key: entry.data.get_module_tag_name_key(),
-                particle_system_name: data.particle_system_name.clone(),
-                target_particle_system_name: data.target_particle_system_name.clone(),
-                punch_through_scalar: data.punch_through_scalar,
-            }
-        } else {
-            return Err(GameClientError::InvalidOperation(
-                "ray LaserUpdate data type mismatch".into(),
+        let id = self.create_drawable_from_template(template)?;
+        self.drawable_map
+            .get_mut(&id)
+            .ok_or(GameClientError::DrawableNotFound(id))?
+            .set_position(crate::drawable::Vector3::new(
+                (start.x + end.x) * 0.5,
+                (start.y + end.y) * 0.5,
+                (start.z + end.z) * 0.5,
             ));
-        };
-        let identifier = if entry.module_tag.is_empty() {
-            entry.name.to_string()
-        } else {
-            entry.module_tag.to_string()
-        };
-        let mut drawable = BasicDrawable::new(DrawableId::INVALID);
-        for module in Self::create_snapshot_modules_from_template(template) {
-            drawable.add_draw_module(module);
-        }
-        drawable.add_draw_module(Box::new(
-            LogicDrawModuleSnapshotAdapter::client_update_module(
-                identifier,
-                Box::new(LaserUpdateModule::new_owned(
-                    NameKeyGenerator::name_to_key("LaserUpdate"),
-                    Arc::new(data),
-                    0,
-                )),
-            ),
-        ));
-        drawable.set_position(crate::drawable::Vector3::new(
-            (start.x + end.x) * 0.5,
-            (start.y + end.y) * 0.5,
-            (start.z + end.z) * 0.5,
-        ));
-        let id = self.register_drawable_with_template(
-            Box::new(drawable),
-            Some(template.get_name().to_string()),
-        )?;
-        self.with_owned_laser(id, |module| {
-            module.bind_owned_drawable(id.0);
-            Ok(())
-        })?;
         // C++ addRayEffect does not destroy a successfully created Drawable on capacity exhaustion.
         self.ray_effects.add(id, start, end);
-        // GameClient.cpp480 prepends to the owning Drawable visitation list.
-        self.owned_laser_order.insert(0, id);
         Ok(id)
     }
 
@@ -192,6 +148,12 @@ impl GameClient {
                 .logic_module_mut()
                 .and_then(|module| module.as_any_mut().downcast_mut::<LaserUpdateModule>())
             {
+                if !module.uses_owned_services() {
+                    return Err(GameClientError::InvalidOperation(
+                        "classic LaserUpdate cannot receive native owned particle/client services"
+                            .into(),
+                    ));
+                }
                 return operation(module).map_err(GameClientError::InvalidOperation);
             }
         }
@@ -269,12 +231,15 @@ impl GameClient {
         phase: ClientLaserPhase<'_, '_>,
     ) -> GameClientResult<()> {
         if let Some(position) = phase.final_position {
+            let native_position = if self.presentation_direct_drawable_bindings.contains_key(&id) {
+                crate::drawable::Vector3::new(position.x, position.z, position.y)
+            } else {
+                crate::drawable::Vector3::new(position.x, position.y, position.z)
+            };
             self.drawable_map
                 .get_mut(&id)
                 .ok_or(GameClientError::DrawableNotFound(id))?
-                .set_position(crate::drawable::Vector3::new(
-                    position.x, position.y, position.z,
-                ));
+                .set_position(native_position);
         }
         if phase.destroy {
             let mut phase = phase;
@@ -378,6 +343,17 @@ impl GameClient {
             .ok_or_else(|| {
                 GameClientError::InvalidOperation("actual LaserUpdate unavailable".into())
             })?;
+        let update = modules[update_index]
+            .logic_module_mut()
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<LaserUpdateModule>()
+            .unwrap();
+        if !update.uses_owned_services() {
+            return Err(GameClientError::InvalidOperation(
+                "classic LaserUpdate cannot receive native owned draw services".into(),
+            ));
+        }
         let mut output = Vec::new();
         for index in 0..modules.len() {
             let Some(draw) = modules[index]

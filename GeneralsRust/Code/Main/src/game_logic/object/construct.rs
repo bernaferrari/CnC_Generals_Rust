@@ -1213,6 +1213,7 @@ impl Object {
             guard_mode: GuardMode::Normal,
             pending_evacuate_on_stop: false,
             pending_exit_after_evacuate: false,
+            transport_return_state: None,
             pending_stream_exit: false,
 
             frame_exit_not_busy: 0,
@@ -2148,6 +2149,7 @@ impl Object {
             guard_mode: GuardMode::Normal,
             pending_evacuate_on_stop: false,
             pending_exit_after_evacuate: false,
+            transport_return_state: None,
             pending_stream_exit: false,
 
             frame_exit_not_busy: 0,
@@ -2420,8 +2422,14 @@ impl Object {
     }
 
     /// C++ Object::defect(team, detectionFrames) residual.
-    pub fn defect(&mut self, new_team: Team, now: u32, detection_frames: u32) {
-        self.set_team(new_team);
+    pub fn defect(
+        &mut self,
+        new_team: Team,
+        now: u32,
+        detection_frames: u32,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+    ) {
+        self.set_team(new_team, ownership_events);
         self.begin_undetected_defection(now, detection_frames, true);
     }
 

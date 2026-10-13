@@ -1413,13 +1413,13 @@ fn attack_targeted_freezes_from_last_drain() {
 
 #[test]
 fn owner_changed_freezes_from_last_drain() {
-    crate::game_logic::host_owner_log::clear();
-    crate::game_logic::host_owner_log::record(
+    let mut logic = crate::game_logic::GameLogic::new();
+    logic.ownership_events.record(
         crate::game_logic::ObjectId(7),
         crate::game_logic::Team::China,
+        None,
     );
-    let _ = crate::game_logic::host_owner_log::drain();
-    let mut logic = crate::game_logic::GameLogic::new();
+    logic.ownership_events.complete_boundary();
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame.events.iter().any(|e| {

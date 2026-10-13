@@ -120,7 +120,7 @@ impl AIEnterState {
             return Ok(());
         }
         if let Some(ai) = ai.as_deref_mut() {
-            self.base.on_exit_with_ai(exit, ai);
+            self.base.cpp_on_exit_with_ai(exit, ai)?;
         } else {
             self.base.cpp_on_exit(exit)?;
         }
@@ -556,6 +556,17 @@ impl CppState for AIEnterState {
 
     fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         self.finish_exit_with_optional_ai(_exit, None)
+    }
+
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<(), String> {
+        // The installed CppStateAdapter dispatches this entry, rather than
+        // StateImplementation::on_exit_with_ai. Preserve the actual supplied
+        // base endingMove before Enter's ignore/locomotor/contain cleanup.
+        self.finish_exit_with_optional_ai(exit, Some(ai))
     }
 }
 

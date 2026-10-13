@@ -1427,7 +1427,14 @@ impl Object {
                 && self.waiting_for_path
                 && self.requested_destination.is_some()
         };
-        if self.temporary_move_frames > 0 {
+        if self.temporary_move_frames > 0
+            && !matches!(
+                self.transport_return_state,
+                Some(
+                    crate::game_logic::host_transport_return::TransportReturnState::TemporaryMove { .. }
+                )
+            )
+        {
             let arrived = self.movement.path.is_empty()
                 && self.movement.target_position.is_none()
                 && !self.waiting_for_path;
@@ -1511,7 +1518,6 @@ impl Object {
 
     pub fn set_max_shots_to_fire(&mut self, max_shots: i32) {
         self.max_shots_to_fire = max_shots;
-
     }
 
     /// C++ Weapon::getMaxShotCount residual: 0 means cannot fire more.

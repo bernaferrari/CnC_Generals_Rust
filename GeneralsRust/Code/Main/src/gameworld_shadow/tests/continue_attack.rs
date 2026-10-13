@@ -4,7 +4,6 @@ use super::*;
 
 #[test]
 fn ai_decision_buffer_channel_via_push_ai_decision() {
-
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
@@ -47,7 +46,6 @@ fn ai_decision_buffer_channel_via_push_ai_decision() {
 
 #[test]
 fn ai_decision_authority_applies_attack_via_gameworld() {
-
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
@@ -67,10 +65,10 @@ fn ai_decision_authority_applies_attack_via_gameworld() {
     let vid = logic
         .create_object("AdaU", Team::China, glam::Vec3::new(40.0, 0.0, 8.0))
         .expect("v");
-    logic
-        .host_object_mut(oid)
-        .unwrap()
-        .set_target(Some(vid), &mut logic.attack_events);
+    {
+        let (object, attack_events) = logic.host_object_and_attack_events_mut(oid).unwrap();
+        object.set_target(Some(vid), attack_events);
+    };
     assert_eq!(logic.host_object(oid).unwrap().target, Some(vid));
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -137,7 +135,6 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
 
 #[test]
 fn continue_attack_after_kill_decision_authority() {
-
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
@@ -185,7 +182,6 @@ fn continue_attack_after_kill_decision_authority() {
 
 #[test]
 fn assign_unit_attack_path_decision_authority() {
-
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
@@ -240,7 +236,6 @@ fn assign_unit_attack_path_decision_authority() {
 
 #[test]
 fn path_approach_with_state_decision_authority() {
-
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
@@ -277,7 +272,6 @@ fn path_approach_with_state_decision_authority() {
 
 #[test]
 fn troop_crawler_assault_decision_authority() {
-
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
@@ -345,7 +339,6 @@ fn troop_crawler_assault_decision_authority() {
 
 #[test]
 fn missile_defender_laser_guided_decision_authority() {
-
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
@@ -422,7 +415,6 @@ fn missile_defender_laser_guided_decision_authority() {
 
 #[test]
 fn private_attack_object_decision_authority() {
-
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
@@ -476,7 +468,6 @@ fn private_attack_object_decision_authority() {
 
 #[test]
 fn transfer_attack_decision_authority() {
-
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
@@ -527,7 +518,6 @@ fn transfer_attack_decision_authority() {
 
 #[test]
 fn apply_engagement_decision_aware_writeback() {
-
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
@@ -571,7 +561,6 @@ fn apply_engagement_decision_aware_writeback() {
 
 #[test]
 fn mood_auto_acquire_logs_decision_under_authority() {
-
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
@@ -666,7 +655,6 @@ fn mood_auto_acquire_logs_decision_under_authority() {
 
 #[test]
 fn support_guard_engage_uses_decision_authority() {
-
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
@@ -783,7 +771,6 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
 
 #[test]
 fn stop_attack_decision_authority_clears_via_writeback() {
-
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 

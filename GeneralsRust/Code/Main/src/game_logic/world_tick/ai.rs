@@ -165,6 +165,7 @@ impl GameLogic {
                     obj.tick_continuous_fire_coast(
                         self.frame,
                         &mut self.combat_system.fire_sound_loop_events,
+                        &mut self.health_events,
                     );
                     obj.tick_repulsor_status(self.frame);
                 }
@@ -866,7 +867,7 @@ impl GameLogic {
             // C++ SlavedUpdate.cpp:145-150 hijack/defect when master is no longer ALLIES.
             if slave_should_defect_to_master(master_team == drone_team) {
                 if let Some(d) = self.objects.get_mut(&drone_id) {
-                    d.defect(master_team, self.frame, 0);
+                    d.defect(master_team, self.frame, 0, &mut self.ownership_events);
                 }
             }
 
@@ -1003,7 +1004,7 @@ impl GameLogic {
                 .collect();
             for child_id in child_ids {
                 if let Some(child) = self.objects.get_mut(&child_id) {
-                    child.apply_disabled_hacked(until);
+                    child.apply_disabled_hacked(until, &mut self.health_events);
                 }
                 self.admit_host_radar_disabled_edges(child_id);
             }

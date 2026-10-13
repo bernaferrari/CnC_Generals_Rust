@@ -211,9 +211,9 @@ mod tests {
         object.set_status_under_construction(true);
         object.construction_percent = 0.99;
         object.builder_id = Some(dozer);
-        let builder = logic.host_object_mut(dozer).unwrap();
+        let (builder, attack_events) = logic.host_object_and_attack_events_mut(dozer).unwrap();
         builder.set_position(action);
-        builder.set_target(Some(id));
+        builder.set_target(Some(id), attack_events);
         builder.set_ai_state(AIState::Constructing);
         builder.movement.path.clear();
         builder.waiting_for_path = false;

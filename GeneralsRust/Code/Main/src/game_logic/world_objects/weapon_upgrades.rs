@@ -1194,7 +1194,7 @@ impl GameLogic {
         obj.apply_upgrade_tag(upgrade_name);
         obj.apply_upgrade_tag(UPGRADE_AMERICA_ADVANCED_CONTROL_RODS);
         obj.power_provided = obj.power_provided.saturating_add(bonus);
-        obj.record_host_entity_power();
+
         let _ = self.begin_power_plant_rods_extend(plant_id);
         true
     }
@@ -1711,11 +1711,11 @@ impl GameLogic {
             obj.set_status_detected(false);
             obj.detection_expires_frame = 0;
             obj.innate_stealth = true;
-            obj.record_host_stealth_flags();
+
             obj.stealth_breaks_on_attack = true;
-            obj.record_host_stealth_flags();
+
             obj.stealth_breaks_on_move = false;
-            obj.record_host_stealth_flags();
+
             obj.stealth_delay_frames = CAMOUFLAGE_STEALTH_DELAY_FRAMES;
             obj.stealth_allowed_frame = camouflage_stealth_allowed_frame(now);
             obj.stealth_delay_pending = false;
@@ -1754,12 +1754,12 @@ impl GameLogic {
             obj.set_status_detected(false);
             obj.detection_expires_frame = 0;
             obj.innate_stealth = true;
-            obj.record_host_stealth_flags();
+
             obj.stealth_breaks_on_attack = true;
-            obj.record_host_stealth_flags();
+
             obj.stealth_breaks_on_damage = true;
             obj.stealth_breaks_on_move = false;
-            obj.record_host_stealth_flags();
+
             obj.stealth_delay_frames = CAMO_NETTING_STEALTH_DELAY_FRAMES;
             obj.stealth_allowed_frame = camo_netting_stealth_allowed_frame(now);
             obj.stealth_delay_pending = false;

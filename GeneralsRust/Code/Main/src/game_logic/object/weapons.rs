@@ -1334,11 +1334,9 @@ impl Object {
         if self.consecutive_shot_target == Some(target_id) || within_coast {
             self.consecutive_shots_at_target = self.consecutive_shots_at_target.saturating_add(1);
             self.consecutive_shot_target = Some(target_id);
-
         } else {
             self.consecutive_shot_target = Some(target_id);
             self.consecutive_shots_at_target = 1;
-
         }
         // PER_SHOT: force next fire_at to re-arm delay by clearing ready stamp into the past.
         self.pre_attack_ready_at = 0.0;
@@ -1408,10 +1406,11 @@ impl Object {
         &mut self,
         frame: u32,
         events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) {
         self.tick_fire_sound_loop(frame, events);
         let _ = frame;
-        self.tick_subdual_damage();
+        self.tick_subdual_damage(health_events);
         if self.continuous_fire_level == 0 {
             return;
         }

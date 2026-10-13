@@ -29,6 +29,7 @@ fn apply_due(world: &mut GameLogic) {
         world.frame,
         Some(&world.players),
         &mut world.health_events,
+        &mut world.ownership_events,
     );
 }
 

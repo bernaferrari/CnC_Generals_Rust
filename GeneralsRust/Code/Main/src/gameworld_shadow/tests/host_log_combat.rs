@@ -149,8 +149,8 @@ fn host_weapon_stats_log_drives_set_weapon_stats_channel() {
 }
 
 #[test]
-fn host_vision_camo_log_drives_set_vision_camo_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_vision_camo_log};
+fn canonical_vision_camo_projects_without_writeback() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("VcCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -200,8 +200,8 @@ fn host_vision_camo_log_drives_set_vision_camo_channel() {
 }
 
 #[test]
-fn host_disguise_log_drives_set_disguise_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_disguise_log};
+fn canonical_disguise_projects_without_writeback() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DgCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -249,8 +249,8 @@ fn host_disguise_log_drives_set_disguise_channel() {
 }
 
 #[test]
-fn host_overlord_log_drives_set_overlord_addon_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_overlord_log};
+fn canonical_overlord_projects_without_writeback() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("OlCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -303,8 +303,8 @@ fn host_overlord_log_drives_set_overlord_addon_channel() {
 }
 
 #[test]
-fn host_stealth_flags_log_drives_set_stealth_flags_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_stealth_flags_log};
+fn canonical_stealth_flags_projects_without_writeback() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("StfCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -403,9 +403,9 @@ fn host_hive_log_drives_set_hive_slaves_channel() {
 }
 
 #[test]
-fn host_contain_capacity_log_drives_set_contain_capacity_channel() {
+fn canonical_contain_capacity_projects_without_writeback() {
     use crate::game_logic::buildings::{BuildingData, BuildingType};
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_contain_capacity_log};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CapCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -450,8 +450,8 @@ fn host_contain_capacity_log_drives_set_contain_capacity_channel() {
 }
 
 #[test]
-fn host_overcharge_log_drives_set_overcharge_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_overcharge_log};
+fn canonical_overcharge_projects_without_writeback() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("OcCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -706,8 +706,8 @@ fn host_continuous_fire_log_drives_set_continuous_fire_channel() {
 }
 
 #[test]
-fn host_detector_log_drives_set_detector_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_detector_log};
+fn canonical_detector_projects_without_writeback() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DetCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -847,8 +847,8 @@ fn host_turret_log_drives_set_turret_channel() {
 }
 
 #[test]
-fn host_entity_power_log_drives_set_entity_power_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_entity_power_log};
+fn canonical_entity_power_projects_without_writeback() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EPowerCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1057,8 +1057,8 @@ fn host_faerie_fire_log_drives_set_faerie_fire_channel() {
 }
 
 #[test]
-fn host_repulsor_log_drives_set_repulsor_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_repulsor_log};
+fn canonical_repulsor_projects_without_writeback() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("RpCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");

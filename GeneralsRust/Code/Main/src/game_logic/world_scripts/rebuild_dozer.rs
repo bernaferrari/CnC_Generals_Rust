@@ -114,7 +114,12 @@ impl GameLogic {
             };
         if is_pilot && self.can_execute_pilot_recrew(infantry_id, vehicle_id) {
             if let Some(veh) = self.objects.get_mut(&vehicle_id) {
-                let _ = veh.apply_pilot_recrew(inf_team, inf_owner_player_id, inf_level);
+                let _ = veh.apply_pilot_recrew(
+                    inf_team,
+                    inf_owner_player_id,
+                    inf_level,
+                    &mut self.ownership_events,
+                );
             }
             self.admit_host_radar_disabled_edges(vehicle_id);
             let _ = self.transfer_script_object_name(infantry_id, vehicle_id);
@@ -136,7 +141,7 @@ impl GameLogic {
                 veh.stop_moving();
                 veh.target = None;
                 veh.set_ai_state(crate::game_logic::AIState::Idle);
-                veh.set_team_and_owner(inf_team, inf_owner_player_id);
+                veh.set_team_and_owner(inf_team, inf_owner_player_id, &mut self.ownership_events);
                 veh.set_private_captured(true);
             }
         }
@@ -524,11 +529,11 @@ impl GameLogic {
                 unit.set_status_attacking(false);
             }
             if let Some(c) = self.objects.get_mut(&container_id) {
-                let _ = c.remove_occupant(uid);
+                let _ = c.remove_occupant(uid, &mut self.ownership_events);
             }
             if let Some(pid) = portable_id {
                 if let Some(addon) = self.objects.get_mut(&pid) {
-                    let _ = addon.remove_occupant(uid);
+                    let _ = addon.remove_occupant(uid, &mut self.ownership_events);
                 }
             }
             self.capture_kick_outs = self.capture_kick_outs.saturating_add(1);
@@ -594,7 +599,7 @@ impl GameLogic {
                 unit.set_status_attacking(false);
             }
             if let Some(st) = self.objects.get_mut(&structure_id) {
-                let _ = st.remove_occupant(uid);
+                let _ = st.remove_occupant(uid, &mut self.ownership_events);
             }
             self.sell_passengers_ejected = self.sell_passengers_ejected.saturating_add(1);
         }
@@ -829,8 +834,10 @@ impl GameLogic {
             };
             if refund > 0 {
                 if let Some(player_id) = owner_player_id {
-                    if let Some(player) = self.get_player_mut(player_id) {
-                        player.apply_supply_gain(refund);
+                    if let Some((player, economy_events)) =
+                        self.player_and_economy_events_mut(player_id)
+                    {
+                        player.apply_supply_gain(refund, economy_events);
                     }
                 }
             }
@@ -1815,7 +1822,7 @@ impl GameLogic {
             // A rebuild hole is a continuation of the destroyed building, not
             // a new team-level object.  Preserve exact ownership for the
             // later worker and reconstruction spawn chain.
-            h.set_team_and_owner(team, owner_player_id);
+            h.set_team_and_owner(team, owner_player_id, &mut self.ownership_events);
             h.set_orientation(orient);
             h.set_status_under_construction(false);
             // Defer percent only when shadow sole-ticks construction; host-only
@@ -2024,7 +2031,7 @@ impl GameLogic {
                 continue;
             };
             if let Some(w) = self.objects.get_mut(&worker_id) {
-                w.set_team_and_owner(team, owner_player_id);
+                w.set_team_and_owner(team, owner_player_id, &mut self.ownership_events);
                 w.set_status_unselectable(true);
                 w.set_status_masked(false);
             }
@@ -2105,7 +2112,7 @@ impl GameLogic {
                 continue;
             };
             if let Some(o) = self.objects.get_mut(&new_id) {
-                o.set_team_and_owner(team, owner_player_id);
+                o.set_team_and_owner(team, owner_player_id, &mut self.ownership_events);
                 o.set_orientation(orient);
                 o.set_status_under_construction(true);
                 o.set_status_reconstructing(true);

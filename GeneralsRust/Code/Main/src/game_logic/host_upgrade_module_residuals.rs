@@ -584,12 +584,8 @@ fn seed_set_switch_locomotor(name: &str) {
         "WanderHumanLocomotor" => ("10", "100", "350", "10", "50", None, "TWO_LEGS"),
         "NuclearOverlordLocomotor" => ("30", "15", "60", "30", "15", None, "TREADS"),
         "NuclearBattleMasterLocomotor" => ("35", "1000", "180", "32", "1000", None, "TREADS"),
-        "BasicJetTaxiLocomotor" => {
-            ("50", "100", "180", "50", "100", Some("999999"), "TREADS")
-        }
-        "BasicHelicopterTaxiLocomotor" => {
-            ("30", "30", "90", "30", "8", Some("50"), "TREADS")
-        }
+        "BasicJetTaxiLocomotor" => ("50", "100", "180", "50", "100", Some("999999"), "TREADS"),
+        "BasicHelicopterTaxiLocomotor" => ("30", "30", "90", "30", "8", Some("50"), "TREADS"),
         _ => return,
     };
     let mut props = std::collections::HashMap::new();
@@ -651,7 +647,11 @@ fn residual_swap_for_name(name: &'static str) -> Option<LocomotorSetSwap> {
         acceleration: accel,
         acceleration_damaged: accel_dmg,
         turn_rate: turn,
-        turn_rate_damaged: if name == "BasicHelicopterTaxiLocomotor" { 60.0 * DEG_TO_RAD } else { turn },
+        turn_rate_damaged: if name == "BasicHelicopterTaxiLocomotor" {
+            60.0 * DEG_TO_RAD
+        } else {
+            turn
+        },
         braking,
         locomotor_surfaces,
     })
@@ -1089,7 +1089,7 @@ mod tests {
 
     #[test]
     fn ground_cell_picks_the_ground_member_not_the_air_member() {
-        use crate::game_logic::{Object, ObjectId, Team, ThingTemplate, LOCO_SURFACE_GROUND};
+        use crate::game_logic::{LOCO_SURFACE_GROUND, Object, ObjectId, Team, ThingTemplate};
         let mut template = ThingTemplate::new("MixedLoco");
         template.authored_locomotor_sets = Some(vec![AuthoredLocomotorSet {
             kind: HostLocomotorSetKind::Normal,
@@ -1109,7 +1109,6 @@ mod tests {
             Some("CombatBikeGroundLocomotor")
         );
     }
-
 
     #[test]
     fn authored_locomotor_upgrade_waits_until_normal_is_selected() {
@@ -1291,7 +1290,8 @@ mod tests {
         assert!(shoes.braking > 0.0);
         assert_eq!(
             shoes.locomotor_surfaces,
-            crate::game_logic::object::LOCO_SURFACE_GROUND | crate::game_logic::object::LOCO_SURFACE_RUBBLE
+            crate::game_logic::object::LOCO_SURFACE_GROUND
+                | crate::game_logic::object::LOCO_SURFACE_RUBBLE
         );
 
         let nuclear = locomotor_upgrade_set("Upgrade_ChinaNuclearTanks", "ChinaTankBattleMaster")
@@ -1469,7 +1469,9 @@ mod tests {
         ));
         assert_eq!(jet.jet_ai.cur_locomotor_set.as_deref(), Some("SET_TAXIING"));
         assert!((jet.movement.max_speed - 50.0).abs() < 0.01);
-        assert!(locomotor_set_swap_for_kind("ChinaJetMIG", HostLocomotorSetKind::Supersonic).is_none());
+        assert!(
+            locomotor_set_swap_for_kind("ChinaJetMIG", HostLocomotorSetKind::Supersonic).is_none()
+        );
         assert_eq!(dash.locomotor_name, "AuroraJetSupersonicLocomotor");
         assert!((dash.max_speed - 480.0).abs() < 0.01);
         assert!((dash.max_speed_damaged - 240.0).abs() < 0.01);

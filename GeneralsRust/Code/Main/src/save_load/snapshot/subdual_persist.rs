@@ -145,7 +145,9 @@ mod tests {
             .create_object("AmericaWarFactory", Team::USA, Vec3::new(20.0, 0.0, 16.0))
             .expect("factory");
         {
-            let factory = source.host_object_mut(factory_id).expect("factory");
+            let (factory, health_events) = source
+                .host_object_and_health_events_mut(factory_id)
+                .expect("factory");
             factory.health.maximum = 2000.0;
             factory.health.current = 2000.0;
             factory.subdual_damage_cap = 2000.0;
@@ -153,7 +155,7 @@ mod tests {
             factory.subdual_heal_amount = 50.0;
             factory.subdual_damage = 2000.0;
             factory.subdual_heal_countdown = 11;
-            factory.set_disabled_subdued(true);
+            factory.set_disabled_subdued(true, health_events);
             assert!(factory.is_subdued_disabled());
         }
 

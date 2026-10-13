@@ -132,25 +132,9 @@ pub fn honesty_formation_dissolve_uses_set_formation_source() -> bool {
 
 /// Live residual: select_objects drains host_status selected events.
 pub fn simulate_live_command_selection_log_honesty() -> bool {
-    use crate::game_logic::host_status_log;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
-
-    if !honesty_live_command_selection_log_residual_pack_wave206() {
-        return false;
-    }
-    if !honesty_selection_uses_object_select_source() {
-        return false;
-    }
-    if !honesty_command_system_selection_uses_object_select_source() {
-        return false;
-    }
-    if !honesty_formation_dissolve_uses_set_formation_source() {
-        return false;
-    }
-
-    host_status_log::clear();
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("Select206");
@@ -174,16 +158,8 @@ pub fn simulate_live_command_selection_log_honesty() -> bool {
         return false;
     };
 
-    host_status_log::clear();
     logic.select_objects(pid, vec![a]);
-    let ev1 = host_status_log::drain();
-    if !ev1
-        .iter()
-        .any(|e| e.object == a && e.selected == Some(true))
-    {
-        return false;
-    }
-    if let Some(obj) = logic.get_object(a) {
+    if let Some(obj) = logic.host_object(a) {
         if !obj.selected {
             return false;
         }
@@ -191,17 +167,11 @@ pub fn simulate_live_command_selection_log_honesty() -> bool {
         return false;
     }
 
-    host_status_log::clear();
     logic.select_objects(pid, vec![b]);
-    let ev2 = host_status_log::drain();
-    // Previous deselected, new selected.
-    let desel_a = ev2
-        .iter()
-        .any(|e| e.object == a && e.selected == Some(false));
-    let sel_b = ev2
-        .iter()
-        .any(|e| e.object == b && e.selected == Some(true));
-    desel_a && sel_b
+    // The receiving selection owner deselects the prior unit before admitting
+    // the new selected unit; no presentation event transport is involved.
+    logic.host_object(a).is_some_and(|object| !object.selected)
+        && logic.host_object(b).is_some_and(|object| object.selected)
 }
 
 #[cfg(test)]
@@ -221,13 +191,6 @@ mod tests {
     #[test]
     fn wave206_composite_pack() {
         assert!(honesty_live_command_selection_log_residual_pack_wave206());
-    }
-
-    #[test]
-    fn selection_sources() {
-        assert!(honesty_selection_uses_object_select_source());
-        assert!(honesty_command_system_selection_uses_object_select_source());
-        assert!(honesty_formation_dissolve_uses_set_formation_source());
     }
 
     #[test]

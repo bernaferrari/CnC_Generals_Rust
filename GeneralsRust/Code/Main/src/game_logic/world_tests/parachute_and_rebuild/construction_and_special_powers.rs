@@ -2442,6 +2442,7 @@ fn countermeasures_diverts_projectile_direct_hits() {
             Some(&mut logic.countermeasures),
             1000 + i,
             &mut logic.health_events,
+            &mut logic.ownership_events,
         );
     }
     assert!(

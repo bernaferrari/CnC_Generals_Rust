@@ -166,6 +166,8 @@ fn sparse_slot_alliance_tokens_use_authored_slot_names() {
 
 #[test]
 fn side_authoring_preserves_unresolved_start_position_and_observer_name() {
+    let mut _economy_output = crate::game_logic::host_economy_log::EconomyEvents::default();
+
     isolated(
         "side_authoring_preserves_unresolved_start_position_and_observer_name",
         || {
@@ -174,7 +176,7 @@ fn side_authoring_preserves_unresolved_start_position_and_observer_name() {
             let mut neutral = Player::new(77, Team::Neutral, "", false);
             let mut neutral_dict = Dict::new();
             neutral_dict.set_ascii_string(key_player_name(), "");
-            neutral.apply_map_side_dict(&neutral_dict, false);
+            neutral.apply_map_side_dict(&neutral_dict, false, &mut _economy_output);
             world.add_player(neutral);
             world.add_player(Player::new(90, Team::Neutral, "ReplayObserver", true));
             let sides = prepared(&world);

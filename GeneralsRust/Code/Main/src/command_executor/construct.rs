@@ -303,9 +303,9 @@ impl<'a> CommandExecutor<'a> {
                 .modified_build_cost_supplies(player_id, &template_name, base_supplies)
         };
         if refund > 0 {
-            if let Some(player) = self.game_logic.get_player_mut(player_id) {
-                player.resources.supplies = player.resources.supplies.saturating_add(refund);
-            }
+            // GameLogicDispatch.cpp1430-1435: Money::deposit precedes cancel
+            // and destruction, including the controlling player's sound cue.
+            self.game_logic.player_refund_supplies(player_id, refund);
         }
         // C++ killing the building causes dozer cancelTask residual.
         self.game_logic.cancel_dozers_building(object_id);

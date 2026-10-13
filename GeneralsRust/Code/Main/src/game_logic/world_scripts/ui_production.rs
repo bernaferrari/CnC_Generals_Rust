@@ -471,11 +471,6 @@ impl GameLogic {
         while let Some(command) = self.command_queue.pop_front() {
             self.execute_command(command);
         }
-        // Standalone command processing (unit tests / host gates without a full
-        // sim tick) must still settle deferred economy/damage authority logs.
-        {
-            crate::gameworld_shadow::materialize_host_economy_pending(self);
-        }
     }
 
     /// Snapshot number of active beacons (used by HUD to clear highlights).
@@ -2338,13 +2333,13 @@ impl GameLogic {
                 None
             };
 
-        let Some(player) = self.get_player_mut(player_id) else {
+        let Some((player, economy_events)) = self.player_and_economy_events_mut(player_id) else {
             if let Some(door) = reserved_exit_door {
                 self.unreserve_airfield_door_for_exit(producer_id, door);
             }
             return false;
         };
-        if !player.spend_resources(&charged_cost) {
+        if !player.spend_resources(&charged_cost, economy_events) {
             // Race residual: money spent between can_make and charge.
             if let Some(door) = reserved_exit_door {
                 self.unreserve_airfield_door_for_exit(producer_id, door);

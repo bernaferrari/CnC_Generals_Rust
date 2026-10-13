@@ -592,29 +592,11 @@ impl GameLogic {
         use crate::game_logic::combat::{self, DamageType, PendingProjectile};
         use crate::game_logic::host_usa_pilot::HostDeathType;
 
-        // Presentation AttackTargeted residual (HUD observe only — C++ plays no
-        // SFX on an attack order; per-shot audio is the authored FireSound via
-        // FiringTracker::shotFired).
-        self.attack_events.record(attacker_id, target_id);
-
-        // Fire *decision* residual: under AI_DECISION_AUTHORITY, emit AttackTarget so
-        // GameWorld last-writes host engagement target (parity with fire_at_ex).
-        // Host still *chooses* the residual target; this peels the decision channel.
-        {}
-
-        // Fire-spawn channel residual: under FIRE_SPAWN_AUTHORITY, log a projectile
-        // spawn carrying live damage (parity with fire_at). Hitscan below still
-        // owns same-frame residual HP so update_combat-only honesty stays green
-        // for both instant and ballistic residual weapons; residual-hitscan pairs
-        // are marked so shadow zeroes spawn damage (no dual-tick double-dip).
-        // Ballistic projectile-owned residual HP (no hitscan) remains deferred until
-        // dual-tick tests drive shadow materialize+resolve after host combat.
-        {}
-
-        // Object::fire_at_ex commits its firing target synchronously. Residual
-        // firing uses the same canonical engagement observation before damage.
+        // Passive fire observes the canonical target without entering a new
+        // AI state. Garrisoned units and transport passengers remain contained
+        // while their weapon fires (GarrisonContain.cpp / TransportContain.cpp).
         if let Some(source) = self.objects.get_mut(&attacker_id) {
-            source.set_target(Some(target_id), &mut self.attack_events);
+            source.note_attack_target(target_id, &mut self.attack_events);
         }
 
         let mut destroyed = false;
@@ -627,7 +609,6 @@ impl GameLogic {
                 &mut self.health_events,
                 &self.enable_repulsors,
             );
-            {}
             if destroyed {
                 kill_xp = target.kill_experience_value();
             }

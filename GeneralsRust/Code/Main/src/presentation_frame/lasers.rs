@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(all(test, feature = "game_client"))]
+#[path = "owned_laser_scene_tests.rs"]
+mod owned_laser_scene_tests;
+
 /// Frozen W3DLaserDraw / Tracer / Rope line from GameClient RenderBridge.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationSceneLine {
@@ -28,6 +32,43 @@ impl PresentationSceneLine {
             scroll_rate: line.scroll_rate,
         })
     }
+}
+
+#[cfg(feature = "game_client")]
+impl From<game_client::render_bridge::FrozenSceneLine> for PresentationSceneLine {
+    fn from(line: game_client::render_bridge::FrozenSceneLine) -> Self {
+        // The bridge's remaining producers are W3DLaserDraw, W3DTracerDraw
+        // and W3DRopeDraw. Their descriptors all use original C++ Z-up.
+        Self {
+            start: (line.start[0], line.start[2], line.start[1]),
+            end: (line.end[0], line.end[2], line.end[1]),
+            width: line.width,
+            color: (line.color[0], line.color[1], line.color[2], line.color[3]),
+            texture_name: line.texture_name,
+            tile_factor: line.tile_factor,
+            scroll_rate: line.scroll_rate,
+        }
+    }
+}
+
+/// Freeze actual installed LaserUpdate/W3DLaserDraw geometry from the
+/// receiving client. Texture definitions and terrain are supplied by their
+/// owners; geometry never discovers a global drawable or advances simulation.
+#[cfg(feature = "game_client")]
+pub(crate) fn freeze_owned_laser_scene_lines(
+    client: &mut game_client::core::game_client::GameClient,
+    texture_aspect: &dyn Fn(&str) -> Result<f32, String>,
+    terrain_height: &mut dyn FnMut(f32, f32) -> Option<f32>,
+) -> Result<Vec<PresentationSceneLine>, String> {
+    client
+        .owned_ray_geometry(texture_aspect, terrain_height)
+        .map(|lines| {
+            lines
+                .into_iter()
+                .filter_map(PresentationSceneLine::from_cpp_desc)
+                .collect()
+        })
+        .map_err(|error| error.to_string())
 }
 
 /// Frozen C++ `W3DStatusCircle` camera fade (ADD/SUBTRACT/SATURATE/MULTIPLY).

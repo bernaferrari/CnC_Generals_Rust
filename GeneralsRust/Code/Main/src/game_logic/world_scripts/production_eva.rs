@@ -1525,7 +1525,7 @@ impl GameLogic {
             return false;
         }
         obj.power_provided = obj.power_provided.saturating_sub(energy_bonus);
-        obj.record_host_entity_power();
+
         obj.set_overcharge_enabled(false);
         true
     }
@@ -1566,7 +1566,7 @@ impl GameLogic {
             // No click-time health threshold: C++ evaluates the strict `<`
             // threshold only in OverchargeBehavior::update after damage.
             obj.power_provided = obj.power_provided.saturating_add(energy_bonus);
-            obj.record_host_entity_power();
+
             obj.set_overcharge_enabled(true);
             true
         };

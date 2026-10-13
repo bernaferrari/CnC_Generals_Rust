@@ -1,17 +1,5 @@
-//! Wave 202 residual peels: Cheer command logs model-condition + demo-mine-cheer;
-//! science purchase spends SPP via `record_host_progress` for SetPlayerProgress.
-//! Never flips shell `playable_claim`.
-//!
-//! Orthogonal to Wave 201 evacuate/contain residual.
-//! Host residual only — network deferred.
-//!
-//! Sources:
-//! - `Object::begin_cheer` → host_model_condition_log + host_demo_mine_cheer_log
-//! - `Player::attempt_to_purchase_science` → record_host_progress after unlock
-//!
-//! Fail-closed:
-//! - Not full GameClient OS-input cutover
-//! - Shell `playable_claim` stays false; network deferred
+//! Actual receiving-owner cheer and science-purchase witness.
+//! Historical metadata labels below are not C++ behavior evidence.
 
 /// Lookup residual name index (exact match).
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
@@ -80,70 +68,16 @@ pub fn honesty_live_command_cheer_science_log_residual_pack_wave202() -> bool {
 }
 
 /// Source residual: execute_cheer uses begin_cheer (not direct bit/timer writes).
-pub fn honesty_cheer_uses_begin_cheer_source() -> bool {
-    let ce = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    let i = match ce.find("fn execute_cheer") {
-        Some(i) => i,
-        None => return false,
-    };
-    let body = &ce[i..ce.len().min(i + 1200)];
-    // Wave 232: executor may call unit_command_cheer which calls begin_cheer.
-    let via_api = body.contains("unit_command_cheer");
-    let via_direct = body.contains("begin_cheer");
-    (via_api || via_direct)
-        && !body.contains("cheer_timer =")
-        && !body.contains("model_condition_bits |=")
-}
 
 /// Source residual: attempt_to_purchase_science records progress after unlock.
-pub fn honesty_science_purchase_logs_progress_source() -> bool {
-    let src = super::GAME_LOGIC_HOST_SRC;
-    let i = match src.find("fn attempt_to_purchase_science") {
-        Some(i) => i,
-        None => return false,
-    };
-    let body = &src[i..src.len().min(i + 1200)];
-    body.contains("unlock_science") && body.contains("record_host_progress")
-}
 
 /// Source residual: Object::begin_cheer records both logs.
-pub fn honesty_begin_cheer_records_logs_source() -> bool {
-    let src = crate::game_logic::object::OBJECT_SRC;
-    let i = match src.find("fn begin_cheer") {
-        Some(i) => i,
-        None => return false,
-    };
-    let body = &src[i..src.len().min(i + 800)];
-    body.contains("record_host_model_condition")
-        && body.contains("record_host_demo_mine_cheer")
-        && body.contains("cheer_timer")
-}
 
-/// Live residual: begin_cheer drains model-condition + demo-mine-cheer events.
+/// Observe actual cheer state and the receiving player after a science purchase.
 pub fn simulate_live_command_cheer_science_log_honesty() -> bool {
-    use crate::game_logic::host_demo_mine_cheer_log;
-    use crate::game_logic::host_model_condition_log;
-    use crate::game_logic::host_player_progress_log;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
-
-    if !honesty_live_command_cheer_science_log_residual_pack_wave202() {
-        return false;
-    }
-    if !honesty_cheer_uses_begin_cheer_source() {
-        return false;
-    }
-    if !honesty_science_purchase_logs_progress_source() {
-        return false;
-    }
-    if !honesty_begin_cheer_records_logs_source() {
-        return false;
-    }
-
-    host_model_condition_log::clear();
-    host_demo_mine_cheer_log::clear();
-    host_player_progress_log::clear();
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CheerSci202");
@@ -162,10 +96,7 @@ pub fn simulate_live_command_cheer_science_log_honesty() -> bool {
         return false;
     };
 
-    host_model_condition_log::clear();
-    host_demo_mine_cheer_log::clear();
-
-    let cheer_ok = if let Some(unit) = logic.get_object_mut(uid) {
+    let cheer_ok = if let Some(unit) = logic.host_object_mut(uid) {
         unit.begin_cheer(3.0, Some(0));
         (unit.cheer_timer - 3.0).abs() < 1e-5 && unit.model_condition_bits & 1 != 0
     } else {
@@ -174,20 +105,8 @@ pub fn simulate_live_command_cheer_science_log_honesty() -> bool {
     if !cheer_ok {
         return false;
     }
-    let mc = host_model_condition_log::drain();
-    let dm = host_demo_mine_cheer_log::drain();
-    if !mc.iter().any(|e| e.object == uid) {
-        return false;
-    }
-    if !dm
-        .iter()
-        .any(|e| e.object == uid && (e.cheer_timer - 3.0).abs() < 1e-5)
-    {
-        return false;
-    }
-
     // Science purchase progress residual (if player can purchase a rank science).
-    host_player_progress_log::clear();
+
     let Some(pid) = logic.local_player_id() else {
         return true; // cheer path already proven
     };
@@ -200,9 +119,7 @@ pub fn simulate_live_command_cheer_science_log_honesty() -> bool {
             || p.attempt_to_purchase_science("SCIENCE_Paladin")
             || p.attempt_to_purchase_science("Rank2");
         if tried {
-            let events = host_player_progress_log::drain();
-            if !events.iter().any(|e| e.player_id == pid) {
-                // unlock may only hit sciences meta; progress must fire on spend.
+            if p.science_purchase_points > before || p.unlocked_sciences.is_empty() {
                 return false;
             }
             let _ = before;
@@ -228,13 +145,6 @@ mod tests {
     #[test]
     fn wave202_composite_pack() {
         assert!(honesty_live_command_cheer_science_log_residual_pack_wave202());
-    }
-
-    #[test]
-    fn cheer_science_sources() {
-        assert!(honesty_cheer_uses_begin_cheer_source());
-        assert!(honesty_science_purchase_logs_progress_source());
-        assert!(honesty_begin_cheer_records_logs_source());
     }
 
     #[test]

@@ -1178,8 +1178,8 @@ impl GameLogic {
         // C++ PartitionManager collide residual (broadphase fail-closed O(n²)).
         self.tick_physics_collisions_all();
 
-        // Projectiles: drain global fire queue into host CombatSystem and step.
-        // Sole ownership — engine must not maintain a second mid-frame CombatSystem.
+        // Admit accepted shots from this session's CombatSystem before flight.
+        // The same owner applies ordered impact damage and body callbacks.
         crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
         {
             let objects = &self.objects;
@@ -1194,14 +1194,8 @@ impl GameLogic {
         // C++ Weapon::fireWeaponTemplate runs FireOCL at shot acceptance,
         // independently of whether the projectile later finds a target.
         self.execute_pending_weapon_fire_ocls();
-        // Countermeasures residual: mark aircraft upgrade flags for combat pass.
-        // CombatSystem cannot see player upgrades; diversion is applied after
-        // update_projectiles via a dedicated pre-damage filter is not available,
-        // so we run a second pass helper that inspects combat's last-hit log.
-        // Instead, process diversion inside apply_projectile_countermeasures_pass
-        // after projectiles update (combat still applies damage; we heal-back
-        // diverted hits is wrong). Prefer combat-level hook:
-        // Wave 882: projectile sole-integrate under GW authority (host skips dual advance).
+        // Apply countermeasure diversion within the receiving projectile
+        // operation, before committing damage; never repair health afterward.
         let projectile_hits = {
             let hits = self.update_owned_projectile_impacts(dt);
             crate::game_logic::host_projectile_log::record_snapshot(
@@ -1536,12 +1530,6 @@ impl GameLogic {
         // Post-phase: Audio events
         // -----------------------------------------------------------------------
         self.process_audio_events();
-
-        // Host-only ticks: settle deferred economy spends (DAMAGE/HP already
-        // fail-open onto host when not in a coupled shadow writeback frame).
-        {
-            crate::gameworld_shadow::materialize_host_economy_pending(self);
-        }
 
         // C++ DozerAIUpdate.cpp:318-348 — PICK_ACTION_POS re-issues the dozer
         // approach until arrival; run after the follower phase so a re-issued

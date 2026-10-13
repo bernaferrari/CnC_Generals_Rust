@@ -238,7 +238,7 @@ fn residual_auto_fire_host_attack_log_source() {
     let src = GAME_LOGIC_HOST_SRC;
     let body = last_rust_fn_body(src, "residual_auto_fire_apply_damage").expect("helper");
     assert!(
-        body.contains("self.attack_events.record(attacker_id, target_id)"),
+        body.contains("source.note_attack_target(target_id, &mut self.attack_events)"),
         "residual auto-fire helper must record receiving attack output for presentation AttackTargeted"
     );
     for name in [
@@ -1124,7 +1124,8 @@ fn command_move_attack_host_object_id_source() {
     let i = src.find("fn command_attack").expect("command_attack");
     let body = &src[i..src.len().min(i + 6000)];
     assert!(
-        body.contains("attack_target(target_id)") && !body.contains("bridge_attack_to_engine"),
+        body.contains("attack_target(target_id, &mut self.attack_events)")
+            && !body.contains("bridge_attack_to_engine"),
         "command_attack must use host ObjectId attack_target only"
     );
 }

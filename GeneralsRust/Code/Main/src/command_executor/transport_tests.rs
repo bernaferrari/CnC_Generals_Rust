@@ -677,8 +677,8 @@ fn execute_exit_and_evacuate_ignored_while_subdued() {
         .unwrap();
     contain_pair(&mut logic, transport, pax);
     {
-        let h = logic.host_object_mut(transport).unwrap();
-        h.set_disabled_subdued(true);
+        let (h, health_events) = logic.host_object_and_health_events_mut(transport).unwrap();
+        h.set_disabled_subdued(true, health_events);
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);

@@ -101,8 +101,7 @@ pub struct Player {
     pub team: Team,
     pub name: String,
     pub resources: Resources,
-    /// In-flight supply delta under GameWorld economy authority (cleared on writeback).
-    pub pending_supply_delta: i64,
+
     pub power_available: i32,
     /// Total power produced by this player's power plants (for energy ratio).
     pub power_produced: i32,
@@ -379,7 +378,7 @@ impl Player {
                 supplies: Self::DEFAULT_STARTING_MONEY,
                 power: 0,
             },
-            pending_supply_delta: 0,
+
             power_available: 0,
             power_produced: 0,
             power_consumed: 0,
@@ -665,7 +664,6 @@ impl Player {
             self.shared_special_power_cooldowns
                 .insert(power.clone(), cd);
         }
-        self.record_host_cooldowns();
     }
 
     /// C++ Player::expressSpecialPowerReadyFrame(now) residual — ready immediately.
@@ -704,7 +702,7 @@ impl Player {
         }
         self.shared_special_power_cooldowns
             .retain(|_, rem| *rem > 0.0);
-        self.record_host_cooldowns();
+
         became_ready
     }
 
@@ -758,14 +756,12 @@ impl Player {
     pub fn set_cash_bounty(&mut self, percentage: f32) {
         if percentage > self.cash_bounty_percent {
             self.cash_bounty_percent = percentage;
-            self.record_host_progress();
         }
     }
 
     /// Force-set cash bounty percent (tests / load restore).
     pub fn force_set_cash_bounty(&mut self, percentage: f32) {
         self.cash_bounty_percent = percentage.max(0.0);
-        self.record_host_progress();
     }
 
     /// C++ Player::getProductionCostChangeBasedOnKindOf residual.
@@ -785,55 +781,29 @@ impl Player {
         );
     }
 
-    pub fn record_host_progress(&self) {
-        crate::game_logic::host_player_progress_log::record(
-            self.id,
-            self.rank_level,
-            self.skill_points,
-            self.science_purchase_points,
-            self.cash_bounty_percent,
-        );
-    }
-
-    pub fn record_host_sciences(&self) {
-        crate::game_logic::host_player_meta_log::record_sciences(
-            self.id,
-            self.unlocked_sciences.iter().cloned(),
-        );
-    }
-
-    pub fn record_host_alive(&self) {
-        crate::game_logic::host_player_meta_log::record_alive(self.id, self.is_alive);
-    }
-
-    pub fn record_host_cooldowns(&self) {
-        let mut cds: Vec<(String, f32)> = self
-            .shared_special_power_cooldowns
-            .iter()
-            .map(|(k, v)| (format!("{k:?}"), *v))
-            .collect();
-        cds.sort_by(|a, b| a.0.cmp(&b.0));
-        crate::game_logic::host_player_cooldown_log::record(self.id, cds);
-    }
-
     /// Award cash for a kill: `ceil(victim_calcCostToBuild * cash_bounty_percent)`.
     /// C++ Player::doBountyForKill: deposit then ScoreKeeper::addMoneyEarned.
     /// Returns cash awarded (0 when disabled or zero cost).
-    pub fn do_bounty_for_kill(&mut self, victim_build_cost: u32) -> u32 {
+    pub fn do_bounty_for_kill(
+        &mut self,
+        victim_build_cost: u32,
+        economy_events: &mut crate::game_logic::host_economy_log::EconomyEvents,
+    ) -> u32 {
         let bounty = crate::game_logic::host_cash_bounty::compute_bounty_award(
             victim_build_cost,
             self.cash_bounty_percent,
         );
         if bounty > 0 {
+            // Player.cpp2400-2416 deposits before the ScoreKeeper award.
+            economy_events.record_money_audio(
+                self.id,
+                crate::game_logic::host_economy_log::HostMoneyAudio::Deposit,
+            );
             self.statistics.resources_collected =
                 self.statistics.resources_collected.saturating_add(bounty);
             {
-                self.resources.supplies = self.resources.supplies.saturating_add(bounty);
-                crate::game_logic::host_economy_log::record(
-                    self.id,
-                    self.resources.supplies,
-                    self.power_available,
-                );
+                self.resources.supplies = self.resources.supplies.wrapping_add(bounty);
+                economy_events.record(self.id, self.resources.supplies, self.power_available);
             }
             // C++ Player.cpp:2416 m_scoreKeeper.addMoneyEarned(bounty).
             self.add_money_earned(bounty);
@@ -883,8 +853,6 @@ impl Player {
             }
         }
         if self.skill_points != old_skill || self.rank_level != old_level {
-            self.record_host_progress();
-            self.record_host_sciences();
             self.sync_leftover_player_sciences_from_host();
         }
         level_gained
@@ -926,8 +894,7 @@ impl Player {
             self.apply_faction_intrinsic_sciences();
         }
         self.science_purchase_points = reset.science_purchase_points;
-        self.record_host_progress();
-        self.record_host_sciences();
+
         self.sync_leftover_player_sciences_from_host();
     }
 
@@ -985,8 +952,7 @@ impl Player {
                 }
             }
         }
-        self.record_host_progress();
-        self.record_host_sciences();
+
         self.sync_leftover_player_sciences_from_host();
         true
     }
@@ -1030,21 +996,9 @@ impl Player {
         }
     }
 
-    /// Supplies visible to purchase gates (includes in-flight economy-authority delta).
+    /// Canonical cash visible to purchase gates.
     pub fn effective_supplies(&self) -> u32 {
-        let v = self.resources.supplies as i64 + self.pending_supply_delta;
-        if v <= 0 {
-            0
-        } else if v >= u32::MAX as i64 {
-            u32::MAX
-        } else {
-            v as u32
-        }
-    }
-
-    /// Clear in-flight economy delta after GameWorld writeback.
-    pub fn clear_pending_supply_delta(&mut self) {
-        self.pending_supply_delta = 0;
+        self.resources.supplies
     }
 
     pub fn can_afford(&self, cost: &Resources) -> bool {
@@ -1058,48 +1012,61 @@ impl Player {
         self.effective_supplies() >= cost.supplies
     }
 
-    pub fn spend_resources(&mut self, cost: &Resources) -> bool {
-        self.pay_resources(cost, true)
+    pub fn spend_resources(
+        &mut self,
+        cost: &Resources,
+        economy_events: &mut crate::game_logic::host_economy_log::EconomyEvents,
+    ) -> bool {
+        self.pay_resources(cost, true, economy_events)
     }
 
     /// Money::withdraw at scaffold birth has no ScoreKeeper side effect.
     /// Player records construction spending when that structure completes.
-    pub(crate) fn withdraw_construction_money(&mut self, amount: u32) {
+    pub(crate) fn withdraw_construction_money(
+        &mut self,
+        amount: u32,
+        economy_events: &mut crate::game_logic::host_economy_log::EconomyEvents,
+    ) {
         let cost = Resources {
             supplies: amount.min(self.effective_supplies()),
             power: 0,
         };
-        let _ = self.pay_resources(&cost, false);
+        let _ = self.pay_resources(&cost, false, economy_events);
     }
 
-    fn pay_resources(&mut self, cost: &Resources, record_spent: bool) -> bool {
+    fn pay_resources(
+        &mut self,
+        cost: &Resources,
+        record_spent: bool,
+        economy_events: &mut crate::game_logic::host_economy_log::EconomyEvents,
+    ) -> bool {
         if !self.can_afford(cost) {
             return false;
         }
         let power_after = self.power_available + cost.power; // Negative for consumption
+        // Money.cpp32-45 admits the nonzero Withdraw cue before subtraction.
+        if cost.supplies > 0 {
+            economy_events.record_money_audio(
+                self.id,
+                crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
+            );
+        }
         {
             self.resources.supplies -= cost.supplies;
             self.power_available = power_after;
-            if cost.supplies > 0 {
-                crate::game_logic::host_economy_log::record_money_audio(
-                    self.id,
-                    crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
-                );
-
-                if record_spent {
-                    self.record_resources_spent(cost.supplies);
-                }
+            if cost.supplies > 0 && record_spent {
+                self.record_resources_spent(cost.supplies);
             }
-            crate::game_logic::host_economy_log::record(
-                self.id,
-                self.resources.supplies,
-                self.power_available,
-            );
+            economy_events.record(self.id, self.resources.supplies, self.power_available);
         }
         true
     }
 
-    pub fn add_resources(&mut self, amount: &Resources) {
+    pub fn add_resources(
+        &mut self,
+        amount: &Resources,
+        economy_events: &mut crate::game_logic::host_economy_log::EconomyEvents,
+    ) {
         if amount.supplies == 0 {
             return;
         }
@@ -1110,12 +1077,8 @@ impl Player {
                 .saturating_add(amount.supplies);
         }
         {
-            self.resources.supplies = self.resources.supplies.saturating_add(amount.supplies);
-            crate::game_logic::host_economy_log::record(
-                self.id,
-                self.resources.supplies,
-                self.power_available,
-            );
+            self.resources.supplies = self.resources.supplies.wrapping_add(amount.supplies);
+            economy_events.record(self.id, self.resources.supplies, self.power_available);
         }
     }
 
@@ -1152,47 +1115,51 @@ impl Player {
     }
 
     /// Gain supplies under economy authority (pending delta) or direct mutate.
-    pub fn apply_supply_gain(&mut self, amount: u32) {
+    pub fn apply_supply_gain(
+        &mut self,
+        amount: u32,
+        economy_events: &mut crate::game_logic::host_economy_log::EconomyEvents,
+    ) {
         if amount == 0 {
             return;
         }
         {
-            self.resources.supplies = self.resources.supplies.saturating_add(amount);
-            crate::game_logic::host_economy_log::record(
-                self.id,
-                self.resources.supplies,
-                self.power_available,
-            );
+            self.resources.supplies = self.resources.supplies.wrapping_add(amount);
+            economy_events.record(self.id, self.resources.supplies, self.power_available);
         }
     }
 
     /// Spend supplies already validated via can_afford / effective_supplies.
-    pub fn apply_supply_spend_unchecked(&mut self, amount: u32) {
+    pub fn apply_supply_spend_unchecked(
+        &mut self,
+        amount: u32,
+        economy_events: &mut crate::game_logic::host_economy_log::EconomyEvents,
+    ) {
         if amount == 0 {
             return;
         }
         {
             self.resources.supplies = self.resources.supplies.saturating_sub(amount);
-            crate::game_logic::host_economy_log::record(
-                self.id,
-                self.resources.supplies,
-                self.power_available,
-            );
+            economy_events.record(self.id, self.resources.supplies, self.power_available);
         }
     }
 
-    pub fn credit_supplies(&mut self, amount: u32) {
+    pub fn credit_supplies(
+        &mut self,
+        amount: u32,
+        economy_events: &mut crate::game_logic::host_economy_log::EconomyEvents,
+    ) {
         if amount == 0 {
             return;
         }
         self.statistics.resources_collected =
             self.statistics.resources_collected.saturating_add(amount);
-        crate::game_logic::host_economy_log::record_money_audio(
+        economy_events.record_money_audio(
             self.id,
             crate::game_logic::host_economy_log::HostMoneyAudio::Deposit,
         );
 
-        self.apply_supply_gain(amount);
+        self.apply_supply_gain(amount, economy_events);
     }
 
     pub fn has_unlocked_science(&self, science_name: &str) -> bool {
@@ -1206,9 +1173,7 @@ impl Player {
         let inserted = self.unlocked_sciences.insert(science_name.to_string());
         // C++ Player::addScience never sets m_cashBountyPercent. CashBountyPower
         // on an existing palace module is the only setter (onSpecialPowerCreation).
-        if inserted {
-            self.record_host_sciences();
-        }
+        if inserted {}
         inserted
     }
 
@@ -1291,8 +1256,6 @@ impl Player {
         self.science_purchase_points = template
             .get_intrinsic_science_purchase_points()
             .saturating_add(rank1_grant);
-        self.record_host_sciences();
-        self.record_host_progress();
     }
 
     /// C++ Player::isCapableOfPurchasingScience residual.
@@ -1329,11 +1292,8 @@ impl Player {
             return false;
         }
         self.science_purchase_points -= cost;
-        // Wave 202: SPP spend must last-write SetPlayerProgress (sciences meta already
-        // records via unlock_science → record_host_sciences).
         let unlocked = self.unlock_science(&canonical);
         if unlocked {
-            self.record_host_progress();
             crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::sync_host_science_to_crate_player(
                 self.id,
                 &canonical,
@@ -1427,7 +1387,12 @@ impl Player {
 
     /// The map-create path deposits authored money after template initialization.
     /// Lobby owners already received their GameInfo cash (`apply_money=false`).
-    pub fn apply_map_side_dict(&mut self, dict: &Dict, apply_money: bool) {
+    pub fn apply_map_side_dict(
+        &mut self,
+        dict: &Dict,
+        apply_money: bool,
+        economy_events: &mut crate::game_logic::host_economy_log::EconomyEvents,
+    ) {
         // C++ Player::initFromDict chooses controller from the authored side,
         // never from local-player identity or whether strategic AI is active.
         if apply_money || dict.get_type(key_player_is_human()).is_some() {
@@ -1473,7 +1438,7 @@ impl Player {
             // it must not use the shadow world's deferred economy delta.
             let amount = dict.get_int(key_player_start_money()) as u32;
             if amount != 0 {
-                crate::game_logic::host_economy_log::record_money_audio(
+                economy_events.record_money_audio(
                     self.id,
                     crate::game_logic::host_economy_log::HostMoneyAudio::Deposit,
                 );
@@ -1958,6 +1923,8 @@ mod map_side_dict_tests {
 
     #[test]
     fn map_start_money_deposits_onto_initialized_cash() {
+        let mut _economy_output = crate::game_logic::host_economy_log::EconomyEvents::default();
+
         isolated_at(
             module_path!(),
             "map_start_money_deposits_onto_initialized_cash",
@@ -1968,7 +1935,7 @@ mod map_side_dict_tests {
                 dict.set_int(key_player_start_money(), 2_500);
                 dict.set_int(key_player_color(), 0x00aa_3311);
                 dict.set_ascii_string(key_player_name(), "PlyrAmerica");
-                player.apply_map_side_dict(&dict, true);
+                player.apply_map_side_dict(&dict, true, &mut _economy_output);
                 assert_eq!(player.resources.supplies, 12_500);
                 assert_eq!(player.color_rgb, (0xaa, 0x33, 0x11));
                 assert_eq!(player.map_side.map_player_name, "PlyrAmerica");
@@ -1978,6 +1945,8 @@ mod map_side_dict_tests {
 
     #[test]
     fn lobby_cash_is_not_clobbered_by_map_start_money() {
+        let mut _economy_output = crate::game_logic::host_economy_log::EconomyEvents::default();
+
         isolated_at(
             module_path!(),
             "lobby_cash_is_not_clobbered_by_map_start_money",
@@ -1986,7 +1955,7 @@ mod map_side_dict_tests {
                 player.resources.supplies = 20_000;
                 let mut dict = Dict::new();
                 dict.set_int(key_player_start_money(), 2_500);
-                player.apply_map_side_dict(&dict, false);
+                player.apply_map_side_dict(&dict, false, &mut _economy_output);
                 assert_eq!(player.resources.supplies, 20_000);
             },
         );
@@ -1994,6 +1963,8 @@ mod map_side_dict_tests {
 
     #[test]
     fn handicap_keys_apply_from_dict() {
+        let mut _economy_output = crate::game_logic::host_economy_log::EconomyEvents::default();
+
         isolated_at(module_path!(), "handicap_keys_apply_from_dict", || {
             let mut player = Player::new(0, Team::USA, "P", true);
             let mut dict = Dict::new();
@@ -2001,7 +1972,7 @@ mod map_side_dict_tests {
                 NameKeyGenerator::name_to_key("HANDICAP_BUILDCOST_BUILDINGS"),
                 0.75,
             );
-            player.apply_map_side_dict(&dict, false);
+            player.apply_map_side_dict(&dict, false, &mut _economy_output);
             assert!((player.handicap_build_cost_multiplier(true) - 0.75).abs() < f32::EPSILON);
             assert!((player.handicap_build_cost_multiplier(false) - 1.0).abs() < f32::EPSILON);
         });
@@ -2009,6 +1980,8 @@ mod map_side_dict_tests {
 
     #[test]
     fn object_upgrade_does_not_complete_into_player_set() {
+        let mut _economy_output = crate::game_logic::host_economy_log::EconomyEvents::default();
+
         isolated_at(
             module_path!(),
             "object_upgrade_does_not_complete_into_player_set",
@@ -2022,7 +1995,8 @@ mod map_side_dict_tests {
                 assert!(player.queue_upgrade(
                     "Upgrade_ChinaOverlordBattleBunker",
                     &cost,
-                    gamelogic::upgrade::UpgradeType::Object
+                    gamelogic::upgrade::UpgradeType::Object,
+                    &mut _economy_output,
                 ));
                 player.complete_researched_upgrade(
                     "Upgrade_ChinaOverlordBattleBunker",
@@ -2036,7 +2010,8 @@ mod map_side_dict_tests {
                     player.queue_upgrade(
                         "Upgrade_ChinaOverlordBattleBunker",
                         &cost,
-                        gamelogic::upgrade::UpgradeType::Object
+                        gamelogic::upgrade::UpgradeType::Object,
+                        &mut _economy_output,
                     ),
                     "a second unit must still be able to queue the same OBJECT upgrade"
                 );
@@ -2046,6 +2021,8 @@ mod map_side_dict_tests {
 
     #[test]
     fn player_upgrade_still_refuses_duplicate_queue() {
+        let mut _economy_output = crate::game_logic::host_economy_log::EconomyEvents::default();
+
         isolated_at(
             module_path!(),
             "player_upgrade_still_refuses_duplicate_queue",
@@ -2059,12 +2036,14 @@ mod map_side_dict_tests {
                 assert!(player.queue_upgrade(
                     "Upgrade_AmericaSupplyLines",
                     &cost,
-                    gamelogic::upgrade::UpgradeType::Player
+                    gamelogic::upgrade::UpgradeType::Player,
+                    &mut _economy_output,
                 ));
                 assert!(!player.queue_upgrade(
                     "Upgrade_AmericaSupplyLines",
                     &cost,
-                    gamelogic::upgrade::UpgradeType::Player
+                    gamelogic::upgrade::UpgradeType::Player,
+                    &mut _economy_output,
                 ));
                 player.complete_researched_upgrade(
                     "Upgrade_AmericaSupplyLines",
@@ -2074,7 +2053,8 @@ mod map_side_dict_tests {
                 assert!(!player.queue_upgrade(
                     "Upgrade_AmericaSupplyLines",
                     &cost,
-                    gamelogic::upgrade::UpgradeType::Player
+                    gamelogic::upgrade::UpgradeType::Player,
+                    &mut _economy_output,
                 ));
             },
         );
@@ -2082,6 +2062,8 @@ mod map_side_dict_tests {
 
     #[test]
     fn handicap_time_keys_apply_from_dict() {
+        let mut _economy_output = crate::game_logic::host_economy_log::EconomyEvents::default();
+
         isolated_at(module_path!(), "handicap_time_keys_apply_from_dict", || {
             let mut player = Player::new(0, Team::USA, "P", true);
             let mut dict = Dict::new();
@@ -2089,7 +2071,7 @@ mod map_side_dict_tests {
                 NameKeyGenerator::name_to_key("HANDICAP_BUILDTIME_BUILDINGS"),
                 0.5,
             );
-            player.apply_map_side_dict(&dict, false);
+            player.apply_map_side_dict(&dict, false, &mut _economy_output);
             assert!((player.handicap_build_time_multiplier(true) - 0.5).abs() < f32::EPSILON);
             assert!((player.handicap_build_time_multiplier(false) - 1.0).abs() < f32::EPSILON);
         });

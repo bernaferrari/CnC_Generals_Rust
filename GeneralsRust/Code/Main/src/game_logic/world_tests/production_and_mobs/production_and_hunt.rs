@@ -83,11 +83,15 @@ fn control_bar_queue_slot_cancel_releases_player_upgrade_state() {
 
     // Queue research through the coupled player + producer state that the
     // ControlBar's build-queue icon later cancels by slot.
-    assert!(logic.get_player_mut(0).expect("player").queue_upgrade(
-        UPGRADE,
-        &cost,
-        gamelogic::upgrade::UpgradeType::Player
-    ));
+    assert!({
+        let (player, economy_events) = logic.player_and_economy_events_mut(0).unwrap();
+        player.queue_upgrade(
+            UPGRADE,
+            &cost,
+            gamelogic::upgrade::UpgradeType::Player,
+            economy_events,
+        )
+    });
     assert!(
         logic
             .host_object_mut(producer)

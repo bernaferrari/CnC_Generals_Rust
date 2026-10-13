@@ -2540,7 +2540,7 @@ fn player_attack_rejects_hidden_garrison_without_script_targetable() {
         bd.original_team = Some(Team::Neutral);
         bd.hide_garrisoned_state = true;
         o.building_data = Some(bd);
-        o.set_team_and_owner(Team::GLA, Some(1));
+        o.set_team_and_owner(Team::GLA, Some(1), &mut logic.ownership_events);
         o
     });
 

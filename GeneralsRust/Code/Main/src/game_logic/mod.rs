@@ -20,6 +20,7 @@ pub mod combat_particles;
 pub(crate) mod crate_object_bridge;
 #[path = "game_logic/mod.rs"]
 pub mod game_logic;
+pub mod host_transport_return;
 pub(crate) mod production_energy;
 pub(crate) use game_logic::PathfindingHeightSamples;
 

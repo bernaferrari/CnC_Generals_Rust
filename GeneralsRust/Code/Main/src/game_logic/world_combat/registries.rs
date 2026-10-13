@@ -668,6 +668,15 @@ impl GameLogic {
     /// C++ move-to-and-evacuate arrival residual: dump all occupants near container.
     /// When `and_exit`, mark the transport sold/destroyed after unload (script exit residual).
     pub fn evacuate_container_now(&mut self, container_id: ObjectId, and_exit: bool) -> bool {
+        if and_exit
+            && !self.host_object(container_id).is_some_and(|object| {
+                object.chinook_ai.is_some() || object.transport_return_state.is_some()
+            })
+        {
+            // Return/delete needs the origin recorded by the actual command.
+            // An arbitrary contain call cannot invent that state or a death.
+            return false;
+        }
         let effective = self.redirected_containment_owner(container_id);
         if effective != container_id {
             if !self
@@ -682,7 +691,7 @@ impl GameLogic {
                 .host_object(effective)
                 .is_some_and(|object| object.contained_units().is_empty());
             if and_exit && empty {
-                self.mark_object_for_destruction(container_id, None);
+                self.finish_transport_return_phase(container_id);
             }
             return evacuated;
         }
@@ -921,7 +930,7 @@ impl GameLogic {
             let mut side_end: Option<glam::Vec3> = None;
             // Remove from container first.
             if let Some(c) = self.objects.get_mut(&container_id) {
-                let _ = c.remove_occupant(*pid);
+                let _ = c.remove_occupant(*pid, &mut self.ownership_events);
             }
             if let Some(p) = self.objects.get_mut(pid) {
                 // Wave 201: host_contain_log last-writer (do not bypass set_contained_by).
@@ -1083,18 +1092,10 @@ impl GameLogic {
         }
 
         if and_exit && !more_remain {
-            // C++ evacuate-and-exit: transport returns/deletes itself.
-            // Wave 747: under damage authority, do not zero host HP mid-frame
-            // (dual with GW HP writeback). Project lethal via damage log + flags;
-            // non-authority path keeps host HP clear.
-            if let Some(c) = self.objects.get_mut(&container_id) {
-                {
-                    c.health.current = 0.0;
-                }
-                c.status.destroyed = true;
-                c.set_ai_state(AIState::Idle);
-            }
-            any = true;
+            // The admitted MoveAndEvacuate state owns its saved origin and
+            // transitions through actual movement before requesting deletion.
+            // This contain operation never manufactures a destroyed/body-death latch.
+            self.finish_transport_return_phase(container_id);
         }
 
         any
@@ -1165,7 +1166,7 @@ impl GameLogic {
         let (target_is_bldg, dest_y) = self.combat_drop_rappel_dest(hover, drop_target);
 
         if let Some(c) = self.objects.get_mut(&container_id) {
-            let _ = c.remove_occupant(pid);
+            let _ = c.remove_occupant(pid, &mut self.ownership_events);
         }
         if let Some(p) = self.objects.get_mut(&pid) {
             p.set_contained_by(None);
@@ -1348,7 +1349,7 @@ impl GameLogic {
                 break;
             };
             if let Some(b) = self.objects.get_mut(&bldg_id) {
-                let _ = b.remove_occupant(enemy_id);
+                let _ = b.remove_occupant(enemy_id, &mut self.ownership_events);
             }
             if let Some(e) = self.objects.get_mut(&enemy_id) {
                 e.set_contained_by(None);

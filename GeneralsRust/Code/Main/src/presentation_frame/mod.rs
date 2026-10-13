@@ -30,6 +30,8 @@ mod frame;
 mod ghosts;
 mod honesty;
 mod lasers;
+#[cfg(test)]
+mod money_audio_owner_tests;
 mod overlay;
 mod particles;
 mod projectile;

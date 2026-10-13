@@ -83,7 +83,22 @@ impl Object {
 
     /// Update team color and allegiance. Prototype-backed AI state is applied by
     /// [`set_team_with_factory`] at the world boundary that owns this object.
-    pub fn set_team(&mut self, team: Team) {
+    pub fn set_team(
+        &mut self,
+        team: Team,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+    ) {
+        if let Some(event) = self.set_team_state(team) {
+            ownership_events.record(event.object, event.team, event.owner_player_id);
+        }
+    }
+
+    /// Canonical allegiance mutation for a detached body operation; live callers
+    /// immediately admit its immutable observation into their receiving output.
+    pub(super) fn set_team_state(
+        &mut self,
+        team: Team,
+    ) -> Option<crate::game_logic::host_owner_log::HostOwnerEvent> {
         let changed = self.team != team;
         if changed {
             self.team = team;
@@ -92,17 +107,21 @@ impl Object {
             // not leave the prior player's identity attached to a captured or
             // neutralized object.
             self.owner_player_id = None;
-            crate::game_logic::host_owner_log::record(self.id, team);
         } else {
             self.team = team;
             self.team_color = team.get_color();
         }
-        self.record_host_identity();
+
         self.apply_fake_building_terrain_decal();
         if changed {
             // C++ Team::setControllingPlayer / Object::setTeam → handlePartitionCellMaintenance.
             self.handle_partition_cell_maintenance();
         }
+        changed.then_some(crate::game_logic::host_owner_log::HostOwnerEvent {
+            object: self.id,
+            team,
+            owner_player_id: None,
+        })
     }
 
     /// C++ Object.cpp:857-872 `setTeam`: apply the owning world's named-team
@@ -111,22 +130,28 @@ impl Object {
         &mut self,
         team: Team,
         team_factory: &gamelogic::team::TeamFactoryHandle,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) {
-        self.set_team(team);
+        self.set_team(team, ownership_events);
         self.apply_named_team_ai_profile(team_factory, true);
     }
 
     /// Set faction presentation and exact controlling-player identity together.
     /// This is used by capture/hijack paths where the actor is known.
-    pub fn set_team_and_owner(&mut self, team: Team, owner_player_id: Option<u32>) {
+    pub fn set_team_and_owner(
+        &mut self,
+        team: Team,
+        owner_player_id: Option<u32>,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
+    ) {
         let changed = self.team != team || self.owner_player_id != owner_player_id;
         self.team = team;
         self.team_color = team.get_color();
         self.owner_player_id = owner_player_id;
         if changed {
-            crate::game_logic::host_owner_log::record_with_owner(self.id, team, owner_player_id);
+            ownership_events.record(self.id, team, owner_player_id);
         }
-        self.record_host_identity();
+
         self.apply_fake_building_terrain_decal();
         if changed {
             // C++ Object::setTeam then onCapture handlePartitionCellMaintenance.
@@ -140,8 +165,9 @@ impl Object {
         team: Team,
         owner_player_id: Option<u32>,
         team_factory: &gamelogic::team::TeamFactoryHandle,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) {
-        self.set_team_and_owner(team, owner_player_id);
+        self.set_team_and_owner(team, owner_player_id, ownership_events);
         self.apply_named_team_ai_profile(team_factory, true);
     }
 

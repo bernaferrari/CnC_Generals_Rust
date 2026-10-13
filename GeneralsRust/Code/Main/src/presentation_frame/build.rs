@@ -1307,7 +1307,7 @@ impl PresentationFrame {
             })
             .collect();
         players.sort_by_key(|p| p.id);
-        // Economy authority: freeze effective (includes pending_supply_delta).
+        // Observe the canonical cash balance owned by this player.
         let local_supplies = local.map(|p| p.effective_supplies()).unwrap_or(0);
         let (local_power, local_power_produced, local_power_consumed) =
             freeze_host_player_power(logic, local_player_id, local);
@@ -1767,15 +1767,7 @@ impl PresentationFrame {
         let scene_lines: Vec<PresentationSceneLine> =
             game_client::render_bridge::snapshot_visible_scene_lines()
                 .into_iter()
-                .map(|line| PresentationSceneLine {
-                    start: (line.start[0], line.start[1], line.start[2]),
-                    end: (line.end[0], line.end[1], line.end[2]),
-                    width: line.width,
-                    color: (line.color[0], line.color[1], line.color[2], line.color[3]),
-                    texture_name: line.texture_name,
-                    tile_factor: line.tile_factor,
-                    scroll_rate: line.scroll_rate,
-                })
+                .map(PresentationSceneLine::from)
                 .collect();
         #[cfg(not(feature = "game_client"))]
         let scene_lines: Vec<PresentationSceneLine> = Vec::new();
@@ -1900,7 +1892,7 @@ impl PresentationFrame {
                 spawned,
             });
         }
-        for ev in crate::game_logic::host_owner_log::take_last_drain() {
+        for ev in logic.ownership_events.take_completed() {
             events.push(PresentationEvent::OwnerChanged {
                 id: ev.object,
                 team: ev.team,
@@ -1968,7 +1960,7 @@ impl PresentationFrame {
                 health: ev.health,
             });
         }
-        for ev in crate::game_logic::host_economy_log::take_last_drain() {
+        for ev in logic.economy_events.take_completed() {
             events.push(PresentationEvent::EconomyChanged {
                 player_id: ev.player_id,
                 supplies: ev.supplies,
@@ -2053,6 +2045,8 @@ impl PresentationFrame {
         }).collect();
         let mut frame = Self {
             frame: LogicFrame(logic.get_frame()),
+            money_audio_receipts: logic.economy_events.take_money_audio(),
+            disable_audio_receipts: logic.health_events.take_disable_audio(),
             native_ghost_scale_sources,
             #[cfg(feature = "game_client")]
             w3d_ghost_scene,

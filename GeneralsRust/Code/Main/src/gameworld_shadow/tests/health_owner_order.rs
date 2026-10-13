@@ -339,7 +339,7 @@ fn pending_lethal_damage_keeps_destruction_admission_before_later_absolute_healt
     let (mut logic, _shadow, id) = injured_world();
     perform_owner_damage(&mut logic, id, 100.0, None);
     perform_owner_health(&mut logic, id, 80.0);
-    crate::gameworld_shadow::materialize_host_authority_logs(&mut logic);
+    let _ = logic.health_events.drain_for_host_boundary();
     let object = logic.host_object(id).unwrap();
     assert!(object.status.on_die_started);
     assert!(object.status.destroyed);

@@ -456,9 +456,8 @@ pub use super::host_residual_acquire::{
     pick_nearest_residual_service_target, pick_nearest_residual_target, residual_combat_kind,
 };
 pub use super::host_rng_residual::{
-    HostRandomState, HostRngResidualHonesty, client_stream_structure_scatter,
-    exercise_host_rng_residual, logic_stream_error_radius_offset, pure_client_structure_scatter,
-    pure_logic_random_int, pure_logic_random_real,
+    HostRandomState, HostRngResidualHonesty, exercise_host_rng_residual,
+    pure_client_structure_scatter, pure_logic_random_int, pure_logic_random_real,
 };
 pub use super::host_rpg_trooper::{
     RPG_TROOPER_DAMAGE, RPG_TROOPER_RANGE, TUNNEL_DEFENDER_ROCKET_WEAPON,

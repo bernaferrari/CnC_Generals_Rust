@@ -133,8 +133,10 @@ pub fn simulate_live_command_production_construction_log_honesty() -> bool {
         use crate::game_logic::buildings::{
             BuildingData, BuildingType, ProductionItem, ProductionKind,
         };
-        let object = logic.host_object_mut(factory).expect("created factory");
-        object.set_team_and_owner(Team::USA, Some(player));
+        let (object, ownership_events) = logic
+            .host_object_and_ownership_events_mut(factory)
+            .expect("created factory");
+        object.set_team_and_owner(Team::USA, Some(player), ownership_events);
         let building = object
             .building_data
             .get_or_insert_with(|| BuildingData::new(BuildingType::Barracks));

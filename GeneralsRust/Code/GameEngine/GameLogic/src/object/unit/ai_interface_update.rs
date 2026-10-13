@@ -420,7 +420,7 @@ impl UnitAIUpdate {
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<crate::modules::UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         self.validate_world_owner(world)?;
-        self.validate_owned_components_with_world(world, false, false)?;
+        self.validate_owned_enter_completion_with_world(world)?;
         if world.pathfinder().is_none() {
             return Err("supplied AIEnter requires its owner pathfinder".into());
         }

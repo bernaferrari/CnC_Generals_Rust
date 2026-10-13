@@ -55,10 +55,10 @@ fn named_attack_team_retargets_only_the_resolved_owner_roster() {
 fn empty_resolved_team_clears_previous_attack_without_faction_fallback() {
     let (mut owner, unit, target) = world();
     roster(&owner, "EmptySquad", &[]);
-    owner
-        .host_object_mut(unit)
-        .unwrap()
-        .set_target(Some(target), &mut owner.attack_events);
+    {
+        let (object, attack_events) = owner.host_object_and_attack_events_mut(unit).unwrap();
+        object.set_target(Some(target), attack_events);
+    };
     owner
         .host_object_mut(unit)
         .unwrap()

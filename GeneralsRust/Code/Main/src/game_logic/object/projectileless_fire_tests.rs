@@ -52,6 +52,8 @@ fn victim(name: &str, position: Vec3) -> Object {
 
 #[test]
 fn fire_at_keeps_gattling_store_type() {
+    let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
     let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
 
     let mut health_events = crate::game_logic::HostHealthEvents::default();
@@ -130,6 +132,7 @@ fn fire_at_keeps_gattling_store_type() {
         3,
         None,
         &mut health_events,
+        &mut _ownership_output,
     );
     assert_eq!(objects[&ObjectId(2)].health.current, 85.0);
     assert_eq!(objects[&ObjectId(1)].health.current, 100.0);
@@ -140,6 +143,7 @@ fn fire_at_keeps_gattling_store_type() {
         3,
         None,
         &mut health_events,
+        &mut _ownership_output,
     );
     assert_eq!(objects[&ObjectId(2)].health.current, 85.0);
     assert_eq!(combat.projectile_count(), 0);
@@ -147,6 +151,8 @@ fn fire_at_keeps_gattling_store_type() {
 
 #[test]
 fn fire_at_projectileless_queues_leftover_delayed_damage() {
+    let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
     let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
 
     let mut health_events = crate::game_logic::HostHealthEvents::default();
@@ -223,6 +229,7 @@ fn fire_at_projectileless_queues_leftover_delayed_damage() {
         12,
         None,
         &mut health_events,
+        &mut _ownership_output,
     );
     assert_eq!(objects[&ObjectId(2)].health.current, 100.0);
     apply_ready_projectileless_delayed_damage(
@@ -231,6 +238,7 @@ fn fire_at_projectileless_queues_leftover_delayed_damage() {
         13,
         None,
         &mut health_events,
+        &mut _ownership_output,
     );
     assert_eq!(objects[&ObjectId(2)].health.current, 80.0);
     assert_eq!(objects[&ObjectId(1)].health.current, 100.0);
@@ -242,6 +250,7 @@ fn fire_at_projectileless_queues_leftover_delayed_damage() {
         13,
         None,
         &mut health_events,
+        &mut _ownership_output,
     );
     assert_eq!(
         objects[&ObjectId(2)].health.current,

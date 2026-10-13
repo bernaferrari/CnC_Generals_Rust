@@ -76,7 +76,7 @@ impl GameLogic {
             };
             object.team_instance_name = default_name.clone();
             object.apply_named_team_ai_profile(&team_factory, true);
-            object.record_host_identity();
+
             // No controlling-player change occurs in this operation. The
             // original member iterator observes each transfer before the next.
             source

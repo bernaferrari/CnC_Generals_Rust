@@ -541,13 +541,13 @@ fn tunneling_invalid_step_allows_obstacle_with_surcharge() {
             None,
             false,
             None,
-            Some(&force as &dyn Fn(GridCoord) -> bool),
+            None,
             None,
             false,
             true,
             None,
         )
-        .expect("tunnel path");
+        .expect("CPP tunneling leaves an actual obstacle start without force-passable override");
     assert_eq!(*path.0.first().unwrap(), start);
     assert_eq!(*path.0.last().unwrap(), goal);
 }
@@ -1436,7 +1436,11 @@ fn cpp_cheaper_rediscovery_reinserts_after_older_peer_and_before_later_peer() {
     );
     // 3 heap generations coexist: stale target (t=0), peer_before (t=1),
     // re-inserted target (t=2) — the C++ list would hold only the latter two.
-    assert_eq!(open.len(), 3, "old generation stays in the heap until filtered");
+    assert_eq!(
+        open.len(),
+        3,
+        "old generation stays in the heap until filtered"
+    );
 
     // peer_after is enqueued only AFTER the reinsertion — exactly the C++ order.
     // (The search always pairs a push with open-membership bookkeeping; mirror

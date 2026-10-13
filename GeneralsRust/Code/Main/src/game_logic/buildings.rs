@@ -1088,6 +1088,7 @@ impl BuildingBehavior {
         building_id: ObjectId,
         unit_id: ObjectId,
         objects: &mut HashMap<ObjectId, Object>,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> bool {
         let occupant_snap = objects.get(&unit_id).map(|unit| {
             (
@@ -1134,14 +1135,20 @@ impl BuildingBehavior {
             unit.status.attacking = false;
         } else {
             if let Some(building) = objects.get_mut(&building_id) {
-                let _ = building.remove_occupant(unit_id);
+                let _ = building.remove_occupant(unit_id, ownership_events);
             }
             return false;
         }
 
         if let Some((team, owner, stealth_garrison, detected)) = occupant_snap {
             if let Some(building) = objects.get_mut(&building_id) {
-                building.note_garrison_occupant_entered(team, owner, stealth_garrison, detected);
+                building.note_garrison_occupant_entered(
+                    team,
+                    owner,
+                    stealth_garrison,
+                    detected,
+                    ownership_events,
+                );
             }
         }
         true
@@ -1151,6 +1158,7 @@ impl BuildingBehavior {
     pub fn ungarrison_unit(
         building_id: ObjectId,
         objects: &mut HashMap<ObjectId, Object>,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> Option<ObjectId> {
         let (unit_id, building_pos, forward) = {
             let building = objects.get_mut(&building_id)?;
@@ -1164,7 +1172,7 @@ impl BuildingBehavior {
                 building.occupants.last().copied()
             }?;
 
-            let _ = building.remove_occupant(candidate);
+            let _ = building.remove_occupant(candidate, ownership_events);
             (
                 candidate,
                 building.get_position(),
@@ -1192,6 +1200,7 @@ impl BuildingBehavior {
     pub fn sweep_dead_garrison_occupants(
         objects: &mut HashMap<ObjectId, Object>,
         current_frame: u32,
+        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> Vec<ObjectId> {
         let mut dead: Vec<(ObjectId, ObjectId)> = Vec::new();
         for (&cid, container) in objects.iter() {
@@ -1208,7 +1217,7 @@ impl BuildingBehavior {
         let mut dirty: Vec<ObjectId> = Vec::new();
         for (cid, occ) in dead {
             if let Some(container) = objects.get_mut(&cid) {
-                if container.remove_occupant(occ) && !dirty.contains(&cid) {
+                if container.remove_occupant(occ, ownership_events) && !dirty.contains(&cid) {
                     dirty.push(cid);
                 }
             }
@@ -1427,6 +1436,8 @@ mod tests {
 
     #[test]
     fn remove_occupant_frees_firepoint_while_survivors_keep_theirs() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         use crate::game_logic::{ContainModuleKind, ContainModuleMetadata};
         let mut t = ThingTemplate::new("CivBunker");
         t.add_kind_of(KindOf::Structure);
@@ -1443,7 +1454,7 @@ mod tests {
         bd.garrisoned_units = vec![dead, survivor];
         bd.garrison_point_occupant = vec![Some(dead), Some(survivor)];
         bunker.building_data = Some(bd);
-        assert!(bunker.remove_occupant(dead));
+        assert!(bunker.remove_occupant(dead, &mut _ownership_output,));
         let bd = bunker.building_data.as_ref().unwrap();
         assert_eq!(bd.garrisoned_units, vec![survivor]);
         assert_eq!(
@@ -1455,6 +1466,8 @@ mod tests {
 
     #[test]
     fn sweep_dead_garrison_occupants_frees_missing_and_dead() {
+        let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
+
         use crate::game_logic::{ContainModuleKind, ContainModuleMetadata};
         let mut bunker_t = ThingTemplate::new("CivBunker");
         bunker_t.add_kind_of(KindOf::Structure);
@@ -1481,7 +1494,7 @@ mod tests {
         objects.insert(bunker.id, bunker);
         objects.insert(dead.id, dead);
         objects.insert(live.id, live);
-        BuildingBehavior::sweep_dead_garrison_occupants(&mut objects, 0);
+        BuildingBehavior::sweep_dead_garrison_occupants(&mut objects, 0, &mut _ownership_output);
         let bd = objects
             .get(&ObjectId(1))
             .unwrap()

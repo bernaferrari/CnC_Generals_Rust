@@ -146,8 +146,10 @@ impl GameLogic {
             .then_some(container.movement.velocity);
         let aggressive = container.transport_go_aggressive_on_exit();
         let delay = container.transport_exit_delay_frames();
-        if let Some(container) = self.host_object_mut(container_id) {
-            container.remove_occupant(child_id);
+        if let Some((container, ownership_events)) =
+            self.host_object_and_ownership_events_mut(container_id)
+        {
+            container.remove_occupant(child_id, ownership_events);
             if container.overlord_portable_occupant == Some(child_id) {
                 container.overlord_portable_occupant = None;
             }
@@ -251,7 +253,7 @@ impl GameLogic {
                     container.overlord_portable_occupant = None;
                     container.overlord_redirection_active = false;
                 }
-                container.remove_occupant(id);
+                container.remove_occupant(id, &mut self.ownership_events);
             }
             if let Some(object) = self.objects.get_mut(&id) {
                 object.set_contained_by(None);

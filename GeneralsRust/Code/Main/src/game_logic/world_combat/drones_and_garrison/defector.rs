@@ -72,7 +72,7 @@ impl GameLogic {
         let Some(victim) = self.objects.get_mut(&victim_id) else {
             return false;
         };
-        victim.set_team_and_owner(caster_team, caster_owner);
+        victim.set_team_and_owner(caster_team, caster_owner, &mut self.ownership_events);
         victim.begin_undetected_defection(now, frames, true);
 
         // C++ after switch: handlePartitionCellMaintenance + aiIdle.
@@ -118,7 +118,7 @@ impl GameLogic {
             .collect();
         for mine_id in mine_ids {
             if let Some(mine) = self.objects.get_mut(&mine_id) {
-                mine.set_team_and_owner(caster_team, caster_owner);
+                mine.set_team_and_owner(caster_team, caster_owner, &mut self.ownership_events);
             }
         }
 

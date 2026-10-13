@@ -712,19 +712,39 @@ fn saved_power_process() {
             "producer_health":producer.health,"producer_status":producer.status,
             "producer_type":producer.object_type}),
         );
-        let economy_before = generals_main::game_logic::host_economy_log::len();
+        let economy_before =
+            generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0)
+                .events
+                .iter()
+                .filter(|event| {
+                    matches!(
+                        event,
+                        generals_main::presentation_frame::PresentationEvent::EconomyChanged { .. }
+                    )
+                })
+                .count();
         if case.foreign_shadow() {
             load_with_foreign_shadow(&mut manager, &mut logic, case, &dir);
         } else {
             manager.load_game("power", &mut logic).unwrap();
         }
-        let economy_after = generals_main::game_logic::host_economy_log::len();
+        let economy_after =
+            generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0)
+                .events
+                .iter()
+                .filter(|event| {
+                    matches!(
+                        event,
+                        generals_main::presentation_frame::PresentationEvent::EconomyChanged { .. }
+                    )
+                })
+                .count();
         write_json(
             &dir.join("reader-load.json"),
             &json!({"result":"Ok","economy_events_before":economy_before,"economy_events_after":economy_after}),
         );
         assert_eq!(
-            economy_before, economy_after,
+            economy_after, 0,
             "restore must not publish ordinary economy events"
         );
     }

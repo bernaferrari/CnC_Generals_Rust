@@ -7,22 +7,22 @@ impl Player {
     /// nonzero amount before crediting the controlling player's money.
     /// Keep the host's existing charged-cost, saturation, delta, and statistics
     /// policy; a refund does not pass through collected-supply accounting.
-    pub(crate) fn refund_production_cost(&mut self, refund: &Resources) {
+    pub(crate) fn refund_production_cost(
+        &mut self,
+        refund: &Resources,
+        economy_events: &mut crate::game_logic::host_economy_log::EconomyEvents,
+    ) {
         if refund.supplies > 0 {
-            crate::game_logic::host_economy_log::record_money_audio(
+            economy_events.record_money_audio(
                 self.id,
                 crate::game_logic::host_economy_log::HostMoneyAudio::Deposit,
             );
         }
         {
-            self.resources.supplies = self.resources.supplies.saturating_add(refund.supplies);
+            self.resources.supplies = self.resources.supplies.wrapping_add(refund.supplies);
         }
         self.power_available -= refund.power;
-        crate::game_logic::host_economy_log::record(
-            self.id,
-            self.effective_supplies(),
-            self.power_available,
-        );
+        economy_events.record(self.id, self.effective_supplies(), self.power_available);
     }
 
     pub fn queue_upgrade(
@@ -30,6 +30,7 @@ impl Player {
         upgrade_name: &str,
         cost: &Resources,
         upgrade_type: gamelogic::upgrade::UpgradeType,
+        economy_events: &mut crate::game_logic::host_economy_log::EconomyEvents,
     ) -> bool {
         // C++ ProductionUpdate.cpp:250-272 — PLAYER refuses if complete or
         // already in production. OBJECT is per-producer (`giveUpgrade`), not
@@ -40,7 +41,7 @@ impl Player {
         {
             return false;
         }
-        if !self.spend_resources(cost) {
+        if !self.spend_resources(cost, economy_events) {
             return false;
         }
         self.queued_upgrades.insert(upgrade_name.to_string());
@@ -48,12 +49,17 @@ impl Player {
     }
 
     /// Cancel a queued upgrade and refund the requested resources.
-    pub fn cancel_queued_upgrade(&mut self, upgrade_name: &str, refund: &Resources) -> bool {
+    pub fn cancel_queued_upgrade(
+        &mut self,
+        upgrade_name: &str,
+        refund: &Resources,
+        economy_events: &mut crate::game_logic::host_economy_log::EconomyEvents,
+    ) -> bool {
         let Some(queued_name) = self.find_queued_upgrade_name(upgrade_name) else {
             return false;
         };
         self.queued_upgrades.remove(&queued_name);
-        self.refund_production_cost(refund);
+        self.refund_production_cost(refund, economy_events);
         true
     }
 

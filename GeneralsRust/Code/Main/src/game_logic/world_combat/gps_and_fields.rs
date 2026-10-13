@@ -228,7 +228,7 @@ impl GameLogic {
                 // DISABLED_SUBDUED is a full halt. Only vehicles here — microwave
                 // structures use the same flag via update_microwave_disable_field.
                 if vehicle && obj.status.disabled_subdued && !full {
-                    obj.set_disabled_subdued(false);
+                    obj.set_disabled_subdued(false, &mut self.health_events);
                 }
             }
             return;
@@ -334,7 +334,10 @@ impl GameLogic {
                 // C++ ActiveBody::internalAddSubdualDamage + onSubdualChange
                 // → setDisabled(DISABLED_SUBDUED). AIUpdate only processes
                 // DISABLED_HELD, so movement/AI halt. weapons_jammed stays fire-only.
-                target.apply_subdual_damage(ECM_VEHICLE_DISABLER_PRIMARY_DAMAGE);
+                target.apply_subdual_damage(
+                    ECM_VEHICLE_DISABLER_PRIMARY_DAMAGE,
+                    &mut self.health_events,
+                );
             }
         }
 
@@ -345,9 +348,9 @@ impl GameLogic {
                 && obj.object_type != ObjectType::Aircraft;
             let should = vehicle && obj.is_subdued();
             if should && !obj.status.disabled_subdued {
-                obj.set_disabled_subdued(true);
+                obj.set_disabled_subdued(true, &mut self.health_events);
             } else if !should && vehicle && obj.status.disabled_subdued {
-                obj.set_disabled_subdued(false);
+                obj.set_disabled_subdued(false, &mut self.health_events);
             }
             if should && !obj.status.weapons_jammed {
                 obj.set_weapons_jammed(true);

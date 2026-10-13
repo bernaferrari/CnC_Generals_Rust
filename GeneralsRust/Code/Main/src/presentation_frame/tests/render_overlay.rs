@@ -1579,12 +1579,12 @@ fn apply_events_routes_upgrade_and_owner_to_hud() {
     let _ = logic
         .host_upgrades_mut()
         .record_complete("CaptureBuilding", 0, 1, 1);
-    crate::game_logic::host_owner_log::clear();
-    crate::game_logic::host_owner_log::record(
+    logic.ownership_events.record(
         crate::game_logic::ObjectId(3),
         crate::game_logic::Team::GLA,
+        None,
     );
-    let _ = crate::game_logic::host_owner_log::drain();
+    logic.ownership_events.complete_boundary();
     let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let mut hud = crate::ui::GameHUD::new();
     let before = hud.message_count_for_test();
@@ -1631,8 +1631,7 @@ fn apply_events_queues_authored_fire_audio_without_inventing_attack_or_death_sou
     // These pre-existing residual drains are outside this fixture's frozen
     // events. Clear their per-thread test leftovers before asserting exact
     // projection counts; neither one carries attack/death sound policy.
-    crate::game_logic::host_economy_log::clear();
-    crate::game_logic::host_disable_timers_log::clear();
+
     frame.events = vec![
         PresentationEvent::AttackTargeted {
             attacker: source,
@@ -1700,10 +1699,9 @@ fn heal_applied_freezes_from_last_drain() {
 
 #[test]
 fn economy_changed_freezes_from_last_drain() {
-    crate::game_logic::host_economy_log::clear();
-    crate::game_logic::host_economy_log::record(0, 12345, 7);
-    let _ = crate::game_logic::host_economy_log::drain();
     let mut logic = crate::game_logic::GameLogic::new();
+    logic.economy_events.record(0, 12345, 7);
+    logic.economy_events.complete_boundary();
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame.events.iter().any(|e| {
