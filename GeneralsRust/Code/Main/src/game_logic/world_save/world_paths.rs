@@ -2209,22 +2209,61 @@ mod group_lane_tests {
     /// stagger) instead of one single-file line.
     #[test]
     fn shared_group_paths_march_in_lateral_lanes() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "shared_group_paths_march_in_lateral_lanes",
+            shared_group_paths_in_admitted_world,
+        );
+    }
+
+    fn shared_group_paths_in_admitted_world() {
         let mut logic = GameLogic::new();
+        logic.override_world_size(1024.0, 1024.0);
+        logic.force_map_loaded_for_path_test(true);
         let destination = Vec3::new(0.0, 0.0, 420.0);
         // Bend the spine: wall the direct north route so A* detours east.
-        for x in -25..10 {
+        let wall_start = logic
+            .pathfinding_system
+            .grid
+            .world_to_grid(Vec3::new(-250.0, 0.0, 100.0));
+        let wall_end = logic
+            .pathfinding_system
+            .grid
+            .world_to_grid(Vec3::new(100.0, 0.0, 100.0));
+        for x in wall_start.x..wall_end.x {
             logic
                 .pathfinding_system
                 .grid
-                .set_blocked(GridPos::new(x, 10), true);
+                .set_blocked(GridPos::new(x, wall_start.y), true);
         }
+        assert!(
+            logic
+                .pathfinding_system
+                .grid
+                .is_valid_pos(logic.pathfinding_system.grid.world_to_grid(destination))
+        );
+        assert!(
+            !logic.pathfinding_system.line_passable_for_surfaces(
+                Vec3::new(0.0, 0.0, 5.0),
+                destination,
+                crate::game_logic::object::LOCO_SURFACE_GROUND,
+            ),
+            "the authored wall must actually obstruct the direct march"
+        );
         let mut goals: Vec<(ObjectId, Vec3)> = Vec::new();
         for i in 0..12_i32 {
             let id = ObjectId(8600 + i as u32);
-            logic.objects.insert(
-                id,
-                ranger(8600 + i as u32, Vec3::new((i as f32 - 5.5) * 6.0, 0.0, 5.0)),
+            let mut unit = ranger(8600 + i as u32, Vec3::new((i as f32 - 5.5) * 6.0, 0.0, 5.0));
+            let name = "BasicHumanLocomotor";
+            let binding =
+                crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(name)
+                    .expect("authored infantry locomotor");
+            unit.locomotor_set_names = vec![name.to_owned()];
+            unit.cur_locomotor_name = Some(name.to_owned());
+            crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(
+                &mut unit, &binding,
             );
+            logic.objects.insert(id, unit);
             // pack_column_kind-style column goal: destination + n*(delta*2.2
             // cells + stagger), n = (-dir.z, dir.x) for the north march.
             let column_delta = 1 - i / 4; // 4×+1, 4×0, 4×-1
@@ -2254,7 +2293,9 @@ mod group_lane_tests {
                     within_lane += 1;
                 } else {
                     assert!(
-                        d >= 11.0,
+                        // The normalized corner normal is f32; rotating an
+                        // exact 11-unit separation can round a few ulps low.
+                        d >= 11.0 - 1e-4,
                         "adjacent lanes must differ by ~lane width, d={d}, firsts={firsts:?}"
                     );
                 }
