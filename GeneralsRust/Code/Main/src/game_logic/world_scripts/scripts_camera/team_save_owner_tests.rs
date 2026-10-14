@@ -105,6 +105,40 @@ fn fresh_candidate_admits_missing_instances_in_cpp_saved_visitation_order() {
         [second.0]
     );
     drop(factory);
+    assert_eq!(
+        loaded.host_object(first).unwrap().team_instance_id,
+        Some(90)
+    );
+    assert_eq!(
+        loaded.host_object(second).unwrap().team_instance_id,
+        Some(10)
+    );
+    // Re-admission of the older sibling must not resolve the newer sibling by name.
+    loaded.activate_leftover_team_for_host_object(second);
+    assert_eq!(
+        loaded.host_object(second).unwrap().team_instance_id,
+        Some(10)
+    );
+    let factory = loaded.team_factory.lock().unwrap();
+    assert_eq!(
+        factory
+            .find_team_by_id(90)
+            .unwrap()
+            .read()
+            .unwrap()
+            .get_members(),
+        &[first.0]
+    );
+    assert_eq!(
+        factory
+            .find_team_by_id(10)
+            .unwrap()
+            .read()
+            .unwrap()
+            .get_members(),
+        &[second.0]
+    );
+    drop(factory);
     loaded.execute_team_guard_script_for_test("SavedRoster");
     assert_guarded(&loaded, first, second);
     assert_eq!(

@@ -521,7 +521,7 @@ impl GameLogic {
     }
 
     /// C++ GameLogic.cpp:1888 `team->setActive()` when the team first has members.
-    pub fn activate_leftover_team_for_host_object(&self, id: ObjectId) {
+    pub fn activate_leftover_team_for_host_object(&mut self, id: ObjectId) {
         let Some(obj) = self.objects.get(&id) else {
             return;
         };
@@ -544,9 +544,31 @@ impl GameLogic {
                 }
             }
         }
-        let team = factory
-            .find_team(team_name)
-            .or_else(|| factory.create_inactive_team(team_name));
+        let team = match obj.team_instance_id {
+            Some(identity) => {
+                // A missing exact identity cannot become another same-name
+                // instance. Only an explicit authored-name change selects anew.
+                let Some(existing) = factory.find_team_by_id(identity) else {
+                    return;
+                };
+                let same_definition = existing
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .get_name()
+                    .as_str()
+                    == team_name;
+                if same_definition {
+                    Some(existing)
+                } else {
+                    factory
+                        .find_team(team_name)
+                        .or_else(|| factory.create_inactive_team(team_name))
+                }
+            }
+            None => factory
+                .find_team(team_name)
+                .or_else(|| factory.create_inactive_team(team_name)),
+        };
         let Some(team) = team else {
             return;
         };
@@ -560,10 +582,17 @@ impl GameLogic {
                     .remove_member(id.0);
             }
         }
-        if let Ok(mut guard) = team.write() {
+        let identity = {
+            let mut guard = team.write().unwrap_or_else(|error| error.into_inner());
             guard.add_member(id.0);
             guard.set_active();
-        }
+            guard.get_id()
+        };
+        drop(factory);
+        self.objects
+            .get_mut(&id)
+            .expect("admitted receiving object")
+            .team_instance_id = Some(identity);
     }
 
     /// C++ Object.cpp:4592 `m_team->notifyTeamOfObjectDeath()`.
@@ -604,7 +633,15 @@ impl GameLogic {
             .unwrap_or_else(|error| error.into_inner());
         // Resolve existing instances only. A destructor must not create an
         // inactive instance or select a different instance sharing this name.
-        for team in factory.find_team_instances(team_name) {
+        let instances = match self
+            .objects
+            .get(&id)
+            .and_then(|object| object.team_instance_id)
+        {
+            Some(identity) => factory.find_team_by_id(identity).into_iter().collect(),
+            None => factory.find_team_instances(team_name),
+        };
+        for team in instances {
             let mut guard = team.write().unwrap_or_else(|error| error.into_inner());
             if guard.has_member(id.0) {
                 guard.remove_member(id.0);

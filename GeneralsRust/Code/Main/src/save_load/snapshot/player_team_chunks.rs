@@ -440,7 +440,7 @@ pub(super) fn apply_members(
                     "Invalid restored member {id}"
                 )));
             }
-            bindings.push((ObjectId(*id), team.team_name.clone()));
+            bindings.push((ObjectId(*id), team.team_name.clone(), team.team_id));
         }
     }
     let factory = world
@@ -458,11 +458,10 @@ pub(super) fn apply_members(
         }
     }
     drop(factory);
-    for (id, name) in bindings {
-        world
-            .host_object_mut(id)
-            .expect("validated owned member")
-            .team_instance_name = name;
+    for (id, name, identity) in bindings {
+        let object = world.host_object_mut(id).expect("validated owned member");
+        object.team_instance_name = name;
+        object.team_instance_id = Some(identity);
     }
     Ok(())
 }

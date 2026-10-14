@@ -405,6 +405,10 @@ pub struct Object {
     /// C++ Team instance name (`Team::getName`) for script team overrides.
     #[serde(default)]
     pub team_instance_name: String,
+    /// Session-owned runtime identity; restored from the validated team roster.
+    /// Names select authored definitions but do not identify sibling instances.
+    #[serde(skip)]
+    pub(crate) team_instance_id: Option<u32>,
 
     /// Object name
     pub name: String,
