@@ -101,7 +101,7 @@ fn active_guards(object: &Object, ultra: bool) {
     assert_eq!(object.physics_accel.x, 0.0);
     assert_eq!(object.physics_accel.z, 0.0);
     assert_eq!(object.ground_height, 0.0);
-    assert!(!Object::height_treats_as_airborne(object.get_position().y));
+    assert!(!object.height_treats_as_airborne(object.get_position().y));
     assert!(object.physics_current_overlap.is_none() && object.physics_previous_overlap.is_none());
     assert!(object.last_collidee.is_none());
     // Keep the ordinary physics options installed by the public ultra setter.

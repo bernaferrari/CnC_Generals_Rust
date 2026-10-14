@@ -114,7 +114,7 @@ impl GameLogic {
         let mut profiles =
             crate::game_logic::projectile_definitions::ProjectileDefinitions::default();
         for (name, definition) in definitions {
-            profiles.admit_definition(name, definition);
+            profiles.admit_definition(name, definition, self.physics_definitions.base.gravity)?;
         }
         self.weapon_definition_base = Some(catalog.clone());
         self.weapon_definitions = Some(catalog);

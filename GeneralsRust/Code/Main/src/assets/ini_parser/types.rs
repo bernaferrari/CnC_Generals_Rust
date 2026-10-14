@@ -770,16 +770,20 @@ impl BehaviorModuleDefinition {
             || key.eq_ignore_ascii_case("FXList")
             || key.eq_ignore_ascii_case("OCL")
             || key.eq_ignore_ascii_case("Weapon");
-        if repeatable {
-            if let Some((_, existing)) = self
-                .attributes
-                .iter_mut()
-                .find(|(k, _)| k.eq_ignore_ascii_case(&key))
-            {
+        if let Some((_, existing)) = self
+            .attributes
+            .iter_mut()
+            .find(|(k, _)| k.eq_ignore_ascii_case(&key))
+        {
+            if repeatable {
                 existing.push('\n');
                 existing.push_str(&value);
-                return;
+            } else {
+                // This receiving parser accepts case-insensitive keys. A scalar replaces its
+                // preceding value at this source point, before HashMap storage.
+                *existing = value;
             }
+            return;
         }
         self.attributes.insert(key, value);
     }

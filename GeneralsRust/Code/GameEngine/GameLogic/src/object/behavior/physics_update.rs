@@ -156,35 +156,7 @@ pub struct PhysicsBehaviorModuleData {
     pub vehicle_crashes_into_non_building_weapon_template: AsciiString,
 }
 
-impl Default for PhysicsBehaviorModuleData {
-    fn default() -> Self {
-        Self {
-            base: BehaviorModuleData::default(),
-            mass: DEFAULT_MASS,
-            shock_resistance: 0.0,
-            shock_max_yaw: DEFAULT_SHOCK_YAW,
-            shock_max_pitch: DEFAULT_SHOCK_PITCH,
-            shock_max_roll: DEFAULT_SHOCK_ROLL,
-            forward_friction: DEFAULT_FORWARD_FRICTION,
-            lateral_friction: DEFAULT_LATERAL_FRICTION,
-            z_friction: DEFAULT_Z_FRICTION,
-            aerodynamic_friction: DEFAULT_AERO_FRICTION,
-            center_of_mass_offset: 0.0,
-            kill_when_resting_on_ground: false,
-            allow_bouncing: false,
-            allow_collide_force: true,
-            min_fall_speed_for_damage: height_to_speed(40.0),
-            fall_height_damage_factor: 1.0,
-            pitch_roll_yaw_factor: 2.0,
-            vehicle_crashes_into_building_weapon_template: AsciiString::from(
-                "VehicleCrashesIntoBuildingWeapon",
-            ),
-            vehicle_crashes_into_non_building_weapon_template: AsciiString::from(
-                "VehicleCrashesIntoNonBuildingWeapon",
-            ),
-        }
-    }
-}
+mod data_defaults;
 
 crate::impl_behavior_module_data_via_base!(PhysicsBehaviorModuleData, base);
 

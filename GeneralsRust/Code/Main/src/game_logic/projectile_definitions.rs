@@ -1,16 +1,26 @@
 //! Immutable projectile definitions owned by the receiving match content.
 //! Parsing constructs definitions only; it never publishes a simulation owner.
 use super::weapon_bootstrap::{HostProjectileFlight, HostProjectileLifecycle};
+use crate::assets::ini_parser::{BehaviorModuleDefinition, ObjectDefinition};
+use gamelogic::object::behavior::physics_update::PhysicsBehaviorModuleData;
 use std::collections::HashMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::game_logic) enum ProjectileDefinitionMode {
     ReceivingContent,
     LegacyBootstrap,
 }
+/// One authored obligation, including modules not yet executed by the host.
+/// Declaration order and tags identify modules; class names alone do not.
+#[derive(Debug, Clone)]
+pub(in crate::game_logic) struct ProjectileBehaviorDefinition {
+    pub(in crate::game_logic) authored: BehaviorModuleDefinition,
+    pub(in crate::game_logic) physics: Option<PhysicsBehaviorModuleData>,
+}
 #[derive(Debug, Clone)]
 pub(in crate::game_logic) struct ProjectileProfile {
     pub(in crate::game_logic) flight: HostProjectileFlight,
     pub(in crate::game_logic) lifecycle: HostProjectileLifecycle,
+    pub(in crate::game_logic) behaviors: Box<[ProjectileBehaviorDefinition]>,
 }
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ProjectileDefinitions {
@@ -20,26 +30,52 @@ impl ProjectileDefinitions {
     pub(in crate::game_logic) fn get(&self, name: &str) -> Option<&ProjectileProfile> {
         self.entries.get(name)
     }
-    /// Reconstruct projectile module data from the effective archive object row.
-    /// Only definition parsing occurs here; factory callbacks are never executed.
+    /// Resolve the effective archive row without constructing any runtime owner.
+    /// PhysicsUpdate.cpp89-169 uses content gravity for defaults/height conversion.
+    /// All authored obligations survive, even those after the flight module.
     pub(in crate::game_logic) fn admit_definition(
         &mut self,
         name: &str,
-        definition: &crate::assets::ini_parser::ObjectDefinition,
-    ) -> bool {
+        definition: &ObjectDefinition,
+        gravity: f32,
+    ) -> Result<bool, String> {
+        let name = name.trim();
+        if name.is_empty() || self.entries.contains_key(name) {
+            return Ok(false);
+        }
         let mut text = format!("Object {name}\n");
+        let mut behaviors = Vec::new();
+        if !definition
+            .behavior_modules
+            .iter()
+            .any(|module| is_flight(&module.class_name))
+        {
+            return Ok(false);
+        }
+        if !gravity.is_finite() {
+            return Err(format!("{name}: nonfinite projectile definition gravity"));
+        }
         for (index, module) in definition.behavior_modules.iter().enumerate() {
-            if !module.class_name.eq_ignore_ascii_case("MissileAIUpdate")
-                && !module
-                    .class_name
-                    .eq_ignore_ascii_case("DumbProjectileBehavior")
-            {
+            let physics = if module.class_name.eq_ignore_ascii_case("PhysicsBehavior") {
+                let mut data = PhysicsBehaviorModuleData::with_gravity(gravity);
+                for (field, value) in &module.attributes {
+                    data.apply_ini_field_with_gravity(field, value, gravity)
+                        .map_err(|error| format!("{name}: PhysicsBehavior {field}: {error:?}"))?;
+                }
+                Some(data)
+            } else {
+                None
+            };
+            behaviors.push(ProjectileBehaviorDefinition {
+                authored: module.clone(),
+                physics,
+            });
+            if !is_flight(&module.class_name) {
                 continue;
             }
-            text.push_str(&format!(
-                " Behavior = {} ModuleTag_Owned{index}\n",
-                module.class_name
-            ));
+            let fallback = format!("ModuleTag_Owned{index}");
+            let tag = module.module_tag.as_deref().unwrap_or(&fallback);
+            text.push_str(&format!(" Behavior = {} {tag}\n", module.class_name));
             // Effective scalar attributes have no remaining source-order dependence.
             let mut attributes: Vec<_> = module.attributes.iter().collect();
             attributes.sort_by(|a, b| a.0.cmp(b.0));
@@ -49,57 +85,68 @@ impl ProjectileDefinitions {
             text.push_str(" End\n");
         }
         text.push_str("End\n");
-        self.admit_object_ini(name, &text)
-    }
-    /// Existing ThingFactory parses the supplied immutable Object INI locally.
-    pub(in crate::game_logic) fn admit_object_ini(&mut self, name: &str, text: &str) -> bool {
-        let name = name.trim();
-        if name.is_empty() || self.entries.contains_key(name) {
-            return false;
-        }
-        // Shared immutable module descriptors bootstrap the definition parser;
-        // no mutable match or active-world slot is installed here.
+        // Existing shared immutable flight parser, with no installed match slot.
         let _ = game_engine::common::thing::module_factory::init_module_factory();
         let mut factory = game_engine::common::thing::thing_factory::ThingFactory::new();
-        if factory.load_ini_text(text) == 0 {
-            return false;
+        if factory.load_ini_text(&text) == 0 {
+            return Err(format!(
+                "{name}: projectile flight definition failed to parse"
+            ));
         }
-        let Some(template) = factory.find_template(name, false) else {
-            return false;
-        };
+        let template = factory
+            .find_template(name, false)
+            .ok_or_else(|| format!("{name}: projectile flight template missing"))?;
+        let mut selected = None;
         for module in template.get_behavior_module_info().iter() {
             let class = module.name.as_str();
             let data = module.data.as_ref();
             let pair = if class.eq_ignore_ascii_case("MissileAIUpdate") {
                 super::weapon_bootstrap::parse_missile_lifecycle(data).map(|lifecycle| {
-                    ProjectileProfile {
-                        flight: HostProjectileFlight::Missile(
+                    (
+                        HostProjectileFlight::Missile(
                             super::weapon_bootstrap::parse_missile_flight(data),
                         ),
                         lifecycle,
-                    }
+                    )
                 })
             } else if class.eq_ignore_ascii_case("DumbProjectileBehavior") {
                 super::weapon_bootstrap::parse_dumb_projectile_lifecycle(data).map(|lifecycle| {
-                    ProjectileProfile {
-                        flight: HostProjectileFlight::Dumb(
-                            super::weapon_bootstrap::parse_dumb_flight(data),
-                        ),
+                    (
+                        HostProjectileFlight::Dumb(super::weapon_bootstrap::parse_dumb_flight(
+                            data,
+                        )),
                         lifecycle,
-                    }
+                    )
                 })
             } else {
                 continue;
             };
-            let Some(profile) = pair else {
-                return false;
-            };
-            self.entries.insert(name.into(), profile);
-            return true;
+            let pair = pair.ok_or_else(|| format!("{name}: invalid {class} lifecycle"))?;
+            if selected.is_none() {
+                selected = Some(pair);
+            }
         }
-        false
+        let (flight, lifecycle) =
+            selected.ok_or_else(|| format!("{name}: no parsed flight module"))?;
+        self.entries.insert(
+            name.into(),
+            ProjectileProfile {
+                flight,
+                lifecycle,
+                behaviors: behaviors.into_boxed_slice(),
+            },
+        );
+        Ok(true)
     }
 }
+fn is_flight(class: &str) -> bool {
+    class.eq_ignore_ascii_case("MissileAIUpdate")
+        || class.eq_ignore_ascii_case("DumbProjectileBehavior")
+}
+
+#[cfg(test)]
+#[path = "projectile_module_admission_tests.rs"]
+mod module_admission_tests;
 
 #[cfg(test)]
 #[path = "projectile_save_owner_tests.rs"]

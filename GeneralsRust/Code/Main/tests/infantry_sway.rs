@@ -232,7 +232,7 @@ fn active_case(name: &str) {
     install_phase(object, &row);
     let target = prepare_motion(&mut game, id, &row, Vec3::ZERO, 0.0);
     let object = game.host_object(id).unwrap();
-    assert!(!Object::height_treats_as_airborne(object.get_position().y));
+    assert!(!object.height_treats_as_airborne(object.get_position().y));
     tick(&mut game, 2);
     assert_active_result(game.host_object(id).unwrap(), &row, Vec3::ZERO, target);
 }
@@ -391,7 +391,7 @@ fn skip_then_resume(gate: &str) {
     } else if gate == "downhill" {
         assert!(object.downhill_only_blocks_goal(position.y, target.y));
     } else {
-        assert!(Object::height_treats_as_airborne(position.y));
+        assert!(object.height_treats_as_airborne(position.y));
         assert!(!object.allow_motive_force_while_airborne);
     }
     active_guards(object, LocomotorAppearance::LegsTwo);
@@ -418,7 +418,7 @@ fn skip_then_resume(gate: &str) {
     } else if gate == "downhill" {
         assert!(object.downhill_only_blocks_goal(position.y, target.y));
     } else {
-        assert!(Object::height_treats_as_airborne(object.get_position().y));
+        assert!(object.height_treats_as_airborne(object.get_position().y));
     }
     assert_eq!(
         phase(object),
@@ -431,7 +431,7 @@ fn skip_then_resume(gate: &str) {
     let object = game.host_object(id).unwrap();
     assert_eq!(phase(object), initial, "resume setup never rewrites phase");
     assert!(!object.downhill_only_blocks_goal(0.0, 0.0));
-    assert!(!Object::height_treats_as_airborne(0.0));
+    assert!(!object.height_treats_as_airborne(0.0));
     tick(&mut game, 3);
     let object = game.host_object(id).unwrap();
     assert_eq!(
@@ -469,7 +469,11 @@ fn authored_airborne_motive_permission_admits_wander() {
     install_phase(object, &input);
     let start = Vec3::new(0.0, 100.0, 0.0);
     let target = prepare_motion(&mut game, id, &input, start, start.y);
-    assert!(Object::height_treats_as_airborne(start.y));
+    assert!(
+        game.host_object(id)
+            .unwrap()
+            .height_treats_as_airborne(start.y)
+    );
     tick(&mut game, 2);
     assert_active_result(game.host_object(id).unwrap(), &input, start, target);
 }
