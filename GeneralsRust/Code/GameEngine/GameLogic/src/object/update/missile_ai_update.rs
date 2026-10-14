@@ -35,6 +35,8 @@ use game_engine::common::system::{Snapshotable, Xfer};
 
 use std::sync::{Arc, Weak};
 
+mod frame_timing;
+
 /// Wave 350: host-only path has no dual-world factory objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
@@ -974,7 +976,7 @@ impl MissileAIUpdate {
         self.set_locomotor_acceleration_and_turn(0.0, 0.0);
 
         let delay = self.data.ignition_delay;
-        if current_frame >= self.state_timestamp + delay {
+        if frame_timing::ignition_ready(current_frame, self.state_timestamp, delay) {
             self.switch_to_state(MissileState::Ignition, current_frame);
         }
     }
@@ -998,12 +1000,8 @@ impl MissileAIUpdate {
         // C++ arms the warhead even if FX / exhaust / locomotor walks fail.
         self.is_armed = true;
 
-        let now = current_frame;
-        self.fuel_expiration_date = if self.data.fuel_lifetime > 0 {
-            now + self.data.fuel_lifetime
-        } else {
-            UnsignedInt::MAX
-        };
+        self.fuel_expiration_date =
+            frame_timing::fuel_expiration(current_frame, self.data.fuel_lifetime);
 
         self.switch_to_state(MissileState::AttackNoTurn, current_frame);
     }
@@ -1322,7 +1320,11 @@ impl MissileAIUpdate {
         }
 
         // Hold in this state for delay frames
-        if current_frame < self.state_timestamp + self.data.kill_self_delay {
+        if frame_timing::hold_for_contrail(
+            current_frame,
+            self.state_timestamp,
+            self.data.kill_self_delay,
+        ) {
             return;
         }
 

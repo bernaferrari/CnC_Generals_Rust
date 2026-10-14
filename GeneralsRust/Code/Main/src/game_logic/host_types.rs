@@ -467,6 +467,17 @@ impl KindOf {
 /// Object status flags
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ObjectStatus {
+    /// Original disabled mask bits 8/9. Companion framing preserves their
+    /// continuation without changing positional ObjectStatus save bytes.
+    #[serde(skip)]
+    pub disabled_awestruck: bool,
+    #[serde(skip)]
+    pub disabled_brainwashed: bool,
+    #[serde(skip)]
+    pub disabled_awestruck_until_frame: u32,
+    #[serde(skip)]
+    pub disabled_brainwashed_until_frame: u32,
+
     pub destroyed: bool,
     /// C++ `Object::onDie` ran once for this death (die modules must not re-fire).
     #[serde(default)]

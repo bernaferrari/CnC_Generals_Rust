@@ -439,6 +439,72 @@ impl Object {
         }
     }
 
+    pub(crate) fn set_awestruck_until(&mut self, deadline: u32, frame: u32) {
+        self.set_remaining_disabled_until(false, deadline, frame);
+    }
+    pub(crate) fn set_brainwashed_until(&mut self, deadline: u32, frame: u32) {
+        self.set_remaining_disabled_until(true, deadline, frame);
+    }
+    pub(crate) fn clear_awestruck(&mut self) -> bool {
+        self.clear_remaining_disabled(false)
+    }
+    pub(crate) fn clear_brainwashed(&mut self) -> bool {
+        self.clear_remaining_disabled(true)
+    }
+
+    /// Original setDisabledUntil: assign the deadline, including a shorter
+    /// refresh; a deadline at/before the driving frame does not set the bit.
+    fn set_remaining_disabled_until(&mut self, brainwashed: bool, deadline: u32, frame: u32) {
+        let previous = if brainwashed {
+            self.status.disabled_brainwashed_until_frame
+        } else {
+            self.status.disabled_awestruck_until_frame
+        };
+        if previous == deadline {
+            return;
+        }
+        let was_disabled = self.is_disabled();
+        if brainwashed {
+            self.status.disabled_brainwashed_until_frame = deadline;
+            self.status.disabled_brainwashed = deadline > frame;
+        } else {
+            self.status.disabled_awestruck_until_frame = deadline;
+            self.status.disabled_awestruck = deadline > frame;
+        }
+        self.note_disabled_status_transition(was_disabled);
+    }
+
+    fn clear_remaining_disabled(&mut self, brainwashed: bool) -> bool {
+        let active = if brainwashed {
+            self.status.disabled_brainwashed
+        } else {
+            self.status.disabled_awestruck
+        };
+        if !active {
+            return false;
+        }
+        let was_disabled = self.is_disabled();
+        if brainwashed {
+            self.status.disabled_brainwashed = false;
+            self.status.disabled_brainwashed_until_frame = 0;
+        } else {
+            self.status.disabled_awestruck = false;
+            self.status.disabled_awestruck_until_frame = 0;
+        }
+        self.note_disabled_status_transition(was_disabled);
+        true
+    }
+
+    pub(crate) fn tick_remaining_disabled(&mut self, frame: u32) {
+        if self.status.disabled_awestruck && frame >= self.status.disabled_awestruck_until_frame {
+            self.clear_remaining_disabled(false);
+        }
+        if self.status.disabled_brainwashed && frame >= self.status.disabled_brainwashed_until_frame
+        {
+            self.clear_remaining_disabled(true);
+        }
+    }
+
     pub fn is_held_disabled(&self) -> bool {
         self.status.disabled_held
     }

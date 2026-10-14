@@ -23,6 +23,8 @@ impl Object {
             self.status.disabled_script_disabled,
             self.status.disabled_script_underpowered,
             self.status.disabled_held,
+            self.status.disabled_awestruck,
+            self.status.disabled_brainwashed,
         ]
         .into_iter()
         .any(|disabled| disabled)

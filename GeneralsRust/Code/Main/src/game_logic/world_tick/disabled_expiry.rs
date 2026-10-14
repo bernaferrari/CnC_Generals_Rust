@@ -23,6 +23,7 @@ impl GameLogic {
             object.tick_disabled_hacked(self.frame, &mut self.health_events);
             object.tick_disabled_emp(self.frame, &mut self.health_events);
             object.tick_disabled_paralyzed(self.frame);
+            object.tick_remaining_disabled(self.frame);
             let reenabled = !object.is_disabled();
 
             // Admit this driving world's Object-local callbacks before the

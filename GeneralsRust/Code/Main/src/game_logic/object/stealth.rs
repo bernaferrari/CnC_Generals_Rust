@@ -533,17 +533,7 @@ impl Object {
     /// Leftover StealthUpdate / StealthDetectorUpdate `get_disabled_types_to_process = HELD`.
     /// C++ GameLogic.cpp:3677: tick if `!dis.any() || dis ∩ DISABLED_HELD`.
     pub fn stealth_or_detector_update_processes(&self) -> bool {
-        let any_disabled = self.status.disabled_emp
-            || self.status.disabled_subdued
-            || self.status.disabled_hacked
-            || self.status.disabled_paralyzed
-            || self.status.disabled_unmanned
-            || self.status.disabled_underpowered
-            || self.status.disabled_freefall
-            || self.status.disabled_default
-            || self.status.disabled_script_disabled
-            || self.status.disabled_script_underpowered
-            || self.status.disabled_held;
+        let any_disabled = self.has_disabled_type();
         gamelogic::object::behavior::stealth_or_detector_update_processes(
             any_disabled,
             self.status.disabled_held,

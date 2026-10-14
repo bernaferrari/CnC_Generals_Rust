@@ -91,6 +91,7 @@ impl SnapshotBuilder {
                 super::super::combat_projectile_persist::append(&mut bytes, game_logic)?;
                 super::super::body_kind_persist::append(&mut bytes, game_logic)?;
                 super::super::native_lifecycle_persist::append(&mut bytes, game_logic)?;
+                super::super::original_disabled_persist::append(&mut bytes, game_logic)?;
                 super::super::special_power_cooldown_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
@@ -308,7 +309,13 @@ impl SnapshotBuilder {
             game_logic,
             native_lifecycle.legacy_tail.as_ref(),
         )?;
-        let lifecycle_tail = native_lifecycle.legacy_tail.as_ref();
+        let original_disabled =
+            super::super::original_disabled_persist::decode(native_lifecycle.legacy_tail.as_ref())?;
+        super::super::original_disabled_persist::validate(
+            original_disabled.records.as_deref(),
+            &snapshot.objects,
+        )?;
+        let lifecycle_tail = original_disabled.legacy_tail.as_ref();
         // Reject malformed companion bytes before this API mutates its receiver.
         // Production map loading then restores this candidate world atomically.
         let ghosts = snapshot
@@ -365,6 +372,10 @@ impl SnapshotBuilder {
             &native_lifecycle_runtimes,
             game_logic,
         )?;
+        super::super::original_disabled_persist::apply(
+            original_disabled.records.as_deref(),
+            game_logic,
+        );
         self.restore_object_instance_guards(snapshot, game_logic)?;
         self.restore_overcharge_active(snapshot, game_logic)?;
         self.restore_object_experience_trackers(snapshot, game_logic)?;
