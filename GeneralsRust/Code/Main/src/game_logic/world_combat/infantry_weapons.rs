@@ -1704,14 +1704,8 @@ impl GameLogic {
                 self.base_regenerate_reg.record_damage_delay();
             }
             if amount > 0.0 {
-                self.apply_residual_damage_owned(
-                    id,
-                    amount,
-                    Some(id),
-                    crate::game_logic::combat::DamageType::Healing,
-                    crate::game_logic::host_usa_pilot::HostDeathType::Normal,
-                    None,
-                );
+                // CPP BaseRenerateUpdate118 uses Object::attemptHealing.
+                let _ = self.apply_owned_healing(id, amount, Some(id));
                 self.base_regenerate_reg.record_heal(amount);
             }
         }

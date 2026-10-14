@@ -306,14 +306,8 @@ impl GameLogic {
         if close && state.repairing {
             self.store_slave_state(id, state.clone());
             let before = self.objects.get(&master).unwrap().health.current;
-            self.apply_residual_damage_owned(
-                master,
-                data.repair_rate / 30.0,
-                None,
-                crate::game_logic::combat::DamageType::Healing,
-                crate::game_logic::host_usa_pilot::HostDeathType::None,
-                None,
-            );
+            // CPP SlavedUpdate493 enters Body::attemptHealing directly.
+            let _ = self.apply_owned_healing(master, data.repair_rate / 30.0, None);
             let gain = self
                 .objects
                 .get(&master)

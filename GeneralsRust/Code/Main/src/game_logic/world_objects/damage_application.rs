@@ -202,6 +202,32 @@ impl GameLogic {
         )
     }
 
+    /// CPP Object::attemptHealing calls Body::attemptHealing directly. Keep
+    /// repair admission distinct from weapons carrying DAMAGE_HEALING while
+    /// sharing the receiving owner's synchronous Body/callback completion.
+    pub(crate) fn apply_owned_healing(
+        &mut self,
+        victim_id: ObjectId,
+        amount: f32,
+        source_id: Option<ObjectId>,
+    ) -> Option<OwnedDamageResult> {
+        let context = DamageHitContext::new(
+            source_id.and_then(|id| self.objects.get(&id)),
+            None,
+            crate::game_logic::combat::DamageType::Healing,
+        )
+        .with_healing_entry();
+        self.apply_owned_damage(
+            victim_id,
+            amount,
+            source_id,
+            crate::game_logic::combat::DamageType::Healing,
+            crate::game_logic::host_usa_pilot::HostDeathType::None,
+            None,
+            &context,
+        )
+    }
+
     /// Callers that already capture a killer team preserve that provenance.
     /// Queued and moving impacts pass no override, retaining their live-source
     /// team lookup. Source identity still drives XP and the fresh DamageFX lookup.

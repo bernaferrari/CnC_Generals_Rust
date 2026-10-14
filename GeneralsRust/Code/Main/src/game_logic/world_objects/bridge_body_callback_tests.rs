@@ -65,6 +65,11 @@ fn bridge(world: &mut GameLogic, position: Vec3) -> (ObjectId, ObjectId, ObjectI
 }
 
 fn hit(world: &mut GameLogic, id: ObjectId, amount: f32, kind: DamageType) {
+    if kind == DamageType::Healing {
+        // Original bridge repair uses Object::attemptHealing, not weapon damage.
+        world.apply_owned_healing(id, amount, None).unwrap();
+        return;
+    }
     world
         .apply_owned_damage(
             id,
@@ -326,9 +331,23 @@ fn repaired_bridge_can_run_its_death_callbacks_again() {
         for id in [span, first, second] {
             assert!(world.objects[&id].status.on_die_started);
         }
+        for id in [span, second] {
+            world.objects.get_mut(&id).unwrap().set_indestructible(true);
+        }
         hit(&mut world, first, 25.0, DamageType::Healing);
         for id in [span, first, second] {
             assert!(!world.objects[&id].status.on_die_started);
+            assert!(world.objects[&id].health.current > 0.0);
+            assert!(!world.objects[&id].status.effectively_dead);
+        }
+        assert_eq!(world.objects[&span].last_damage_source, Some(first));
+        assert_eq!(world.objects[&second].last_damage_source, Some(first));
+        for id in [span, second] {
+            world
+                .objects
+                .get_mut(&id)
+                .unwrap()
+                .set_indestructible(false);
         }
         world.frame = 50;
         hit(&mut world, first, 100.0, DamageType::Unresistable);

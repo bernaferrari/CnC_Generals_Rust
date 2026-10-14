@@ -110,19 +110,9 @@ fn save_and_load(source: &GameLogic, target: &mut GameLogic) {
 }
 
 fn heal(logic: &mut GameLogic, id: ObjectId) {
-    // The receiving Body path preserves retained-state guards and supplies its
-    // session frame; a loaded object must not adopt another world's clock.
-    let result = logic
-        .apply_owned_damage(
-            id,
-            25.0,
-            None,
-            DamageType::Healing,
-            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
-            None,
-            &crate::game_logic::object::DamageHitContext::default(),
-        )
-        .unwrap();
+    // CPP Object::attemptHealing preserves bridge revival after restoration;
+    // weapon damage with DAMAGE_HEALING still rejects effectively dead bodies.
+    let result = logic.apply_owned_healing(id, 25.0, None).unwrap();
     assert!(!result.destroyed());
 }
 

@@ -2502,22 +2502,19 @@ impl GameLogic {
                 (amount, healing, self_drain, needs_sync)
             };
             if amount > 0.0 {
-                self.apply_residual_damage_owned(
-                    id,
-                    amount,
-                    Some(id),
-                    if healing {
-                        crate::game_logic::combat::DamageType::Healing
-                    } else {
-                        crate::game_logic::combat::DamageType::Unresistable
-                    },
-                    if healing {
-                        crate::game_logic::host_usa_pilot::HostDeathType::None
-                    } else {
-                        crate::game_logic::host_usa_pilot::HostDeathType::Normal
-                    },
-                    None,
-                );
+                if healing {
+                    // CPP AutoHealBehavior284: direct healing, self benefactor.
+                    let _ = self.apply_owned_healing(id, amount, Some(id));
+                } else {
+                    self.apply_residual_damage_owned(
+                        id,
+                        amount,
+                        Some(id),
+                        crate::game_logic::combat::DamageType::Unresistable,
+                        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                        None,
+                    );
+                }
             }
             // Finish this pad's real onHealing/onDamage callback before the
             // next actor. No batch of synthetic HP or delayed virtual blasts.

@@ -54,6 +54,14 @@ fn poison(object: &mut Object) {
 }
 
 fn begin(object: &mut Object, amount: f32) -> damage::DamageApplication {
+    begin_with_context(object, amount, &DamageHitContext::default())
+}
+
+fn begin_with_context(
+    object: &mut Object,
+    amount: f32,
+    context: &DamageHitContext<'_>,
+) -> damage::DamageApplication {
     object.begin_damage_with_context(
         amount,
         Some(ObjectId(954)),
@@ -61,7 +69,7 @@ fn begin(object: &mut Object, amount: f32) -> damage::DamageApplication {
         HostDeathType::Normal,
         None,
         123,
-        &DamageHitContext::default(),
+        context,
         &mut crate::game_logic::HostHealthEvents::default(),
         None,
     )
@@ -270,7 +278,12 @@ fn zero_maximum_bridge_healing_keeps_canonical_dead_body_and_retained_husk() {
     // this flag belongs to the prior lethal operation represented by the husk.
     object.status.effectively_dead = true;
     assert!(object.status.effectively_dead);
-    begin(&mut object, 5.0).finish_standalone(&mut object, None, &false);
+    begin_with_context(
+        &mut object,
+        5.0,
+        &DamageHitContext::default().with_healing_entry(),
+    )
+    .finish_standalone(&mut object, None, &false);
     assert_eq!((object.previous_health, object.health.current), (0.0, 0.0));
     assert_eq!(object.health.maximum, 0.0);
     assert_eq!(object.body_damage_state, HostBodyDamageType::Rubble);
@@ -340,4 +353,147 @@ fn receiving_world_above_max_healing_does_not_consume_a_pending_damage_reaction(
     assert_eq!(foreign.last_healing_timestamp, None);
     assert!(!foreign.status.on_die_started);
     assert_eq!(foreign.experience.current, 0.0);
+}
+
+#[test]
+fn direct_healing_bypasses_indestructible_but_damage_healing_does_not() {
+    let mut world = GameLogic::new();
+    let mut peer = GameLogic::new();
+    let mut object = body();
+    object.set_indestructible(true);
+    let id = object.id;
+    let mut foreign = body();
+    foreign.set_indestructible(true);
+    world.objects.insert(id, object);
+    peer.objects.insert(id, foreign);
+    let mut benefactor = body();
+    benefactor.id = ObjectId(954);
+    world.objects.insert(benefactor.id, benefactor);
+    world.frame = 123;
+    for direct in [false, true] {
+        let result = if direct {
+            world.apply_owned_healing(id, 30.0, Some(ObjectId(954)))
+        } else {
+            world.apply_owned_damage(
+                id,
+                30.0,
+                None,
+                DamageType::Healing,
+                HostDeathType::Normal,
+                None,
+                &DamageHitContext::default(),
+            )
+        }
+        .expect("installed receiving Body");
+        assert!(!result.destroyed());
+        let object = &world.objects[&id];
+        assert_eq!(object.health.current, if direct { 50.0 } else { 20.0 });
+        assert_eq!(
+            object.last_damage_info_type,
+            Some(if direct {
+                DamageType::Healing
+            } else {
+                DamageType::Bullet
+            })
+        );
+        assert_eq!(object.last_healing_timestamp, direct.then_some(123));
+        assert_eq!(object.last_damage_source, direct.then_some(ObjectId(954)));
+        assert_eq!(
+            object.bone_fx_damage.as_ref().unwrap().transitions,
+            u32::from(direct)
+        );
+        let foreign = &peer.objects[&id];
+        assert_eq!(foreign.health.current, 20.0);
+        assert_eq!(foreign.last_damage_info_type, Some(DamageType::Bullet));
+        assert_eq!(foreign.last_healing_timestamp, None);
+        assert_eq!(foreign.bone_fx_damage.as_ref().unwrap().transitions, 0);
+    }
+}
+
+#[test]
+fn healing_damage_with_kill_input_does_not_mutate_body_or_history() {
+    let mut object = body();
+    poison(&mut object);
+    begin_with_context(&mut object, 30.0, &DamageHitContext::for_kill()).finish_standalone(
+        &mut object,
+        None,
+        &false,
+    );
+    assert_eq!(
+        (object.previous_health, object.health.current),
+        (100.0, 20.0)
+    );
+    assert_eq!(object.last_damage_info_type, Some(DamageType::Bullet));
+    assert_eq!(object.last_damage_timestamp, Some(10));
+    assert_eq!(object.last_healing_timestamp, None);
+    assert!(object.poisoned_behavior.as_ref().unwrap().is_active());
+    assert_eq!(object.bone_fx_damage.as_ref().unwrap().transitions, 0);
+    assert!(!object.status.on_die_started);
+}
+
+#[test]
+fn dead_non_bridge_rejects_both_healing_entry_kinds() {
+    for direct in [false, true] {
+        let mut object = body();
+        object.internal_change_health(-20.0);
+        assert!(object.status.effectively_dead);
+        let context = if direct {
+            DamageHitContext::default().with_healing_entry()
+        } else {
+            DamageHitContext::default()
+        };
+        begin_with_context(&mut object, 30.0, &context).finish_standalone(
+            &mut object,
+            None,
+            &false,
+        );
+        assert_eq!((object.previous_health, object.health.current), (20.0, 0.0));
+        assert_eq!(object.last_damage_info_type, Some(DamageType::Bullet));
+        assert_eq!(object.last_healing_timestamp, None);
+        assert_eq!(object.bone_fx_damage.as_ref().unwrap().transitions, 0);
+        assert!(object.status.effectively_dead);
+    }
+}
+
+#[test]
+fn dead_bridge_rejects_damage_healing_and_accepts_direct_healing() {
+    let mut parser = crate::assets::IniParser::new();
+    parser.parse_ini_content(
+        "Object BoundedHealingEntryBridge\n KindOf = BRIDGE STRUCTURE\n Body = ActiveBody ModuleTag_Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n",
+        "healing_entry_bridge.ini",
+    ).expect("authored receiving bridge ActiveBody");
+    let template = GameLogic::build_template_from_object_definition(
+        "BoundedHealingEntryBridge",
+        parser.get_definition("BoundedHealingEntryBridge").unwrap(),
+        None,
+    );
+    let mut object = Object::new(template, ObjectId(955), Team::USA);
+    object.internal_change_health(-100.0);
+    object.status.keep_as_rubble = true;
+    object.status.destroyed = true;
+    object.status.on_die_started = true;
+    assert!(object.status.effectively_dead);
+    begin(&mut object, 30.0).finish_standalone(&mut object, None, &false);
+    assert_eq!(
+        (object.previous_health, object.health.current),
+        (100.0, 0.0)
+    );
+    assert_eq!(object.last_healing_timestamp, None);
+    assert!(object.status.effectively_dead);
+    assert!(object.status.keep_as_rubble);
+    assert!(object.status.destroyed);
+    assert!(object.status.on_die_started);
+    begin_with_context(
+        &mut object,
+        30.0,
+        &DamageHitContext::default().with_healing_entry(),
+    )
+    .finish_standalone(&mut object, None, &false);
+    assert_eq!((object.previous_health, object.health.current), (0.0, 30.0));
+    assert_eq!(object.last_damage_info_type, Some(DamageType::Healing));
+    assert_eq!(object.last_healing_timestamp, Some(123));
+    assert!(!object.status.effectively_dead);
+    assert!(!object.status.keep_as_rubble);
+    assert!(!object.status.destroyed);
+    assert!(!object.status.on_die_started);
 }

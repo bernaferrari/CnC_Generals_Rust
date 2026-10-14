@@ -74,6 +74,13 @@ impl GameLogic {
             let Some(maximum) = self.objects.get(&target).map(|o| o.health.maximum) else {
                 continue;
             };
+            // CPP BridgeBehavior::onHealing479 uses Object::attemptHealing,
+            // including dead tower revival, rather than damage admission.
+            if callbacks.damage_type == DamageType::Healing {
+                let _ =
+                    self.apply_owned_healing(target, fraction * maximum, Some(callbacks.victim));
+                continue;
+            }
             let context = DamageHitContext::new(
                 self.objects.get(&callbacks.victim),
                 None,
@@ -230,16 +237,7 @@ impl GameLogic {
         {
             return false;
         }
-        let context = DamageHitContext::new(self.objects.get(&source), None, DamageType::Healing);
-        let _ = self.apply_owned_damage(
-            victim,
-            amount,
-            Some(source),
-            DamageType::Healing,
-            HostDeathType::Normal,
-            None,
-            &context,
-        );
+        let _ = self.apply_owned_healing(victim, amount, Some(source));
         true
     }
 }

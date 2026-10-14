@@ -280,14 +280,14 @@ impl Object {
         }
         // C++ ActiveBody::attemptDamage (ActiveBody.cpp:329-330) bails before
         // type switch / armor / HP when m_indestructible.
-        if self.indestructible {
+        let direct_healing = context.is_healing_entry()
+            && matches!(damage_type, crate::game_logic::combat::DamageType::Healing);
+        if !direct_healing && self.indestructible {
             return DamageApplication::Complete(false);
         }
-        // C++ ActiveBody::attemptDamage returns on isEffectivelyDead before the
-        // damage-type switch. Healing stays later so bridge rubble can revive.
-        if self.status.effectively_dead
-            && !matches!(damage_type, crate::game_logic::combat::DamageType::Healing)
-        {
+        // CPP ActiveBody337 rejects every damage request on a dead body.
+        // Only Object::attemptHealing reaches the bridge exception at795.
+        if !direct_healing && self.status.effectively_dead {
             return DamageApplication::Complete(false);
         }
 
@@ -349,6 +349,11 @@ impl Object {
         // (overwrites prior attacker). doDamageFX always runs (848).
         if matches!(damage_type, crate::game_logic::combat::DamageType::Healing) {
             let _ = death_type;
+            // CPP ActiveBody355: Healing delivered as damage ignores m_kill.
+            // Direct attemptHealing has its own admission and no such guard.
+            if !direct_healing && context.is_kill() {
+                return DamageApplication::Complete(false);
+            }
             let is_bridge = self.is_host_bridge_member();
             if self.status.effectively_dead && !is_bridge {
                 return DamageApplication::Complete(false);

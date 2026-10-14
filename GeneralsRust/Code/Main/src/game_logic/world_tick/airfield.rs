@@ -3060,13 +3060,8 @@ impl GameLogic {
                     continue;
                 }
                 if amount > 0.0 && jet.health.current + 1e-3 < jet.health.maximum {
-                    if let Some(jet) = self.objects.get_mut(&jet_id) {
-                        let _ = {
-                            let owned_victim_id = jet.id;
-                            let owned_damage_type = crate::game_logic::combat::DamageType::Healing;
-                            self.apply_residual_damage_owned(owned_victim_id, amount, Some(airfield_id), owned_damage_type, crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(owned_damage_type), None)
-                        };
-                    }
+                    // CPP ParkingPlaceBehavior684 calls Body::attemptHealing.
+                    let _ = self.apply_owned_healing(jet_id, amount, Some(airfield_id));
                 }
             }
             for jet_id in dead {

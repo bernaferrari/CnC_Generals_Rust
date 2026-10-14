@@ -49,6 +49,8 @@ pub(crate) struct DamageHitContext<'a> {
     status: Option<ObjectStatusTypes>,
     // C++ DamageInfoInput::m_kill: an input to this one body operation.
     kill: bool,
+    // Object::attemptHealing bypasses attemptDamage admission, not Body math.
+    healing_entry: bool,
     neutral_player_id: Option<u32>,
     incoming_history: LastDamageSourceObservation,
     previous_history: LastDamageSourceObservation,
@@ -60,6 +62,7 @@ impl<'a> DamageHitContext<'a> {
     pub(crate) fn new(source: Option<&Object>, weapon: Option<&str>, kind: DamageType) -> Self {
         Self {
             kill: false,
+            healing_entry: false,
             neutral_player_id: None,
             incoming_history: LastDamageSourceObservation::observe(source),
             previous_history: LastDamageSourceObservation::default(),
@@ -136,6 +139,16 @@ impl<'a> DamageHitContext<'a> {
         }
     }
 
+    /// Direct Object::attemptHealing; retain this owner's source observations.
+    pub(in crate::game_logic) fn with_healing_entry(mut self) -> Self {
+        self.healing_entry = true;
+        self
+    }
+
+    pub(super) fn is_healing_entry(&self) -> bool {
+        self.healing_entry
+    }
+
     pub(in crate::game_logic) fn for_kill() -> Self {
         Self {
             kill: true,
@@ -179,6 +192,7 @@ impl std::fmt::Debug for DamageHitContext<'_> {
             .field("source", &self.source)
             .field("status", &self.status)
             .field("kill", &self.kill)
+            .field("healing_entry", &self.healing_entry)
             .field(
                 "borrowed_topple_interpreter",
                 &self.topple_interpreter.is_some(),
