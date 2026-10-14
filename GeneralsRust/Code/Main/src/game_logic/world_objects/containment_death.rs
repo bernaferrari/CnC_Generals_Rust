@@ -79,7 +79,6 @@ fn apply_transport_death_scatter(
     container_id: ObjectId,
     container_pos: glam::Vec3,
     bounding_radius: f32,
-    movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
 ) -> glam::Vec3 {
     let leftover = gamelogic::object::contain::open_contain::leftover_scatter_to_nearby_position(
         container_pos.x,
@@ -103,8 +102,6 @@ fn apply_transport_death_scatter(
     // TransportContain.cpp:389–393 scatters before wakeUpAndAttemptToTarget.
     // The move makes the rider active, so AIUpdate.cpp:4430 preserves its
     // mood deadline and jitter flag even when ResetMoodCheckTimeOnExit is true.
-    {}
-    {}
     unit.set_status_attacking(false);
     dest
 }
@@ -297,13 +294,7 @@ impl GameLogic {
                 .objects
                 .get_mut(&rider_id)
                 .expect("installed contain rider");
-            apply_transport_death_scatter(
-                rider,
-                container_id,
-                position,
-                radius,
-                &mut self.movement_events.writer(self.frame),
-            )
+            apply_transport_death_scatter(rider, container_id, position, radius)
         };
         self.path_approach_with_state_ignoring(
             rider_id,

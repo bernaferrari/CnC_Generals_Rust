@@ -204,7 +204,16 @@ fn ordinary_player_completion_reaches_owned_ai_script_and_power_before_modules()
         .host_object_mut(builder)
         .unwrap()
         .set_ai_state(AIState::Constructing);
-    world.host_object_mut(id).unwrap().health.current = 450.0;
+    let object = world.host_object_mut(id).unwrap();
+    assert_eq!(object.health.maximum, 900.0);
+    // CPP ActiveBody::internalChangeHealth updates canonical state before
+    // construction completion observes this partially repaired scaffold.
+    object.internal_change_health(450.0 - object.health.current);
+    assert_eq!(object.health.current, 450.0);
+    assert_eq!(
+        object.body_damage_state,
+        crate::game_logic::host_enum_table_residual::HostBodyDamageType::Damaged
+    );
     let mut observed = false;
     world.notify_structure_construction_complete_with_prepared_observer(id, |world, id| {
         observed = true;

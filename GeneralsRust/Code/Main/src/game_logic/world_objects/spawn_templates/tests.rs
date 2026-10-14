@@ -2253,6 +2253,7 @@ Object ProbeHealContainBarracks
   KindOf = STRUCTURE SELECTABLE HEAL_PAD
   Body = ActiveBody ModuleTag_01
     MaxHealth = 1000.0
+    InitialHealth = 1000.0
   End
   Behavior = HealContain ModuleTag_Heal
     ContainMax = 10
@@ -2274,6 +2275,10 @@ End
 Object ProbeTunnelContain
   Type = Structure
   KindOf = STRUCTURE SELECTABLE
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 100.0
+    InitialHealth = 100.0
+  End
   Behavior = TunnelContain ModuleTag_Tunnel
     TimeForFullHeal = 5000
   End
@@ -2284,6 +2289,7 @@ Object ProbeHealInfantry
   TransportSlotCount = 1
   Body = ActiveBody ModuleTag_01
     MaxHealth = 80.0
+    InitialHealth = 80.0
   End
 End
 
@@ -2355,24 +2361,31 @@ End
         let unit = logic
             .create_object_for_player("ProbeHealInfantry", 1, Vec3::ZERO)
             .expect("infantry");
-        if let Some(obj) = logic.host_object_mut(unit) {
-            obj.health.current = 20.0;
-            obj.health.maximum = 80.0;
+        // ActiveBody initializes current/previous from InitialHealth, not MaxHealth.
+        for (id, health) in [(pad, 1000.0), (unit, 80.0)] {
+            let object = logic.host_object(id).expect("live authored fixture");
+            assert_eq!(
+                (object.health.current, object.health.maximum),
+                (health, health)
+            );
+            assert!(object.is_alive());
         }
+        let object = logic.host_object_mut(unit).expect("infantry");
+        object.internal_change_health(20.0 - object.health.current);
 
         assert!(
             logic.can_unit_enter_normal_target(unit, pad),
             "damaged infantry must enter HealContain"
         );
         if let Some(obj) = logic.host_object_mut(unit) {
-            obj.health.current = 80.0;
+            obj.internal_change_health(80.0 - obj.health.current);
         }
         assert!(
             !logic.can_unit_enter_normal_target(unit, pad),
             "C++ ActionManager.cpp:636-644 rejects full-health HealContain enter"
         );
         if let Some(obj) = logic.host_object_mut(unit) {
-            obj.health.current = 20.0;
+            obj.internal_change_health(20.0 - obj.health.current);
             obj.set_ai_state(AIState::Entering);
             obj.target = Some(pad);
         }
@@ -2414,10 +2427,16 @@ End
         let rider = logic
             .create_object_for_player("ProbeHealInfantry", 1, Vec3::new(40.0, 0.0, 0.0))
             .expect("tunnel rider");
-        if let Some(obj) = logic.host_object_mut(rider) {
-            obj.health.current = 30.0;
-            obj.health.maximum = 80.0;
+        for (id, health) in [(tunnel_id, 100.0), (rider, 80.0)] {
+            let object = logic.host_object(id).expect("live authored tunnel fixture");
+            assert_eq!(
+                (object.health.current, object.health.maximum),
+                (health, health)
+            );
+            assert!(object.is_alive());
         }
+        let object = logic.host_object_mut(rider).expect("tunnel rider");
+        object.internal_change_health(30.0 - object.health.current);
         assert!(logic.tunnel_network.record_enter(
             crate::game_logic::host_tunnel_network::tunnel_system_key(Some(1), Team::USA),
             rider,
@@ -2463,6 +2482,7 @@ Object ProbeCombatChinook
   TransportSlotCount = 1
   Body = ActiveBody ModuleTag_01
     MaxHealth = 300.0
+    InitialHealth = 300.0
   End
   Behavior = TransportContain ModuleTag_01
     Slots = 8
@@ -2476,6 +2496,7 @@ Object ProbeChinookRanger
   TransportSlotCount = 1
   Body = ActiveBody ModuleTag_01
     MaxHealth = 100.0
+    InitialHealth = 100.0
   End
 End
 Object ProbeChinookHumvee
@@ -2484,6 +2505,7 @@ Object ProbeChinookHumvee
   TransportSlotCount = 1
   Body = ActiveBody ModuleTag_01
     MaxHealth = 200.0
+    InitialHealth = 200.0
   End
 End
 Object ProbeChinookOverlord
@@ -2492,6 +2514,7 @@ Object ProbeChinookOverlord
   TransportSlotCount = 1
   Body = ActiveBody ModuleTag_01
     MaxHealth = 1100.0
+    InitialHealth = 1100.0
   End
 End
 "#,
@@ -2567,6 +2590,21 @@ End
             .create_object_for_player("ProbeChinookOverlord", 1, Vec3::ZERO)
             .expect("overlord");
 
+        // These admission assertions require live, explicitly authored Bodies.
+        for (id, health) in [
+            (bird, 300.0),
+            (infantry, 100.0),
+            (vehicle, 200.0),
+            (huge, 1100.0),
+        ] {
+            let object = logic.host_object(id).expect("live authored fixture");
+            assert_eq!(
+                (object.health.current, object.health.maximum),
+                (health, health)
+            );
+            assert!(object.is_alive());
+        }
+
         assert!(
             logic.can_unit_enter_normal_target(infantry, bird),
             "Ranger must board Chinook"
@@ -2597,6 +2635,10 @@ End
 Object ProbeDefaultGarrison
   Type = Structure
   KindOf = STRUCTURE SELECTABLE
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 100.0
+    InitialHealth = 100.0
+  End
   Behavior = GarrisonContain ModuleTag_Garrison
     ContainMax = 5
   End
@@ -2605,6 +2647,10 @@ Object ProbeDefaultTransport
   Type = Vehicle
   KindOf = VEHICLE SELECTABLE TRANSPORT
   TransportSlotCount = 1
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 100.0
+    InitialHealth = 100.0
+  End
   Behavior = TransportContain ModuleTag_Transport
     Slots = 5
   End
@@ -2623,6 +2669,7 @@ Object ProbeDefaultRanger
   TransportSlotCount = 1
   Body = ActiveBody ModuleTag_01
     MaxHealth = 100.0
+    InitialHealth = 100.0
   End
 End
 Object ProbeDefaultHumvee
@@ -2631,6 +2678,7 @@ Object ProbeDefaultHumvee
   TransportSlotCount = 1
   Body = ActiveBody ModuleTag_01
     MaxHealth = 200.0
+    InitialHealth = 200.0
   End
 End
 "#,
@@ -2719,6 +2767,21 @@ End
         let vehicle = logic
             .create_object_for_player("ProbeDefaultHumvee", 1, Vec3::ZERO)
             .expect("humvee");
+
+        // These admission assertions require live, explicitly authored Bodies.
+        for (id, health) in [
+            (bunker, 100.0),
+            (truck, 100.0),
+            (infantry, 100.0),
+            (vehicle, 200.0),
+        ] {
+            let object = logic.host_object(id).expect("live authored fixture");
+            assert_eq!(
+                (object.health.current, object.health.maximum),
+                (health, health)
+            );
+            assert!(object.is_alive());
+        }
 
         assert!(
             logic.can_unit_enter_normal_target(infantry, bunker),

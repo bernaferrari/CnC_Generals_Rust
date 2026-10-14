@@ -168,8 +168,19 @@ fn capture_emits_remove_then_add_at_the_actual_logic_boundary() {
 }
 
 fn authored_template(name: &str, modules: &str) -> ThingTemplate {
+    authored_template_with_initial_health(name, modules, None)
+}
+
+fn authored_template_with_initial_health(
+    name: &str,
+    modules: &str,
+    initial_health: Option<f32>,
+) -> ThingTemplate {
+    let initial = initial_health
+        .map(|health| format!(" InitialHealth = {health}\n"))
+        .unwrap_or_default();
     let source = format!(
-        "Object {name}\n KindOf = STRUCTURE COMMANDCENTER FS_TECHNOLOGY SELECTABLE MP_COUNT_FOR_VICTORY\n Body = ActiveBody ModuleTag_Body\n MaxHealth = 500\n End\n{modules}End\n"
+        "Object {name}\n KindOf = STRUCTURE COMMANDCENTER FS_TECHNOLOGY SELECTABLE MP_COUNT_FOR_VICTORY\n Body = ActiveBody ModuleTag_Body\n MaxHealth = 500\n{initial} End\n{modules}End\n"
     );
     let mut parser = crate::assets::IniParser::new();
     parser
@@ -183,6 +194,10 @@ fn authored_template(name: &str, modules: &str) -> ThingTemplate {
 }
 
 fn authored_world() -> (GameLogic, ObjectId) {
+    authored_world_with_initial_health(None)
+}
+
+fn authored_world_with_initial_health(initial_health: Option<f32>) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
     world.add_player(Player::new(1, Team::GLA, "First", true));
     world.add_player(Player::new(2, Team::GLA, "Second", true));
@@ -193,9 +208,10 @@ fn authored_world() -> (GameLogic, ObjectId) {
         0,
         1,
     );
-    let template = authored_template(
+    let template = authored_template_with_initial_health(
         "ArbitraryRadarFacility",
         " Behavior = RadarUpgrade ModuleTag_Radar\n TriggeredBy = Upgrade_GLARadar\n DisableProof = Yes\n End\n Behavior = RadarUpdate ModuleTag_Update\n RadarExtendTime = 50\n End\n Behavior = GrantUpgradeCreate ModuleTag_Grant\n UpgradeToGrant = Upgrade_GLARadar\n ExemptStatus = UNDER_CONSTRUCTION\n End\n",
+        initial_health,
     );
     world.templates.insert(template.name.clone(), template);
     let id = world
@@ -441,9 +457,20 @@ fn unknown_authored_upgrade_names_cannot_be_supplied_by_another_world() {
 
 #[test]
 fn actual_emp_field_admits_radar_before_impact_presentation_and_next_operation() {
-    let (mut world, id) = authored_world();
-    let (peer, peer_id) = authored_world();
+    // CPP ActiveBodyModuleData defaults InitialHealth to zero independently
+    // of MaxHealth. This real EMP candidate must explicitly start alive.
+    let (mut world, id) = authored_world_with_initial_health(Some(500.0));
+    let (peer, peer_id) = authored_world_with_initial_health(Some(500.0));
     assert_eq!(id, peer_id);
+    for object in [&world.objects[&id], &peer.objects[&peer_id]] {
+        assert_eq!(object.health.current, 500.0);
+        assert_eq!(object.health.maximum, 500.0);
+        assert!(object.is_alive());
+        assert_eq!(
+            object.body_damage_state,
+            crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine
+        );
+    }
     // CPP EMPUpdate253 accepts structures only with KINDOFMASK_FS. An
     // arbitrary fixture basename must not provide that authored capability.
     assert!(world.objects[&id].is_kind_of(KindOf::FSTechnology));

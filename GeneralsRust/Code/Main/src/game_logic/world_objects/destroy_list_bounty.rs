@@ -11,10 +11,7 @@ impl GameLogic {
     /// Wave 912: true when destroy queue or destroy-ready residual has work.
     #[inline]
     pub fn has_pending_destroy_work(&self) -> bool {
-        if !self.objects_to_destroy.is_empty() {
-            return true;
-        }
-        false
+        !self.objects_to_destroy.is_empty()
     }
 
     /// Wave 912: process destroy list only when residual work is pending.
@@ -26,9 +23,6 @@ impl GameLogic {
     }
 
     pub fn process_destroy_list(&mut self) {
-        // Wave 621: under damage authority, GameWorld health writeback records
-        // lethal IDs; host marks them here before draining the destroy queue.
-        {}
         let mut destroyed_structure = false;
         let mut rubble_stamps: Vec<(glam::Vec3, i32)> = Vec::new();
         while let Some(event) = self.objects_to_destroy.pop_front() {
@@ -1437,17 +1431,10 @@ mod tests {
         assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 1);
     }
 
-    /// Wave-621 kill-XP drain fixture: unit A kills unit B through the
-    /// damage-authority health channel. The lethal writeback enqueues
-    /// destruction with no killer attached, so process_destroy_list's
-    /// ready-log drain must resolve the killing blow's source from the
-    /// victim's lastDamageInfo residual and credit A (C++ scores in
-    /// ActiveBody::attemptDamage, ActiveBody.cpp:640-650, before onDie;
-    /// GameLogic::processDestroyList, GameLogic.cpp:2445-2511, only tears
-    /// down). Under authority-live, gain_experience still commits to the canonical
-    /// host owner before subsequent observers.
+    /// CPP ActiveBody646–653 scores a live killing source before onDie;
+    /// GameLogic::processDestroyList only performs the later physical cleanup.
     #[test]
-    fn damage_authority_destroy_drain_awards_kill_experience() {
+    fn owned_lethal_damage_scores_before_destroy_drain() {
         let mut logic = GameLogic::new();
 
         let mut usa = Player::new(0, Team::USA, "USA", true);
@@ -1475,16 +1462,30 @@ mod tests {
             .create_object("DrainXpTank", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
             .expect("victim");
 
-        // Killing blow: host take_damage stamps last_damage_source and drives
-        // HP lethal; it never enqueues destruction — the ready-log channel owns
-        // that under damage authority.
-        let destroyed = {
-            let (v, health_events) = logic
-                .host_object_and_health_events_mut(victim)
-                .expect("victim");
-            v.take_damage_from(1.0e9, Some(killer), health_events)
-        };
-        assert!(destroyed, "lethal blow must destroy the victim");
+        logic.frame = 42;
+        for id in [killer, victim] {
+            let object = logic.host_object(id).unwrap();
+            assert_eq!((object.health.current, object.health.maximum), (10.0, 10.0));
+            assert!(object.is_alive());
+        }
+        let result = logic
+            .apply_owned_damage(
+                victim,
+                1.0e9,
+                Some(killer),
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+                &crate::game_logic::object::DamageHitContext::default(),
+            )
+            .expect("receiving owned Body");
+        assert!(result.destroyed(), "lethal blow must destroy the victim");
+        assert_eq!(
+            logic.host_object(killer).unwrap().experience.current,
+            25.0,
+            "CPP awards kill experience before physical destruction"
+        );
+        assert!(logic.host_object(victim).unwrap().status.on_die_started);
         assert_eq!(
             logic.host_object(victim).map(|o| o.last_damage_source),
             Some(Some(killer)),
