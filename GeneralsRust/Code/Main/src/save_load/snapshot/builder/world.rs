@@ -89,6 +89,7 @@ impl SnapshotBuilder {
                     &super::super::lifecycle_tail::capture_lifecycle_tail(game_logic)?,
                 );
                 super::super::combat_projectile_persist::append(&mut bytes, game_logic)?;
+                super::super::body_kind_persist::append(&mut bytes, game_logic)?;
                 super::super::special_power_cooldown_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
@@ -291,7 +292,14 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             snapshot.version >= 28,
         )?;
-        let lifecycle_tail = projectile_continuation.legacy_tail.as_ref();
+        let body_definitions =
+            super::super::body_kind_persist::decode(projectile_continuation.legacy_tail.as_ref())?;
+        let body_kinds = super::super::body_kind_persist::validate(
+            body_definitions.records.as_deref(),
+            &snapshot.objects,
+            game_logic,
+        )?;
+        let lifecycle_tail = body_definitions.legacy_tail.as_ref();
         // Reject malformed companion bytes before this API mutates its receiver.
         // Production map loading then restores this candidate world atomically.
         let ghosts = snapshot
@@ -338,7 +346,12 @@ impl SnapshotBuilder {
         self.restore_player_energy(snapshot, game_logic)?;
         self.restore_player_template_bindings(snapshot, game_logic)?;
         self.restore_all_teams(&snapshot.teams, game_logic)?;
-        self.restore_all_objects(&snapshot.objects, snapshot.next_object_id, game_logic)?;
+        self.restore_all_objects(
+            &snapshot.objects,
+            snapshot.next_object_id,
+            &body_kinds,
+            game_logic,
+        )?;
         self.restore_object_instance_guards(snapshot, game_logic)?;
         self.restore_overcharge_active(snapshot, game_logic)?;
         self.restore_object_experience_trackers(snapshot, game_logic)?;

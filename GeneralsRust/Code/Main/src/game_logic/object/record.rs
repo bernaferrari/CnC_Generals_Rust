@@ -264,7 +264,7 @@ impl Object {
         health_events: &mut crate::game_logic::HostHealthEvents,
         frame: u32,
     ) {
-        if self.status.destroyed {
+        if self.status.destroyed || self.is_inactive_body() {
             return;
         }
         let before = self.health.current;

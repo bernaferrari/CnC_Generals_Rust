@@ -499,3 +499,95 @@ fn inactive_construction_is_inert_and_installation_mutates_exact_same_id_owner()
         &owner.read().unwrap().get_body().unwrap()
     ));
 }
+
+#[test]
+fn authored_inactive_body_wire_matches_cpp_prefix_and_restores_same_runtime() {
+    if !child(concat!(
+        module_path!(),
+        "::authored_inactive_body_wire_matches_cpp_prefix_and_restores_same_runtime"
+    )) {
+        return;
+    }
+    let installed = Installed::new("BodyOriginalInactiveWire", "InactiveBody", 0.0, 0.0);
+    // InactiveBody.cpp:157–169 -> BodyModule.cpp:28–43 ->
+    // BehaviorModule/ObjectModule/Module: version 1 each, then Real scalar 1.
+    let expected = vec![1, 1, 1, 1, 1, 0, 0, 128, 63];
+    assert_eq!(installed.save(), expected);
+    assert_eq!(installed.save_interface(), expected);
+    let retained = installed.body.clone();
+    installed.entry.with_module(|module| {
+        module
+            .xfer(&mut XferLoad::new(Cursor::new(expected.clone()), 1))
+            .unwrap();
+        module.load_post_process().unwrap();
+    });
+    assert!(Arc::ptr_eq(
+        &retained,
+        &installed.owner.read().unwrap().get_body().unwrap()
+    ));
+    assert_eq!(installed.save(), expected);
+    assert_eq!(installed.save_interface(), expected);
+    assert!(installed.owner.read().unwrap().is_effectively_dead());
+    assert_eq!(retained.lock().unwrap().get_health(), 0.0);
+    assert_eq!(retained.lock().unwrap().get_damage_scalar(), 1.0);
+}
+
+#[test]
+fn authored_body_crc_chain_emits_no_cpp_payload_or_version() {
+    if !child(concat!(
+        module_path!(),
+        "::authored_body_crc_chain_emits_no_cpp_payload_or_version"
+    )) {
+        return;
+    }
+    use game_engine::common::system::xfer_crc::XferCRC;
+    for module in ACTIVE_KINDS.into_iter().chain(["InactiveBody"]) {
+        let installed = Installed::new(&format!("BodyOriginalCrc{module}"), module, 400.0, 300.0);
+        // C++ concrete Body crc delegates through BodyModule/BehaviorModule/
+        // ObjectModule into empty Module::crc. No version or mutable HP bytes.
+        let mut bytes = Vec::new();
+        installed.entry.with_module(|binding| {
+            binding
+                .crc(&mut XferSave::new(Cursor::new(&mut bytes), 1))
+                .unwrap();
+        });
+        assert!(
+            bytes.is_empty(),
+            "original CRC payload must be empty: {module}"
+        );
+
+        // Real XferCRC with a nonzero existing prefix detects an extra zero
+        // version byte too; an unseeded zero CRC alone could miss that bug.
+        let mut crc = XferCRC::new(XferSave::new(Cursor::new(Vec::new()), 1));
+        let mut prefix = 0x1234_5678u32;
+        crc.xfer_unsigned_int(&mut prefix).unwrap();
+        let before = crc.get_crc();
+        assert_ne!(before, 0);
+        installed
+            .entry
+            .with_module(|binding| binding.crc(&mut crc).unwrap());
+        assert_eq!(crc.get_crc(), before, "body adds no CRC bytes: {module}");
+        if module != "InactiveBody" {
+            installed
+                .body
+                .lock()
+                .unwrap()
+                .set_initial_health(20)
+                .unwrap();
+            installed
+                .body
+                .lock()
+                .unwrap()
+                .apply_damage_scalar(2.0)
+                .unwrap();
+            installed
+                .entry
+                .with_module(|binding| binding.crc(&mut crc).unwrap());
+            assert_eq!(
+                crc.get_crc(),
+                before,
+                "mutable health is not Body CRC payload: {module}"
+            );
+        }
+    }
+}

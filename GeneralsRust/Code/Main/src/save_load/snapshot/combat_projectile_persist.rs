@@ -138,7 +138,7 @@ fn decode_exact<T: serde::de::DeserializeOwned>(payload: &[u8]) -> SaveLoadResul
 
 // Historical envelope-only tails and envelope+contain-only tails are valid.
 // Modern captures always include both counts, even when they are zero.
-fn prefix_len(bytes: &[u8]) -> SaveLoadResult<usize> {
+pub(super) fn prefix_len(bytes: &[u8]) -> SaveLoadResult<usize> {
     if bytes.is_empty() {
         return Ok(0);
     }

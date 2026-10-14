@@ -260,6 +260,9 @@ impl GameLogic {
         // ActiveBody is initialized before any onCreate/onBuildComplete callback.
         // Retain the effective receiving module rather than discovering InitialHealth
         // from whichever Core factory happens to be installed at construction.
+        template.body_kind = definition.behavior_modules.iter().find_map(|module| {
+            crate::game_logic::thing::BodyKind::from_module_class(&module.class_name)
+        });
         if let Some(body) = definition.behavior_modules.iter().find(|module| {
             [
                 "ActiveBody",

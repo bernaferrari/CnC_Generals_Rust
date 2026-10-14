@@ -20,6 +20,9 @@ impl Object {
         delta: f32,
     ) -> crate::game_logic::host_enum_table_residual::HostBodyDamageType {
         let old_state = self.body_damage_state;
+        if self.is_inactive_body() {
+            return old_state;
+        }
         self.previous_health = self.health.current;
         self.health.current += delta;
         if self.health.current > self.health.maximum {
@@ -40,6 +43,13 @@ impl Object {
         &mut self,
         saved_state: Option<crate::game_logic::host_enum_table_residual::HostBodyDamageType>,
     ) {
+        if self.is_inactive_body() {
+            self.body_damage_state =
+                crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine;
+            self.status.effectively_dead = true;
+            self.rebuild_model_condition_bits();
+            return;
+        }
         self.body_damage_state = saved_state.unwrap_or_else(|| {
             crate::game_logic::host_enum_table_residual::host_calc_body_damage_state(
                 self.health.current,
@@ -51,6 +61,9 @@ impl Object {
     }
 
     pub(crate) fn set_body_max_health_with_mode(&mut self, maximum: f32, mode: MaxHealthChange) {
+        if self.is_inactive_body() {
+            return;
+        }
         let old_maximum = self.health.maximum;
         self.health.maximum = maximum;
         self.max_health = maximum;
@@ -89,6 +102,10 @@ impl Object {
             self.max_health.max(0.0)
         };
         let old_state = self.body_damage_state;
+        if self.is_inactive_body() {
+            self.body_damage_state = HostBodyDamageType::Pristine;
+            return (old_state, HostBodyDamageType::Pristine);
+        }
         let state = if self.status.destroyed || health <= 0.0 {
             HostBodyDamageType::Rubble
         } else {
@@ -111,6 +128,11 @@ impl Object {
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         frame: u32,
     ) {
+        if self.is_inactive_body() {
+            self.status.effectively_dead = true;
+            self.rebuild_model_condition_bits();
+            return;
+        }
         let (old_state, _) = self.recalculate_body_damage_state();
         self.status.effectively_dead = self.health.current <= 0.0;
         self.react_to_body_damage_state_change(old_state, source, frame);

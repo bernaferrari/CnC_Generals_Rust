@@ -31,7 +31,12 @@ fn invalid_receiving_definition_rejects_before_live_objects_are_cleared_or_resto
     receiving.templates.insert(invalid.name.clone(), invalid);
     assert!(
         builder
-            .restore_all_objects(&snapshot.objects, snapshot.next_object_id, &mut receiving)
+            .restore_all_objects(
+                &snapshot.objects,
+                snapshot.next_object_id,
+                &Default::default(),
+                &mut receiving
+            )
             .is_err()
     );
     assert_eq!(receiving.host_objects().len(), 1);

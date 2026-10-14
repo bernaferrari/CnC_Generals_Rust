@@ -327,8 +327,16 @@ impl GameLogic {
         if killed {
             // Keep the existing once-only gates and XP-sink routing. Do not
             // predict a promotion or cache XP before the callbacks.
-            if let Some(source) = source_id {
-                self.award_score_the_kill_experience(source, victim_id);
+            // CPP InactiveBody calls only onDie, never ActiveBody's
+            // scoreTheKill phase or damage/healing callbacks.
+            if !self
+                .objects
+                .get(&victim_id)
+                .is_some_and(|object| object.is_inactive_body())
+            {
+                if let Some(source) = source_id {
+                    self.award_score_the_kill_experience(source, victim_id);
+                }
             }
             let killer_team = killer_team_override
                 .or_else(|| source_id.and_then(|id| self.objects.get(&id).map(|obj| obj.team)));

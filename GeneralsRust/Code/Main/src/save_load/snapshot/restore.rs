@@ -20,6 +20,7 @@ impl SnapshotBuilder {
         &self,
         objects: &HashMap<ObjectId, ObjectSnapshot>,
         next_object_id: u32,
+        body_kinds: &HashMap<ObjectId, crate::game_logic::thing::BodyKind>,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         let mut ids: Vec<ObjectId> = objects.keys().cloned().collect();
@@ -65,7 +66,11 @@ impl SnapshotBuilder {
             let snapshot = objects.get(&id).ok_or_else(|| {
                 SaveLoadError::Corrupted(format!("Missing snapshot for object {}", id))
             })?;
-            self.restore_object(snapshot, game_logic)?;
+            self.restore_object_with_body_kind(
+                snapshot,
+                body_kinds.get(&snapshot.id).copied(),
+                game_logic,
+            )?;
             max_id = max_id.max(id.0);
         }
 
@@ -107,6 +112,15 @@ impl SnapshotBuilder {
         snapshot: &ObjectSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
+        self.restore_object_with_body_kind(snapshot, None, game_logic)
+    }
+
+    fn restore_object_with_body_kind(
+        &self,
+        snapshot: &ObjectSnapshot,
+        body_kind: Option<crate::game_logic::thing::BodyKind>,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
         // Prefer catalog templates when present. Map-spawned objects often have a
         // matching entry after load_map, but mid-match loads into a fresh GameLogic
         // may not have the full INI catalog — synthesize a minimal template so
@@ -129,6 +143,9 @@ impl SnapshotBuilder {
                 t
             };
 
+        if let Some(kind) = body_kind {
+            template.body_kind = Some(kind);
+        }
         if let Some(catalog) = game_logic.weapon_definitions.as_ref() {
             template.bind_receiving_weapon_sets(catalog);
         }

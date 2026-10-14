@@ -439,10 +439,9 @@ impl BodyModule {
 }
 
 impl Snapshotable for BodyModule {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        // BodyModule.cpp:14–20 delegates through BehaviorModule/ObjectModule
+        // to Module::crc, an empty chain. Versions belong only to Xfer.
         Ok(())
     }
 

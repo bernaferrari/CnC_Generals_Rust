@@ -268,7 +268,9 @@ impl Object {
         // C++ InactiveBody::attemptDamage (InactiveBody.cpp:53-86): no HP except
         // DAMAGE_UNRESISTABLE (onDie once, never DamageFX).
         if self.is_inactive_body() {
-            return DamageApplication::Complete(self.apply_inactive_body_damage(damage_type));
+            return DamageApplication::Complete(
+                self.apply_inactive_body_damage(damage_type, death_type),
+            );
         }
         // C++ HiveStructureBody::attemptDamage (HiveStructureBody.cpp:45-112):
         // propagate SMALL_ARMS/SNIPER/POISON/RADIATION/SURRENDER/MICROWAVE to
@@ -656,7 +658,9 @@ impl Object {
             return DamageApplication::Complete(false);
         }
         if self.is_inactive_body() {
-            return DamageApplication::Complete(self.apply_inactive_body_damage(damage_type));
+            return DamageApplication::Complete(
+                self.apply_inactive_body_damage(damage_type, death_type),
+            );
         }
         // C++ ActiveBody::attemptDamage returns when isEffectivelyDead,
         // before armor, repulsor, and onDie.
@@ -973,6 +977,9 @@ impl Object {
 
     /// C++ InactiveBody templates: FireField / PoisonField / RadiationField.
     pub fn is_inactive_body(&self) -> bool {
+        if let Some(kind) = self.thing.template.body_kind {
+            return kind == crate::game_logic::thing::BodyKind::Inactive;
+        }
         if self.uses_inactive_body
             || self.inferno_fire_field
             || self.nuke_radiation_field
@@ -988,6 +995,7 @@ impl Object {
     fn apply_inactive_body_damage(
         &mut self,
         damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
     ) -> bool {
         if matches!(damage_type, crate::game_logic::combat::DamageType::Healing) {
             return false;
@@ -998,6 +1006,7 @@ impl Object {
         ) && !self.inactive_body_die_called
         {
             self.inactive_body_die_called = true;
+            self.status.death_type = death_type;
             self.status.destroyed = true;
             self.status.effectively_dead = true;
             return true;

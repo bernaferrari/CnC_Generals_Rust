@@ -1,5 +1,35 @@
 use super::*;
 
+/// ActiveBody subclasses expose health/history; InactiveBody inherits the
+/// empty BodyModule interface. This is effective immutable content, not status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BodyKind {
+    Active,
+    Inactive,
+}
+
+impl BodyKind {
+    pub(crate) fn from_module_class(name: &str) -> Option<Self> {
+        if name.eq_ignore_ascii_case("InactiveBody") {
+            Some(Self::Inactive)
+        } else if [
+            "ActiveBody",
+            "StructureBody",
+            "HighlanderBody",
+            "ImmortalBody",
+            "HiveStructureBody",
+            "UndeadBody",
+        ]
+        .iter()
+        .any(|class| name.eq_ignore_ascii_case(class))
+        {
+            Some(Self::Active)
+        } else {
+            None
+        }
+    }
+}
+
 /// Thing Template - shared configuration data for Things
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThingTemplate {
@@ -10,6 +40,10 @@ pub struct ThingTemplate {
     #[serde(default)]
     pub(crate) default_draw_without_fog_memory: bool,
     pub max_health: f32,
+    /// Rebound from receiving content or validated saved module identity.
+    /// Preserve the historical positional ThingTemplate serialization.
+    #[serde(skip)]
+    pub(crate) body_kind: Option<BodyKind>,
     /// Immutable authored ActiveBody InitialHealth, bound before factory callbacks.
     /// Rebuild from receiving content; never change the historical template wire layout.
     #[serde(skip)]
@@ -575,6 +609,7 @@ impl ThingTemplate {
             kind_of: HashSet::new(),
             default_draw_without_fog_memory: false,
             max_health: 100.0,
+            body_kind: None,
             body_initial_health: None,
             body_initial_health_error: None,
             selected_weapon_sets: None,

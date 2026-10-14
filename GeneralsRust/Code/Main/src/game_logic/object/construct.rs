@@ -288,7 +288,7 @@ impl Object {
         id: ObjectId,
         team: Team,
         logic_frame: u32,
-        initial_status: ObjectStatus,
+        mut initial_status: ObjectStatus,
     ) -> Self {
         if template.selected_weapon_sets.is_none() {
             let base = [
@@ -299,9 +299,20 @@ impl Object {
             template.bind_selected_weapon_sets(base);
         }
         let template_name = template.name.clone();
-        let max_health = template.max_health;
+        let inactive_body =
+            template.body_kind == Some(crate::game_logic::thing::BodyKind::Inactive);
+        let max_health = if inactive_body {
+            0.0
+        } else {
+            template.max_health
+        };
         // C++ ActiveBody ctor: current/prev/initial = INI InitialHealth; max = MaxHealth.
-        let initial_health = template.body_initial_health.unwrap_or(max_health);
+        let initial_health = if inactive_body {
+            0.0
+        } else {
+            template.body_initial_health.unwrap_or(max_health)
+        };
+        initial_status.effectively_dead |= inactive_body;
         let auto_acquire_idle_bits = leftover_factory_auto_acquire_bits(&template_name)
             .unwrap_or(template.auto_acquire_enemies_when_idle);
         let auto_acquire_when_idle = (auto_acquire_idle_bits
@@ -982,11 +993,14 @@ impl Object {
             temporary_move_frames: 0,
             overlay_arrival_snap: false,
             worker_ai_update: template_has_worker_ai_update(&template_name),
-            body_damage_state:
+            body_damage_state: if inactive_body {
+                crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine
+            } else {
                 crate::game_logic::host_enum_table_residual::host_calc_body_damage_state(
                     initial_health,
                     max_health,
-                ),
+                )
+            },
             move_loop_audio: None,
             ambient_audio: None,
             ambient_sound_enabled_from_script: true,
@@ -2509,6 +2523,9 @@ impl Object {
     }
 
     pub fn get_health_percentage(&self) -> f32 {
+        if self.is_inactive_body() {
+            return 0.0;
+        }
         // C++ BodyModule::getHealth() / getMaxHealth() on this body.
         let current = self.health.current;
         let max_h = if self.health.maximum > 0.0 {
@@ -2522,6 +2539,9 @@ impl Object {
     /// C++ `BodyModule::getInitialHealth`: preserve bound authored zero/negative
     /// values. Unbound synthetic templates retain their local max-health fallback.
     pub fn body_initial_health(&self) -> f32 {
+        if self.is_inactive_body() {
+            return 0.0;
+        }
         if self.thing.template.body_initial_health.is_some() || self.initial_health > 0.0 {
             self.initial_health
         } else if self.health.maximum > 0.0 {
@@ -3021,3 +3041,7 @@ mod tests {
 #[cfg(test)]
 #[path = "body_initialization_owner_tests.rs"]
 mod body_initialization_owner_tests;
+
+#[cfg(test)]
+#[path = "inactive_body_owner_tests.rs"]
+mod inactive_body_owner_tests;
