@@ -907,9 +907,17 @@ mod tests {
         );
         let tick = include_str!("world_tick/ai.rs");
         assert!(
-            tick.contains("update_owned_structure_topple")
-                && tick.contains("dispatch_owned_structure_topple_fx"),
-            "world tick must execute the owner update and immediate owned FX route"
+            tick.contains("update_owned_structure_topple"),
+            "world tick must execute the receiving owner update"
         );
+        let owner = include_str!("world_objects/create_destroy_die/structure_topple_owned.rs");
+        let update = owner
+            .split_once("fn update_owned_structure_topple")
+            .unwrap()
+            .1;
+        assert!(update.contains("dispatch_owned_structure_topple_fx"));
+        assert!(update.contains("execute_owned_structure_topple_fx"));
+        assert!(owner.contains("dispatch_fx_list_at_host_object(&effect.name, id, None)"));
+        assert!(owner.contains("dispatch_fx_list_at_host_position"));
     }
 }

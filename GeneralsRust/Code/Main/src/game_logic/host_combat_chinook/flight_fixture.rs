@@ -41,6 +41,7 @@ Object Hq46k12CombatChinook
   KindOf = PRELOAD SELECTABLE CAN_ATTACK VEHICLE AIRCRAFT TRANSPORT
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 350
+    InitialHealth = 350
   End
   Behavior = ChinookAIUpdate ModuleTag_AI
     MaxBoxes = 8
@@ -59,6 +60,7 @@ Object Hq46k12Rappeller
   KindOf = PRELOAD SELECTABLE INFANTRY CAN_RAPPEL
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
+    InitialHealth = 100
   End
 End
 "#,
@@ -87,6 +89,9 @@ End
         .create_object("Hq46k12Rappeller", Team::USA, Vec3::new(35.0, 0.0, 40.0))
         .expect("authored passenger");
     let transport_object = logic.host_object_mut(transport).unwrap();
+    // C++ ActiveBody initializes current health from InitialHealth, whose
+    // omitted default is zero. These flight participants must begin alive.
+    assert_eq!(transport_object.health.current, 350.0);
     assert!(
         transport_object.chinook_ai.is_some(),
         "actual spawn installed flight runtime"
@@ -113,6 +118,7 @@ End
     );
     assert!(transport_object.add_occupant(passenger));
     let passenger_object = logic.host_object_mut(passenger).unwrap();
+    assert_eq!(passenger_object.health.current, 100.0);
     passenger_object.set_contained_by(Some(transport));
     passenger_object.set_ai_state(AIState::Docked);
     (logic, transport, passenger)

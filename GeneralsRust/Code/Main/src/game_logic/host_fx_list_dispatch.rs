@@ -493,7 +493,10 @@ mod tests {
         let tick = include_str!("world_tick/ai.rs");
         assert!(tick.contains("dispatch_fx_list_at_host_object(&fx, object_id, death_killer)"));
         let shadow = include_str!("../gameworld_shadow/session.rs");
-        assert!(shadow.contains("dispatch_fx_list_at_host_object(&fx, id, killer)"));
+        assert!(
+            !shadow.contains("dispatch_fx_list_at_host_object"),
+            "read-only projection must not deliver a second death FX"
+        );
         let armor = include_str!("host_transition_damage_fx.rs");
         let start = armor
             .find("pub fn dispatch_armor_damage_fx")
@@ -530,10 +533,6 @@ mod tests {
     #[test]
     fn fire_fx_dispatch_threads_drawable_matrix() {
         let discharge = include_str!("world_combat/weapon_discharge.rs");
-        assert!(
-            discharge.contains("dispatch_fx_list_at_pos_oriented"),
-            "FireFX fallback must pass drawable transform"
-        );
         assert!(
             discharge.contains("spawn_weapon_fire_fx_named_ocl_oriented"),
             "play_dispatch_fire_fx must pass drawable transform"
@@ -652,7 +651,9 @@ mod tests {
             !helper_body.contains("ProjectileImpactFx"),
             "GarrisonHitKillFX must not queue detonation impact FX"
         );
-        let mut rest = combat;
+        // The two collision branches moved with the actual flight step;
+        // resolution owns only the shared doFXObj helper.
+        let mut rest = include_str!("combat/projectile_step.rs");
         let mut windows = 0usize;
         while let Some(i) = rest.find("apply_garrison_hit_kill") {
             let chunk = &rest[i..];

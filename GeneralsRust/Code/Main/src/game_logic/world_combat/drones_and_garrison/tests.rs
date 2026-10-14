@@ -334,6 +334,35 @@ fn garrison_template(name: &str, immune: bool, enclosing: bool) -> ThingTemplate
     t
 }
 
+/// ActiveBody.cpp:82–98 computes the state from admitted health damage;
+/// GarrisonContain.cpp:540–542/1728 reads that canonical Body state.
+fn damage_garrison_to_really_damaged(logic: &mut GameLogic, building: crate::game_logic::ObjectId) {
+    use crate::game_logic::combat::DamageType;
+    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    use crate::game_logic::object::DamageHitContext;
+
+    let result = logic
+        .apply_owned_damage(
+            building,
+            800.0,
+            None,
+            DamageType::Unresistable,
+            HostDeathType::Normal,
+            None,
+            &DamageHitContext::default(),
+        )
+        .expect("receiving building must admit Body damage");
+    assert!(!result.destroyed());
+    assert_eq!(result.hp_lost, 800.0);
+    let building = logic.host_object(building).unwrap();
+    assert_eq!(building.health.current, 200.0);
+    assert_eq!(
+        building.body_damage_state,
+        HostBodyDamageType::ReallyDamaged
+    );
+}
+
 #[test]
 fn immune_to_clear_bunker_keeps_occupants() {
     let mut logic = GameLogic::new();
@@ -873,7 +902,6 @@ fn evac_burst_walks_out_instead_of_idling_at_origin() {
 
 #[test]
 fn really_damaged_garrison_rejects_enter_unless_firebase() {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
     let mut logic = GameLogic::new();
     logic.templates.insert(
         "CivBunker".into(),
@@ -892,12 +920,7 @@ fn really_damaged_garrison_rejects_enter_unless_firebase() {
         .create_object("AmericaRanger", Team::USA, Vec3::new(4.0, 0.0, 0.0))
         .unwrap();
     assert!(logic.can_unit_enter_normal_target(ranger, bunker));
-    {
-        let b = logic.host_object_mut(bunker).unwrap();
-        b.health.current = 200.0;
-        b.refresh_model_condition_bits();
-        assert_eq!(b.body_damage_state, HostBodyDamageType::ReallyDamaged);
-    }
+    damage_garrison_to_really_damaged(&mut logic, bunker);
     assert!(
         !logic.can_unit_enter_normal_target(ranger, bunker),
         "C++ isValidContainerFor rejects BODY_REALLYDAMAGED civilian/faction buildings"
@@ -906,12 +929,7 @@ fn really_damaged_garrison_rejects_enter_unless_firebase() {
     let fb = logic
         .create_object("AmericaFireBase", Team::USA, Vec3::new(40.0, 0.0, 0.0))
         .unwrap();
-    {
-        let b = logic.host_object_mut(fb).unwrap();
-        b.health.current = 200.0;
-        b.refresh_model_condition_bits();
-        assert_eq!(b.body_damage_state, HostBodyDamageType::ReallyDamaged);
-    }
+    damage_garrison_to_really_damaged(&mut logic, fb);
     assert!(
         logic.can_unit_enter_normal_target(ranger, fb),
         "KINDOF_GARRISONABLE_UNTIL_DESTROYED stays occupiable through ReallyDamaged"
@@ -920,7 +938,6 @@ fn really_damaged_garrison_rejects_enter_unless_firebase() {
 
 #[test]
 fn really_damaged_ejects_garrison_with_burst_walk() {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
     let mut logic = GameLogic::new();
     logic.templates.insert(
         "CivBunker".into(),
@@ -945,12 +962,7 @@ fn really_damaged_ejects_garrison_with_burst_walk() {
         r.set_contained_by(Some(bunker));
         r.set_ai_state(AIState::Garrisoned);
     }
-    {
-        let b = logic.host_object_mut(bunker).unwrap();
-        b.health.current = 200.0;
-        b.refresh_model_condition_bits();
-        assert_eq!(b.body_damage_state, HostBodyDamageType::ReallyDamaged);
-    }
+    damage_garrison_to_really_damaged(&mut logic, bunker);
     logic.check_building_damage_states(&[bunker]);
     let r = logic.host_object(ranger_id).unwrap();
     assert!(r.contained_by.is_none());
@@ -975,7 +987,6 @@ fn really_damaged_ejects_garrison_with_burst_walk() {
 
 #[test]
 fn firebase_really_damaged_does_not_eject() {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
     let mut logic = GameLogic::new();
     let mut firebase = garrison_template("AmericaFireBase", false, false);
     firebase.add_kind_of(KindOf::GarrisonableUntilDestroyed);
@@ -994,12 +1005,7 @@ fn firebase_really_damaged_does_not_eject() {
         r.set_contained_by(Some(fb));
         r.set_ai_state(AIState::Garrisoned);
     }
-    {
-        let b = logic.host_object_mut(fb).unwrap();
-        b.health.current = 200.0;
-        b.refresh_model_condition_bits();
-        assert_eq!(b.body_damage_state, HostBodyDamageType::ReallyDamaged);
-    }
+    damage_garrison_to_really_damaged(&mut logic, fb);
     logic.check_building_damage_states(&[fb]);
     assert_eq!(
         logic.host_object(ranger_id).unwrap().contained_by,

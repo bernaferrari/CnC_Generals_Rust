@@ -883,7 +883,7 @@ mod tests {
         let tick = include_str!("world_tick/ai.rs");
         assert!(tick.contains("stamp_last_damage_type(o.last_damage_info_type)"));
         assert!(!tick.contains("stamp_last_damage_type(o.last_damage_fx_done)"));
-        let pose = include_str!("object/pose.rs");
+        let pose = include_str!("object/body_visuals.rs");
         assert!(pose.contains("stamp_last_damage_type(self.last_damage_info_type)"));
         assert!(!pose.contains("stamp_last_damage_type(self.last_damage_fx_done)"));
     }

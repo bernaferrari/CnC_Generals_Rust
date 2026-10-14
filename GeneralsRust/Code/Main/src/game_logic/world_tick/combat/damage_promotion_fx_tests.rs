@@ -2,7 +2,6 @@
 //! DamageFX.cpp61,83 selects the then-current SOURCE veterancy, not the XP sink.
 //! Actual parsed Main rules/admission and normal combat; no fabricated XP/context.
 use super::*;
-use crate::game_logic::combat::tests::combat_test_guard;
 use crate::game_logic::host_transition_damage_fx::take_dispatched_armor_damage_fx;
 use game_engine::common::ini::INI;
 use game_engine::common::ini::ini_damage_fx::{
@@ -77,47 +76,17 @@ fn isolated(_: &str, run: impl FnOnce()) {
     run();
 }
 
-// Child isolation contains the existing process catalogs/output queues. Exact
-// previous WeaponStore, authority/clock and prior named DamageFX are restored
-// on normal/unwind return; the child may initialize an absent DamageFX catalog.
-struct RestoreInputs {
-    store: Option<gamelogic::weapon::WeaponStore>,
-
-    frame: u32,
+// Child isolation contains the existing global DamageFX catalog/output queue.
+// Weapon definitions and frame observations belong to the receiving world.
+struct RestoreDamageFx {
     previous_rows: Option<DamageFX>,
 }
-impl RestoreInputs {
+impl RestoreDamageFx {
     fn install() -> Self {
         init_global_damage_fx_store();
         let saved = Self {
-            store: gamelogic::weapon::with_weapon_store_mut(std::mem::take).ok(),
-
-            frame: crate::game_logic::host_historic_bonus::logic_frame(),
             previous_rows: get_damage_fx_store_mut().unwrap().remove_damage_fx(ROWS),
         };
-
-        gamelogic::initialize_weapon_store().expect("actual catalog presence");
-        crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
-        assert_eq!(
-            crate::assets::ini_template_loader::register_weapons_from_ini_text(
-                r#"
-Weapon DamagePromotionOrderWeapon
-  PrimaryDamage = 100
-  PrimaryDamageRadius = 0
-  AttackRange = 200
-  DamageType = SMALL_ARMS
-  ProjectileObject = NONE
-  WeaponSpeed = 30000000
-  DelayBetweenShots = 1000
-  ClipSize = 8
-  ClipReloadTime = 1000
-  PreAttackDelay = 0
-  AntiGround = Yes
-End
-"#
-            ),
-            1
-        );
         // Actual Common INI registration, including milliseconds->logic frames.
         INI::new()
             .with_inline_source(
@@ -137,26 +106,49 @@ End
         saved
     }
 }
-impl Drop for RestoreInputs {
+impl Drop for RestoreDamageFx {
     fn drop(&mut self) {
         let mut fx = get_damage_fx_store_mut().unwrap();
         fx.remove_damage_fx(ROWS);
         if let Some(previous) = self.previous_rows.take() {
             fx.add_damage_fx(ROWS.into(), previous);
         }
-        drop(fx);
-        if let Some(previous) = self.store.take() {
-            gamelogic::weapon::with_weapon_store_mut(|store| *store = previous).unwrap();
-        } else {
-            gamelogic::weapon::shutdown_weapon_store().unwrap();
-        }
-
-        crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
     }
 }
 
 fn eligible_world() -> GameLogic {
     let mut world = GameLogic::new();
+    let mut rows = HashMap::new();
+    assert_eq!(
+        crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut rows,
+            r#"
+Weapon DamagePromotionOrderWeapon
+  PrimaryDamage = 100
+  PrimaryDamageRadius = 0
+  AttackRange = 200
+  DamageType = SMALL_ARMS
+  ProjectileObject = NONE
+  WeaponSpeed = 30000000
+  DelayBetweenShots = 1000
+  ClipSize = 8
+  ClipReloadTime = 1000
+  PreAttackDelay = 0
+  AntiGround = Yes
+End
+"#,
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+        ),
+        1
+    );
+    let rule = &rows[&RULE.to_ascii_lowercase()];
+    assert_eq!(rule.primary_damage, 100.0);
+    assert_eq!(rule.weapon_speed.to_bits(), 0x4974_2401);
+    assert_eq!(rule.clip_size, 8);
+    assert_eq!(rule.min_delay_between_shots, 30);
+    world
+        .admit_weapon_content_snapshot(rows.into_iter().collect(), &[])
+        .expect("receiving weapon definitions");
     let mut source_player = Player::new(0, Team::USA, "PromotionUSA", true);
     source_player.alliance_team = 0;
     source_player.is_alive = true;
@@ -196,6 +188,7 @@ Object {name}
   ExperienceValue = {xp} {xp} {xp} {xp}
   Body = ActiveBody ModuleTag_Body
     MaxHealth = {health}
+    InitialHealth = {health}
   End
   ArmorSet
     Conditions = None
@@ -233,6 +226,12 @@ End
     assert_eq!(owner.health.current, health as f32);
     assert!(owner.is_trainable());
     if armed {
+        let rule = owner
+            .selected_native_weapon_rule(0)
+            .expect("admitted receiving weapon rule");
+        assert_eq!(rule.name, RULE);
+        assert_eq!(rule.primary_damage, 100.0);
+        assert_eq!(rule.projectile_name, "NONE");
         assert_eq!(owner.weapon.as_ref().unwrap().damage, 100.0);
         assert_eq!(owner.weapon.as_ref().unwrap().ammo, Some(8));
         assert_eq!(owner.weapon_name_for_slot(0).as_deref(), Some(RULE));
@@ -298,8 +297,7 @@ fn normal_eligible_kill_promotion_is_visible_to_damage_fx() {
     isolated(
         "normal_eligible_kill_promotion_is_visible_to_damage_fx",
         || {
-            let _serial = combat_test_guard();
-            let _restore = RestoreInputs::install();
+            let _restore = RestoreDamageFx::install();
             let mut world = eligible_world();
             let source = authored(
                 &mut world,
@@ -337,8 +335,7 @@ fn normal_eligible_kill_without_promotion_keeps_regular_damage_fx() {
     isolated(
         "normal_eligible_kill_without_promotion_keeps_regular_damage_fx",
         || {
-            let _serial = combat_test_guard();
-            let _restore = RestoreInputs::install();
+            let _restore = RestoreDamageFx::install();
             let mut world = eligible_world();
             let source = authored(
                 &mut world,
@@ -375,8 +372,7 @@ fn normal_nonlethal_hit_neither_awards_xp_nor_promotes_damage_fx() {
     isolated(
         "normal_nonlethal_hit_neither_awards_xp_nor_promotes_damage_fx",
         || {
-            let _serial = combat_test_guard();
-            let _restore = RestoreInputs::install();
+            let _restore = RestoreDamageFx::install();
             let mut world = eligible_world();
             let source = authored(
                 &mut world,
@@ -414,8 +410,7 @@ fn normal_kill_sink_promotion_does_not_change_actual_source_fx_row() {
     isolated(
         "normal_kill_sink_promotion_does_not_change_actual_source_fx_row",
         || {
-            let _serial = combat_test_guard();
-            let _restore = RestoreInputs::install();
+            let _restore = RestoreDamageFx::install();
             let mut world = eligible_world();
             let source = authored(
                 &mut world,
@@ -475,8 +470,7 @@ fn normal_ground_kill_promotion_is_visible_to_damage_fx() {
     isolated(
         "normal_ground_kill_promotion_is_visible_to_damage_fx",
         || {
-            let _serial = combat_test_guard();
-            let _restore = RestoreInputs::install();
+            let _restore = RestoreDamageFx::install();
             let mut world = eligible_world();
             let source = authored(
                 &mut world,
@@ -548,8 +542,7 @@ fn normal_forced_allied_kill_does_not_promote_damage_fx() {
     isolated(
         "normal_forced_allied_kill_does_not_promote_damage_fx",
         || {
-            let _serial = combat_test_guard();
-            let _restore = RestoreInputs::install();
+            let _restore = RestoreDamageFx::install();
             let mut world = eligible_world();
             world.players.get_mut(&1).unwrap().alliance_team = 0;
             assert_eq!(
@@ -602,8 +595,7 @@ fn normal_ground_without_victim_commits_exactly_one_discharge() {
     isolated(
         "normal_ground_without_victim_commits_exactly_one_discharge",
         || {
-            let _serial = combat_test_guard();
-            let _restore = RestoreInputs::install();
+            let _restore = RestoreDamageFx::install();
             let mut world = eligible_world();
             let source = authored(
                 &mut world,
