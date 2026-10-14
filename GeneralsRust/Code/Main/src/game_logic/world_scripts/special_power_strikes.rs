@@ -2366,12 +2366,22 @@ impl GameLogic {
                     o.note_producer(source);
                     o.anthrax_toxin_field_expires_frame = Some(expires);
                     // Bind the receiving module now, not by a later global name peel.
-                    o.lifetime_update = Some(
-                        crate::game_logic::host_lifetime_update::HostLifetimeUpdateData {
-                            expire_at_frame: expires,
-                            active: true,
-                        },
-                    );
+                    if let Some(native) = &o.native_lifecycle {
+                        let deadline = native.first_lifetime_deadline();
+                        if o.anthrax_toxin_field {
+                            o.anthrax_toxin_field_expires_frame = deadline;
+                        }
+                        if o.nuke_radiation_field {
+                            o.nuke_radiation_field_expires_frame = deadline;
+                        }
+                    } else {
+                        o.lifetime_update = Some(
+                            crate::game_logic::host_lifetime_update::HostLifetimeUpdateData {
+                                expire_at_frame: expires,
+                                active: true,
+                            },
+                        );
+                    }
                     if o.thing().template.body_kind.is_none() {
                         o.health.maximum = max_hp;
                         Self::write_object_health_authority_aware(
@@ -2441,12 +2451,22 @@ impl GameLogic {
                     o.note_producer(source);
                     o.nuke_radiation_field_expires_frame = Some(expires);
                     // Bind the receiving module now, not by a later global name peel.
-                    o.lifetime_update = Some(
-                        crate::game_logic::host_lifetime_update::HostLifetimeUpdateData {
-                            expire_at_frame: expires,
-                            active: true,
-                        },
-                    );
+                    if let Some(native) = &o.native_lifecycle {
+                        let deadline = native.first_lifetime_deadline();
+                        if o.anthrax_toxin_field {
+                            o.anthrax_toxin_field_expires_frame = deadline;
+                        }
+                        if o.nuke_radiation_field {
+                            o.nuke_radiation_field_expires_frame = deadline;
+                        }
+                    } else {
+                        o.lifetime_update = Some(
+                            crate::game_logic::host_lifetime_update::HostLifetimeUpdateData {
+                                expire_at_frame: expires,
+                                active: true,
+                            },
+                        );
+                    }
                     if o.thing().template.body_kind.is_none() {
                         o.health.maximum = NUKE_RADIATION_FIELD_MAX_HEALTH;
                         Self::write_object_health_authority_aware(

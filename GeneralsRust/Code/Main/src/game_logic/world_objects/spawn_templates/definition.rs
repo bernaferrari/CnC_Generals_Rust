@@ -183,6 +183,14 @@ impl GameLogic {
         texture_hint: Option<&str>,
     ) -> ThingTemplate {
         let mut template = ThingTemplate::new(template_name);
+        match crate::game_logic::native_lifecycle_definition::parse_native_lifecycle_definitions(
+            &definition.behavior_modules,
+        ) {
+            Ok(definitions) => {
+                template.native_lifecycle_definitions = Some(definitions.into_boxed_slice())
+            }
+            Err(error) => template.native_lifecycle_error = Some(error),
+        }
         Self::apply_authored_ghost_draw_metadata(&mut template, definition);
         template.radar_upgrade_rules = Some(
             definition
@@ -416,6 +424,12 @@ impl GameLogic {
                 .add_kind_of(KindOf::Harvestable);
         }
         Self::apply_authored_semantic_kind_bits(&mut template, &kind_of);
+        if kind_of
+            .split_whitespace()
+            .any(|token| token.eq_ignore_ascii_case("HULK"))
+        {
+            template.add_kind_of(KindOf::Hulk);
+        }
         // C++ ThingTemplate::parseKindOf carries EVERY authored token into the
         // kindof mask, including IMMOBILE (BuildAssistant.cpp:705
         // isLocationClearOfObjects rejects KINDOF_IMMOBILE objects regardless

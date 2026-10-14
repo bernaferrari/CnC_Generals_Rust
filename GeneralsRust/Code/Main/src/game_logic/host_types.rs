@@ -230,6 +230,8 @@ pub enum KindOf {
     /// C++ KINDOF_LINEBUILD (bit 15), instant-completed wall segments.
     /// Append-only to preserve every existing serde/bincode variant index.
     LineBuild,
+    /// C++ KINDOF_HULK; append-only save ordinal.
+    Hulk,
 }
 
 impl KindOf {
@@ -326,6 +328,7 @@ impl KindOf {
         KindOf::CliffJumper,
         KindOf::CleanupHazard,
         KindOf::LineBuild,
+        KindOf::Hulk,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -416,6 +419,7 @@ impl KindOf {
             Self::CliffJumper => "CliffJumper",
             Self::CleanupHazard => "CleanupHazard",
             Self::LineBuild => "LineBuild",
+            Self::Hulk => "Hulk",
         }
     }
 
@@ -452,6 +456,7 @@ impl KindOf {
             "HUGE_VEHICLE" | "HUGEVEHICLE" => Some(Self::HugeVehicle),
             "CLIFF_JUMPER" | "CLIFFJUMPER" => Some(Self::CliffJumper),
             "LINEBUILD" | "LINE_BUILD" => Some(Self::LineBuild),
+            "HULK" => Some(Self::Hulk),
 
             "DRONE" => Some(Self::Drone),
             _ => None,
@@ -945,7 +950,8 @@ mod tests {
             ),
             1u128 << 15,
         );
-        assert_eq!(KindOf::ALL_KIND_OF.last(), Some(&KindOf::LineBuild));
+        assert!(KindOf::ALL_KIND_OF.contains(&KindOf::LineBuild));
+        assert_eq!(KindOf::ALL_KIND_OF.last(), Some(&KindOf::Hulk));
         // Existing serde discriminants remain stable even where Xfer uses a
         // different established order (CliffJumper precedes CleanupHazard).
         for (kind, ordinal) in [
@@ -953,6 +959,7 @@ mod tests {
             (KindOf::CliffJumper, 83),
             (KindOf::CleanupHazard, 84),
             (KindOf::LineBuild, 85),
+            (KindOf::Hulk, 86),
         ] {
             let bytes = bincode_legacy::serialize(&kind).unwrap();
             assert_eq!(bytes, ordinal.to_le_bytes());

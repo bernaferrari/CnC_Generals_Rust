@@ -90,6 +90,7 @@ impl SnapshotBuilder {
                 );
                 super::super::combat_projectile_persist::append(&mut bytes, game_logic)?;
                 super::super::body_kind_persist::append(&mut bytes, game_logic)?;
+                super::super::native_lifecycle_persist::append(&mut bytes, game_logic)?;
                 super::super::special_power_cooldown_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
@@ -299,7 +300,15 @@ impl SnapshotBuilder {
             &snapshot.objects,
             game_logic,
         )?;
-        let lifecycle_tail = body_definitions.legacy_tail.as_ref();
+        let native_lifecycle =
+            super::super::native_lifecycle_persist::decode(body_definitions.legacy_tail.as_ref())?;
+        let native_lifecycle_runtimes = super::super::native_lifecycle_persist::validate(
+            native_lifecycle.records.as_deref(),
+            &snapshot.objects,
+            game_logic,
+            native_lifecycle.legacy_tail.as_ref(),
+        )?;
+        let lifecycle_tail = native_lifecycle.legacy_tail.as_ref();
         // Reject malformed companion bytes before this API mutates its receiver.
         // Production map loading then restores this candidate world atomically.
         let ghosts = snapshot
@@ -314,6 +323,9 @@ impl SnapshotBuilder {
         // This direct API mutates the receiver below and may subsequently fail.
         // Its transient result must not describe the previous world after a
         // partial restore. Production loading isolates this work in a candidate.
+        if let Some(value) = native_lifecycle.hulk_max_lifetime_override {
+            game_logic.native_hulk_max_lifetime_override = value;
+        }
         game_logic.clear_victory_observation();
         game_logic.health_events.clear();
         game_logic.ownership_events.clear();
@@ -346,10 +358,11 @@ impl SnapshotBuilder {
         self.restore_player_energy(snapshot, game_logic)?;
         self.restore_player_template_bindings(snapshot, game_logic)?;
         self.restore_all_teams(&snapshot.teams, game_logic)?;
-        self.restore_all_objects(
+        self.restore_all_objects_with_native_lifecycle(
             &snapshot.objects,
             snapshot.next_object_id,
             &body_kinds,
+            &native_lifecycle_runtimes,
             game_logic,
         )?;
         self.restore_object_instance_guards(snapshot, game_logic)?;

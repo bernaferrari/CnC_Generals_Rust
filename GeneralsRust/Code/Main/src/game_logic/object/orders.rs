@@ -6,22 +6,26 @@ impl Object {
     /// CPP Object.cpp2878: AI command mobility reads KINDOF_IMMOBILE and
     /// the object's disabled mask. Construction status is a separate flag.
     pub(crate) fn is_mobile_for_ai_command(&self) -> bool {
-        !self.is_kind_of(KindOf::Immobile)
-            && ![
-                self.status.disabled_underpowered,
-                self.status.disabled_unmanned,
-                self.status.disabled_hacked,
-                self.status.disabled_emp,
-                self.status.disabled_paralyzed,
-                self.status.disabled_subdued,
-                self.status.disabled_freefall,
-                self.status.disabled_default,
-                self.status.disabled_script_disabled,
-                self.status.disabled_script_underpowered,
-                self.status.disabled_held,
-            ]
-            .into_iter()
-            .any(|disabled| disabled)
+        !self.is_kind_of(KindOf::Immobile) && !self.has_disabled_type()
+    }
+
+    /// Original DISABLED mask, independent of construction and weapon jamming.
+    pub(crate) fn has_disabled_type(&self) -> bool {
+        [
+            self.status.disabled_underpowered,
+            self.status.disabled_unmanned,
+            self.status.disabled_hacked,
+            self.status.disabled_emp,
+            self.status.disabled_paralyzed,
+            self.status.disabled_subdued,
+            self.status.disabled_freefall,
+            self.status.disabled_default,
+            self.status.disabled_script_disabled,
+            self.status.disabled_script_underpowered,
+            self.status.disabled_held,
+        ]
+        .into_iter()
+        .any(|disabled| disabled)
     }
 
     // Command system compatibility methods

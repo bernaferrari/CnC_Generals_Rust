@@ -48,3 +48,6 @@ mod weapon_fire_effects_tests;
 
 #[cfg(test)]
 pub(in crate::game_logic) mod slaved_update_tests;
+
+#[cfg(test)]
+mod scud_native_lifecycle_tests;

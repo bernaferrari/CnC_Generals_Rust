@@ -83,11 +83,13 @@ impl GameLogic {
             if let Some(id) = self.create_object(EMBER_TEMPLATE, team, pos) {
                 if let Some(obj) = self.objects.get_mut(&id) {
                     obj.producer_id = Some(source_id);
-                    obj.lifetime_update = Some(
+                    if obj.native_lifecycle.is_none() {
+                        obj.lifetime_update = Some(
                         crate::game_logic::host_lifetime_update::HostLifetimeUpdateData::from_delay_frames(
                             self.frame, 30,
                         ),
                     );
+                    }
                 }
                 return vec![id];
             }

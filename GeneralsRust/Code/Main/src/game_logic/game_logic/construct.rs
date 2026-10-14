@@ -539,6 +539,7 @@ impl GameLogic {
             stealth_detector_rate_scans: 0,
             // Inert default; match/replay setup admits its selected seed.
             // Construction never consumes or adopts another world's stream.
+            native_hulk_max_lifetime_override: -1,
             logic_random: game_engine::common::random_value::SessionRandom::default(),
             logic_base_seed: 0,
 
@@ -767,6 +768,7 @@ impl GameLogic {
 
     /// Reset method - matching C++ GameLogic interface
     pub fn reset(&mut self) {
+        self.native_hulk_max_lifetime_override = -1;
         self.weapon_definitions = self.weapon_definition_base.clone();
         log::debug!("GameLogic::reset() - resetting game state");
         self.map_definition_source = None;

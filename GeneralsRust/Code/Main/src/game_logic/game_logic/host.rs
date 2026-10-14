@@ -1096,6 +1096,7 @@ pub struct GameLogic {
 
     /// Sole session stream. The safe local handle is scoped only around
     /// synchronous legacy draw callbacks; cloning it shares this same stream.
+    pub(crate) native_hulk_max_lifetime_override: i32,
     pub(crate) logic_random: game_engine::common::random_value::SessionRandom,
     /// Explicitly selected match/replay seed; reset restarts this stream only.
     pub(crate) logic_base_seed: u32,

@@ -1,7 +1,7 @@
 //! CPP LifetimeUpdate.cpp70–75 kills at its scheduled ordinary frame;
 //! PoisonedBehavior.cpp84–163 applies a source-less UNRESISTABLE pulse and
 //! retains the original next pulse while a new poison dose extends duration.
-//! Parsed known-range Main residual coverage; not arbitrary module installation.
+//! Parsed receiving Main timers; Poison still uses its fixed retail constants.
 use super::*;
 use crate::game_logic::combat::DamageType;
 use crate::game_logic::game_logic::world_tick::heli_motion_tests::isolated_at;
@@ -63,10 +63,6 @@ End
     if lifetime {
         assert_eq!(data.attribute("MinLifetime"), Some("10000"));
         assert_eq!(data.attribute("MaxLifetime"), Some("10000"));
-        assert_eq!(
-            crate::game_logic::host_lifetime_update::lifetime_msec_range_for_template(name),
-            Some((10000, 10000))
-        );
     } else {
         assert_eq!(data.attribute("PoisonDamageInterval"), Some("100"));
         assert_eq!(data.attribute("PoisonDuration"), Some("3000"));
@@ -79,9 +75,8 @@ End
             90
         );
     }
-    // Admission really constructs the owned body/timer. Main currently binds
-    // Lifetime by its named retail range and Poison by fixed retail constants;
-    // parsed arbitrary timer rules are an independent missing integration.
+    // Lifetime admission binds the authored receiving module; no named range
+    // or diagnostic shadow owns its clock. Poison retains fixed retail constants.
     let template = GameLogic::build_template_from_object_definition(name, definition, None);
     world.templates.insert(name.into(), template);
     let id = world.create_object(name, Team::USA, Vec3::ZERO).unwrap();
@@ -112,15 +107,17 @@ fn lifetime_case() {
 
     let start = world.getFrame();
     let id = parsed_owner(&mut world, true);
-    let lifetime = world
-        .host_object(id)
-        .unwrap()
-        .lifetime_update
-        .as_ref()
-        .unwrap();
-    assert!(lifetime.active);
-    assert_eq!(lifetime.expire_at_frame, start + 300);
-    let due = lifetime.expire_at_frame;
+    let owner = world.host_object(id).unwrap();
+    assert!(owner.lifetime_update.is_none(), "no competing legacy timer");
+    let crate::game_logic::native_lifecycle::NativeLifecycleState::Lifetime {
+        die_frame: due,
+        active,
+    } = owner.native_lifecycle.as_ref().unwrap().states[0]
+    else {
+        panic!("authored LifetimeUpdate")
+    };
+    assert!(active);
+    assert_eq!(due, start + 300);
     let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
     shadow.sync_from_host(&world);
     while world.getFrame() < due {
@@ -395,25 +392,32 @@ fn admitted_lifetime_consumes_one_wake_without_rebuilding_its_deadline() {
         || {
             let mut world = GameLogic::new();
             let id = parsed_owner(&mut world, true);
-            let due = world
-                .host_object(id)
-                .unwrap()
-                .lifetime_update
-                .as_ref()
-                .unwrap()
-                .expire_at_frame;
-            // This is an admitted Object timer-operation control, not a claim
-            // that the scheduler advanced the owning world to its due frame.
-            // The ordinary public-update cases above prove actual dispatch.
+            use crate::game_logic::native_lifecycle::{NativeLifecycleState, NativeTimerAction};
             let owner = world.host_object_mut(id).unwrap();
-            assert!(!owner.tick_lifetime_update(due - 1));
-            assert!(owner.lifetime_update.as_ref().unwrap().active);
-            assert!(owner.tick_lifetime_update(due));
-            assert!(!owner.lifetime_update.as_ref().unwrap().active);
-            assert_eq!(owner.lifetime_update.as_ref().unwrap().expire_at_frame, due);
-            assert!(!owner.tick_lifetime_update(due));
-            assert!(!owner.tick_lifetime_update(due + 1));
-            assert_eq!(owner.lifetime_update.as_ref().unwrap().expire_at_frame, due);
+            let runtime = owner.native_lifecycle.as_mut().unwrap();
+            let NativeLifecycleState::Lifetime {
+                die_frame: due,
+                active: true,
+            } = runtime.states[0]
+            else {
+                panic!("admitted authored timer");
+            };
+            // Bounded borrowed phase only. Public update cases above exercise
+            // the continuation through the receiving Body and final destruction.
+            assert_eq!(runtime.take_due_timer(0, due - 1), None);
+            assert_eq!(
+                runtime.take_due_timer(0, due),
+                Some(NativeTimerAction::Kill)
+            );
+            assert!(
+                matches!(runtime.states[0],NativeLifecycleState::Lifetime{die_frame,active:false} if die_frame==due)
+            );
+            assert_eq!(runtime.take_due_timer(0, due), None);
+            assert_eq!(runtime.take_due_timer(0, due + 1), None);
+            assert!(
+                matches!(runtime.states[0],NativeLifecycleState::Lifetime{die_frame,active:false} if die_frame==due)
+            );
+            assert!(owner.lifetime_update.is_none());
             // Returning the initial-kill request doesn't perform final destroy.
             assert!(!owner.status.on_die_started);
             assert_eq!(owner.health.current, 100.0);

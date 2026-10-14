@@ -200,7 +200,16 @@ impl GameLogic {
                 let Some(object) = self.objects.get_mut(&created_id) else {
                     continue;
                 };
-                if generic.max_frames > 0 {
+                if generic.max_frames > 0 && object.native_lifecycle.is_some() {
+                    object.set_native_lifetime_range(
+                        self.frame,
+                        crate::game_logic::native_lifecycle_definition::LifetimeFrameRange {
+                            minimum: generic.min_frames,
+                            maximum: generic.max_frames,
+                        },
+                        &self.logic_random,
+                    );
+                } else if generic.max_frames > 0 {
                     let min_frames = i32::try_from(generic.min_frames).unwrap_or(i32::MAX);
                     let max_frames = i32::try_from(generic.max_frames).unwrap_or(i32::MAX);
                     let chosen_frames =

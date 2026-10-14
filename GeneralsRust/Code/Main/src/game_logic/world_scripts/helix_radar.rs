@@ -680,11 +680,13 @@ impl GameLogic {
             let vx = (aim.x - start.x) / fall_frames;
             let vz = (aim.z - start.z) / fall_frames;
             o.movement.velocity = glam::Vec3::new(vx, -NAPALM_BOMB_FALL_SPEED_PER_FRAME, vz);
-            o.height_die = Some(HostHeightDieData::with_target(
-                NAPALM_BOMB_HEIGHT_DIE_TARGET,
-                true,
-                self.frame,
-            ));
+            if o.native_lifecycle.is_none() {
+                o.height_die = Some(HostHeightDieData::with_target(
+                    NAPALM_BOMB_HEIGHT_DIE_TARGET,
+                    true,
+                    self.frame,
+                ));
+            }
             o.ensure_height_die(self.frame);
         }
         self.helix_napalm.record_projectile_spawn();

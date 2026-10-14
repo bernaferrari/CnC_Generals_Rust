@@ -1317,6 +1317,10 @@ impl GameLogic {
         }
 
         if let Some(mut template) = self.templates.get(template_name).cloned() {
+            if let Some(error) = &template.native_lifecycle_error {
+                log::error!("Rejecting object {template_name}: {error}");
+                return None;
+            }
             if let Some(error) = &template.body_initial_health_error {
                 log::error!("Rejecting object {template_name}: {error}");
                 return None;
@@ -1378,6 +1382,11 @@ impl GameLogic {
             }
             let mut object =
                 Object::new_with_initial_status(template, id, team, self.frame, initial_status);
+            object.bind_native_lifecycle(
+                self.frame,
+                &self.logic_random,
+                self.native_hulk_max_lifetime_override,
+            );
             object.bind_physics_rules(
                 self.physics_definitions.effective,
                 self.physics_definitions.base.gravity,

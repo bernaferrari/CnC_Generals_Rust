@@ -411,11 +411,13 @@ impl GameLogic {
                 .record_applied_heal(o.id, o.health.current);
             o.movement.velocity = vel;
             o.set_orientation(dir.z.atan2(dir.x));
-            o.height_die = Some(HostHeightDieData::with_target(
-                TOMAHAWK_MISSILE_HEIGHT_DIE_TARGET,
-                true,
-                self.frame.saturating_add(2),
-            ));
+            if o.native_lifecycle.is_none() {
+                o.height_die = Some(HostHeightDieData::with_target(
+                    TOMAHAWK_MISSILE_HEIGHT_DIE_TARGET,
+                    true,
+                    self.frame.saturating_add(2),
+                ));
+            }
             o.ensure_height_die(self.frame);
         }
         let _ = TOMAHAWK_DISTANCE_BEFORE_TURNING;

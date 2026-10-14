@@ -386,31 +386,45 @@ fn combat_drop_rappel_kills_two_and_dies() {
     t.add_kind_of(KindOf::Aircraft);
     t.set_health(200.0);
     logic.templates.insert("CD_T5".to_string(), t);
-    let mut p = ThingTemplate::new("CD_P5");
-    p.add_kind_of(KindOf::Infantry);
-    p.set_health(100.0);
-    logic.templates.insert("CD_P5".to_string(), p);
-    let mut e = ThingTemplate::new("CD_E5");
-    e.add_kind_of(KindOf::Infantry);
-    e.set_health(100.0);
-    logic.templates.insert("CD_E5".to_string(), e);
+    // C++ findEnemyInContainer asks the rappeller's directional player
+    // relationship, not whether two faction enum labels happen to differ.
+    let mut usa = crate::game_logic::Player::new(1, Team::USA, "Rappeller", true);
+    usa.alliance_team = 1;
+    let mut china = crate::game_logic::Player::new(2, Team::China, "Garrison", false);
+    china.alliance_team = 2;
+    logic.add_player(usa);
+    logic.add_player(china);
+    let mut parser = crate::assets::IniParser::new();
+    for name in ["CD_P5", "CD_E5"] {
+        parser.parse_ini_content(&format!(
+            "Object {name}\nKindOf = INFANTRY\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = SlowDeathBehavior DeathTag\nDestructionDelay = 5000\nEnd\nEnd"
+        ), "combat-drop-owned-body.ini").unwrap();
+        logic.templates.insert(
+            name.into(),
+            GameLogic::build_template_from_object_definition(
+                name,
+                parser.get_definition(name).unwrap(),
+                None,
+            ),
+        );
+    }
     logic
         .templates
         .insert("CD_B5".to_string(), bunker_template("CD_B5", 16.0, 5));
     let transport = logic
-        .create_object("CD_T5", Team::USA, Vec3::new(10.0, 60.0, 10.0))
+        .create_object_for_player("CD_T5", 1, Vec3::new(10.0, 60.0, 10.0))
         .unwrap();
     let bunker = logic
-        .create_object("CD_B5", Team::China, Vec3::new(10.0, 0.0, 10.0))
+        .create_object_for_player("CD_B5", 2, Vec3::new(10.0, 0.0, 10.0))
         .unwrap();
     let pax = logic
-        .create_object("CD_P5", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+        .create_object_for_player("CD_P5", 1, Vec3::new(1.0, 0.0, 0.0))
         .unwrap();
     let e1 = logic
-        .create_object("CD_E5", Team::China, Vec3::new(2.0, 0.0, 0.0))
+        .create_object_for_player("CD_E5", 2, Vec3::new(2.0, 0.0, 0.0))
         .unwrap();
     let e2 = logic
-        .create_object("CD_E5", Team::China, Vec3::new(3.0, 0.0, 0.0))
+        .create_object_for_player("CD_E5", 2, Vec3::new(3.0, 0.0, 0.0))
         .unwrap();
     {
         let b = logic.host_object_mut(bunker).unwrap();

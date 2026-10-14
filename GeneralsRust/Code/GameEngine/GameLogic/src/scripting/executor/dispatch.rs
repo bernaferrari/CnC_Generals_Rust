@@ -1687,7 +1687,7 @@ impl ScriptActionDispatcher<'_> {
                 self.do_choose_victim_always_uses_normal(action)
             }
             ScriptActionType::ScriptingOverrideHulkLifetime => {
-                self.do_scripting_override_hulk_lifetime(action)
+                self.do_scripting_override_hulk_lifetime(action, driver)
             }
 
             // ============================================================================

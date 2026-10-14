@@ -342,6 +342,8 @@ mod script_idle_owner_tests;
 mod player_census_owner_tests;
 
 #[cfg(test)]
+mod hulk_lifetime_owner_tests;
+#[cfg(test)]
 mod owned_runtime_command_tests;
 mod owned_runtime_commands;
 

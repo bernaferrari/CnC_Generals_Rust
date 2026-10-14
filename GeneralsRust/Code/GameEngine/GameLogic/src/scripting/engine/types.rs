@@ -650,6 +650,12 @@ pub trait ScriptExecutionDriver {
         None
     }
 
+    /// CPP ScriptActions6034: update the driving session's constructor-only
+    /// HULK lifetime override. Some is authoritative; None is standalone Core.
+    fn override_hulk_lifetime(&mut self, _frames: i32) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     fn named_command(
         &mut self,
         _request: ScriptNamedCommand<'_>,

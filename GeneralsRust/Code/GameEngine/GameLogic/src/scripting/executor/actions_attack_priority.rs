@@ -236,6 +236,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_scripting_override_hulk_lifetime(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         // C++ ScriptActions::doOverrideHulkLifetime(Real seconds):
         // seconds < 0 → -1 (off); else frames = seconds * LOGICFRAMES_PER_SECOND.
@@ -243,6 +244,11 @@ impl ScriptActionDispatcher<'_> {
             Ok(real) if real != 0.0 => real,
             _ => self.get_int_param(action, 0)? as f32,
         };
+        if !seconds.is_finite() || (seconds >= 0.0 && (seconds * 30.0) as f64 > i32::MAX as f64) {
+            return Err(ScriptError::InvalidParameterType(
+                "HULK lifetime must be finite and representable in logic frames".into(),
+            ));
+        }
         let frames = if seconds < 0.0 {
             -1
         } else {
@@ -253,7 +259,13 @@ impl ScriptActionDispatcher<'_> {
             seconds,
             frames
         );
-        TheGameLogic::set_hulk_max_lifetime_override(frames);
+        if let Some(result) = driver.override_hulk_lifetime(frames) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+        } else {
+            // Standalone retained Core execution only; the Main driver always
+            // handles this synchronously on its explicitly supplied session.
+            TheGameLogic::set_hulk_max_lifetime_override(frames);
+        }
         Ok(ScriptActionResult::Success)
     }
 }

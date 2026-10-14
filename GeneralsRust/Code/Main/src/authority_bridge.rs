@@ -145,12 +145,15 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
     let hp_before = logic.host_authoritative_health(enemy).unwrap_or(0.0);
     // 200 HP / 25 dmg ≈ 8 shots at 1s reload → need ~240+ logic frames.
     let mut combat_killed = false;
-    for round in 0..400u32 {
-        logic.queue_command(cmd(
-            2 + round,
-            CommandType::AttackObject { target_id: enemy },
-            vec![ranger],
-        ));
+    // C++ AIUpdate::privateAttackObject clears and re-enters the attack
+    // machine on every order. Issue one sustained order rather than resetting
+    // its movement/aiming phase every logic frame.
+    logic.queue_command(cmd(
+        2,
+        CommandType::AttackObject { target_id: enemy },
+        vec![ranger],
+    ));
+    for _ in 0..400u32 {
         logic.update();
         let still_alive = logic
             .host_object(enemy)

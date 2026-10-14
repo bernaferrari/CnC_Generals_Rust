@@ -136,6 +136,7 @@ impl GameLogic {
                 // receiving Body dispatch; its immediate callbacks can reenter.
                 let lifetime_due = obj.tick_lifetime_update(self.frame);
                 let _ = obj;
+                self.tick_native_lifecycle(object_id);
                 if lifetime_due {
                     lifetime_kill = self
                         .apply_owned_kill(

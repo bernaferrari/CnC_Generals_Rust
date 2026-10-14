@@ -187,6 +187,10 @@ impl HostScriptExecutionDriver<'_> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn override_hulk_lifetime(&mut self, frames: i32) -> Option<gamelogic::GameLogicResult<()>> {
+        self.world.native_hulk_max_lifetime_override = frames;
+        Some(Ok(()))
+    }
     fn delete_or_kill(
         &mut self,
         request: &gamelogic::scripting::HostScriptKillDeleteDamageRequest,

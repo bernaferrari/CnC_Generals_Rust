@@ -2,6 +2,7 @@
 use super::super::*;
 use crate::game_logic::host_inferno_cannon::INFERNO_FIRE_FIELD_TEMPLATE;
 use crate::game_logic::host_usa_pilot::HostDeathType;
+use crate::game_logic::native_lifecycle::NativeLifecycleState;
 use crate::game_logic::special_power_strikes::{
     ANTHRAX_TOXIN_OBJECT_NAME, NUKE_RADIATION_OBJECT_NAME,
 };
@@ -128,6 +129,24 @@ fn fire_deletion_skips_body_and_die_for_both_body_classes() {
     }
 }
 
+fn canonical_lifetime(object: &Object) -> (u32, bool) {
+    assert!(
+        object.lifetime_update.is_none(),
+        "native owner has no competing legacy timer"
+    );
+    object
+        .native_lifecycle
+        .as_ref()
+        .unwrap()
+        .states
+        .iter()
+        .find_map(|state| match state {
+            NativeLifecycleState::Lifetime { die_frame, active } => Some((*die_frame, *active)),
+            _ => None,
+        })
+        .expect("authored LifetimeUpdate")
+}
+
 fn normal_lifetime_die(field: Field) {
     for inactive in [true, false] {
         let (mut world, id, due) = spawned(field, inactive);
@@ -144,11 +163,8 @@ fn normal_lifetime_die(field: Field) {
             object.pending_death_fx.as_deref(),
             Some("OwnedFieldExpiryWitness")
         );
-        assert_eq!(
-            object.lifetime_update.as_ref().unwrap().expire_at_frame,
-            due
-        );
-        assert!(!object.lifetime_update.as_ref().unwrap().active);
+        assert_eq!(canonical_lifetime(object).0, due);
+        assert!(!canonical_lifetime(object).1);
         assert!(field.deadline(object).is_none());
         world.host_object_mut(id).unwrap().pending_death_fx.take();
         field.update(&mut world);
@@ -179,9 +195,9 @@ fn rejected_kill_stays_asleep(field: Field) {
     assert!(!object.status.on_die_started);
     assert!(object.pending_death_fx.is_none());
     assert!(!world.has_pending_object_removals());
-    let lifetime = object.lifetime_update.as_ref().unwrap();
-    assert_eq!(lifetime.expire_at_frame, due);
-    assert!(!lifetime.active);
+    let (deadline, active) = canonical_lifetime(object);
+    assert_eq!(deadline, due);
+    assert!(!active);
     assert!(field.deadline(object).is_none());
 
     let builder = crate::save_load::SnapshotBuilder::new();
@@ -194,11 +210,8 @@ fn rejected_kill_stays_asleep(field: Field) {
     for receiving in [&mut fresh, &mut world] {
         let object = receiving.host_object(id).unwrap();
         assert!(object.indestructible);
-        assert_eq!(
-            object.lifetime_update.as_ref().unwrap().expire_at_frame,
-            due
-        );
-        assert!(!object.lifetime_update.as_ref().unwrap().active);
+        assert_eq!(canonical_lifetime(object).0, due);
+        assert!(!canonical_lifetime(object).1);
         receiving
             .host_object_mut(id)
             .unwrap()
@@ -225,14 +238,9 @@ fn radiation_rejected_lifetime_stays_asleep_through_save_and_ai() {
 fn field_creation_binds_one_receiving_lifetime_and_preserves_deadline_on_load() {
     for field in [Field::Toxin, Field::Radiation] {
         let (world, id, due) = spawned(field, false);
-        let lifetime = world
-            .host_object(id)
-            .unwrap()
-            .lifetime_update
-            .as_ref()
-            .unwrap();
-        assert!(lifetime.active);
-        assert_eq!(lifetime.expire_at_frame, due);
+        let (deadline, active) = canonical_lifetime(world.host_object(id).unwrap());
+        assert!(active);
+        assert_eq!(deadline, due);
         let builder = crate::save_load::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&world).unwrap();
         let mut receiving = GameLogic::new();
@@ -270,21 +278,12 @@ fn same_id_field_deadlines_survive_peer_reset_clone_and_replacement() {
         replacement.frame = replacement_due;
         field.update(&mut replacement);
         assert!(replacement.host_object(id).unwrap().status.on_die_started);
-        assert_eq!(clone.lifetime_update.as_ref().unwrap().expire_at_frame, due);
-        assert!(clone.lifetime_update.as_ref().unwrap().active);
+        assert_eq!(canonical_lifetime(&clone).0, due);
+        assert!(canonical_lifetime(&clone).1);
         owner.frame = due - 1;
         field.update(&mut owner);
         assert!(owner.host_object(id).unwrap().is_alive());
-        assert_eq!(
-            owner
-                .host_object(id)
-                .unwrap()
-                .lifetime_update
-                .as_ref()
-                .unwrap()
-                .expire_at_frame,
-            due
-        );
+        assert_eq!(canonical_lifetime(owner.host_object(id).unwrap()).0, due);
         owner.frame = due;
         field.update(&mut owner);
         assert!(owner.host_object(id).unwrap().status.on_die_started);

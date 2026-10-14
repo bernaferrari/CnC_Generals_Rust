@@ -23,6 +23,26 @@ impl SnapshotBuilder {
         body_kinds: &HashMap<ObjectId, crate::game_logic::thing::BodyKind>,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
+        self.restore_all_objects_with_native_lifecycle(
+            objects,
+            next_object_id,
+            body_kinds,
+            &HashMap::new(),
+            game_logic,
+        )
+    }
+
+    pub(super) fn restore_all_objects_with_native_lifecycle(
+        &self,
+        objects: &HashMap<ObjectId, ObjectSnapshot>,
+        next_object_id: u32,
+        body_kinds: &HashMap<ObjectId, crate::game_logic::thing::BodyKind>,
+        native_lifecycle: &HashMap<
+            ObjectId,
+            crate::game_logic::native_lifecycle::NativeLifecycleRuntime,
+        >,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
         let mut ids: Vec<ObjectId> = objects.keys().cloned().collect();
         ids.sort();
 
@@ -69,6 +89,7 @@ impl SnapshotBuilder {
             self.restore_object_with_body_kind(
                 snapshot,
                 body_kinds.get(&snapshot.id).copied(),
+                native_lifecycle.get(&snapshot.id),
                 game_logic,
             )?;
             max_id = max_id.max(id.0);
@@ -112,13 +133,14 @@ impl SnapshotBuilder {
         snapshot: &ObjectSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        self.restore_object_with_body_kind(snapshot, None, game_logic)
+        self.restore_object_with_body_kind(snapshot, None, None, game_logic)
     }
 
     fn restore_object_with_body_kind(
         &self,
         snapshot: &ObjectSnapshot,
         body_kind: Option<crate::game_logic::thing::BodyKind>,
+        native_lifecycle: Option<&crate::game_logic::native_lifecycle::NativeLifecycleRuntime>,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         // Prefer catalog templates when present. Map-spawned objects often have a
@@ -146,6 +168,9 @@ impl SnapshotBuilder {
         if let Some(kind) = body_kind {
             template.body_kind = Some(kind);
         }
+        if let Some(runtime) = native_lifecycle {
+            template.native_lifecycle_definitions = Some(runtime.definitions.clone());
+        }
         if let Some(catalog) = game_logic.weapon_definitions.as_ref() {
             template.bind_receiving_weapon_sets(catalog);
         }
@@ -161,6 +186,7 @@ impl SnapshotBuilder {
             snapshot.team,
             game_logic.get_current_frame() as u32,
         );
+        object.native_lifecycle = native_lifecycle.cloned();
         object.bind_physics_rules(
             game_logic.physics_definitions.effective,
             game_logic.physics_definitions.base.gravity,

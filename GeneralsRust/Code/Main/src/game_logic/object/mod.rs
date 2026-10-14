@@ -1745,6 +1745,9 @@ pub struct Object {
     /// C++ ActiveBody getPreviousHealth residual.
     #[serde(default)]
     pub previous_health: f32,
+    /// Receiving authored module continuation, serialized in the versioned roster.
+    #[serde(skip)]
+    pub(crate) native_lifecycle: Option<crate::game_logic::native_lifecycle::NativeLifecycleRuntime>,
     /// C++ LifetimeUpdate residual.
     #[serde(default)]
     pub lifetime_update: Option<crate::game_logic::host_lifetime_update::HostLifetimeUpdateData>,

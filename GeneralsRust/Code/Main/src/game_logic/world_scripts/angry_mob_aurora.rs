@@ -1896,11 +1896,13 @@ impl GameLogic {
             );
             o.movement.velocity = vel;
             o.set_orientation(dir.z.atan2(dir.x));
-            o.height_die = Some(HostHeightDieData::with_target(
-                AURORA_BOMB_HEIGHT_DIE_TARGET,
-                true,
-                self.frame.saturating_add(1),
-            ));
+            if o.native_lifecycle.is_none() {
+                o.height_die = Some(HostHeightDieData::with_target(
+                    AURORA_BOMB_HEIGHT_DIE_TARGET,
+                    true,
+                    self.frame.saturating_add(1),
+                ));
+            }
             o.ensure_height_die(self.frame);
         }
         self.aurora_bombs.record_projectile_spawn();

@@ -44,6 +44,12 @@ pub struct ThingTemplate {
     /// Preserve the historical positional ThingTemplate serialization.
     #[serde(skip)]
     pub(crate) body_kind: Option<BodyKind>,
+    /// Ordered receiving definitions; Some(empty) suppresses name inference.
+    #[serde(skip)]
+    pub(crate) native_lifecycle_definitions:
+        Option<Box<[crate::game_logic::native_lifecycle_definition::NativeLifecycleDefinition]>>,
+    #[serde(skip)]
+    pub(crate) native_lifecycle_error: Option<String>,
     /// Immutable authored ActiveBody InitialHealth, bound before factory callbacks.
     /// Rebuild from receiving content; never change the historical template wire layout.
     #[serde(skip)]
@@ -610,6 +616,8 @@ impl ThingTemplate {
             default_draw_without_fog_memory: false,
             max_health: 100.0,
             body_kind: None,
+            native_lifecycle_definitions: None,
+            native_lifecycle_error: None,
             body_initial_health: None,
             body_initial_health_error: None,
             selected_weapon_sets: None,

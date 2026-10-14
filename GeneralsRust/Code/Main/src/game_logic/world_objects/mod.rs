@@ -15,6 +15,8 @@ mod field_lifetime;
 pub(crate) mod fog_ghosts;
 mod host_ops_writeback;
 mod internal_move;
+#[cfg(test)]
+mod native_lifecycle_owner_tests;
 mod object_ai_combat;
 mod object_queries;
 mod overlord_addon_damage;

@@ -595,6 +595,7 @@ impl Object {
             pending_instant_death_weapon: None,
             crush_die: None,
             previous_health: initial_health,
+            native_lifecycle: None,
             lifetime_update: None,
             slow_death: None,
             height_die: None,
@@ -1539,6 +1540,7 @@ impl Object {
             pending_instant_death_weapon: None,
             crush_die: None,
             previous_health: initial_health,
+            native_lifecycle: None,
             lifetime_update: None,
             slow_death: None,
             height_die: None,
@@ -2680,18 +2682,7 @@ impl Object {
     /// Check `is_weapons_jammed()` / `can_attack()` for fire; `is_disabled()`
     /// includes `disabled_subdued` for the full halt.
     pub fn is_disabled(&self) -> bool {
-        self.status.disabled_underpowered
-            || self.status.disabled_unmanned
-            || self.status.disabled_hacked
-            || self.status.disabled_emp
-            || self.status.disabled_paralyzed
-            || self.status.disabled_subdued
-            || self.status.disabled_freefall
-            || self.status.disabled_default
-            || self.status.disabled_script_disabled
-            || self.status.disabled_script_underpowered
-            || self.status.disabled_held
-            || self.status.under_construction
+        self.has_disabled_type() || self.status.under_construction
     }
 
     /// C++ KINDOF_SPAWNS_ARE_THE_WEAPONS residual (Stinger Site / hive).

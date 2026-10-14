@@ -1678,12 +1678,17 @@ impl GameLogic {
                 .record_applied_heal(o.id, o.health.current);
             o.movement.velocity = vel;
             o.set_orientation(dir.z.atan2(dir.x));
-            o.height_die = Some(HostHeightDieData::with_target(
-                SCUD_MISSILE_HEIGHT_DIE_TARGET,
-                true,
-                self.frame.saturating_add(2),
-            ));
-            o.ensure_height_die(self.frame);
+            // A receiving native definition owns exactly its authored updates.
+            // Retail SCUDMissile has no HeightDieUpdate; retain this bootstrap
+            // flight safeguard only until an unbound template is migrated.
+            if o.native_lifecycle.is_none() {
+                o.height_die = Some(HostHeightDieData::with_target(
+                    SCUD_MISSILE_HEIGHT_DIE_TARGET,
+                    true,
+                    self.frame.saturating_add(2),
+                ));
+                o.ensure_height_die(self.frame);
+            }
         }
         self.scud_missiles_spawned = self.scud_missiles_spawned.saturating_add(1);
         Some(pid)

@@ -216,6 +216,11 @@ impl Object {
     /// Attach FireWeaponWhenDamaged residual when template peels match.
 
     pub fn ensure_height_die(&mut self, current_frame: u32) {
+        if self.native_lifecycle.is_some()
+            || self.thing.template.native_lifecycle_definitions.is_some()
+        {
+            return;
+        }
         if self.height_die.is_some() {
             return;
         }
@@ -247,7 +252,7 @@ impl Object {
         {
             self.fuel_air_gas_slow_death = Some(data);
             // Retail HeightDie TargetHeight 15 on gas.
-            if self.height_die.is_none() {
+            if self.height_die.is_none() && self.thing.template.native_lifecycle_definitions.is_none() {
                 self.height_die = Some(
                     crate::game_logic::host_height_die::HostHeightDieData::with_target(
                         crate::game_logic::host_fuel_air_gas_slow_death::FUEL_AIR_GAS_HEIGHT_DIE,
@@ -284,6 +289,9 @@ impl Object {
     }
 
     pub fn tick_height_die(&mut self, current_frame: u32, terrain_height: f32) -> bool {
+        if self.native_lifecycle.is_some() {
+            return false;
+        }
         self.ensure_height_die(current_frame);
         let pos = self.get_position();
         let hat = pos.y - terrain_height;
@@ -483,6 +491,11 @@ impl Object {
     }
 
     pub fn ensure_lifetime_update(&mut self, current_frame: u32) {
+        if self.native_lifecycle.is_some()
+            || self.thing.template.native_lifecycle_definitions.is_some()
+        {
+            return;
+        }
         if self.lifetime_update.is_some() {
             return;
         }
@@ -555,6 +568,9 @@ impl Object {
 
     /// C++ LifetimeUpdate residual. True when object should die this frame.
     pub fn tick_lifetime_update(&mut self, current_frame: u32) -> bool {
+        if self.native_lifecycle.is_some() {
+            return false;
+        }
         self.ensure_lifetime_update(current_frame);
         let Some(lifetime) = self.lifetime_update.as_mut() else {
             return false;

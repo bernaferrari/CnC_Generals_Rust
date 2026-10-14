@@ -271,6 +271,7 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::CleanupHazard => 83,
         // Append-only; the C++ semantic bit remains 15, not this save ID.
         KindOf::LineBuild => 85,
+        KindOf::Hulk => 86,
     }
 }
 
@@ -362,6 +363,7 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         83 => Ok(KindOf::CleanupHazard),
         84 => Ok(KindOf::CliffJumper),
         85 => Ok(KindOf::LineBuild),
+        86 => Ok(KindOf::Hulk),
 
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
@@ -636,11 +638,12 @@ mod tests {
             (KindOf::CleanupHazard, 83),
             (KindOf::CliffJumper, 84),
             (KindOf::LineBuild, 85),
+            (KindOf::Hulk, 86),
         ] {
             assert_eq!(write_kind_of_variant(kind), ordinal);
             assert_eq!(read_kind_of_variant(ordinal).unwrap(), kind);
         }
-        assert!(read_kind_of_variant(86).is_err());
+        assert!(read_kind_of_variant(87).is_err());
     }
 
     #[test]

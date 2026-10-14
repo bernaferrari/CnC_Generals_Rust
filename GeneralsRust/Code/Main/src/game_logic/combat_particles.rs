@@ -1073,6 +1073,33 @@ impl CombatParticleRegistry {
         }
     }
 
+    /// HeightDie destroys systems attached to this receiving object only.
+    pub(crate) fn destroy_attached_to_object(&mut self, owner: ObjectId) {
+        let ids: Vec<_> = self
+            .systems
+            .values()
+            .filter(|entry| {
+                entry.active
+                    && match entry.kind {
+                        CombatParticleKind::ParticleSysBone
+                        | CombatParticleKind::BodyFire
+                        | CombatParticleKind::BodySmoke
+                        | CombatParticleKind::DisableFx => entry.source_object == Some(owner),
+                        CombatParticleKind::ProjectileExhaust => {
+                            entry.target_object == Some(owner)
+                                || (entry.target_object.is_none()
+                                    && entry.source_object == Some(owner))
+                        }
+                        _ => false,
+                    }
+            })
+            .map(|entry| entry.id)
+            .collect();
+        for id in ids {
+            self.deactivate(id);
+        }
+    }
+
     pub fn deactivate(&mut self, id: u32) {
         let client_system_id = match self.systems.get_mut(&id) {
             Some(entry) if entry.active => {

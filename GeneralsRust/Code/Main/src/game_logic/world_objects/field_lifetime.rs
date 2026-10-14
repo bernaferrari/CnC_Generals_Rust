@@ -23,6 +23,37 @@ impl FieldLifetime {
     }
 
     fn deadline(self, object: &Object) -> Option<u32> {
+        if let Some(native) = &object.native_lifecycle {
+            let field = match self {
+                Self::Fire => object.inferno_fire_field,
+                Self::Toxin => object.anthrax_toxin_field,
+                Self::Radiation => object.nuke_radiation_field,
+            };
+            if !field {
+                return None;
+            }
+            return native
+                .states
+                .iter()
+                .filter_map(|state| match (self, state) {
+                    (
+                        Self::Fire,
+                        crate::game_logic::native_lifecycle::NativeLifecycleState::Deletion {
+                            die_frame,
+                            active: true,
+                        },
+                    )
+                    | (
+                        Self::Toxin | Self::Radiation,
+                        crate::game_logic::native_lifecycle::NativeLifecycleState::Lifetime {
+                            die_frame,
+                            active: true,
+                        },
+                    ) => Some(*die_frame),
+                    _ => None,
+                })
+                .min();
+        }
         let projected = self.projected_deadline(object)?;
         match self {
             Self::Fire => Some(projected),
@@ -75,6 +106,10 @@ impl GameLogic {
                 continue;
             };
             kind.consume_projection(object);
+            if object.native_lifecycle.is_some() {
+                self.tick_native_lifetime_timers(id);
+                continue;
+            }
             let deletion = matches!(kind, FieldLifetime::Fire);
             let admitted = if deletion {
                 true
