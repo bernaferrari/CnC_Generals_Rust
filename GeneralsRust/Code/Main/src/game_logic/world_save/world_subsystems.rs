@@ -1082,7 +1082,6 @@ impl GameLogic {
     }
 
     pub(crate) fn ensure_generic_bridge_objects(&mut self) {
-        self.ensure_named_bridge_template("GenericBridge", 300.0);
         let mut jobs = Vec::new();
         let owner = self.world_services.terrain().clone();
         if let Ok(tl) = owner.read() {
@@ -1096,6 +1095,9 @@ impl GameLogic {
             });
         }
         for (layer, info) in jobs {
+            // Only bridge creation needs a bridge definition. Reconstructing an
+            // empty terrain must not alter the receiving world's catalog.
+            self.ensure_named_bridge_template("GenericBridge", 300.0);
             let cx = (info.from_left.x + info.to_right.x) * 0.5;
             let cy = (info.from_left.y + info.to_right.y) * 0.5;
             let cz = (info.from_left.z + info.to_right.z) * 0.5;
