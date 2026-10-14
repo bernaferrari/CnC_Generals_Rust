@@ -65,7 +65,9 @@ End
                     .find_weapon_template(name)
                     .expect("actual parsed named rules");
                 assert_eq!(authored.primary_damage, damage);
-                assert_eq!(authored.weapon_speed, 1_000_000.0);
+                // Original GameCommon.h multiplies by rounded f32 1/30.
+                // C++ O0/O2 both produce 1000000.0625, not integer division.
+                assert_eq!(authored.weapon_speed.to_bits(), 0x4974_2401);
                 assert_eq!(authored.attack_range, 200.0);
                 assert_eq!(authored.clip_size, 8);
                 assert_eq!(authored.min_delay_between_shots, 30);

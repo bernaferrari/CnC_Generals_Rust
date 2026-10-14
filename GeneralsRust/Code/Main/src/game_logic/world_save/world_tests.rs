@@ -328,21 +328,89 @@ mod landmark_bridge_and_new_map_tests {
         assert!(terrain.is_water_grid_enabled());
     }
 
-    #[test]
-    fn load_map_data_sites_call_leftover_new_map() {
-        // Monolith world_save.rs is now a 32-line split facade; the guarded
-        // production sites live in the members: both leftover load_map_data
-        // newMap calls (C++ GameLogic.cpp:1629) in world_players.rs, and the
-        // landmark-bridge registration seam in world_load.rs/world_subsystems.rs.
-        // Clip each member before any #[cfg(test)] so test-module mentions
-        // (e.g. leftover_new_map_enables_water_grid_for_waveguide1) cannot
-        // false-positive the scan.
-        let players = include_str!("world_players.rs");
-        let prod = players.split("#[cfg(test)]").next().expect("production");
-        assert!(
-            prod.matches("terrain.new_map(false)").count() >= 2,
-            "both leftover load_map_data sites must call TerrainLogic::newMap"
+    fn lifecycle_map_bytes(height: u8, waypoint_name: &str) -> Vec<u8> {
+        let mut out = game_engine::common::system::DataChunkOutput::new();
+        out.open_data_chunk("HeightMapData", 3);
+        for value in [21, 21, 1, 441] {
+            out.write_int(value);
+        }
+        for _ in 0..441 {
+            out.write_byte(height);
+        }
+        out.close_data_chunk();
+        out.open_data_chunk("ObjectsList", 3);
+        out.open_data_chunk("Object", 3);
+        for value in [40.0, 40.0, 999.0, 0.0] {
+            out.write_real(value);
+        }
+        out.write_int(0);
+        out.write_ascii_string("Waypoint");
+        let mut dict = Dict::new();
+        dict.set_int(NameKeyGenerator::name_to_key("waypointID"), 7);
+        dict.set_ascii_string(NameKeyGenerator::name_to_key("waypointName"), waypoint_name);
+        out.write_dict(&dict);
+        out.close_data_chunk();
+        out.close_data_chunk();
+        out.into_ckmp_bytes()
+    }
+
+    fn terrain_lifecycle_state(world: &GameLogic) -> (String, f32, bool) {
+        let terrain = world.world_services.terrain().read().unwrap();
+        let waypoint = terrain
+            .get_waypoint_by_id(7)
+            .expect("admitted map waypoint");
+        let location = waypoint.get_location();
+        assert_eq!(
+            location.z,
+            terrain.get_ground_height(location.x, location.y, None),
+            "C++ TerrainLogic::newMap grounds authored waypoint Z after height admission"
         );
+        assert_ne!(location.z, 999.0, "authored height must be finalized");
+        (
+            waypoint.get_name().as_str().to_owned(),
+            location.z,
+            terrain.is_water_grid_enabled(),
+        )
+    }
+
+    #[test]
+    fn actual_map_reload_finalizes_receiving_waypoints_and_logical_water_grid() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "actual_map_reload_finalizes_receiving_waypoints_and_logical_water_grid",
+            || {
+                let temp = tempfile::tempdir().unwrap();
+                let marker = temp.path().join("Marker.map");
+                let plain = temp.path().join("Plain.map");
+                let peer_map = temp.path().join("Peer.map");
+                std::fs::write(&marker, lifecycle_map_bytes(8, "WaveGuide1")).unwrap();
+                std::fs::write(&plain, lifecycle_map_bytes(24, "Replacement")).unwrap();
+                std::fs::write(&peer_map, lifecycle_map_bytes(40, "WaveGuide1")).unwrap();
+                let mut receiving = GameLogic::new();
+                assert!(receiving.load_map(marker.to_str().unwrap()));
+                let first = terrain_lifecycle_state(&receiving);
+                assert_eq!((&*first.0, first.2), ("WaveGuide1", true));
+                let mut peer = GameLogic::new();
+                assert!(peer.load_map(peer_map.to_str().unwrap()));
+                let peer_before = terrain_lifecycle_state(&peer);
+                assert_ne!(
+                    first.1, peer_before.1,
+                    "same waypoint ID has independent terrain"
+                );
+                assert_eq!(terrain_lifecycle_state(&receiving), first);
+                assert!(receiving.load_map(plain.to_str().unwrap()));
+                let second = terrain_lifecycle_state(&receiving);
+                assert_eq!((&*second.0, second.2), ("Replacement", false));
+                assert_ne!(first.1, second.1);
+                assert_eq!(terrain_lifecycle_state(&peer), peer_before);
+                receiving.reset();
+                assert_eq!(terrain_lifecycle_state(&peer), peer_before);
+            },
+        );
+    }
+
+    #[test]
+    fn landmark_bridge_admission_retains_registration_seams() {
         let load = include_str!("world_load.rs");
         let subsystems = include_str!("world_subsystems.rs");
         assert!(load.contains("register_spawned_landmark_bridges"));

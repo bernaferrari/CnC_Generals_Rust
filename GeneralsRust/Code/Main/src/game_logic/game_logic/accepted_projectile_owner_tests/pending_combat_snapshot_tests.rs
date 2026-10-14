@@ -163,7 +163,8 @@ End
                 .find_weapon_template(name)
                 .expect("real authored finite weapon");
             assert_eq!(authored.primary_damage, damage);
-            assert_eq!(authored.weapon_speed, 10.0);
+            // C++ float multiplication by rounded 1/30 retains this bit.
+            assert_eq!(authored.weapon_speed.to_bits(), 0x4120_0001);
             assert_eq!(authored.attack_range, 200.0);
             assert!(authored.projectile_name.eq_ignore_ascii_case("NONE"));
             assert_eq!(authored.clip_size, 8);
@@ -186,8 +187,9 @@ fn pending_combat_snapshot_finite_deadline_survives_fresh_and_in_place_same_id_l
             .weapon
             .as_ref()
             .unwrap()
-            .projectile_speed,
-        10.0
+            .projectile_speed
+            .to_bits(),
+        0x4120_0001
     );
     accept(&mut first, source, target, 10.0);
     accept(&mut second, other_source, other_target, 10.0);
@@ -431,26 +433,38 @@ fn pending_combat_snapshot_direct_xfer_continues_real_queue_and_following_record
 fn pending_combat_snapshot_current_wire_has_exact_schema_and_end_boundary() {
     let _serial = combat_test_guard();
     let _restore = RestoreInputs::install();
-    let (mut source, shooter, target) = world(FIRST_WEAPON);
+    install_finite_weapons();
+    let (mut source, shooter, target) = world(SLOW_FIRST);
     accept(&mut source, shooter, target, 10.0);
+    source.drain_pending_projectiles_into_combat();
+    assert_eq!(
+        live_projectileless_delayed_count_for_test(&source.combat_system),
+        1
+    );
     let snapshot = SnapshotBuilder::new()
         .create_world_snapshot(&source)
         .unwrap();
     assert_eq!(
         snapshot.version, WORLD_SNAPSHOT_BINCODE_VERSION,
-        "current Rust envelope advertises Players admission capabilities; body schema stays 23"
+        "current Rust envelope advertises admission and projectile continuation capabilities; body schema stays 23"
     );
     let wire = bincode_legacy::serialize(&snapshot).unwrap();
     // types.rs and world_codec.rs explicitly define an identical positional
-    // body for envelopes 23 through 27. Their differing Players named-chunk
-    // capabilities belong to the complete save bundle, not this typed world
+    // body for envelopes 23 through 28. Their differing admission and projectile
+    // continuation capabilities belong to the complete save bundle, not this typed world
     // body. Pin body admission only; this is not an old-bundle restore claim.
-    for version in [23u32, 24, 25, 26, 27] {
+    for version in 23u32..=28 {
         let mut supported = wire.clone();
         supported[..4].copy_from_slice(&version.to_le_bytes());
         let decoded =
             crate::save_load::snapshot::decode_bincode_world_snapshot(&supported).unwrap();
         assert_eq!(decoded.version, version);
+        let mut decoded_combat = crate::game_logic::combat::CombatSystem::new();
+        decoded_combat.restore_pending_combat(&decoded.pending_combat);
+        assert_eq!(
+            live_projectileless_delayed_count_for_test(&decoded_combat),
+            1
+        );
         assert_eq!(
             bincode_legacy::serialize(&decoded.pending_combat).unwrap(),
             bincode_legacy::serialize(&snapshot.pending_combat).unwrap(),
@@ -466,7 +480,7 @@ fn pending_combat_snapshot_current_wire_has_exact_schema_and_end_boundary() {
         supported.extend_from_slice(b"unframed data");
         assert!(crate::save_load::snapshot::decode_bincode_world_snapshot(&supported).is_err());
     }
-    for version in [0u32, 1, 22, 28, u32::MAX] {
+    for version in [0u32, 1, 22, 29, u32::MAX] {
         let mut incompatible = wire.clone();
         incompatible[..4].copy_from_slice(&version.to_le_bytes());
         assert!(matches!(
@@ -478,8 +492,17 @@ fn pending_combat_snapshot_current_wire_has_exact_schema_and_end_boundary() {
         ));
     }
     assert_eq!(source.objects[&target].health.current, 100.0);
-    source.drain_pending_projectiles_into_combat();
+    // C++ ceil(30 / (300 * rounded_f32(1/30))) schedules frame 103.
+    source.frame = 102;
+    apply_due(&mut source);
+    assert_eq!(source.objects[&target].health.current, 100.0);
+    source.frame = 103;
+    apply_due(&mut source);
     assert_eq!(source.objects[&target].health.current, 83.0);
+    assert_eq!(
+        live_projectileless_delayed_count_for_test(&source.combat_system),
+        0
+    );
 }
 
 #[test]
