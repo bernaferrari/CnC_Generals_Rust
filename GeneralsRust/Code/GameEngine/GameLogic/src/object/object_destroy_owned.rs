@@ -92,6 +92,15 @@ impl Object {
                             return Ok(contain.supports_owned_lifecycle() || contain.owned_tunnel_registered().is_some());
                         }
                     }
+                    if supplied_containment {
+                        if let Some(dozer) = module.as_any().downcast_ref::<crate::object::update::ai_update::dozer_ai_update::DozerAIUpdateModule>() {
+                            let runtime = dozer.runtime_ai_owned().ok_or("native Dozer delete runtime absent")?;
+                            if !self.ai.as_ref().is_some_and(|cached| Arc::ptr_eq(cached, &runtime)) {
+                                return Err("native Dozer delete runtime differs from canonical owner".into());
+                            }
+                            return Ok(true); // supplied onDelete dispatcher, never the empty default
+                        }
+                    }
                     if let Some(heal) = module.as_any_mut().downcast_mut::<AutoHealBehaviorModule>()
                     {
                         heal.behavior().validate_delete_owned()?;

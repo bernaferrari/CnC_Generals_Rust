@@ -122,9 +122,6 @@ impl GameLogic {
             let Some(weapon) = attacker.weapon_slot(slot) else {
                 continue;
             };
-            if !Object::weapon_ready(weapon, current_time) {
-                continue;
-            }
             // C++ Weapon::isWithinAttackRange / getAttackRange applies
             // WEAPONBONUSCONDITION_GARRISONED RANGE 133% (not raw PrimaryAttackRange).
             let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
@@ -146,7 +143,7 @@ impl GameLogic {
         let enclosing = container_id
             .and_then(|cid| self.objects.get(&cid))
             .is_some_and(|c| c.is_enclosing_garrison_container());
-        let Some((target_id, _, slot, fire_pos, damage, point_index)) = best else {
+        let Some((target_id, _, slot, fire_pos, _damage, point_index)) = best else {
             // C++ removeInvalidObjectsFromGarrisonPoints: not attacking / out of
             // range frees the window so another occupant can take it.
             if enclosing {
@@ -186,48 +183,8 @@ impl GameLogic {
                 }
             }
         }
-        let weapon_snap = self
-            .objects
-            .get(&garrisoned_id)
-            .and_then(|a| a.weapon_slot(slot).cloned());
-        let (destroyed, _) = self.residual_auto_fire_apply_damage(
-            garrisoned_id,
-            target_id,
-            damage,
-            fire_pos,
-            weapon_snap.as_ref(),
-            slot,
-        );
-
-        if let Some(attacker) = self.objects.get_mut(&garrisoned_id) {
-            let _ = attacker.capture_pending_weapon_visual_dispatch(
-                slot,
-                self.frame,
-                Some(target_id),
-                None,
-            );
-            if let Some(w) = attacker.weapon_slot_mut(slot) {
-                // Clip/ammo residual parity with fire_at path (not last_fire-only stamp).
-                crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
-            }
-            // AI attack authority: residual fire-intent for GameWorld last-writer.
-            {}
-            // The occupant stays Garrisoned (C++ GarrisonContain never
-            // rewrites occupant AI on the fire path;
-            // GarrisonContain.cpp:1691-1700 isPassengerAllowedToFire, occupant
-            // holds AI_BUSY per AIUpdate.cpp:4006 privateBusy). Stamp only the
-            // order target: Object::set_target would force AIState::Attacking
-            // (orders.rs:30-47).
-            attacker.set_order_target(Some(target_id), &mut self.attack_events);
-            {}
-            // Kill XP awarded after this borrow via award_experience.
-        }
-        // Occupant discharges their own current slot from the FIREPOINT offset.
-        let _ = self.record_accepted_weapon_discharge(garrisoned_id, slot);
-
-        if destroyed {
-            self.award_score_the_kill_experience(garrisoned_id, target_id);
-            self.mark_object_for_destruction(target_id, Some(team));
+        if !self.fire_owned_passive_weapon(garrisoned_id, target_id, slot, fire_pos) {
+            return;
         }
         self.garrison_residual_fires = self.garrison_residual_fires.saturating_add(1);
         let flash_muzzle = self

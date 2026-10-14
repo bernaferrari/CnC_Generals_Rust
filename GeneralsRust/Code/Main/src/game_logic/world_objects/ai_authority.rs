@@ -576,10 +576,10 @@ impl GameLogic {
         obj.status.destroyed = true;
     }
 
-    /// Residual auto-fire damage/spawn dual path:
-    /// - FIRE_SPAWN_AUTHORITY on (default): queue projectile (shadow owns spawn;
-    ///   same-frame drain in update_simulation applies damage). Skip host hitscan.
-    /// - off: keep host hitscan take_damage_from for frame-local residual honesty.
+    /// Remaining defensive direct-hit adapter (hq-ls4mk).
+    /// Strategy-center splash, Patriot assistance and deployed/slave defenses
+    /// still need their own authored weapon lifecycle migration. Contained
+    /// passengers use `fire_owned_passive_weapon` and never reach this path.
     pub(in super::super) fn residual_auto_fire_apply_damage(
         &mut self,
         attacker_id: ObjectId,

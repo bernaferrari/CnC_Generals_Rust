@@ -722,7 +722,7 @@ fn dozer_mine_clear_residual_disarms_enemy_mine_safely() {
         )
         .expect("dozer");
     if let Some(d) = game_logic.host_object_mut(dozer_id) {
-        d.set_weapon_set_mine_clearing_detail(true);
+        d.set_weapon_set_mine_clearing_detail_at_frame(true, 0);
     }
     let health_before = game_logic.host_object(dozer_id).unwrap().health.current;
     assert!(
@@ -803,7 +803,7 @@ fn dozer_mine_clear_residual_approaches_then_clears() {
         .create_object("TestDozer", Team::USA, Vec3::new(approach_dist, 0.0, 0.0))
         .expect("dozer");
     if let Some(d) = game_logic.host_object_mut(dozer_id) {
-        d.set_weapon_set_mine_clearing_detail(true);
+        d.set_weapon_set_mine_clearing_detail_at_frame(true, 0);
     }
 
     game_logic.update_mines_and_demo_traps();
@@ -987,7 +987,7 @@ fn dozer_mine_clear_defuses_demo_trap_without_detonation() {
         .create_object("TestDozer", Team::USA, Vec3::new(50.0, 0.0, 0.0))
         .expect("dozer");
     if let Some(d) = game_logic.host_object_mut(dozer_id) {
-        d.set_weapon_set_mine_clearing_detail(true);
+        d.set_weapon_set_mine_clearing_detail_at_frame(true, 0);
     }
 
     assert!(

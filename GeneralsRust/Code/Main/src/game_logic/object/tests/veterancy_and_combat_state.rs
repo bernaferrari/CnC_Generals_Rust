@@ -51,7 +51,8 @@ fn weaponset_flag_and_salvage_unlock_unless_shared_across_sets() {
 
     object.thing.template.weapon_lock_shared_across_sets = true;
     assert!(object.set_weapon_lock(1, WeaponLockType::LockedPermanently));
-    assert!(object.set_weapon_set_flag(1, true));
+    object.set_weapon_set_mine_clearing_detail_at_frame(true, 0);
+    assert!(object.weapon_set_mine_clearing_detail);
     assert!(object.is_weapon_locked());
     assert_eq!(object.weapon_lock_slot, 1);
 
@@ -1035,7 +1036,6 @@ End
     vt.set_mine_clearing_primary_weapon_name("__RustPendingReplacementBarrelWeapon");
     let mut o = Object::new(vt, ObjectId(1), Team::USA);
     o.weapon = Some(Weapon::default());
-    o.mine_clearing_primary_weapon = Some(Weapon::default());
 
     assert_eq!(o.fired_barrel_for_slot(0), Some(0));
     assert!(o.restore_weapon_barrel_runtime_for_slot(0, 2, 2));
@@ -1043,7 +1043,7 @@ End
     // C++ destroys the old PRIMARY Weapon when its conditional WeaponSet
     // changes.  A topology arriving after that replacement cannot transfer
     // the old instance's saved cursor into the mine-detail Weapon.
-    o.set_weapon_set_mine_clearing_detail(true);
+    o.set_weapon_set_mine_clearing_detail_at_frame(true, 0);
     assert!(o.set_weapon_barrel_count_for_slot(0, 4));
 
     let state = o
@@ -1084,13 +1084,13 @@ End
     template.set_mine_clearing_primary_weapon_name("__RustSnapshotPendingReplacementWeapon");
     let mut object = Object::new(template, ObjectId(1), Team::USA);
     object.weapon = Some(Weapon::default());
-    object.mine_clearing_primary_weapon = Some(Weapon::default());
+
     assert_eq!(object.fired_barrel_for_slot(0), Some(0));
     assert!(object.restore_weapon_barrel_runtime_for_slot(0, 2, 2));
 
     // Do not invoke a mutating cursor helper after the set swap: this models
     // a save before topology can configure the new concrete C++ Weapon.
-    object.set_weapon_set_mine_clearing_detail(true);
+    object.set_weapon_set_mine_clearing_detail_at_frame(true, 0);
     assert_eq!(
         object.weapon_barrel_cursor_for_snapshot(0),
         Some((0, 0)),
@@ -1105,7 +1105,7 @@ fn mine_clearing_weapon_set_swap_resets_primary_barrel_cursor() {
     vt.set_mine_clearing_primary_weapon_name("DetailMineDetailTestWeapon");
     let mut o = Object::new(vt, ObjectId(1), Team::USA);
     o.weapon = Some(Weapon::default());
-    o.mine_clearing_primary_weapon = Some(Weapon::default());
+
     // Model a partially consumed old PRIMARY cursor.  The next conditional
     // WeaponSet bind must replace it even before the first detail shot.
     o.weapon_barrel_states[0] =
@@ -1119,7 +1119,7 @@ fn mine_clearing_weapon_set_swap_resets_primary_barrel_cursor() {
         1
     );
 
-    o.set_weapon_set_mine_clearing_detail(true);
+    o.set_weapon_set_mine_clearing_detail_at_frame(true, 0);
 
     let state = o
         .weapon_barrel_state_for_slot(0)

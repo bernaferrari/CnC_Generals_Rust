@@ -16,6 +16,13 @@ pub struct ThingTemplate {
     pub(crate) body_initial_health: Option<f32>,
     #[serde(skip)]
     pub(crate) body_initial_health_error: Option<String>,
+    #[serde(skip)]
+    pub(crate) selected_weapon_sets:
+        Option<crate::game_logic::object::selected_weapon_set::BoundWeaponSets>,
+    #[serde(skip)]
+    pub(crate) mine_weapon_set_names: Option<[Option<String>; 3]>,
+    #[serde(skip)]
+    pub(crate) mine_weapon_set_shared: bool,
     pub armor: f32,
     /// C++ `ThingTemplate::m_visionRange` from Object INI `VisionRange`.
     /// Default 0 = reveal nothing (ThingTemplate.cpp:976).
@@ -567,6 +574,9 @@ impl ThingTemplate {
             max_health: 100.0,
             body_initial_health: None,
             body_initial_health_error: None,
+            selected_weapon_sets: None,
+            mine_weapon_set_names: None,
+            mine_weapon_set_shared: false,
             armor: 0.0,
             sight_range: 0.0,
             shroud_clearing_range: default_template_shroud_clearing_range(),
@@ -1103,7 +1113,7 @@ impl ThingTemplate {
         Self::weapon_from_template_at(&template, frame)
     }
 
-    fn weapon_from_template_at(
+    pub(crate) fn weapon_from_template_at(
         template: &gamelogic::weapon::WeaponTemplate,
         frame: u32,
     ) -> Option<Weapon> {

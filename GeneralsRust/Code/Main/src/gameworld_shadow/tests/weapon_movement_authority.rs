@@ -34,11 +34,6 @@ fn weapon_slots_tertiary_never_aliases_primary_and_ammo_writeback() {
             last_fire_time: 9.0,
             ..Weapon::default()
         });
-        o.mine_clearing_primary_weapon = Some(Weapon {
-            clip_size: 1,
-            ammo: Some(1),
-            ..Weapon::default()
-        });
     }
 
     let mut shadow = GameWorldShadow::new(64);
@@ -65,7 +60,10 @@ fn weapon_slots_tertiary_never_aliases_primary_and_ammo_writeback() {
     assert_eq!(tertiary.ammo, 3);
     assert_ne!(tertiary.clip_size, primary.clip_size);
     assert_ne!(tertiary.ammo, primary.ammo);
-    assert_eq!(mine.clip_size, 1);
+    assert!(
+        !mine.present,
+        "the selected C++ inventory has exactly three slots"
+    );
 
     shadow
         .world_mut()

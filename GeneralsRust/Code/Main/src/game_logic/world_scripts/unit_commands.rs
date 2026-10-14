@@ -2065,7 +2065,7 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
-        unit.set_weapon_set_mine_clearing_detail(enabled);
+        unit.set_weapon_set_mine_clearing_detail_at_frame(enabled, self.frame);
         true
     }
 
@@ -2141,7 +2141,12 @@ impl GameLogic {
         if !unit.is_alive() {
             return false;
         }
-        unit.set_weapon_set_flag(flag, enabled)
+        if flag == 1 {
+            unit.set_weapon_set_mine_clearing_detail_at_frame(enabled, self.frame);
+            true
+        } else {
+            unit.set_weapon_set_flag(flag, enabled)
+        }
     }
 
     /// Wave 233: surrender residual.

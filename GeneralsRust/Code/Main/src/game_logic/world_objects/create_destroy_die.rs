@@ -1316,7 +1316,7 @@ impl GameLogic {
             return None;
         }
 
-        if let Some(template) = self.templates.get(template_name).cloned() {
+        if let Some(mut template) = self.templates.get(template_name).cloned() {
             if let Some(error) = &template.body_initial_health_error {
                 log::error!("Rejecting object {template_name}: {error}");
                 return None;
@@ -1339,10 +1339,13 @@ impl GameLogic {
             let id = self.allocate_object_id();
             // Resolve weapons / locomotor before move into Object.
             let weapon = template.resolve_primary_weapon(self.frame);
-            let mine_clearing_primary_weapon =
-                template.resolve_mine_clearing_primary_weapon(self.frame);
             let secondary_weapon = template.resolve_secondary_weapon(self.frame);
             let tertiary_weapon = template.resolve_tertiary_weapon(self.frame);
+            template.bind_selected_weapon_sets([
+                weapon.clone(),
+                secondary_weapon.clone(),
+                tertiary_weapon.clone(),
+            ]);
             let movement_stats = template.resolve_movement();
             let loco_binding = template
                 .locomotor_name
@@ -1388,9 +1391,6 @@ impl GameLogic {
             // Primary weapon from template when defined; kind-based fallback only as last resort.
             if let Some(weapon) = weapon {
                 object.weapon = Some(weapon);
-            }
-            if let Some(mine_clearing_primary_weapon) = mine_clearing_primary_weapon {
-                object.mine_clearing_primary_weapon = Some(mine_clearing_primary_weapon);
             }
             // Secondary slot: fail-closed (only when template names/stats resolve).
             if let Some(secondary) = secondary_weapon {

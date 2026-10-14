@@ -115,7 +115,7 @@ impl Object {
             // weapon harm ordinary ground objects.
             if slot == Some(0)
                 && self.weapon_set_mine_clearing_detail
-                && self.mine_clearing_primary_weapon.is_some()
+                && self.weapon.is_some()
                 && target_anti_mask == WeaponAntiMask::GROUND
                 && (template_mask & WeaponAntiMask::MINE) != 0
             {
@@ -1088,10 +1088,6 @@ impl Object {
 
     pub fn weapon_slot(&self, slot: u8) -> Option<&Weapon> {
         match slot {
-            0 if self.weapon_set_mine_clearing_detail => self
-                .mine_clearing_primary_weapon
-                .as_ref()
-                .or(self.weapon.as_ref()),
             0 => self.weapon.as_ref(),
             1 => self.secondary_weapon.as_ref(),
             2 => self.tertiary_weapon.as_ref(),
@@ -1101,11 +1097,6 @@ impl Object {
 
     pub fn weapon_slot_mut(&mut self, slot: u8) -> Option<&mut Weapon> {
         match slot {
-            0 if self.weapon_set_mine_clearing_detail
-                && self.mine_clearing_primary_weapon.is_some() =>
-            {
-                self.mine_clearing_primary_weapon.as_mut()
-            }
             0 => self.weapon.as_mut(),
             1 => self.secondary_weapon.as_mut(),
             2 => self.tertiary_weapon.as_mut(),

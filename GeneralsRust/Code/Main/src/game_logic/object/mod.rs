@@ -1093,7 +1093,6 @@ pub struct Object {
     /// while the C++ detail flag is active. Older snapshots deserialize this
     /// absent field as unavailable rather than inventing a mine-clear weapon.
     #[serde(default)]
-    pub mine_clearing_primary_weapon: Option<Weapon>,
 
     /// Secondary weapon slot (C++ WeaponSet SECONDARY). Optional residual bind.
     pub secondary_weapon: Option<Weapon>,
@@ -3250,6 +3249,7 @@ mod entity_lifecycle_inventory;
 mod entity_lifecycle_projectiles;
 mod entity_lifecycle_residuals;
 mod entity_lifecycle_tags;
+mod entity_lifecycle_weapon_slots;
 mod install;
 mod jets;
 mod orders;
@@ -3264,6 +3264,7 @@ pub(crate) use body_visuals::MaxHealthChange;
 mod pose;
 mod record;
 mod rtb;
+pub(crate) mod selected_weapon_set;
 mod status_bits;
 mod stealth;
 mod structure_topple_filters;

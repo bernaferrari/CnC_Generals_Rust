@@ -21,9 +21,6 @@ impl GameLogic {
         let Some(weapon) = attacker.weapon.as_ref() else {
             return;
         };
-        if !Object::weapon_ready(weapon, current_time) {
-            return;
-        }
 
         let container_id = attacker.container_id();
         let Some(cid) = container_id else {
@@ -90,7 +87,6 @@ impl GameLogic {
         };
         let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
         let range = (range - under).max(0.0);
-        let damage = weapon.damage;
         let passenger_index = container
             .contained_units()
             .iter()
@@ -150,51 +146,8 @@ impl GameLogic {
             return;
         };
 
-        let weapon_snap = self
-            .objects
-            .get(&passenger_id)
-            .and_then(|a| a.weapon.clone());
-        let (destroyed, _) = self.residual_auto_fire_apply_damage(
-            passenger_id,
-            target_id,
-            damage,
-            fire_pos,
-            weapon_snap.as_ref(),
-            0,
-        );
-
-        if let Some(attacker) = self.objects.get_mut(&passenger_id) {
-            let _ = attacker.capture_pending_weapon_visual_dispatch(
-                0,
-                self.frame,
-                Some(target_id),
-                None,
-            );
-            if let Some(w) = attacker.weapon.as_mut() {
-                // Clip/ammo residual parity with fire_at path (not last_fire-only stamp).
-                crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
-            }
-            // AI attack authority: residual fire-intent for GameWorld last-writer.
-            {}
-            // The rider stays Docked: C++ TransportContain never rewrites an
-            // occupant's AI on the fire path — the container holds the rider
-            // (AI_BUSY per AIUpdate.cpp:4006 privateBusy), and
-            // isPassengerAllowedToFire (TransportContain.cpp:576-578) only
-            // gates who may discharge.  Stamp only the order target:
-            // Object::set_target would force AIState::Attacking
-            // (orders.rs:30-47) and eject the rider from its Docked state
-            // (garrison fire path is the sibling convention).
-            attacker.set_order_target(Some(target_id), &mut self.attack_events);
-            {}
-            // Kill XP awarded after this borrow via award_experience.
-        }
-        // Contained fire changes where the shot originates, not which
-        // concrete passenger WeaponSet slot discharged.
-        let _ = self.record_accepted_weapon_discharge(passenger_id, 0);
-
-        if destroyed {
-            self.award_score_the_kill_experience(passenger_id, target_id);
-            self.mark_object_for_destruction(target_id, Some(team));
+        if !self.fire_owned_passive_weapon(passenger_id, target_id, 0, fire_pos) {
+            return;
         }
 
         if is_battle_bus {

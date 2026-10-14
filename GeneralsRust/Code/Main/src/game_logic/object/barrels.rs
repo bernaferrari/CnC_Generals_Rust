@@ -148,15 +148,10 @@ impl Object {
     /// SECONDARY→PRIMARY fallback: a hand-authored secondary with no template
     /// must not inherit PRIMARY's barrel configuration.
     fn weapon_barrel_source_name_for_slot(&self, slot: u8) -> Option<&str> {
+        if self.weapon_set_mine_clearing_detail {
+            return self.selected_weapon_name(slot);
+        }
         match slot {
-            0 if self.weapon_set_mine_clearing_detail
-                && self.mine_clearing_primary_weapon.is_some() =>
-            {
-                self.thing
-                    .template
-                    .mine_clearing_primary_weapon_name
-                    .as_deref()
-            }
             0 => self.thing.template.primary_weapon_name.as_deref(),
             1 => self.thing.template.secondary_weapon_name.as_deref(),
             2 => self.thing.template.tertiary_weapon_name.as_deref(),

@@ -131,8 +131,6 @@ fn residual_auto_fire_consume_ammo_source() {
     for name in [
         "try_sentry_drone_residual_fire",
         "try_hellfire_drone_residual_fire",
-        "try_garrison_residual_fire",
-        "try_transport_passenger_residual_fire",
         "try_base_defense_residual_fire",
         "try_strategy_center_bombardment_turret_fire",
         "update_pending_patriot_assists",
@@ -151,6 +149,28 @@ fn residual_auto_fire_consume_ammo_source() {
             "{name} must not last_fire-only stamp residual"
         );
     }
+    for name in [
+        "try_garrison_residual_fire",
+        "try_transport_passenger_residual_fire",
+    ] {
+        let body = last_rust_fn_body(src, name).unwrap_or_else(|| panic!("missing {name}"));
+        assert!(body.contains("fire_owned_passive_weapon"));
+        assert!(
+            !body.contains("consume_ammo_on_fire"),
+            "{name} must not consume the shared shot twice"
+        );
+        assert!(!body.contains("last_fire_time ="));
+    }
+    let attack = include_str!("../../game_logic/object/attack.rs");
+    let shared = last_rust_fn_body(attack, "prepare_weapon_shot").expect("shared accepted shot");
+    assert_eq!(
+        shared.matches("Self::consume_ammo_on_fire_named(").count(),
+        1
+    );
+    let passive =
+        last_rust_fn_body(attack, "prepare_passive_weapon_shot").expect("passive adapter");
+    assert!(passive.contains("self.prepare_weapon_shot("));
+    assert!(!passive.contains("consume_ammo_on_fire"));
 }
 
 #[test]

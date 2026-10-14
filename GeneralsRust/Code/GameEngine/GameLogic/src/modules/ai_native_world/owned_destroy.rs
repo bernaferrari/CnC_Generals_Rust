@@ -45,6 +45,7 @@ impl BorrowedAiWorld<'_> {
         }
         let controller = self.controller(&object);
         let ai = object.get_ai_update_interface();
+        let has_dozer = object.find_update_module("DozerAIUpdate").is_some();
         let parent = object.get_contained_by();
         drop(object);
         if !detached_by_tunnel {
@@ -65,6 +66,11 @@ impl BorrowedAiWorld<'_> {
             }
         }
         if let Some(ai) = ai {
+            if has_dozer {
+                ai.try_lock()
+                    .map_err(|_| "native Dozer delete AI is borrowed")?
+                    .validate_dozer_delete_with_world(self)?;
+            }
             ai.try_lock()
                 .map_err(|_| "native destroy AI already borrowed")?
                 .validate_owned_removal_callbacks_with_world(&owner, self)?;
@@ -99,7 +105,7 @@ impl BorrowedAiWorld<'_> {
             .write()
             .map_err(|_| "native destroy object poisoned")?
             .begin_native_destroy();
-        if let Some(ai) = ai {
+        if let Some(ai) = &ai {
             let mut ai = ai.lock().map_err(|_| "native destroy AI poisoned")?;
             ai.set_locomotor_goal_none();
             ai.destroy_path();
@@ -121,7 +127,21 @@ impl BorrowedAiWorld<'_> {
             self.remove_contained(id, parent, false)?;
         }
         plan.notify_delete_with_containment(|entry| {
-            self.finish_containment_delete_owned(&owner, entry)
+            let dozer = entry.with_module(|module| {
+                module
+                    .as_any()
+                    .is::<crate::object::update::ai_update::dozer_ai_update::DozerAIUpdateModule>()
+            });
+            if dozer {
+                ai.as_ref()
+                    .ok_or("native Dozer delete AI cache absent")?
+                    .try_lock()
+                    .map_err(|_| "native Dozer delete AI is borrowed")?
+                    .delete_dozer_with_world(self)?;
+                Ok(true)
+            } else {
+                self.finish_containment_delete_owned(&owner, entry)
+            }
         })?;
         for proxy in proxies {
             self.services

@@ -1,5 +1,11 @@
 use super::*;
 
+#[derive(Clone, Copy)]
+enum WeaponShotRoute {
+    Autonomous,
+    Passive { slot: u8, origin: Vec3 },
+}
+
 impl Object {
     /// Fire at target. `target_is_infantry` selects ScatterRadiusVsInfantry residual.
     pub fn fire_at(
@@ -69,6 +75,62 @@ impl Object {
         combat: &mut super::combat::CombatSystem,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
     ) -> Option<u8> {
+        let (slot, pending) = self.prepare_weapon_shot(
+            WeaponShotRoute::Autonomous,
+            target_id,
+            current_time,
+            target_is_infantry,
+            target_has_faerie_fire,
+            logic_frame,
+            &mut combat.fire_sound_loop_events,
+            attack_events,
+        )?;
+        super::combat::queue_projectile(combat, pending);
+        Some(slot)
+    }
+
+    /// One ordinary current-weapon discharge without changing the passenger's
+    /// or turret's AI state. The receiving world emits this exact owned shot
+    /// and commits its barrel once; earlier accepted shots are not drained.
+    pub(crate) fn prepare_passive_weapon_shot(
+        &mut self,
+        slot: u8,
+        target_id: ObjectId,
+        current_time: f32,
+        target_is_infantry: bool,
+        target_has_faerie_fire: bool,
+        logic_frame: u32,
+        muzzle_origin: Vec3,
+        sound_events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+    ) -> Option<(u8, super::combat::PendingProjectile)> {
+        self.prepare_weapon_shot(
+            WeaponShotRoute::Passive {
+                slot,
+                origin: muzzle_origin,
+            },
+            target_id,
+            current_time,
+            target_is_infantry,
+            target_has_faerie_fire,
+            logic_frame,
+            sound_events,
+            attack_events,
+        )
+    }
+
+    fn prepare_weapon_shot(
+        &mut self,
+        route: WeaponShotRoute,
+        target_id: ObjectId,
+        current_time: f32,
+        target_is_infantry: bool,
+        target_has_faerie_fire: bool,
+        logic_frame: u32,
+        sound_events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
+        attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+    ) -> Option<(u8, super::combat::PendingProjectile)> {
+        let autonomous = matches!(route, WeaponShotRoute::Autonomous);
         // C++ Weapon::getMaxShotCount residual — AI burst / scatter limits.
         if !self.has_max_shots_remaining() {
             return None;
@@ -92,7 +154,19 @@ impl Object {
         // fallback remains PRIMARY then SECONDARY; TERTIARY is deliberately
         // excluded from autonomous selection (retail Comanche rocket pods
         // declare `AutoChooseSources = TERTIARY NONE`).
-        let slot = {
+        let slot = if let WeaponShotRoute::Passive { slot, .. } = route {
+            let weapon = self.weapon_slot(slot)?;
+            let name = self.weapon_name_for_slot(slot);
+            let mut rof = self.weapon_bonus_fields().2;
+            if target_has_faerie_fire {
+                rof *= crate::game_logic::host_avenger::FAERIE_FIRE_ROF_MULTIPLIER;
+            }
+            let reload = self.live_reload_interval(weapon, name, rof);
+            if !Self::weapon_ready_named(weapon, current_time, name, reload) {
+                return None;
+            }
+            slot
+        } else {
             let mut rof = self.weapon_bonus_fields().2;
             if target_has_faerie_fire {
                 rof *= crate::game_logic::host_avenger::FAERIE_FIRE_ROF_MULTIPLIER;
@@ -181,7 +255,7 @@ impl Object {
                     self.ai_state,
                     AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
                 );
-                if entered_attack {
+                if autonomous && entered_attack {
                     self.set_ai_state(AIState::Attacking);
                 }
                 {}
@@ -197,7 +271,7 @@ impl Object {
             self.ai_state,
             AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
         );
-        if entered_attack {
+        if autonomous && entered_attack {
             self.set_ai_state(AIState::Attacking);
         }
         {}
@@ -364,7 +438,10 @@ impl Object {
             }
         }
         let shooter_id = self.id;
-        let shooter_pos = self.get_position();
+        let shooter_pos = match route {
+            WeaponShotRoute::Autonomous => self.get_position(),
+            WeaponShotRoute::Passive { origin, .. } => origin,
+        };
         self.target = Some(target_id);
 
         // Prefer Weapon.ini DamageType via store name; shape residual if the
@@ -394,78 +471,75 @@ impl Object {
         // C++ Weapon.cpp:998-1075 / leftover handle_projectileless_flight_damage:
         // empty ProjectileObject is hitscan or delayed store damage, never a
         // flying CombatSystem dummy that can collide mid-flight.
-        if leftover_projectile_object_is_empty(&projectile_object_name) && name.is_some() {
+        if autonomous
+            && leftover_projectile_object_is_empty(&projectile_object_name)
+            && name.is_some()
+        {
             self.queue_leftover_projectileless_flight_damage(name, target_id);
         }
-        super::combat::queue_projectile(
-            combat,
-            super::combat::PendingProjectile {
-                shooter_id,
-                shooter_pos,
-                source_context: Some(super::combat::ProjectileLaunchContext {
-                    source_team: self.team,
-                    source_owner_player_id: self.owner_player_id,
-                    source_veterancy: veterancy,
-                    source_orientation: self.get_orientation(),
-                    source_velocity: self.movement.velocity,
-                }),
-                // C++ DamageDealtAtSelfPosition: damageID=INVALID, damagePos=source.
-                target_id: if at_self { None } else { Some(target_id) },
-                target_pos: if at_self { Some(shooter_pos) } else { None },
-                damage: weapon_damage,
-                speed: weapon_speed,
-                speed_unit: super::combat::ProjectileSpeedUnit::DistancePerLogicFrame,
-                splash_radius: weapon_splash,
-                is_homing: weapon_homing,
-                damage_type: weapon_dtype,
-                death_type: if name.is_none() {
-                    // C++ initializes DEATH_NORMAL independently of DamageType.
-                    crate::game_logic::host_usa_pilot::HostDeathType::Normal
-                } else {
-                    crate::game_logic::host_armor_residual::resolve_host_death_type(
-                        name,
-                        weapon_dtype,
-                    )
-                },
-                projectile_object_name,
-                projectile_lifecycle: None,
-                fire_fx_name,
-                fire_ocl_name,
-                detonation_fx_name,
-                detonation_ocl_name,
-                exhaust_name,
-                secondary_damage,
-                secondary_damage_radius,
-                shock_wave_amount,
-                shock_wave_radius,
-                shock_wave_taper_off,
-                radius_damage_affects,
-                projectile_collides,
-                // C++ ScatterRadius + ScatterRadiusVsInfantry residual.
-                scatter_radius,
-                scatter_table_offset,
-                min_weapon_speed: speed_peel.min_weapon_speed,
-                scale_weapon_speed: speed_peel.scale_weapon_speed,
-                attack_range: if speed_peel.attack_range > 0.0 {
-                    speed_peel.attack_range
-                } else {
-                    fallback_range
-                },
-                min_attack_range: if speed_peel.min_attack_range > 0.0 {
-                    speed_peel.min_attack_range
-                } else {
-                    fallback_min_range
-                },
-                historic_weapon_key: fire_weapon_name.clone().unwrap_or_default(),
-                historic_bonus_time_frames: historic_bonus.time_frames,
-                historic_bonus_count: historic_bonus.count,
-                historic_bonus_radius: historic_bonus.radius,
-                historic_bonus_weapon: historic_bonus.bonus_weapon,
-                die_on_detonate: name
-                    .map(crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name)
-                    .unwrap_or(false),
+        let pending = super::combat::PendingProjectile {
+            shooter_id,
+            shooter_pos,
+            source_context: Some(super::combat::ProjectileLaunchContext {
+                source_team: self.team,
+                source_owner_player_id: self.owner_player_id,
+                source_veterancy: veterancy,
+                source_orientation: self.get_orientation(),
+                source_velocity: self.movement.velocity,
+            }),
+            // C++ DamageDealtAtSelfPosition: damageID=INVALID, damagePos=source.
+            target_id: if at_self { None } else { Some(target_id) },
+            target_pos: if at_self { Some(shooter_pos) } else { None },
+            damage: weapon_damage,
+            speed: weapon_speed,
+            speed_unit: super::combat::ProjectileSpeedUnit::DistancePerLogicFrame,
+            splash_radius: weapon_splash,
+            is_homing: weapon_homing,
+            damage_type: weapon_dtype,
+            death_type: if name.is_none() {
+                // C++ initializes DEATH_NORMAL independently of DamageType.
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal
+            } else {
+                crate::game_logic::host_armor_residual::resolve_host_death_type(name, weapon_dtype)
             },
-        );
+            projectile_object_name,
+            projectile_lifecycle: None,
+            fire_fx_name,
+            fire_ocl_name,
+            detonation_fx_name,
+            detonation_ocl_name,
+            exhaust_name,
+            secondary_damage,
+            secondary_damage_radius,
+            shock_wave_amount,
+            shock_wave_radius,
+            shock_wave_taper_off,
+            radius_damage_affects,
+            projectile_collides,
+            // C++ ScatterRadius + ScatterRadiusVsInfantry residual.
+            scatter_radius,
+            scatter_table_offset,
+            min_weapon_speed: speed_peel.min_weapon_speed,
+            scale_weapon_speed: speed_peel.scale_weapon_speed,
+            attack_range: if speed_peel.attack_range > 0.0 {
+                speed_peel.attack_range
+            } else {
+                fallback_range
+            },
+            min_attack_range: if speed_peel.min_attack_range > 0.0 {
+                speed_peel.min_attack_range
+            } else {
+                fallback_min_range
+            },
+            historic_weapon_key: fire_weapon_name.clone().unwrap_or_default(),
+            historic_bonus_time_frames: historic_bonus.time_frames,
+            historic_bonus_count: historic_bonus.count,
+            historic_bonus_radius: historic_bonus.radius,
+            historic_bonus_weapon: historic_bonus.bonus_weapon,
+            die_on_detonate: name
+                .map(crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name)
+                .unwrap_or(false),
+        };
 
         // C++ fireWeaponTemplate LeechRange activate residual.
         self.activate_leech_range_for_slot(slot);
@@ -485,11 +559,7 @@ impl Object {
         }
         {
             let frame = logic_frame;
-            self.stamp_fire_sound_loop_after_shot(
-                frame,
-                fire_weapon_name.as_deref(),
-                &mut combat.fire_sound_loop_events,
-            );
+            self.stamp_fire_sound_loop_after_shot(frame, fire_weapon_name.as_deref(), sound_events);
             // C++ FiringTracker::shotFired(weaponFired) — delay from this slot.
             self.stamp_auto_reload_when_idle_from_slot(slot, frame);
         }
@@ -524,7 +594,7 @@ impl Object {
                 self.innate_stealth = true;
             }
         }
-        Some(slot)
+        Some((slot, pending))
     }
 
     pub(crate) fn move_to(
@@ -1052,3 +1122,7 @@ mod tests {
         assert!(unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, &mut _attack_output,));
     }
 }
+
+#[cfg(test)]
+#[path = "passive_shot_tests.rs"]
+mod passive_shot_tests;

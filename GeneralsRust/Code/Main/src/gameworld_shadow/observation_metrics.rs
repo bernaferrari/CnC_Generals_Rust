@@ -147,10 +147,7 @@ impl GameWorldShadow {
         let slots = [
             (WEAPON_SLOT_SECONDARY, host_obj.secondary_weapon.as_ref()),
             (WEAPON_SLOT_TERTIARY, host_obj.tertiary_weapon.as_ref()),
-            (
-                WEAPON_SLOT_MINE_CLEAR,
-                host_obj.mine_clearing_primary_weapon.as_ref(),
-            ),
+            (WEAPON_SLOT_MINE_CLEAR, None),
         ];
         for (slot, host_w) in slots {
             match (host_w, self.world.weapon_slots().slot(eid, slot)) {

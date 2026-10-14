@@ -206,3 +206,6 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_PATH_EXTRA_DISTANCE,
     TAG_OVERLORD_ADDON,
 ];
+
+/// CPP WeaponSet selected active three slots and row flags.
+pub const TAG_WEAPON_SLOTS: &str = "WeaponSlots";

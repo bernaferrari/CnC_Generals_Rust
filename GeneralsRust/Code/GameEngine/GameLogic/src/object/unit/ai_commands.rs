@@ -161,6 +161,38 @@ impl UnitAIUpdate {
         self.execute_owned_command_impl(&command, world, None, true)
     }
 
+    /// CPP DozerAIUpdate::onDelete -> internalCancelTask -> aiIdle. The
+    /// derived component remains installed until the original reset completes.
+    pub(super) fn execute_dozer_delete_idle_with_world(
+        &mut self,
+        task: crate::object::update::ai_update::dozer_ai_update::DozerTask,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_world_owner(world)?;
+        let owner = self
+            .runtime
+            .native_owner()
+            .ok_or("Dozer deletion actor absent")?;
+        if !owner
+            .try_read()
+            .map_err(|_| "Dozer deletion actor borrowed")?
+            .is_destroyed()
+        {
+            return Err("Dozer deletion command precedes destroy notification".into());
+        }
+        self.runtime
+            .components
+            .dozer_ai
+            .as_ref()
+            .ok_or("Dozer deletion component absent")?
+            .validate_owned_delete_idle(task)?;
+        let command = crate::ai::AiCommandParams::new(
+            crate::ai::AiCommandType::Idle,
+            CommandSourceType::FromAi,
+        );
+        self.execute_owned_command_impl(&command, world, None, true)
+    }
+
     fn execute_owned_command_impl(
         &mut self,
         command: &crate::ai::AiCommandParams,

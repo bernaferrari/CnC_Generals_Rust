@@ -49,27 +49,43 @@ impl GameLogic {
         // Snapshot the pre-power frame counts before mutable Object borrows;
         // they remain player-owned start state and do not depend on tick
         // ordering.
-        let authored_time_frames: std::collections::HashMap<ObjectId, u32> = object_ids
-            .iter()
-            .filter_map(|id| {
-                let obj = self.objects.get(id)?;
-                let player_id = object_owner_player_ids.get(id).copied().flatten()?;
-                let is_structure = obj.is_kind_of(KindOf::Structure);
+        // CPP DozerAIUpdate.cpp510: timing belongs to the active builder,
+        // including an allied player resuming another player's scaffold.
+        let authored_time_frames: std::collections::HashMap<ObjectId, u32> = self
+            .objects
+            .values()
+            .filter_map(|builder| {
+                let target_id = builder.dozer_task_build_target.or(builder.target)?;
+                let target = self.objects.get(&target_id)?;
+                let player_id = object_owner_player_ids
+                    .get(&builder.id)
+                    .copied()
+                    .flatten()?;
                 let handicap = self
                     .players
                     .get(&player_id)
-                    .map(|p| p.handicap_build_time_multiplier(is_structure))
+                    .map(|player| {
+                        player.handicap_build_time_multiplier(target.is_kind_of(KindOf::Structure))
+                    })
                     .unwrap_or(1.0);
-                let player_template_factor =
-                    self.player_template_production_time_factor(player_id, &obj.template_name);
+                let template_factor =
+                    self.player_template_production_time_factor(player_id, &target.template_name);
                 Some((
-                    *id,
+                    builder.id,
                     Self::cpp_build_time_frames_from_modifiers(
-                        obj.thing().template.build_time,
+                        target.thing().template.build_time,
                         handicap,
-                        player_template_factor,
+                        template_factor,
                     ),
                 ))
+            })
+            .collect();
+        let allied_controllers: std::collections::HashSet<(u32, u32)> = self
+            .players
+            .keys()
+            .flat_map(|&builder| self.players.keys().map(move |&owner| (builder, owner)))
+            .filter(|&(builder, owner)| {
+                self.player_relationship(builder, owner) == gamelogic::common::Relationship::Allies
             })
             .collect();
 
@@ -136,10 +152,14 @@ impl GameLogic {
                             rejected_builders.push(*did);
                         }
                     }
-                    let nearby_dozers = dozer_info
+                    let active_builder = dozer_info
                         .iter()
                         .filter(|(did, pos, radius, owner_player_id, build_slot, live_target, _, stored_dock, ai_state, arrived)| {
-                            *owner_player_id == build_owner_player_id
+                            (match (*owner_player_id, build_owner_player_id) {
+                                (Some(builder), Some(owner)) => allied_controllers.contains(&(builder, owner)),
+                                (None, None) => true,
+                                _ => false,
+                            })
                                 && (*build_slot == Some(id)
                                     || (*ai_state == AIState::Constructing && *live_target == Some(id)))
                                 && match exclusive_builder {
@@ -166,21 +186,23 @@ impl GameLogic {
                                     at
                                 }
                         })
-                        .count()
-                        .min(1);
+                        .next()
+                        .map(|builder| (builder.0, builder.3));
 
                     // C++ DozerAIUpdate: no docked dozer ⇒ no progress. Do not invent a ghost builder.
-                    let dozer_count = nearby_dozers;
-                    let actively_built = nearby_dozers > 0;
+                    let dozer_count = usize::from(active_builder.is_some());
+                    let actively_built = active_builder.is_some();
                     obj.set_under_construction_model_conditions(actively_built);
                     self.construction_model_condition_updates =
                         self.construction_model_condition_updates.saturating_add(1);
 
-                    let power_factor = build_owner_player_id
+                    let power_factor = active_builder
+                        .and_then(|(_, player)| player)
                         .and_then(|player_id| player_power_factor.get(&player_id).copied())
                         .unwrap_or(1.0);
-                    let authored_frames =
-                        authored_time_frames.get(&id).copied().unwrap_or_else(|| {
+                    let authored_frames = active_builder
+                        .and_then(|(builder, _)| authored_time_frames.get(&builder).copied())
+                        .unwrap_or_else(|| {
                             Self::cpp_build_time_frames_from_modifiers(
                                 obj.thing().template.build_time,
                                 1.0,
@@ -204,7 +226,11 @@ impl GameLogic {
                     // C++ DozerAIUpdate.cpp:526 then :536 — increment health first,
                     // then complete. Completion itself never writes max health, so
                     // scaffold damage taken during build persists.
-                    if actively_built {
+                    if let Some((builder, _)) = active_builder {
+                        // CPP526-536: contribution refreshes provenance before
+                        // completion callbacks, without changing the controller.
+                        obj.producer_id = Some(builder);
+                        obj.builder_id = Some(builder);
                         let frames = final_frames.max(1) as f32;
                         let per_frame = obj.health.maximum / frames;
                         let logic_frames = (dt * 30.0).max(0.0);
@@ -1995,3 +2021,7 @@ fn resolve_production_build_variation(template: &str) -> String {
         template.to_string()
     }
 }
+
+#[cfg(test)]
+#[path = "allied_construction_tests.rs"]
+mod allied_construction_tests;

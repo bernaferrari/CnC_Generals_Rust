@@ -231,7 +231,7 @@ fn handle_projectileless_pending(
     damage_id: Option<ObjectId>,
     flight_speed: f32,
     frame: u32,
-) {
+) -> Option<LiveProjectilelessDelayedDamage> {
     let speed_per_logic_frame = pending.speed_unit.distance_per_logic_frame(flight_speed);
     let delay_in_frames =
         if speed_per_logic_frame > 0.0 && !Projectile::is_instant_speed(flight_speed) {
@@ -241,8 +241,12 @@ fn handle_projectileless_pending(
         };
     let laser = leftover_weapon_is_laser(&pending.historic_weapon_key);
     if laser || delay_in_frames < 1.0 {
-        queue_live_projectileless_delayed(combat, frame, pending, damage_pos, damage_id);
-        return;
+        return Some(LiveProjectilelessDelayedDamage {
+            when: frame,
+            pending,
+            damage_pos,
+            damage_id,
+        });
     }
     let delay_whole_frames = delay_in_frames.ceil() as u32;
     let when = frame.wrapping_add(delay_whole_frames);
@@ -254,6 +258,7 @@ fn handle_projectileless_pending(
         damage_id.unwrap_or(ObjectId(0)),
     );
     queue_live_projectileless_delayed(combat, when, pending, damage_pos, damage_id);
+    None
 }
 
 /// Apply leftover delayed-damage entries whose frame has arrived to live objects.
@@ -498,240 +503,255 @@ pub fn drain_pending_projectiles(
     let pending = std::mem::take(&mut combat.pending_projectiles);
 
     for p in pending {
-        // Queue acceptance normally froze this field. Retain the parsed-only
-        // fallback for legacy shadow records created before that bridge; an
-        // absent/unresolved Object INI still remains `None`.
-        let projectile_lifecycle = p.projectile_lifecycle.or_else(|| {
-            crate::game_logic::weapon_bootstrap::host_projectile_lifecycle_for_object_name(
-                &p.projectile_object_name,
-            )
-        });
-        // C++ Weapon::fireWeaponTemplate executes FireOCL at the source when
-        // the weapon fires, independent of whether a later projectile target
-        // can still be resolved.  Freeze the source state at launch because
-        // the source may die before the host drains this queue.
-        let source_context = p.source_context.or_else(|| {
-            objects
-                .get(&p.shooter_id)
-                .map(|source| ProjectileLaunchContext {
-                    source_team: source.team,
-                    source_owner_player_id: source.owner_player_id,
-                    source_veterancy: source.experience.level,
-                    source_orientation: source.get_orientation(),
-                    source_velocity: source.movement.velocity,
-                })
-        });
-        let source_context = source_context.unwrap_or(ProjectileLaunchContext {
-            source_team: crate::game_logic::Team::Neutral,
-            source_owner_player_id: None,
-            source_veterancy: crate::game_logic::VeterancyLevel::Rookie,
-            source_orientation: 0.0,
-            source_velocity: Vec3::ZERO,
-        });
-        let has_fire_fx = !p.fire_fx_name.trim().is_empty()
-            && !p.fire_fx_name.trim().eq_ignore_ascii_case("None");
-        let has_fire_ocl = !p.fire_ocl_name.trim().is_empty()
-            && !p.fire_ocl_name.trim().eq_ignore_ascii_case("None");
-        // C++ `Weapon::fireWeaponTemplate` handles FireFX and FireOCL at
-        // acceptance independently.  In particular, a target that vanishes
-        // before this deferred host queue drains must not erase its muzzle FX.
-        if has_fire_fx || has_fire_ocl {
-            combat.fire_ocl.push(WeaponFireOcl {
-                origin: p.shooter_pos,
-                shooter_id: p.shooter_id,
-                source_team: source_context.source_team,
-                source_veterancy: source_context.source_veterancy,
-                source_orientation: source_context.source_orientation,
-                source_velocity: source_context.source_velocity,
-                fire_fx_name: p.fire_fx_name.clone(),
-                fire_ocl_name: p.fire_ocl_name.clone(),
-            });
-        }
-
-        let actual_target_pos = p
-            .target_id
-            .and_then(|tid| objects.get(&tid))
-            .map(|obj| {
-                if let Some(off) = obj.get_sneaky_targeting_offset(frame) {
-                    obj.get_position() + off
-                } else if obj.template_name.to_ascii_lowercase().contains("bridge") {
-                    nearer_live_bridge_attack_point(p.shooter_pos, obj)
-                } else {
-                    obj.get_position()
-                }
-            })
-            .or(p.target_pos);
-
-        let Some(mut target_pos) = actual_target_pos else {
-            continue;
-        };
-
-        // C++ Weapon.ini ScatterRadius residual: offset aim point and clear
-        // direct target lock when scatter > 0 (miss / near-miss residual).
-        let mut fire_target_id = p.target_id;
-        if let Some(tid) = p.target_id {
-            if let Some(obj) = objects.get(&tid) {
-                if obj.get_sneaky_targeting_offset(frame).is_some() {
-                    fire_target_id = None;
-                }
-            }
-        }
-        // MissileAIUpdate only retains a goal Object when TryToFollowTarget is
-        // authored. A coordinate-flight missile must detonate at its frozen
-        // launch point even if the original object disappears later.
-        if matches!(
-            projectile_lifecycle,
-            Some(
-                crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile {
-                    try_to_follow_target: false,
-                    ..
-                }
-            )
-        ) {
-            fire_target_id = None;
-        }
-        if let Some(table_offset) = p.scatter_table_offset {
-            // C++ privateFireWeapon unused ScatterTarget pick: victim becomes
-            // a position, Z snapped to ground. Host Y is up.
-            target_pos.x += table_offset.x;
-            target_pos.z += table_offset.y;
-            if let Some(target) = p.target_id.and_then(|tid| objects.get(&tid)) {
-                if target.ground_height_from_terrain {
-                    target_pos.y = target.ground_height;
-                }
-            }
-            fire_target_id = None;
-        } else if p.scatter_radius > 0.0 {
-            // C++ fireWeaponTemplate: STRUCTURE aims at geometry center, then
-            // each shot rolls GameLogicRandomValueReal radius + angle.
-            if let Some(target) = p.target_id.and_then(|tid| objects.get(&tid)) {
-                if target.is_kind_of(crate::game_logic::KindOf::Structure) {
-                    target_pos = crate::game_logic::weapon_bootstrap::structure_scatter_aim_origin(
-                        target_pos,
-                        &target.thing().template.geometry_info,
-                    );
-                }
-            }
-            let offset =
-                crate::game_logic::weapon_bootstrap::scatter_aim_offset_logic(p.scatter_radius);
-            target_pos += offset;
-            // C++ snaps Z to the victim pathfind layer so a miss hits dirt,
-            // not a far point past the volume. Host Y is up.
-            if let Some(target) = p.target_id.and_then(|tid| objects.get(&tid)) {
-                if target.ground_height_from_terrain {
-                    target_pos.y = target.ground_height;
-                }
-            }
-            fire_target_id = None;
-        }
-
-        // C++ DamageDealtAtSelfPosition: fire/detonate at source, not victim.
-        if crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name(
-            &p.historic_weapon_key,
-        ) {
-            fire_target_id = None;
-            target_pos = p.shooter_pos;
-        }
-
-        // C++ DumbProjectileBehavior ScaleWeaponSpeed residual (2D range ratio).
-        let mut flight_speed = p.speed;
-        if p.scale_weapon_speed {
-            let dx = target_pos.x - p.shooter_pos.x;
-            let dz = target_pos.z - p.shooter_pos.z;
-            let range_2d = (dx * dx + dz * dz).sqrt();
-            let peel = crate::game_logic::weapon_bootstrap::HostWeaponSpeedPeel {
-                weapon_speed: p.speed,
-                min_weapon_speed: p.min_weapon_speed,
-                scale_weapon_speed: true,
-                attack_range: p.attack_range,
-                min_attack_range: p.min_attack_range,
-            };
-            flight_speed =
-                crate::game_logic::weapon_bootstrap::host_scaled_weapon_speed(&peel, range_2d)
-                    .max(0.0);
-        }
-
-        // C++ fireWeaponTemplate: no ProjectileObject → leftover delayed damage
-        // (or same-frame dealDamageInternal). Do not spawn a CombatSystem
-        // dummy that can collide mid-flight.
-        if is_projectileless_object_name(&p.projectile_object_name) {
-            handle_projectileless_pending(
-                combat,
-                p,
-                target_pos,
-                fire_target_id,
-                flight_speed,
-                frame,
-            );
-            continue;
-        }
-
-        // C++ WeaponSpeed is distance per logic frame. CombatSystem integrates
-        // velocity against seconds, so convert only as the projectile is
-        // materialized. Already-normalized callers keep their public meaning.
-        let flight_speed_per_second = p.speed_unit.distance_per_second(flight_speed);
-
-        let weapon = Weapon {
-            damage: p.damage,
-            range: 100.0,
-            min_range: 0.0,
-            reload_time: 1.0,
-            last_fire_time: 0.0,
-            ammo: None,
-            clip_size: 0,
-            clip_reload_time: 0.0,
-            can_target_air: true,
-            can_target_ground: true,
-            projectile_speed: flight_speed_per_second,
-            pre_attack_delay: 0.0,
-            splash_radius: p.splash_radius,
-            suspend_fx_frame: 0,
-            reloading_clip: false,
-            last_bonus_rof: 0.0,
-        };
-        let pid = combat.fire_projectile_ex(
-            p.shooter_pos,
-            target_pos,
-            &weapon,
-            p.shooter_id,
-            fire_target_id,
-            flight_speed_per_second,
-            projectile_lifecycle
-                .map(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::follows_target)
-                .unwrap_or(p.is_homing),
-        );
-        if let Some(proj) = combat.projectile_mut(pid) {
-            proj.damage_type = p.damage_type;
-            proj.death_type = p.death_type;
-            proj.projectile_object_name = p.projectile_object_name.clone();
-            proj.detonation_fx_name = p.detonation_fx_name.clone();
-            proj.detonation_ocl_name = p.detonation_ocl_name.clone();
-            proj.exhaust_name = p.exhaust_name.clone();
-            proj.source_team = source_context.source_team;
-            proj.source_owner_player_id = source_context
-                .source_owner_player_id
-                .or_else(|| objects.get(&p.shooter_id).and_then(|o| o.owner_player_id));
-            proj.source_team_instance_name = objects
-                .get(&p.shooter_id)
-                .map(|o| o.team_instance_name.clone())
-                .unwrap_or_default();
-            proj.source_veterancy = source_context.source_veterancy;
-            proj.secondary_damage = p.secondary_damage;
-            proj.secondary_damage_radius = p.secondary_damage_radius;
-            proj.shock_wave_amount = p.shock_wave_amount;
-            proj.shock_wave_radius = p.shock_wave_radius;
-            proj.shock_wave_taper_off = p.shock_wave_taper_off;
-            proj.radius_damage_affects = p.radius_damage_affects;
-            proj.historic_weapon_key = p.historic_weapon_key.clone();
-            proj.historic_bonus_time_frames = p.historic_bonus_time_frames;
-            proj.historic_bonus_count = p.historic_bonus_count;
-            proj.historic_bonus_radius = p.historic_bonus_radius;
-            proj.historic_bonus_weapon = p.historic_bonus_weapon.clone();
-            proj.die_on_detonate = p.die_on_detonate;
-            proj.projectile_collides = p.projectile_collides;
-            proj.set_projectile_lifecycle(projectile_lifecycle);
-            proj.bind_authored_flight(p.shooter_pos, target_pos, flight_speed_per_second);
-            proj.is_small_missile = host_projectile_is_small_missile(proj);
+        if let Some(immediate) = materialize_accepted_projectile(combat, objects, frame, p) {
+            combat.projectileless_delayed.push(immediate);
         }
     }
+}
+
+/// Materialize exactly one already accepted shot in its receiving match.
+/// This does not read, drain, or rearrange that match's previously queued shots.
+/// The ordinary queued phase and synchronous passive-fire route share this body.
+/// Return only this shot's immediate projectileless damage; future delayed shots
+/// are installed directly. The queued caller retains its original apply phase.
+pub(in crate::game_logic) fn materialize_accepted_projectile(
+    combat: &mut CombatSystem,
+    objects: &HashMap<ObjectId, Object>,
+    frame: u32,
+    p: PendingProjectile,
+) -> Option<LiveProjectilelessDelayedDamage> {
+    // Queue acceptance normally froze this field. Retain the parsed-only
+    // fallback for legacy shadow records created before that bridge; an
+    // absent/unresolved Object INI still remains `None`.
+    let projectile_lifecycle = p.projectile_lifecycle.or_else(|| {
+        crate::game_logic::weapon_bootstrap::host_projectile_lifecycle_for_object_name(
+            &p.projectile_object_name,
+        )
+    });
+    // C++ Weapon::fireWeaponTemplate executes FireOCL at the source when
+    // the weapon fires, independent of whether a later projectile target
+    // can still be resolved.  Freeze the source state at launch because
+    // the source may die before the host drains this queue.
+    let source_context = p.source_context.or_else(|| {
+        objects
+            .get(&p.shooter_id)
+            .map(|source| ProjectileLaunchContext {
+                source_team: source.team,
+                source_owner_player_id: source.owner_player_id,
+                source_veterancy: source.experience.level,
+                source_orientation: source.get_orientation(),
+                source_velocity: source.movement.velocity,
+            })
+    });
+    let source_context = source_context.unwrap_or(ProjectileLaunchContext {
+        source_team: crate::game_logic::Team::Neutral,
+        source_owner_player_id: None,
+        source_veterancy: crate::game_logic::VeterancyLevel::Rookie,
+        source_orientation: 0.0,
+        source_velocity: Vec3::ZERO,
+    });
+    let has_fire_fx =
+        !p.fire_fx_name.trim().is_empty() && !p.fire_fx_name.trim().eq_ignore_ascii_case("None");
+    let has_fire_ocl =
+        !p.fire_ocl_name.trim().is_empty() && !p.fire_ocl_name.trim().eq_ignore_ascii_case("None");
+    // C++ `Weapon::fireWeaponTemplate` handles FireFX and FireOCL at
+    // acceptance independently.  In particular, a target that vanishes
+    // before this deferred host queue drains must not erase its muzzle FX.
+    if has_fire_fx || has_fire_ocl {
+        combat.fire_ocl.push(WeaponFireOcl {
+            origin: p.shooter_pos,
+            shooter_id: p.shooter_id,
+            source_team: source_context.source_team,
+            source_veterancy: source_context.source_veterancy,
+            source_orientation: source_context.source_orientation,
+            source_velocity: source_context.source_velocity,
+            fire_fx_name: p.fire_fx_name.clone(),
+            fire_ocl_name: p.fire_ocl_name.clone(),
+        });
+    }
+
+    let actual_target_pos = p
+        .target_id
+        .and_then(|tid| objects.get(&tid))
+        .map(|obj| {
+            if let Some(off) = obj.get_sneaky_targeting_offset(frame) {
+                obj.get_position() + off
+            } else if obj.template_name.to_ascii_lowercase().contains("bridge") {
+                nearer_live_bridge_attack_point(p.shooter_pos, obj)
+            } else {
+                obj.get_position()
+            }
+        })
+        .or(p.target_pos);
+
+    let Some(mut target_pos) = actual_target_pos else {
+        return None;
+    };
+
+    // C++ Weapon.ini ScatterRadius residual: offset aim point and clear
+    // direct target lock when scatter > 0 (miss / near-miss residual).
+    let mut fire_target_id = p.target_id;
+    if let Some(tid) = p.target_id {
+        if let Some(obj) = objects.get(&tid) {
+            if obj.get_sneaky_targeting_offset(frame).is_some() {
+                fire_target_id = None;
+            }
+        }
+    }
+    // MissileAIUpdate only retains a goal Object when TryToFollowTarget is
+    // authored. A coordinate-flight missile must detonate at its frozen
+    // launch point even if the original object disappears later.
+    if matches!(
+        projectile_lifecycle,
+        Some(
+            crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile {
+                try_to_follow_target: false,
+                ..
+            }
+        )
+    ) {
+        fire_target_id = None;
+    }
+    if let Some(table_offset) = p.scatter_table_offset {
+        // C++ privateFireWeapon unused ScatterTarget pick: victim becomes
+        // a position, Z snapped to ground. Host Y is up.
+        target_pos.x += table_offset.x;
+        target_pos.z += table_offset.y;
+        if let Some(target) = p.target_id.and_then(|tid| objects.get(&tid)) {
+            if target.ground_height_from_terrain {
+                target_pos.y = target.ground_height;
+            }
+        }
+        fire_target_id = None;
+    } else if p.scatter_radius > 0.0 {
+        // C++ fireWeaponTemplate: STRUCTURE aims at geometry center, then
+        // each shot rolls GameLogicRandomValueReal radius + angle.
+        if let Some(target) = p.target_id.and_then(|tid| objects.get(&tid)) {
+            if target.is_kind_of(crate::game_logic::KindOf::Structure) {
+                target_pos = crate::game_logic::weapon_bootstrap::structure_scatter_aim_origin(
+                    target_pos,
+                    &target.thing().template.geometry_info,
+                );
+            }
+        }
+        let offset =
+            crate::game_logic::weapon_bootstrap::scatter_aim_offset_logic(p.scatter_radius);
+        target_pos += offset;
+        // C++ snaps Z to the victim pathfind layer so a miss hits dirt,
+        // not a far point past the volume. Host Y is up.
+        if let Some(target) = p.target_id.and_then(|tid| objects.get(&tid)) {
+            if target.ground_height_from_terrain {
+                target_pos.y = target.ground_height;
+            }
+        }
+        fire_target_id = None;
+    }
+
+    // C++ DamageDealtAtSelfPosition: fire/detonate at source, not victim.
+    if crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name(
+        &p.historic_weapon_key,
+    ) {
+        fire_target_id = None;
+        target_pos = p.shooter_pos;
+    }
+
+    // C++ DumbProjectileBehavior ScaleWeaponSpeed residual (2D range ratio).
+    let mut flight_speed = p.speed;
+    if p.scale_weapon_speed {
+        let dx = target_pos.x - p.shooter_pos.x;
+        let dz = target_pos.z - p.shooter_pos.z;
+        let range_2d = (dx * dx + dz * dz).sqrt();
+        let peel = crate::game_logic::weapon_bootstrap::HostWeaponSpeedPeel {
+            weapon_speed: p.speed,
+            min_weapon_speed: p.min_weapon_speed,
+            scale_weapon_speed: true,
+            attack_range: p.attack_range,
+            min_attack_range: p.min_attack_range,
+        };
+        flight_speed =
+            crate::game_logic::weapon_bootstrap::host_scaled_weapon_speed(&peel, range_2d).max(0.0);
+    }
+
+    // C++ fireWeaponTemplate: no ProjectileObject → leftover delayed damage
+    // (or same-frame dealDamageInternal). Do not spawn a CombatSystem
+    // dummy that can collide mid-flight.
+    if is_projectileless_object_name(&p.projectile_object_name) {
+        return handle_projectileless_pending(
+            combat,
+            p,
+            target_pos,
+            fire_target_id,
+            flight_speed,
+            frame,
+        );
+    }
+
+    // C++ WeaponSpeed is distance per logic frame. CombatSystem integrates
+    // velocity against seconds, so convert only as the projectile is
+    // materialized. Already-normalized callers keep their public meaning.
+    let flight_speed_per_second = p.speed_unit.distance_per_second(flight_speed);
+
+    let weapon = Weapon {
+        damage: p.damage,
+        range: 100.0,
+        min_range: 0.0,
+        reload_time: 1.0,
+        last_fire_time: 0.0,
+        ammo: None,
+        clip_size: 0,
+        clip_reload_time: 0.0,
+        can_target_air: true,
+        can_target_ground: true,
+        projectile_speed: flight_speed_per_second,
+        pre_attack_delay: 0.0,
+        splash_radius: p.splash_radius,
+        suspend_fx_frame: 0,
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    };
+    let pid = combat.fire_projectile_ex(
+        p.shooter_pos,
+        target_pos,
+        &weapon,
+        p.shooter_id,
+        fire_target_id,
+        flight_speed_per_second,
+        projectile_lifecycle
+            .map(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::follows_target)
+            .unwrap_or(p.is_homing),
+    );
+    if let Some(proj) = combat.projectile_mut(pid) {
+        proj.damage_type = p.damage_type;
+        proj.death_type = p.death_type;
+        proj.projectile_object_name = p.projectile_object_name.clone();
+        proj.detonation_fx_name = p.detonation_fx_name.clone();
+        proj.detonation_ocl_name = p.detonation_ocl_name.clone();
+        proj.exhaust_name = p.exhaust_name.clone();
+        proj.source_team = source_context.source_team;
+        proj.source_owner_player_id = source_context
+            .source_owner_player_id
+            .or_else(|| objects.get(&p.shooter_id).and_then(|o| o.owner_player_id));
+        proj.source_team_instance_name = objects
+            .get(&p.shooter_id)
+            .map(|o| o.team_instance_name.clone())
+            .unwrap_or_default();
+        proj.source_veterancy = source_context.source_veterancy;
+        proj.secondary_damage = p.secondary_damage;
+        proj.secondary_damage_radius = p.secondary_damage_radius;
+        proj.shock_wave_amount = p.shock_wave_amount;
+        proj.shock_wave_radius = p.shock_wave_radius;
+        proj.shock_wave_taper_off = p.shock_wave_taper_off;
+        proj.radius_damage_affects = p.radius_damage_affects;
+        proj.historic_weapon_key = p.historic_weapon_key.clone();
+        proj.historic_bonus_time_frames = p.historic_bonus_time_frames;
+        proj.historic_bonus_count = p.historic_bonus_count;
+        proj.historic_bonus_radius = p.historic_bonus_radius;
+        proj.historic_bonus_weapon = p.historic_bonus_weapon.clone();
+        proj.die_on_detonate = p.die_on_detonate;
+        proj.projectile_collides = p.projectile_collides;
+        proj.set_projectile_lifecycle(projectile_lifecycle);
+        proj.bind_authored_flight(p.shooter_pos, target_pos, flight_speed_per_second);
+        proj.is_small_missile = host_projectile_is_small_missile(proj);
+    }
+    None
 }

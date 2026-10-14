@@ -589,6 +589,93 @@ impl UnitAIUpdate {
             .request_fortify_with_world(target, world)
     }
 
+    pub(super) fn validate_dozer_delete_with_world(
+        &self,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_world_owner(world)
+            .map_err(|e| e.to_string())?;
+        let dozer = self
+            .runtime
+            .components
+            .dozer_ai
+            .as_ref()
+            .ok_or("Dozer deletion component absent")?;
+        dozer.validate_owned_delete()?;
+        let owner = self
+            .runtime
+            .native_owner()
+            .ok_or("Dozer deletion owner retired")?;
+        world.validate_dozer_idle_effects(&owner)?;
+        for target in dozer.delete_cleanup_targets_owned() {
+            if let Some(target) = world.object(target) {
+                let drawable = target
+                    .try_write()
+                    .map_err(|_| "Dozer deletion target is borrowed")?
+                    .get_drawable();
+                if let Some(drawable) = drawable {
+                    drop(
+                        drawable
+                            .try_write()
+                            .map_err(|_| "Dozer deletion target drawable is borrowed")?,
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+    pub(super) fn delete_dozer_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_dozer_delete_with_world(world)?;
+        for task in [
+            crate::object::update::ai_update::dozer_ai_update::DozerTask::Build,
+            crate::object::update::ai_update::dozer_ai_update::DozerTask::Repair,
+            crate::object::update::ai_update::dozer_ai_update::DozerTask::Fortify,
+        ] {
+            let pending = self
+                .runtime
+                .components
+                .dozer_ai
+                .as_ref()
+                .ok_or("Dozer deletion component absent")?
+                .is_task_pending(task);
+            if pending {
+                self.runtime
+                    .components
+                    .dozer_ai
+                    .as_mut()
+                    .unwrap()
+                    .cancel_task_bookkeeping_owned(task)?;
+                self.execute_dozer_delete_idle_with_world(task, world)
+                    .map_err(|e| e.to_string())?;
+                self.runtime
+                    .components
+                    .dozer_ai
+                    .as_mut()
+                    .ok_or("Dozer component disappeared during deletion Idle")?
+                    .finish_cancelled_task_with_world(task, world)?;
+            }
+        }
+        let targets = self
+            .runtime
+            .components
+            .dozer_ai
+            .as_ref()
+            .ok_or("Dozer deletion component absent")?
+            .delete_cleanup_targets_owned();
+        for target in targets {
+            if let Some(target) = world.object(target) {
+                target
+                    .try_write()
+                    .map_err(|_| "Dozer deletion target is borrowed")?
+                    .clear_model_condition_state(ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED);
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn update_dozer_primary_with_world(
         &mut self,
         world: &mut dyn crate::modules::ai_world::AiWorld,

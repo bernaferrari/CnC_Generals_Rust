@@ -706,6 +706,25 @@ impl GameLogic {
             template.set_mine_clearing_primary_weapon_name(wname);
         }
 
+        if let Some(row) = definition
+            .weapon_sets
+            .iter()
+            .find(|row| row.is_exact_mine_clearing_detail())
+        {
+            template.mine_weapon_set_names = Some([
+                row.primary_weapon.clone(),
+                row.secondary_weapon.clone(),
+                row.tertiary_weapon.clone(),
+            ]);
+            template.mine_weapon_set_shared = row.attributes.iter().any(|(key, value)| {
+                (key.eq_ignore_ascii_case("WeaponLockSharedAcrossSets")
+                    || key.eq_ignore_ascii_case("ShareWeaponLock"))
+                    && matches!(
+                        value.trim().to_ascii_lowercase().as_str(),
+                        "yes" | "true" | "1"
+                    )
+            });
+        }
         Self::apply_authored_weapon_set_create_policy(&mut template, definition);
 
         // C++ AIUpdateInterface constructs its first set with SET_NORMAL.

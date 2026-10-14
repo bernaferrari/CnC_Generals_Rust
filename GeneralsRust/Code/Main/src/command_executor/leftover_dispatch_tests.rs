@@ -1018,7 +1018,7 @@ fn mine_clear_order_keeps_boxes_until_already_attacking() {
         .expect("worker");
     if let Some(w) = logic.host_object_mut(worker) {
         w.set_stored_supplies(75);
-        w.set_weapon_set_mine_clearing_detail(true);
+        w.set_weapon_set_mine_clearing_detail_at_frame(true, 0);
     }
     logic.drop_worker_supply_boxes_for_mine_clear(worker);
     assert_eq!(

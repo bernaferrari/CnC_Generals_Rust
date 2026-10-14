@@ -13,6 +13,7 @@ mod heroes_and_plans;
 mod infantry_weapons;
 mod missile_defenders;
 mod ocl_and_scud;
+mod passive_weapon_fire;
 mod registries;
 mod special_power_flights;
 mod strategy_center;
@@ -34,3 +35,6 @@ mod weapon_visual_dispatch_tests;
 
 #[cfg(test)]
 mod projectile_body_owner_tests;
+
+#[cfg(test)]
+mod passive_weapon_fire_tests;

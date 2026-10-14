@@ -42,6 +42,18 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     ) -> Result<(), String> {
         Err("AI has no supplied Dozer primary phase".into())
     }
+    fn validate_dozer_delete_with_world(
+        &self,
+        _world: &dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("AI has no supplied Dozer deletion".into())
+    }
+    fn delete_dozer_with_world(
+        &mut self,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("AI has no supplied Dozer deletion".into())
+    }
     fn update_idle_phase_sleep_with_world(
         &mut self,
         _world: &mut dyn ai_world::AiWorld,

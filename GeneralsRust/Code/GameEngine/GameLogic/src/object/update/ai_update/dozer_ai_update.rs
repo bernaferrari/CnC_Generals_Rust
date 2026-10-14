@@ -36,6 +36,7 @@ fn dual_world_registry_unavailable() -> bool {
 
 mod primary_owned;
 use primary_owned::DozerPrimaryIdle;
+mod delete_owned;
 pub(crate) mod owned_state;
 mod snapshot;
 #[cfg(test)]

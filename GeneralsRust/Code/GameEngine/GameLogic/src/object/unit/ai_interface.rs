@@ -94,6 +94,18 @@ impl AIUpdateInterface for UnitAIUpdate {
     ) -> Result<(), String> {
         UnitAIUpdate::request_dozer_fortify_with_world(self, target, world)
     }
+    fn validate_dozer_delete_with_world(
+        &self,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        UnitAIUpdate::validate_dozer_delete_with_world(self, world)
+    }
+    fn delete_dozer_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        UnitAIUpdate::delete_dozer_with_world(self, world)
+    }
     fn update_dozer_primary_with_world(
         &mut self,
         world: &mut dyn crate::modules::ai_world::AiWorld,
@@ -1142,7 +1154,11 @@ impl AIUpdateInterface for UnitAIUpdate {
         world: &dyn crate::modules::ai_world::AiWorld,
     ) -> Result<(), String> {
         self.validate_removal_identity_owned(owner)?;
-        self.validate_owned_components_with_world(world, true, false)
+        let supplied_dozer = self.runtime.components.dozer_ai.is_some();
+        if supplied_dozer {
+            UnitAIUpdate::validate_dozer_delete_with_world(self, world)?;
+        }
+        self.validate_owned_components_with_world(world, true, supplied_dozer)
             .map_err(|error| error.to_string())
     }
     fn wake_up_and_attempt_to_target_at(&mut self, frame: u32) -> Result<(), String> {

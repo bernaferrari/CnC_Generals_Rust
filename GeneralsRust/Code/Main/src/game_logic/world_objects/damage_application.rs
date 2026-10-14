@@ -374,6 +374,31 @@ impl GameLogic {
 impl GameLogic {
     /// Complete one selected queued batch without detaching the CombatSystem.
     /// C++ ActiveBody.cpp:640–653 requires XP/onDie before fresh-source FX.
+    /// Resolve only this accepted shot; earlier queued shots keep their phase.
+    pub(in crate::game_logic) fn materialize_owned_passive_shot(
+        &mut self,
+        pending: crate::game_logic::combat::PendingProjectile,
+    ) {
+        let ready = crate::game_logic::combat::materialize_accepted_projectile(
+            &mut self.combat_system,
+            &self.objects,
+            self.frame,
+            pending,
+        );
+        if let Some(shot) = ready {
+            let limit = game_engine::common::global_data::read().historic_damage_limit;
+            let events = self.combat_system.prepare_projectileless_delayed_shot(
+                &shot,
+                &self.objects,
+                self.frame,
+                limit,
+            );
+            for event in events {
+                self.apply_owned_combat_damage(&event, ImpactRelationships::QueuedProjectileless);
+            }
+        }
+    }
+
     pub(in crate::game_logic) fn apply_owned_projectileless_delayed_damage(&mut self) {
         use crate::game_logic::combat::take_ready_projectileless_delayed_damage;
         let ready = take_ready_projectileless_delayed_damage(&mut self.combat_system, self.frame);

@@ -1,8 +1,10 @@
 //! Actual installed Fortify chain and CPP's task-only nested-machine snapshots.
 use super::*;
+use crate::common::ModelConditionFlags;
 use crate::modules::ai_world::AiWorld;
 use crate::object::behavior::physics_update::PhysicsBehaviorModuleData;
 use crate::object::body::active_body::ActiveBodyModuleData;
+use crate::object::drawable::DrawableExt;
 use crate::object::update::ai_update::dozer_ai_update::owned_state::DozerOwnedObservation;
 use crate::object::update::ai_update::dozer_ai_update::{
     DozerAIUpdateModule, DozerAIUpdateModuleData, DozerTask,
@@ -508,4 +510,122 @@ fn receiving_membership_delivers_only_actual_idle_dozer_events() {
         peer.idle_workers.take(),
         Vec::<crate::helpers::IdleWorkerEvent>::new()
     );
+}
+
+#[test]
+fn deleting_active_fortify_cancels_then_defers_storage_release_on_receiving_owner() {
+    use super::object_restore_tests::{Catalog, fresh_with_templates};
+    let catalog = Catalog::from_templates(source_template(), target_template(), ground());
+    let mut game = fresh_with_templates(
+        &catalog,
+        None,
+        "OwnedFortifyDozer",
+        "OwnedFortifyTarget",
+        true,
+        17,
+    )
+    .unwrap();
+    register_receiving_geometry(&mut game);
+    let mut peer = world();
+    request(&mut peer, 18);
+    request(&mut game, 18);
+    advance(&mut game, 19);
+    advance(&mut game, 20);
+    assert_eq!(observation(&game).action, 1);
+    let owner = game.source.clone();
+    let id = owner.read().unwrap().get_id();
+    let target_pose = *game.target.read().unwrap().get_position();
+    let peer_before = observation(&peer);
+    game.operate(21, |world| world.destroy_object_owned(id))
+        .unwrap();
+    assert!(owner.read().unwrap().is_destroyed());
+    assert!(
+        game.factory.get_object(id).is_some(),
+        "CPP physical disposal follows notification"
+    );
+    assert_eq!(observation(&game).primary, 0);
+    assert_eq!(observation(&game).current_task, DozerTask::Invalid);
+    assert_eq!(
+        ai(&game).lock().unwrap().get_current_state_id(),
+        Some(crate::ai::states::AIStateType::Idle as u32)
+    );
+    assert!(
+        !ai(&game)
+            .lock()
+            .unwrap()
+            .get_dozer_ai_update_interface_mut()
+            .unwrap()
+            .is_any_task_pending()
+    );
+    assert_eq!(*game.target.read().unwrap().get_position(), target_pose);
+    assert_eq!(observation(&peer), peer_before);
+    assert!(!peer.source.read().unwrap().is_destroyed());
+    assert_eq!(game.dispose_destroyed(21).unwrap(), 1);
+    assert!(game.factory.get_object(id).is_none());
+    assert!(
+        owner.read().unwrap().get_ai_update_interface().is_none(),
+        "retained safe owner has released its installed runtime"
+    );
+    assert!(peer.factory.get_object(id).is_some());
+}
+
+#[test]
+fn deletion_cancels_frame_zero_target_before_later_construction_cleanup() {
+    // CPP2030: pending means nonzero target ID even at order frame zero.
+    // CPP2094 clears that ID during cancellation, before onDelete's cleanup
+    // pass. Clearing this former target's flag would reverse the real order.
+    let mut game = world();
+    let peer = world();
+    request(&mut game, 0);
+    let flag = ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED;
+    let target_id = game.target.read().unwrap().get_id();
+    let draw = Arc::new(RwLock::new(crate::object::drawable::Drawable::new(
+        target_id,
+        target_id,
+        "OwnedFortifyTarget".into(),
+        crate::object::drawable::DrawableType::Static,
+    )));
+    let peer_draw = Arc::new(RwLock::new(crate::object::drawable::Drawable::new(
+        target_id,
+        target_id,
+        "OwnedFortifyTarget".into(),
+        crate::object::drawable::DrawableType::Static,
+    )));
+    game.target
+        .write()
+        .unwrap()
+        .set_drawable(Some(draw.clone()));
+    peer.target
+        .write()
+        .unwrap()
+        .set_drawable(Some(peer_draw.clone()));
+    game.target.write().unwrap().set_model_condition_state(flag);
+    peer.target.write().unwrap().set_model_condition_state(flag);
+    let id = game.source.read().unwrap().get_id();
+    game.operate(1, |world| world.destroy_object_owned(id))
+        .unwrap();
+    assert!(draw.read().unwrap().get_model_conditions().contains(flag));
+    assert!(
+        peer_draw
+            .read()
+            .unwrap()
+            .get_model_conditions()
+            .contains(flag)
+    );
+    assert!(
+        !ai(&game)
+            .lock()
+            .unwrap()
+            .get_dozer_ai_update_interface_mut()
+            .unwrap()
+            .is_any_task_pending()
+    );
+    assert_eq!(observation(&game).current_task, DozerTask::Invalid);
+    assert_eq!(
+        ai(&game).lock().unwrap().get_current_state_id(),
+        Some(crate::ai::states::AIStateType::Idle as u32)
+    );
+    assert_eq!(observation(&game).primary, 0);
+    assert!(game.factory.get_object(id).is_some());
+    assert_eq!(game.dispose_destroyed(1).unwrap(), 1);
 }

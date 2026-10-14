@@ -138,17 +138,16 @@ impl Object {
     }
 
     pub(super) fn primary_weapon_name(&self) -> Option<&str> {
-        if self.weapon_set_mine_clearing_detail && self.mine_clearing_primary_weapon.is_some() {
-            return self
-                .thing
-                .template
-                .mine_clearing_primary_weapon_name
-                .as_deref();
+        if self.weapon_set_mine_clearing_detail {
+            return self.selected_weapon_name(0);
         }
         self.thing.template.primary_weapon_name.as_deref()
     }
 
     pub(super) fn secondary_weapon_name(&self) -> Option<&str> {
+        if self.weapon_set_mine_clearing_detail {
+            return self.selected_weapon_name(1);
+        }
         self.thing.template.secondary_weapon_name.as_deref().or(self
             .thing
             .template
@@ -159,6 +158,9 @@ impl Object {
     /// TERTIARY has no primary fallback: a missing third WeaponSet entry must
     /// remain unavailable rather than masquerading as the unit's main gun.
     pub(super) fn tertiary_weapon_name(&self) -> Option<&str> {
+        if self.weapon_set_mine_clearing_detail {
+            return self.selected_weapon_name(2);
+        }
         self.thing.template.tertiary_weapon_name.as_deref()
     }
 

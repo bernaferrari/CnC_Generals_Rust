@@ -284,12 +284,20 @@ impl Object {
     /// constructor-owned state available before any world onCreate callback;
     /// supplying UNDER_CONSTRUCTION does not imply a dozer's one-HP scaffold.
     pub(crate) fn new_with_initial_status(
-        template: ThingTemplate,
+        mut template: ThingTemplate,
         id: ObjectId,
         team: Team,
         logic_frame: u32,
         initial_status: ObjectStatus,
     ) -> Self {
+        if template.selected_weapon_sets.is_none() {
+            let base = [
+                template.resolve_primary_weapon(logic_frame),
+                template.resolve_secondary_weapon(logic_frame),
+                template.resolve_tertiary_weapon(logic_frame),
+            ];
+            template.bind_selected_weapon_sets(base);
+        }
         let template_name = template.name.clone();
         let max_health = template.max_health;
         // C++ ActiveBody ctor: current/prev/initial = INI InitialHealth; max = MaxHealth.
@@ -991,7 +999,6 @@ impl Object {
             experience_sink: None,
             experience_scalar: 1.0,
             weapon: None,
-            mine_clearing_primary_weapon: None,
             secondary_weapon: None,
             tertiary_weapon: None,
             target: None,
@@ -1932,7 +1939,6 @@ impl Object {
             experience_sink: None,
             experience_scalar: 1.0,
             weapon: None,
-            mine_clearing_primary_weapon: None,
             secondary_weapon: None,
             tertiary_weapon: None,
             target: None,

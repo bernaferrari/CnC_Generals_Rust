@@ -45,10 +45,7 @@ impl GameWorldShadow {
             (WEAPON_SLOT_PRIMARY, obj.weapon.as_ref()),
             (WEAPON_SLOT_SECONDARY, obj.secondary_weapon.as_ref()),
             (WEAPON_SLOT_TERTIARY, obj.tertiary_weapon.as_ref()),
-            (
-                WEAPON_SLOT_MINE_CLEAR,
-                obj.mine_clearing_primary_weapon.as_ref(),
-            ),
+            (WEAPON_SLOT_MINE_CLEAR, None),
         ];
         for (slot, weapon) in pairs {
             let f = facts(slot, weapon);

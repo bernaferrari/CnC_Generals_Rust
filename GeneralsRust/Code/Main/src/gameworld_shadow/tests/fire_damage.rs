@@ -820,8 +820,6 @@ fn residual_auto_fire_damage_source_attribution_source() {
     for name in [
         "try_sentry_drone_residual_fire",
         "try_hellfire_drone_residual_fire",
-        "try_garrison_residual_fire",
-        "try_transport_passenger_residual_fire",
         "try_base_defense_residual_fire",
         "try_strategy_center_bombardment_turret_fire",
         "update_pending_patriot_assists",
@@ -835,6 +833,43 @@ fn residual_auto_fire_damage_source_attribution_source() {
             "{name} must use residual_auto_fire_apply_damage"
         );
     }
+    // Contained firing now retains the actual selected weapon/shot receipt.
+    for name in [
+        "try_garrison_residual_fire",
+        "try_transport_passenger_residual_fire",
+    ] {
+        let body = last_rust_fn_body(src, name).unwrap_or_else(|| panic!("missing {name}"));
+        assert!(
+            body.contains("fire_owned_passive_weapon"),
+            "{name} must use the selected real shot"
+        );
+        assert!(
+            !body.contains("residual_auto_fire_apply_damage"),
+            "{name} must not also apply residual damage"
+        );
+    }
+    let passive = include_str!("../../game_logic/world_combat/passive_weapon_fire.rs");
+    let body =
+        last_rust_fn_body(passive, "fire_owned_passive_weapon").expect("actual passive driver");
+    assert!(
+        body.contains("prepare_passive_weapon_shot")
+            && body.contains("materialize_owned_passive_shot(shot)")
+    );
+    let attack = include_str!("../../game_logic/object/attack.rs");
+    let shot = last_rust_fn_body(attack, "prepare_weapon_shot").expect("shared real shot");
+    assert!(
+        shot.contains("let shooter_id = self.id") && shot.contains("damage_type: weapon_dtype")
+    );
+    let damage = include_str!("../../game_logic/world_objects/damage_application.rs");
+    let application =
+        last_rust_fn_body(damage, "apply_owned_combat_damage").expect("actual shot damage owner");
+    let application: String = application.split_whitespace().collect();
+    assert!(
+        application.contains(
+            "apply_owned_damage(target_id,damage,Some(shooter_id),damage_type,death_type"
+        ),
+        "selected typed shot must preserve attacker at the receiving Body callback"
+    );
 }
 
 #[test]

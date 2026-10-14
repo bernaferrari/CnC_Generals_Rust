@@ -42,6 +42,19 @@ pub(crate) fn apply_module_states(
         turret_seen = true;
         super::turret_runtime_persist::decode(&module.payload)?.validate_for_owner(object)?;
     }
+    let mut weapons_seen = false;
+    for module in modules
+        .iter()
+        .filter(|module| module.tag == TAG_WEAPON_SLOTS)
+    {
+        if weapons_seen {
+            return Err(EntityLifecycleCodecError::InvalidOwnerComponent {
+                component: "weapon slots",
+            });
+        }
+        weapons_seen = true;
+        let _ = super::entity_lifecycle_weapon_slots::decode(&module.payload)?;
+    }
     // Validate the owner-bound component before mutating any Object field.
     let mut railroad = None;
     for module in modules.iter().filter(|module| module.tag == TAG_RAILROAD) {
@@ -65,6 +78,7 @@ fn apply_one(
 ) -> Result<(), EntityLifecycleCodecError> {
     let payload = module.payload.as_slice();
     match module.tag.as_str() {
+        TAG_WEAPON_SLOTS => super::entity_lifecycle_weapon_slots::decode(payload)?.apply(object),
         TAG_TURRET_RUNTIME => super::turret_runtime_persist::decode(payload)?.apply(object)?,
         TAG_UPGRADE_DIE => object.upgrade_die = Some(decode_payload(payload)?),
         TAG_SPECIAL_POWER_COMPLETION => {
