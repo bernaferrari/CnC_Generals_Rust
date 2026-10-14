@@ -88,6 +88,7 @@ Object AuthoredOwnTopple
   KindOf = STRUCTURE SELECTABLE
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
+    InitialHealth = 100
   End
   Behavior = StructureToppleUpdate ModuleTag_Fall
     StructuralIntegrity = 0.1
@@ -151,6 +152,13 @@ End
     let id = world
         .create_object_for_player("AuthoredOwnTopple", 8, glam::Vec3::new(x, 4.0, 12.0))
         .unwrap();
+    // ActiveBody.cpp:110–111/154–157: MaxHealth alone leaves an authored
+    // Body at zero HP. These phase tests require an admitted live toppler.
+    let object = world.host_object(id).unwrap();
+    assert_eq!(object.body_initial_health(), 100.0);
+    assert_eq!(object.health.maximum, 100.0);
+    assert_eq!(object.health.current, 100.0);
+    assert!(object.is_alive());
     (world, id)
 }
 fn shroud(world: &GameLogic, player: u32, id: ObjectId, status: ObjectShroudStatus) {

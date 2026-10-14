@@ -2,6 +2,48 @@
 use super::*;
 
 #[test]
+fn frame_zero_topple_uses_receiving_active_body_constructor_damage_record() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "frame_zero_topple_uses_receiving_active_body_constructor_damage_record",
+        || {
+            let effects = install_fx();
+            for (filter, expected) in [
+                ("DamageFXTypes = NONE", false),
+                ("DamageFXTypes = NONE +FLAME", false),
+                ("DamageFXTypes = NONE +EXPLOSION", true),
+            ] {
+                let (mut owner, id) = world_with_filters(0, 10.0, None, filter);
+                let (mut peer, peer_id) =
+                    world_with_filters(7, 30.0, None, "DamageFXTypes = NONE +EXPLOSION");
+                assert_eq!(id, peer_id);
+                assert!(!owner.host_object(id).unwrap().is_inactive_body());
+                assert_eq!(owner.host_object(id).unwrap().last_damage_info_type, None);
+                assert_eq!(owner.host_object(id).unwrap().last_damage_timestamp, None);
+                assert_eq!(
+                    owner
+                        .host_object(id)
+                        .unwrap()
+                        .structure_topple_fx_is_allowed(),
+                    expected,
+                    "ActiveBody always exposes the constructor EXPLOSION record: {filter}"
+                );
+                kill(&mut peer, peer_id);
+                assert_eq!(effects.try_iter().count(), 1);
+                kill(&mut owner, id);
+                assert_eq!(
+                    effects.try_iter().count(),
+                    usize::from(expected),
+                    "{filter}"
+                );
+                assert_eq!(owner.host_object(id).unwrap().last_damage_info_type, None);
+                assert_eq!(owner.host_object(id).unwrap().last_damage_timestamp, None);
+            }
+        },
+    );
+}
+
+#[test]
 fn owned_die_mux_rejection_precedes_topple_selection_ai_and_effect_mutation() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),
@@ -142,6 +184,10 @@ fn damage_fx_none_suppresses_every_phase_but_not_crushing_or_completion() {
             install_crushing_weapon(WEAPON, 10.0);
             let (mut owner, id) = world_with_filters(0, 10.0, Some(WEAPON), "DamageFXTypes = NONE");
             kill(&mut owner, id);
+            // The source-less frame-zero kill retains CPP's constructor
+            // record; do not invent a damage timestamp to apply the filter.
+            assert_eq!(owner.host_object(id).unwrap().last_damage_timestamp, None);
+            assert_eq!(owner.host_object(id).unwrap().last_damage_info_type, None);
             assert_eq!(
                 effects.try_iter().count(),
                 0,
@@ -193,13 +239,15 @@ fn damage_fx_none_suppresses_every_phase_but_not_crushing_or_completion() {
 }
 
 #[test]
-fn current_damage_type_is_observed_again_and_no_body_history_permits_fx() {
+fn current_damage_type_is_observed_again_and_active_body_defaults_to_explosion() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),
-        "current_damage_type_is_observed_again_and_no_body_history_permits_fx",
+        "current_damage_type_is_observed_again_and_active_body_defaults_to_explosion",
         || {
             let effects = install_fx();
-            let (mut owner, id) = world_with_filters(0, 10.0, None, "DamageFXTypes = NONE +FLAME");
+            let (mut owner, id) =
+                world_with_filters(0, 10.0, None, "DamageFXTypes = NONE +FLAME +EXPLOSION");
+            owner.frame = 1;
             assert!(
                 owner
                     .apply_owned_kill(
@@ -226,6 +274,12 @@ fn current_damage_type_is_observed_again_and_no_body_history_permits_fx() {
                 "later Angle/Delay reread body history"
             );
             owner.host_object_mut(id).unwrap().last_damage_info_type = None;
+            assert!(
+                owner
+                    .host_object(id)
+                    .unwrap()
+                    .structure_topple_fx_is_allowed()
+            );
             let mut saw_delay = false;
             let mut saw_done = false;
             for frame in 1..600 {
@@ -255,8 +309,17 @@ fn filtered_saved_future_restores_actual_body_history_and_own_phase_state() {
         || {
             let effects = install_fx();
             let (mut source, id) = world_with_filters(0, 10.0, None, "DamageFXTypes = NONE +FLAME");
+            source.frame = 1;
             kill(&mut source, id);
-            for frame in 0..6 {
+            assert_eq!(
+                source.host_object(id).unwrap().last_damage_timestamp,
+                Some(1)
+            );
+            assert_eq!(
+                source.host_object(id).unwrap().last_damage_info_type,
+                Some(crate::game_logic::combat::DamageType::Unresistable)
+            );
+            for frame in 1..7 {
                 source.frame = frame;
                 source.update_owned_structure_topple(id).unwrap();
             }
@@ -275,7 +338,7 @@ fn filtered_saved_future_restores_actual_body_history_and_own_phase_state() {
                 receiving.host_object(id).unwrap().last_damage_info_type,
                 Some(crate::game_logic::combat::DamageType::Unresistable)
             );
-            for frame in 6..600 {
+            for frame in 7..601 {
                 source.frame = frame;
                 receiving.frame = frame;
                 let completed = source.update_owned_structure_topple(id).unwrap();

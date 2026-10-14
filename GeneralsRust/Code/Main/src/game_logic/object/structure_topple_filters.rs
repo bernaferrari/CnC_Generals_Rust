@@ -24,8 +24,17 @@ impl Object {
             Some(Err(_)) => return false,
             None => gamelogic::damage::DamageTypeFlags::all_flags(),
         };
-        self.last_damage_info_type
-            .is_none_or(|damage| gamelogic::damage::get_damage_type_flag(flags, damage.to_store()))
+        // CPP ActiveBody.h:68 returns a record even before the first hit;
+        // DamageInfoInput (Damage.h:243–247) initializes its type to EXPLOSION.
+        // A missing timestamp/type in Main is not BodyModule's NULL record.
+        // InactiveBody inherits that NULL getter and permits the FX instead.
+        self.is_inactive_body()
+            || gamelogic::damage::get_damage_type_flag(
+                flags,
+                self.last_damage_info_type
+                    .unwrap_or(crate::game_logic::combat::DamageType::Explosive)
+                    .to_store(),
+            )
     }
 
     fn structure_topple_status_mask(&self) -> gamelogic::object::die::ObjectStatusMask {
