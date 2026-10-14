@@ -1497,11 +1497,7 @@ impl GameLogic {
     /// parsed DeployStyleAIUpdate module unpacks; only ReadyToAttack may deal
     /// damage. Fail-closed: no guessed turret alignment/manual animation/LOS.
     pub(in super::super) fn try_sentry_drone_residual_fire(&mut self, sentry_id: ObjectId) {
-        use crate::game_logic::host_sentry_drone::{
-            SENTRY_GUN_AUDIO, is_legal_sentry_auto_fire_target,
-        };
-
-        let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+        use crate::game_logic::host_sentry_drone::is_legal_sentry_auto_fire_target;
 
         let Some(attacker) = self.objects.get(&sentry_id) else {
             return;
@@ -1526,14 +1522,10 @@ impl GameLogic {
         let Some(weapon) = attacker.weapon.as_ref() else {
             return;
         };
-        if !Object::weapon_ready(weapon, current_time) {
-            return;
-        }
 
         let team = attacker.team;
         let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
         let range = (attacker.effective_weapon_range_for_slot(0, weapon.range) - under).max(0.0);
-        let damage = weapon.damage;
         let fire_pos = attacker.get_position();
 
         // Pure residual acquire query (fire decision choice phase).
@@ -1604,63 +1596,16 @@ impl GameLogic {
             return;
         }
 
-        let weapon_snap = self.objects.get(&sentry_id).and_then(|a| a.weapon.clone());
-        let (destroyed, _) = self.residual_auto_fire_apply_damage(
-            sentry_id,
-            target_id,
-            damage,
-            fire_pos,
-            weapon_snap.as_ref(),
-            0,
-        );
-
-        if let Some(attacker) = self.objects.get_mut(&sentry_id) {
-            let _ = attacker.capture_pending_weapon_visual_dispatch(
-                0,
-                self.frame,
-                Some(target_id),
-                None,
-            );
-            if let Some(w) = attacker.weapon.as_mut() {
-                // Clip/ammo residual parity with fire_at path (not last_fire-only stamp).
-                crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
-            }
-            // AI attack authority: residual fire-intent for GameWorld last-writer.
-            {}
-            // STEALTH_NOT_WHILE_ATTACKING residual.
-            if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
-                attacker.break_stealth();
-            }
-            if destroyed {
-                self.stop_attack_decision_aware(sentry_id);
-            }
+        if !self.fire_owned_passive_weapon(sentry_id, target_id, 0, fire_pos) {
+            return;
         }
-        let _ = self.record_accepted_weapon_discharge(sentry_id, 0);
-
-        if destroyed {
-            self.award_score_the_kill_experience(sentry_id, target_id);
-            self.mark_object_for_destruction(target_id, Some(team));
-        }
-
-        let muzzle_pos = self
+        if self
             .objects
-            .get(&sentry_id)
-            .map(|a| a.get_position())
-            .unwrap_or(fire_pos);
-        let impact_pos = self.objects.get(&target_id).map(|t| t.get_position());
-        let _ = self.combat_particles.spawn_weapon_fire_fx(
-            muzzle_pos,
-            impact_pos,
-            self.frame,
-            sentry_id,
-            Some(target_id),
-        );
-        self.queue_audio_event(
-            AudioEventRequest::new(SENTRY_GUN_AUDIO)
-                .with_object(sentry_id)
-                .with_position(muzzle_pos)
-                .with_priority(160),
-        );
+            .get(&target_id)
+            .is_none_or(|target| !target.is_alive())
+        {
+            self.stop_attack_decision_aware(sentry_id);
+        }
 
         self.sentry_drone_residual_auto_fires =
             self.sentry_drone_residual_auto_fires.saturating_add(1);
@@ -1670,11 +1615,7 @@ impl GameLogic {
     /// and deals damage without a manual AttackObject order.
     /// Fail-closed: not full SlavedUpdate / LOS / projectile flight matrix.
     pub(in super::super) fn try_hellfire_drone_residual_fire(&mut self, hellfire_id: ObjectId) {
-        use crate::game_logic::host_slave_drones::{
-            HELLFIRE_FIRE_AUDIO, is_legal_hellfire_auto_fire_target,
-        };
-
-        let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+        use crate::game_logic::host_slave_drones::is_legal_hellfire_auto_fire_target;
 
         let Some(attacker) = self.objects.get(&hellfire_id) else {
             return;
@@ -1685,14 +1626,10 @@ impl GameLogic {
         let Some(weapon) = attacker.weapon.as_ref() else {
             return;
         };
-        if !Object::weapon_ready(weapon, current_time) {
-            return;
-        }
 
         let team = attacker.team;
         let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
         let range = (attacker.effective_weapon_range_for_slot(0, weapon.range) - under).max(0.0);
-        let damage = weapon.damage;
         let fire_pos = attacker.get_position();
 
         // Pure residual acquire query (fire decision choice phase).
@@ -1744,69 +1681,13 @@ impl GameLogic {
             return;
         };
 
-        let weapon_snap = self
-            .objects
-            .get(&hellfire_id)
-            .and_then(|a| a.weapon.clone());
-        // C++ Hellfire ScatterRadiusVsInfantry residual: vs infantry may miss.
-        let mut destroyed = false;
-        let target_is_infantry = self
-            .objects
-            .get(&target_id)
-            .map(|o| o.is_kind_of(KindOf::Infantry))
-            .unwrap_or(false);
-        let mut skip_damage = false;
-        if target_is_infantry {
-            let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
-                hellfire_id.0,
-                target_id.0,
-                self.frame,
-            );
-            let hit_r = self
-                .objects
-                .get(&target_id)
-                .map(|o| {
-                    if o.selection_radius > 0.0 {
-                        o.selection_radius
-                    } else {
-                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
-                    }
-                })
-                .unwrap_or(crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS);
-            self.hellfire_scatter_applied = self.hellfire_scatter_applied.saturating_add(1);
-            if crate::game_logic::host_slave_drones::hellfire_scatter_misses_infantry(
-                true, seed, hit_r,
-            ) {
-                self.hellfire_scatter_misses = self.hellfire_scatter_misses.saturating_add(1);
-                skip_damage = true;
-            }
+        // A scatter miss is still one accepted launch. Parsed Weapon.ini
+        // supplies the aim offset and projectile timing; no synthetic hit roll
+        // may suppress the real shot or duplicate its damage/XP/FX.
+        if !self.fire_owned_passive_weapon(hellfire_id, target_id, 0, fire_pos) {
+            return;
         }
-        if !skip_damage {
-            let (d, _) = self.residual_auto_fire_apply_damage(
-                hellfire_id,
-                target_id,
-                damage,
-                fire_pos,
-                weapon_snap.as_ref(),
-                0,
-            );
-            destroyed = d;
-        }
-
         if let Some(attacker) = self.objects.get_mut(&hellfire_id) {
-            let _ = attacker.capture_pending_weapon_visual_dispatch(
-                0,
-                self.frame,
-                Some(target_id),
-                None,
-            );
-            if let Some(w) = attacker.weapon.as_mut() {
-                // Clip/ammo residual parity with fire_at path (not last_fire-only stamp).
-                crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
-            }
-            // AI attack authority: residual fire-intent for GameWorld last-writer.
-            {}
-            attacker.note_attack_target(target_id, &mut self.attack_events);
             let entered_attack = !matches!(
                 attacker.ai_state,
                 AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
@@ -1814,42 +1695,14 @@ impl GameLogic {
             if entered_attack {
                 attacker.set_ai_state(AIState::Attacking);
             }
-            {}
-            if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
-                attacker.break_stealth();
-            }
-            if destroyed {
-                self.stop_attack_decision_aware(hellfire_id);
-            }
         }
-        // A scatter miss is still an accepted Hellfire launch: record the
-        // actual source slot once, independently of per-victim damage.
-        let _ = self.record_accepted_weapon_discharge(hellfire_id, 0);
-
-        if destroyed {
-            self.award_score_the_kill_experience(hellfire_id, target_id);
-            self.mark_object_for_destruction(target_id, Some(team));
-        }
-
-        let muzzle_pos = self
+        if self
             .objects
-            .get(&hellfire_id)
-            .map(|a| a.get_position())
-            .unwrap_or(fire_pos);
-        let impact_pos = self.objects.get(&target_id).map(|t| t.get_position());
-        let _ = self.combat_particles.spawn_weapon_fire_fx(
-            muzzle_pos,
-            impact_pos,
-            self.frame,
-            hellfire_id,
-            Some(target_id),
-        );
-        self.queue_audio_event(
-            AudioEventRequest::new(HELLFIRE_FIRE_AUDIO)
-                .with_object(hellfire_id)
-                .with_position(muzzle_pos)
-                .with_priority(160),
-        );
+            .get(&target_id)
+            .is_none_or(|target| !target.is_alive())
+        {
+            self.stop_attack_decision_aware(hellfire_id);
+        }
 
         self.hellfire_drone_residual_auto_fires =
             self.hellfire_drone_residual_auto_fires.saturating_add(1);
@@ -2344,3 +2197,7 @@ impl GameLogic {
         kills
     }
 }
+
+#[cfg(test)]
+#[path = "drone_weapon_owner_tests.rs"]
+mod drone_weapon_owner_tests;

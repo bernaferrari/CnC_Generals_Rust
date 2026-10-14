@@ -1,0 +1,146 @@
+//! Deployed/slaved callers use the ordinary installed weapon lifecycle.
+use crate::game_logic::{
+    AIState, DeployStyleMetadata, GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate,
+    Weapon,
+};
+use glam::Vec3;
+const SOURCE: ObjectId = ObjectId(99211);
+const TARGET: ObjectId = ObjectId(99212);
+
+fn world(deployed: bool, pre_delay: f32) -> GameLogic {
+    let mut game = GameLogic::new();
+    game.add_player(Player::new(0, Team::USA, "source", true));
+    game.add_player(Player::new(1, Team::China, "target", false));
+    let mut template = ThingTemplate::new("OwnedDroneShot");
+    template
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable);
+    if deployed {
+        template.deploy_style_metadata = Some(DeployStyleMetadata {
+            unpack_time_frames: 3,
+            turrets_function_only_when_deployed: true,
+            ..Default::default()
+        });
+    }
+    game.templates
+        .insert(template.name.clone(), template.clone());
+    let mut source = Object::new(template, SOURCE, Team::USA);
+    source.owner_player_id = Some(0);
+    source.weapon = Some(Weapon {
+        damage: 37.0,
+        range: 200.0,
+        last_fire_time: -10.0,
+        ammo: Some(2),
+        clip_size: 2,
+        projectile_speed: 9.0,
+        pre_attack_delay: pre_delay,
+        ..Weapon::default()
+    });
+    assert!(source.set_weapon_barrel_count_for_slot(0, 3));
+    let mut template = ThingTemplate::new("OwnedDroneVictim");
+    template
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    game.templates
+        .insert(template.name.clone(), template.clone());
+    let mut target = Object::new(template, TARGET, Team::China);
+    target.owner_player_id = Some(1);
+    target.set_position(Vec3::new(90.0, 0.0, 0.0));
+    game.add_object(source);
+    game.add_object(target);
+    game.frame = 30;
+    game
+}
+fn ammo(game: &GameLogic) -> Option<u32> {
+    game.host_object(SOURCE)
+        .unwrap()
+        .weapon
+        .as_ref()
+        .unwrap()
+        .ammo
+}
+fn health(game: &GameLogic) -> f32 {
+    game.host_object(TARGET).unwrap().health.current
+}
+fn delayed(game: &GameLogic) -> usize {
+    crate::game_logic::combat::live_projectileless_delayed_count_for_test(&game.combat_system)
+}
+
+#[test]
+fn sentry_requires_real_deploy_then_weapon_windup_and_commits_one_delayed_shot() {
+    let mut game = world(true, 0.5);
+    let peer = world(true, 0.5);
+    let before = game
+        .host_object(SOURCE)
+        .unwrap()
+        .weapon_barrel_cursor_for_snapshot(0);
+    game.try_sentry_drone_residual_fire(SOURCE);
+    assert_eq!(ammo(&game), Some(2));
+    assert_eq!(delayed(&game), 0);
+    assert!(!game.host_object(SOURCE).unwrap().deploy_style_allows_fire());
+    for frame in 31..=33 {
+        game.frame = frame;
+        game.tick_deploy_style_updates();
+    }
+    game.try_sentry_drone_residual_fire(SOURCE);
+    assert!(game.host_object(SOURCE).unwrap().deploy_style_allows_fire());
+    assert_eq!(ammo(&game), Some(2));
+    game.frame = 47;
+    game.try_sentry_drone_residual_fire(SOURCE);
+    assert_eq!(ammo(&game), Some(2));
+    game.frame = 48;
+    game.try_sentry_drone_residual_fire(SOURCE);
+    assert_eq!(ammo(&game), Some(1));
+    assert_eq!(game.sentry_drone_residual_auto_fires, 1);
+    assert_eq!(delayed(&game), 1);
+    assert_eq!(health(&game), 100.0);
+    assert_ne!(
+        game.host_object(SOURCE)
+            .unwrap()
+            .weapon_barrel_cursor_for_snapshot(0),
+        before
+    );
+    game.frame = 49;
+    game.try_sentry_drone_residual_fire(SOURCE);
+    assert_eq!(ammo(&game), Some(1));
+    assert_eq!(game.sentry_drone_residual_auto_fires, 1);
+    game.frame = 57;
+    game.apply_owned_projectileless_delayed_damage();
+    assert_eq!(health(&game), 100.0);
+    game.frame = 58;
+    game.apply_owned_projectileless_delayed_damage();
+    assert_eq!(health(&game), 63.0);
+    assert_eq!(delayed(&game), 0);
+    assert_eq!(ammo(&peer), Some(2));
+    assert_eq!(health(&peer), 100.0);
+}
+
+#[test]
+fn hellfire_launch_consumes_once_and_deals_damage_only_at_real_impact_phase() {
+    let mut game = world(false, 0.0);
+    let peer = world(false, 0.0);
+    game.try_hellfire_drone_residual_fire(SOURCE);
+    assert_eq!(ammo(&game), Some(1));
+    assert_eq!(game.hellfire_drone_residual_auto_fires, 1);
+    assert_eq!(
+        game.host_object(SOURCE).unwrap().ai_state,
+        AIState::Attacking
+    );
+    assert_eq!(health(&game), 100.0);
+    assert_eq!(delayed(&game), 1);
+    game.frame = 31;
+    game.try_hellfire_drone_residual_fire(SOURCE);
+    assert_eq!(ammo(&game), Some(1));
+    assert_eq!(game.hellfire_drone_residual_auto_fires, 1);
+    game.frame = 39;
+    game.apply_owned_projectileless_delayed_damage();
+    assert_eq!(health(&game), 100.0);
+    game.frame = 40;
+    game.apply_owned_projectileless_delayed_damage();
+    assert_eq!(health(&game), 63.0);
+    game.apply_owned_projectileless_delayed_damage();
+    assert_eq!(health(&game), 63.0);
+    assert_eq!(ammo(&peer), Some(2));
+    assert_eq!(health(&peer), 100.0);
+}

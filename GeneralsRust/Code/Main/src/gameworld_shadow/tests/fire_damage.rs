@@ -818,8 +818,6 @@ fn residual_auto_fire_damage_source_attribution_source() {
         "residual auto-fire must forward actual damage and attacker through the receiving Body/Player operation"
     );
     for name in [
-        "try_sentry_drone_residual_fire",
-        "try_hellfire_drone_residual_fire",
         "try_base_defense_residual_fire",
         "try_strategy_center_bombardment_turret_fire",
         "update_pending_patriot_assists",
@@ -835,6 +833,8 @@ fn residual_auto_fire_damage_source_attribution_source() {
     }
     // Contained firing now retains the actual selected weapon/shot receipt.
     for name in [
+        "try_sentry_drone_residual_fire",
+        "try_hellfire_drone_residual_fire",
         "try_garrison_residual_fire",
         "try_transport_passenger_residual_fire",
     ] {

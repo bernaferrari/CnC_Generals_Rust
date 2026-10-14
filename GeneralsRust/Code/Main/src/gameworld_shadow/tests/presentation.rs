@@ -129,8 +129,6 @@ fn play_sound_effect_direct_audio_source() {
 fn residual_auto_fire_consume_ammo_source() {
     let src = GAME_LOGIC_HOST_SRC;
     for name in [
-        "try_sentry_drone_residual_fire",
-        "try_hellfire_drone_residual_fire",
         "try_base_defense_residual_fire",
         "try_strategy_center_bombardment_turret_fire",
         "update_pending_patriot_assists",
@@ -150,6 +148,8 @@ fn residual_auto_fire_consume_ammo_source() {
         );
     }
     for name in [
+        "try_sentry_drone_residual_fire",
+        "try_hellfire_drone_residual_fire",
         "try_garrison_residual_fire",
         "try_transport_passenger_residual_fire",
     ] {
