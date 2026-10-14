@@ -1325,7 +1325,7 @@ impl GameLogic {
                 log::error!("Rejecting object {template_name}: {error}");
                 return None;
             }
-            if let Some(error) = &template.body_initial_health_error {
+            if let Some(error) = &template.body_definition_error {
                 log::error!("Rejecting object {template_name}: {error}");
                 return None;
             }

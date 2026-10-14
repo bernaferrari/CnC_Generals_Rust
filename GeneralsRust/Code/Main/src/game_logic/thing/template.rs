@@ -55,7 +55,7 @@ pub struct ThingTemplate {
     #[serde(skip)]
     pub(crate) body_initial_health: Option<f32>,
     #[serde(skip)]
-    pub(crate) body_initial_health_error: Option<String>,
+    pub(crate) body_definition_error: Option<String>,
     #[serde(skip)]
     pub(crate) selected_weapon_sets:
         Option<crate::game_logic::object::selected_weapon_set::BoundWeaponSets>,
@@ -619,7 +619,7 @@ impl ThingTemplate {
             native_lifecycle_definitions: None,
             native_lifecycle_error: None,
             body_initial_health: None,
-            body_initial_health_error: None,
+            body_definition_error: None,
             selected_weapon_sets: None,
             mine_weapon_set_names: None,
             mine_weapon_set_shared: false,

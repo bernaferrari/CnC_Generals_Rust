@@ -283,14 +283,29 @@ impl GameLogic {
             .iter()
             .any(|name| module.class_name.eq_ignore_ascii_case(name))
         }) {
-            // ActiveBodyModuleData constructor defaults InitialHealth to zero.
+            // Both Body values default independently to zero in C++.
+            // A native zero maximum is data, not a missing bootstrap health.
             // Resolved inherited modules already contain inherited values here.
+            match body.attribute("MaxHealth") {
+                None => {
+                    template.set_health(0.0);
+                }
+                Some(value) => match value.trim().parse::<f32>() {
+                    Ok(health) if health.is_finite() => {
+                        template.set_health(health);
+                    }
+                    _ => {
+                        template.body_definition_error =
+                            Some(format!("invalid {} MaxHealth: {value}", body.class_name));
+                    }
+                },
+            }
             match body.attribute("InitialHealth") {
                 None => template.body_initial_health = Some(0.0),
                 Some(value) => match value.trim().parse::<f32>() {
                     Ok(health) if health.is_finite() => template.body_initial_health = Some(health),
                     _ => {
-                        template.body_initial_health_error = Some(format!(
+                        template.body_definition_error = Some(format!(
                             "invalid {} InitialHealth: {value}",
                             body.class_name
                         ))
@@ -481,7 +496,9 @@ impl GameLogic {
             template.add_kind_of(KindOf::SupplyCenter);
         }
 
-        if template.max_health <= 1.0 {
+        // Synthetic definitions may use the old bootstrap estimate, but an
+        // actual Body's zero/small maximum must survive all later binding.
+        if template.body_kind.is_none() && template.max_health <= 1.0 {
             template.set_health(if is_structure { 1200.0 } else { 250.0 });
         }
 

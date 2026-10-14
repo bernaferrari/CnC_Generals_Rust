@@ -84,7 +84,7 @@ fn malformed_authored_initial_health_rejects_before_factory_admission() {
         .unwrap();
     for text in ["NaN", "inf", "not-a-number"] {
         let bad = template("InvalidBody", Some(text), 200.0);
-        assert!(bad.body_initial_health_error.is_some());
+        assert!(bad.body_definition_error.is_some());
         world.templates.insert("InvalidBody".into(), bad);
         assert!(
             world
@@ -150,5 +150,84 @@ fn normal_encoded_save_preserves_zero_and_negative_constructor_body_state() {
         assert_eq!(object.body_initial_health(), expected);
         assert_eq!(object.health.maximum, 200.0);
         assert!(!object.status.on_die_started);
+    }
+}
+
+#[test]
+fn native_maximum_zero_is_authored_data_and_omission_uses_cpp_zero_default() {
+    for maximum in ["", "MaxHealth = 0\n"] {
+        let mut parser = crate::assets::IniParser::new();
+        parser.parse_ini_content(
+            &format!("Object NativeZeroMaximum\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\n{maximum}InitialHealth = 7\nEnd\nEnd\n"),
+            "native-zero-maximum.ini",
+        ).unwrap();
+        let template = GameLogic::build_template_from_object_definition(
+            "NativeZeroMaximum",
+            parser.get_definition("NativeZeroMaximum").unwrap(),
+            None,
+        );
+        assert_eq!(template.max_health, 0.0);
+        assert_eq!(template.body_initial_health, Some(7.0));
+        let mut world = GameLogic::new();
+        world.templates.insert(template.name.clone(), template);
+        let id = world
+            .create_object("NativeZeroMaximum", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        let object = world.host_object(id).unwrap();
+        // CPP constructor assigns both independently; ordinary health
+        // arithmetic, not birth, subsequently applies the upper clamp.
+        assert_eq!((object.health.current, object.health.maximum), (7.0, 0.0));
+        assert_eq!(object.previous_health, 7.0);
+        assert_eq!(object.body_initial_health(), 7.0);
+    }
+}
+
+#[test]
+fn malformed_native_maximum_is_rejected_instead_of_becoming_bootstrap_health() {
+    for maximum in ["not-a-number", "NaN", "inf"] {
+        let mut parser = crate::assets::IniParser::new();
+        parser.parse_ini_content(
+            &format!("Object MalformedMaximum\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = {maximum}\nInitialHealth = 7\nEnd\nEnd\n"),
+            "malformed-native-maximum.ini",
+        ).unwrap();
+        let template = GameLogic::build_template_from_object_definition(
+            "MalformedMaximum",
+            parser.get_definition("MalformedMaximum").unwrap(),
+            None,
+        );
+        assert!(
+            template
+                .body_definition_error
+                .as_ref()
+                .unwrap()
+                .contains("MaxHealth")
+        );
+        let mut world = GameLogic::new();
+        world.templates.insert(template.name.clone(), template);
+        assert!(
+            world
+                .create_object("MalformedMaximum", Team::USA, glam::Vec3::ZERO)
+                .is_none()
+        );
+        assert!(world.objects.is_empty());
+    }
+}
+
+#[test]
+fn small_native_maximum_is_not_replaced_by_structure_or_vehicle_estimates() {
+    for maximum in [0.5, 1.0] {
+        let mut world = GameLogic::new();
+        let template = template("SmallNativeMaximum", Some("0.25"), maximum);
+        assert_eq!(template.max_health, maximum);
+        world.templates.insert(template.name.clone(), template);
+        let id = world
+            .create_object("SmallNativeMaximum", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        let object = world.host_object(id).unwrap();
+        assert_eq!(
+            (object.health.current, object.health.maximum),
+            (0.25, maximum)
+        );
+        assert_eq!(object.body_initial_health(), 0.25);
     }
 }

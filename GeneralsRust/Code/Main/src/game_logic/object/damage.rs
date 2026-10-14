@@ -2,7 +2,7 @@ use super::*;
 
 mod application;
 mod world_policy;
-use application::{ActiveDamageContinuation, BridgeHealingContinuation};
+use application::{ActiveDamageContinuation, HealingContinuation};
 pub(in crate::game_logic) use application::{BridgeBodyCallbacks, DamageApplication};
 
 impl Object {
@@ -372,47 +372,63 @@ impl Object {
                 damage_type,
                 damage,
             );
-            if is_bridge && amount > 0.0 && amount.is_finite() {
-                self.revive_from_bridge_rubble();
-            }
-            self.heal_with_source(amount.max(0.0), context.source(), health_events, frame);
-            if is_bridge && self.health.current > before_hp {
-                // A repairable body can die again after leaving rubble.
-                self.status.on_die_started = false;
-            }
             if amount > 0.0 {
-                let now = frame;
-                self.last_healing_timestamp = Some(now);
-                self.last_damage_timestamp = Some(now);
+                let was_rubble = self.status.keep_as_rubble;
+                let was_destroyed = self.status.destroyed;
+                if is_bridge {
+                    self.revive_from_bridge_rubble();
+                }
+                // CPP ActiveBody809 calls the ordinary Body operation even
+                // when capped or above maximum. Never infer callbacks from
+                // the input amount: only the resulting health increase counts.
+                if self.health.maximum <= 0.0
+                    && self.thing.template.body_kind.is_none()
+                    && self.max_health > 0.0
+                {
+                    // Standalone bootstrap templates have no native Body row.
+                    self.health.maximum = self.max_health;
+                }
+                self.internal_change_health(amount);
+                if is_bridge && self.health.current <= 0.0 {
+                    // Clearing the retained-husk adapter cannot revive a
+                    // zero-maximum Body. Final health owns the dead flag.
+                    self.status.keep_as_rubble = was_rubble;
+                    self.status.destroyed = was_destroyed;
+                }
+                self.last_healing_timestamp = Some(frame);
+                self.last_damage_timestamp = Some(frame);
                 self.last_damage_source = source;
                 self.last_damage_info_type = Some(crate::game_logic::combat::DamageType::Healing);
+                if self.health.current != before_hp {
+                    health_events.record_applied_heal(self.id, self.health.current);
+                }
+                // CPP ActiveBody823: onHealing is conditional, after history
+                // publication and before the released state-callback phase.
+                if self.health.current > before_hp {
+                    self.clear_poisoned_on_healing();
+                    if is_bridge {
+                        self.status.on_die_started = false;
+                    }
+                }
             }
-            let fx_type = fx_override.unwrap_or(damage_type);
-            if is_bridge {
-                return DamageApplication::Healing(BridgeHealingContinuation {
-                    callbacks: BridgeBodyCallbacks {
-                        victim: self.id,
-                        source,
-                        input_amount: damage,
-                        max_health: self.health.maximum,
-                        old_state,
-                        health_changed: self.health.current > before_hp,
-                        damage_type,
-                        death_type,
-                    },
-                    fx_type,
-                    actual_amount: amount.max(0.0),
-                    frame,
-                });
-            }
-            let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
-                self,
-                fx_type,
-                amount.max(0.0),
+            return DamageApplication::Healing(HealingContinuation {
+                victim_id: self.id,
+                source,
+                old_body_state: (amount > 0.0).then_some(old_state),
+                bridge_callbacks: is_bridge.then_some(BridgeBodyCallbacks {
+                    victim: self.id,
+                    source,
+                    input_amount: damage,
+                    max_health: self.health.maximum,
+                    old_state,
+                    health_changed: self.health.current > before_hp,
+                    damage_type,
+                    death_type,
+                }),
+                fx_type: fx_override.unwrap_or(damage_type),
+                actual_amount: if amount > 0.0 { amount } else { 0.0 },
                 frame,
-                context.source(),
-            );
-            return DamageApplication::Complete(false);
+            });
         }
         // DAMAGE_WATER: normal HP damage path (type distinguishes FX in C++).
         if matches!(

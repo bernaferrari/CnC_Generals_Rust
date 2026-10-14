@@ -1,4 +1,4 @@
-//! C++ ActiveBody.cpp:585–662: callbacks precede credit/onDie, then DamageFX.
+//! C++ ActiveBody.cpp:585–662/785–848: callbacks precede the final DamageFX.
 //! One owned continuation is consumed before another victim is processed.
 use super::super::*;
 use crate::game_logic::host_transition_damage_fx::HostDamageFxVictim;
@@ -9,7 +9,7 @@ pub(in crate::game_logic) enum DamageApplication {
     // Special/no-HP branches already complete their existing effects.
     Complete(bool),
     Active(ActiveDamageContinuation),
-    Healing(BridgeHealingContinuation),
+    Healing(HealingContinuation),
 }
 
 /// Owned data crossing the released body borrow at the original callback point.
@@ -25,9 +25,15 @@ pub(in crate::game_logic) struct BridgeBodyCallbacks {
     pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
 }
 
+/// Accepted healing and optional bridge callbacks crossing a released Body
+/// borrow. This operation data is ephemeral; no match registry or saved mirror.
 #[derive(Debug)]
-pub(in crate::game_logic) struct BridgeHealingContinuation {
-    pub(super) callbacks: BridgeBodyCallbacks,
+pub(in crate::game_logic) struct HealingContinuation {
+    pub(super) victim_id: ObjectId,
+    pub(super) source: Option<ObjectId>,
+    pub(super) old_body_state:
+        Option<crate::game_logic::host_enum_table_residual::HostBodyDamageType>,
+    pub(super) bridge_callbacks: Option<BridgeBodyCallbacks>,
     pub(super) fx_type: crate::game_logic::combat::DamageType,
     pub(super) actual_amount: f32,
     pub(super) frame: u32,
@@ -71,51 +77,60 @@ impl DamageApplication {
         match self {
             Self::Complete(_) => None,
             Self::Active(tail) => tail.source,
-            Self::Healing(tail) => tail.callbacks.source,
+            Self::Healing(tail) => tail.source,
         }
     }
 
     pub(in crate::game_logic) fn bridge_callbacks(&self) -> Option<BridgeBodyCallbacks> {
         match self {
             Self::Active(tail) => tail.bridge_callbacks,
-            Self::Healing(tail) => Some(tail.callbacks),
+            Self::Healing(tail) => tail.bridge_callbacks,
             Self::Complete(_) => None,
         }
     }
 
-    /// CPP ActiveBody603–638 observes the live Body after onDamage callbacks.
-    /// Keep this phase synchronous and before scoreTheKill/onDie/DamageFX.
+    /// CPP ActiveBody603–638/835–844 observes the live Body after the
+    /// synchronous onDamage/onHealing chain and before Armor DamageFX.
     pub(in crate::game_logic) fn complete_body_state_callbacks(
         &mut self,
         victim: &mut Object,
         source: Option<&HostDamageFxVictim>,
     ) {
-        let Self::Active(tail) = self else {
-            return;
+        let (victim_id, old_body_state, frame, fear) = match self {
+            Self::Active(tail) => (tail.victim_id, tail.old_body_state.take(), tail.frame, true),
+            Self::Healing(tail) => (
+                tail.victim_id,
+                tail.old_body_state.take(),
+                tail.frame,
+                false,
+            ),
+            Self::Complete(_) => return,
         };
         assert_eq!(
-            tail.victim_id, victim.id,
+            victim_id, victim.id,
             "body callback victim identity changed"
         );
-        let Some(old_body_state) = tail.old_body_state.take() else {
+        let Some(old_body_state) = old_body_state else {
             return;
         };
-        victim.react_to_body_damage_state_change(old_body_state, source, tail.frame);
-        let id = victim.id;
-        let position = victim.get_position();
-        let player = victim.owner_player_id;
-        crate::game_logic::host_transition_damage_fx::queue_voice_fear_event(
-            &mut victim.pending_transition_damage_fx,
-            &victim.template_name,
-            old_body_state,
-            victim.body_damage_state,
-            victim.previous_health,
-            victim.health.current,
-            victim.health.maximum,
-            id,
-            position,
-            player,
-        );
+        victim.react_to_body_damage_state_change(old_body_state, source, frame);
+        if fear {
+            let id = victim.id;
+            let position = victim.get_position();
+            let player = victim.owner_player_id;
+            crate::game_logic::host_transition_damage_fx::queue_voice_fear_event(
+                &mut victim.pending_transition_damage_fx,
+                &victim.template_name,
+                old_body_state,
+                victim.body_damage_state,
+                victim.previous_health,
+                victim.health.current,
+                victim.health.maximum,
+                id,
+                position,
+                player,
+            );
+        }
     }
 
     pub(in crate::game_logic) fn dispatch_damage_fx(
@@ -137,7 +152,7 @@ impl DamageApplication {
             );
         }
         if let Self::Healing(tail) = &self {
-            assert_eq!(tail.callbacks.victim, victim.id);
+            assert_eq!(tail.victim_id, victim.id);
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
                 victim,
                 tail.fx_type,

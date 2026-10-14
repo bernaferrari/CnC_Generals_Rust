@@ -299,7 +299,10 @@ impl GameLogic {
             .objects
             .get(&victim_id)
             .is_some_and(|object| !object.temporary_weapon_runtime.damaged.is_empty());
-        if hp_lost > 0.0 && !has_installed_reaction_weapons {
+        if hp_lost > 0.0
+            && damage_type != crate::game_logic::combat::DamageType::Healing
+            && !has_installed_reaction_weapons
+        {
             if let Some(weapon) = self
                 .objects
                 .get_mut(&victim_id)
