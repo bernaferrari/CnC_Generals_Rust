@@ -1621,8 +1621,9 @@ impl HostSpecialPowerStrikeRegistry {
     ) -> Vec<HostParticleScorchRevealEvent> {
         let mut events = Vec::new();
         for field in &mut self.beam_fields {
-            // Catch up all due scorch marks (may be multi if frames skipped).
-            while field.is_due_scorch(current_frame) {
+            // CPP ParticleUplinkCannonUpdate.cpp:598 admits one mark per
+            // update. Skipping frames must not replay omitted scorch effects.
+            if field.is_due_scorch(current_frame) {
                 let pulse_idx = particle_scorch_pulse_index(field.scorch_marks_made);
                 let epicenter = field.residual_epicenter(pulse_idx);
                 let scorch_r = particle_scorch_radius(field.spawn_frame, current_frame);
@@ -1634,9 +1635,7 @@ impl HostSpecialPowerStrikeRegistry {
                 field.last_scorch_radius = scorch_r;
                 let scheduled =
                     particle_next_scorch_frame(field.spawn_frame, field.scorch_marks_made);
-                // Advance by schedule factor; allow multi-mark catch-up when
-                // frames were skipped (do not clamp to current+1 inside the loop).
-                field.next_scorch_frame = scheduled.max(field.next_scorch_frame.saturating_add(1));
+                field.next_scorch_frame = scheduled;
                 events.push(HostParticleScorchRevealEvent {
                     field_id: field.id,
                     source_object: field.source_object,

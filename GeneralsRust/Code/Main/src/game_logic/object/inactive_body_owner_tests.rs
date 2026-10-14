@@ -276,3 +276,106 @@ fn changed_receiving_body_class_rejects_before_mutating_current_world() {
     assert_eq!(receiving.host_object(id).unwrap().health.current, 100.0);
     assert!(!receiving.host_object(id).unwrap().is_inactive_body());
 }
+
+fn exercise_native_field_body(spawner: usize) {
+    use crate::game_logic::host_inferno_cannon::INFERNO_FIRE_FIELD_TEMPLATE;
+    use crate::game_logic::special_power_strikes::{
+        ANTHRAX_TOXIN_OBJECT_NAME, NUKE_RADIATION_OBJECT_NAME,
+    };
+    let names = [
+        INFERNO_FIRE_FIELD_TEMPLATE,
+        ANTHRAX_TOXIN_OBJECT_NAME,
+        NUKE_RADIATION_OBJECT_NAME,
+    ];
+    for inactive in [true, false] {
+        let mut owner = GameLogic::new();
+        owner.frame = 11;
+        for name in names {
+            owner
+                .templates
+                .insert(name.into(), template(name, inactive));
+        }
+        let fire = owner
+            .spawn_inferno_fire_field_object(3, glam::Vec3::ZERO, false, Team::USA)
+            .unwrap();
+        owner.special_power_strikes.spawn_toxin_field(
+            fire,
+            Team::USA,
+            glam::Vec3::ZERO,
+            owner.frame,
+            0,
+        );
+        owner.spawn_anthrax_toxin_field_objects_for_new_fields();
+        let toxin = owner.special_power_strikes.toxin_fields()[0]
+            .object_id
+            .unwrap();
+        owner.special_power_strikes.spawn_radiation_field(
+            fire,
+            Team::USA,
+            glam::Vec3::ZERO,
+            owner.frame,
+            0,
+        );
+        owner.spawn_nuke_radiation_field_objects_for_new_fields();
+        let radiation = owner.special_power_strikes.radiation_fields()[0]
+            .object_id
+            .unwrap();
+        let ids = [fire, toxin, radiation];
+        for id in [ids[spawner]] {
+            let object = owner.host_object(id).unwrap();
+            if inactive {
+                assert_inactive(&owner, id);
+            } else {
+                assert!(!object.is_inactive_body());
+                assert_eq!(object.health.current, 100.0);
+                assert_eq!(object.health.maximum, 100.0);
+                assert!(object.is_alive());
+                assert!(!object.status.effectively_dead);
+            }
+            assert!(!object.status.on_die_started);
+        }
+        assert!(owner.host_object(fire).unwrap().inferno_fire_field);
+        assert!(owner.host_object(toxin).unwrap().anthrax_toxin_field);
+        assert!(owner.host_object(radiation).unwrap().nuke_radiation_field);
+        assert_eq!(owner.host_object(toxin).unwrap().producer_id, Some(fire));
+        assert_eq!(
+            owner.host_object(radiation).unwrap().producer_id,
+            Some(fire)
+        );
+        let builder = crate::save_load::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&owner).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        let mut restored = GameLogic::new();
+        builder
+            .restore_from_snapshot(&decoded, &mut restored)
+            .unwrap();
+        for id in [ids[spawner]] {
+            if inactive {
+                assert_inactive(&restored, id);
+                assert!(!hit(
+                    &mut restored,
+                    id,
+                    DamageType::Flame,
+                    HostDeathType::Normal
+                ));
+            } else {
+                assert!(!restored.host_object(id).unwrap().is_inactive_body());
+                assert_eq!(restored.host_object(id).unwrap().health.current, 100.0);
+            }
+        }
+    }
+}
+
+#[test]
+fn native_fire_field_preserves_receiving_body_and_save() {
+    exercise_native_field_body(0);
+}
+#[test]
+fn native_toxin_field_preserves_receiving_body_and_save() {
+    exercise_native_field_body(1);
+}
+#[test]
+fn native_radiation_field_preserves_receiving_body_and_save() {
+    exercise_native_field_body(2);
+}

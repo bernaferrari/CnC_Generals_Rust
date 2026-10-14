@@ -303,29 +303,48 @@ fn particle_uplink_scorch_reveal_residual_honesty() {
             .is_empty()
     );
 
-    // Catch-up: jump past several scorch slots → multiple residual events.
+    // CPP ParticleUplinkCannonUpdate.cpp:598: one due mark per update,
+    // even when several scheduled frames have passed.
     let late = spawn + PARTICLE_BEAM_DURATION_FRAMES;
     let caught = reg.apply_due_beam_scorch_reveals(late);
+    assert_eq!(caught.len(), 1);
+    assert_eq!(reg.beam_fields()[0].scorch_marks_made, 2);
+    assert_eq!(reg.beam_fields()[0].reveal_applications, 2);
+    assert_eq!(reg.beam_fields()[0].ground_hit_fx_applications, 2);
     assert!(
-        caught.len() >= 5,
-        "fractional scorch schedule catch-up, got {}",
-        caught.len()
+        reg.apply_due_beam_scorch_reveals(particle_death_frame(spawn))
+            .is_empty()
     );
-    assert!(reg.beam_fields()[0].scorch_marks_made <= PARTICLE_TOTAL_SCORCH_MARKS);
-    assert_eq!(
-        reg.beam_fields()[0].reveal_applications,
-        reg.beam_fields()[0].scorch_marks_made
-    );
-    assert_eq!(
-        reg.beam_fields()[0].ground_hit_fx_applications,
-        reg.beam_fields()[0].scorch_marks_made
-    );
+    assert_eq!(reg.beam_fields()[0].scorch_marks_made, 2);
 
-    // Cap at TotalScorchMarks.
-    let _ = reg.apply_due_beam_scorch_reveals(late + 1000);
-    assert_eq!(
-        reg.beam_fields()[0].scorch_marks_made,
-        PARTICLE_TOTAL_SCORCH_MARKS
+    // A fresh beam receiving ordinary frame updates reaches all twenty marks
+    // before death; expiry never invents omitted updates or additional marks.
+    let mut regular = HostSpecialPowerStrikeRegistry::new();
+    let id = regular.queue(
+        HostSuperweaponKind::ParticleCannon,
+        ObjectId(1),
+        Team::USA,
+        click,
+        0,
+    );
+    regular.record_impact_complete(id, 0.0, 0, 0);
+    let birth = regular.beam_fields()[0].spawn_frame;
+    let death = particle_death_frame(birth);
+    let mut total = 0;
+    for frame in birth..death {
+        let due = regular.apply_due_beam_scorch_reveals(frame);
+        assert!(due.len() <= 1);
+        total += due.len();
+    }
+    assert_eq!(total, 20);
+    assert_eq!(regular.beam_fields()[0].scorch_marks_made, 20);
+    assert_eq!(regular.beam_fields()[0].reveal_applications, 20);
+    assert_eq!(regular.beam_fields()[0].ground_hit_fx_applications, 20);
+    assert!(regular.apply_due_beam_scorch_reveals(death).is_empty());
+    assert!(
+        regular
+            .apply_due_beam_scorch_reveals(death + 1000)
+            .is_empty()
     );
 }
 
@@ -1012,8 +1031,12 @@ fn once_at_queue_multi_strike_ocl_residual_honesty() {
         // Formation index 0 is spot-on at click target.
         assert!((s.ocl_points[0].x - target.x).abs() < 0.01);
         assert!((s.ocl_points[0].z - target.z).abs() < 0.01);
-        // First shell impact matches strike impact_frame residual.
-        assert_eq!(s.ocl_shell_frames[0], s.impact_frame);
+        // Each OCL transport retains its own delivery delay; the generic
+        // strike timestamp does not overwrite individual shell admission.
+        for (index, frame) in s.ocl_shell_frames.iter().enumerate() {
+            assert_eq!(*frame, artillery_shell_impact_frame(0, index as u32));
+            assert!(*frame >= s.impact_frame);
+        }
         // Stored plan matches pure ADC re-query (once-at-queue = index seed).
         let expected = artillery_barrage_points(target);
         assert_eq!(s.ocl_points.len(), expected.len());
@@ -1069,13 +1092,26 @@ fn once_at_queue_multi_strike_ocl_residual_honesty() {
         assert!(s.ocl_points.is_empty());
     }
 
-    // plan_due uses stored ocl_points (Artillery first shell at impact_frame).
+    // The first delivered shell need not be formation index zero: each OCL
+    // transport has its own delay. Preserve stored points in formation order.
+    let strike = reg.get(id).unwrap();
+    let first_frame = *strike.ocl_shell_frames.iter().min().unwrap();
+    let expected: Vec<_> = strike
+        .ocl_shell_frames
+        .iter()
+        .zip(&strike.ocl_points)
+        .filter_map(|(frame, point)| (*frame == first_frame).then_some(*point))
+        .collect();
     let objects = vec![(ObjectId(99), target, Team::USA, true)];
-    let plans = reg.plan_due_impacts(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES, &objects);
-    assert!(!plans.is_empty());
+    assert!(
+        !reg.plan_due_impacts(first_frame - 1, &objects)
+            .iter()
+            .any(|p| p.strike_id == id)
+    );
+    let plans = reg.plan_due_impacts(first_frame, &objects);
     let plan = plans.iter().find(|p| p.strike_id == id).unwrap();
-    assert_eq!(plan.wave_shell_count, 1);
-    assert!((plan.epicenters[0].x - target.x).abs() < 0.01);
+    assert_eq!(plan.wave_shell_count as usize, expected.len());
+    assert_eq!(plan.epicenters, expected);
 }
 
 #[test]

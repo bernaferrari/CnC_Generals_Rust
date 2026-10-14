@@ -1479,10 +1479,24 @@ fn thing_factory_spawn_bookkeeping_wave74_honesty() {
     assert!(!reg.orbit_fields().is_empty());
     let field_id = reg.orbit_fields()[0].id;
     let spawn_frame = reg.orbit_fields()[0].spawn_frame;
-    reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_frame);
+    // CPP SpectreGunshipUpdate.cpp:573/609: strict follow lag > 12.
+    reg.record_orbit_tick_complete(field_id, 0.0, 0, 0, spawn_frame);
+    assert_eq!(
+        reg.orbit_fields()[0].howitzer_shell_thing_factory_spawn_applications,
+        0
+    );
+    for frame in spawn_frame + 1..=spawn_frame + 12 {
+        reg.advance_orbit_strafe(frame);
+    }
+    assert!(!reg.orbit_fields()[0].howitzer_follow_ready());
+    assert_eq!(reg.orbit_fields()[0].howitzer_shells_spawned, 0);
+    reg.advance_orbit_strafe(spawn_frame + 13);
+    assert!(reg.orbit_fields()[0].howitzer_follow_ready());
+    let fire_frame = (spawn_frame + 13).max(reg.orbit_fields()[0].next_tick_frame);
+    reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, fire_frame);
     {
         let f = &reg.orbit_fields()[0];
-        assert!(f.howitzer_shell_thing_factory_spawn_applications >= 1);
+        assert_eq!(f.howitzer_shell_thing_factory_spawn_applications, 1);
         let shell = spectre_howitzer_shell_spawn_residual(
             spawn_frame,
             f.position + Vec3::new(0.0, 80.0, 0.0),

@@ -925,8 +925,8 @@ impl HostParticleBeamField {
     /// True when a scorch mark residual is due (and marks remain).
     ///
     /// Scorch schedule is independent of damage-pulse cap; it runs for the
-    /// beam orbital lifetime (`expires_frame` inclusive), matching retail
-    /// STATUS_FIRING scorch cadence through the decay tail.
+    /// beam orbital lifetime, excluding the frame where the decaying beam is
+    /// destroyed before the scorch effect block (C++ update:460–477).
     pub fn is_due_scorch(&self, current_frame: u32) -> bool {
         self.scorch_marks_made < PARTICLE_TOTAL_SCORCH_MARKS
             && current_frame >= self.next_scorch_frame

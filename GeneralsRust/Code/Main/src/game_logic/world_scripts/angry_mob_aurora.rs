@@ -1175,11 +1175,14 @@ impl GameLogic {
             o.inferno_fire_field_upgraded = upgraded;
             o.inferno_fire_field_expires_frame = Some(expires);
             o.inferno_fire_field_zone_id = Some(zone_id);
-            o.health.current = INFERNO_FIRE_FIELD_MAX_HEALTH;
-            o.health.maximum = INFERNO_FIRE_FIELD_MAX_HEALTH;
-            // C++ FireFieldSmall uses InactiveBody: no HP, effectively dead.
-            o.uses_inactive_body = true;
-            o.status.effectively_dead = true;
+            // Native body semantics come from this receiving definition. The
+            // bootstrap substitute has no authored body to initialize it.
+            if o.thing().template.body_kind.is_none() {
+                o.health.current = INFERNO_FIRE_FIELD_MAX_HEALTH;
+                o.health.maximum = INFERNO_FIRE_FIELD_MAX_HEALTH;
+                o.uses_inactive_body = true;
+                o.status.effectively_dead = true;
+            }
         }
         self.inferno_fire_zones.record_fire_field_object(1);
         Some(pid)

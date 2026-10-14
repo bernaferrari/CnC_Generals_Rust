@@ -220,10 +220,7 @@ fn particle_cannon_params_match_retail_continuous_beam() {
     assert_eq!(death, 100 + PARTICLE_BEAM_ORBITAL_LIFETIME_FRAMES);
     assert!((particle_width_scalar(100, death) - 0.0).abs() < 0.01);
     assert_eq!(particle_next_scorch_frame(100, 0), 101);
-    assert_eq!(
-        particle_next_scorch_frame(100, 10),
-        100 + (0.5 * PARTICLE_BEAM_DURATION_FRAMES as f32).floor() as u32
-    );
+    assert_eq!(particle_next_scorch_frame(100, 10), 182);
     // First pulse (factor 0): cx = -distance/2.
     let o0 = particle_swath_offset(0);
     assert!((o0.x + PARTICLE_SWATH_OF_DEATH_DISTANCE * 0.5).abs() < 0.1);
@@ -238,10 +235,7 @@ fn particle_cannon_params_match_retail_continuous_beam() {
     );
     // Fractional nextFactor schedule residual.
     assert_eq!(particle_next_pulse_frame(100, 0), 101); // strict forward when 0
-    assert_eq!(
-        particle_next_pulse_frame(100, 20),
-        100 + (0.5 * PARTICLE_BEAM_DURATION_FRAMES as f32).floor() as u32
-    );
+    assert_eq!(particle_next_pulse_frame(100, 20), 182);
 }
 
 #[test]
@@ -253,12 +247,12 @@ fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
         ObjectId(1),
         Team::China,
         target,
-        0,
+        1, // CPP startAttack clamps activation to at least frame one.
     );
     assert!(reg.honesty_queue_ok(HostSuperweaponKind::ParticleCannon));
     assert_eq!(
         reg.get(id).unwrap().impact_frame,
-        PARTICLE_BEAM_TRAVEL_FRAMES
+        1 + PARTICLE_BEAM_TRAVEL_FRAMES
     );
     assert!(reg.beam_fields().is_empty());
 
@@ -273,9 +267,9 @@ fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
         (ObjectId(5), swath0, Team::China, true), // friendly
     ];
 
-    // Charge residual: no impact plan before frame 120.
-    assert!(reg.plan_due_impacts(119, &objects).is_empty());
-    let impact_plans = reg.plan_due_impacts(120, &objects);
+    // The queued activation includes 75 frames of beam travel.
+    assert!(reg.plan_due_impacts(75, &objects).is_empty());
+    let impact_plans = reg.plan_due_impacts(76, &objects);
     assert_eq!(impact_plans.len(), 1);
     // Continuous beam: no one-shot impact hits.
     assert!(impact_plans[0].hits.is_empty());
@@ -290,7 +284,7 @@ fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
     // First beam pulse on spawn frame — uses SwathOfDeath epicenter.
     // WidthGrow residual: first grow step at spawn so pulse has non-zero radius
     // but still below dist-to-ObjectId(3) (~30).
-    let beam_plans = reg.plan_due_beam_ticks(120, &objects);
+    let beam_plans = reg.plan_due_beam_ticks(76, &objects);
     assert_eq!(beam_plans.len(), 1);
     assert!(
         (beam_plans[0].position.x - swath0.x).abs() < 0.1,
@@ -300,7 +294,7 @@ fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
     let spawn_radius = PARTICLE_BEAM_RADIUS * spawn_step;
     assert!((beam_plans[0].width_scalar - spawn_step).abs() < 0.01);
     assert!((beam_plans[0].damage_radius - spawn_radius).abs() < 0.05);
-    assert_eq!(beam_plans[0].hits.len(), 1); // epicenter only under tiny radius
+    assert_eq!(beam_plans[0].hits.len(), 2); // enemy and friendly at epicenter
     assert_eq!(beam_plans[0].hits[0].target_id, ObjectId(2));
     assert!(
         !beam_plans[0]
@@ -315,7 +309,7 @@ fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
             .any(|h| h.target_id == ObjectId(4))
     );
     assert!(
-        !beam_plans[0]
+        beam_plans[0]
             .hits
             .iter()
             .any(|h| h.target_id == ObjectId(5))
@@ -323,10 +317,10 @@ fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
 
     reg.record_beam_tick_complete(
         beam_plans[0].field_id,
-        PARTICLE_BEAM_DAMAGE_PER_PULSE * 1.0,
-        1,
+        PARTICLE_BEAM_DAMAGE_PER_PULSE * 2.0,
+        2,
         0,
-        120,
+        76,
     );
     assert!(reg.honesty_beam_damage_ok());
     assert!(reg.honesty_beam_swath_ok());
@@ -339,8 +333,8 @@ fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
         "peak_width_scalar {}",
         reg.beam_fields()[0].peak_width_scalar
     );
-    // Fractional nextFactor: pulses_made=1 → factor 1/40 * 105 = 2.625 → floor 2.
-    let expected_next = particle_next_pulse_frame(120, 1).max(121);
+    // C++ nextFactor uses orbital lifetime: floor(165 / 40) = 4.
+    let expected_next = 80;
     assert_eq!(reg.beam_fields()[0].next_tick_frame, expected_next);
     assert_eq!(reg.beam_fields()[0].pulses_made, 1);
 
@@ -1389,23 +1383,40 @@ fn falloff_two_stage_matches_fab_shape() {
 #[test]
 fn friendly_fire_allies_residual_and_source_excluded() {
     // A10 no longer applies a delayed circle blast — OCL jets do the damage.
-    let mut a10 = HostSpecialPowerStrikeRegistry::new();
-    a10.queue(
-        HostSuperweaponKind::A10Strike,
-        ObjectId(1),
-        Team::USA,
-        Vec3::ZERO,
-        0,
+    let mut owner = crate::game_logic::GameLogic::new();
+    owner.templates.insert(
+        "LiveA10Source".into(),
+        crate::game_logic::ThingTemplate::new("LiveA10Source"),
+    );
+    let source = owner
+        .create_object("LiveA10Source", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let strike = owner
+        .queue_special_power_strike(&SpecialPowerType::Airstrike, source, Vec3::ZERO)
+        .unwrap();
+    assert!(
+        owner
+            .special_power_strikes
+            .get(strike)
+            .unwrap()
+            .live_a10_delivery
+    );
+    assert!(
+        owner
+            .objects
+            .values()
+            .any(|object| object.a10_strike_transport.is_some()
+                && object.producer_id == Some(source))
     );
     let objects = vec![
         (ObjectId(1), Vec3::ZERO, Team::USA, true),
         (ObjectId(2), Vec3::new(5.0, 0.0, 0.0), Team::USA, true),
         (ObjectId(3), Vec3::new(5.0, 0.0, 0.0), Team::China, true),
     ];
-    let a10_plans = a10.plan_due_impacts(60, &objects);
+    let a10_plans = owner.special_power_strikes.plan_due_impacts(60, &objects);
     assert!(
-        a10_plans[0].hits.is_empty(),
-        "A10 host blob must not apply circle damage"
+        a10_plans.is_empty(),
+        "Live A10 delivery must not admit a duplicate registry circle blast"
     );
 
     // DaisyCutter retail RadiusDamageAffects includes ALLIES — friendly is hit.

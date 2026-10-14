@@ -2365,8 +2365,14 @@ impl GameLogic {
                     o.anthrax_toxin_field = true;
                     o.note_producer(source);
                     o.anthrax_toxin_field_expires_frame = Some(expires);
-                    o.health.maximum = max_hp;
-                    Self::write_object_health_authority_aware(o, max_hp, &mut self.health_events);
+                    if o.thing().template.body_kind.is_none() {
+                        o.health.maximum = max_hp;
+                        Self::write_object_health_authority_aware(
+                            o,
+                            max_hp,
+                            &mut self.health_events,
+                        );
+                    }
                 }
                 let _ = self.special_power_strikes.bind_toxin_object(tid, oid);
             }
@@ -2458,12 +2464,14 @@ impl GameLogic {
                     o.nuke_radiation_field = true;
                     o.note_producer(source);
                     o.nuke_radiation_field_expires_frame = Some(expires);
-                    o.health.maximum = NUKE_RADIATION_FIELD_MAX_HEALTH;
-                    Self::write_object_health_authority_aware(
-                        o,
-                        NUKE_RADIATION_FIELD_MAX_HEALTH,
-                        &mut self.health_events,
-                    );
+                    if o.thing().template.body_kind.is_none() {
+                        o.health.maximum = NUKE_RADIATION_FIELD_MAX_HEALTH;
+                        Self::write_object_health_authority_aware(
+                            o,
+                            NUKE_RADIATION_FIELD_MAX_HEALTH,
+                            &mut self.health_events,
+                        );
+                    }
                 }
                 let _ = self.special_power_strikes.bind_radiation_object(rid, oid);
             }
