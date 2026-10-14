@@ -20293,9 +20293,16 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update/frame_timing.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -29911,6 +29918,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update/frame_timing.rs"
           },
           {
             "cargo_reachable": true,
@@ -59282,6 +59296,7 @@
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/laser_owned.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/laser_update.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update/frame_timing.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/neutron_missile_update.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/slaved_update.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/spy_vision_update.rs",
@@ -63136,6 +63151,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update/frame_timing.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "shim",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -65221,7 +65243,9 @@
       "blockers": [
         "unreviewed_mapping",
         "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update.rs"
+        "unreviewed_source_range_ownership",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update/frame_timing.rs"
       ],
       "id": "game_engine:Source/GameLogic/Object/Update/AIUpdate/MissileAIUpdate.cpp",
       "inventory_class": "required_runtime",
@@ -65234,11 +65258,18 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update/frame_timing.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
-        "range_validation": "not_required",
+        "range_validation": "unreviewed",
         "review_state": "unreviewed",
         "reviewed_path_implementation": false,
         "stale_reviewed_destinations": [],
@@ -159300,7 +159331,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "9533626a8fa46c8ef20ab458ef8d8bceb848997307bbc6d4007f2def88ade6a1",
+  "input_digest": "023d8e628adfef03167d44b79390f79c90d8190958edc89caa10057584cf0866",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -206348,11 +206379,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2388,
+        "end_line": 55,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update/frame_timing.rs",
+      "sha256": "e2a259359e87ec3ba9b17f861b72094612e99dc48d6628426f52bcf70f552dd3",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 2390,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update.rs",
-      "sha256": "700d93858bbb38d37e4d2d05ce191859f3bbf17c4277976ee7cb148a12ce0a00",
+      "sha256": "92c277530522a365d9b6d4305fa2bbd499c54bf5b3a9ddd7403176ea84eed9c9",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -221889,12 +221932,12 @@
     },
     "behavior_verified": 1,
     "blockers_by_kind": {
-      "duplicate_implementation_destination": 699,
+      "duplicate_implementation_destination": 701,
       "missing_mapping": 23,
       "no_reachable_implementation": 686,
       "ownership_symbol": 6,
       "unreviewed_mapping": 1381,
-      "unreviewed_source_range_ownership": 57,
+      "unreviewed_source_range_ownership": 58,
       "unreviewed_symbol_ownership": 1388
     },
     "by_scope": {
@@ -221955,13 +221998,13 @@
       }
     },
     "deferred_network_translation_units": 47,
-    "duplicate_implementation_destinations": 329,
+    "duplicate_implementation_destinations": 330,
     "orphan_ownership_records": 0,
     "reachable_implementation_candidates": 703,
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 4240,
+    "strict_blockers": 4243,
     "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }

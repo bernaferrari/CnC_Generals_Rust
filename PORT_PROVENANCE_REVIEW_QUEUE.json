@@ -50993,6 +50993,7 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/laser_owned.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/laser_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update/frame_timing.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/neutron_missile_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/slaved_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/spy_vision_update.rs",
@@ -53748,6 +53749,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update/frame_timing.rs"
             },
             {
               "cargo_reachable": true,
@@ -61645,13 +61651,20 @@
           "blockers": [
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update.rs"
+            "unreviewed_source_range_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update/frame_timing.rs"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/missile_ai_update/frame_timing.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/Object/Update/AIUpdate/MissileAIUpdate.cpp",
@@ -189583,7 +189596,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "9533626a8fa46c8ef20ab458ef8d8bceb848997307bbc6d4007f2def88ade6a1",
+  "provenance_input_digest": "023d8e628adfef03167d44b79390f79c90d8190958edc89caa10057584cf0866",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

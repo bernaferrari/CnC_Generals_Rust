@@ -130,7 +130,7 @@ fn malformed_frame_and_owner_roster_reject_before_receiver_mutation() {
 #[test]
 fn both_original_types_defer_native_timer_and_stealth_except_held_override() {
     let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content("Object DisabledTimer\nBody = ActiveBody BodyTag\nMaxHealth = 100\nEnd\nBehavior = LifetimeUpdate TimerTag\nMinLifetime = 100\nMaxLifetime = 100\nEnd\nEnd", "disabled-timer.ini").unwrap();
+    parser.parse_ini_content("Object DisabledTimer\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = LifetimeUpdate TimerTag\nMinLifetime = 100\nMaxLifetime = 100\nEnd\nEnd", "disabled-timer.ini").unwrap();
     for brainwashed in [false, true] {
         let mut world = GameLogic::new();
         world.templates.insert(
@@ -144,6 +144,10 @@ fn both_original_types_defer_native_timer_and_stealth_except_held_override() {
         let id = world
             .create_object("DisabledTimer", Team::USA, glam::Vec3::ZERO)
             .unwrap();
+        // ActiveBody's original InitialHealth default is zero; this positive
+        // expiry fixture must author a live body before applying any disable.
+        assert!(world.objects[&id].is_alive());
+        assert_eq!(world.objects[&id].health.current, 100.0);
         world.frame = 10;
         let object = world.objects.get_mut(&id).unwrap();
         if brainwashed {
