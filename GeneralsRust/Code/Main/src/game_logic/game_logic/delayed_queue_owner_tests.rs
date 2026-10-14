@@ -1,7 +1,7 @@
 //! Actual host shot materialization and due-damage consumption, not direct
 //! private delayed-queue insertion. CPP Weapon.cpp:998-1075,1589-1655.
-//! The coupled shadow log and native WeaponStore mirror remain ambient;
-//! this evidence covers only the materialized CombatSystem queue owner.
+//! Accepted commands and due damage remain on the receiving CombatSystem;
+//! no Main shot is republished to the independent Core WeaponStore.
 use super::*;
 
 fn queue_authored_shot(
@@ -41,7 +41,7 @@ fn queue_authored_shot(
             .eq_ignore_ascii_case("NONE")
     );
     // Actual materialization consults the real weapon store for laser status
-    // and mirrors finite-speed damage there. Register exactly these authored
+    // but does not publish mutable delivery there. Register exactly these authored
     // facts rather than populating the private live ready queue.
     // The surrounding fixture restores an originally absent store. Main's
     // independent bootstrap seed flag may already be set by an earlier test;
@@ -73,9 +73,15 @@ fn queue_authored_shot(
     pending.secondary_damage = 0.0;
     pending.detonation_fx_name.clear();
     pending.historic_weapon_key = name;
+    let core_before = crate::game_logic::combat::leftover_delayed_damage_count_for_test();
     queue_projectile_direct(&mut world.combat_system, pending);
     let frame = world.frame;
     materialize(world, frame);
+    assert_eq!(
+        crate::game_logic::combat::leftover_delayed_damage_count_for_test(),
+        core_before,
+        "receiving Main materialization cannot mutate independent Core delivery"
+    );
     assert_eq!(
         world.combat_system.projectile_count(),
         0,

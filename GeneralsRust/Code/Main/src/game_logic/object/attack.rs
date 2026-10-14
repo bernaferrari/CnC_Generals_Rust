@@ -490,15 +490,8 @@ impl Object {
         let at_self = name
             .map(crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name)
             .unwrap_or(false);
-        // C++ Weapon.cpp:998-1075 / leftover handle_projectileless_flight_damage:
-        // empty ProjectileObject is hitscan or delayed store damage, never a
-        // flying CombatSystem dummy that can collide mid-flight.
-        if autonomous
-            && leftover_projectile_object_is_empty(&projectile_object_name)
-            && name.is_some()
-        {
-            self.queue_leftover_projectileless_flight_damage(name, target_id);
-        }
+        // One receiving CombatSystem owns projectileless travel and damage.
+        // Never mirror the shot into a different Core world's WeaponStore.
         let pending = super::combat::PendingProjectile {
             shooter_id,
             shooter_pos,
@@ -950,91 +943,6 @@ impl Object {
         self.weapon_scatter_targets_unused[index].swap_remove(pick);
         Some(glam::Vec2::new(offset_x * scalar, offset_y * scalar))
     }
-
-    /// C++ Weapon.cpp:998-1075 — leftover delayed-damage path for empty ProjectileObject.
-    fn queue_leftover_projectileless_flight_damage(
-        &self,
-        weapon_name: Option<&str>,
-        target_id: ObjectId,
-    ) {
-        let Some(name) = weapon_name.filter(|n| !n.trim().is_empty()) else {
-            return;
-        };
-        let Some(template) = crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
-            store.find_weapon_template(name).cloned()
-        })
-        .ok()
-        .flatten() else {
-            return;
-        };
-        let source = leftover_coord_from_host(self.get_position());
-        let target = self.leftover_projectileless_target_pos(target_id);
-        // C++ divides the travel vector by getWeaponSpeed() alone
-        // (Weapon.h:392, Weapon.cpp:1006); MinWeaponSpeed is a
-        // ScaleWeaponSpeed clamp, not a launch-speed floor.
-        let speed = template.weapon_speed;
-        let bonus = self.leftover_weapon_bonus_snapshot();
-        let mut weapon = gamelogic::Weapon::new(template, gamelogic::WeaponSlotType::Primary);
-        if let Err(err) = weapon.handle_projectileless_flight_damage(
-            self.id.0,
-            &source,
-            Some(target_id.0),
-            &target,
-            speed,
-            &bonus,
-            true,
-        ) {
-            log::warn!(
-                "leftover projectileless delayed damage failed for '{name}' (source {}): {err:?}",
-                self.id.0
-            );
-        }
-    }
-
-    fn leftover_projectileless_target_pos(
-        &self,
-        target_id: ObjectId,
-    ) -> gamelogic::common::Coord3D {
-        if let Some(arc) = crate::game_logic::crate_object_bridge::crate_object(target_id.0) {
-            if let Ok(guard) = arc.read() {
-                return *guard.get_position();
-            }
-        }
-        if let Some(pos) = gamelogic::object::registry::OBJECT_REGISTRY
-            .with_object(target_id.0, |obj| *obj.get_position())
-        {
-            return pos;
-        }
-        if let Some(loc) = self.target_location {
-            return leftover_coord_from_host(loc);
-        }
-        if let Some(prev) = self.prev_victim_pos {
-            return leftover_coord_from_host(prev);
-        }
-        leftover_coord_from_host(self.get_position())
-    }
-
-    fn leftover_weapon_bonus_snapshot(&self) -> gamelogic::WeaponBonus {
-        use gamelogic::weapon::WeaponBonusField::{Damage, PreAttack, Radius, Range, RateOfFire};
-        let (dmg, rng, rof, pre, rad) = self.weapon_bonus_fields();
-        let mut bonus = gamelogic::WeaponBonus::new();
-        bonus.set_field(Damage, dmg);
-        bonus.set_field(Range, rng);
-        bonus.set_field(RateOfFire, rof);
-        bonus.set_field(PreAttack, pre);
-        bonus.set_field(Radius, rad);
-        bonus
-    }
-}
-
-fn leftover_projectile_object_is_empty(name: &str) -> bool {
-    let n = name.trim();
-    n.is_empty() || n.eq_ignore_ascii_case("NONE")
-}
-
-fn leftover_coord_from_host(pos: Vec3) -> gamelogic::common::Coord3D {
-    // Live host Y-up → leftover C++ Z-up (same as collide_dispatch).
-    gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y)
 }
 
 #[cfg(test)]

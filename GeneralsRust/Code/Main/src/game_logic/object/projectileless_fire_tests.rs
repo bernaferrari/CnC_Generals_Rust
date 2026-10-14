@@ -4,8 +4,8 @@ use crate::game_logic::combat::{
     live_projectileless_delayed_count_for_test, pending_projectile_queue_len_for_test,
 };
 
-// This legacy Object fire boundary still uses the compatibility store and
-// accepted commands. Each test owns its queue; restore the other inputs on unwind.
+// Weapon definitions remain shared immutable inputs; accepted shots and delayed
+// damage belong only to the receiving CombatSystem. Restore fixture inputs.
 struct RestoreInputs {
     store: Option<gamelogic::weapon::WeaponStore>,
 
@@ -150,7 +150,7 @@ fn fire_at_keeps_gattling_store_type() {
 }
 
 #[test]
-fn fire_at_projectileless_queues_leftover_delayed_damage() {
+fn fire_at_projectileless_keeps_identity_in_receiving_pending_queue() {
     let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
 
     let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
@@ -186,20 +186,17 @@ fn fire_at_projectileless_queues_leftover_delayed_damage() {
         last_fire_time: -10.0,
         ..Weapon::default()
     });
+    let core_before = crate::game_logic::combat::leftover_delayed_damage_count_for_test();
     assert!(attacker.fire_at(ObjectId(2), 1.0, 3, &mut combat, &mut _attack_output,));
-    // Preserve the original immediate compatibility identity assertion BEFORE
-    // materialization appends its separate native mirror entry. This does not
-    // assert that the remaining compatibility mirror executes only once.
-    let snapshots =
-        gamelogic::weapon::with_weapon_store(|store| store.delayed_damage_snapshot_residual())
-            .expect("leftover WeaponStore");
-    assert!(
-        snapshots.iter().any(|snapshot| {
-            snapshot.weapon_name == NAME
-                && snapshot.delay_source_id == 1
-                && snapshot.delay_intended_victim_id == 2
-        }),
-        "leftover WeaponStore must queue source/victim identity: {snapshots:?}"
+    assert_eq!(
+        crate::game_logic::combat::last_pending_projectile_identity_for_test(&combat),
+        Some((ObjectId(1), Some(ObjectId(2)), NAME.to_string())),
+        "accepted source/victim identity belongs to the actual receiving queue"
+    );
+    assert_eq!(
+        crate::game_logic::combat::leftover_delayed_damage_count_for_test(),
+        core_before,
+        "Main acceptance must not append a second Core delivery"
     );
     assert_eq!(
         pending_projectile_queue_len_for_test(&combat),
@@ -221,6 +218,11 @@ fn fire_at_projectileless_queues_leftover_delayed_damage() {
         "C++ empty ProjectileObject must never create a dummy render projectile"
     );
     assert_eq!(live_projectileless_delayed_count_for_test(&combat), 1);
+    assert_eq!(
+        crate::game_logic::combat::leftover_delayed_damage_count_for_test(),
+        core_before,
+        "materialization must not publish a second native delivery"
+    );
     assert_eq!(objects[&ObjectId(2)].health.current, 100.0);
     // C++ Weapon.cpp:1055-1063 ceil travel frames: 100/10, due at frame3+10.
     apply_ready_projectileless_delayed_damage(

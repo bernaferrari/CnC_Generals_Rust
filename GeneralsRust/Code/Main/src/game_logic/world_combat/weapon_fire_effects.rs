@@ -19,6 +19,11 @@ impl GameLogic {
             self.weapon_effect_definitions.fire(name, rank).map(|effects| effects.fire_fx)
                 .unwrap_or_else(|| crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name_at_veterancy(name, rank))
         }).unwrap_or_default();
+        let play_when_stealthed = name.as_deref().and_then(|name| {
+            self.weapon_effect_definitions
+                .fire(name, rank)
+                .map(|effects| effects.play_fx_when_stealthed)
+        });
         let object = self.objects.get_mut(&source)?;
         if let Some(capture) = prepared_capture {
             object.pending_weapon_visual_capture = Some(capture);
@@ -35,6 +40,9 @@ impl GameLogic {
             capture.selected_fx_is_present =
                 !fx.trim().is_empty() && !fx.eq_ignore_ascii_case("None");
             capture.selected_fx_name = fx;
+            if let Some(play) = play_when_stealthed {
+                capture.weapon_plays_fx_when_stealthed = play;
+            }
         }
         let accepted = self.begin_accepted_weapon_discharge(source, slot)?;
         // CPP943 samples the source rank again AFTER FireFX. No object borrow

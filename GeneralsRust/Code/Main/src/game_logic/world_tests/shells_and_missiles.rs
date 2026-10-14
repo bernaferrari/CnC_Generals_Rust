@@ -2841,7 +2841,7 @@ fn battle_drone_residual_attach_fire_and_repair() {
         }
     }
     for _ in 0..90 {
-        game_logic.update_battle_drone_repair_residual(1.0 / 30.0);
+        game_logic.update_owned_slaved_object(drone_id);
     }
     let master_hp_after = game_logic
         .host_object(master_id)

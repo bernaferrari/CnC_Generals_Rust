@@ -154,31 +154,6 @@ impl GameLogic {
                 return None;
             }
         }
-        // Hellfire Drone residual: AutoAcquireEnemiesWhenIdle fires at nearest enemy.
-        // Fail-closed: not full SlavedUpdate wander / master attack bonus matrix.
-        {
-            use crate::game_logic::host_slave_drones::{
-                hellfire_auto_fire_eligible, is_hellfire_drone_template,
-            };
-            let is_hf = is_hellfire_drone_template(&attacker.template_name);
-            let idle_ok = matches!(
-                attacker.ai_state,
-                AIState::Idle | AIState::Attacking | AIState::Patrolling
-            );
-            let hf_auto_ok = hellfire_auto_fire_eligible(
-                is_hf,
-                attacker.weapon.is_some(),
-                attacker.is_alive(),
-                attacker.can_attack(),
-                idle_ok,
-            ) && !self.skirmish_ai_auto_engage_paused(attacker_id)
-                && attacker.target.is_none()
-                && attacker.target_location.is_none();
-            if hf_auto_ok {
-                self.try_hellfire_drone_residual_fire(attacker_id);
-                return None;
-            }
-        }
         // Portable Overlord/Helix gattling: independent auto-acquire (HelixContain.cpp:340).
         if self
             .objects

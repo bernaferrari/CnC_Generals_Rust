@@ -1402,7 +1402,6 @@ impl GameLogic {
         }
         // USA Battle Drone residual master repair: 12-unit weld SM, not instant 48-range.
         // Fail-closed: not full arm pack/unpack weld FX / RepairMinAltitude matrix.
-        self.update_battle_drone_repair_residual(dt);
         // CommandCenter / RadarVan radar-online residual (Player::hasRadar).
         // Fail-closed: not full RadarUpgrade grant / power-brownout disable-proof path.
         // Radar belongs to each controlling Player. Recompute at the ordinary

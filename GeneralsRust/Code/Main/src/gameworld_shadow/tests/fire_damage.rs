@@ -834,7 +834,6 @@ fn residual_auto_fire_damage_source_attribution_source() {
     // Contained firing now retains the actual selected weapon/shot receipt.
     for name in [
         "try_sentry_drone_residual_fire",
-        "try_hellfire_drone_residual_fire",
         "try_garrison_residual_fire",
         "try_transport_passenger_residual_fire",
     ] {

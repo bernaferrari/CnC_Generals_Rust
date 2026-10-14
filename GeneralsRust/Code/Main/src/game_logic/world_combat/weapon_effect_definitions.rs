@@ -9,6 +9,7 @@ use std::collections::HashMap;
 pub(in crate::game_logic) struct ResolvedWeaponFireEffects {
     pub fire_fx: String,
     pub fire_ocl: String,
+    pub play_fx_when_stealthed: bool,
 }
 #[derive(Debug, Default)]
 pub(in crate::game_logic) struct WeaponEffectDefinitions {
@@ -53,6 +54,7 @@ impl GameLogic {
             gamelogic::common::VeterancyLevel::Heroic,
         ];
         let rows = std::array::from_fn(|index| ResolvedWeaponFireEffects {
+            play_fx_when_stealthed: template.play_fx_when_stealthed,
             fire_fx: template
                 .get_fire_fx(ranks[index])
                 .map(|fx| fx.name().trim().to_owned())

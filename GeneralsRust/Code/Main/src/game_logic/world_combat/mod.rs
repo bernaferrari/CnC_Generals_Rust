@@ -42,3 +42,9 @@ mod projectile_body_owner_tests;
 
 #[cfg(test)]
 mod passive_weapon_fire_tests;
+
+#[cfg(test)]
+mod weapon_fire_effects_tests;
+
+#[cfg(test)]
+mod slaved_update_tests;

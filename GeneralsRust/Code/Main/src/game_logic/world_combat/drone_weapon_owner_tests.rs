@@ -10,7 +10,7 @@ fn world(deployed: bool, pre_delay: f32) -> GameLogic {
     let mut game = GameLogic::new();
     game.add_player(Player::new(0, Team::USA, "source", true));
     game.add_player(Player::new(1, Team::China, "target", false));
-    let mut template = ThingTemplate::new("OwnedDroneShot");
+    let mut template = ThingTemplate::new(if deployed { "OwnedDroneShot" } else { "AmericaVehicleHellfireDrone" });
     template
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Attackable);
@@ -26,7 +26,7 @@ fn world(deployed: bool, pre_delay: f32) -> GameLogic {
     // Factory admission installs the authored DeployStyle runtime; an inert
     // Object constructor deliberately has no update-module callbacks.
     let source_id = game
-        .create_object_for_player("OwnedDroneShot", 0, Vec3::ZERO)
+        .create_object_for_player(&template.name, 0, Vec3::ZERO)
         .unwrap();
     assert_eq!(source_id, SOURCE);
     let source = game.host_object_mut(source_id).unwrap();
@@ -123,7 +123,8 @@ fn sentry_requires_real_deploy_then_weapon_windup_and_commits_one_delayed_shot()
 fn hellfire_launch_consumes_once_and_deals_damage_only_at_real_impact_phase() {
     let mut game = world(false, 0.0);
     let peer = world(false, 0.0);
-    game.try_hellfire_drone_residual_fire(SOURCE);
+    assert_eq!(game.attack_state_enter(SOURCE, TARGET), crate::game_logic::AttackMachineResult::Continue);
+    game.update_combat(&[SOURCE], 1.0 / 30.0);
     assert_eq!(ammo(&game), Some(1));
     assert_eq!(game.hellfire_drone_residual_auto_fires, 1);
     assert_eq!(
@@ -133,7 +134,7 @@ fn hellfire_launch_consumes_once_and_deals_damage_only_at_real_impact_phase() {
     assert_eq!(health(&game), 100.0);
     assert_eq!(delayed(&game), 1);
     game.frame = 31;
-    game.try_hellfire_drone_residual_fire(SOURCE);
+    game.update_combat(&[SOURCE], 1.0 / 30.0);
     assert_eq!(ammo(&game), Some(1));
     assert_eq!(game.hellfire_drone_residual_auto_fires, 1);
     game.frame = 39;

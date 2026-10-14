@@ -2744,9 +2744,10 @@ pub(in crate::game_logic) mod tests {
             0,
             "projectileless fire must not spawn a dummy CombatSystem projectile"
         );
-        assert!(
-            leftover_delayed_damage_count_for_test() > leftover_before,
-            "leftover WeaponStore setDelayedDamage must be queued"
+        assert_eq!(
+            leftover_delayed_damage_count_for_test(),
+            leftover_before,
+            "receiving Main delayed damage must not append a second Core delivery"
         );
         assert_eq!(live_projectileless_delayed_count_for_test(&combat), 1);
 
@@ -2880,7 +2881,12 @@ pub(in crate::game_logic) mod tests {
         drain_pending_projectiles(&mut combat, &objects, 3);
 
         assert_eq!(combat.projectile_count(), 0);
-        assert!(leftover_delayed_damage_count_for_test() > leftover_before);
+        assert_eq!(leftover_delayed_damage_count_for_test(), leftover_before);
+        assert_eq!(
+            live_projectileless_delayed_count_for_test(&combat),
+            1,
+            "the actual receiving queue owns the finite-speed shot"
+        );
     }
 
     #[test]

@@ -165,46 +165,6 @@ fn leftover_weapon_is_laser(weapon_name: &str) -> bool {
     .unwrap_or(false)
 }
 
-fn leftover_set_delayed_damage(
-    weapon_name: &str,
-    pos: Vec3,
-    when: u32,
-    source_id: ObjectId,
-    victim_id: ObjectId,
-) {
-    let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
-    let key = weapon_name.trim();
-    let coord = host_vec_to_leftover_coord(pos);
-    let bonus = gamelogic::weapon::WeaponBonus::default();
-    let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
-        if let Some(template) = store.find_weapon_template_ci(key).cloned() {
-            store.set_delayed_damage_from_template(
-                &template,
-                &coord,
-                when,
-                source_id.0,
-                victim_id.0,
-                &bonus,
-            );
-            return;
-        }
-        let mut template = gamelogic::weapon::WeaponTemplate::new(if key.is_empty() {
-            "Projectileless".to_string()
-        } else {
-            key.to_string()
-        });
-        template.projectile_name.clear();
-        store.set_delayed_damage_from_template(
-            &template,
-            &coord,
-            when,
-            source_id.0,
-            victim_id.0,
-            &bonus,
-        );
-    });
-}
-
 fn queue_live_projectileless_delayed(
     combat: &mut CombatSystem,
     when: u32,
@@ -250,13 +210,6 @@ fn handle_projectileless_pending(
     }
     let delay_whole_frames = delay_in_frames.ceil() as u32;
     let when = frame.wrapping_add(delay_whole_frames);
-    leftover_set_delayed_damage(
-        &pending.historic_weapon_key,
-        damage_pos,
-        when,
-        pending.shooter_id,
-        damage_id.unwrap_or(ObjectId(0)),
-    );
     queue_live_projectileless_delayed(combat, when, pending, damage_pos, damage_id);
     None
 }
@@ -450,6 +403,19 @@ pub fn clear_pending_projectile_queue_for_test(combat: &mut CombatSystem) {
 }
 
 /// Test helper: last queued projectile DamageType (fire_at → take_damage path).
+#[cfg(test)]
+pub fn last_pending_projectile_identity_for_test(
+    combat: &CombatSystem,
+) -> Option<(ObjectId, Option<ObjectId>, String)> {
+    combat.pending_projectiles.last().map(|shot| {
+        (
+            shot.shooter_id,
+            shot.target_id,
+            shot.historic_weapon_key.clone(),
+        )
+    })
+}
+
 #[cfg(test)]
 pub fn last_pending_projectile_damage_type_for_test(combat: &CombatSystem) -> Option<DamageType> {
     combat.pending_projectiles.last().map(|p| p.damage_type)

@@ -149,7 +149,6 @@ fn residual_auto_fire_consume_ammo_source() {
     }
     for name in [
         "try_sentry_drone_residual_fire",
-        "try_hellfire_drone_residual_fire",
         "try_garrison_residual_fire",
         "try_transport_passenger_residual_fire",
     ] {
@@ -703,11 +702,17 @@ fn strategy_center_fire_preserves_the_target_accepted_by_aim_source() {
 
 #[test]
 fn residual_acquire_query_source() {
+    // Hellfire now participates in ordinary mood/attack acquisition; the old
+    // nearest-target diversion must not override SlavedUpdate movement.
+    let admission = include_str!("../../game_logic/world_tick/combat/admission.rs");
+    assert!(!admission.contains("try_hellfire_drone_residual_fire"));
+    let discharge = include_str!("../../game_logic/world_tick/combat/discharge.rs");
+    let accepted = last_rust_fn_body(discharge,"commit_combat_shot").expect("ordinary accepted shot");
+    assert!(accepted.contains("hellfire_drone_residual_auto_fires"));
     let src = GAME_LOGIC_HOST_SRC;
     for name in [
         "try_base_defense_residual_fire",
         "try_sentry_drone_residual_fire",
-        "try_hellfire_drone_residual_fire",
         "try_garrison_residual_fire",
         "try_transport_passenger_residual_fire",
     ] {
