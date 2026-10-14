@@ -531,7 +531,7 @@ impl Object {
             drawable_supply_boxes: dock_starting_boxes,
             drawable_supply_max_boxes: dock_starting_boxes,
             repair_dock_last_id: None,
-            repair_dock_health_per_sec: 0.0,
+            repair_dock_health_per_frame: 0.0,
             temporary_stealth_expires_frame: 0,
 
             highlander_body: false,
@@ -1476,7 +1476,7 @@ impl Object {
             drawable_supply_boxes: dock_starting_boxes,
             drawable_supply_max_boxes: dock_starting_boxes,
             repair_dock_last_id: None,
-            repair_dock_health_per_sec: 0.0,
+            repair_dock_health_per_frame: 0.0,
             temporary_stealth_expires_frame: 0,
 
             highlander_body: false,
@@ -3036,3 +3036,17 @@ mod body_initialization_owner_tests;
 #[cfg(test)]
 #[path = "inactive_body_owner_tests.rs"]
 mod inactive_body_owner_tests;
+
+impl Object {
+    /// Restore the receiving RepairDock module after snapshot identity validation.
+    pub(crate) fn restore_repair_dock_state(
+        &mut self,
+        frames: f32,
+        last: Option<ObjectId>,
+        per_frame: f32,
+    ) {
+        self.thing.template.repair_dock_frames_for_full_heal = Some(frames);
+        self.repair_dock_last_id = last;
+        self.repair_dock_health_per_frame = per_frame;
+    }
+}

@@ -3870,6 +3870,7 @@ mod dock_approach_owner_tests {
         let mut world = GameLogic::new();
         world.force_map_loaded_for_path_test(true);
         let mut pad = ThingTemplate::new("TestRepairQueuePad");
+        pad.repair_dock_frames_for_full_heal = Some(150.0);
         pad.add_kind_of(KindOf::RepairPad)
             .add_kind_of(KindOf::Structure)
             .set_health(2000.0);

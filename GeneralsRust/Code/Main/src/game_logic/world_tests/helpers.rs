@@ -531,6 +531,7 @@ pub(super) fn ensure_test_repair_pad_template(game_logic: &mut GameLogic) {
     }
 
     let mut repair_pad = ThingTemplate::new("TestRepairPad");
+    repair_pad.repair_dock_frames_for_full_heal = Some(150.0);
     repair_pad
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::RepairPad)

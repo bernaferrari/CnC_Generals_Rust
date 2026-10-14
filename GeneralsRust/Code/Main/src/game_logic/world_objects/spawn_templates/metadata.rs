@@ -500,6 +500,7 @@ impl GameLogic {
 
         let mut dock_kind = DockKind::None;
         template.dock_starting_boxes = None;
+        template.repair_dock_frames_for_full_heal = None;
         template.dock_delete_when_empty = false;
         template.railed_transport_slots = None;
         template.railed_path_prefix_name = definition
@@ -522,6 +523,19 @@ impl GameLogic {
                 .and_then(|value| usize::try_from(value).ok());
         let mut parsed_contain: Option<ContainModuleMetadata> = None;
         for module in &definition.behavior_modules {
+            if module.class_name.eq_ignore_ascii_case("RepairDockUpdate") {
+                // INI::parseDurationReal retains fractional frames (no ceiling).
+                template.repair_dock_frames_for_full_heal =
+                    match module.attribute("TimeForFullHeal") {
+                        None => Some(1.0),
+                        Some(value) => value
+                            .trim()
+                            .parse::<f32>()
+                            .ok()
+                            .filter(|milliseconds| milliseconds.is_finite())
+                            .map(|milliseconds| milliseconds * (30.0_f32 / 1000.0)),
+                    };
+            }
             let candidate = if module
                 .class_name
                 .eq_ignore_ascii_case("SupplyCenterDockUpdate")

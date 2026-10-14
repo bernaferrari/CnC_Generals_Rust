@@ -405,7 +405,6 @@ impl GameLogic {
             }
             if dock.repair_dock_last_id == Some(docker_id) {
                 dock.repair_dock_last_id = None;
-                dock.repair_dock_health_per_sec = 0.0;
             }
         }
         self.host_dock_approach_queues
@@ -661,13 +660,22 @@ impl GameLogic {
         dock_id: ObjectId,
         master_id: ObjectId,
     ) {
-        let drone_id = self.objects.iter().find_map(|(id, obj)| {
-            (obj.is_alive() && obj.is_kind_of(KindOf::Drone) && obj.producer_id == Some(master_id))
-                .then_some(*id)
-        });
-        let Some(drone_id) = drone_id else {
+        let Some(drone_id) = self.find_repair_dock_drone(master_id) else {
             return;
         };
+        self.heal_repair_dock_drone(dock_id, drone_id);
+    }
+
+    // Ordered player-team traversal requires canonical admission/capture closure
+    // (hq-g0626). Keep this known lookup gap separate from receiving Body ownership.
+    fn find_repair_dock_drone(&self, master_id: ObjectId) -> Option<ObjectId> {
+        self.objects.iter().find_map(|(id, object)| {
+            (object.is_kind_of(KindOf::Drone) && object.producer_id == Some(master_id))
+                .then_some(*id)
+        })
+    }
+
+    fn heal_repair_dock_drone(&mut self, dock_id: ObjectId, drone_id: ObjectId) {
         if let Some(maximum) = self
             .objects
             .get(&drone_id)
@@ -679,28 +687,65 @@ impl GameLogic {
         }
     }
 
-    pub(super) fn repair_dock_rate_for_docker(
+    /// RepairDockUpdate::action: cache before the exact full-health gate,
+    /// receiving master then drone, and completion on the following action.
+    pub(in crate::game_logic) fn repair_dock_action_owned(
+        &mut self,
+        dock_id: ObjectId,
+        docker_id: ObjectId,
+    ) -> bool {
+        if !self.objects.get(&dock_id).is_some_and(|dock| {
+            dock.thing()
+                .template
+                .repair_dock_frames_for_full_heal
+                .is_some()
+        }) {
+            return false;
+        }
+        let Some((current, maximum)) = self
+            .objects
+            .get(&docker_id)
+            .map(|object| (object.health.current, object.health.maximum))
+        else {
+            return false;
+        };
+        // AIDockProcessDockState resolves its drone before calling action.
+        let drone_id = self.find_repair_dock_drone(docker_id);
+        let amount =
+            self.repair_dock_heal_per_frame_for_docker(dock_id, docker_id, maximum, current);
+        if current >= maximum {
+            if let Some(dock) = self.objects.get_mut(&dock_id) {
+                dock.repair_dock_last_id = None;
+            }
+            return false;
+        }
+        self.apply_owned_healing(docker_id, amount, Some(dock_id));
+        if let Some(drone_id) = drone_id {
+            self.heal_repair_dock_drone(dock_id, drone_id);
+        }
+        true
+    }
+
+    pub(super) fn repair_dock_heal_per_frame_for_docker(
         &mut self,
         pad_id: ObjectId,
         docker_id: ObjectId,
         max_hp: f32,
         current_hp: f32,
     ) -> f32 {
-        let need_recompute = self.objects.get(&pad_id).is_some_and(|pad| {
-            pad.repair_dock_last_id != Some(docker_id) || pad.repair_dock_health_per_sec <= 0.0
-        });
-        if !need_recompute {
-            return self
-                .objects
-                .get(&pad_id)
-                .map(|pad| pad.repair_dock_health_per_sec)
-                .unwrap_or(0.0);
+        let Some(pad) = self.objects.get(&pad_id) else {
+            return 0.0;
+        };
+        if pad.repair_dock_last_id.is_some() {
+            return pad.repair_dock_health_per_frame;
         }
-        let rate =
-            crate::game_logic::host_repair::repair_dock_hp_per_sec_from_missing(max_hp, current_hp);
+        let Some(frames) = pad.thing().template.repair_dock_frames_for_full_heal else {
+            return 0.0;
+        };
+        let rate = (max_hp - current_hp) / frames;
         if let Some(pad) = self.objects.get_mut(&pad_id) {
             pad.repair_dock_last_id = Some(docker_id);
-            pad.repair_dock_health_per_sec = rate;
+            pad.repair_dock_health_per_frame = rate;
         }
         rate
     }

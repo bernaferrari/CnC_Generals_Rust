@@ -1113,6 +1113,7 @@ fn full_vehicle_leaves_the_repair_pad_for_its_rally() {
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
     let mut pad_t = ThingTemplate::new("RallyPad");
+    pad_t.repair_dock_frames_for_full_heal = Some(150.0);
     pad_t
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::RepairPad)
@@ -1191,6 +1192,7 @@ fn passthrough_rally_snapshots_the_pad() {
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
     let mut pad_t = ThingTemplate::new("SnapPad");
+    pad_t.repair_dock_frames_for_full_heal = Some(150.0);
     pad_t
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::RepairPad)
@@ -2052,11 +2054,12 @@ fn close_arrival_plants_the_goal_cell_not_the_raw_point() {
 }
 
 #[test]
-fn repair_tick_that_fills_the_vehicle_leaves_for_the_rally() {
+fn repair_action_after_filling_the_vehicle_leaves_for_the_rally() {
     use crate::game_logic::{BuildingData, BuildingType, KindOf, Player, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
     let mut pad_t = ThingTemplate::new("FillPad");
+    pad_t.repair_dock_frames_for_full_heal = Some(1.0);
     pad_t
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::RepairPad)
@@ -2087,7 +2090,20 @@ fn repair_tick_that_fills_the_vehicle_leaves_for_the_rally() {
         unit.set_ai_state(AIState::SeekingRepair);
         unit.health.current = unit.health.maximum - 1.0;
     }
+    // An authored one-frame RepairDock heals once regardless of display dt.
+    // CPP action returns TRUE on this pulse; its next action observes full HP.
     logic.update_support_states_for_test(&[tank], 30.0);
+    {
+        let unit = logic.host_object(tank).expect("tank");
+        assert_eq!(unit.health.current, unit.health.maximum);
+        assert_eq!(unit.ai_state, AIState::SeekingRepair);
+        assert_eq!(unit.target, Some(pad));
+        assert_eq!(
+            logic.host_object(pad).unwrap().dock_active_docker,
+            Some(tank)
+        );
+    }
+    logic.update_support_states_for_test(&[tank], 0.0);
     let unit = logic.host_object(tank).expect("tank");
     assert!(
         unit.health.current >= unit.health.maximum - 0.01,
@@ -2115,11 +2131,12 @@ fn repair_tick_that_fills_the_vehicle_leaves_for_the_rally() {
 }
 
 #[test]
-fn repair_tick_that_fills_without_a_rally_goes_idle() {
+fn repair_action_after_filling_without_a_rally_goes_idle() {
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
     let mut pad_t = ThingTemplate::new("NoRallyPad");
+    pad_t.repair_dock_frames_for_full_heal = Some(1.0);
     pad_t
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::RepairPad)
@@ -2148,7 +2165,20 @@ fn repair_tick_that_fills_without_a_rally_goes_idle() {
         unit.ignored_obstacle_id = Some(pad);
         unit.movement.path = vec![Vec3::new(10.0, 0.0, 0.0)];
     }
+    // An authored one-frame RepairDock heals once regardless of display dt.
+    // CPP action returns TRUE on this pulse; its next action observes full HP.
     logic.update_support_states_for_test(&[tank], 30.0);
+    {
+        let unit = logic.host_object(tank).expect("tank");
+        assert_eq!(unit.health.current, unit.health.maximum);
+        assert_eq!(unit.ai_state, AIState::SeekingRepair);
+        assert_eq!(unit.target, Some(pad));
+        assert_eq!(
+            logic.host_object(pad).unwrap().dock_active_docker,
+            Some(tank)
+        );
+    }
+    logic.update_support_states_for_test(&[tank], 0.0);
     let unit = logic.host_object(tank).expect("tank");
     assert!(unit.health.current >= unit.health.maximum - 0.01);
     assert_eq!(unit.ai_state, AIState::Idle);

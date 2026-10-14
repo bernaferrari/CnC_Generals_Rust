@@ -992,6 +992,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
         .set_health(200.0);
     logic.templates.insert("VR_TANK".into(), tank);
     let mut pad = ThingTemplate::new("VR_PAD");
+    pad.repair_dock_frames_for_full_heal = Some(150.0);
     pad.add_kind_of(KindOf::RepairPad)
         .add_kind_of(KindOf::Selectable)
         .set_health(1000.0);

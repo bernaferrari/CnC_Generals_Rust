@@ -428,6 +428,7 @@ fn war_factory_vehicle_repair_residual_recovers_hp() {
     ensure_test_tank_template(&mut game_logic);
 
     let mut war_factory_tpl = crate::game_logic::ThingTemplate::new("China_WarFactory");
+    war_factory_tpl.repair_dock_frames_for_full_heal = Some(150.0);
     war_factory_tpl
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSWarFactory)
@@ -1158,6 +1159,7 @@ fn physical_service_commands_use_player_relationship_and_revalidate_owner_change
 
     ensure_test_tank_template(&mut game_logic);
     let mut service_pad = ThingTemplate::new("OwnerRelationServicePad");
+    service_pad.repair_dock_frames_for_full_heal = Some(150.0);
     service_pad
         .add_kind_of(KindOf::Structure)
         // The active service authority is C++ KINDOF_REPAIR_PAD, not the

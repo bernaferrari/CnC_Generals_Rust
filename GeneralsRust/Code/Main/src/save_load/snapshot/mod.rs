@@ -207,3 +207,4 @@ mod body_kind_persist;
 mod combat_projectile_persist;
 mod native_lifecycle_persist;
 mod original_disabled_persist;
+mod repair_dock_persist;

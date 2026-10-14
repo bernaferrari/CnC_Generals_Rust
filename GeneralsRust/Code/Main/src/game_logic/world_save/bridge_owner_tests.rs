@@ -313,9 +313,9 @@ fn native_saved_map_reconstructs_layers_and_keeps_scaffold_continuation() {
 }
 
 #[test]
-fn native_bridge_body_callbacks_continue_through_damage_and_scaffold_repair() {
+fn native_bridge_body_callbacks_continue_through_damage_and_direct_healing() {
     isolated(
-        "native_bridge_body_callbacks_continue_through_damage_and_scaffold_repair",
+        "native_bridge_body_callbacks_continue_through_damage_and_direct_healing",
         || {
             use crate::game_logic::combat::DamageType;
             use crate::game_logic::host_usa_pilot::HostDeathType;
@@ -374,17 +374,23 @@ fn native_bridge_body_callbacks_continue_through_damage_and_scaffold_repair() {
             ] {
                 for owner in [&mut source, &mut restored] {
                     owner.frame = owner.frame.wrapping_add(1);
-                    owner
-                        .apply_owned_damage(
-                            id,
-                            amount,
-                            None,
-                            kind,
-                            HostDeathType::Normal,
-                            None,
-                            &DamageHitContext::default(),
-                        )
-                        .unwrap();
+                    if kind == DamageType::Healing {
+                        // C++ attemptDamage rejects dead bodies before its healing
+                        // switch. Direct attemptHealing admits dead bridge bodies.
+                        owner.apply_owned_healing(id, amount, None).unwrap();
+                    } else {
+                        owner
+                            .apply_owned_damage(
+                                id,
+                                amount,
+                                None,
+                                kind,
+                                HostDeathType::Normal,
+                                None,
+                                &DamageHitContext::default(),
+                            )
+                            .unwrap();
+                    }
                     let terrain = owner.world_services.terrain().read().unwrap();
                     assert!(terrain.bridge_damage_states_changed());
                     if kind == DamageType::Healing {

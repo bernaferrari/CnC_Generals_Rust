@@ -39,6 +39,7 @@ fn service_executor_revalidates_authored_kindof_matrix_not_building_names() {
     let mut infantry = ThingTemplate::new("InfantrySource");
     infantry.add_kind_of(KindOf::Infantry).set_health(100.0);
     let mut repair_pad = ThingTemplate::new("SourceTaggedGroundDestination");
+    repair_pad.repair_dock_frames_for_full_heal = Some(150.0);
     repair_pad
         .add_kind_of(KindOf::RepairPad)
         .set_health(1_000.0);

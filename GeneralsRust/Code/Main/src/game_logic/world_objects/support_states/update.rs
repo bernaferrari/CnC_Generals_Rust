@@ -341,22 +341,10 @@ impl GameLogic {
                     }
                 }
                 state @ (AIState::SeekingRepair | AIState::SeekingHealing) => {
-                    if health_current >= health_maximum - 0.01 {
+                    if matches!(state, AIState::SeekingHealing)
+                        && health_current >= health_maximum - 0.01
+                    {
                         if let Some(tid) = target_id {
-                            if matches!(state, AIState::SeekingRepair) {
-                                let passthrough = self.objects.get(&tid).is_some_and(|dock| {
-                                    crate::game_logic::host_dock_contain_exit_heal_residual::dock_allows_passthrough(
-                                        &dock.template_name,
-                                    )
-                                });
-                                // Skipped AIDockMoveToExitState. Rally itself does not write ignore.
-                                if passthrough {
-                                    if let Some(docker) = self.objects.get_mut(&object_id) {
-                                        docker.ignored_obstacle_id = Some(tid);
-                                    }
-                                }
-                                self.send_to_rally_after_repair_dock(object_id, tid);
-                            }
                             self.release_dock_if_holder(tid, object_id);
                         }
                         let rallied = self.objects.get(&object_id).is_some_and(|obj| {
@@ -405,7 +393,12 @@ impl GameLogic {
                             target.status.under_construction,
                             target.status.sold,
                             target.contained_by.is_some(),
-                            target.is_kind_of(KindOf::RepairPad),
+                            target.is_kind_of(KindOf::RepairPad)
+                                && target
+                                    .thing()
+                                    .template
+                                    .repair_dock_frames_for_full_heal
+                                    .is_some(),
                             target.is_kind_of(KindOf::HealPad),
                             target.is_kind_of(KindOf::FSAirfield),
                         )
@@ -541,26 +534,11 @@ impl GameLogic {
                     {
                         continue;
                     }
+                    let seeking_repair = matches!(state, AIState::SeekingRepair);
+                    let repair_continues = !seeking_repair
+                        || self.repair_dock_action_owned(support_target_id, object_id);
                     let mut vehicle_healed = false;
                     let mut heal_pad_healed = false;
-                    let repair_rate = if matches!(state, AIState::SeekingRepair) {
-                        self.repair_dock_rate_for_docker(
-                            support_target_id,
-                            object_id,
-                            health_maximum,
-                            health_current,
-                        )
-                    } else {
-                        0.0
-                    };
-                    let seeking_repair = matches!(state, AIState::SeekingRepair);
-                    if seeking_repair {
-                        self.apply_owned_healing(
-                            object_id,
-                            repair_rate * dt,
-                            Some(support_target_id),
-                        );
-                    }
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         let before = if seeking_repair {
                             health_current
@@ -571,26 +549,19 @@ impl GameLogic {
                             obj.heal(HEAL_RATE * dt, &mut self.health_events, self.frame);
                         }
                         let healed = obj.health.current > before + 0.0001;
-                        if healed && matches!(state, AIState::SeekingRepair) {
-                            vehicle_healed = true;
-                        }
-                        if healed && matches!(state, AIState::SeekingHealing) {
-                            heal_pad_healed = true;
-                        }
-                        if obj.health.current >= obj.health.maximum - 0.01 {
+                        vehicle_healed = healed && seeking_repair;
+                        heal_pad_healed = healed && !seeking_repair;
+                        // RepairDockUpdate::action returns TRUE on the pulse that
+                        // reaches max health. Only the next action completes docking.
+                        if (seeking_repair && !repair_continues)
+                            || (!seeking_repair && obj.health.current >= obj.health.maximum - 0.01)
+                        {
                             obj.clear_order_target();
-                        } else {
+                        } else if !seeking_repair {
                             obj.set_ai_state(state);
                         }
                     }
-                    if seeking_repair {
-                        self.heal_slave_drone_with_repair_dock(support_target_id, object_id);
-                    }
-                    let fully_repaired = self
-                        .objects
-                        .get(&object_id)
-                        .is_some_and(|o| o.health.current >= o.health.maximum - 0.01);
-                    if seeking_repair && fully_repaired {
+                    if seeking_repair && !repair_continues {
                         let passthrough = self.objects.get(&support_target_id).is_some_and(|dock| {
                             crate::game_logic::host_dock_contain_exit_heal_residual::dock_allows_passthrough(
                                 &dock.template_name,

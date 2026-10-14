@@ -562,9 +562,9 @@ pub struct Object {
     /// C++ `RepairDockUpdate::m_lastRepair`.
     #[serde(default)]
     pub repair_dock_last_id: Option<ObjectId>,
-    /// C++ `RepairDockUpdate::m_healthToAddPerFrame` stored as HP/sec.
+    /// C++ `RepairDockUpdate::m_healthToAddPerFrame`, in logic-frame units.
     #[serde(default)]
-    pub repair_dock_health_per_sec: f32,
+    pub repair_dock_health_per_frame: f32,
     /// Absolute frame when a GrantTemporaryStealth residual expires (0 = none).
     #[serde(default)]
     pub temporary_stealth_expires_frame: u32,

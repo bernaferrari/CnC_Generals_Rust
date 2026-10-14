@@ -4,8 +4,15 @@ use crate::game_logic::{GameLogic, ObjectId, Player, Team};
 use glam::Vec3;
 
 fn world() -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+    world_with_duration(Some("5000"))
+}
+
+fn world_with_duration(duration: Option<&str>) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+    let duration = duration
+        .map(|value| format!("TimeForFullHeal = {value}\n"))
+        .unwrap_or_default();
     let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content("Object RepairRecipient\n KindOf = DRONE VEHICLE REPAIR_PAD\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 20\n End\nEnd\n", "repair-owner.ini").unwrap();
+    parser.parse_ini_content(&format!("Object RepairRecipient\n KindOf = DRONE VEHICLE REPAIR_PAD\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 20\n End\n Behavior = RepairDockUpdate RepairTag\n {duration} End\nEnd\n"), "repair-owner.ini").unwrap();
     let mut game = GameLogic::new();
     game.add_player(Player::new(1, Team::USA, "RepairOwner", true));
     let template = GameLogic::build_template_from_object_definition(
@@ -70,4 +77,144 @@ fn seeking_repair_master_records_receiving_body_history_before_drone() {
     let recipient = game.host_object(drone).unwrap();
     assert_eq!(recipient.health.current, 100.0);
     assert_eq!(recipient.last_damage_source, Some(dock));
+}
+
+#[test]
+fn repair_action_default_is_one_frame_and_completes_on_next_action() {
+    let (mut game, dock, master, drone) = world_with_duration(None);
+    assert_eq!(
+        game.host_object(dock)
+            .unwrap()
+            .thing()
+            .template
+            .repair_dock_frames_for_full_heal,
+        Some(1.0)
+    );
+    game.frame = 3;
+    assert!(game.repair_dock_action_owned(dock, master));
+    assert_eq!(game.host_object(master).unwrap().health.current, 100.0);
+    assert_eq!(
+        game.host_object(dock).unwrap().repair_dock_last_id,
+        Some(master)
+    );
+    assert_eq!(
+        game.host_object(dock).unwrap().repair_dock_health_per_frame,
+        80.0
+    );
+    game.host_object_mut(drone)
+        .unwrap()
+        .internal_change_health(-40.0);
+    game.frame = 4;
+    assert!(!game.repair_dock_action_owned(dock, master));
+    assert_eq!(
+        game.host_object(drone).unwrap().health.current,
+        60.0,
+        "full master exits before healing its drone"
+    );
+    let dock = game.host_object(dock).unwrap();
+    assert_eq!(dock.repair_dock_last_id, None);
+    assert_eq!(
+        dock.repair_dock_health_per_frame, 80.0,
+        "completion clears identity, not cached float"
+    );
+}
+
+#[test]
+fn repair_action_caches_zero_and_does_not_switch_cached_docker() {
+    let (mut game, dock, master, drone) = world_with_duration(Some("100"));
+    game.host_object_mut(dock)
+        .unwrap()
+        .restore_repair_dock_state(3.0, Some(master), 0.0);
+    assert!(game.repair_dock_action_owned(dock, master));
+    assert_eq!(game.host_object(master).unwrap().health.current, 20.0);
+    assert_eq!(
+        game.host_object(dock).unwrap().repair_dock_health_per_frame,
+        0.0
+    );
+    game.host_object_mut(dock)
+        .unwrap()
+        .restore_repair_dock_state(3.0, Some(master), 7.0);
+    game.host_object_mut(drone)
+        .unwrap()
+        .internal_change_health(-50.0);
+    assert!(game.repair_dock_action_owned(dock, drone));
+    assert_eq!(game.host_object(drone).unwrap().health.current, 57.0);
+    assert_eq!(
+        game.host_object(dock).unwrap().repair_dock_last_id,
+        Some(master)
+    );
+    assert_eq!(
+        game.host_object(dock).unwrap().repair_dock_health_per_frame,
+        7.0
+    );
+}
+
+#[test]
+fn repair_action_retains_fractional_frames_and_exact_near_max_gate() {
+    let (mut game, dock, master, _) = world_with_duration(Some("50"));
+    let frames = 50.0_f32 * (30.0_f32 / 1000.0);
+    assert_eq!(
+        game.host_object(dock)
+            .unwrap()
+            .thing()
+            .template
+            .repair_dock_frames_for_full_heal,
+        Some(frames)
+    );
+    let current = f32::from_bits(100.0_f32.to_bits() - 1);
+    game.host_object_mut(master).unwrap().health.current = current;
+    game.frame = 19;
+    assert!(
+        game.repair_dock_action_owned(dock, master),
+        "no 0.01 completion epsilon"
+    );
+    assert_eq!(
+        game.host_object(master).unwrap().last_healing_timestamp,
+        Some(19)
+    );
+    assert_eq!(
+        game.host_object(dock)
+            .unwrap()
+            .repair_dock_health_per_frame
+            .to_bits(),
+        ((100.0 - current) / frames).to_bits()
+    );
+}
+
+#[test]
+fn seeking_repair_consumes_one_logic_action_independent_of_display_delta() {
+    use crate::game_logic::AIState;
+    let (mut game, dock, master, _) = world_with_duration(Some("100"));
+    let (mut peer, peer_dock, peer_master, _) = world_with_duration(Some("100"));
+    for (world, dock, master) in [
+        (&mut game, dock, master),
+        (&mut peer, peer_dock, peer_master),
+    ] {
+        let object = world.host_object_mut(master).unwrap();
+        object.target = Some(dock);
+        object.set_ai_state(AIState::SeekingRepair);
+        world.host_object_mut(dock).unwrap().dock_active_docker = Some(master);
+    }
+    game.update_support_states(&[master], 1.0 / 30.0);
+    peer.update_support_states(&[peer_master], 0.5);
+    assert_eq!(
+        game.host_object(master).unwrap().health.current.to_bits(),
+        (20.0_f32 + 80.0 / 3.0).to_bits()
+    );
+    assert_eq!(
+        game.host_object(master).unwrap().health.current.to_bits(),
+        peer.host_object(peer_master)
+            .unwrap()
+            .health
+            .current
+            .to_bits()
+    );
+    assert_eq!(
+        game.host_object(master).unwrap().ai_state,
+        AIState::SeekingRepair
+    );
+    assert_eq!(
+        game.host_object(dock).unwrap().dock_active_docker,
+        Some(master)
+    );
 }

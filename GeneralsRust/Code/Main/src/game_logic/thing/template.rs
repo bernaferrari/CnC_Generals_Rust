@@ -106,6 +106,10 @@ pub struct ThingTemplate {
     /// is meaningful and must remain distinct from no warehouse module.
     #[serde(default)]
     pub dock_starting_boxes: Option<u32>,
+    /// RepairDockUpdate module duration in real logic frames; absent means no module.
+    /// The dock snapshot capsule preserves this immutable receiving definition.
+    #[serde(skip)]
+    pub(crate) repair_dock_frames_for_full_heal: Option<f32>,
     /// `SupplyWarehouseDockUpdate::DeleteWhenEmpty`.  It only applies to a
     /// warehouse dock; ordinary resource objects retain their own lifecycle.
     #[serde(default)]
@@ -639,6 +643,7 @@ impl ThingTemplate {
             asset_scale: default_asset_scale(),
             dock_kind: DockKind::None,
             dock_starting_boxes: None,
+            repair_dock_frames_for_full_heal: None,
             dock_delete_when_empty: false,
             supply_truck_metadata: None,
             supplies_depleted_voice: String::new(),

@@ -679,6 +679,7 @@ mod tests {
         let mut logic = GameLogic::new();
         let mut pad = ThingTemplate::new("TestRepairPad");
         pad.add_kind_of(KindOf::RepairPad).set_health(2000.0);
+        pad.repair_dock_frames_for_full_heal = Some(150.0);
         let mut humvee = ThingTemplate::new("TestHumvee");
         humvee.add_kind_of(KindOf::Vehicle).set_health(240.0);
         let mut drone = ThingTemplate::new("TestBattleDrone");

@@ -209,6 +209,7 @@ fn right_click_repair_pad_issues_get_repaired() {
     game_logic.add_object(vehicle);
 
     let mut repair_pad_template = ThingTemplate::new("TestRepairPad");
+    repair_pad_template.repair_dock_frames_for_full_heal = Some(150.0);
     repair_pad_template
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::RepairPad)
@@ -279,6 +280,7 @@ fn right_click_service_uses_authored_kindof_not_service_shaped_names() {
     // These names intentionally deny every legacy string heuristic.  The
     // parsed-equivalent KindOf is the only service authority.
     let mut repair_pad_template = ThingTemplate::new("SourceTaggedGroundService");
+    repair_pad_template.repair_dock_frames_for_full_heal = Some(150.0);
     repair_pad_template
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::RepairPad)
