@@ -313,6 +313,13 @@ impl GameLogic {
         if let Some(callbacks) = bridge_callbacks {
             self.complete_owned_bridge_body_callbacks(callbacks);
         }
+        let callback_source = application
+            .source_id()
+            .and_then(|id| self.objects.get(&id))
+            .map(crate::game_logic::host_transition_damage_fx::snapshot_damage_fx_source);
+        if let Some(victim) = self.objects.get_mut(&victim_id) {
+            application.complete_body_state_callbacks(victim, callback_source.as_ref());
+        }
         // Original ActiveBody rereads live health after synchronous callbacks.
         let killed = if (bridge_callbacks.is_some() || reaction_callback_ran)
             && damage_type != crate::game_logic::combat::DamageType::Healing

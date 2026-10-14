@@ -879,27 +879,12 @@ impl Object {
             }
         }
 
-        self.react_to_body_damage_state_change(old_body_state, context.source(), frame);
-        let voice_fear_id = self.id;
-        let voice_fear_pos = self.get_position();
-        let voice_fear_player = self.owner_player_id;
-        crate::game_logic::host_transition_damage_fx::queue_voice_fear_event(
-            &mut self.pending_transition_damage_fx,
-            &self.template_name,
-            old_body_state,
-            self.body_damage_state,
-            prev_health,
-            self.health.current,
-            max_health,
-            voice_fear_id,
-            voice_fear_pos,
-            voice_fear_player,
-        );
         DamageApplication::Active(ActiveDamageContinuation {
             victim_id: self.id,
             source,
             fx_type: fx_override.unwrap_or(damage_type),
             actual_damage,
+            old_body_state: Some(old_body_state),
             bridge_callbacks: self.is_host_bridge_member().then_some(BridgeBodyCallbacks {
                 victim: self.id,
                 source,
@@ -1893,39 +1878,57 @@ mod tests {
     }
 
     #[test]
-    fn last_damage_skips_zero_and_same_frame_first_write_wins() {
+    fn last_damage_skips_zero_and_retains_preferred_source_over_projectile() {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
-
         let mut unit = vehicle("StampTank", 71, 200.0);
-        assert!(!unit.take_damage_from_typed(
-            0.0,
-            Some(ObjectId(1)),
-            DamageType::Bullet,
-            &mut health_events
-        ));
-        assert!(unit.last_damage_source.is_none());
-        assert!(unit.last_damage_timestamp.is_none());
-
-        assert!(!unit.take_damage_from_typed(
+        let first = vehicle("PreferredAttacker", 1, 100.0);
+        let mut projectile_template = ThingTemplate::new("HistoryProjectile");
+        projectile_template.add_kind_of(KindOf::Projectile);
+        let projectile = Object::new(projectile_template, ObjectId(2), Team::USA);
+        let first_context = DamageHitContext::new(Some(&first), None, DamageType::Unresistable);
+        for amount in [0.0, 10.0] {
+            assert!(!unit.take_damage_with_context(
+                amount,
+                Some(first.id),
+                DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+                123,
+                &first_context,
+                &mut health_events,
+                None,
+            ));
+            if amount == 0.0 {
+                assert!(unit.last_damage_source.is_none());
+                assert!(unit.last_damage_timestamp.is_none());
+            }
+        }
+        assert_eq!(unit.last_damage_source, Some(first.id));
+        assert_eq!(unit.last_damage_timestamp, Some(123));
+        let projectile_context =
+            DamageHitContext::new(Some(&projectile), None, DamageType::Unresistable)
+                .with_last_damage_sources(Some(&projectile), Some(&first));
+        assert!(!unit.take_damage_with_context(
             10.0,
-            Some(ObjectId(1)),
+            Some(projectile.id),
             DamageType::Unresistable,
-            &mut health_events
-        ));
-        assert_eq!(unit.last_damage_source, Some(ObjectId(1)));
-        let ts = unit.last_damage_timestamp;
-        assert!(!unit.take_damage_from_typed(
-            10.0,
-            Some(ObjectId(2)),
-            DamageType::Unresistable,
-            &mut health_events
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            123,
+            &projectile_context,
+            &mut health_events,
+            None,
         ));
         assert_eq!(
             unit.last_damage_source,
-            Some(ObjectId(1)),
-            "same-frame later hit must not last-write-wins"
+            Some(first.id),
+            "CPP retains the preferred attacker over this same-frame projectile"
         );
-        assert_eq!(unit.last_damage_timestamp, ts);
+        assert_eq!(unit.last_damage_timestamp, Some(123));
+        assert_eq!(
+            unit.health.current, 180.0,
+            "history selection never drops damage"
+        );
     }
 
     #[test]

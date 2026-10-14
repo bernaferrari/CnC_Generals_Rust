@@ -39,6 +39,8 @@ pub(in crate::game_logic) struct ActiveDamageContinuation {
     pub(super) source: Option<ObjectId>,
     pub(super) fx_type: crate::game_logic::combat::DamageType,
     pub(super) actual_damage: f32,
+    pub(super) old_body_state:
+        Option<crate::game_logic::host_enum_table_residual::HostBodyDamageType>,
     pub(super) bridge_callbacks: Option<BridgeBodyCallbacks>,
     pub(super) frame: u32,
     pub(super) lethal: bool,
@@ -79,6 +81,41 @@ impl DamageApplication {
             Self::Healing(tail) => Some(tail.callbacks),
             Self::Complete(_) => None,
         }
+    }
+
+    /// CPP ActiveBody603–638 observes the live Body after onDamage callbacks.
+    /// Keep this phase synchronous and before scoreTheKill/onDie/DamageFX.
+    pub(in crate::game_logic) fn complete_body_state_callbacks(
+        &mut self,
+        victim: &mut Object,
+        source: Option<&HostDamageFxVictim>,
+    ) {
+        let Self::Active(tail) = self else {
+            return;
+        };
+        assert_eq!(
+            tail.victim_id, victim.id,
+            "body callback victim identity changed"
+        );
+        let Some(old_body_state) = tail.old_body_state.take() else {
+            return;
+        };
+        victim.react_to_body_damage_state_change(old_body_state, source, tail.frame);
+        let id = victim.id;
+        let position = victim.get_position();
+        let player = victim.owner_player_id;
+        crate::game_logic::host_transition_damage_fx::queue_voice_fear_event(
+            &mut victim.pending_transition_damage_fx,
+            &victim.template_name,
+            old_body_state,
+            victim.body_damage_state,
+            victim.previous_health,
+            victim.health.current,
+            victim.health.maximum,
+            id,
+            position,
+            player,
+        );
     }
 
     pub(in crate::game_logic) fn dispatch_damage_fx(
@@ -125,11 +162,12 @@ impl DamageApplication {
 
     /// Preserve standalone bridge publication and observe policy after DamageFX.
     pub(in crate::game_logic) fn finish_standalone(
-        self,
+        mut self,
         victim: &mut Object,
         source: Option<&HostDamageFxVictim>,
         repulsor_policy: &bool,
     ) -> bool {
+        self.complete_body_state_callbacks(victim, source);
         let callbacks = self.bridge_callbacks();
         let lethal = self.killed();
         let after_fx = self.dispatch_damage_fx(victim, source);

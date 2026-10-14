@@ -3313,6 +3313,9 @@ pub use visual::ObjectVisualInfo;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod damage_state_callback_owner_tests;
+
 pub(crate) mod unit_ai_runtime;
 
 /// Concatenated live `object/*.rs` sources (excluding tests) for residual scans.
