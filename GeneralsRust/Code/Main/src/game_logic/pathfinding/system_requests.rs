@@ -396,21 +396,23 @@ impl PathfindingSystem {
         GridCoord::new(pos.x, pos.y)
     }
 
-    pub(super) fn crate_path_to_world(&self, cells: &[GridCoord]) -> Vec<Vec3> {
+    /// Reconstruct each searched cell on its selected layer. Overlapping
+    /// bridge/wall footprints do not identify the layer chosen by the search.
+    /// The returned coordinate route still requires a later layered-path
+    /// migration through optimization, movement, and persistence.
+    pub(super) fn crate_path_to_world(
+        &self,
+        cells: &[(GridCoord, PathfindLayerEnum)],
+    ) -> Vec<Vec3> {
         let center = self.seeker_center_in_cell;
         cells
             .iter()
-            .map(|c| {
-                let pos = GridPos::new(c.x, c.y);
-                if let Some(id) = self.grid.host_deck_layer_at(pos) {
-                    self.grid.adjust_coord_to_cell_on_layer(
-                        pos,
-                        center,
-                        PathfindLayerEnum::from_u32(id as u32),
-                    )
-                } else {
-                    self.grid.adjust_coord_to_cell(pos, center)
-                }
+            .map(|(cell, layer)| {
+                self.grid.adjust_coord_to_cell_on_layer(
+                    GridPos::new(cell.x, cell.y),
+                    center,
+                    *layer,
+                )
             })
             .collect()
     }
@@ -850,7 +852,7 @@ impl PathfindingSystem {
                 return None;
             };
             let run = |allow_partial: bool| {
-                crate_pf.finder.find_path_with_start_layer(
+                crate_pf.finder.find_path_with_start_layer_and_layers(
                     start_c,
                     goal_c,
                     start_layer,

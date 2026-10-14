@@ -148,15 +148,10 @@ impl<'a> CommandExecutor<'a> {
     /// damage state is BETTER than MovementPenaltyDamageState (REALLYDAMAGED).
     /// Heavily damaged units do not drag the whole group down.
     pub(crate) fn group_speed(&self, units: &[ObjectId]) -> f32 {
-        use crate::game_logic::host_ai_path_combat_residual_wave105::{
-            BODY_REALLYDAMAGED, calc_damage_state_residual, is_body_condition_better,
-        };
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
         let mut best = f32::INFINITY;
         let mut saw = false;
         for &id in units {
-            // Authoritative HP first (GameWorld when coupled) so we do not
-            // hold a host_object borrow across a second game_logic call.
-            let auth_hp = self.game_logic.host_authoritative_health(id);
             let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
@@ -171,16 +166,15 @@ impl<'a> CommandExecutor<'a> {
             if o.contained_by.is_some() {
                 continue; // HELD residual — skip riders
             }
-            let max_h = o.health.maximum.max(1.0);
-            // Fail-closed when no authoritative HP (no HashMap mid-frame truth).
-            let Some(cur_h) = auth_hp else {
+            // AIGroup.cpp:418 reads Body::getDamageState. SAME_CURRENTHEALTH
+            // changes maximum health without recalculating that state, so the
+            // current ratio must not become a second authority here.
+            if matches!(
+                o.body_damage_state,
+                HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble
+            ) {
                 continue;
             };
-            let dmg = calc_damage_state_residual(cur_h, max_h);
-            // C++: only if IS_CONDITION_BETTER(damageState, movementPenaltyDamageState)
-            if !is_body_condition_better(dmg, BODY_REALLYDAMAGED) {
-                continue;
-            }
             let spd = o.effective_max_speed().max(0.0);
             if spd > 0.0 && spd < best {
                 best = spd;

@@ -587,6 +587,7 @@ Object AmericaVehicleChinook
   GeometryHeight = 12
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 200
+    InitialHealth = 200
   End
   Behavior = ChinookAIUpdate ModuleTag_AI
   End
@@ -600,6 +601,7 @@ Object EvacPassenger
   KindOf = INFANTRY SELECTABLE
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
+    InitialHealth = 100
   End
   Behavior = AIUpdateInterface ModuleTag_AI
   End
@@ -651,11 +653,16 @@ End
             unit.chinook_ai.is_some(),
             "real Chinook spawn binds its controller"
         );
+        // ActiveBody.cpp:111,154 defaults InitialHealth to zero; these
+        // independently authored fixtures must initialize live bodies.
+        assert_eq!(unit.health.current, 200.0);
+        assert_eq!(unit.transport_capacity(), 8);
         unit.status.airborne_target = true;
         unit.ground_height = raw;
         unit.ground_height_from_terrain = true;
         assert!(unit.add_occupant(passenger));
     }
+    assert_eq!(world.host_object(passenger).unwrap().health.current, 100.0);
     world
         .host_object_mut(passenger)
         .unwrap()

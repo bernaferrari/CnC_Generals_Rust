@@ -339,6 +339,8 @@ mod group_ground;
 mod group_ground_owner;
 #[cfg(test)]
 mod group_ground_tests;
+#[cfg(test)]
+mod searched_layer_tests;
 mod system_attack;
 mod system_requests;
 mod system_routes;

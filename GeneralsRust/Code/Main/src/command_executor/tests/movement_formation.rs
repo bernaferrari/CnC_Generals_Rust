@@ -1424,6 +1424,7 @@ fn exact_waypoint_path_sets_exact_flag_and_path() {
 #[test]
 fn group_speed_ignores_really_damaged_and_picks_leader() {
     use super::CommandExecutor;
+    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use glam::Vec3;
 
@@ -1446,25 +1447,30 @@ fn group_speed_ignores_really_damaged_and_picks_leader() {
         let h = logic.host_object_mut(healthy).unwrap();
         h.movement.max_speed = 40.0;
         h.movement.max_speed_damaged = 20.0;
-        h.health.current = 100.0;
-        h.health.maximum = 100.0;
-        h.refresh_model_condition_bits();
+        assert_eq!(h.body_damage_state, HostBodyDamageType::Pristine);
     }
     {
         let d = logic.host_object_mut(damaged).unwrap();
         d.movement.max_speed = 40.0;
         d.movement.max_speed_damaged = 5.0;
-        d.health.current = 10.0; // REALLYDAMAGED
-        d.health.maximum = 100.0;
-        d.refresh_model_condition_bits();
+        // C++ ActiveBody::internalChangeHealth updates the canonical damage
+        // state. Refreshing presentation bits is not a health operation.
+        d.internal_change_health(-90.0);
+        assert_eq!(d.body_damage_state, HostBodyDamageType::ReallyDamaged);
     }
     {
         let s = logic.host_object_mut(slow_healthy).unwrap();
         s.movement.max_speed = 20.0;
         s.movement.max_speed_damaged = 10.0;
-        s.health.current = 100.0;
-        s.health.maximum = 100.0;
-        s.refresh_model_condition_bits();
+        assert_eq!(s.body_damage_state, HostBodyDamageType::Pristine);
+        // SAME_CURRENTHEALTH does not recalculate C++ m_curDamageState.
+        // A ratio-derived cache would wrongly exclude this healthy leader.
+        s.set_body_max_health_with_mode(
+            1000.0,
+            crate::game_logic::object::MaxHealthChange::KeepCurrent,
+        );
+        assert_eq!(s.health.current, 100.0);
+        assert_eq!(s.body_damage_state, HostBodyDamageType::Pristine);
     }
     let exec = CommandExecutor::new(&mut logic, 0);
     let spd = exec.group_speed(&[healthy, damaged, slow_healthy]);
@@ -1495,13 +1501,12 @@ fn effective_max_speed_uses_damaged_locomotor() {
         let o = logic.host_object_mut(id).unwrap();
         o.movement.max_speed = 30.0;
         o.movement.max_speed_damaged = 12.0;
-        o.health.current = 100.0;
-        o.health.maximum = 100.0;
-        o.refresh_model_condition_bits();
+
         assert_eq!(o.body_damage_state, HostBodyDamageType::Pristine);
         assert!((o.effective_max_speed() - 30.0).abs() < 0.01);
-        o.health.current = 10.0;
-        o.refresh_model_condition_bits();
+        o.internal_change_health(-90.0);
+        assert_eq!(o.previous_health, 100.0);
+        assert_eq!(o.health.current, 10.0);
         assert_eq!(o.body_damage_state, HostBodyDamageType::ReallyDamaged);
         assert!(
             (o.effective_max_speed() - 12.0).abs() < 0.01,
