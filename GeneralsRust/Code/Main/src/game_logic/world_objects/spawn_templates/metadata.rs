@@ -2951,18 +2951,34 @@ mod linebuild_kindof_tests {
 }
 
 impl GameLogic {
-    pub(super) fn apply_authored_slaved_update_metadata(template: &mut ThingTemplate, definition: &ObjectDefinition) {
+    pub(super) fn apply_authored_slaved_update_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
         use crate::game_logic::host_slave_drones::SlavedUpdateMetadata;
-        let mut modules = definition.behavior_modules.iter().filter(|m| m.class_name.eq_ignore_ascii_case("SlavedUpdate"));
+        let mut modules = definition
+            .behavior_modules
+            .iter()
+            .filter(|m| m.class_name.eq_ignore_ascii_case("SlavedUpdate"));
         template.slaved_update_metadata = (|| {
             let module = modules.next()?;
-            if modules.next().is_some() { return None; }
-            let real = |key: &str| -> Option<f32> { let value = module.attribute(key).unwrap_or("0").parse::<f32>().ok()?; value.is_finite().then_some(value) };
+            if modules.next().is_some() {
+                return None;
+            }
+            let real = |key: &str| -> Option<f32> {
+                let value = module.attribute(key).unwrap_or("0").parse::<f32>().ok()?;
+                value.is_finite().then_some(value)
+            };
             let int = |key: &str| module.attribute(key).unwrap_or("0").parse::<i32>().ok();
             let duration = |key: &str| -> Option<i32> {
                 let value = module.attribute(key).unwrap_or("0");
                 let digits: String = value.chars().take_while(|c| c.is_ascii_digit()).collect();
-                let frames = digits.parse::<u64>().ok()?.checked_mul(30)?.checked_add(999)? / 1000;
+                let frames = digits
+                    .parse::<u64>()
+                    .ok()?
+                    .checked_mul(30)?
+                    .checked_add(999)?
+                    / 1000;
                 i32::try_from(frames).ok()
             };
             let data = SlavedUpdateMetadata {
@@ -2984,9 +3000,21 @@ impl GameLogic {
                 max_weld_frames: duration("RepairMaxWeldTime")?,
                 welding_system: module.attribute("RepairWeldingSys").unwrap_or("").into(),
                 welding_bone: module.attribute("RepairWeldingFXBone").unwrap_or("").into(),
-                stay_on_master_layer: match module.attribute("StayOnSameLayerAsMaster").unwrap_or("No").to_ascii_lowercase().as_str() { "yes" => true, "no" => false, _ => return None },
+                stay_on_master_layer: match module
+                    .attribute("StayOnSameLayerAsMaster")
+                    .unwrap_or("No")
+                    .to_ascii_lowercase()
+                    .as_str()
+                {
+                    "yes" => true,
+                    "no" => false,
+                    _ => return None,
+                },
             };
-            (data.min_ready_frames <= data.max_ready_frames && data.min_weld_frames <= data.max_weld_frames && data.repair_min_altitude <= data.repair_max_altitude).then_some(data)
+            (data.min_ready_frames <= data.max_ready_frames
+                && data.min_weld_frames <= data.max_weld_frames
+                && data.repair_min_altitude <= data.repair_max_altitude)
+                .then_some(data)
         })();
     }
 }

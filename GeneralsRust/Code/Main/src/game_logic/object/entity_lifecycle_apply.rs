@@ -21,9 +21,12 @@ pub(crate) fn apply_module_states(
     // mutate the receiving Object. Its owner comes from this exact envelope.
     let mut slave_seen = false;
     for module in modules.iter().filter(|m| m.tag == TAG_SLAVED_UPDATE) {
-        let state: crate::game_logic::host_slave_drones::SlavedUpdateState = decode_payload(&module.payload)?;
+        let state: crate::game_logic::host_slave_drones::SlavedUpdateState =
+            decode_payload(&module.payload)?;
         if slave_seen || !state.validate() {
-            return Err(EntityLifecycleCodecError::InvalidOwnerComponent { component: "slaved update" });
+            return Err(EntityLifecycleCodecError::InvalidOwnerComponent {
+                component: "slaved update",
+            });
         }
         slave_seen = true;
     }

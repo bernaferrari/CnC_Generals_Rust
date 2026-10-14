@@ -379,11 +379,13 @@ impl GameLogic {
         &mut self,
         pending: crate::game_logic::combat::PendingProjectile,
     ) {
+        let projectile_name = pending.projectile_object_name.clone();
         let ready = crate::game_logic::combat::materialize_accepted_projectile(
             &mut self.combat_system,
             &self.objects,
             self.frame,
             pending,
+            self.projectile_definitions.get(&projectile_name),
         );
         if let Some(shot) = ready {
             let limit = game_engine::common::global_data::read().historic_damage_limit;

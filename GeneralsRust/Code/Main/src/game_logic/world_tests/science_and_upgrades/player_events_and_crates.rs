@@ -2267,6 +2267,10 @@ fn slave_drone_attach_inherits_master_rank() {
     use crate::game_logic::host_slave_drones::SlaveDroneKind;
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
     let mut logic = GameLogic::new();
+    super::super::super::world_combat::slaved_update_tests::install_slave_fixture(
+        &mut logic,
+        crate::game_logic::host_slave_drones::SlaveDroneKind::Scout,
+    );
     let mid = ObjectId(6100);
     let mut mt = ThingTemplate::new("AmericaVehicleHumvee");
     mt.add_kind_of(KindOf::Vehicle);

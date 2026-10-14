@@ -159270,7 +159270,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "f4d9095596b90ec4da608737bc98bde24a763b1c10fc7516da4264ac1de2aa78",
+  "input_digest": "47afa3f6a0aa5620a509564b82f12ba38a033468ca074fcff188d21e7bd83d0c",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -177379,576 +177379,581 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1555,
+        "end_line": 1567,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/dock.rs",
-      "sha256": "2ddae0d01b2a936adb3749b095265820c069359531980d09fdb83b793d3d9a8c",
+      "sha256": "245ba150324423142156bb922c514da527b91cd8e9291dffe6eb47c506007a33",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "fn",
-          "line": 28,
+          "line": 8,
+          "name": "selected_airborne"
+        },
+        {
+          "kind": "fn",
+          "line": 37,
           "name": "dual_world_registry_unavailable"
         },
         {
           "kind": "enum",
-          "line": 34,
+          "line": 43,
           "name": "AIDockState"
         },
         {
           "kind": "fn",
-          "line": 54,
+          "line": 63,
           "name": "from"
         },
         {
           "kind": "fn",
-          "line": 67,
+          "line": 76,
           "name": "resolve_dock_object"
         },
         {
           "kind": "fn",
-          "line": 78,
+          "line": 87,
           "name": "with_dock"
         },
         {
           "kind": "fn",
-          "line": 86,
+          "line": 95,
           "name": "fetch_owner_and_goal_ids_from_move"
         },
         {
           "kind": "fn",
-          "line": 115,
+          "line": 124,
           "name": "fetch_owner_and_goal_from_move"
         },
         {
           "kind": "trait",
-          "line": 127,
+          "line": 136,
           "name": "DockResultExt"
         },
         {
           "kind": "fn",
-          "line": 129,
+          "line": 138,
           "name": "into_string_err"
         },
         {
           "kind": "fn",
-          "line": 133,
+          "line": 142,
           "name": "into_string_err"
         },
         {
           "kind": "struct",
-          "line": 140,
+          "line": 149,
           "name": "AIDockMachine"
         },
         {
           "kind": "fn",
-          "line": 149,
+          "line": 158,
           "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 237,
-          "name": "start_with_ai"
         },
         {
           "kind": "fn",
           "line": 246,
+          "name": "start_with_ai"
+        },
+        {
+          "kind": "fn",
+          "line": 255,
           "name": "update_with_ai"
         },
         {
           "kind": "fn",
-          "line": 256,
+          "line": 265,
           "name": "start"
         },
         {
           "kind": "fn",
-          "line": 270,
+          "line": 279,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 282,
+          "line": 291,
           "name": "owner_ai"
         },
         {
           "kind": "fn",
-          "line": 292,
+          "line": 301,
           "name": "halt"
         },
         {
           "kind": "fn",
-          "line": 320,
+          "line": 329,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 325,
+          "line": 334,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 342,
+          "line": 351,
           "name": "load_post_process"
         },
         {
           "kind": "struct",
-          "line": 351,
+          "line": 360,
           "name": "AIDockApproachState"
         },
         {
           "kind": "fn",
-          "line": 357,
+          "line": 366,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 370,
+          "line": 379,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 383,
+          "line": 392,
           "name": "goal_owner"
         },
         {
           "kind": "fn",
-          "line": 395,
+          "line": 404,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 398,
+          "line": 407,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 402,
+          "line": 411,
           "name": "move_helper"
         },
         {
           "kind": "fn",
-          "line": 406,
+          "line": 415,
           "name": "dock_on_enter"
         },
         {
           "kind": "fn",
-          "line": 450,
+          "line": 460,
           "name": "dock_on_update"
         },
         {
           "kind": "fn",
-          "line": 468,
+          "line": 478,
           "name": "dock_on_exit"
         },
         {
           "kind": "fn",
-          "line": 494,
+          "line": 504,
           "name": "dock_xfer_snapshot"
         },
         {
           "kind": "struct",
-          "line": 502,
+          "line": 512,
           "name": "AIDockWaitForClearanceState"
         },
         {
           "kind": "fn",
-          "line": 508,
+          "line": 518,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 518,
+          "line": 528,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 534,
+          "line": 544,
           "name": "owner_and_goal"
         },
         {
           "kind": "fn",
-          "line": 559,
+          "line": 569,
           "name": "able_to_advance"
         },
         {
           "kind": "fn",
-          "line": 573,
+          "line": 583,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 576,
+          "line": 586,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 580,
+          "line": 590,
           "name": "dock_on_enter"
         },
         {
           "kind": "fn",
-          "line": 589,
+          "line": 599,
           "name": "dock_on_update"
         },
         {
           "kind": "fn",
-          "line": 626,
+          "line": 636,
           "name": "dock_on_exit"
         },
         {
           "kind": "fn",
-          "line": 647,
+          "line": 657,
           "name": "dock_xfer_snapshot"
         },
         {
           "kind": "struct",
-          "line": 655,
+          "line": 665,
           "name": "AIDockAdvancePositionState"
         },
         {
           "kind": "fn",
-          "line": 661,
+          "line": 671,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 674,
+          "line": 684,
           "name": "goal_owner"
         },
         {
           "kind": "fn",
-          "line": 686,
+          "line": 696,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 689,
+          "line": 699,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 693,
+          "line": 703,
           "name": "move_helper"
         },
         {
           "kind": "fn",
-          "line": 697,
+          "line": 707,
           "name": "dock_on_enter"
         },
         {
           "kind": "fn",
-          "line": 738,
+          "line": 749,
           "name": "dock_on_update"
         },
         {
           "kind": "fn",
-          "line": 756,
+          "line": 767,
           "name": "dock_on_exit"
         },
         {
           "kind": "fn",
-          "line": 782,
+          "line": 793,
           "name": "dock_xfer_snapshot"
         },
         {
           "kind": "struct",
-          "line": 790,
+          "line": 801,
           "name": "AIDockMoveToEntryState"
         },
         {
           "kind": "fn",
-          "line": 796,
+          "line": 807,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 809,
+          "line": 820,
           "name": "goal_owner"
-        },
-        {
-          "kind": "fn",
-          "line": 821,
-          "name": "base_state"
-        },
-        {
-          "kind": "fn",
-          "line": 824,
-          "name": "base_state_mut"
-        },
-        {
-          "kind": "fn",
-          "line": 828,
-          "name": "move_helper"
         },
         {
           "kind": "fn",
           "line": 832,
+          "name": "base_state"
+        },
+        {
+          "kind": "fn",
+          "line": 835,
+          "name": "base_state_mut"
+        },
+        {
+          "kind": "fn",
+          "line": 839,
+          "name": "move_helper"
+        },
+        {
+          "kind": "fn",
+          "line": 843,
           "name": "dock_on_enter"
         },
         {
           "kind": "fn",
-          "line": 872,
+          "line": 884,
           "name": "dock_on_update"
         },
         {
           "kind": "fn",
-          "line": 890,
+          "line": 902,
           "name": "dock_on_exit"
         },
         {
           "kind": "fn",
-          "line": 916,
+          "line": 928,
           "name": "dock_xfer_snapshot"
         },
         {
           "kind": "struct",
-          "line": 924,
+          "line": 936,
           "name": "AIDockMoveToDockState"
         },
         {
           "kind": "fn",
-          "line": 930,
+          "line": 942,
           "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 943,
-          "name": "goal_owner"
         },
         {
           "kind": "fn",
           "line": 955,
-          "name": "base_state"
-        },
-        {
-          "kind": "fn",
-          "line": 958,
-          "name": "base_state_mut"
-        },
-        {
-          "kind": "fn",
-          "line": 962,
-          "name": "move_helper"
-        },
-        {
-          "kind": "fn",
-          "line": 966,
-          "name": "dock_on_enter"
-        },
-        {
-          "kind": "fn",
-          "line": 1016,
-          "name": "dock_on_update"
-        },
-        {
-          "kind": "fn",
-          "line": 1046,
-          "name": "dock_on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 1070,
-          "name": "dock_unlocks_on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 1074,
-          "name": "dock_after_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 1082,
-          "name": "dock_xfer_snapshot"
-        },
-        {
-          "kind": "fn",
-          "line": 1086,
-          "name": "dock_locks_machine"
-        },
-        {
-          "kind": "struct",
-          "line": 1094,
-          "name": "AIDockProcessDockState"
-        },
-        {
-          "kind": "fn",
-          "line": 1101,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 1112,
-          "name": "owner_and_goal"
-        },
-        {
-          "kind": "fn",
-          "line": 1137,
-          "name": "set_next_dock_action_frame"
-        },
-        {
-          "kind": "fn",
-          "line": 1154,
-          "name": "find_my_drone_id"
-        },
-        {
-          "kind": "fn",
-          "line": 1188,
-          "name": "find_my_drone"
-        },
-        {
-          "kind": "fn",
-          "line": 1202,
-          "name": "base_state"
-        },
-        {
-          "kind": "fn",
-          "line": 1205,
-          "name": "base_state_mut"
-        },
-        {
-          "kind": "fn",
-          "line": 1209,
-          "name": "dock_on_enter"
-        },
-        {
-          "kind": "fn",
-          "line": 1223,
-          "name": "dock_on_update"
-        },
-        {
-          "kind": "fn",
-          "line": 1267,
-          "name": "dock_on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 1275,
-          "name": "dock_unlocks_on_exit"
-        },
-        {
-          "kind": "struct",
-          "line": 1282,
-          "name": "AIDockMoveToExitState"
-        },
-        {
-          "kind": "fn",
-          "line": 1288,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 1301,
           "name": "goal_owner"
         },
         {
           "kind": "fn",
-          "line": 1313,
+          "line": 967,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 1316,
+          "line": 970,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 1320,
+          "line": 974,
           "name": "move_helper"
         },
         {
           "kind": "fn",
-          "line": 1324,
+          "line": 978,
           "name": "dock_on_enter"
         },
         {
           "kind": "fn",
-          "line": 1361,
+          "line": 1028,
           "name": "dock_on_update"
         },
         {
           "kind": "fn",
-          "line": 1379,
+          "line": 1058,
           "name": "dock_on_exit"
         },
         {
           "kind": "fn",
-          "line": 1398,
+          "line": 1082,
           "name": "dock_unlocks_on_exit"
         },
         {
           "kind": "fn",
-          "line": 1402,
+          "line": 1086,
           "name": "dock_after_exit"
         },
         {
           "kind": "fn",
-          "line": 1410,
+          "line": 1094,
           "name": "dock_xfer_snapshot"
         },
         {
+          "kind": "fn",
+          "line": 1098,
+          "name": "dock_locks_machine"
+        },
+        {
           "kind": "struct",
-          "line": 1418,
-          "name": "AIDockMoveToRallyState"
+          "line": 1106,
+          "name": "AIDockProcessDockState"
         },
         {
           "kind": "fn",
-          "line": 1424,
+          "line": 1113,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1440,
+          "line": 1124,
+          "name": "owner_and_goal"
+        },
+        {
+          "kind": "fn",
+          "line": 1149,
+          "name": "set_next_dock_action_frame"
+        },
+        {
+          "kind": "fn",
+          "line": 1166,
+          "name": "find_my_drone_id"
+        },
+        {
+          "kind": "fn",
+          "line": 1200,
+          "name": "find_my_drone"
+        },
+        {
+          "kind": "fn",
+          "line": 1214,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 1443,
+          "line": 1217,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 1447,
-          "name": "move_helper"
-        },
-        {
-          "kind": "fn",
-          "line": 1451,
+          "line": 1221,
           "name": "dock_on_enter"
         },
         {
           "kind": "fn",
-          "line": 1491,
+          "line": 1235,
           "name": "dock_on_update"
         },
         {
           "kind": "fn",
-          "line": 1500,
+          "line": 1279,
           "name": "dock_on_exit"
         },
         {
           "kind": "fn",
-          "line": 1509,
-          "name": "dock_xfer_snapshot"
+          "line": 1287,
+          "name": "dock_unlocks_on_exit"
         },
         {
           "kind": "struct",
-          "line": 1517,
-          "name": "DroneInfo"
+          "line": 1294,
+          "name": "AIDockMoveToExitState"
         },
         {
           "kind": "fn",
-          "line": 1524,
+          "line": 1300,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1531,
+          "line": 1313,
+          "name": "goal_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 1325,
+          "name": "base_state"
+        },
+        {
+          "kind": "fn",
+          "line": 1328,
+          "name": "base_state_mut"
+        },
+        {
+          "kind": "fn",
+          "line": 1332,
+          "name": "move_helper"
+        },
+        {
+          "kind": "fn",
+          "line": 1336,
+          "name": "dock_on_enter"
+        },
+        {
+          "kind": "fn",
+          "line": 1373,
+          "name": "dock_on_update"
+        },
+        {
+          "kind": "fn",
+          "line": 1391,
+          "name": "dock_on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 1410,
+          "name": "dock_unlocks_on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 1414,
+          "name": "dock_after_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 1422,
+          "name": "dock_xfer_snapshot"
+        },
+        {
+          "kind": "struct",
+          "line": 1430,
+          "name": "AIDockMoveToRallyState"
+        },
+        {
+          "kind": "fn",
+          "line": 1436,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 1452,
+          "name": "base_state"
+        },
+        {
+          "kind": "fn",
+          "line": 1455,
+          "name": "base_state_mut"
+        },
+        {
+          "kind": "fn",
+          "line": 1459,
+          "name": "move_helper"
+        },
+        {
+          "kind": "fn",
+          "line": 1463,
+          "name": "dock_on_enter"
+        },
+        {
+          "kind": "fn",
+          "line": 1503,
+          "name": "dock_on_update"
+        },
+        {
+          "kind": "fn",
+          "line": 1512,
+          "name": "dock_on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 1521,
+          "name": "dock_xfer_snapshot"
+        },
+        {
+          "kind": "struct",
+          "line": 1529,
+          "name": "DroneInfo"
+        },
+        {
+          "kind": "fn",
+          "line": 1536,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 1543,
           "name": "drone"
         },
         {
           "kind": "fn",
-          "line": 1552,
+          "line": 1564,
           "name": "with_started_test_machines"
         }
       ]
@@ -178218,11 +178223,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 482,
+        "end_line": 583,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/dock_owner_tests.rs",
-      "sha256": "2ed95e2d93d7935e54c2f26cf8f0a1ca78d74a892175f0a75944c5b9b3b806d7",
+      "sha256": "e550f7336ea1608ac45e919b5ebdb62a894477ce5bc20faed3ab0c615e4a1551",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -178394,6 +178399,16 @@
           "kind": "fn",
           "line": 457,
           "name": "same_id_dock_move_helper_checks_bound_owner_immobile_status"
+        },
+        {
+          "kind": "fn",
+          "line": 484,
+          "name": "installed_dock_missing_enter_uses_borrowed_selected_air_not_targeting_status"
+        },
+        {
+          "kind": "fn",
+          "line": 548,
+          "name": "saved_air_dock_queue_continues_with_selected_locomotor_while_ai_remains_borrowed"
         }
       ]
     },
@@ -200039,11 +200054,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 765,
+        "end_line": 784,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/dock_update.rs",
-      "sha256": "26760fb5db47a0d5efe930974988da5d6a97d048575600f3ef12faf14ed18e69",
+      "sha256": "2b625fc618f976c4264cf4a37ea4c11daf10ded1ccdc7b081ac9c6de3e5fe36d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204203,11 +204218,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1831,
+        "end_line": 1840,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/production/dock_update.rs",
-      "sha256": "53fe470e366ddd22e17b846d1bec8a64161a965929fc04a5da8902a884041dd3",
+      "sha256": "3f376225d300dd00692c148d2b032be91bb8331c365538606a43f2226a6f7b37",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204251,11 +204266,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 381,
+        "end_line": 383,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/production/prison_dock.rs",
-      "sha256": "335d60dfd43bfad42a5090d336137767f875fbf0683777ef4955488c5dadabe7",
+      "sha256": "794a5b0c99788b9e3fed0b5345783f0072c7600fa5d15c6be06fa89a08594cec",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204311,11 +204326,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 854,
+        "end_line": 855,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/production/railed_transport_dock.rs",
-      "sha256": "441632230936371c271215a0f21b7494725b2f3fb0e8c544c25a3e921a26714e",
+      "sha256": "993896d54afcac713409de4a4161d2ca36275345c4b5bdbe2aafdf9afd6142e9",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204335,11 +204350,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 718,
+        "end_line": 721,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/production/supply_warehouse_dock.rs",
-      "sha256": "866f206fef2e8f12a6747c06b4dfcfbd57b88c06ac031808891e052d967ce196",
+      "sha256": "d4a0da658c18cc804e921a9d408b1312b0f3a91e93d2a75e4ac03e66789c29e5",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

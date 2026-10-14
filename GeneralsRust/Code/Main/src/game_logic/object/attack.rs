@@ -321,9 +321,13 @@ impl Object {
         // Resolve immutable Weapon.ini peels before borrowing the live slot.
         // Keeping the selected slot's name here prevents tertiary fire from
         // borrowing primary/secondary presentation and damage data.
-        let projectile_object_name = name
-            .map(crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name)
-            .unwrap_or_default();
+        let projectile_object_name = self
+            .selected_projectile_name(slot)
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                name.map(crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name)
+                    .unwrap_or_default()
+            });
         let fire_fx_name = name
             .map(|weapon_name| {
                 crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name_at_veterancy(

@@ -1819,7 +1819,7 @@ impl GameLogic {
             .map(|v| (v.is_kind_of(KindOf::Infantry), v.is_faerie_fire()))
             .unwrap_or((false, false));
 
-        let fired_slot = {
+        let prepared = {
             let Some(u) = self.objects.get_mut(&unit_id) else {
                 return AttackFireResult::Failure;
             };
@@ -1835,28 +1835,23 @@ impl GameLogic {
             u.set_status_attacking(true);
             {}
             // TARGET_FAERIE_FIRE ROF residual when victim is painted.
-            u.fire_at_ex_defer_weapon_barrel_advance(
+            u.prepare_autonomous_weapon_shot(
                 victim_id,
                 current_time,
                 victim_infantry,
                 victim_faerie,
                 self.frame,
-                &mut self.combat_system,
+                &mut self.combat_system.fire_sound_loop_events,
                 &mut self.attack_events,
             )
         };
 
-        if let Some(slot) = fired_slot {
-            // The shot above has consumed ammo and queued its projectile, but
-            // deliberately has not advanced the concrete WeaponSet cursor.
-            // Normalize its exact pre-advance barrel through the owning world
-            // so Drawable presentation sees an actual discharge, never an AI
-            // intent. A malformed transient object state still advances the
-            // logical cursor fail-closed rather than replaying the shot.
-            if self
-                .record_accepted_weapon_discharge(unit_id, slot)
-                .is_none()
-            {
+        if let Some((slot, shot)) = prepared {
+            let capture = self
+                .objects
+                .get_mut(&unit_id)
+                .and_then(Object::take_pending_weapon_visual_capture);
+            if !self.deliver_owned_weapon_shot(slot, shot, capture) {
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
                     unit.advance_weapon_barrel_after_shot(slot);
                 }

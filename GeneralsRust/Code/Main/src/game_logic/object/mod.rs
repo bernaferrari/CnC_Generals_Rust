@@ -2657,7 +2657,7 @@ pub struct Object {
     pub assault_transport: Option<crate::game_logic::host_troop_crawler::HostAssaultTransportState>,
     /// C++ SlavedUpdate instance fields, saved by its lifecycle payload.
     #[serde(default)]
-    pub slaved_update: Option<crate::game_logic::host_slave_drones::SlavedUpdateState>,
+    pub(crate) slaved_update: Option<crate::game_logic::host_slave_drones::SlavedUpdateState>,
     /// C++ DeployStyleAIUpdate pack/unpack residual.
     #[serde(default)]
     pub deploy_style: Option<crate::game_logic::host_deploy_style::HostDeployStyleData>,

@@ -1870,6 +1870,14 @@ fn host_upgrade_complete_slave_drone_attaches_to_humvee() {
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
+    super::super::super::world_combat::slaved_update_tests::install_slave_fixture(
+        &mut logic,
+        crate::game_logic::host_slave_drones::SlaveDroneKind::Scout,
+    );
+    super::super::super::world_combat::slaved_update_tests::install_slave_fixture(
+        &mut logic,
+        crate::game_logic::host_slave_drones::SlaveDroneKind::Battle,
+    );
     logic
         .players
         .insert(0, Player::new(0, Team::USA, "USA", true));

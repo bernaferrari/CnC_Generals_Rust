@@ -1232,6 +1232,31 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
     ensure_host_weapon_store();
 
     let mut game_logic = GameLogic::new();
+    // CPP TAiData initializes guard modifiers to zero until content loads.
+    // Supply this receiving match's authored AIData rather than depending on
+    // another fixture's engine catalog to permit ordinary mood acquisition.
+    game_logic.set_ai_definition_base(game_engine::common::ini::AIData {
+        guard_inner_modifier_ai: 1.1,
+        guard_outer_modifier_ai: 1.333,
+        aggressive_range_modifier: 1.5,
+        ..Default::default()
+    });
+
+    let mut owner = Player::new(0, Team::USA, "slave owner", false);
+    owner.alliance_team = 1;
+    game_logic.add_player(owner);
+    let mut opponent = Player::new(1, Team::GLA, "slave enemy", false);
+    opponent.alliance_team = 2;
+    game_logic.add_player(opponent);
+
+    super::super::super::world_combat::slaved_update_tests::install_slave_fixture(
+        &mut game_logic,
+        SlaveDroneKind::Scout,
+    );
+    super::super::super::world_combat::slaved_update_tests::install_slave_fixture(
+        &mut game_logic,
+        SlaveDroneKind::Hellfire,
+    );
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_tank_template(&mut game_logic);
 
@@ -1365,7 +1390,37 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
         .map(|e| e.health.current)
         .unwrap_or(0.0);
     game_logic.set_current_frame(40);
+    assert_eq!(game_logic.host_object(hf_id).unwrap().vision_range, 100.0);
+    assert!(
+        game_logic.adjusted_vision_range_for_mood(hf_id) > 100.0,
+        "actual supplied AIData must enable idle search radius"
+    );
+    assert!(
+        game_logic
+            .host_object(hf_id)
+            .unwrap()
+            .auto_acquire_when_idle
+    );
+    game_logic.tick_mood_auto_acquire(&[hf_id]);
+    assert_eq!(
+        game_logic.host_object(hf_id).unwrap().target,
+        Some(damage_target_id),
+        "actual mood scan must select the Vehicle"
+    );
     game_logic.update_combat(&[hf_id, damage_target_id], LOGIC_FRAME_TIMESTEP);
+    game_logic.tick_nested_attack_machines(&[hf_id], 40.0 / 30.0, 40);
+    assert_eq!(
+        game_logic.hellfire_drone_residual_auto_fires, 0,
+        "AIM transition must not fire its next state's body early"
+    );
+    game_logic.frame = 41;
+    game_logic.update_combat(&[hf_id, damage_target_id], LOGIC_FRAME_TIMESTEP);
+    game_logic.tick_nested_attack_machines(&[hf_id], 41.0 / 30.0, 41);
+    crate::game_logic::combat::drain_pending_projectiles(
+        &mut game_logic.combat_system,
+        &game_logic.objects,
+        41,
+    );
     assert!(
         game_logic.honesty_hellfire_drone_auto_fire_ok(),
         "hellfire auto-fire residual honesty must fire"
@@ -1389,6 +1444,40 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
             }),
         "accepted authored Hellfire creates its actual physical projectile"
     );
+    let launched = game_logic
+        .combat_system
+        .projectiles_snapshot()
+        .into_iter()
+        .find(|p| p.shooter_id == hf_id)
+        .unwrap();
+    assert_eq!(launched.projectile_object_name, "MissileDefenderMissile");
+    assert_eq!(launched.explosion_radius, 5.0);
+    assert_eq!(launched.speed, 600.0);
+    assert!(
+        matches!(
+            launched.flight,
+            Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_))
+        ),
+        "receiving parsed missile profile must bind before launch"
+    );
+    assert_eq!(
+        launched.target_id,
+        Some(damage_target_id),
+        "launch must retain actual selected Vehicle identity"
+    );
+    let mut flight_trace = Vec::new();
+    flight_trace.push((
+        game_logic.frame,
+        vec![(
+            launched.position,
+            launched.target_position,
+            launched.target_id,
+            launched.lifetime,
+            launched.explosion_radius,
+            format!("{:?}", launched.flight),
+            format!("{:?}", launched.flight_runtime),
+        )],
+    ));
     // Prevent another accepted shot; the already launched projectile continues
     // under the real receiving simulation/flight owner, not a fixture HP write.
     game_logic
@@ -1396,8 +1485,30 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
         .unwrap()
         .status
         .weapons_jammed = true;
-    for _ in 0..120 {
+    for step in 0..120 {
         game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
+        if step < 8 || step == 119 {
+            flight_trace.push((
+                game_logic.frame,
+                game_logic
+                    .combat_system
+                    .projectiles_snapshot()
+                    .into_iter()
+                    .filter(|p| p.shooter_id == hf_id)
+                    .map(|p| {
+                        (
+                            p.position,
+                            p.target_position,
+                            p.target_id,
+                            p.lifetime,
+                            p.explosion_radius,
+                            format!("{:?}", p.flight),
+                            format!("{:?}", p.flight_runtime),
+                        )
+                    })
+                    .collect(),
+            ));
+        }
         if game_logic
             .host_object(damage_target_id)
             .unwrap()
@@ -1415,7 +1526,12 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
         .current;
     assert!(
         enemy_hp_after < enemy_hp_before,
-        "actual named Hellfire flight must damage Vehicle at impact (before={enemy_hp_before} after={enemy_hp_after})"
+        "actual named Hellfire flight must damage Vehicle at impact (before={enemy_hp_before} after={enemy_hp_after}, target={:?}, trace={flight_trace:?})",
+        game_logic.host_object(damage_target_id).map(|o| (
+            o.get_position(),
+            o.is_alive(),
+            o.status.effectively_dead
+        ))
     );
 }
 
@@ -1426,6 +1542,27 @@ fn hellfire_scatter_misses_infantry_residual() {
 
     ensure_host_weapon_store();
     let mut logic = GameLogic::new();
+    // CPP TAiData initializes guard modifiers to zero until content loads.
+    // Supply this receiving match's authored AIData rather than depending on
+    // another fixture's engine catalog to permit ordinary mood acquisition.
+    logic.set_ai_definition_base(game_engine::common::ini::AIData {
+        guard_inner_modifier_ai: 1.1,
+        guard_outer_modifier_ai: 1.333,
+        aggressive_range_modifier: 1.5,
+        ..Default::default()
+    });
+
+    let mut owner = Player::new(0, Team::USA, "slave owner", false);
+    owner.alliance_team = 1;
+    logic.add_player(owner);
+    let mut opponent = Player::new(1, Team::GLA, "slave enemy", false);
+    opponent.alliance_team = 2;
+    logic.add_player(opponent);
+
+    super::super::super::world_combat::slaved_update_tests::install_slave_fixture(
+        &mut logic,
+        SlaveDroneKind::Hellfire,
+    );
     ensure_test_infantry_template(&mut logic);
     ensure_test_tank_template(&mut logic);
 
@@ -1462,7 +1599,28 @@ fn hellfire_scatter_misses_infantry_residual() {
     let mut saw = false;
     for f in 0..100u64 {
         logic.set_current_frame(f.max(1));
+        if f == 0 {
+            assert!(
+                logic.adjusted_vision_range_for_mood(hf) > 100.0,
+                "actual supplied AIData must enable Infantry search"
+            );
+            assert!(logic.host_object(hf).unwrap().auto_acquire_when_idle);
+        }
+        logic.tick_mood_auto_acquire(&[hf]);
+        if f == 0 {
+            assert_eq!(
+                logic.host_object(hf).unwrap().target,
+                Some(inf),
+                "actual idle mood scan must select Infantry"
+            );
+        }
         logic.update_combat(&[hf, inf], LOGIC_FRAME_TIMESTEP);
+        logic.tick_nested_attack_machines(&[hf], logic.frame as f32 / 30.0, logic.frame);
+        crate::game_logic::combat::drain_pending_projectiles(
+            &mut logic.combat_system,
+            &logic.objects,
+            logic.frame,
+        );
         if logic.hellfire_scatter_applied > 0 {
             saw = true;
         }
@@ -1487,7 +1645,14 @@ fn hellfire_scatter_misses_infantry_residual() {
     let hp_before = logic.host_object(tank).unwrap().health.current;
     for f in 100..160u64 {
         logic.set_current_frame(f);
+        logic.tick_mood_auto_acquire(&[hf]);
         logic.update_combat(&[hf, tank], LOGIC_FRAME_TIMESTEP);
+        logic.tick_nested_attack_machines(&[hf], logic.frame as f32 / 30.0, logic.frame);
+        crate::game_logic::combat::drain_pending_projectiles(
+            &mut logic.combat_system,
+            &logic.objects,
+            logic.frame,
+        );
     }
     let hp_after = logic
         .host_object(tank)

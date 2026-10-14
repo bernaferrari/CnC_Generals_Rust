@@ -172,7 +172,7 @@ pub fn host_projectile_flight_for_object_name(
     })
 }
 
-fn parse_dumb_flight(
+pub(crate) fn parse_dumb_flight(
     data: &dyn game_engine::common::thing::module::ModuleData,
 ) -> HostDumbProjectileFlight {
     HostDumbProjectileFlight {
@@ -207,7 +207,7 @@ fn parse_dumb_flight(
     }
 }
 
-fn parse_missile_flight(
+pub(crate) fn parse_missile_flight(
     data: &dyn game_engine::common::thing::module::ModuleData,
 ) -> HostMissileFlight {
     HostMissileFlight {

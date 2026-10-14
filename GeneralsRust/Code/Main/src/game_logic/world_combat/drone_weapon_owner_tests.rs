@@ -9,8 +9,14 @@ const TARGET: ObjectId = ObjectId(2);
 fn world(deployed: bool, pre_delay: f32) -> GameLogic {
     let mut game = GameLogic::new();
     game.add_player(Player::new(0, Team::USA, "source", true));
-    game.add_player(Player::new(1, Team::China, "target", false));
-    let mut template = ThingTemplate::new(if deployed { "OwnedDroneShot" } else { "AmericaVehicleHellfireDrone" });
+    let mut target_player = Player::new(1, Team::China, "target", false);
+    target_player.alliance_team = 1;
+    game.add_player(target_player);
+    let mut template = ThingTemplate::new(if deployed {
+        "OwnedDroneShot"
+    } else {
+        "AmericaVehicleHellfireDrone"
+    });
     template
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Attackable);
@@ -123,24 +129,61 @@ fn sentry_requires_real_deploy_then_weapon_windup_and_commits_one_delayed_shot()
 fn hellfire_launch_consumes_once_and_deals_damage_only_at_real_impact_phase() {
     let mut game = world(false, 0.0);
     let peer = world(false, 0.0);
-    assert_eq!(game.attack_state_enter(SOURCE, TARGET), crate::game_logic::AttackMachineResult::Continue);
+    let barrel = game
+        .host_object(SOURCE)
+        .unwrap()
+        .weapon_barrel_cursor_for_snapshot(0);
+    assert_eq!(
+        game.attack_state_enter(SOURCE, TARGET),
+        crate::game_logic::AttackMachineResult::Continue
+    );
+    // CPP AIM success enters FireWeapon; its body executes at the next real
+    // update. Ordinary combat deliberately yields the admitted nested owner.
     game.update_combat(&[SOURCE], 1.0 / 30.0);
+    game.tick_nested_attack_machines(&[SOURCE], 1.0, 30);
+    assert_eq!(ammo(&game), Some(2));
+    assert_eq!(
+        game.host_object(SOURCE).unwrap().attack_substate,
+        crate::game_logic::AttackSubState::FireWeapon
+    );
+    assert_eq!(health(&game), 100.0);
+    assert_eq!(delayed(&game), 0);
+    game.frame = 31;
+    game.update_combat(&[SOURCE], 1.0 / 30.0);
+    game.tick_nested_attack_machines(&[SOURCE], 31.0 / 30.0, 31);
+    crate::game_logic::combat::drain_pending_projectiles(
+        &mut game.combat_system,
+        &game.objects,
+        game.frame,
+    );
     assert_eq!(ammo(&game), Some(1));
     assert_eq!(game.hellfire_drone_residual_auto_fires, 1);
+    assert_eq!(
+        game.host_object(SOURCE)
+            .unwrap()
+            .weapon_barrel_cursor_for_snapshot(0),
+        Some(((barrel.unwrap().0 + 1) % 3, 1))
+    );
     assert_eq!(
         game.host_object(SOURCE).unwrap().ai_state,
         AIState::Attacking
     );
     assert_eq!(health(&game), 100.0);
     assert_eq!(delayed(&game), 1);
-    game.frame = 31;
+    game.frame = 32;
     game.update_combat(&[SOURCE], 1.0 / 30.0);
+    game.tick_nested_attack_machines(&[SOURCE], 32.0 / 30.0, 32);
+    crate::game_logic::combat::drain_pending_projectiles(
+        &mut game.combat_system,
+        &game.objects,
+        game.frame,
+    );
     assert_eq!(ammo(&game), Some(1));
     assert_eq!(game.hellfire_drone_residual_auto_fires, 1);
-    game.frame = 39;
+    game.frame = 40;
     game.apply_owned_projectileless_delayed_damage();
     assert_eq!(health(&game), 100.0);
-    game.frame = 40;
+    game.frame = 41;
     game.apply_owned_projectileless_delayed_damage();
     assert_eq!(health(&game), 63.0);
     game.apply_owned_projectileless_delayed_damage();

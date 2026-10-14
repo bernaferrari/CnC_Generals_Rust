@@ -6,6 +6,7 @@ use crate::game_logic::{ThingTemplate, Weapon, WeaponLockType};
 pub(crate) struct WeaponDefinition {
     prototype: Weapon,
     suspend_delay: u32,
+    projectile_name: Option<String>,
 }
 impl WeaponDefinition {
     fn instantiate(&self, frame: u32) -> Weapon {
@@ -30,6 +31,45 @@ pub(crate) struct BoundWeaponSets {
     mine: Option<WeaponRow>,
 }
 impl ThingTemplate {
+    /// Factory installs the already admitted immutable base row at its frame.
+    /// Some([None;3]) is explicit no-weapon content, not missing admission.
+    pub(in crate::game_logic) fn instantiate_base_weapon_row(
+        &self,
+        frame: u32,
+    ) -> Option<[Option<Weapon>; 3]> {
+        let row = &self.selected_weapon_sets.as_ref()?.base;
+        Some(std::array::from_fn(|i| {
+            row.slots[i].as_ref().map(|rule| rule.instantiate(frame))
+        }))
+    }
+    /// Admit receiving immutable native rules without a second catalog lookup.
+    pub(in crate::game_logic) fn bind_native_weapon_row(
+        &mut self,
+        native: [Option<&gamelogic::weapon::WeaponTemplate>; 3],
+    ) {
+        let names = std::array::from_fn(|i| native[i].map(|rule| rule.name.clone()));
+        let slots = std::array::from_fn(|i| {
+            native[i].and_then(|rule| {
+                Some(WeaponDefinition {
+                    prototype: ThingTemplate::weapon_from_template_at(rule, 0)?,
+                    suspend_delay: rule.suspend_fx_delay,
+                    projectile_name: Some(rule.projectile_name.clone()),
+                })
+            })
+        });
+        let mine = self
+            .selected_weapon_sets
+            .as_ref()
+            .and_then(|rows| rows.mine.clone());
+        self.selected_weapon_sets = Some(BoundWeaponSets {
+            base: WeaponRow {
+                slots,
+                names,
+                shared: self.weapon_lock_shared_across_sets,
+            },
+            mine,
+        });
+    }
     pub(crate) fn bind_selected_weapon_sets(&mut self, base: [Option<Weapon>; 3]) {
         fn bind(name: Option<&str>, prototype: Option<Weapon>) -> Option<WeaponDefinition> {
             let native = name.and_then(|name| {
@@ -44,11 +84,13 @@ impl ThingTemplate {
                 Some(WeaponDefinition {
                     prototype,
                     suspend_delay: native.suspend_fx_delay,
+                    projectile_name: Some(native.projectile_name.clone()),
                 })
             } else {
                 prototype.map(|prototype| WeaponDefinition {
                     prototype,
                     suspend_delay: 0,
+                    projectile_name: None,
                 })
             }
         }
@@ -86,6 +128,19 @@ impl ThingTemplate {
     }
 }
 impl Object {
+    pub(in crate::game_logic) fn selected_projectile_name(&self, slot: u8) -> Option<&str> {
+        let rows = self.thing.template.selected_weapon_sets.as_ref()?;
+        let row = if self.weapon_set_mine_clearing_detail {
+            rows.mine.as_ref().unwrap_or(&rows.base)
+        } else {
+            &rows.base
+        };
+        row.slots
+            .get(usize::from(slot))?
+            .as_ref()?
+            .projectile_name
+            .as_deref()
+    }
     pub(crate) fn selected_weapon_name(&self, slot: u8) -> Option<&str> {
         let rows = self.thing.template.selected_weapon_sets.as_ref()?;
         let row = if self.weapon_set_mine_clearing_detail {
@@ -270,5 +325,48 @@ mod tests {
         assert_eq!(object.weapon.as_ref().unwrap().ammo, Some(1));
         object.set_weapon_set_mine_clearing_detail_at_frame(false, 39);
         assert_eq!(object.weapon.as_ref().unwrap().ammo, Some(5));
+    }
+}
+
+#[cfg(test)]
+mod native_row_admission_tests {
+    use super::*;
+    #[test]
+    fn explicit_projectileless_base_preserves_existing_mine_row() {
+        let mut template = ThingTemplate::new("ReceivingRows");
+        template.mine_clearing_primary_weapon = Some(Weapon {
+            damage: 88.0,
+            range: 200.0,
+            ..Default::default()
+        });
+        template.bind_selected_weapon_sets([None, None, None]);
+        let mut native = gamelogic::weapon::WeaponTemplate::new("ReceivingInstant".into());
+        native.primary_damage = 17.0;
+        native.attack_range = 100.0;
+        native.projectile_name = String::new();
+        template.bind_native_weapon_row([Some(&native), None, None]);
+        let rows = template.selected_weapon_sets.as_ref().unwrap();
+        assert_eq!(
+            rows.base.slots[0]
+                .as_ref()
+                .unwrap()
+                .projectile_name
+                .as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            rows.mine.as_ref().unwrap().slots[0]
+                .as_ref()
+                .unwrap()
+                .prototype
+                .damage,
+            88.0
+        );
+        let owner = Object::new(
+            template,
+            crate::game_logic::ObjectId(1),
+            crate::game_logic::Team::USA,
+        );
+        assert_eq!(owner.selected_projectile_name(0), Some(""));
     }
 }

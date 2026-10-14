@@ -2775,6 +2775,10 @@ fn battle_drone_residual_attach_fire_and_repair() {
     ensure_host_weapon_store();
 
     let mut game_logic = GameLogic::new();
+    super::super::world_combat::slaved_update_tests::install_slave_fixture(
+        &mut game_logic,
+        SlaveDroneKind::Battle,
+    );
     ensure_test_tank_template(&mut game_logic);
     ensure_test_infantry_template(&mut game_logic);
 
@@ -2796,7 +2800,7 @@ fn battle_drone_residual_attach_fire_and_repair() {
     // Damage master below 60% for repair residual.
     {
         let m = game_logic.host_object_mut(master_id).unwrap();
-        m.health.current = m.health.maximum * 0.40;
+        m.internal_change_health(-m.health.maximum * 0.60);
     }
     let master_hp_before = game_logic
         .host_object(master_id)

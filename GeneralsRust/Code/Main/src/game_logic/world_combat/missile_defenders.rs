@@ -1636,26 +1636,21 @@ impl GameLogic {
             (master.team, master.get_position(), master.owner_player_id)
         };
 
-        // Ensure drone templates exist with residual kinds.
+        // SlavedUpdate is an authored module, not a template-name behavior.
+        // Preserve receiving local definitions; otherwise resolve the exact
+        // resident Object definition before factory admission.
         let drone_tpl_name = kind.template_name();
         if !self.templates.contains_key(drone_tpl_name) {
-            let mut tpl = crate::game_logic::ThingTemplate::new(drone_tpl_name);
-            tpl.add_kind_of(KindOf::Vehicle)
-                .add_kind_of(KindOf::Selectable)
-                .add_kind_of(KindOf::Attackable)
-                .set_health(100.0);
-            if matches!(kind, SlaveDroneKind::Hellfire) {
-                tpl.set_primary_weapon_name(
-                    crate::game_logic::host_slave_drones::HELLFIRE_MISSILE_WEAPON,
-                );
-            }
-            if matches!(kind, SlaveDroneKind::Battle) {
-                tpl.set_primary_weapon_name(
-                    crate::game_logic::host_slave_drones::BATTLE_DRONE_MACHINE_GUN,
-                );
-            }
-            // Scout: no primary.
-            self.templates.insert(drone_tpl_name.to_string(), tpl);
+            let template = Self::build_template_from_asset_definition(drone_tpl_name)?;
+            self.templates.insert(drone_tpl_name.to_string(), template);
+        }
+        if self
+            .templates
+            .get(drone_tpl_name)?
+            .slaved_update_metadata
+            .is_none()
+        {
+            return None;
         }
         crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
 
@@ -1663,6 +1658,12 @@ impl GameLogic {
         let spawn_pos = Vec3::new(master_pos.x + ox, master_pos.y, master_pos.z + oz);
         let drone_id =
             self.create_object_for_owner_or_team(drone_tpl_name, team, owner_player_id, spawn_pos)?;
+        // Creation callbacks may remove the intended master. Do not report
+        // attachment success unless the original received identities survive.
+        // The factory-created object keeps its identity; no rollback destruction.
+        if !self.enslave_owned_drone(drone_id, master_id) {
+            return None;
+        }
 
         // C++ startSlavedEffects (SlavedUpdate.cpp:700-701) OBJECT_STATUS_UNSELECTABLE.
         if let Some(drone) = self.objects.get_mut(&drone_id) {
@@ -1673,9 +1674,8 @@ impl GameLogic {
             }
         }
 
-        // SpawnBehavior::computeAggregateStates aggregate residual: master and
-        // drone sync to the higher rank at attach (SlavedUpdate live tick in
-        // world_tick/ai.rs re-applies the same sync every frame).
+        // SpawnBehavior aggregate rank synchronization occurs at spawn.
+        // SlavedUpdate itself does not resynchronize veterancy every frame.
         let (master_level, drone_level) =
             match (self.objects.get(&master_id), self.objects.get(&drone_id)) {
                 (Some(m), Some(d)) => (m.experience.level, d.experience.level),
@@ -1713,7 +1713,6 @@ impl GameLogic {
             }
         }
 
-        self.enslave_owned_drone(drone_id, master_id);
         Some(drone_id)
     }
 

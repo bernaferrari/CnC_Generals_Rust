@@ -12,10 +12,10 @@ mod gps_and_fields;
 mod heroes_and_plans;
 mod infantry_weapons;
 mod missile_defenders;
-mod slaved_update;
 mod ocl_and_scud;
 mod passive_weapon_fire;
 mod registries;
+mod slaved_update;
 mod special_power_flights;
 mod strategy_center;
 mod streams_and_rpg;
@@ -47,4 +47,4 @@ mod passive_weapon_fire_tests;
 mod weapon_fire_effects_tests;
 
 #[cfg(test)]
-mod slaved_update_tests;
+pub(in crate::game_logic) mod slaved_update_tests;

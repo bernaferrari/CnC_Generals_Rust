@@ -11,9 +11,15 @@ const FIRE_CHILD: &str = "ReceivingFireChild";
 const DEATH_CHILD: &str = "ReceivingDeathChild";
 fn world(play_hidden: bool, suspend: u32) -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
-    world.add_player(Player::new(0, Team::USA, "observer", true));
-    world.add_player(Player::new(1, Team::China, "source", false));
-    world.add_player(Player::new(2, Team::GLA, "victim", false));
+    for (id, team, name) in [
+        (0, Team::USA, "observer"),
+        (1, Team::China, "source"),
+        (2, Team::GLA, "victim"),
+    ] {
+        let mut player = Player::new(id, team, name, id == 0);
+        player.alliance_team = id as i32;
+        world.add_player(player);
+    }
     let mut native = gamelogic::weapon::WeaponTemplate::new(WEAPON.to_owned());
     native.play_fx_when_stealthed = play_hidden;
     native.fire_fx[0] = Some(gamelogic::effects::FXList::new("ReceivingFireFX"));
@@ -119,6 +125,11 @@ fn normal_fire_ocl_precedes_lethal_body_callback_and_save_never_replays_it() {
             .values()
             .any(|o| o.template_name == FIRE_CHILD)
     );
+    // Save only at the real settled cleanup boundary. Immediate lethal Body
+    // callbacks intentionally reject snapshots while destruction is pending.
+    owner.fire_temporary_weapons_for_pending_deaths();
+    owner.process_destroy_list();
+    assert!(!owner.has_pending_object_removals());
     let builder = crate::save_load::SnapshotBuilder::new();
     let saved = builder.create_world_snapshot(&owner).unwrap();
     let bytes = bincode_legacy::serialize(&saved).unwrap();
@@ -159,11 +170,24 @@ fn passive_fire_keeps_muzzle_origin_and_effect_gates_do_not_suppress_ocl() {
         let fire = child(&owner, FIRE_CHILD);
         let death = child(&owner, DEATH_CHILD);
         assert!(fire.0 < death.0);
-        assert_eq!(owner.host_object(fire).unwrap().get_position(), muzzle);
+        assert_eq!(
+            owner.host_object(fire).unwrap().get_position(),
+            owner.host_object(source).unwrap().get_position(),
+            "CPP FireOCL uses the source object, not its contained muzzle"
+        );
         let events = owner.weapon_discharge_log.take_for_presentation();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].source, source);
         assert_eq!(events[0].visual_plan.as_ref().unwrap().fx_route, expected);
+        let flashes = owner.combat_particles.systems_of_kind(
+            crate::game_logic::combat_particles::CombatParticleKind::WeaponMuzzleFlash,
+        );
+        if expected == FrozenWeaponVisualFxRoute::BroadcastWithFireFx {
+            assert_eq!(flashes.len(), 1);
+            assert_eq!(flashes[0].position, muzzle);
+        } else {
+            assert!(flashes.is_empty(), "suppressed FX creates no muzzle cue");
+        }
         assert_eq!(
             owner
                 .host_object(source)
@@ -179,4 +203,106 @@ fn passive_fire_keeps_muzzle_origin_and_effect_gates_do_not_suppress_ocl() {
             AIState::Garrisoned
         );
     }
+}
+
+#[test]
+fn nested_attack_acceptance_delivers_fire_effects_before_body_and_never_requeues_them() {
+    let (mut owner, source, target) = world(false, 0);
+    let (peer, peer_source, peer_target) = world(false, 0);
+    assert_eq!((source, target), (peer_source, peer_target));
+    assert_eq!(
+        owner.attack_state_enter(source, target),
+        crate::game_logic::AttackMachineResult::Continue
+    );
+    let mut accepted_frame = None;
+    for frame in 30..=45 {
+        owner.frame = frame;
+        // Normal combat must yield to this actual installed nested machine.
+        owner.update_combat(&[source, target], 1.0 / 30.0);
+        owner.tick_nested_attack_machines(&[source], frame as f32 / 30.0, frame);
+        if owner.weapon_discharge_log.len() != 0 {
+            accepted_frame = Some(frame);
+            break;
+        }
+    }
+    let frame = accepted_frame.expect("actual AIM then FireWeapon must accept one shot");
+    let fire = child(&owner, FIRE_CHILD);
+    let death = child(&owner, DEATH_CHILD);
+    assert!(
+        fire.0 < death.0,
+        "nested FireOCL precedes victim CreateObjectDie"
+    );
+    assert!(
+        owner.host_object(target).map_or(true, |victim| {
+            victim.health.current == 0.0 && !victim.is_alive()
+        }),
+        "real lethal Body phase completed"
+    );
+    assert_eq!(
+        owner
+            .host_object(source)
+            .unwrap()
+            .weapon
+            .as_ref()
+            .unwrap()
+            .ammo,
+        Some(2)
+    );
+    assert_eq!(owner.weapon_discharge_log.len(), 1);
+    assert_eq!(
+        crate::game_logic::combat::pending_projectile_queue_len_for_test(&owner.combat_system),
+        0
+    );
+    assert_eq!(
+        crate::game_logic::combat::live_projectileless_delayed_count_for_test(&owner.combat_system),
+        0
+    );
+    let flashes = owner.combat_particles.systems_of_kind(
+        crate::game_logic::combat_particles::CombatParticleKind::WeaponMuzzleFlash,
+    );
+    assert_eq!(flashes.len(), 1);
+    assert_eq!(flashes[0].fx_list_name, "ReceivingFireFX");
+    assert_eq!(flashes[0].position, Vec3::new(5.0, 0.0, 7.0));
+    owner.frame = frame + 1;
+    crate::game_logic::combat::drain_pending_projectiles(
+        &mut owner.combat_system,
+        &owner.objects,
+        owner.frame,
+    );
+    owner.apply_owned_projectileless_delayed_damage();
+    owner.tick_nested_attack_machines(&[source], owner.frame as f32 / 30.0, owner.frame);
+    assert_eq!(child(&owner, FIRE_CHILD), fire);
+    assert_eq!(child(&owner, DEATH_CHILD), death);
+    assert_eq!(
+        owner.weapon_discharge_log.len(),
+        1,
+        "later combat phase cannot replay this acceptance"
+    );
+    assert_eq!(
+        owner
+            .host_object(source)
+            .unwrap()
+            .weapon
+            .as_ref()
+            .unwrap()
+            .ammo,
+        Some(2)
+    );
+    assert_eq!(peer.host_object(peer_target).unwrap().health.current, 100.0);
+    assert_eq!(
+        peer.host_object(peer_source)
+            .unwrap()
+            .weapon
+            .as_ref()
+            .unwrap()
+            .ammo,
+        Some(3)
+    );
+    assert_eq!(peer.weapon_discharge_log.len(), 0);
+    assert!(
+        !peer
+            .host_objects()
+            .values()
+            .any(|object| object.template_name == FIRE_CHILD)
+    );
 }

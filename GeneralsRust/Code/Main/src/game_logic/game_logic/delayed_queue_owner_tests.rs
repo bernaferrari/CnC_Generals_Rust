@@ -224,12 +224,23 @@ fn delayed_deadline_wraps_cpp_u32_and_is_due_in_current_high_frame() {
     queue_authored_shot(&mut world, source, target, 40.0, 10.0);
     let mirrored =
         gamelogic::weapon::with_weapon_store(|store| store.delayed_damage_snapshot_residual())
-            .expect("actual materialization mirror store");
-    assert_eq!(mirrored.len(), 1);
+            .expect("independent Core store remains available");
+    assert!(
+        mirrored.is_empty(),
+        "Main must not publish a Core damage mirror"
+    );
     assert_eq!(world.objects[&target].health.current, hp);
     assert_eq!(
         live_projectileless_delayed_count_for_test(&world.combat_system),
         1
+    );
+
+    assert_eq!(
+        crate::game_logic::combat::last_live_projectileless_delayed_identity_for_test(
+            &world.combat_system
+        ),
+        Some((1, source, Some(target))),
+        "the receiving queue retains the wrapped deadline and identities"
     );
 
     // CPP Weapon.cpp1057 stores unsigned (MAX-1)+3 = 1; update1594
@@ -245,12 +256,6 @@ fn delayed_deadline_wraps_cpp_u32_and_is_due_in_current_high_frame() {
         live_projectileless_delayed_count_for_test(&world.combat_system),
         0
     );
-    assert_eq!(
-        mirrored[0].delay_damage_frame, 1,
-        "native WeaponStore receives the same frozen wrapped deadline"
-    );
-    assert_eq!(mirrored[0].delay_source_id, source.0);
-    assert_eq!(mirrored[0].delay_intended_victim_id, target.0);
     apply(&mut world, frame);
     apply(&mut world, 1);
     assert_eq!(
@@ -271,11 +276,18 @@ fn delayed_deadline_before_rollover_waits_until_normal_due_and_applies_once() {
     queue_authored_shot(&mut world, source, target, 40.0, 10.0);
     let mirrored =
         gamelogic::weapon::with_weapon_store(|store| store.delayed_damage_snapshot_residual())
-            .expect("actual materialization mirror store");
-    assert_eq!(mirrored.len(), 1);
-    assert_eq!(mirrored[0].delay_damage_frame, u32::MAX - 1);
-    assert_eq!(mirrored[0].delay_source_id, source.0);
-    assert_eq!(mirrored[0].delay_intended_victim_id, target.0);
+            .expect("independent Core store remains available");
+    assert!(
+        mirrored.is_empty(),
+        "Main must not publish a Core damage mirror"
+    );
+    assert_eq!(
+        crate::game_logic::combat::last_live_projectileless_delayed_identity_for_test(
+            &world.combat_system
+        ),
+        Some((u32::MAX - 1, source, Some(target))),
+        "the receiving queue retains exact CPP deadline and identities"
+    );
     assert_eq!(
         live_projectileless_delayed_count_for_test(&world.combat_system),
         1

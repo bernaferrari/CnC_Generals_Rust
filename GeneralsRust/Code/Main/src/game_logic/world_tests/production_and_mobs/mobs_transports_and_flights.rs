@@ -2484,6 +2484,10 @@ fn toxin_fire_ocl_spawns_field_after_min_shots_and_coast() {
 #[test]
 fn upgrade_die_removes_producer_drone_upgrade() {
     let mut game_logic = GameLogic::new();
+    super::super::super::world_combat::slaved_update_tests::install_slave_fixture(
+        &mut game_logic,
+        crate::game_logic::host_slave_drones::SlaveDroneKind::Scout,
+    );
     ensure_test_tank_template(&mut game_logic);
     // Humvee-like master.
     let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");

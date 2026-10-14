@@ -113,7 +113,8 @@ pub struct ThingTemplate {
     #[serde(default)]
     pub deploy_style_metadata: Option<DeployStyleMetadata>,
     #[serde(default)]
-    pub slaved_update_metadata: Option<crate::game_logic::host_slave_drones::SlavedUpdateMetadata>,
+    pub(crate) slaved_update_metadata:
+        Option<crate::game_logic::host_slave_drones::SlavedUpdateMetadata>,
     /// Exact `QueueProductionExitUpdate` or `DefaultProductionExitUpdate`
     /// module.  Missing data never grants a named producer a synthetic Queue
     /// delay, authored exit point, or batch-release policy.

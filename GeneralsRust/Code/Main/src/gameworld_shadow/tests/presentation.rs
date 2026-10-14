@@ -706,8 +706,9 @@ fn residual_acquire_query_source() {
     // nearest-target diversion must not override SlavedUpdate movement.
     let admission = include_str!("../../game_logic/world_tick/combat/admission.rs");
     assert!(!admission.contains("try_hellfire_drone_residual_fire"));
-    let discharge = include_str!("../../game_logic/world_tick/combat/discharge.rs");
-    let accepted = last_rust_fn_body(discharge,"commit_combat_shot").expect("ordinary accepted shot");
+    let discharge = include_str!("../../game_logic/world_combat/weapon_discharge.rs");
+    let accepted = last_rust_fn_body(discharge, "finish_accepted_weapon_discharge")
+        .expect("accepted shot from either attack owner");
     assert!(accepted.contains("hellfire_drone_residual_auto_fires"));
     let src = GAME_LOGIC_HOST_SRC;
     for name in [

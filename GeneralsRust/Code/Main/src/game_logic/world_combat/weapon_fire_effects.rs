@@ -3,6 +3,34 @@ use super::super::*;
 use super::AcceptedWeaponDischarge;
 
 impl GameLogic {
+    /// Finish one prepared shot synchronously, after releasing its Object loan.
+    /// All callers share CPP FireFX -> FireOCL -> delivery -> barrel ordering.
+    pub(in crate::game_logic) fn deliver_owned_weapon_shot(
+        &mut self,
+        slot: u8,
+        mut shot: crate::game_logic::combat::PendingProjectile,
+        capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
+    ) -> bool {
+        let accepted = self.begin_owned_weapon_effects(
+            shot.shooter_id,
+            slot,
+            shot.target_id,
+            shot.target_pos,
+            shot.shooter_pos,
+            capture,
+        );
+        // Accepted effects belong to this callback, never to later flight.
+        shot.fire_fx_name.clear();
+        shot.fire_ocl_name.clear();
+        self.materialize_owned_passive_shot(shot);
+        if let Some(accepted) = accepted {
+            self.finish_accepted_weapon_discharge(accepted);
+            true
+        } else {
+            false
+        }
+    }
+
     pub(in crate::game_logic) fn begin_owned_weapon_effects(
         &mut self,
         source: ObjectId,
@@ -53,10 +81,11 @@ impl GameLogic {
                 self.weapon_effect_definitions.fire(name, rank).map(|effects| effects.fire_ocl)
                     .unwrap_or_else(|| crate::game_logic::weapon_bootstrap::host_fire_ocl_for_weapon_name_at_veterancy(name, rank))
             }).unwrap_or_default();
-            let (team, orientation, velocity) = (
+            let (team, orientation, velocity, source_position) = (
                 object.team,
                 object.get_orientation(),
                 object.movement.velocity,
+                object.get_position(),
             );
             if !ocl.trim().is_empty() && !ocl.eq_ignore_ascii_case("None") {
                 self.execute_parsed_weapon_ocl_at(
@@ -66,7 +95,7 @@ impl GameLogic {
                     rank,
                     orientation,
                     velocity,
-                    origin,
+                    source_position,
                 );
             }
         }

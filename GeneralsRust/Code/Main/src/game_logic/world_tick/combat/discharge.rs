@@ -8,7 +8,7 @@ impl GameLogic {
         &mut self,
         input: CombatAttackInput,
         slot: u8,
-        visual: Option<crate::game_logic::world_combat::AcceptedWeaponDischarge>,
+        visual: Option<super::super::super::world_combat::AcceptedWeaponDischarge>,
     ) {
         let CombatAttackInput {
             attacker_id,
@@ -30,12 +30,6 @@ impl GameLogic {
                         target_has_faerie_fire,
                     )
                 });
-        if self.objects.get(&attacker_id).is_some_and(|object| {
-            crate::game_logic::host_slave_drones::is_hellfire_drone_template(&object.template_name)
-        }) {
-            self.hellfire_drone_residual_auto_fires =
-                self.hellfire_drone_residual_auto_fires.saturating_add(1);
-        }
         // Pathfinder residual sniper honesty (any successful fire from residual).
         if self
             .objects

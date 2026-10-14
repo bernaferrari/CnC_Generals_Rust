@@ -110,7 +110,9 @@ fn lifecycle_from_template(template: &ThingTemplate) -> Option<HostProjectileLif
     None
 }
 
-fn parse_dumb_projectile_lifecycle(data: &dyn EngineModuleData) -> Option<HostProjectileLifecycle> {
+pub(crate) fn parse_dumb_projectile_lifecycle(
+    data: &dyn EngineModuleData,
+) -> Option<HostProjectileLifecycle> {
     let max_lifespan_frames = optional_duration_frames(data, "MaxLifespan")?
         .unwrap_or(DUMB_PROJECTILE_DEFAULT_MAX_LIFESPAN_FRAMES);
     Some(HostProjectileLifecycle::DumbProjectile {
@@ -118,7 +120,9 @@ fn parse_dumb_projectile_lifecycle(data: &dyn EngineModuleData) -> Option<HostPr
     })
 }
 
-fn parse_missile_lifecycle(data: &dyn EngineModuleData) -> Option<HostProjectileLifecycle> {
+pub(crate) fn parse_missile_lifecycle(
+    data: &dyn EngineModuleData,
+) -> Option<HostProjectileLifecycle> {
     let try_to_follow_target = optional_bool(data, "TryToFollowTarget")?.unwrap_or(true);
     let fuel_lifetime_frames = optional_duration_frames(data, "FuelLifetime")?.unwrap_or(0);
     let detonate_on_no_fuel = optional_bool(data, "DetonateOnNoFuel")?.unwrap_or(false);

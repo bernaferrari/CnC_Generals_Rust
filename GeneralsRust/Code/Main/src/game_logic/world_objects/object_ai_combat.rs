@@ -49,7 +49,6 @@ impl GameLogic {
                                                 )
                                             }))
                                     {
-                                        let origin = attacker.get_position();
                                         let prepared = attacker.prepare_autonomous_weapon_shot(
                                             target_id,
                                             current_time,
@@ -59,23 +58,10 @@ impl GameLogic {
                                             &mut self.combat_system.fire_sound_loop_events,
                                             &mut self.attack_events,
                                         );
-                                        if let Some((slot, mut shot)) = prepared {
+                                        if let Some((slot, shot)) = prepared {
                                             let capture =
                                                 attacker.take_pending_weapon_visual_capture();
-                                            let accepted = self.begin_owned_weapon_effects(
-                                                object_id,
-                                                slot,
-                                                Some(target_id),
-                                                None,
-                                                origin,
-                                                capture,
-                                            );
-                                            shot.fire_fx_name.clear();
-                                            shot.fire_ocl_name.clear();
-                                            self.materialize_owned_passive_shot(shot);
-                                            if let Some(accepted) = accepted {
-                                                self.finish_accepted_weapon_discharge(accepted);
-                                            }
+                                            self.deliver_owned_weapon_shot(slot, shot, capture);
                                         }
                                     }
                                 }

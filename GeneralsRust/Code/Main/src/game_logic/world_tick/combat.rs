@@ -30,7 +30,7 @@ enum CombatShotResult {
     NoShot,
     Fired(
         u8,
-        Option<crate::game_logic::world_combat::AcceptedWeaponDischarge>,
+        Option<super::super::world_combat::AcceptedWeaponDischarge>,
     ),
 }
 impl GameLogic {

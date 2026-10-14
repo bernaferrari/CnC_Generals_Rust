@@ -490,7 +490,6 @@ fn heal_armor_absolute_hp_authority_source() {
         "fn apply_drone_armor_to_team",
         "fn apply_aircraft_armor_to_team",
         "fn apply_composite_armor_unlock_to_team",
-        "fn update_battle_drone_repair_residual",
         "fn activate_spy_drone",
         "fn apply_battle_plan_set_battle_plan",
     ] {
@@ -521,6 +520,11 @@ fn heal_armor_absolute_hp_authority_source() {
             "{fn_name} must route absolute HP writes through the owner health sink or authority-aware helper"
         );
     }
+    // Battle Drone repair no longer has an absolute-HP mirror writer: its
+    // receiving SlavedUpdate callback uses the typed Body healing operation.
+    let slave = include_str!("../../game_logic/world_combat/slaved_update.rs");
+    assert!(slave.contains("apply_residual_damage_owned"));
+    assert!(slave.contains("DamageType::Healing"));
 }
 
 #[test]

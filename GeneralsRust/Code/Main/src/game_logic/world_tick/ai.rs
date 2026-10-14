@@ -723,7 +723,9 @@ impl GameLogic {
 
     /// C++ SlavedUpdate::update — drones follow/guard/recall their producer master.
     pub(in super::super) fn update_slaved_drone_follow(&mut self, object_ids: &[ObjectId]) {
-        for &object in object_ids { self.update_owned_slaved_object(object); }
+        for &object in object_ids {
+            self.update_owned_slaved_object(object);
+        }
     }
 
     /// C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
@@ -815,116 +817,5 @@ fn heli_fx_fallback_sounds(fx: &str) -> Vec<String> {
         }
         "FX_HelicopterBladeExplosion" => vec!["ComancheSpinExplosion".into()],
         _ => Vec::new(),
-    }
-}
-
-/// C++ SlavedUpdate.cpp:196-258 attack / scout-ahead / 2×GuardMaxRange recall / guard.
-pub fn slaved_update_follow_goal(
-    drone_xz: (f32, f32),
-    master_xz: (f32, f32),
-    master_dest_xz: Option<(f32, f32)>,
-    victim_xz: Option<(f32, f32)>,
-    drone_idle: bool,
-    guard_max: f32,
-    attack_range: f32,
-    scout_range: f32,
-) -> Option<(f32, f32)> {
-    const STRAY_MULTIPLIER: f32 = 2.0;
-    const CLOSE_ENOUGH_SQR: f32 = 15.0 * 15.0;
-
-    let dist_sqr = |a: (f32, f32), b: (f32, f32)| {
-        let dx = a.0 - b.0;
-        let dz = a.1 - b.1;
-        dx * dx + dz * dz
-    };
-    let toward = |from: (f32, f32), to: (f32, f32), range: f32| {
-        let dx = to.0 - from.0;
-        let dz = to.1 - from.1;
-        let len = (dx * dx + dz * dz).sqrt();
-        if len <= f32::EPSILON {
-            to
-        } else {
-            (from.0 + dx / len * range, from.1 + dz / len * range)
-        }
-    };
-
-    if let Some(v) = victim_xz {
-        if attack_range > 0.0 {
-            if dist_sqr(drone_xz, v) > attack_range * attack_range {
-                return Some(toward(master_xz, v, attack_range));
-            }
-            return Some(v);
-        }
-    }
-    if let Some(dest) = master_dest_xz {
-        if scout_range > 0.0 {
-            let half = guard_max * 0.5;
-            if dist_sqr(master_xz, dest) > half * half {
-                if dist_sqr(drone_xz, dest) > scout_range * scout_range {
-                    return Some(toward(master_xz, dest, scout_range));
-                }
-                return Some(dest);
-            }
-        }
-    }
-    if guard_max > 0.0 {
-        if dist_sqr(drone_xz, master_xz) > (STRAY_MULTIPLIER * guard_max).powi(2) {
-            return Some(master_xz);
-        }
-        if drone_idle && dist_sqr(drone_xz, master_xz) > CLOSE_ENOUGH_SQR {
-            return Some(master_xz);
-        }
-    }
-    None
-}
-
-#[cfg(test)]
-mod slaved_follow_tests {
-    use super::slaved_update_follow_goal;
-
-    #[test]
-    fn slaved_update_recalls_past_two_times_guard_max() {
-        // C++ SlavedUpdate.cpp:253 STRAY_MULTIPLIER 2.0 * GuardMaxRange 35.
-        let goal = slaved_update_follow_goal(
-            (0.0, 0.0),
-            (100.0, 0.0),
-            None,
-            None,
-            false,
-            35.0,
-            75.0,
-            75.0,
-        );
-        assert_eq!(goal, Some((100.0, 0.0)));
-    }
-
-    #[test]
-    fn slaved_update_scouts_ahead_of_master_dest() {
-        let goal = slaved_update_follow_goal(
-            (0.0, 0.0),
-            (0.0, 0.0),
-            Some((200.0, 0.0)),
-            None,
-            true,
-            35.0,
-            75.0,
-            75.0,
-        );
-        assert_eq!(goal, Some((75.0, 0.0)));
-    }
-
-    #[test]
-    fn slaved_update_attacks_master_victim() {
-        let goal = slaved_update_follow_goal(
-            (0.0, 0.0),
-            (0.0, 0.0),
-            None,
-            Some((200.0, 0.0)),
-            true,
-            35.0,
-            75.0,
-            75.0,
-        );
-        assert_eq!(goal, Some((75.0, 0.0)));
     }
 }

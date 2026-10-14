@@ -102,6 +102,7 @@ pub mod host_radar;
 pub mod partition_coi;
 pub mod partition_manager;
 pub mod pathfinding;
+pub(crate) mod projectile_definitions;
 pub mod radar_notifications;
 pub mod resources;
 pub mod script_events;

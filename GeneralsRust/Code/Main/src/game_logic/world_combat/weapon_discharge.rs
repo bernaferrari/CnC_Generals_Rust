@@ -180,6 +180,14 @@ impl GameLogic {
             .get_mut(&event.source)
             .filter(|object| object.visual_object_generation == accepted.source_generation)
         {
+            // Both combat owners count the same accepted discharge, never an
+            // aiming-only update or a replacement source with the same ID.
+            if crate::game_logic::host_slave_drones::is_hellfire_drone_template(
+                &object.template_name,
+            ) {
+                self.hellfire_drone_residual_auto_fires =
+                    self.hellfire_drone_residual_auto_fires.saturating_add(1);
+            }
             object.stamp_weapon_discharge_marker(WeaponDischargeMarker {
                 sequence: event.sequence,
                 weapon_slot: event.weapon_slot,

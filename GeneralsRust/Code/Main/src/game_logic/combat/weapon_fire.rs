@@ -137,9 +137,8 @@ fn host_vec_to_leftover_coord(pos: Vec3) -> gamelogic::common::Coord3D {
 }
 
 /// Live-host delayed damage for projectileless finite-speed weapons.
-/// Leftover `WeaponStore::m_weaponDDI` is the C++ queue; this applies HP on
-/// live objects because leftover `dealDamageInternal` looks up leftover
-/// GameObjects that the player path does not own.
+/// Receiving equivalent of CPP WeaponStore::m_weaponDDI. Main owns both the
+/// accepted shot and its eventual Body callback; Core receives no mirror.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(in crate::game_logic) struct LiveProjectilelessDelayedDamage {
     when: u32,
@@ -445,6 +444,19 @@ pub fn live_projectileless_delayed_count_for_test(combat: &CombatSystem) -> usiz
     combat.projectileless_delayed.len()
 }
 
+#[cfg(test)]
+pub fn last_live_projectileless_delayed_identity_for_test(
+    combat: &CombatSystem,
+) -> Option<(u32, ObjectId, Option<ObjectId>)> {
+    combat.projectileless_delayed.last().map(|entry| {
+        (
+            entry.when,
+            entry.pending.shooter_id,
+            entry.pending.target_id,
+        )
+    })
+}
+
 /// C++ `TheTerrainLogic->getBridgeAttackPoints` nearer end (Weapon.cpp:819-831).
 pub fn nearer_live_bridge_attack_point(from: glam::Vec3, victim: &Object) -> glam::Vec3 {
     let pos = victim.get_position();
@@ -469,7 +481,7 @@ pub fn drain_pending_projectiles(
     let pending = std::mem::take(&mut combat.pending_projectiles);
 
     for p in pending {
-        if let Some(immediate) = materialize_accepted_projectile(combat, objects, frame, p) {
+        if let Some(immediate) = materialize_accepted_projectile(combat, objects, frame, p, None) {
             combat.projectileless_delayed.push(immediate);
         }
     }
@@ -485,15 +497,19 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     objects: &HashMap<ObjectId, Object>,
     frame: u32,
     p: PendingProjectile,
+    profile: Option<&crate::game_logic::projectile_definitions::ProjectileProfile>,
 ) -> Option<LiveProjectilelessDelayedDamage> {
     // Queue acceptance normally froze this field. Retain the parsed-only
     // fallback for legacy shadow records created before that bridge; an
     // absent/unresolved Object INI still remains `None`.
-    let projectile_lifecycle = p.projectile_lifecycle.or_else(|| {
-        crate::game_logic::weapon_bootstrap::host_projectile_lifecycle_for_object_name(
-            &p.projectile_object_name,
-        )
-    });
+    let projectile_lifecycle = profile
+        .map(|p| p.lifecycle)
+        .or(p.projectile_lifecycle)
+        .or_else(|| {
+            crate::game_logic::weapon_bootstrap::host_projectile_lifecycle_for_object_name(
+                &p.projectile_object_name,
+            )
+        });
     // C++ Weapon::fireWeaponTemplate executes FireOCL at the source when
     // the weapon fires, independent of whether a later projectile target
     // can still be resolved.  Freeze the source state at launch because
@@ -716,6 +732,9 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         proj.die_on_detonate = p.die_on_detonate;
         proj.projectile_collides = p.projectile_collides;
         proj.set_projectile_lifecycle(projectile_lifecycle);
+        if let Some(profile) = profile {
+            proj.flight = Some(profile.flight.clone());
+        }
         proj.bind_authored_flight(p.shooter_pos, target_pos, flight_speed_per_second);
         proj.is_small_missile = host_projectile_is_small_missile(proj);
     }

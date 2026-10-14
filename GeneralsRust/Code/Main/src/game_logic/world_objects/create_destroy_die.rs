@@ -1337,15 +1337,21 @@ impl GameLogic {
             let is_structure = template.is_kind_of(KindOf::Structure);
             let counts_as_unit = Self::template_counts_as_unit(&template);
             let id = self.allocate_object_id();
-            // Resolve weapons / locomotor before move into Object.
-            let weapon = template.resolve_primary_weapon(self.frame);
-            let secondary_weapon = template.resolve_secondary_weapon(self.frame);
-            let tertiary_weapon = template.resolve_tertiary_weapon(self.frame);
-            template.bind_selected_weapon_sets([
-                weapon.clone(),
-                secondary_weapon.clone(),
-                tertiary_weapon.clone(),
-            ]);
+            // Instantiate the receiving immutable WeaponSet once, before
+            // onCreate. Never replace an admitted local row with an ambient
+            // catalog lookup; ordinary unbound templates still resolve here.
+            let [weapon, secondary_weapon, tertiary_weapon] =
+                if let Some(row) = template.instantiate_base_weapon_row(self.frame) {
+                    row
+                } else {
+                    let row = [
+                        template.resolve_primary_weapon(self.frame),
+                        template.resolve_secondary_weapon(self.frame),
+                        template.resolve_tertiary_weapon(self.frame),
+                    ];
+                    template.bind_selected_weapon_sets(row.clone());
+                    row
+                };
             let movement_stats = template.resolve_movement();
             let loco_binding = template
                 .locomotor_name
@@ -1563,7 +1569,10 @@ impl GameLogic {
             if let Some(data) = object.get_template().slaved_update_metadata.as_ref() {
                 let repairs = data.repair_rate > 0.0;
                 object.slaved_update = Some(Default::default());
-                if repairs { object.model_condition_bits |= gamelogic::common::ModelConditionFlags::PACKING.bits() as u32; }
+                if repairs {
+                    object.model_condition_bits |=
+                        gamelogic::common::ModelConditionFlags::PACKING.bits() as u128;
+                }
             }
             object.install_tensile_formation_if_needed();
             if object.has_tensile_formation() {

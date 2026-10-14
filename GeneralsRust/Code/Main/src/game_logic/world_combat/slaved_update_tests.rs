@@ -26,6 +26,8 @@ Object OwnedSlaveRepair
  End
  Behavior = SlavedUpdate OwnedSlaveUpdate
   GuardMaxRange = 40
+  AttackRange = 75
+  ScoutRange = 75
   RepairRatePerSecond = 30
   RepairWhenHealthBelowPercentage = 50
   RepairMinReadyTime = 66
@@ -281,4 +283,170 @@ fn missing_selected_locomotor_does_not_run_or_mutate_slave_callback() {
     assert_eq!(after.repair_state, before.repair_state);
     assert_eq!(game.host_object(master).unwrap().health.current, 40.0);
     assert_eq!(game.battle_drone_residual_repairs, 0);
+}
+
+fn move_goal(game: &GameLogic, drone: crate::game_logic::ObjectId) -> [f32; 3] {
+    let owner = game.host_object(drone).unwrap();
+    let goal = owner
+        .movement
+        .path
+        .last()
+        .copied()
+        .expect("actual Slaved move must install a receiving path");
+    assert_eq!(owner.requested_destination, Some(goal));
+    assert_eq!(owner.path_goal_position, Some(goal));
+    assert!(!owner.waiting_for_path);
+    assert!(owner.status.moving);
+    [goal.x, goal.y, goal.z]
+}
+
+#[test]
+fn slaved_update_recalls_past_two_times_guard_max() {
+    let (mut game, master, drone) = world();
+    game.host_object_mut(master)
+        .unwrap()
+        .set_position(Vec3::new(100.0, 0.0, 0.0));
+    game.host_object_mut(drone)
+        .unwrap()
+        .slaved_update
+        .as_mut()
+        .unwrap()
+        .guard_offset = Vec3::ZERO;
+    game.update_owned_slaved_object(drone);
+    assert_eq!(move_goal(&game, drone), [100.0, 0.0, 0.0]);
+    assert_eq!(
+        game.host_object(drone).unwrap().ai_state,
+        crate::game_logic::AIState::Moving
+    );
+}
+#[test]
+fn slaved_update_scouts_ahead_of_actual_master_path() {
+    let (mut game, master, drone) = world();
+    game.host_object_mut(master).unwrap().movement.path =
+        vec![Vec3::ZERO, Vec3::new(200.0, 0.0, 0.0)];
+    game.update_owned_slaved_object(drone);
+    assert_eq!(move_goal(&game, drone), [75.0, 0.0, 0.0]);
+}
+#[test]
+fn slaved_update_moves_toward_master_victim_not_nearest_enemy() {
+    let (mut game, master, drone) = world();
+    game.add_player(Player::new(1, Team::China, "enemy", false));
+    let mut target = ThingTemplate::new("SlaveVictim");
+    target
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable);
+    game.templates.insert(target.name.clone(), target);
+    let far = game
+        .create_object_for_player("SlaveVictim", 1, Vec3::new(200.0, 0.0, 0.0))
+        .unwrap();
+    let _near = game
+        .create_object_for_player("SlaveVictim", 1, Vec3::new(10.0, 0.0, 0.0))
+        .unwrap();
+    game.host_object_mut(master).unwrap().target = Some(far);
+    game.update_owned_slaved_object(drone);
+    assert_eq!(move_goal(&game, drone), [75.0, 0.0, 0.0]);
+    assert_eq!(
+        game.host_object(drone).unwrap().target,
+        None,
+        "Slaved attack logic issues movement, not forced weapon targeting"
+    );
+}
+
+/// Shared authored fixture admission used by real containing slave controls.
+/// Definition values are explicit fixture inputs; no name-based runtime logic.
+pub(in crate::game_logic) fn install_slave_fixture(
+    game: &mut GameLogic,
+    kind: crate::game_logic::host_slave_drones::SlaveDroneKind,
+) {
+    use crate::game_logic::host_slave_drones::SlaveDroneKind;
+    let (rate, primary, vision) = match kind {
+        SlaveDroneKind::Battle => (10, "BattleDroneMachineGun", 150),
+        SlaveDroneKind::Hellfire => (0, "HellfireMissileWeapon", 100),
+        SlaveDroneKind::Scout => (0, "", 150),
+    };
+    let name = kind.template_name();
+    let text = format!(
+        r#"
+Object {name}
+ KindOf = VEHICLE SELECTABLE ATTACKABLE
+ VisionRange = {vision}
+ Locomotor = SET_NORMAL ComancheLocomotor
+ Behavior = AIUpdateInterface FixtureSlaveAI
+  AutoAcquireEnemiesWhenIdle = Yes
+ End
+ Behavior = SlavedUpdate FixtureSlaved
+  GuardMaxRange = 35
+  GuardWanderRange = 35
+  AttackRange = 75
+  ScoutRange = 75
+  RepairRatePerSecond = {rate}
+  RepairWhenHealthBelowPercentage = 60
+  RepairMinReadyTime = 300
+  RepairMaxReadyTime = 750
+  RepairMinWeldTime = 1000
+  RepairMaxWeldTime = 1500
+  RepairMinAltitude = 5
+  RepairMaxAltitude = 10
+  StayOnSameLayerAsMaster = Yes
+ End
+End
+"#
+    );
+    let mut parser = crate::assets::IniParser::new();
+    parser
+        .parse_ini_content(&text, "containing-slave-owner.ini")
+        .unwrap();
+    let mut template = GameLogic::build_template_from_object_definition(
+        name,
+        parser.get_definition(name).unwrap(),
+        None,
+    );
+    if !primary.is_empty() {
+        template.set_primary_weapon_name(primary);
+    }
+    if matches!(kind, SlaveDroneKind::Hellfire) {
+        // Exact Weapon.ini Hellfire facts, converted locally before factory
+        // admission. A unique fixture name prevents partial ambient catalogs
+        // from replacing this receiving immutable definition.
+        let mut weapon = gamelogic::weapon::WeaponTemplate::new("OwnedAuthoredHellfire".into());
+        weapon.primary_damage = 40.0;
+        weapon.primary_damage_radius = 5.0;
+        weapon.attack_range = 150.0;
+        weapon.weapon_speed = 600.0 / 30.0;
+        weapon.min_weapon_speed = 600.0 / 30.0;
+        weapon.min_delay_between_shots = 30;
+        weapon.max_delay_between_shots = 30;
+        weapon.clip_size = 1;
+        weapon.clip_reload_time = 60;
+        weapon.infantry_inaccuracy_dist = 10.0;
+        weapon.aim_delta = std::f32::consts::PI;
+        weapon.damage_type = gamelogic::damage::DamageType::Explosion;
+        weapon.death_type = gamelogic::damage::DeathType::Exploded;
+        weapon.projectile_name = "MissileDefenderMissile".into();
+        weapon.affects_mask = gamelogic::weapon::WeaponAffectsMask::new(
+            gamelogic::weapon::WeaponAffectsMask::ALLIES
+                | gamelogic::weapon::WeaponAffectsMask::ENEMIES
+                | gamelogic::weapon::WeaponAffectsMask::NEUTRALS,
+        );
+        template.set_primary_weapon_name("OwnedAuthoredHellfire");
+        template.bind_native_weapon_row([Some(&weapon), None, None]);
+        assert!(game.projectile_definitions.admit_object_ini(
+            "MissileDefenderMissile",
+            r#"
+Object MissileDefenderMissile
+ KindOf = PROJECTILE SMALL_MISSILE
+ Behavior = MissileAIUpdate FixtureMissile
+  TryToFollowTarget = Yes
+  FuelLifetime = 3000
+  InitialVelocity = 150
+  IgnitionDelay = 0
+  DistanceToTravelBeforeTurning = 3
+ End
+End
+"#
+        ));
+    }
+
+    assert!(template.slaved_update_metadata.is_some());
+    game.templates.insert(name.into(), template);
 }

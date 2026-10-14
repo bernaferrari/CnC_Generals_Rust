@@ -852,8 +852,12 @@ fn residual_auto_fire_damage_source_attribution_source() {
         last_rust_fn_body(passive, "fire_owned_passive_weapon").expect("actual passive driver");
     assert!(
         body.contains("prepare_passive_weapon_shot")
-            && body.contains("materialize_owned_passive_shot(shot)")
+            && body.contains("deliver_owned_weapon_shot(slot, shot, capture)")
     );
+    let effects = include_str!("../../game_logic/world_combat/weapon_fire_effects.rs");
+    let delivery = last_rust_fn_body(effects, "deliver_owned_weapon_shot")
+        .expect("receiving accepted-shot delivery");
+    assert!(delivery.contains("materialize_owned_passive_shot(shot)"));
     let attack = include_str!("../../game_logic/object/attack.rs");
     let shot = last_rust_fn_body(attack, "prepare_weapon_shot").expect("shared real shot");
     assert!(

@@ -335,7 +335,7 @@ impl GameLogic {
             | M::RELOADING_B
             | M::RELOADING_C;
         object.model_condition_bits =
-            (object.model_condition_bits & !(clear.bits() as u32)) | flag.bits() as u32;
+            (object.model_condition_bits & !(clear.bits() as u128)) | flag.bits() as u128;
     }
     fn slave_set_repair(
         &mut self,
