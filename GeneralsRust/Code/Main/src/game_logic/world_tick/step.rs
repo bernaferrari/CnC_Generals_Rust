@@ -517,14 +517,15 @@ impl GameLogic {
         // Phase 6: Object Updates -- Sleepy heap (C++ GameLogic.cpp:3699-3740)
         // -----------------------------------------------------------------------
         // C++ ticks UpdateModules via m_sleepyUpdates (wake_frame, phase).
-        // Host residuals are scheduled the same way: drain due modules, then
-        // run the matching system tick. UPDATE_SLEEP_NONE → next frame.
+        // These remaining system obligations share the indexed heap mechanics.
+        // Keep the original entry installed through its callback, then finish
+        // it before inspecting the next due entry. Per-object module admission
+        // and projectile phase dispatch remain tracked in hq-om90a.
         // C++ clamps registration wake frames to 1, but compares them with
         // the actual current frame. Clamping the tick repeats frame 1.
         let now = self.frame;
-        let due = self.host_sleepy.drain_due(now);
-        for kind in due {
-            match kind {
+        while let Some(token) = self.host_sleepy.next_due(now) {
+            match token.kind {
                 super::HostSleepyKind::Construction => {
                     self.update_construction(&object_ids, dt);
                 }
@@ -550,6 +551,7 @@ impl GameLogic {
                     update_special_powers();
                 }
             }
+            self.host_sleepy.finish(token, now, 1);
         }
 
         // Host superweapon residual: complete queued DaisyCutter / A10 / Scud /
