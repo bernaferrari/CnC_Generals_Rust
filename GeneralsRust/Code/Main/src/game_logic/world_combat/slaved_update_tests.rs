@@ -1,7 +1,5 @@
 //! Actual receiving SlavedUpdate callback order (CPP SlavedUpdate.cpp:91–261,410–674).
-use crate::game_logic::host_slave_drones::{
-    BattleDroneRepairState as Repair, SlavedUpdateMetadata,
-};
+use crate::game_logic::host_slave_drones::BattleDroneRepairState as Repair;
 use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
 use glam::Vec3;
 fn world() -> (
@@ -17,20 +15,35 @@ fn world() -> (
         .add_kind_of(KindOf::Attackable)
         .set_health(100.0);
     game.templates.insert(master.name.clone(), master);
-    let mut drone = ThingTemplate::new("OwnedSlaveRepair");
-    drone
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Attackable);
-    drone.slaved_update_metadata = Some(SlavedUpdateMetadata {
-        guard_max_range: 40.0,
-        repair_rate: 30.0,
-        repair_priority_percent: 50,
-        min_ready_frames: 2,
-        max_ready_frames: 2,
-        min_weld_frames: 3,
-        max_weld_frames: 3,
-        ..Default::default()
-    });
+    // Actual authored locomotor + SlavedUpdate factory path; a mobile KindOf
+    // alone is not CPP getCurLocomotor admission (SlavedUpdate.cpp:109–119).
+    let text = r#"
+Object OwnedSlaveRepair
+ KindOf = VEHICLE ATTACKABLE
+ Locomotor = SET_NORMAL ComancheLocomotor
+ Behavior = AIUpdateInterface OwnedSlaveAI
+  AutoAcquireEnemiesWhenIdle = Yes
+ End
+ Behavior = SlavedUpdate OwnedSlaveUpdate
+  GuardMaxRange = 40
+  RepairRatePerSecond = 30
+  RepairWhenHealthBelowPercentage = 50
+  RepairMinReadyTime = 66
+  RepairMaxReadyTime = 66
+  RepairMinWeldTime = 100
+  RepairMaxWeldTime = 100
+ End
+End
+"#;
+    let mut parser = crate::assets::IniParser::new();
+    parser.parse_ini_content(text, "slaved-owner.ini").unwrap();
+    let drone = GameLogic::build_template_from_object_definition(
+        "OwnedSlaveRepair",
+        parser.get_definition("OwnedSlaveRepair").unwrap(),
+        None,
+    );
+    let data = drone.slaved_update_metadata.as_ref().unwrap();
+    assert_eq!((data.min_ready_frames, data.min_weld_frames), (2, 3));
     game.templates.insert(drone.name.clone(), drone);
     let master = game
         .create_object_for_player("OwnedSlaveMaster", 0, Vec3::ZERO)
@@ -38,6 +51,13 @@ fn world() -> (
     let drone = game
         .create_object_for_player("OwnedSlaveRepair", 0, Vec3::ZERO)
         .unwrap();
+    assert!(
+        game.host_object(drone)
+            .unwrap()
+            .selected_locomotor_definition
+            .is_some(),
+        "factory must bind the actual selected locomotor definition"
+    );
     assert!(game.enslave_owned_drone(drone, master));
     (game, master, drone)
 }
@@ -183,6 +203,35 @@ fn normal_encoded_save_preserves_exact_repair_wait_and_resumed_body_healing() {
         game.host_object(master).unwrap().health.current
     );
     assert!(restored.host_object(master).unwrap().health.current > 40.0);
+    // CPP xfer stores m_slaver verbatim; a removed master is resolved by the
+    // next actual update, not rejected or repaired by loading.
+    game.objects.remove(&master);
+    manager.save_game("slave_missing", &game, &info).unwrap();
+    let (missing, _) = manager.load_game_snapshot("slave_missing").unwrap();
+    let mut lost = GameLogic::new();
+    lost.templates = game.templates.clone();
+    manager.restore_game_snapshot(&missing, &mut lost).unwrap();
+    assert_eq!(
+        lost.host_object(drone)
+            .unwrap()
+            .slaved_update
+            .as_ref()
+            .unwrap()
+            .master,
+        Some(master)
+    );
+    assert!(!lost.host_object(drone).unwrap().status.disabled_unmanned);
+    lost.update_owned_slaved_object(drone);
+    assert_eq!(
+        lost.host_object(drone)
+            .unwrap()
+            .slaved_update
+            .as_ref()
+            .unwrap()
+            .master,
+        None
+    );
+    assert!(lost.host_object(drone).unwrap().status.disabled_unmanned);
 }
 
 #[test]
@@ -204,4 +253,32 @@ fn captured_master_transfers_actual_slave_owner_before_repair_observation() {
         peer.host_object(peer_drone).unwrap().owner_player_id,
         Some(0)
     );
+}
+
+#[test]
+fn missing_selected_locomotor_does_not_run_or_mutate_slave_callback() {
+    let (mut game, master, drone) = world();
+    game.host_object_mut(master)
+        .unwrap()
+        .internal_change_health(-60.0);
+    game.host_object_mut(drone)
+        .unwrap()
+        .selected_locomotor_definition = None;
+    let before = game
+        .host_object(drone)
+        .unwrap()
+        .slaved_update
+        .clone()
+        .unwrap();
+    game.update_owned_slaved_object(drone);
+    let after = game
+        .host_object(drone)
+        .unwrap()
+        .slaved_update
+        .as_ref()
+        .unwrap();
+    assert_eq!(after.frames_to_wait, before.frames_to_wait);
+    assert_eq!(after.repair_state, before.repair_state);
+    assert_eq!(game.host_object(master).unwrap().health.current, 40.0);
+    assert_eq!(game.battle_drone_residual_repairs, 0);
 }

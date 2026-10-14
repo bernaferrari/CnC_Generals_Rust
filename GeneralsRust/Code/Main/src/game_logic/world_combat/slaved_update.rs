@@ -81,7 +81,7 @@ impl GameLogic {
         let Some((data, mut state)) = self
             .objects
             .get(&id)
-            .filter(|o| o.is_alive() && o.is_mobile())
+            .filter(|o| o.is_alive() && o.selected_locomotor_definition.is_some())
             .and_then(|o| {
                 Some((
                     o.thing().template.slaved_update_metadata.clone()?,
@@ -150,7 +150,12 @@ impl GameLogic {
         };
         if !allied {
             if let Some(drone) = self.objects.get_mut(&id) {
-                drone.set_team_and_owner(master_team, master_owner, &mut self.ownership_events);
+                drone.set_team_and_owner_with_factory(
+                    master_team,
+                    master_owner,
+                    &self.team_factory,
+                    &mut self.ownership_events,
+                );
             }
         }
         if let Some(drone) = self.objects.get_mut(&id) {

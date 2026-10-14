@@ -30,9 +30,11 @@ impl GameLogic {
                         target_has_faerie_fire,
                     )
                 });
-        if self.objects.get(&attacker_id).is_some_and(|object|
-            crate::game_logic::host_slave_drones::is_hellfire_drone_template(&object.template_name)) {
-            self.hellfire_drone_residual_auto_fires = self.hellfire_drone_residual_auto_fires.saturating_add(1);
+        if self.objects.get(&attacker_id).is_some_and(|object| {
+            crate::game_logic::host_slave_drones::is_hellfire_drone_template(&object.template_name)
+        }) {
+            self.hellfire_drone_residual_auto_fires =
+                self.hellfire_drone_residual_auto_fires.saturating_add(1);
         }
         // Pathfinder residual sniper honesty (any successful fire from residual).
         if self
@@ -160,16 +162,24 @@ impl GameLogic {
         // (TestTank has no Weapon.ini name). Residual muzzle/impact
         // still registers so fire is observable; named FireFX stays
         // on the dispatch path. See combat_fire_fx.rs.
-        self.spawn_residual_muzzle_when_dispatch_has_no_fire_fx(
-            suppress_fire_fx,
-            &fire_fx,
-            &det_fx,
-            muzzle_pos,
-            impact_pos,
-            fire_frame,
-            attacker_id,
-            fire_target,
-        );
+        // The accepted definition was sampled before callbacks. A promotion
+        // or a receiving-only definition must not create a second generic
+        // muzzle after its named FireFX already ran (or was suppressed).
+        if !visual
+            .as_ref()
+            .is_some_and(|shot| shot.has_authored_fire_fx)
+        {
+            self.spawn_residual_muzzle_when_dispatch_has_no_fire_fx(
+                suppress_fire_fx,
+                &fire_fx,
+                &det_fx,
+                muzzle_pos,
+                impact_pos,
+                fire_frame,
+                attacker_id,
+                fire_target,
+            );
+        }
         // C++ Weapon.ini LaserName residual: short-lived combat beam for
         // presentation / laser_segment_upload observe path.
         {

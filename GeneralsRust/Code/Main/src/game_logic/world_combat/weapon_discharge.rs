@@ -10,6 +10,7 @@ use super::super::*;
 /// Owned continuation across fire effects and damage callbacks. The captured
 /// barrel and source generation survive without retaining a mutable object loan.
 pub(in crate::game_logic) struct AcceptedWeaponDischarge {
+    pub(in crate::game_logic) has_authored_fire_fx: bool,
     event: crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent,
     source_generation: u64,
     skip_object_barrel: bool,
@@ -157,6 +158,9 @@ impl GameLogic {
             visual_plan,
         };
         Some(AcceptedWeaponDischarge {
+            has_authored_fire_fx: pending
+                .as_ref()
+                .is_some_and(|capture| capture.selected_fx_is_present),
             event,
             source_generation: source_object_generation,
             skip_object_barrel: pending

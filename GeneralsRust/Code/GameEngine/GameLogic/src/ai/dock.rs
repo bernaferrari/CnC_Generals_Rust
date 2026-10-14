@@ -1000,7 +1000,6 @@ impl DockState for AIDockMoveToDockState {
             dock.get_dock_position(
                 owner.read().map(|g| g.get_id()).unwrap_or(0),
                 &mut goal_position,
-                selected_airborne(ai),
             )
             .into_string_err()?;
             self.move_helper.set_goal_position(goal_position);
@@ -1353,7 +1352,6 @@ impl DockState for AIDockMoveToExitState {
             dock.get_exit_position(
                 owner.read().map(|g| g.get_id()).unwrap_or(0),
                 &mut goal_position,
-                selected_airborne(ai),
             )
             .into_string_err()?;
             self.move_helper.set_goal_position(goal_position);

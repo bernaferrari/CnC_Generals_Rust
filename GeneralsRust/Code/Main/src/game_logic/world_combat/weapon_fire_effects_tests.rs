@@ -106,6 +106,11 @@ fn normal_fire_ocl_precedes_lethal_body_callback_and_save_never_replays_it() {
         Some(2)
     );
     assert_eq!(owner.weapon_discharge_log.len(), 1);
+    let muzzle = owner.combat_particles.systems_of_kind(
+        crate::game_logic::combat_particles::CombatParticleKind::WeaponMuzzleFlash,
+    );
+    assert_eq!(muzzle.len(), 1, "named FireFX has no second generic muzzle");
+    assert_eq!(muzzle[0].fx_list_name, "ReceivingFireFX");
     assert_eq!(peer.weapon_discharge_log.len(), 0);
     assert_eq!(peer.host_object(peer_target).unwrap().health.current, 100.0);
     assert!(
