@@ -790,9 +790,6 @@ pub fn tunnel_tracker_heal_amount(
     contained_frames: u32,
     frames_for_full_heal: u32,
 ) -> f32 {
-    if max_health <= 0.0 {
-        return 0.0;
-    }
     if contained_frames >= frames_for_full_heal {
         max_health
     } else {

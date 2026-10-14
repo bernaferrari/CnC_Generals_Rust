@@ -159331,7 +159331,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "023d8e628adfef03167d44b79390f79c90d8190958edc89caa10057584cf0866",
+  "input_digest": "f3a7ab931ed190149a0852f348f2daa75f28017219cf70d8d1b36b434c4c2e59",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -201903,11 +201903,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3892,
+        "end_line": 3893,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/garrison_contain.rs",
-      "sha256": "1f4ad85ea45565d1bd141cdac7811caba328f31eed756817109e785f4fb3720e",
+      "sha256": "e4ae5c63ddb1c54d0102e5176a204fa12fc76616e3eb3e313b7ec6369fa6c755",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

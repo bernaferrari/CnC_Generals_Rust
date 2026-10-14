@@ -45,73 +45,27 @@ impl GameLogic {
                     .tunnel_network
                     .contained_by_frame(unit_id)
                     .unwrap_or(self.frame);
-                let contained_frames = self.frame.saturating_sub(enter_frame);
+                let contained_frames = self.frame.wrapping_sub(enter_frame);
                 let done = heal_contain_done(contained_frames, frames);
-                let mut healed = false;
-                if let Some(unit) = self.objects.get_mut(&unit_id) {
-                    let amount =
-                        tunnel_tracker_heal_amount(unit.health.maximum, contained_frames, frames);
+                if let Some(amount) = self.objects.get(&unit_id).map(|unit| {
+                    tunnel_tracker_heal_amount(unit.health.maximum, contained_frames, frames)
+                }) {
+                    // CPP HealContain::doHeal uses the container source and
+                    // finishes Body callbacks before exit/next-passenger work.
+                    let _ = self.apply_owned_healing(unit_id, amount, Some(container_id));
                     if amount > 0.0 {
-                        unit.heal(amount, &mut self.health_events, self.frame);
-                        healed = true;
+                        self.tunnel_network.record_heal_tick();
                     }
-                }
-                if healed {
-                    self.tunnel_network.record_heal_tick();
                 }
                 if !done {
                     continue;
                 }
-                if let Some(container) = self.objects.get_mut(&container_id) {
-                    let _ = container.remove_occupant(unit_id, &mut self.ownership_events);
-                }
-                // C++ HealContain::update → exitObjectViaDoor (ExitStart/End + path).
+                // OpenContain::reserveDoorForExit returns DOOR_1 for
+                // HealContain, even while its door countdown is active. The
+                // receiving exit operation removes the passenger exactly once.
                 self.walk_unit_via_open_contain_exit(unit_id, container_id);
                 self.tunnel_network.clear_contained_by_frame(unit_id);
                 self.tunnel_network.record_heal_auto_exit();
-            }
-        }
-
-        let mut garrison_jobs: Vec<(u32, Vec<ObjectId>)> = Vec::new();
-        for obj in self.objects.values() {
-            if obj.thing().template.contain_module.kind
-                != crate::game_logic::thing::ContainModuleKind::Garrison
-            {
-                continue;
-            }
-            // C++ GarrisonContain::update heals only when HealObjects=Yes
-            // (`healObjects`). Retail bunkers author both HealObjects and
-            // TimeForFullHeal — skip this unguarded sliver so they do not
-            // double-heal with the HealObjects pass below.
-            if obj.thing().template.contain_module.heal_objects {
-                continue;
-            }
-            if !obj.is_alive() || obj.status.under_construction {
-                continue;
-            }
-            let Some(frames) = obj.thing().template.contain_module.frames_for_full_heal else {
-                continue;
-            };
-            let occupants = obj.contained_units();
-            if occupants.is_empty() {
-                continue;
-            }
-            garrison_jobs.push((frames, occupants));
-        }
-        for (frames, occupants) in garrison_jobs {
-            for unit_id in occupants {
-                let enter_frame = self
-                    .tunnel_network
-                    .contained_by_frame(unit_id)
-                    .unwrap_or(self.frame);
-                let contained_frames = self.frame.saturating_sub(enter_frame);
-                if let Some(unit) = self.objects.get_mut(&unit_id) {
-                    let amount =
-                        tunnel_tracker_heal_amount(unit.health.maximum, contained_frames, frames);
-                    if amount > 0.0 {
-                        unit.heal(amount, &mut self.health_events, self.frame);
-                    }
-                }
             }
         }
 
@@ -141,18 +95,15 @@ impl GameLogic {
                     .tunnel_network
                     .contained_by_frame(unit_id)
                     .unwrap_or(self.frame);
-                let contained_frames = self.frame.saturating_sub(enter_frame);
-                let mut healed = false;
-                if let Some(unit) = self.objects.get_mut(&unit_id) {
-                    let amount =
-                        tunnel_tracker_heal_amount(unit.health.maximum, contained_frames, frames);
+                let contained_frames = self.frame.wrapping_sub(enter_frame);
+                if let Some(amount) = self.objects.get(&unit_id).map(|unit| {
+                    tunnel_tracker_heal_amount(unit.health.maximum, contained_frames, frames)
+                }) {
+                    // CPP TunnelTracker::healObject leaves source invalid.
+                    let _ = self.apply_owned_healing(unit_id, amount, None);
                     if amount > 0.0 {
-                        unit.heal(amount, &mut self.health_events, self.frame);
-                        healed = true;
+                        self.tunnel_network.record_heal_tick();
                     }
-                }
-                if healed {
-                    self.tunnel_network.record_heal_tick();
                 }
             }
         }
@@ -189,16 +140,16 @@ impl GameLogic {
                     .tunnel_network
                     .contained_by_frame(unit_id)
                     .unwrap_or(self.frame);
-                let contained_frames = self.frame.saturating_sub(enter_frame);
-                if let Some(unit) = self.objects.get_mut(&unit_id) {
-                    let amount = gamelogic::object::contain::garrison_heal_single_amount(
+                let contained_frames = self.frame.wrapping_sub(enter_frame);
+                if let Some(amount) = self.objects.get(&unit_id).map(|unit| {
+                    gamelogic::object::contain::garrison_heal_single_amount(
                         unit.health.maximum,
                         contained_frames,
                         frames as f32,
-                    );
-                    if amount > 0.0 {
-                        unit.heal(amount, &mut self.health_events, self.frame);
-                    }
+                    )
+                }) {
+                    // CPP GarrisonContain::healSingleObject leaves source invalid.
+                    let _ = self.apply_owned_healing(unit_id, amount, None);
                 }
             }
         }

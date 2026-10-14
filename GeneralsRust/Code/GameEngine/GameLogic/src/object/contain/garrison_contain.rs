@@ -96,15 +96,14 @@ impl InitialRoster {
 /// C++ `GarrisonContain::healSingleObject` amount for one frame.
 ///
 /// Snap to max after `TimeForFullHeal` frames inside; otherwise sliver
-/// `maxHealth / framesForFullHeal`. Zero/negative duration heals nothing.
+/// `maxHealth / framesForFullHeal`. Zero/negative duration is already complete.
 pub fn garrison_heal_single_amount(
     max_health: f32,
     contained_frames: u32,
     frames_for_full_heal: f32,
 ) -> f32 {
-    if max_health <= 0.0 || frames_for_full_heal <= 0.0 {
-        return 0.0;
-    }
+    // CPP GarrisonContain::healSingleObject: zero duration takes the
+    // completed branch and heals by max health without dividing by zero.
     if (contained_frames as f32) >= frames_for_full_heal {
         max_health
     } else {
@@ -3528,7 +3527,9 @@ mod tests {
     fn garrison_heal_single_amount_slivers_then_snaps() {
         assert!((garrison_heal_single_amount(80.0, 0, 60.0) - (80.0 / 60.0)).abs() < 0.0001);
         assert!((garrison_heal_single_amount(80.0, 60, 60.0) - 80.0).abs() < 0.0001);
-        assert_eq!(garrison_heal_single_amount(80.0, 0, 0.0), 0.0);
+        // CPP zero duration is already complete, so the amount is max health.
+        assert_eq!(garrison_heal_single_amount(80.0, 0, 0.0), 80.0);
+        assert_eq!(garrison_heal_single_amount(80.0, 60, 0.0), 80.0);
     }
 
     #[test]

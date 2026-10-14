@@ -12,3 +12,6 @@ mod quick_exit;
 mod special_abilities;
 mod supply_repair_docks;
 mod update;
+
+#[cfg(test)]
+mod containment_healing_owner_tests;
