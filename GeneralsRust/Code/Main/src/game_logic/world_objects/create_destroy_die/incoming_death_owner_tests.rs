@@ -267,3 +267,33 @@ fn missing_incoming_source_id_does_not_reuse_captured_pose_or_preferred_history(
     // TOTAL_CRUSH when absent. Neither the captured east pose nor A is valid.
     assert!(object.front_crushed && object.back_crushed);
 }
+
+#[test]
+fn retained_mark_adapter_does_not_fabricate_current_input_from_body_history() {
+    let (mut owner, victim, preferred, _) = setup("ActiveBody", false);
+    assert!(!hit(
+        &mut owner,
+        victim,
+        Some(preferred),
+        1.0,
+        DamageType::Flame,
+        HostDeathType::Normal,
+    ));
+    {
+        let object = owner.host_object_mut(victim).unwrap();
+        assert_eq!(object.last_damage_info_type, Some(DamageType::Flame));
+        assert_eq!(object.last_damage_source, Some(preferred));
+        object.status.death_type = HostDeathType::Crushed;
+    }
+    // Compatibility-boundary control only: this old mark API has no accepted
+    // Body operation. Preserve its old status/source semantics instead of
+    // pretending preferred Flame history is a new incoming lethal input.
+    // This is not C++ native onDie fidelity evidence; caller migration remains.
+    owner.mark_object_for_destruction(victim, None);
+    let object = owner.host_object(victim).unwrap();
+    assert!(object.status.on_die_started);
+    assert!(!object.front_crushed);
+    assert!(object.back_crushed);
+    assert_eq!(object.last_damage_info_type, Some(DamageType::Flame));
+    assert_eq!(object.last_damage_source, Some(preferred));
+}

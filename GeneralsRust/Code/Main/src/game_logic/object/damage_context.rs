@@ -15,20 +15,6 @@ pub(crate) struct OnDieInput {
     pub(crate) death_type: crate::game_logic::host_usa_pilot::HostDeathType,
 }
 
-impl OnDieInput {
-    /// Existing callers without an accepted Body continuation retain their
-    /// explicit history adapter. Ordinary owned impacts always supply input.
-    pub(crate) fn from_history(object: &Object) -> Self {
-        Self {
-            source: object.last_damage_source,
-            damage_type: object
-                .last_damage_info_type
-                .unwrap_or(DamageType::Unresistable),
-            death_type: object.status.death_type,
-        }
-    }
-}
-
 /// Immediate Player mutations issued by one Body operation. These are callbacks
 /// at original C++ observation points, never a queued frame action or mirror.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

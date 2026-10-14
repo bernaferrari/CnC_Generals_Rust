@@ -474,14 +474,9 @@ impl GameLogic {
     }
 
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
-        let Some(input) = self
-            .objects
-            .get(&id)
-            .map(crate::game_logic::object::OnDieInput::from_history)
-        else {
-            return;
-        };
-        self.begin_object_death(id, killer, input, None);
+        // This existing adapter has no accepted Body input. Do not fabricate
+        // one from preferred history; migrating its callers remains explicit.
+        self.begin_object_death(id, killer, None, None);
     }
 
     pub(in crate::game_logic) fn mark_object_for_destruction_with_topple(
@@ -491,7 +486,7 @@ impl GameLogic {
         input: crate::game_logic::object::OnDieInput,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) {
-        self.begin_object_death(id, killer, input, topple_interpreter);
+        self.begin_object_death(id, killer, Some(input), topple_interpreter);
     }
 
     /// C++ GameLogic::destroyObject requests deletion independently of body
@@ -536,7 +531,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         killer: Option<Team>,
-        input: crate::game_logic::object::OnDieInput,
+        input: Option<crate::game_logic::object::OnDieInput>,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) {
         if self
@@ -623,7 +618,10 @@ impl GameLogic {
         // WorkerRespawnDelay starts here, not after collapse Done.
         let _ = self.maybe_spawn_rebuild_hole(id);
         // C++ InstantDeathBehavior::onDie — FX/OCL/Weapon then destroyObject.
-        if self.try_apply_instant_death(id, input.death_type) {
+        let death_type = input
+            .map(|input| input.death_type)
+            .or_else(|| self.objects.get(&id).map(|object| object.status.death_type));
+        if death_type.is_some_and(|death_type| self.try_apply_instant_death(id, death_type)) {
             self.objects_to_destroy
                 .push_back(DestructionEvent::after_death(id, killer));
             if let Some(obj) = self.objects.get_mut(&id) {
@@ -632,14 +630,25 @@ impl GameLogic {
 
             return;
         }
-        let crusher_xz = input.source.and_then(|src| {
+        let source = match input {
+            Some(input) => input.source,
+            None => self
+                .objects
+                .get(&id)
+                .and_then(|object| object.last_damage_source),
+        };
+        let crusher_xz = source.and_then(|src| {
             let crusher = self.objects.get(&src)?;
             let p = crusher.get_position();
             Some((p.x, p.z))
         });
         if let Some(obj) = self.objects.get_mut(&id) {
             if !obj.front_crushed && !obj.back_crushed {
-                obj.fire_crush_die_from_input(input.damage_type, crusher_xz);
+                if let Some(input) = input {
+                    obj.fire_crush_die_from_input(input.damage_type, crusher_xz);
+                } else {
+                    obj.fire_crush_die_from_crusher(crusher_xz);
+                }
             }
         }
         // Wave 482: BuildAssistant sell finish removes the object immediately.
@@ -670,7 +679,14 @@ impl GameLogic {
         let defer_death_animations = !sold && !under_construction && !is_rebuild_hole && !is_mine;
         if defer_death_animations {
             // C++ StructureTopple/Collapse residual: buildings fall/sink before remove.
-            if self.try_begin_structure_topple_with_override(id, input.source, topple_interpreter) {
+            let source = match input {
+                Some(input) => input.source,
+                None => self
+                    .objects
+                    .get(&id)
+                    .and_then(|object| object.last_damage_source),
+            };
+            if self.try_begin_structure_topple_with_override(id, source, topple_interpreter) {
                 return;
             }
             // C++ SlowDeathBehavior residual: infantry/vehicles delay destroy + sink.
