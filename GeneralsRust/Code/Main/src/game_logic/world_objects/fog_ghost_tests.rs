@@ -179,6 +179,8 @@ fn restore_links_only_real_receiving_parents_and_retains_saved_fog_continuation(
     let mut receiver = GameLogic::new();
     // C++ load reconstructs actors from the same effective content catalog.
     receiver.templates = source.templates.clone();
+    receiver.add_player(Player::new(1, Team::USA, "Viewer", true));
+    receiver.add_player(Player::new(2, Team::China, "Enemy", false));
     builder
         .restore_from_snapshot(&snapshot, &mut receiver)
         .unwrap();

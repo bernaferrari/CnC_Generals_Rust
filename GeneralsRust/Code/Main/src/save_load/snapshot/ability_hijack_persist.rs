@@ -352,6 +352,7 @@ mod tests {
         );
 
         let mut restored = GameLogic::new();
+        restored.add_player(Player::new(0, Team::USA, "USA", true));
         restored.templates = source.templates.clone();
         builder
             .restore_from_snapshot(&snapshot, &mut restored)
@@ -437,6 +438,7 @@ mod tests {
         );
 
         let mut restored = GameLogic::new();
+        restored.add_player(Player::new(0, Team::GLA, "GLA", true));
         restored.templates = source.templates.clone();
         builder
             .restore_from_snapshot(&snapshot, &mut restored)

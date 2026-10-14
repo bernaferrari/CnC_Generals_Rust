@@ -164,6 +164,7 @@ fn popup_and_host_write_common_sav_chunks_and_restore_authority() {
     );
 
     let mut loaded = GameLogic::new();
+    loaded.add_player(Player::new(1, Team::USA, "P1", true));
     loaded.templates = source.templates.clone();
     manager.load_game("auth_rt", &mut loaded).expect("load");
 

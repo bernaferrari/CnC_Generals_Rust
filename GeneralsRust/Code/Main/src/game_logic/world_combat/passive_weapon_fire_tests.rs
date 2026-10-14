@@ -223,6 +223,8 @@ fn normal_encoded_save_restores_selected_passive_slot_and_delayed_damage_once() 
     let (decoded, _) = manager.load_game_snapshot("passive_owner").unwrap();
     let mut restored = GameLogic::new();
     restored.templates = game.templates.clone();
+    restored.add_player(Player::new(0, Team::USA, "local", true));
+    restored.add_player(Player::new(1, Team::China, "enemy", false));
     manager
         .restore_game_snapshot(&decoded, &mut restored)
         .unwrap();

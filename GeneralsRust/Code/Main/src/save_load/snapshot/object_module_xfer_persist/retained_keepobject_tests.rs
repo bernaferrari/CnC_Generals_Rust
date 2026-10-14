@@ -106,6 +106,9 @@ fn save_and_load(source: &GameLogic, target: &mut GameLogic) {
     assert!(manager.get_save_path("kept_rubble").is_file());
     // Catalog installation is the same restored-map prerequisite used by existing save tests.
     target.templates = source.templates.clone();
+    if target.get_player(0).is_none() {
+        target.add_player(Player::new(0, Team::USA, "Keep save owner", true));
+    }
     manager.load_game("kept_rubble", target).unwrap();
 }
 
@@ -247,6 +250,7 @@ fn keepobject_snapshot_builder_restores_kept_state_alongside_exact_latch() {
         .unwrap();
     let mut loaded = GameLogic::new();
     loaded.templates = f.logic.templates.clone();
+    loaded.add_player(Player::new(0, Team::USA, "Keep save owner", true));
     SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut loaded)
         .unwrap();

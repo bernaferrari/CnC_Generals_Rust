@@ -138,6 +138,7 @@ mod tests {
         assert!(has_upgrade(snap.upgrades.iter(), UPGRADE_GLA_WORKER_SHOES));
 
         let mut restored = GameLogic::new();
+        restored.add_player(Player::new(1, Team::USA, "USA", true));
         builder
             .restore_from_snapshot(&snapshot, &mut restored)
             .expect("restore");
@@ -190,6 +191,7 @@ mod tests {
         );
 
         let mut restored = GameLogic::new();
+        restored.add_player(Player::new(1, Team::USA, "USA", true));
         builder
             .restore_from_snapshot(&snapshot, &mut restored)
             .expect("restore");

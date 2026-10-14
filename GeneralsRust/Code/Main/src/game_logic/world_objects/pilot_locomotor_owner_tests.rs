@@ -142,6 +142,7 @@ fn selected_air_admission_reconstructs_through_normal_world_save() {
     let decoded = decode_bincode_world_snapshot(&encoded).unwrap();
     let mut restored = GameLogic::new();
     restored.templates = owner.templates.clone();
+    restored.add_player(Player::new(1, Team::USA, "PilotOwner", false));
     SnapshotBuilder::new()
         .restore_from_snapshot(&decoded, &mut restored)
         .unwrap();

@@ -264,6 +264,7 @@ fn repair_cache_save_load_continues_real_docked_action_without_recomputing_rate(
     let bytes = bincode_legacy::serialize(&snapshot).unwrap();
     let decoded = super::super::decode_bincode_world_snapshot(&bytes).unwrap();
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(1, Team::USA, "SavedRepairOwner", true));
     // GameLogic::xfer resolves Object TOC names through loaded ThingFactory
     // definitions. Supply the same immutable receiving content as C++.
     restored.templates.insert(

@@ -12,8 +12,22 @@ fn definition(world: &GameLogic, singleton: bool) {
         .unwrap();
 }
 
-fn roster(world: &GameLogic, first: ObjectId, second: ObjectId, reversed: bool, active: bool) {
+fn roster(world: &mut GameLogic, first: ObjectId, second: ObjectId, reversed: bool, active: bool) {
+    // Explicit instance admission transfers the real objects out of their
+    // automatically admitted default teams before assigning saved instances.
+    for member in [first, second] {
+        if let Some(object) = world.host_object_mut(member) {
+            object.team_instance_name = "SavedRoster".into();
+        }
+    }
     let mut factory = world.team_factory.lock().unwrap();
+    for prototype in factory.list_team_prototypes_in_admission_order() {
+        for team in factory.find_team_instances(prototype.get_name().as_str()) {
+            let mut team = team.write().unwrap();
+            team.remove_member(first.0);
+            team.remove_member(second.0);
+        }
+    }
     let prototype = factory.find_team_prototype("SavedRoster").unwrap();
     for (id, member) in [
         (90, if reversed { second } else { first }),
@@ -61,9 +75,9 @@ fn team_save_walk_calibration_restores_objects_without_a_roster() {
 
 #[test]
 fn fresh_candidate_admits_missing_instances_in_cpp_saved_visitation_order() {
-    let (source, first, second) = world();
+    let (mut source, first, second) = world();
     definition(&source, false);
-    roster(&source, first, second, false, true);
+    roster(&mut source, first, second, false, true);
     let snapshot = SnapshotBuilder::new()
         .create_world_snapshot(&source)
         .unwrap();
@@ -102,16 +116,16 @@ fn fresh_candidate_admits_missing_instances_in_cpp_saved_visitation_order() {
 #[test]
 fn retained_snapshots_restore_their_own_rosters_in_either_order() {
     for reverse_restore in [false, true] {
-        let (source_a, first, second) = world();
+        let (mut source_a, first, second) = world();
         definition(&source_a, false);
-        roster(&source_a, first, second, false, true);
+        roster(&mut source_a, first, second, false, true);
         let a = SnapshotBuilder::new()
             .create_world_snapshot(&source_a)
             .unwrap();
-        let (source_b, first_b, second_b) = world();
+        let (mut source_b, first_b, second_b) = world();
         assert_eq!((first, second), (first_b, second_b));
         definition(&source_b, false);
-        roster(&source_b, first_b, second_b, true, true);
+        roster(&mut source_b, first_b, second_b, true, true);
         let b = SnapshotBuilder::new()
             .create_world_snapshot(&source_b)
             .unwrap();
@@ -140,9 +154,9 @@ fn retained_snapshots_restore_their_own_rosters_in_either_order() {
 
 #[test]
 fn inactive_singleton_keeps_its_saved_head_and_does_not_activate_on_restore() {
-    let (source, first, second) = world();
+    let (mut source, first, second) = world();
     definition(&source, true);
-    roster(&source, first, second, false, false);
+    roster(&mut source, first, second, false, false);
     let snapshot = SnapshotBuilder::new()
         .create_world_snapshot(&source)
         .unwrap();
@@ -165,9 +179,9 @@ fn inactive_singleton_keeps_its_saved_head_and_does_not_activate_on_restore() {
 
 #[test]
 fn missing_secondary_member_rejects_capture_instead_of_saving_a_partial_roster() {
-    let (source, first, _) = world();
+    let (mut source, first, _) = world();
     definition(&source, false);
-    roster(&source, first, ObjectId(999999), false, true);
+    roster(&mut source, first, ObjectId(999999), false, true);
     assert!(
         SnapshotBuilder::new()
             .create_world_snapshot(&source)
@@ -177,9 +191,9 @@ fn missing_secondary_member_rejects_capture_instead_of_saving_a_partial_roster()
 
 #[test]
 fn membership_cannot_belong_to_two_saved_instances() {
-    let (source, first, _) = world();
+    let (mut source, first, _) = world();
     definition(&source, false);
-    roster(&source, first, first, false, true);
+    roster(&mut source, first, first, false, true);
     assert!(
         SnapshotBuilder::new()
             .create_world_snapshot(&source)
@@ -189,15 +203,15 @@ fn membership_cannot_belong_to_two_saved_instances() {
 
 #[test]
 fn existing_instances_are_not_relinked_when_saved_data_is_applied() {
-    let (source, first, second) = world();
+    let (mut source, first, second) = world();
     definition(&source, false);
-    roster(&source, first, second, false, true);
+    roster(&mut source, first, second, false, true);
     let snapshot = SnapshotBuilder::new()
         .create_world_snapshot(&source)
         .unwrap();
     let (mut loaded, _, _) = world();
     definition(&loaded, false);
-    roster(&loaded, first, second, true, false);
+    roster(&mut loaded, first, second, true, false);
     SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut loaded)
         .unwrap();
@@ -216,9 +230,9 @@ fn existing_instances_are_not_relinked_when_saved_data_is_applied() {
 
 #[test]
 fn rejected_missing_map_definition_leaves_running_owner_unchanged() {
-    let (source, first, second) = world();
+    let (mut source, first, second) = world();
     definition(&source, false);
-    roster(&source, first, second, false, true);
+    roster(&mut source, first, second, false, true);
     let snapshot = SnapshotBuilder::new()
         .create_world_snapshot(&source)
         .unwrap();

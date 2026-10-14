@@ -382,6 +382,7 @@ fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
     );
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(0, Team::USA, "USA", true));
     restored.templates = source.templates.clone();
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
         &restored,
@@ -583,6 +584,7 @@ fn save_file_roundtrip_preserves_pending_host_upgrade() {
         .expect("save");
 
     let mut loaded = GameLogic::new();
+    loaded.add_player(Player::new(0, Team::USA, "USA", true));
     loaded.templates = source.templates.clone();
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
         &loaded,

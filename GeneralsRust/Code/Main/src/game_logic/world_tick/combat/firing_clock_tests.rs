@@ -141,6 +141,8 @@ fn normal_world_codec_retains_specialized_next_shot_and_omits_idle_reload_timer(
     let snapshot = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
     let mut loaded = GameLogic::new();
     loaded.templates = original.templates.clone();
+    loaded.add_player(Player::new(1, Team::USA, "FiringOwner", true));
+    loaded.add_player(Player::new(2, Team::GLA, "FiringTarget", false));
     builder
         .restore_from_snapshot(&snapshot, &mut loaded)
         .unwrap();
@@ -170,6 +172,8 @@ fn normal_world_codec_retains_specialized_next_shot_and_omits_idle_reload_timer(
     // load. Exercise its actual update on a separate normally restored owner.
     let mut reload_owner = GameLogic::new();
     reload_owner.templates = original.templates.clone();
+    reload_owner.add_player(Player::new(1, Team::USA, "FiringOwner", true));
+    reload_owner.add_player(Player::new(2, Team::GLA, "FiringTarget", false));
     builder
         .restore_from_snapshot(&snapshot, &mut reload_owner)
         .unwrap();

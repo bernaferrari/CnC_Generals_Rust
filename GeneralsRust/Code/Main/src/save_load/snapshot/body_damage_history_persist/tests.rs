@@ -58,6 +58,9 @@ fn normal_world_codec_preserves_selected_attacker_and_next_frame_future() {
     let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&encoded).unwrap();
     let mut loaded = GameLogic::new();
     loaded.templates = original.templates.clone();
+    for (id, team) in [(1, Team::USA), (2, Team::GLA), (3, Team::China)] {
+        loaded.add_player(Player::new(id, team, "SavedHistory", id == 1));
+    }
     builder
         .restore_from_snapshot(&decoded, &mut loaded)
         .unwrap();

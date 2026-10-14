@@ -131,6 +131,10 @@ fn missing_master_stops_slave_effects_before_unmanned_idle() {
     game.host_object_mut(drone)
         .unwrap()
         .set_status_disabled_held(true);
+    // Remove the physical member as well; keep the slave's saved secondary
+    // reference untouched to exercise missing-master resolution on update.
+    let team_name = game.host_object(master).unwrap().team_instance_name.clone();
+    game.unlink_leftover_team_host_member(master, &team_name);
     game.objects.remove(&master);
     game.update_owned_slaved_object(drone);
     let owner = game.host_object(drone).unwrap();
@@ -181,6 +185,9 @@ fn normal_encoded_save_preserves_exact_repair_wait_and_resumed_body_healing() {
     manager.save_game("slave_owner", &game, &info).unwrap();
     let (decoded, _) = manager.load_game_snapshot("slave_owner").unwrap();
     let mut restored = GameLogic::new();
+    // Load the same receiving player/default-team definitions before applying
+    // the saved roster, just as map admission does in the production path.
+    restored.add_player(Player::new(0, Team::USA, "owner", true));
     restored.templates = game.templates.clone();
     manager
         .restore_game_snapshot(&decoded, &mut restored)
@@ -207,10 +214,15 @@ fn normal_encoded_save_preserves_exact_repair_wait_and_resumed_body_healing() {
     assert!(restored.host_object(master).unwrap().health.current > 40.0);
     // CPP xfer stores m_slaver verbatim; a removed master is resolved by the
     // next actual update, not rejected or repaired by loading.
+    // Remove the physical member as well; keep the slave's saved secondary
+    // reference untouched to exercise missing-master resolution on update.
+    let team_name = game.host_object(master).unwrap().team_instance_name.clone();
+    game.unlink_leftover_team_host_member(master, &team_name);
     game.objects.remove(&master);
     manager.save_game("slave_missing", &game, &info).unwrap();
     let (missing, _) = manager.load_game_snapshot("slave_missing").unwrap();
     let mut lost = GameLogic::new();
+    lost.add_player(Player::new(0, Team::USA, "owner", true));
     lost.templates = game.templates.clone();
     manager.restore_game_snapshot(&missing, &mut lost).unwrap();
     assert_eq!(

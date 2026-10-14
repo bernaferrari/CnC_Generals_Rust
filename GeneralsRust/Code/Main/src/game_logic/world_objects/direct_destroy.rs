@@ -291,6 +291,11 @@ impl GameLogic {
             }
         }
         self.detach_host_fog_ghost(id);
+        // CPP Object destructor unlinks only at physical removal, after onDelete.
+        // Dead-but-extant objects remain members through their onDie callbacks.
+        if let Some(team_name) = self.objects.get(&id).map(|o| o.team_instance_name.clone()) {
+            self.unlink_leftover_team_host_member(id, &team_name);
+        }
         let Some(object) = self.objects.remove(&id) else {
             return false;
         };

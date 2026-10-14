@@ -532,12 +532,34 @@ impl GameLogic {
         let Ok(mut factory) = self.team_factory.lock() else {
             return;
         };
+        if let Some(player_id) = obj.owner_player_id {
+            if let Some(player) = self.players.get(&player_id) {
+                if team_name == self.default_host_team_instance_name(Some(player_id), obj.team) {
+                    super::team_membership::ensure_default_team_definition(
+                        &mut factory,
+                        team_name,
+                        &player.name,
+                        player_id,
+                    );
+                }
+            }
+        }
         let team = factory
             .find_team(team_name)
             .or_else(|| factory.create_inactive_team(team_name));
         let Some(team) = team else {
             return;
         };
+        // A map/script admission may replace the initial default team. Move
+        // the member before adding it; this operation is not a frame-end repair.
+        for previous in factory.get_all_teams() {
+            if !std::sync::Arc::ptr_eq(&previous, &team) {
+                previous
+                    .write()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .remove_member(id.0);
+            }
+        }
         if let Ok(mut guard) = team.write() {
             guard.add_member(id.0);
             guard.set_active();
@@ -576,14 +598,17 @@ impl GameLogic {
         if team_name.is_empty() {
             return;
         }
-        let Ok(mut factory) = self.team_factory.lock() else {
-            return;
-        };
-        let Some(team) = factory.find_team(team_name) else {
-            return;
-        };
-        if let Ok(mut guard) = team.write() {
-            guard.remove_member(id.0);
+        let factory = self
+            .team_factory
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        // Resolve existing instances only. A destructor must not create an
+        // inactive instance or select a different instance sharing this name.
+        for team in factory.find_team_instances(team_name) {
+            let mut guard = team.write().unwrap_or_else(|error| error.into_inner());
+            if guard.has_member(id.0) {
+                guard.remove_member(id.0);
+            }
         }
     }
 

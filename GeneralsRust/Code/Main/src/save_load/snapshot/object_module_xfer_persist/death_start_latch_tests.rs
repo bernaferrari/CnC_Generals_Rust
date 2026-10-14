@@ -46,6 +46,7 @@ fn oxfr_death_start_exact_bool_survives_snapshot_builder_for_keepobject_and_inac
     let snapshot = builder.create_world_snapshot(&source).unwrap();
     let mut restored = GameLogic::new();
     restored.templates = source.templates.clone();
+    restored.add_player(Player::new(0, Team::USA, "Latch owner", true));
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
@@ -119,6 +120,7 @@ fn oxfr_death_start_records_follow_existing_module_vectors_in_sorted_order_and_k
     assert_eq!(&suffix[payload_len..], &following.to_le_bytes());
     let mut restored = GameLogic::new();
     restored.templates = source.templates.clone();
+    restored.add_player(Player::new(0, Team::USA, "Latch owner", true));
     let snapshot = SnapshotBuilder::new()
         .create_world_snapshot(&source)
         .unwrap();

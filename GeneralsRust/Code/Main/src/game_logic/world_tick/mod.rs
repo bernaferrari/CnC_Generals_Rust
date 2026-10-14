@@ -33,4 +33,7 @@ mod sleepy;
 mod step;
 mod water_owner;
 pub(in super::super) use sleepy::{HostSleepyHeap, HostSleepyKind};
+mod team_membership;
+#[cfg(test)]
+mod team_membership_owner_tests;
 mod teams;

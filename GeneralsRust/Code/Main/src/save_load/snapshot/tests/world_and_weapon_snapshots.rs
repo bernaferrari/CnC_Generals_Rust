@@ -28,6 +28,7 @@ fn snapshot_restore_rebuilds_state_and_object_id_counter() {
         .expect("snapshot creation failed");
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(1, Team::USA, "PlayerOne", true));
     restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
@@ -81,6 +82,7 @@ fn mid_frenzy_snapshot_restores_weapon_bonus_state() {
     assert_eq!(captured.weapon_bonus_frenzy_until_frame, 720);
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(1, Team::China, "China", true));
     restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
@@ -134,6 +136,7 @@ fn object_status_bits_survive_snapshot_restore() {
     assert!(captured.status.script_unstealthed);
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(1, Team::USA, "PlayerOne", true));
     restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
@@ -174,6 +177,7 @@ fn script_held_and_attitude_survive_snapshot_restore() {
     assert!(captured.status.disabled_held);
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(1, Team::USA, "PlayerOne", true));
     restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
@@ -261,6 +265,8 @@ fn snapshot_v5_restores_exact_human_and_ai_skirmish_template_bindings() {
     );
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(0, Team::USA, "Human", true));
+    restored.add_player(Player::new(1, Team::China, "Computer", false));
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("v5 restore");
@@ -366,6 +372,8 @@ fn snapshot_restore_preserves_registered_host_ai_configuration() {
     assert_eq!(saved_ai.base_center, Some(Vec3::new(47.0, 0.0, -31.0)));
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(0, Team::USA, "Human", true));
+    restored.add_player(Player::new(1, Team::China, "Computer", false));
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("snapshot restore failed");
@@ -699,6 +707,7 @@ fn snapshot_restore_preserves_building_production_modules_and_object_upgrades() 
         .expect("snapshot creation failed");
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(1, Team::USA, "USA", true));
     restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)

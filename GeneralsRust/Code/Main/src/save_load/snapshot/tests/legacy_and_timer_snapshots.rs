@@ -280,6 +280,7 @@ fn snapshot_round_trips_player_rank_skill_and_science_purchase_points() {
     );
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(1, Team::USA, "Ranked", true));
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("snapshot restore failed");
@@ -309,6 +310,7 @@ fn snapshot_round_trips_power_sabotaged_till_frame() {
     );
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(1, Team::USA, "Sabotaged", true));
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("snapshot restore failed");
@@ -559,6 +561,7 @@ fn snapshot_round_trips_cia_vision_spied_and_registry() {
     assert_eq!(snapshot.cia_intelligence.active_count(), 1);
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(0, Team::USA, "USA", true));
     restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
@@ -667,6 +670,7 @@ fn snapshot_round_trips_sell_list_mid_sell() {
     );
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(0, Team::USA, "USA", true));
     restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
@@ -808,6 +812,7 @@ fn snapshot_round_trips_sole_heal_contain_original_team_formation() {
     );
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(1, Team::USA, "USA", true));
     restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
@@ -859,6 +864,7 @@ fn snapshot_round_trips_experience_sink_and_scalar() {
     );
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(1, Team::USA, "USA", true));
     restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
@@ -1073,6 +1079,7 @@ fn spy_vision_update_timers_survive_snapshot_and_keep_sabotage_dark() {
     assert_eq!(obj_snap.status.spy_vision_hack_two_wake_frame, 500);
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(1, Team::China, "China", true));
     restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&snap, &mut restored)
@@ -1133,6 +1140,7 @@ fn disabled_paralyzed_freeze_survives_snapshot_until_saved_frame() {
     assert_eq!(obj_snap.status.disabled_paralyzed_until_frame, 140);
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(1, Team::USA, "USA", true));
     restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&snap, &mut restored)
@@ -1204,6 +1212,7 @@ fn parachute_contain_mid_fall_survives_snapshot() {
     assert!(obj_snap.status.parachute_landing_override_set);
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(1, Team::USA, "USA", true));
     restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&snap, &mut restored)
@@ -1243,6 +1252,7 @@ fn faerie_fire_timer_survives_snapshot_and_expires_on_saved_frame() {
     assert_eq!(obj_snap.status.faerie_fire_until_frame, 90);
 
     let mut restored = GameLogic::new();
+    restored.add_player(Player::new(1, Team::GLA, "GLA", true));
     restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&snap, &mut restored)

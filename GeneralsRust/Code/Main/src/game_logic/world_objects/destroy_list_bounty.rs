@@ -121,6 +121,15 @@ impl GameLogic {
             self.unregister_tunnel_containment(event.id);
             self.finish_building_sound(event.id);
             self.detach_host_fog_ghost(event.id);
+            // CPP Object destructor unlinks only at physical removal, after onDelete.
+            // Dead-but-extant objects remain members through their onDie callbacks.
+            if let Some(team_name) = self
+                .objects
+                .get(&event.id)
+                .map(|o| o.team_instance_name.clone())
+            {
+                self.unlink_leftover_team_host_member(event.id, &team_name);
+            }
             if let Some(obj) = self.objects.remove(&event.id) {
                 // A DockUpdate queue is module-owned; discard it with the
                 // owning dock Object rather than retaining a dead ObjectId.

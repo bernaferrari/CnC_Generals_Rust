@@ -1491,7 +1491,9 @@ impl GameLogic {
     /// Add a player directly (for snapshot restoration)
     pub fn add_player(&mut self, player: Player) {
         self.player_template_bindings.remove(&player.id);
-        self.players.insert(player.id, player);
+        let id = player.id;
+        self.players.insert(id, player);
+        self.ensure_host_default_team(id);
     }
 
     pub fn command_center_position(&self, team: Team) -> Option<Vec3> {

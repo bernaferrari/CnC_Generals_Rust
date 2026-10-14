@@ -427,6 +427,7 @@ mod tests {
         );
 
         let mut restored = GameLogic::new();
+        restored.add_player(Player::new(1, Team::USA, "Cannon", true));
         builder
             .restore_from_snapshot(&snapshot, &mut restored)
             .expect("restore");

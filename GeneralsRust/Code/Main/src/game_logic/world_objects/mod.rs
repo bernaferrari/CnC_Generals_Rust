@@ -47,3 +47,6 @@ mod pilot_locomotor_owner_tests;
 
 #[cfg(test)]
 mod field_lifetime_owner_tests;
+
+#[cfg(test)]
+mod team_removal_owner_tests;
