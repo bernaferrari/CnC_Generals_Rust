@@ -203,7 +203,9 @@ pub fn height_die_ini_for_template(name: &str) -> Option<HeightDieIni> {
     //   TH100 desc delay1000, PatriotMissileEMPHelper TH5 not-desc. The
     //   Rust-side `ChinaNuclearMissile` flight template keeps its residual
     //   peel (silo launchers stay excluded).
-    if n.contains("anthraxbomb")
+    // The residual projectile profile belongs to these authored objects,
+    // not PoisonFieldAnthraxBomb (System.ini has no HeightDieUpdate).
+    if matches!(n.as_str(), "anthraxbomb" | "anthraxbombgamma")
         || n.contains("clusterminesbomb")
         || n.contains("emppulsebomb")
         || n.contains("nukebomb")
@@ -280,5 +282,11 @@ mod tests {
         // The missiles themselves keep their retail peels.
         assert!(height_die_ini_for_template("ScudStormMissile").is_some());
         assert!(height_die_ini_for_template("ChinaNuclearMissile").is_some());
+    }
+    #[test]
+    fn anthrax_field_has_no_projectile_height_die() {
+        assert!(height_die_ini_for_template("PoisonFieldAnthraxBomb").is_none());
+        assert!(height_die_ini_for_template("AnthraxBomb").is_some());
+        assert!(height_die_ini_for_template("AnthraxBombGamma").is_some());
     }
 }

@@ -2365,6 +2365,13 @@ impl GameLogic {
                     o.anthrax_toxin_field = true;
                     o.note_producer(source);
                     o.anthrax_toxin_field_expires_frame = Some(expires);
+                    // Bind the receiving module now, not by a later global name peel.
+                    o.lifetime_update = Some(
+                        crate::game_logic::host_lifetime_update::HostLifetimeUpdateData {
+                            expire_at_frame: expires,
+                            active: true,
+                        },
+                    );
                     if o.thing().template.body_kind.is_none() {
                         o.health.maximum = max_hp;
                         Self::write_object_health_authority_aware(
@@ -2376,37 +2383,6 @@ impl GameLogic {
                 }
                 let _ = self.special_power_strikes.bind_toxin_object(tid, oid);
             }
-        }
-    }
-
-    pub fn update_anthrax_toxin_field_objects(&mut self) {
-        let frame = self.frame;
-        let due: Vec<ObjectId> = self
-            .objects
-            .iter()
-            .filter_map(|(id, o)| {
-                if o.anthrax_toxin_field {
-                    if let Some(exp) = o.anthrax_toxin_field_expires_frame {
-                        if exp <= frame {
-                            return Some(*id);
-                        }
-                    }
-                }
-                None
-            })
-            .collect();
-        for id in due {
-            if let Some(o) = self.objects.get_mut(&id) {
-                // Wave 752: under damage authority, do not zero host HP mid-frame
-                // (dual with GW HP writeback). Project lethal via damage log + flags.
-                {
-                    o.internal_change_health(-o.health.current);
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.anthrax_toxin_field = false;
-            }
-            self.mark_object_for_destruction(id, None);
         }
     }
 
@@ -2464,6 +2440,13 @@ impl GameLogic {
                     o.nuke_radiation_field = true;
                     o.note_producer(source);
                     o.nuke_radiation_field_expires_frame = Some(expires);
+                    // Bind the receiving module now, not by a later global name peel.
+                    o.lifetime_update = Some(
+                        crate::game_logic::host_lifetime_update::HostLifetimeUpdateData {
+                            expire_at_frame: expires,
+                            active: true,
+                        },
+                    );
                     if o.thing().template.body_kind.is_none() {
                         o.health.maximum = NUKE_RADIATION_FIELD_MAX_HEALTH;
                         Self::write_object_health_authority_aware(
@@ -2475,37 +2458,6 @@ impl GameLogic {
                 }
                 let _ = self.special_power_strikes.bind_radiation_object(rid, oid);
             }
-        }
-    }
-
-    pub fn update_nuke_radiation_field_objects(&mut self) {
-        let frame = self.frame;
-        let due: Vec<ObjectId> = self
-            .objects
-            .iter()
-            .filter_map(|(id, o)| {
-                if o.nuke_radiation_field {
-                    if let Some(exp) = o.nuke_radiation_field_expires_frame {
-                        if exp <= frame {
-                            return Some(*id);
-                        }
-                    }
-                }
-                None
-            })
-            .collect();
-        for id in due {
-            if let Some(o) = self.objects.get_mut(&id) {
-                // Wave 752: under damage authority, do not zero host HP mid-frame
-                // (dual with GW HP writeback). Project lethal via damage log + flags.
-                {
-                    o.internal_change_health(-o.health.current);
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.nuke_radiation_field = false;
-            }
-            self.mark_object_for_destruction(id, None);
         }
     }
 

@@ -157,7 +157,11 @@ impl GameLogic {
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
     ) -> Option<OwnedDamageResult> {
         let victim = self.objects.get(&victim_id)?;
-        let amount = if victim.health.maximum > 0.0 {
+        let amount = if victim.thing().template.body_kind.is_some() {
+            // CPP Object::kill takes the actual receiving Body max health,
+            // including zero for InactiveBody; the kill bit is independent.
+            victim.health.maximum
+        } else if victim.health.maximum > 0.0 {
             victim.health.maximum
         } else {
             victim.max_health.max(1.0)

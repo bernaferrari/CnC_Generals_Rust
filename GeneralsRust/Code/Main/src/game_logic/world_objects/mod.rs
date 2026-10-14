@@ -11,6 +11,7 @@ mod create_destroy_die;
 mod damage_application;
 mod destroy_list_bounty;
 mod direct_destroy;
+mod field_lifetime;
 pub(crate) mod fog_ghosts;
 mod host_ops_writeback;
 mod internal_move;
@@ -41,3 +42,6 @@ mod fog_ghost_tests;
 
 #[cfg(test)]
 mod pilot_locomotor_owner_tests;
+
+#[cfg(test)]
+mod field_lifetime_owner_tests;

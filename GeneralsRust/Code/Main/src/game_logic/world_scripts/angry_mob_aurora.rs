@@ -1188,38 +1188,6 @@ impl GameLogic {
         Some(pid)
     }
 
-    pub fn update_inferno_fire_field_objects(&mut self) {
-        let frame = self.frame;
-        let due: Vec<ObjectId> = self
-            .objects
-            .iter()
-            .filter_map(|(id, o)| {
-                if o.inferno_fire_field {
-                    if let Some(exp) = o.inferno_fire_field_expires_frame {
-                        if exp <= frame {
-                            return Some(*id);
-                        }
-                    }
-                }
-                None
-            })
-            .collect();
-        for id in due {
-            let team = self.objects.get(&id).map(|o| o.team);
-            if let Some(o) = self.objects.get_mut(&id) {
-                // Wave 752: under damage authority, do not zero host HP mid-frame
-                // (dual with GW HP writeback). Project lethal via damage log + flags.
-                {
-                    o.internal_change_health(-o.health.current);
-                }
-                o.status.destroyed = true;
-                o.status.effectively_dead = true;
-                o.inferno_fire_field = false;
-            }
-            self.mark_object_for_destruction(id, team);
-        }
-    }
-
     pub fn honesty_inferno_fire_field_object_ok(&self) -> bool {
         self.inferno_fire_zones.honesty_fire_field_object_ok()
     }
