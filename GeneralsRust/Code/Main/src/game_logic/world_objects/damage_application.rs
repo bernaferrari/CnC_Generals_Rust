@@ -347,6 +347,11 @@ impl GameLogic {
             self.mark_object_for_destruction_with_topple(
                 victim_id,
                 killer_team,
+                crate::game_logic::object::OnDieInput {
+                    source: source_id,
+                    damage_type,
+                    death_type,
+                },
                 context.topple_interpreter(),
             );
         }

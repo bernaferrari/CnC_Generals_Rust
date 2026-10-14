@@ -6,6 +6,29 @@ use crate::game_logic::combat::DamageType;
 use crate::game_logic::host_transition_damage_fx::{HostDamageFxVictim, snapshot_damage_fx_source};
 use gamelogic::common::ObjectStatusTypes;
 
+/// Original onDie observes this hit, independently of the Body's preferred
+/// damage history. This value crosses bounded callbacks, never a world registry.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OnDieInput {
+    pub(crate) source: Option<ObjectId>,
+    pub(crate) damage_type: DamageType,
+    pub(crate) death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+}
+
+impl OnDieInput {
+    /// Existing callers without an accepted Body continuation retain their
+    /// explicit history adapter. Ordinary owned impacts always supply input.
+    pub(crate) fn from_history(object: &Object) -> Self {
+        Self {
+            source: object.last_damage_source,
+            damage_type: object
+                .last_damage_info_type
+                .unwrap_or(DamageType::Unresistable),
+            death_type: object.status.death_type,
+        }
+    }
+}
+
 /// Immediate Player mutations issued by one Body operation. These are callbacks
 /// at original C++ observation points, never a queued frame action or mirror.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

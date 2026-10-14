@@ -696,6 +696,21 @@ impl Object {
         ) {
             return;
         }
+        self.apply_crush_die_from_crusher(crusher_xz);
+    }
+
+    /// CPP CrushDie142 checks incoming DAMAGE_CRUSH independently of DeathType.
+    pub(crate) fn fire_crush_die_from_input(
+        &mut self,
+        damage_type: crate::game_logic::combat::DamageType,
+        crusher_xz: Option<(f32, f32)>,
+    ) {
+        if damage_type == crate::game_logic::combat::DamageType::Crush {
+            self.apply_crush_die_from_crusher(crusher_xz);
+        }
+    }
+
+    fn apply_crush_die_from_crusher(&mut self, crusher_xz: Option<(f32, f32)>) {
         self.ensure_crush_die();
         let kind = if let Some(crusher_xz) = crusher_xz {
             let victim = self.get_position();
@@ -741,17 +756,22 @@ impl Object {
 
     /// C++ InstantDeathBehavior::onDie residual — queues FX/OCL/Weapon.
     pub fn fire_instant_death(&mut self) -> bool {
+        self.fire_instant_death_for(self.status.death_type)
+    }
+
+    pub(crate) fn fire_instant_death_for(
+        &mut self,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    ) -> bool {
         let ini = match &self.thing.template.authored_instant_death {
             Some(modules) => modules
                 .iter()
-                .find(|module| {
-                    module.is_applicable(self.status.under_construction, self.status.death_type)
-                })
+                .find(|module| module.is_applicable(self.status.under_construction, death_type))
                 .cloned(),
             None => crate::game_logic::host_instant_death::first_applicable_instant_death(
                 &self.template_name,
                 self.status.under_construction,
-                self.status.death_type,
+                death_type,
             ),
         };
         let Some(ini) = ini else { return false };

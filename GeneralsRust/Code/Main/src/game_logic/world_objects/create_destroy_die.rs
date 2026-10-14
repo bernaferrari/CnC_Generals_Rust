@@ -3,6 +3,10 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+#[cfg(test)]
+#[path = "create_destroy_die/incoming_death_owner_tests.rs"]
+mod incoming_death_owner_tests;
+
 mod construction;
 mod death;
 mod grant_upgrade;

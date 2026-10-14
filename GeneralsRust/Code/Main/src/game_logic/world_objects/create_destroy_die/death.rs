@@ -474,16 +474,24 @@ impl GameLogic {
     }
 
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
-        self.begin_object_death(id, killer, None);
+        let Some(input) = self
+            .objects
+            .get(&id)
+            .map(crate::game_logic::object::OnDieInput::from_history)
+        else {
+            return;
+        };
+        self.begin_object_death(id, killer, input, None);
     }
 
     pub(in crate::game_logic) fn mark_object_for_destruction_with_topple(
         &mut self,
         id: ObjectId,
         killer: Option<Team>,
+        input: crate::game_logic::object::OnDieInput,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) {
-        self.begin_object_death(id, killer, topple_interpreter);
+        self.begin_object_death(id, killer, input, topple_interpreter);
     }
 
     /// C++ GameLogic::destroyObject requests deletion independently of body
@@ -528,6 +536,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         killer: Option<Team>,
+        input: crate::game_logic::object::OnDieInput,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) {
         if self
@@ -614,7 +623,7 @@ impl GameLogic {
         // WorkerRespawnDelay starts here, not after collapse Done.
         let _ = self.maybe_spawn_rebuild_hole(id);
         // C++ InstantDeathBehavior::onDie — FX/OCL/Weapon then destroyObject.
-        if self.try_apply_instant_death(id) {
+        if self.try_apply_instant_death(id, input.death_type) {
             self.objects_to_destroy
                 .push_back(DestructionEvent::after_death(id, killer));
             if let Some(obj) = self.objects.get_mut(&id) {
@@ -623,15 +632,14 @@ impl GameLogic {
 
             return;
         }
-        let crusher_xz = self.objects.get(&id).and_then(|obj| {
-            let src = obj.last_damage_source?;
+        let crusher_xz = input.source.and_then(|src| {
             let crusher = self.objects.get(&src)?;
             let p = crusher.get_position();
             Some((p.x, p.z))
         });
         if let Some(obj) = self.objects.get_mut(&id) {
             if !obj.front_crushed && !obj.back_crushed {
-                obj.fire_crush_die_from_crusher(crusher_xz);
+                obj.fire_crush_die_from_input(input.damage_type, crusher_xz);
             }
         }
         // Wave 482: BuildAssistant sell finish removes the object immediately.
@@ -662,7 +670,7 @@ impl GameLogic {
         let defer_death_animations = !sold && !under_construction && !is_rebuild_hole && !is_mine;
         if defer_death_animations {
             // C++ StructureTopple/Collapse residual: buildings fall/sink before remove.
-            if self.try_begin_structure_topple_with_override(id, topple_interpreter) {
+            if self.try_begin_structure_topple_with_override(id, input.source, topple_interpreter) {
                 return;
             }
             // C++ SlowDeathBehavior residual: infantry/vehicles delay destroy + sink.
@@ -678,7 +686,11 @@ impl GameLogic {
     }
 
     /// C++ InstantDeathBehavior::onDie residual.
-    pub(in super::super::super) fn try_apply_instant_death(&mut self, id: ObjectId) -> bool {
+    pub(in super::super::super) fn try_apply_instant_death(
+        &mut self,
+        id: ObjectId,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    ) -> bool {
         let extra_owned = {
             let Some(obj) = self.objects.get(&id) else {
                 return false;
@@ -692,7 +704,7 @@ impl GameLogic {
             let Some(obj) = self.objects.get_mut(&id) else {
                 return false;
             };
-            if !obj.fire_instant_death() {
+            if !obj.fire_instant_death_for(death_type) {
                 false
             } else {
                 if !extra_owned.is_empty() {
@@ -1212,17 +1224,21 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
     ) -> bool {
-        self.try_begin_structure_topple_with_override(id, None)
+        let source = self
+            .objects
+            .get(&id)
+            .and_then(|object| object.last_damage_source);
+        self.try_begin_structure_topple_with_override(id, source, None)
     }
 
     fn try_begin_structure_topple_with_override(
         &mut self,
         id: ObjectId,
+        incoming_source: Option<ObjectId>,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> bool {
         let attacker_pos = {
-            let src = self.objects.get(&id).and_then(|o| o.last_damage_source);
-            src.and_then(|sid| {
+            incoming_source.and_then(|sid| {
                 self.objects.get(&sid).map(|s| {
                     let p = s.get_position();
                     (p.x, p.z)
