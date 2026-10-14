@@ -20,10 +20,14 @@ impl Object {
             .ok_or("scheduled AI module index is invalid")?;
         let runtime = entry
             .try_with_module(|module| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::update::AIUpdateInterfaceModule>()
-                    .map(|module| module.runtime_ai_owned())
+                if let Some(module) = module.as_any()
+                    .downcast_ref::<crate::object::update::AIUpdateInterfaceModule>() {
+                    Some(module.runtime_ai_owned())
+                } else {
+                    module.as_any()
+                        .downcast_ref::<crate::object::update::ai_update::dozer_ai_update::DozerAIUpdateModule>()
+                        .map(|module| module.runtime_ai_owned())
+                }
             })
             .ok_or("scheduled AI module already borrowed")?;
         let Some(runtime) = runtime else {

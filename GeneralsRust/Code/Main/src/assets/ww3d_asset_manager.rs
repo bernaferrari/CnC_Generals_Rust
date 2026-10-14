@@ -1039,3 +1039,31 @@ End
         assert!(authored.behavior_modules.is_empty());
     }
 }
+
+#[cfg(test)]
+mod body_inheritance_tests {
+    use super::*;
+    #[test]
+    fn inherited_initial_body_health_binds_before_receiving_construction() {
+        let mut parser = IniParser::new();
+        parser.parse_ini_content("Object BodyParent\nBody = ActiveBody BodyTag\nMaxHealth = 260\nInitialHealth = 90\nEnd\nEnd\nChildObject BodyChild BodyParent\nEnd", "inherited-body.ini").unwrap();
+        let parent = parser.get_definition("BodyParent").unwrap().clone();
+        let child = parser.get_definition("BodyChild").unwrap().clone();
+        let effective = WW3DAssetManager::merge_definition_inheritance(parent, child);
+        let template = crate::game_logic::GameLogic::build_template_from_object_definition(
+            "BodyChild",
+            &effective,
+            None,
+        );
+        assert_eq!(template.body_initial_health, Some(90.0));
+        let mut world = crate::game_logic::GameLogic::new();
+        world.templates.insert("BodyChild".into(), template);
+        let id = world
+            .create_object("BodyChild", crate::game_logic::Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        let owner = world.host_object(id).unwrap();
+        assert_eq!(owner.health.current, 90.0);
+        assert_eq!(owner.health.maximum, 260.0);
+        assert_eq!(owner.initial_health, 90.0);
+    }
+}

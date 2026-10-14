@@ -6,8 +6,8 @@
 use crate::game_text::GameText;
 use crate::gui::control_bar::publish_host_select_next_idle_worker;
 use crate::gui::{
-    get_disconnect_menu, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_disconnect_menu,
+    with_window_manager, write_input_focus_response,
 };
 use crate::helpers::TheInGameUI;
 use crate::language_filter::get_language_filter;
@@ -730,29 +730,38 @@ impl IdleWorkerCallbacks {
     }
 
     fn refresh_idle_workers_from_logic(&mut self) {
-        let (adds, removes) = gamelogic::helpers::TheInGameUI::take_idle_worker_events();
+        let events = gamelogic::helpers::TheInGameUI::take_idle_worker_events();
         let local_index = ThePlayerList()
             .read()
             .ok()
             .map(|list| list.get_local_player_index())
             .unwrap_or(gamelogic::player::PLAYER_INDEX_INVALID);
+        self.apply_idle_worker_events(local_index as i32, events);
+        self.update_idle_worker_button();
+    }
 
-        for (object_id, player_index) in adds {
-            if player_index == local_index as i32 && !self.idle_workers.contains(&object_id) {
-                self.idle_workers.push(object_id);
+    /// C++ InGameUI.cpp5444-5480 performs each list mutation immediately.
+    /// Consume the completed callbacks in that same order for this receiver.
+    pub fn apply_idle_worker_events(
+        &mut self,
+        local_player: i32,
+        events: impl IntoIterator<Item = gamelogic::helpers::IdleWorkerEvent>,
+    ) {
+        use gamelogic::helpers::IdleWorkerEvent;
+        for event in events {
+            match event {
+                IdleWorkerEvent::Add { object, player } if player == local_player => {
+                    if !self.idle_workers.contains(&object) {
+                        self.idle_workers.push(object);
+                    }
+                }
+                IdleWorkerEvent::Remove { object, player } if player == local_player => {
+                    self.idle_workers.retain(|id| *id != object);
+                }
+                _ => {}
             }
         }
-
-        if !removes.is_empty() {
-            self.idle_workers.retain(|id| {
-                !removes.iter().any(|(remove_id, player_index)| {
-                    *remove_id == *id && *player_index == local_index as i32
-                })
-            });
-        }
-
         self.worker_count = self.idle_workers.len() as i32;
-        self.update_idle_worker_button();
     }
 
     fn select_next_idle_worker(&mut self) {
@@ -1031,7 +1040,7 @@ static RESIDUAL_CHAT_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::At
 static RESIDUAL_CHAT_ACTIVE: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 static RESIDUAL_CHAT_TYPE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1); // Everyone
-                                                                                              // THREAD: main thread only — GUI chat residual latch, see `CHAT_UI_STATE` above.
+// THREAD: main thread only — GUI chat residual latch, see `CHAT_UI_STATE` above.
 thread_local! {
     static RESIDUAL_CHAT_TEXT: RefCell<String> = RefCell::new(String::new());
 }
@@ -1626,5 +1635,46 @@ mod replay_control_os_wnd_tests {
             ResidualReplayControlAction::Pause
         );
         assert!(!drive_os_wnd_replay_control_stop_like_cpp());
+    }
+}
+
+#[cfg(test)]
+mod owned_idle_worker_event_tests {
+    use super::*;
+    use gamelogic::helpers::{IdleWorkerEvent, IdleWorkerEvents};
+    #[test]
+    fn actual_ui_receivers_preserve_opposite_callback_orders_dedup_and_local_filter() {
+        let mut first = IdleWorkerCallbacks::new();
+        let mut peer = IdleWorkerCallbacks::new();
+        let add = IdleWorkerEvent::Add {
+            object: 17,
+            player: 2,
+        };
+        let remove = IdleWorkerEvent::Remove {
+            object: 17,
+            player: 2,
+        };
+        first.apply_idle_worker_events(2, [add, remove]);
+        assert_eq!(first.get_idle_worker_count(), 0);
+        first.apply_idle_worker_events(2, [remove, add, add]);
+        assert_eq!(first.idle_workers, vec![17]);
+        assert_eq!(first.get_idle_worker_count(), 1);
+        peer.apply_idle_worker_events(7, [add, remove]);
+        assert_eq!(peer.get_idle_worker_count(), 0);
+        let mut events = IdleWorkerEvents::default();
+        events.remove(17, 7);
+        events.add(17, 7);
+        peer.apply_idle_worker_events(7, events.take());
+        assert_eq!(peer.idle_workers, vec![17]);
+        first.apply_idle_worker_events(
+            2,
+            [IdleWorkerEvent::Remove {
+                object: 17,
+                player: 7,
+            }],
+        );
+        assert_eq!(first.idle_workers, vec![17]);
+        peer.apply_idle_worker_events(7, events.take());
+        assert_eq!(peer.get_idle_worker_count(), 1);
     }
 }

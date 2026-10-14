@@ -45,7 +45,7 @@ impl UnitAIUpdate {
         self.validate_owned_components_with_world(
             world,
             self.runtime.data.locomotor_goal_type == 0,
-            false,
+            self.owned_fortify_phase_is_admitted(),
         )
         .map_err(|error| error.to_string())?;
         if !matches!(self.runtime.data.locomotor_goal_type, 0 | 1 | 2) {

@@ -44,13 +44,16 @@ impl BorrowedAiWorld<'_> {
         let ai = victim.get_ai_update_interface();
         if let Some(ai) = ai {
             drop(ai.try_lock().map_err(|_| "lethal AI unavailable")?);
-            let proxies = victim.named_update_registrations("AIUpdateInterface");
-            if proxies.len() != 1 {
+            let proxy = victim.installed_ai_update_proxy()?;
+            let installed = victim
+                .scheduled_native_ai(&proxy)?
+                .ok_or("native lethal AI registration mismatch")?;
+            if !Arc::ptr_eq(&ai, &installed) {
                 return Err("native lethal AI registration mismatch".into());
             }
             self.services
                 .update_scheduler
-                .validate_owned_update_wake(&proxies[0])?;
+                .validate_owned_update_wake(&proxy)?;
         }
         let slow_proxies = victim.named_update_registrations("SlowDeathBehavior");
         for proxy in &slow_proxies {
@@ -58,9 +61,14 @@ impl BorrowedAiWorld<'_> {
                 .update_scheduler
                 .validate_owned_update_wake(proxy)?;
         }
+        // CPP Object::onDie does not physically delete an object without DIE
+        // callbacks. Preflight only effects this HP transition can actually run.
+        let has_death_callbacks = !victim.death_callback_entries().is_empty();
         drop(victim);
-        let id = owner.read().map_err(|_| "lethal owner poisoned")?.get_id();
-        self.validate_owned_destroy(id)?;
+        if has_death_callbacks {
+            let id = owner.read().map_err(|_| "lethal owner poisoned")?.get_id();
+            self.validate_owned_destroy(id)?;
+        }
         self.validate_containment_death_owned(owner, damage)?;
         self.validate_native_kill_score(owner, damage.input.source_id)
     }
@@ -384,7 +392,15 @@ impl BorrowedAiWorld<'_> {
                 object.get_id(),
                 object.death_callback_entries(),
                 object.get_ai_update_interface(),
-                object.named_update_registrations("AIUpdateInterface"),
+                object
+                    .get_ai_update_interface()
+                    .map(|_| {
+                        object
+                            .installed_ai_update_proxy()
+                            .expect("admitted lethal AI descriptor")
+                    })
+                    .into_iter()
+                    .collect::<Vec<_>>(),
             )
         };
         for handle in handles {

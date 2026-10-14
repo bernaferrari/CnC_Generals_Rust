@@ -117,6 +117,7 @@ Object HqO7b46Helipad
   KindOf = STRUCTURE SELECTABLE FS_AIRFIELD
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 1000
+    InitialHealth = 1000
   End
   Behavior = ParkingPlaceBehavior ModuleTag_Parking
     NumRows = 1
@@ -132,6 +133,7 @@ Object HqO7b46Helicopter
   KindOf = PRELOAD SELECTABLE VEHICLE AIRCRAFT PRODUCED_AT_HELIPAD
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 220
+    InitialHealth = 220
   End
   Behavior = JetAIUpdate ModuleTag_AI
     NeedsRunway = No

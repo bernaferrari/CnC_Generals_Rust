@@ -82,6 +82,92 @@ impl UnitAIUpdate {
         world: &mut dyn crate::modules::ai_world::AiWorld,
         ignored: Option<ObjectID>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.execute_owned_command_impl(command, world, ignored, false)
+    }
+
+    pub(super) fn owned_fortify_phase_is_admitted(&self) -> bool {
+        self.runtime
+            .components
+            .dozer_ai
+            .as_ref()
+            .is_some_and(|dozer| dozer.owned_fortify_is_admitted())
+    }
+
+    /// Consume the exact owned action continuation while the Dozer component
+    /// remains installed. External commands cannot opt into this admission.
+    pub(super) fn execute_dozer_action_move_with_world(
+        &mut self,
+        target: ObjectID,
+        position: Coord3D,
+        ignore_obstacle_count: u8,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_world_owner(world)?;
+        self.runtime
+            .components
+            .dozer_ai
+            .as_ref()
+            .ok_or("Dozer action component absent")?
+            .validate_owned_action_move(target, position, ignore_obstacle_count)?;
+        let owner = self
+            .runtime
+            .native_owner()
+            .ok_or("Dozer action actor absent")?;
+        let target_owner = world.object(target).ok_or("Dozer action target absent")?;
+        world.validate_dozer_action_effects(&owner, &target_owner)?;
+        let mut command = crate::ai::AiCommandParams::new(
+            crate::ai::AiCommandType::MoveToPosition,
+            CommandSourceType::FromAi,
+        );
+        command.pos = position;
+        // Readonly command preflight precedes the original immediate effects.
+        self.validate_owned_command_impl(&command, world, true)?;
+        owner
+            .try_write()
+            .map_err(|_| "Dozer command actor borrowed")?
+            .clear_model_condition_state(ModelConditionFlags::ACTIVELY_CONSTRUCTING);
+        for _ in 0..ignore_obstacle_count {
+            self.runtime.ignore_obstacle_id(target)?;
+        }
+        self.execute_owned_command_impl(&command, world, None, true)
+    }
+
+    pub(super) fn execute_dozer_action_idle_with_world(
+        &mut self,
+        task: crate::object::update::ai_update::dozer_ai_update::DozerTask,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_world_owner(world)?;
+        let dozer = self
+            .runtime
+            .components
+            .dozer_ai
+            .as_ref()
+            .ok_or("Dozer cancellation component absent")?;
+        dozer.validate_owned_action_idle(task)?;
+        let command = crate::ai::AiCommandParams::new(
+            crate::ai::AiCommandType::Idle,
+            CommandSourceType::FromAi,
+        );
+        self.validate_owned_command_impl(&command, world, true)?;
+        let owner = self
+            .runtime
+            .native_owner()
+            .ok_or("Dozer cancellation actor absent")?;
+        owner
+            .try_write()
+            .map_err(|_| "Dozer cancellation actor borrowed")?
+            .clear_model_condition_state(ModelConditionFlags::ACTIVELY_CONSTRUCTING);
+        self.execute_owned_command_impl(&command, world, None, true)
+    }
+
+    fn execute_owned_command_impl(
+        &mut self,
+        command: &crate::ai::AiCommandParams,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+        ignored: Option<ObjectID>,
+        dozer_action: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.validate_world_owner(world)?;
         if self
             .runtime
@@ -93,7 +179,7 @@ impl UnitAIUpdate {
         {
             return Ok(()); // CPP AIUpdate::isAllowedToRespondToAiCommands.
         }
-        self.validate_owned_command(command, world)?;
+        self.validate_owned_command_impl(command, world, dozer_action)?;
         if world.pathfinder().is_none() {
             return Err("admitted pathfinder disappeared".into());
         }
@@ -117,6 +203,15 @@ impl UnitAIUpdate {
         &self,
         command: &crate::ai::AiCommandParams,
         world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_owned_command_impl(command, world, false)
+    }
+
+    fn validate_owned_command_impl(
+        &self,
+        command: &crate::ai::AiCommandParams,
+        world: &dyn crate::modules::ai_world::AiWorld,
+        dozer_action: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.validate_world_owner(world)?;
         let idle = command.cmd == crate::ai::AiCommandType::Idle;
@@ -180,7 +275,7 @@ impl UnitAIUpdate {
                 || exits
                 || waypoint
                 || follow_path,
-            idle,
+            idle || dozer_action,
         )?;
         // The supplied endpoint owns Enter and its immediate terminal entries.
         // An arbitrary old state could execute an ambient specialized onExit.
@@ -190,13 +285,14 @@ impl UnitAIUpdate {
             .ok_or("installed AI has no state machine")?;
         let initializes_idle = current.get_current_state_id().is_none()
             && command.cmd == crate::ai::AiCommandType::Idle;
-        if current.get_temporary_state().is_some()
+        if (current.get_temporary_state().is_some()
+            && !(dozer_action && current.get_temporary_state() == Some(AIStateType::MoveTo as u32)))
             || (!initializes_idle
                 && !matches!(current.get_current_state_id(),
                 Some(id) if id == AIStateType::Idle as u32
                     || id == AIStateType::Enter as u32
                     || id == AIStateType::Busy as u32
-                    || (idle && id == AIStateType::MoveTo as u32)
+                    || ((idle || dozer_action) && id == AIStateType::MoveTo as u32)
                     || id == AIStateType::Exit as u32 || id == AIStateType::ExitInstantly as u32
                     || id == AIStateType::FollowWaypointPathAsIndividuals as u32
                     || id == AIStateType::FollowWaypointPathAsIndividualsExact as u32
@@ -329,7 +425,11 @@ impl UnitAIUpdate {
         &self,
         allow_contained: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.validate_owned_components_impl(allow_contained, false, true)
+        self.validate_owned_components_impl(
+            allow_contained,
+            self.owned_fortify_phase_is_admitted(),
+            true,
+        )
     }
     pub(super) fn validate_owned_components(
         &self,

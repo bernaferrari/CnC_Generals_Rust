@@ -50972,7 +50972,9 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deliver_payload_data.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deploy_style_ai_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/hack_internet_ai_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/jet_ai_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/mod.rs",
@@ -53483,7 +53485,17 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs"
             },
             {
               "cargo_reachable": true,
@@ -57738,7 +57750,9 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deliver_payload_data.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deploy_style_ai_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/hack_internet_ai_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/jet_ai_update.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/mod.rs",
@@ -57848,7 +57862,17 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs"
             },
             {
               "cargo_reachable": true,
@@ -59578,7 +59602,9 @@
             "unreviewed_symbol_ownership",
             "unreviewed_source_range_ownership",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs"
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs"
           ],
           "candidate_destinations": [
             {
@@ -59594,7 +59620,17 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/Object/Update/AIUpdate/DozerAIUpdate.cpp",
@@ -189517,7 +189553,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "63afdb14b1ab7d949fac82eb4029917ca4548a9508f674fd23fff7ce77bad6d1",
+  "provenance_input_digest": "9591f521687eb6b0f5fd40fa9d19c50248089f04f64034129423a047ec2ceae9",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

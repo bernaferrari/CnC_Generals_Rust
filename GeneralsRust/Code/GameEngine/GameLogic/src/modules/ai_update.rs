@@ -115,6 +115,16 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     ///
     /// The default keeps test doubles and non-standard AI shims compatible; concrete
     /// gameplay AI implementations should override this when they own restorable state.
+    fn validate_dozer_snapshot(&self) -> Result<(), String> {
+        Err("AI runtime has no owned Dozer snapshot".into())
+    }
+    fn xfer_dozer_snapshot_tail(
+        &mut self,
+        _xfer: &mut dyn crate::common::xfer::Xfer,
+    ) -> Result<(), String> {
+        Err("AI runtime has no owned Dozer snapshot".into())
+    }
+
     fn xfer_ai_update_state(&mut self, _xfer: &mut dyn Xfer) -> Result<bool, String> {
         Ok(false)
     }

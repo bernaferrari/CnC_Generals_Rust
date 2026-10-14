@@ -304,6 +304,10 @@ impl NativeMatch {
                 ObjectCreationFlags::empty(),
             )
             .unwrap();
+        let expects_containment = template
+            .get_behavior_module_info()
+            .iter()
+            .any(|entry| entry.interface_mask.0 & ModuleInterfaceType::CONTAIN.0 != 0);
         let target_flags = if template
             .get_behavior_module_info()
             .iter()
@@ -351,7 +355,11 @@ impl NativeMatch {
             Some(if hostile { 1 } else { 0 })
         );
         assert!(source.read().unwrap().get_ai_update_interface().is_some());
-        assert!(target.read().unwrap().get_contain().is_some());
+        assert_eq!(
+            target.read().unwrap().get_contain().is_some(),
+            expects_containment,
+            "receiving target must install its actual authored containment interface"
+        );
         // Preparation installs inert proxies. Admit their actual descriptors
         // and saved clocks, including derived AI classes, at this birth boundary.
         for owner in [&source, &target] {
@@ -1343,3 +1351,8 @@ mod queue_wake;
 
 #[path = "ai_native_world_tests/dozer_clock.rs"]
 mod dozer_clock;
+#[path = "ai_native_world_tests/dozer_position.rs"]
+mod dozer_position;
+
+#[path = "ai_native_world_tests/dozer_fortify.rs"]
+mod dozer_fortify;

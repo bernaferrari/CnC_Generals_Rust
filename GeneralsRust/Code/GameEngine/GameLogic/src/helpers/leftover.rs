@@ -300,11 +300,11 @@ impl TheInGameUI {
     }
 
     /// Drain pending idle worker add/remove events (matches InGameUI idle worker bookkeeping).
-    pub fn take_idle_worker_events() -> (Vec<(ObjectID, Int)>, Vec<(ObjectID, Int)>) {
+    pub fn take_idle_worker_events() -> Vec<IdleWorkerEvent> {
         if let Ok(mut state) = IN_GAME_UI_STATE.write() {
             return state.idle_workers.take();
         }
-        (Vec::new(), Vec::new())
+        Vec::new()
     }
 
     /// C++ parity: InGameUI::clearPopupMessageData().

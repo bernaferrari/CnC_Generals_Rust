@@ -31,6 +31,23 @@ impl AIUpdateInterface for UnitAIUpdate {
         Some(self)
     }
 
+    fn validate_dozer_snapshot(&self) -> Result<(), String> {
+        self.runtime
+            .components
+            .dozer_ai
+            .as_ref()
+            .ok_or("canonical AI runtime has no Dozer")?
+            .validate_owned_snapshot()
+    }
+    fn xfer_dozer_snapshot_tail(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.runtime
+            .components
+            .dozer_ai
+            .as_mut()
+            .ok_or("canonical AI runtime has no Dozer")?
+            .xfer_owned_tail(xfer)
+    }
+
     fn xfer_ai_update_state(&mut self, xfer: &mut dyn Xfer) -> Result<bool, String> {
         UnitAIUpdate::xfer_ai_update_state(self, xfer)
     }

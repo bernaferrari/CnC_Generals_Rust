@@ -36,6 +36,12 @@ fn dual_world_registry_unavailable() -> bool {
 
 mod primary_owned;
 use primary_owned::DozerPrimaryIdle;
+pub(crate) mod owned_state;
+mod snapshot;
+#[cfg(test)]
+use owned_state::DozerOwnedObservation;
+use owned_state::DozerStep;
+use owned_state::{ActionState, PrimaryMachine, PrimaryState};
 
 const MIN_ACTION_TOLERANCE: Real = 70.0;
 
@@ -442,7 +448,7 @@ pub struct DozerAIUpdate {
     tasks: [DozerTaskEntry; DOZER_NUM_TASKS],
     dock_points: [[DozerDockPointInfo; DOZER_NUM_DOCK_POINTS]; DOZER_NUM_TASKS],
     current_task: DozerTask,
-    primary_idle: Option<DozerPrimaryIdle>,
+    primary: PrimaryMachine,
     build_sub_task: DozerBuildSubTask,
     is_rebuild: bool,
     building_sound: Option<AudioEventRts>,
@@ -493,7 +499,7 @@ impl DozerAIUpdate {
                 ],
             ],
             current_task: DozerTask::Invalid,
-            primary_idle: None,
+            primary: PrimaryMachine::new(),
             build_sub_task: DozerBuildSubTask::SelectBuildDockLocation,
             is_rebuild: false,
             building_sound: None,
@@ -1626,6 +1632,17 @@ impl DozerAIUpdate {
 }
 
 impl crate::modules::DozerAIUpdateInterface for DozerAIUpdate {
+    #[cfg(test)]
+    fn owned_state_observation_for_test(&self) -> Option<DozerOwnedObservation> {
+        Some(DozerAIUpdate::owned_state_observation_for_test(self))
+    }
+
+    fn validate_owned_snapshot(&self) -> Result<(), String> {
+        DozerAIUpdate::validate_owned_snapshot(self)
+    }
+    fn xfer_owned_snapshot_tail(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.xfer_owned_tail(xfer)
+    }
     fn finish_cancelled_task_with_world(
         &mut self,
         task: DozerTask,
@@ -1698,6 +1715,41 @@ impl DozerAIUpdateModule {
     pub(crate) fn runtime_ai_owned(&self) -> Option<Arc<Mutex<dyn AIUpdateInterface>>> {
         self.inherited.runtime_ai_owned()
     }
+    pub(crate) fn xfer_with_locomotors(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
+    ) -> Result<(), String> {
+        self.xfer_owned(xfer, Some(lookup))
+    }
+    fn xfer_owned(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
+    ) -> Result<(), String> {
+        let runtime = self
+            .inherited
+            .runtime_ai_owned()
+            .ok_or("Dozer snapshot runtime absent")?;
+        if !xfer.is_reading() {
+            runtime
+                .lock()
+                .map_err(|_| "Dozer snapshot runtime poisoned")?
+                .validate_dozer_snapshot()?;
+        }
+        let mut version = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|error| error.to_string())?;
+        match lookup {
+            Some(lookup) => self.inherited.xfer_with_locomotors(xfer, lookup)?,
+            None => self.inherited.xfer(xfer)?,
+        }
+        runtime
+            .lock()
+            .map_err(|_| "Dozer snapshot runtime poisoned")?
+            .xfer_dozer_snapshot_tail(xfer)?;
+        Ok(())
+    }
     /// Only the inherited AI/Update portion, not a complete Dozer snapshot.
     #[cfg(test)]
     pub(crate) fn xfer_inherited_with_locomotors(
@@ -1739,10 +1791,8 @@ impl Snapshotable for DozerAIUpdateModule {
         self.inherited.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // CPP2432 requires the real primary/action machines after inherited AI.
-        // Definition fields are never a substitute for runtime continuation.
-        Err("Dozer snapshot requires owned primary/action state-machine continuation".into())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.xfer_owned(xfer, None)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {

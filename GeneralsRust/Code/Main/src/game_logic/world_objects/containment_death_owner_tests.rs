@@ -23,6 +23,7 @@ Object OwnedContainDeath
   KindOf = VEHICLE CAN_ATTACK
   Body = ActiveBody BodyTag
     MaxHealth = 200
+    InitialHealth = 200
   End
   Behavior = {container_module} ContainTag
     Slots = 5
@@ -38,6 +39,7 @@ Object OwnedContainRider
   Locomotor = SET_NORMAL BasicHumanLocomotor
   Body = ActiveBody BodyTag
     MaxHealth = 100
+    InitialHealth = 100
   End
   Behavior = AIUpdateInterface AiTag
   End

@@ -11,6 +11,7 @@ Object OwnedRappelBuilding
   KindOf = STRUCTURE GARRISONABLE
   Body = ActiveBody BodyTag
     MaxHealth = 200
+    InitialHealth = 200
   End
   Behavior = GarrisonContain ContainTag
     ContainMax = 3
@@ -22,6 +23,7 @@ Object OwnedRappeller
   IsTrainable = Yes
   Body = ActiveBody BodyTag
     MaxHealth = 100
+    InitialHealth = 100
   End
   Behavior = SlowDeathBehavior DeathTag
     DestructionDelay = 5000
@@ -32,6 +34,7 @@ Object OwnedRappelEnemy
   ExperienceValue = 10 10 10 10
   Body = ActiveBody BodyTag
     MaxHealth = 100
+    InitialHealth = 100
   End
   Behavior = SlowDeathBehavior DeathTag
     DestructionDelay = 5000

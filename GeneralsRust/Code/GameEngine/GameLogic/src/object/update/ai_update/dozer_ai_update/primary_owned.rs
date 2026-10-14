@@ -7,15 +7,19 @@ use crate::modules::ai_world::AiWorld;
 
 #[derive(Debug)]
 pub(super) struct DozerPrimaryIdle {
-    idle_since: u32,
-    player: Int,
-    marked: bool,
+    pub(super) idle_since: u32,
+    pub(super) player: Int,
+    pub(super) marked: bool,
 }
 
 impl DozerAIUpdate {
-    fn reset_primary_idle_owned(&mut self, world: &mut dyn AiWorld) -> Result<(), String> {
+    pub(super) fn reset_primary_idle_owned(
+        &mut self,
+        world: &mut dyn AiWorld,
+    ) -> Result<(), String> {
         let owner = world.object(self.object_id).ok_or("Dozer owner absent")?;
-        if let Some(idle) = &self.primary_idle {
+        {
+            let idle = &self.primary.idle;
             if idle.marked {
                 world.idle_worker_event(&owner, idle.player, false)?;
             }
@@ -28,11 +32,11 @@ impl DozerAIUpdate {
             crate::weapon::WeaponSetType::MineClearingDetail,
             true,
         )?;
-        self.primary_idle = Some(DozerPrimaryIdle {
-            idle_since: world.frame(),
-            player: -1,
-            marked: false,
-        });
+        self.primary.state = PrimaryState::Idle;
+        self.primary.control.initialized = true;
+        self.primary.control.sleep_until = 0;
+        self.primary.idle.idle_since = world.frame();
+        self.primary.idle.marked = false;
         Ok(())
     }
 
@@ -84,7 +88,7 @@ impl DozerAIUpdate {
         {
             return Err("supplied Dozer idle scanning/docking services unavailable".into());
         }
-        if self.primary_idle.is_none() {
+        if !self.primary.control.initialized {
             self.reset_primary_idle_owned(world)?;
         }
         let owner = world.object(self.object_id).ok_or("Dozer owner absent")?;
@@ -97,7 +101,7 @@ impl DozerAIUpdate {
                     .ok_or("Dozer controller absent")? as Int,
             )
         };
-        let idle = self.primary_idle.as_mut().expect("primary Idle entered");
+        let idle = &mut self.primary.idle;
         if regular_idle && !idle.marked && !dead {
             world.idle_worker_event(&owner, player, true)?;
             idle.player = player;
@@ -117,10 +121,14 @@ impl DozerAIUpdate {
             idle.idle_since = world.frame();
         }
         if regular_idle && self.get_most_recent_command() == DozerTask::Fortify {
-            let idle = self.primary_idle.take().expect("primary Idle");
+            let idle = &mut self.primary.idle;
             if idle.marked {
                 world.idle_worker_event(&owner, idle.player, false)?;
+                idle.player = -1;
+                idle.marked = false;
             }
+            self.primary.state = PrimaryState::Fortify;
+            self.primary.actions[DozerTask::Fortify.as_index()].reset();
             self.current_task = DozerTask::Fortify;
             self.action_state = DozerActionState::PickActionPos;
         }

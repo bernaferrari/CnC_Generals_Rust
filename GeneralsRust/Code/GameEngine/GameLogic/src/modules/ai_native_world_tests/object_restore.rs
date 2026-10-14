@@ -8,7 +8,7 @@ use crate::object::object_xfer::native::{
 use crate::player::{OwnedPowerBrownout, RadarEdgeServices};
 use std::collections::HashMap;
 
-struct Catalog {
+pub(super) struct Catalog {
     things: HashMap<String, Arc<dyn ThingTemplate>>,
     weapons: HashMap<String, Arc<crate::weapon::WeaponTemplate>>,
     locomotors: HashMap<String, Arc<crate::locomotor::LocomotorTemplate>>,
@@ -41,9 +41,17 @@ impl Catalog {
         loco.surfaces = crate::locomotor::SURFACE_GROUND;
         loco.max_speed = 3.0;
         loco.acceleration = 0.1;
+        Self::from_templates(source, transport, loco)
+    }
+    pub(super) fn from_templates(
+        source: Arc<dyn ThingTemplate>,
+        target: Arc<dyn ThingTemplate>,
+        loco: crate::locomotor::LocomotorTemplate,
+    ) -> Self {
+        let loco_name = loco.name.to_string();
         let things = HashMap::from([
-            ("FreshNativeInfantry".to_string(), source),
-            (transport.get_name().to_string(), transport),
+            (source.get_name().to_string(), source),
+            (target.get_name().to_string(), target),
         ]);
         let weapons = HashMap::new();
         let mut module_factory = game_engine::common::thing::module_factory::ModuleFactory::new();
@@ -65,7 +73,7 @@ impl Catalog {
         Self {
             things,
             weapons,
-            locomotors: HashMap::from([("FreshNativeGround".to_string(), Arc::new(loco))]),
+            locomotors: HashMap::from([(loco_name, Arc::new(loco))]),
             upgrades: game_engine::common::system::upgrade::UpgradeCenter::new(),
             bonuses: Default::default(),
             bodies: Arc::new(
@@ -117,7 +125,7 @@ impl RadarEdgeServices for RadarScope {
     }
 }
 
-fn transfer<R>(
+pub(super) fn transfer<R>(
     game: &mut NativeMatch,
     catalog: &Catalog,
     frame: u32,
@@ -125,6 +133,7 @@ fn transfer<R>(
 ) -> R {
     let mut radar = RadarScope(frame);
     let mut power = OwnedPowerBrownout {
+        idle_worker_events: Some(&mut game.idle_workers),
         objects: crate::player::PowerObjectOwner::Factory(&game.factory),
         teams: &game.teams,
         players: &game.players,
@@ -163,7 +172,7 @@ fn fresh(
         171,
     )
 }
-fn fresh_with_templates(
+pub(super) fn fresh_with_templates(
     catalog: &Catalog,
     records: Option<&[ObjectSnapshotRecord]>,
     source_name: &str,
@@ -277,18 +286,27 @@ fn fresh_with_templates(
         })
         .map_err(|error| error.to_string())?;
         if source_has_ai {
-            assert_eq!(
-                game.source
-                    .read()
-                    .unwrap()
-                    .get_ai_update_interface()
-                    .unwrap()
-                    .lock()
-                    .unwrap()
-                    .get_current_state_id(),
-                Some(crate::ai::states::AIStateType::Idle as u32),
-                "the original installed AI block must restore before supplied postload"
-            );
+            let restored_state = game
+                .source
+                .read()
+                .unwrap()
+                .get_ai_update_interface()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .get_current_state_id();
+            if source_name == "FreshNativeInfantry" {
+                assert_eq!(
+                    restored_state,
+                    Some(crate::ai::states::AIStateType::Idle as u32),
+                    "the original installed AI block must restore before supplied postload"
+                );
+            } else {
+                assert!(
+                    restored_state.is_some(),
+                    "the authored AI block must restore an initialized state"
+                );
+            }
         } else {
             assert!(
                 game.source
@@ -333,7 +351,11 @@ fn fresh_with_templates(
 fn capture(game: &mut NativeMatch, catalog: &Catalog) -> Vec<ObjectSnapshotRecord> {
     capture_at(game, catalog, 137)
 }
-fn capture_at(game: &mut NativeMatch, catalog: &Catalog, frame: u32) -> Vec<ObjectSnapshotRecord> {
+pub(super) fn capture_at(
+    game: &mut NativeMatch,
+    catalog: &Catalog,
+    frame: u32,
+) -> Vec<ObjectSnapshotRecord> {
     // CPP GameLogic inserts each newly-created object at the list head.
     [game.target.clone(), game.source.clone()]
         .into_iter()

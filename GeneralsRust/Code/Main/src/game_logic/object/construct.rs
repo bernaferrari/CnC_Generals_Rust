@@ -82,70 +82,6 @@ pub(crate) fn template_has_worker_ai_update(template_name: &str) -> bool {
     })
 }
 
-/// C++ `ActiveBodyModuleData::m_initialHealth` from leftover factory when loaded.
-/// Never calls `find_template(..., true)` (that lazy-inits Object INI).
-fn leftover_factory_body_initial_health(template_name: &str) -> Option<f32> {
-    leftover_factory_body_health(template_name).and_then(|(_, initial)| {
-        if initial > 0.0 { Some(initial) } else { None }
-    })
-}
-
-fn leftover_factory_body_health(template_name: &str) -> Option<(f32, f32)> {
-    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
-    let factory = guard.as_ref()?;
-    let tmpl = factory.find_template(template_name, false)?;
-    for entry in tmpl.get_behavior_module_info().iter() {
-        if !name_is_body_module(entry.name.as_str()) {
-            continue;
-        }
-        if let Some((max, initial)) = leftover_typed_body_health(entry.data.as_ref()) {
-            if max > 0.0 || initial > 0.0 {
-                return Some((max, initial));
-            }
-        }
-        let max = parse_ini_real(entry.data.get_ini_field("MaxHealth"));
-        let initial = parse_ini_real(entry.data.get_ini_field("InitialHealth"));
-        match (max, initial) {
-            (Some(m), Some(i)) if m > 0.0 || i > 0.0 => return Some((m, i)),
-            (Some(m), None) if m > 0.0 => return Some((m, m)),
-            (None, Some(i)) if i > 0.0 => return Some((i, i)),
-            _ => {}
-        }
-    }
-    None
-}
-
-fn name_is_body_module(name: &str) -> bool {
-    name.eq_ignore_ascii_case("ActiveBody")
-        || name.eq_ignore_ascii_case("StructureBody")
-        || name.eq_ignore_ascii_case("HighlanderBody")
-        || name.eq_ignore_ascii_case("ImmortalBody")
-        || name.eq_ignore_ascii_case("HiveStructureBody")
-        || name.eq_ignore_ascii_case("UndeadBody")
-}
-
-fn leftover_typed_body_health(
-    data: &dyn game_engine::common::thing::module::ModuleData,
-) -> Option<(f32, f32)> {
-    use gamelogic::object::body::active_body::ActiveBodyModuleData;
-    use gamelogic::object::body::hive_structure_body::HiveStructureBodyModuleData;
-    use gamelogic::object::body::structure_body::StructureBodyModuleData;
-    use gamelogic::object::body::undead_body::UndeadBodyModuleData;
-    if let Some(d) = data.as_any().downcast_ref::<ActiveBodyModuleData>() {
-        return Some((d.max_health, d.initial_health));
-    }
-    if let Some(d) = data.as_any().downcast_ref::<StructureBodyModuleData>() {
-        return Some((d.base.max_health, d.base.initial_health));
-    }
-    if let Some(d) = data.as_any().downcast_ref::<HiveStructureBodyModuleData>() {
-        return Some((d.base.base.max_health, d.base.base.initial_health));
-    }
-    if let Some(d) = data.as_any().downcast_ref::<UndeadBodyModuleData>() {
-        return Some((d.base.max_health, d.base.initial_health));
-    }
-    None
-}
-
 fn parse_ini_real(text: Option<&str>) -> Option<f32> {
     text.and_then(|t| t.trim().parse().ok())
 }
@@ -357,10 +293,7 @@ impl Object {
         let template_name = template.name.clone();
         let max_health = template.max_health;
         // C++ ActiveBody ctor: current/prev/initial = INI InitialHealth; max = MaxHealth.
-        let initial_health = template
-            .body_initial_health
-            .or_else(|| leftover_factory_body_initial_health(&template_name))
-            .unwrap_or(max_health);
+        let initial_health = template.body_initial_health.unwrap_or(max_health);
         let auto_acquire_idle_bits = leftover_factory_auto_acquire_bits(&template_name)
             .unwrap_or(template.auto_acquire_enemies_when_idle);
         let auto_acquire_when_idle = (auto_acquire_idle_bits
@@ -1400,7 +1333,7 @@ impl Object {
         template.bind_weapon_set_from_live_assets();
         let tracker = template.weapon_tracker_bind();
         let team = Team::Neutral;
-        let initial_health = leftover_factory_body_initial_health(&template_name).unwrap_or(100.0);
+        let initial_health = template.body_initial_health.unwrap_or(template.max_health);
         let auto_acquire_idle_bits = leftover_factory_auto_acquire_bits(&template_name)
             .unwrap_or(template.auto_acquire_enemies_when_idle);
         let auto_acquire_when_idle = (auto_acquire_idle_bits
@@ -2578,9 +2511,10 @@ impl Object {
         if max_h > 0.0 { current / max_h } else { 0.0 }
     }
 
-    /// C++ `BodyModule::getInitialHealth`. Legacy/missing 0 falls back to the live max.
+    /// C++ `BodyModule::getInitialHealth`: preserve bound authored zero/negative
+    /// values. Unbound synthetic templates retain their local max-health fallback.
     pub fn body_initial_health(&self) -> f32 {
-        if self.initial_health > 0.0 {
+        if self.thing.template.body_initial_health.is_some() || self.initial_health > 0.0 {
             self.initial_health
         } else if self.health.maximum > 0.0 {
             self.health.maximum
@@ -3075,3 +3009,7 @@ mod tests {
         assert_eq!(obj.body_initial_health(), 50.0);
     }
 }
+
+#[cfg(test)]
+#[path = "body_initialization_owner_tests.rs"]
+mod body_initialization_owner_tests;

@@ -247,6 +247,7 @@ impl Candidate {
         let mut radar = NoRadarPayload(frame);
         let mut power = OwnedPowerBrownout {
             objects: crate::player::PowerObjectOwner::Factory(&self.factory),
+            idle_worker_events: None,
             teams: &self.teams,
             players: &self.players,
             radar: &mut radar,

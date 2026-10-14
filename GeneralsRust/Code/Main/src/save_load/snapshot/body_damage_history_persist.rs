@@ -78,15 +78,16 @@ pub(super) fn validate(
             || world.host_object(ObjectId(entry.object_id)).is_none()
             || entry.source_id == Some(0)
             || !entry.previous_health.is_finite()
-            || entry.previous_health < 0.0
             || entry.damage_state > 3
             || !entry.initial_health.is_finite()
-            || entry.initial_health < 0.0
         {
             return Err(SaveLoadError::Corrupted(
                 "invalid saved body history owner or source".into(),
             ));
         }
+        // ActiveBody construction directly assigns finite InitialHealth, including
+        // negative values, to initial/current/previous health before callbacks.
+        // Ordinary health-change clamping cannot constrain this saved constructor state.
         // A missing current attacker is legitimate: C++ saves the retained ID,
         // and the next hit resolves its existence from the receiving store.
     }

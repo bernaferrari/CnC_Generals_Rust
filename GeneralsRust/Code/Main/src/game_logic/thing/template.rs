@@ -14,6 +14,8 @@ pub struct ThingTemplate {
     /// Rebuild from receiving content; never change the historical template wire layout.
     #[serde(skip)]
     pub(crate) body_initial_health: Option<f32>,
+    #[serde(skip)]
+    pub(crate) body_initial_health_error: Option<String>,
     pub armor: f32,
     /// C++ `ThingTemplate::m_visionRange` from Object INI `VisionRange`.
     /// Default 0 = reveal nothing (ThingTemplate.cpp:976).
@@ -564,6 +566,7 @@ impl ThingTemplate {
             default_draw_without_fog_memory: false,
             max_health: 100.0,
             body_initial_health: None,
+            body_initial_health_error: None,
             armor: 0.0,
             sight_range: 0.0,
             shroud_clearing_range: default_template_shroud_clearing_range(),

@@ -64,6 +64,7 @@ fn power_off(game: &mut NativeMatch, frame: u32) {
         let mut radar = QuietRadar(frame);
         let mut power = OwnedPowerBrownout {
             objects: crate::player::PowerObjectOwner::World(world),
+            idle_worker_events: None,
             players,
             teams,
             radar: &mut radar,
@@ -134,7 +135,16 @@ fn real_fortify_request_activates_only_in_primary_phase_then_power_cancels_it() 
     let source = game.source.read().unwrap().get_id();
     assert_eq!(
         game.idle_workers.take(),
-        (vec![(source, 0)], vec![(source, 0)]),
+        vec![
+            crate::helpers::IdleWorkerEvent::Add {
+                object: source,
+                player: 0
+            },
+            crate::helpers::IdleWorkerEvent::Remove {
+                object: source,
+                player: 0
+            }
+        ],
         "Idle body runs before condition exit"
     );
     power_off(&mut game, 18);
@@ -157,7 +167,7 @@ fn real_fortify_request_activates_only_in_primary_phase_then_power_cancels_it() 
             .unwrap()
             .is_disabled_by_type(DisabledType::DisabledUnderpowered)
     );
-    assert_eq!(peer.idle_workers.take(), (vec![], vec![]));
+    assert_eq!(peer.idle_workers.take(), vec![]);
 }
 
 #[test]
@@ -197,7 +207,7 @@ fn supplied_request_rejects_foreign_owner_and_missing_target_before_admission() 
             .unwrap()
             .is_any_task_pending()
     );
-    assert_eq!(game.idle_workers.take(), (vec![], vec![]));
+    assert_eq!(game.idle_workers.take(), vec![]);
 }
 
 #[test]

@@ -22,6 +22,10 @@ impl UnitAIUpdate {
         let path = temporary == Some(AIStateType::FollowExitProductionPath as u32)
             || (temporary.is_none() && state == Some(AIStateType::FollowPath as u32));
         let idle = temporary.is_none() && state == Some(AIStateType::Idle as u32);
+        let dozer = self.owned_fortify_phase_is_admitted();
+        let move_to = dozer
+            && (temporary == Some(AIStateType::MoveTo as u32)
+                || (temporary.is_none() && state == Some(AIStateType::MoveTo as u32)));
         let waypoint = temporary.is_none()
             && matches!(state,
             Some(id) if id == AIStateType::FollowWaypointPathAsIndividuals as u32
@@ -40,12 +44,12 @@ impl UnitAIUpdate {
             self.validate_owned_components_with_world(
                 world,
                 self.runtime.data.locomotor_goal_type == 0,
-                false,
+                dozer,
             )
             .map_err(|error| error.to_string())?;
             false
         };
-        if !path && !idle && !waypoint && !enter && !exit && !dead {
+        if !path && !idle && !waypoint && !enter && !exit && !dead && !move_to {
             return Err("scheduled UnitAI state requires its supplied callback domain".into());
         }
         let owner = self
@@ -139,6 +143,26 @@ impl UnitAIUpdate {
         } else if matches!(state, Some(id) if id == AIStateType::Exit as u32 || id == AIStateType::ExitInstantly as u32)
         {
             <Self as AIUpdateInterface>::update_exit_phase_sleep_with_world(self, world)?
+        } else if self.owned_fortify_phase_is_admitted()
+            && (temporary == Some(AIStateType::MoveTo as u32)
+                || state == Some(AIStateType::MoveTo as u32))
+        {
+            let machine = self
+                .ai_state_machine
+                .as_mut()
+                .ok_or("Dozer movement machine absent")?;
+            let mut runtime = super::UnitAiStateRuntime {
+                runtime: &mut self.runtime,
+                parent_exists: true,
+                parent_state_id: None,
+                world: Some(world),
+            };
+            machine
+                .update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
+                    ai.execute_command_native(terminal.params(), driver)
+                })
+                .map(Self::state_machine_sleep_owned)
+                .map_err(|error| error.to_string())?
         } else if state == Some(AIStateType::Idle as u32) {
             self.update_idle_phase_sleep_with_world(world)
                 .map_err(|error| error.to_string())?
@@ -222,6 +246,21 @@ impl UnitAIUpdate {
                         )
                     })?,
             );
+        }
+        // CPP DozerAIUpdate.cpp1545–1600: inherited phases finish first,
+        // then the separate primary machine observes their resulting state.
+        if self.owned_fortify_phase_is_admitted() {
+            let owner = self.runtime.native_owner().ok_or("Dozer actor retired")?;
+            if !owner
+                .try_read()
+                .map_err(|_| "Dozer actor borrowed")?
+                .is_effectively_dead()
+            {
+                self.update_dozer_primary_with_world(world)?;
+            }
+            // CPP1578 also returns UPDATE_SLEEP_NONE for effectively dead
+            // Dozers; only the derived primary update is skipped above.
+            sleep = UpdateSleepTime::None;
         }
         Ok(if self.runtime.data.completed_waypoint_id.is_some() {
             UpdateSleepTime::None

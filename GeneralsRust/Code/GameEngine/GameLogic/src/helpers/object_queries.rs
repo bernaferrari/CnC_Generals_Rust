@@ -3,6 +3,10 @@
 // Split from `helpers.rs` for module-size parity.
 // Observable behavior is unchanged.
 
+#[path = "find_position_sampling.rs"]
+pub(crate) mod find_position_sampling;
+use find_position_sampling::find_position_around_candidates;
+
 pub struct ThePartitionManager;
 
 /// FindPosition options for ThePartitionManager::find_position_around_with_options.
@@ -168,13 +172,11 @@ impl ThePartitionManager {
             return false;
         }
 
-        const RING_SPACING: Real = 5.0;
         const TWO_PI: Real = std::f32::consts::PI * 2.0;
 
         fn try_position<F>(
             center: &Coord3D,
-            dist: Real,
-            angle: Real,
+            mut pos: Coord3D,
             terrain: Option<&TheTerrainLogic>,
             in_extent: &F,
             options: &FindPositionOptions,
@@ -183,12 +185,6 @@ impl ThePartitionManager {
         where
             F: Fn(&Coord3D) -> bool,
         {
-            let mut pos = Coord3D::new(
-                center.x + dist * angle.cos(),
-                center.y + dist * angle.sin(),
-                center.z,
-            );
-
             if !in_extent(&pos) {
                 return false;
             }
@@ -359,44 +355,20 @@ impl ThePartitionManager {
             .start_angle
             .unwrap_or_else(|| GameLogicRandomValueReal!(0.0, TWO_PI));
 
-        let mut dist = options.min_radius;
-        while dist <= max_radius {
-            let angle_spacing = if dist == options.min_radius {
-                TWO_PI
-            } else {
-                (RING_SPACING / (dist + 1.0)) * (TWO_PI / 6.0)
-            };
-
-            let samples = ((TWO_PI / angle_spacing) / 2.0).ceil() as i32;
-            for i in 0..samples {
-                let angle_offset = angle_spacing * i as f32;
-                if try_position(
-                    center,
-                    dist,
-                    start_angle + angle_offset,
-                    terrain,
-                    &in_extent,
-                    options,
-                    result,
-                ) {
-                    return true;
-                }
-                if i != 0
-                    && try_position(
-                        center,
-                        dist,
-                        start_angle - angle_offset,
-                        terrain,
-                        &in_extent,
-                        options,
-                        result,
-                    )
-                {
-                    return true;
-                }
-            }
-
-            dist += RING_SPACING;
+        let found = find_position_around_candidates(
+            *center,
+            options.min_radius,
+            max_radius,
+            start_angle,
+            |pos, _angle| {
+                let mut candidate = *result;
+                try_position(center, pos, terrain, &in_extent, options, &mut candidate)
+                    .then_some(candidate)
+            },
+        );
+        if let Some(position) = found {
+            *result = position;
+            return true;
         }
 
         false

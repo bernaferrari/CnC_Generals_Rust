@@ -14,6 +14,7 @@ Object DeferredDestroyBoundaryInfantry
   KindOf = INFANTRY SELECTABLE ATTACKABLE
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
+    InitialHealth = 100
   End
   Behavior = SlowDeathBehavior ModuleTag_Death
     SinkDelay = 0

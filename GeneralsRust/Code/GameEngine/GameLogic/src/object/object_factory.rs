@@ -402,7 +402,7 @@ impl ObjectFactory {
         let authored_ai = template
             .get_behavior_module_info()
             .iter()
-            .any(|entry| entry.name.as_str() == "AIUpdateInterface");
+            .any(|entry| matches!(entry.name.as_str(), "AIUpdateInterface" | "DozerAIUpdate"));
         let prepare_ai = !flags.contains(ObjectCreationFlags::NO_AI)
             && (authored_ai || (lookup.is_none() && object_type == ObjectType::Unit));
         // C++ Object.cpp:419-429 caches an AI interface only from an authored

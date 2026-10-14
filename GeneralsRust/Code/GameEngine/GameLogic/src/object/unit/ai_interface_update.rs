@@ -384,7 +384,11 @@ impl UnitAIUpdate {
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<crate::modules::UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         self.validate_world_owner(world)?;
-        self.validate_owned_components_with_world(world, true, false)?;
+        self.validate_owned_components_with_world(
+            world,
+            true,
+            self.owned_fortify_phase_is_admitted(),
+        )?;
         if world.pathfinder().is_none() {
             return Err("supplied Idle requires its owner pathfinder".into());
         }
@@ -592,15 +596,39 @@ impl UnitAIUpdate {
         self.validate_world_owner(world)
             .map_err(|e| e.to_string())?;
         let idle = self.is_idle();
-        let mut dozer = self
+        let step = self
             .runtime
             .components
             .dozer_ai
-            .take()
-            .ok_or("installed AI has no Dozer primary")?;
-        let result = dozer.update_primary_with_world(idle, world);
-        self.runtime.components.dozer_ai = Some(dozer);
-        result
+            .as_mut()
+            .ok_or("installed AI has no Dozer primary")?
+            .prepare_primary_step_with_world(idle, world)?;
+        match &step {
+            crate::object::update::ai_update::dozer_ai_update::owned_state::DozerStep::MoveToPosition {
+                target,
+                position,
+                ignore_obstacle_count,
+            } => {
+                self.execute_dozer_action_move_with_world(
+                    *target,
+                    *position,
+                    *ignore_obstacle_count,
+                    world,
+                )
+                .map_err(|error| error.to_string())?;
+            }
+            crate::object::update::ai_update::dozer_ai_update::owned_state::DozerStep::CancelTask { task } => {
+                self.execute_dozer_action_idle_with_world(*task, world)
+                    .map_err(|error| error.to_string())?;
+            }
+            crate::object::update::ai_update::dozer_ai_update::owned_state::DozerStep::Continue => {}
+        }
+        self.runtime
+            .components
+            .dozer_ai
+            .as_mut()
+            .ok_or("installed Dozer primary disappeared during command")?
+            .finish_primary_step_with_world(&step, world)
     }
 
     fn update_with_optional_world(
@@ -1586,15 +1614,27 @@ impl UnitAIUpdate {
     ) -> Result<(), String> {
         self.validate_world_owner(world)
             .map_err(|error| error.to_string())?;
-        self.validate_owned_components_with_world(world, true, false)
-            .map_err(|error| error.to_string())?;
+        self.validate_owned_components_with_world(
+            world,
+            true,
+            self.owned_fortify_phase_is_admitted(),
+        )
+        .map_err(|error| error.to_string())?;
         let machine = self
             .ai_state_machine
             .as_ref()
             .ok_or("restored AI machine absent")?;
-        if machine.get_temporary_state().is_some()
-            || !matches!(machine.get_current_state_id(),Some(id) if id==AIStateType::Idle as u32 || id==AIStateType::Enter as u32 || id==AIStateType::Exit as u32 || id==AIStateType::ExitInstantly as u32)
-        {
+        let fortify = self.owned_fortify_phase_is_admitted();
+        let current = machine.get_current_state_id();
+        let current_admitted = matches!(current, Some(id) if id == AIStateType::Idle as u32
+            || id == AIStateType::Enter as u32 || id == AIStateType::Exit as u32
+            || id == AIStateType::ExitInstantly as u32
+            || (fortify && id == AIStateType::MoveTo as u32));
+        let temporary_admitted = machine.get_temporary_state().is_none()
+            || (fortify
+                && current == Some(AIStateType::Idle as u32)
+                && machine.get_temporary_state() == Some(AIStateType::MoveTo as u32));
+        if !current_admitted || !temporary_admitted {
             return Err("supplied postload does not admit this restored state family".into());
         }
         let owner_arc = self

@@ -192,6 +192,12 @@ fn xfer_installed_module(
         {
             return ai.xfer_with_locomotors(xfer, &mut |name| Ok(definitions.locomotor(name)));
         }
+        if let Some(dozer) = module
+            .as_any_mut()
+            .downcast_mut::<crate::object::update::ai_update::dozer_ai_update::DozerAIUpdateModule>(
+        ) {
+            return dozer.xfer_with_locomotors(xfer, &mut |name| Ok(definitions.locomotor(name)));
+        }
     }
     module.xfer(xfer)
 }

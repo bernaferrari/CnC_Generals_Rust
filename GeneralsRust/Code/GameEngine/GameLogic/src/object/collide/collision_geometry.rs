@@ -51,6 +51,22 @@ pub struct GeometryInfo {
 }
 
 impl GeometryInfo {
+    /// Copy the canonical definition without conflating horizontal extents
+    /// with Z height or changing authored numeric values.
+    pub(crate) fn from_engine_geometry(shape: &game_engine::common::system::GeometryInfo) -> Self {
+        use game_engine::common::system::GeometryType as EngineGeometryType;
+        Self {
+            geom_type: match shape.geometry_type {
+                EngineGeometryType::Sphere => GeometryType::Sphere,
+                EngineGeometryType::Cylinder => GeometryType::Cylinder,
+                EngineGeometryType::Box => GeometryType::Box,
+            },
+            major_radius: shape.width,
+            minor_radius: shape.depth,
+            is_small: shape.is_small,
+            height: shape.height,
+        }
+    }
     /// Create a new box geometry
     pub fn new_box(width: f32, height: f32, is_small: bool) -> Self {
         Self {
@@ -870,6 +886,35 @@ pub fn collide_test_dispatch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_definition_conversion_keeps_distinct_extents_and_authored_height() {
+        use game_engine::common::system::{
+            GeometryInfo as EngineGeometryInfo, GeometryType as EngineGeometryType,
+        };
+        for kind in [
+            EngineGeometryType::Sphere,
+            EngineGeometryType::Cylinder,
+            EngineGeometryType::Box,
+        ] {
+            for height in [8.0, -2.5] {
+                let input = EngineGeometryInfo::new(kind, true, height, 12.0, 3.0);
+                let converted = GeometryInfo::from_engine_geometry(&input);
+                assert_eq!(converted.major_radius, input.width);
+                assert_eq!(converted.minor_radius, input.depth);
+                assert_eq!(converted.height, input.height);
+                assert_eq!(converted.is_small, input.is_small);
+                assert_eq!(
+                    converted.to_cpp_index(),
+                    match kind {
+                        EngineGeometryType::Sphere => 0,
+                        EngineGeometryType::Cylinder => 1,
+                        EngineGeometryType::Box => 2,
+                    }
+                );
+            }
+        }
+    }
 
     #[test]
     fn test_geometry_info_creation() {

@@ -6,6 +6,27 @@
 use super::*;
 
 pub trait AiWorld {
+    fn validate_dozer_action_effects(
+        &self,
+        _owner: &Arc<RwLock<Object>>,
+        _target: &Arc<RwLock<Object>>,
+    ) -> Result<(), String> {
+        Err("supplied AI world has no Dozer action owner".into())
+    }
+    fn dozer_action_position(
+        &self,
+        _owner: &Arc<RwLock<Object>>,
+        _target: &Arc<RwLock<Object>>,
+    ) -> Result<Coord3D, String> {
+        Err("supplied AI world has no Dozer position query".into())
+    }
+    fn dozer_action_distance_squared(
+        &self,
+        _owner: &Arc<RwLock<Object>>,
+        _goal: &Coord3D,
+    ) -> Result<Real, String> {
+        Err("supplied AI world has no Dozer action distance query".into())
+    }
     fn validate_spy_disabled_edge(&self, _owner: &Arc<RwLock<Object>>) -> Result<(), String> {
         Err("supplied SpyVision callback services unavailable".into())
     }

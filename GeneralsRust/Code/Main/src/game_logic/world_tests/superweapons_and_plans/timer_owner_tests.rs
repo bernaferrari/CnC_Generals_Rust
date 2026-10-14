@@ -20,6 +20,7 @@ Object TimerOwnershipTimedDemo
   KindOf = SELECTABLE ATTACKABLE
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
+    InitialHealth = 100
   End
   Behavior = LifetimeUpdate ModuleTag_Lifetime
     MinLifetime = 10000
@@ -37,6 +38,7 @@ Object TimerOwnershipPoisonVictim
   KindOf = SELECTABLE ATTACKABLE
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
+    InitialHealth = 100
   End
   Behavior = PoisonedBehavior ModuleTag_Poison
     PoisonDamageInterval = 100

@@ -1317,6 +1317,11 @@ impl GameLogic {
         }
 
         if let Some(template) = self.templates.get(template_name).cloned() {
+            if let Some(error) = &template.body_initial_health_error {
+                log::error!("Rejecting object {template_name}: {error}");
+                return None;
+            }
+
             if let Some(Err(error)) = &template.structure_topple_definition {
                 log::error!("Rejecting object {template_name}: {error}");
                 return None;

@@ -162,13 +162,13 @@ fn malformed_saved_history_is_rejected_before_receiving_state_mutation() {
         } else if corrupt == 2 {
             payload.body_history[0].previous_health = f32::NAN;
         } else if corrupt == 3 {
-            payload.body_history[0].previous_health = -1.0;
+            payload.body_history[0].previous_health = f32::INFINITY;
         } else if corrupt == 4 {
             payload.body_history[0].damage_state = 99;
         } else if corrupt == 5 {
             payload.body_history[0].initial_health = f32::NAN;
         } else {
-            payload.body_history[0].initial_health = -1.0;
+            payload.body_history[0].initial_health = f32::NEG_INFINITY;
         }
         let encoded = bincode_legacy::serialize(&payload).unwrap();
         let mut bytes = OXOB_MAGIC.to_vec();

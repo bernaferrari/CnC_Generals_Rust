@@ -94,6 +94,7 @@ impl Match {
         let mut radar = QuietRadar(frame);
         let mut services = OwnedPowerBrownout {
             objects: crate::player::PowerObjectOwner::Factory(&self.factory),
+            idle_worker_events: None,
             teams: &self.teams,
             players: &self.players,
             radar: &mut radar,
@@ -186,6 +187,7 @@ fn foreign_same_id_receiver_is_rejected_before_radar_or_disable_mutation() {
     let mut radar = QuietRadar(20);
     let mut services = OwnedPowerBrownout {
         objects: crate::player::PowerObjectOwner::Factory(&world.factory),
+        idle_worker_events: None,
         teams: &world.teams,
         players: &world.players,
         radar: &mut radar,
@@ -279,6 +281,7 @@ fn injected_real_spy_name_is_not_a_supplied_module_capability() {
     let mut radar = QuietRadar(20);
     let mut power = OwnedPowerBrownout {
         objects: crate::player::PowerObjectOwner::Factory(&world.factory),
+        idle_worker_events: None,
         teams: &world.teams,
         players: &world.players,
         radar: &mut radar,

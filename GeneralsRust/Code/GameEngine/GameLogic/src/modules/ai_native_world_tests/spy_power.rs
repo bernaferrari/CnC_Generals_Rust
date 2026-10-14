@@ -85,6 +85,7 @@ fn power_with_current(
         let mut radar = QuietRadar(frame);
         let mut power = OwnedPowerBrownout {
             objects: crate::player::PowerObjectOwner::World(world),
+            idle_worker_events: None,
             players,
             teams,
             radar: &mut radar,

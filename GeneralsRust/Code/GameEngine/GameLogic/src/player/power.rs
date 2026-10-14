@@ -59,20 +59,29 @@ pub enum PowerObjectOwner<'a> {
 impl PowerObjectOwner<'_> {
     fn object(&self, id: crate::common::ObjectID) -> Option<Arc<RwLock<Object>>> {
         match self {
-            Self::Factory(factory) => factory.get_object(id).and_then(|slot| slot.get_base_object()),
+            Self::Factory(factory) => factory
+                .get_object(id)
+                .and_then(|slot| slot.get_base_object()),
             Self::World(world) => world.object(id),
         }
     }
     fn world(&self) -> Option<&dyn crate::modules::ai_world::AiWorld> {
-        match self { Self::World(world) => Some(&**world), Self::Factory(_) => None }
+        match self {
+            Self::World(world) => Some(&**world),
+            Self::Factory(_) => None,
+        }
     }
     fn world_mut(&mut self) -> Option<&mut dyn crate::modules::ai_world::AiWorld> {
-        match self { Self::World(world) => Some(&mut **world), Self::Factory(_) => None }
+        match self {
+            Self::World(world) => Some(&mut **world),
+            Self::Factory(_) => None,
+        }
     }
 }
 
 /// Actual session services. No roster or object is selected through a registry.
 pub struct OwnedPowerBrownout<'a> {
+    pub idle_worker_events: Option<&'a mut crate::helpers::IdleWorkerEvents>,
     pub objects: PowerObjectOwner<'a>,
     pub teams: &'a TeamFactory,
     pub players: &'a PlayerList,
@@ -120,12 +129,16 @@ impl OwnedPowerBrownout<'_> {
         if !object.has_spy_disabled_callback() {
             return Ok(());
         }
-        let world = self.objects.world()
+        let world = self
+            .objects
+            .world()
             .ok_or("power SpyVision requires native callback services")?;
         if world.frame() != self.frame {
             return Err("power callback frame does not match driving world".into());
         }
-        let owned = self.objects.object(object.get_id())
+        let owned = self
+            .objects
+            .object(object.get_id())
             .ok_or("power SpyVision owner absent")?;
         world.validate_spy_disabled_edge(&owned)
     }
@@ -147,9 +160,13 @@ impl OwnedPowerBrownout<'_> {
             false
         };
         if requires_idle {
-            let world = self.objects.world()
+            let world = self
+                .objects
+                .world()
                 .ok_or("power dozer requires actual AI world")?;
-            let owned = self.objects.object(object.get_id())
+            let owned = self
+                .objects
+                .object(object.get_id())
                 .ok_or("power actor absent from factory")?;
             if !world
                 .object(object.get_id())
@@ -187,16 +204,20 @@ impl OwnedPowerBrownout<'_> {
             for id in members {
                 if id == borrowed.get_id() {
                     if borrowed.is_kind_of(crate::common::KindOf::Powered) {
-                        borrowed
-                            .validate_power_disable_owned(self.frame, self.objects.world().is_some())?;
+                        borrowed.validate_power_disable_owned(
+                            self.frame,
+                            self.objects.world().is_some(),
+                        )?;
                         self.validate_spy(borrowed)?;
                         self.validate_dozer(borrowed)?;
                     }
-                } else if let Some(object) = self.objects.object(id)
-                {
+                } else if let Some(object) = self.objects.object(id) {
                     let object = object.read().map_err(|_| "power object poisoned")?;
                     if object.is_kind_of(crate::common::KindOf::Powered) {
-                        object.validate_power_disable_owned(self.frame, self.objects.world().is_some())?;
+                        object.validate_power_disable_owned(
+                            self.frame,
+                            self.objects.world().is_some(),
+                        )?;
                         self.validate_spy(&object)?;
                         self.validate_dozer(&object)?;
                     }
@@ -235,9 +256,7 @@ impl OwnedPowerBrownout<'_> {
                     });
                     audio.add_audio_event_with_locality(&event, locality);
                 }
-            } else if let (Some(world), Some(misc)) =
-                (self.objects.world_mut(), self.misc_audio)
-            {
+            } else if let (Some(world), Some(misc)) = (self.objects.world_mut(), self.misc_audio) {
                 let info = match (structure, brownout) {
                     (true, true) => &misc.building_disabled,
                     (true, false) => &misc.building_reenabled,
@@ -266,7 +285,9 @@ impl OwnedPowerBrownout<'_> {
         Ok(Some(PreparedPowerEdge {
             id: object.get_id(),
             disabling,
-            identity: self.objects.object(object.get_id())
+            identity: self
+                .objects
+                .object(object.get_id())
                 .ok_or("power actor disappeared")?,
         }))
     }
@@ -348,7 +369,9 @@ impl PowerBrownoutServices for OwnedPowerBrownout<'_> {
     }
     fn validate_source(&self, source: &Arc<RwLock<Object>>) -> Result<(), String> {
         let id = source.read().map_err(|_| "power source poisoned")?.get_id();
-        if self.objects.object(id)
+        if self
+            .objects
+            .object(id)
             .is_some_and(|owned| Arc::ptr_eq(&owned, source))
         {
             Ok(())
@@ -386,8 +409,7 @@ impl PowerBrownoutServices for OwnedPowerBrownout<'_> {
                 .get_members()
                 .to_vec();
             for id in members {
-                let nested = if let Some(object) = self.objects.object(id)
-                {
+                let nested = if let Some(object) = self.objects.object(id) {
                     let mut object = object.write().map_err(|_| "power object poisoned")?;
                     let belongs = object
                         .get_team()
@@ -401,7 +423,9 @@ impl PowerBrownoutServices for OwnedPowerBrownout<'_> {
                     None
                 };
                 let nested = if let Some(prepared) = nested {
-                    let object = self.objects.object(prepared.id)
+                    let object = self
+                        .objects
+                        .object(prepared.id)
                         .ok_or("power callback owner disappeared")?;
                     if !Arc::ptr_eq(&object, &prepared.identity) {
                         return Err("power callback owner was replaced".into());
@@ -411,7 +435,8 @@ impl PowerBrownoutServices for OwnedPowerBrownout<'_> {
                         .map_err(|_| "power callback owner poisoned")?
                         .has_spy_disabled_callback();
                     if has_spy {
-                        self.objects.world_mut()
+                        self.objects
+                            .world_mut()
                             .ok_or("power SpyVision world absent")?
                             .spy_disabled_edge(&object, prepared.disabling)?;
                     }
@@ -422,7 +447,9 @@ impl PowerBrownoutServices for OwnedPowerBrownout<'_> {
                         Self::prepare_dozer_after_behaviors(&mut actor, prepared.disabling)?
                     };
                     if let Some((ai, task)) = dozer {
-                        let world = self.objects.world_mut()
+                        let world = self
+                            .objects
+                            .world_mut()
                             .ok_or("power AI world unavailable")?;
                         ai.lock()
                             .map_err(|_| "power dozer AI poisoned")?
@@ -440,7 +467,9 @@ impl PowerBrownoutServices for OwnedPowerBrownout<'_> {
                             .ok_or("power dozer disappeared after idle")?
                             .finish_cancelled_task_with_world(task, world)?;
                     }
-                    let object = self.objects.object(prepared.id)
+                    let object = self
+                        .objects
+                        .object(prepared.id)
                         .ok_or("power edge object disappeared")?;
                     if !Arc::ptr_eq(&object, &prepared.identity) {
                         return Err("power Idle owner was replaced".into());
@@ -474,7 +503,15 @@ impl PowerBrownoutServices for OwnedPowerBrownout<'_> {
     fn validate_membership(&self, player: PlayerIndex, object: &Object) -> Result<(), String> {
         self.validate(player, object)?;
         if object.is_kind_of(crate::common::KindOf::Dozer) {
-            return Err("membership requires supplied idle-worker presentation".into());
+            if self.idle_worker_events.is_none() {
+                return Err("membership requires supplied idle-worker presentation".into());
+            }
+            if let Some(ai) = object.get_ai_update_interface() {
+                let _idle = ai
+                    .try_lock()
+                    .map_err(|_| "membership idle-worker AI is borrowed")?
+                    .is_idle();
+            }
         }
         Ok(())
     }
@@ -494,8 +531,7 @@ impl PowerBrownoutServices for OwnedPowerBrownout<'_> {
                 let candidate = if *id == object.get_id() {
                     object
                 } else {
-                    let Some(handle) = self.objects.object(*id)
-                    else {
+                    let Some(handle) = self.objects.object(*id) else {
                         continue;
                     };
                     owned = handle;
@@ -557,8 +593,7 @@ impl PowerBrownoutServices for OwnedPowerBrownout<'_> {
                             nested = self.finish_power_edge(borrowed, edge)?;
                         }
                     }
-                } else if let Some(object) = self.objects.object(id)
-                {
+                } else if let Some(object) = self.objects.object(id) {
                     let mut object = object.write().map_err(|_| "power object poisoned")?;
                     let belongs = object
                         .get_team()
@@ -581,12 +616,30 @@ impl PowerBrownoutServices for OwnedPowerBrownout<'_> {
     }
     fn membership_idle_worker(
         &mut self,
-        _player: PlayerIndex,
+        player: PlayerIndex,
         object: &Object,
-        _adding: bool,
+        adding: bool,
     ) -> Result<(), String> {
-        if object.is_kind_of(crate::common::KindOf::Dozer) {
-            return Err("membership requires supplied idle-worker presentation".into());
+        if !object.is_kind_of(crate::common::KindOf::Dozer) {
+            return Ok(());
+        }
+        let Some(ai) = object.get_ai_update_interface() else {
+            return Ok(());
+        };
+        let idle = ai
+            .try_lock()
+            .map_err(|_| "membership idle-worker AI is borrowed")?
+            .is_idle();
+        if idle {
+            let events = self
+                .idle_worker_events
+                .as_deref_mut()
+                .ok_or("membership requires supplied idle-worker presentation")?;
+            if adding {
+                events.add(object.get_id(), player);
+            } else {
+                events.remove(object.get_id(), player);
+            }
         }
         Ok(())
     }

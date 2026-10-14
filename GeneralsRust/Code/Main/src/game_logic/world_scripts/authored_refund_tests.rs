@@ -33,6 +33,7 @@ Object {PRODUCER}
   BuildTime = 30
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 1000
+    InitialHealth = 1000
   End
   Behavior = ProductionUpdate ModuleTag_Production
     MaxQueueEntries = 9
@@ -44,6 +45,7 @@ Object {UNIT}
   BuildTime = 30
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
+    InitialHealth = 100
   End
 End
 "#

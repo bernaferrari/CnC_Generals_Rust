@@ -6,8 +6,8 @@
 //! Author: Converted from C++ by Claude, original by Michael S. Booth, January 2002
 
 use crate::ai::squad::Squad;
-use crate::common::types::AsAny;
 use crate::common::CoordOrigin;
+use crate::common::types::AsAny;
 use crate::common::*;
 use crate::object::Object;
 use crate::polygon_trigger::PolygonTrigger;
@@ -955,6 +955,9 @@ impl State {
 }
 
 pub(crate) mod cpp_state;
+
+#[path = "state_machine_snapshot.rs"]
+pub(crate) mod snapshot_control;
 
 #[path = "state_machine_control.rs"]
 mod control;
@@ -2166,21 +2169,13 @@ impl StateMachine {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use crate::common::xfer::XferExt;
 
-        // Version control - matches C++ version 1
-        // C++ lines 803-805
-        let current_version = 1u8;
-        let mut version = current_version;
-        game_engine::system::Xfer::xfer_version(xfer, &mut version, current_version)?;
-
-        // Transfer sleep timer - C++ line 807
-        xfer.xfer_unsigned_int(&mut self.control.sleep_till)?;
-
-        // Transfer default state ID - C++ line 808
-        xfer.xfer_unsigned_int(&mut self.control.default_state_id)?;
-
-        // Transfer current state ID - C++ lines 809-815
         let mut cur_state_id = self.control.current_state_id.unwrap_or(INVALID_STATE_ID);
-        xfer.xfer_unsigned_int(&mut cur_state_id)?;
+        snapshot_control::xfer_prefix(
+            xfer,
+            &mut self.control.sleep_till,
+            &mut self.control.default_state_id,
+            &mut cur_state_id,
+        )?;
 
         // On load, restore the current state reference
         // C++ lines 811-815: We jump directly into the saved state without
@@ -2291,26 +2286,13 @@ impl StateMachine {
             })?;
         }
 
-        // Transfer goal object ID - C++ line 863
-        // Convert Weak<RwLock<Object>> to ObjectID for serialization
-        // On save: extract ID from current goal object
-        // On load: this will load the ID (actual object resolution happens lazily)
-        xfer.xfer_object_id(&mut self.control.goal_object_id)?;
-
-        // Note: Goal object weak reference resolution happens lazily when get_goal_object() is called
-        // The object registry will be used to look up the object by ID at that time
-        // goal_object_id is authoritative; resolve via get_goal_object().
-
-        // Transfer goal position - C++ line 864
-        game_engine::system::Xfer::xfer_real(xfer, &mut self.control.goal_position.x)?;
-        game_engine::system::Xfer::xfer_real(xfer, &mut self.control.goal_position.y)?;
-        game_engine::system::Xfer::xfer_real(xfer, &mut self.control.goal_position.z)?;
-
-        // Transfer locked status - C++ line 865
-        game_engine::system::Xfer::xfer_bool(xfer, &mut self.control.locked)?;
-
-        // Transfer default state initialized flag - C++ line 866
-        game_engine::system::Xfer::xfer_bool(xfer, &mut self.control.default_state_inited)?;
+        snapshot_control::xfer_tail(
+            xfer,
+            &mut self.control.goal_object_id,
+            &mut self.control.goal_position,
+            &mut self.control.locked,
+            &mut self.control.default_state_inited,
+        )?;
 
         Ok(())
     }

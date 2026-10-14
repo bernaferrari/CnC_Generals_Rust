@@ -272,10 +272,20 @@ impl GameLogic {
             .iter()
             .any(|name| module.class_name.eq_ignore_ascii_case(name))
         }) {
-            template.body_initial_health = body
-                .attribute("InitialHealth")
-                .and_then(|value| value.trim().parse::<f32>().ok())
-                .filter(|value| value.is_finite());
+            // ActiveBodyModuleData constructor defaults InitialHealth to zero.
+            // Resolved inherited modules already contain inherited values here.
+            match body.attribute("InitialHealth") {
+                None => template.body_initial_health = Some(0.0),
+                Some(value) => match value.trim().parse::<f32>() {
+                    Ok(health) if health.is_finite() => template.body_initial_health = Some(health),
+                    _ => {
+                        template.body_initial_health_error = Some(format!(
+                            "invalid {} InitialHealth: {value}",
+                            body.class_name
+                        ))
+                    }
+                },
+            }
         }
 
         if let Some(model_name) = definition.model_name.as_deref() {

@@ -299,6 +299,27 @@ impl<'a> BorrowedAiWorld<'a> {
     }
 }
 impl AiWorld for BorrowedAiWorld<'_> {
+    fn validate_dozer_action_effects(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        target: &Arc<RwLock<Object>>,
+    ) -> Result<(), String> {
+        self.validate_dozer_action_owned(owner, target)
+    }
+    fn dozer_action_position(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        target: &Arc<RwLock<Object>>,
+    ) -> Result<Coord3D, String> {
+        self.dozer_action_position_owned(owner, target)
+    }
+    fn dozer_action_distance_squared(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        goal: &Coord3D,
+    ) -> Result<Real, String> {
+        self.dozer_action_distance_owned(owner, goal)
+    }
     fn adjust_exit_destination(
         &self,
         owner: &Object,
@@ -1759,6 +1780,8 @@ mod owned_death;
 
 mod owned_destroy;
 
+#[path = "ai_native_world/owned_dozer.rs"]
+mod owned_dozer;
 mod owned_updates;
 
 #[path = "ai_native_world/owned_ground_maintenance.rs"]

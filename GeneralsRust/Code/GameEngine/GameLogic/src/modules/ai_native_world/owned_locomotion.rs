@@ -90,7 +90,7 @@ impl BorrowedAiWorld<'_> {
             {
                 return Err("native ground path does not admit falling airborne owners".into());
             }
-            let ai_proxy = object.installed_update_proxy_named("AIUpdateInterface")?;
+            let ai_proxy = object.installed_ai_update_proxy()?;
             let physics_proxy = physics.installed_update_proxy(&object)?;
             (physics, ai_proxy, physics_proxy)
         };

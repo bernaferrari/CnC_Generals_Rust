@@ -88,6 +88,24 @@ pub trait WorkerAIUpdateInterface: Send + Sync {
 
 /// Dozer AI update interface (build tasks).
 pub trait DozerAIUpdateInterface: Send + Sync {
+    #[cfg(test)]
+    fn owned_state_observation_for_test(
+        &self,
+    ) -> Option<crate::object::update::ai_update::dozer_ai_update::owned_state::DozerOwnedObservation>
+    {
+        None
+    }
+
+    fn validate_owned_snapshot(&self) -> Result<(), String> {
+        Err("Dozer owned snapshot unavailable".into())
+    }
+    fn xfer_owned_snapshot_tail(
+        &mut self,
+        _xfer: &mut dyn crate::common::xfer::Xfer,
+    ) -> Result<(), String> {
+        Err("Dozer owned snapshot unavailable".into())
+    }
+
     fn finish_cancelled_task_with_world(
         &mut self,
         _task: crate::object::update::ai_update::dozer_ai_update::DozerTask,

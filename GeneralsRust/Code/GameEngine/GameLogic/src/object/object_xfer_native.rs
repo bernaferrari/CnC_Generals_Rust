@@ -169,6 +169,15 @@ impl<'a> ObjectXferDefinitions<'a> {
                 "InstantDeathBehavior" => entry.data.as_ref()
                     .downcast_ref::<crate::object::behavior::instant_death_behavior::InstantDeathBehaviorModuleData>()
                     .ok_or("native InstantDeath definition has the wrong family")?.validate_owned_effects()?,
+                "DozerAIUpdate" => {
+                    entry.data.as_ref().downcast_ref::<crate::object::update::ai_update::dozer_ai_update::DozerAIUpdateModuleData>()
+                        .ok_or("native Dozer definition has the wrong family")?;
+                    if !template.is_kind_of(KindOf::Dozer) {
+                        return Err("native Dozer construction requires its authored Dozer family".into());
+                    }
+                    // Construction is inert: the composed base binds the exact installed
+                    // UnitAI runtime. Derived snapshot admission is checked by its codec.
+                }
                 "SlowDeathBehavior" => {
                     if template.is_kind_of(KindOf::Hulk) { return Err("native SlowDeath hulk construction not admitted".into()); }
                     entry.data.as_ref().downcast_ref::<crate::object::behavior::slow_death_behavior::SlowDeathBehaviorModuleData>()
@@ -182,6 +191,7 @@ impl<'a> ObjectXferDefinitions<'a> {
                     | "InactiveBody"
                     | "PhysicsBehavior"
                     | "AIUpdateInterface"
+                    | "DozerAIUpdate"
                     | "OpenContain"
                     | "TransportContain"
                     | "InstantDeathBehavior"
@@ -404,6 +414,7 @@ impl ObjectXferServices<'_> {
                     | "InactiveBody"
                     | "PhysicsBehavior"
                     | "AIUpdateInterface"
+                    | "DozerAIUpdate"
                     | "OpenContain"
                     | "TransportContain"
                     | "InstantDeathBehavior"
@@ -413,6 +424,23 @@ impl ObjectXferServices<'_> {
                     "native Object Xfer module {} requires its own services",
                     entry.name()
                 ));
+            }
+        }
+        for entry in &object.modules {
+            if entry.name().as_str() == "DozerAIUpdate" {
+                let cached = object
+                    .ai
+                    .as_ref()
+                    .ok_or("Dozer Xfer cached runtime absent")?;
+                entry.with_module(|module| -> Result<(), String> {
+                    let wrapper = module.as_any_mut().downcast_mut::<crate::object::update::ai_update::dozer_ai_update::DozerAIUpdateModule>()
+                        .ok_or("Dozer Xfer installed module has the wrong family")?;
+                    let runtime = wrapper.runtime_ai_owned().ok_or("Dozer Xfer installed runtime absent")?;
+                    if !Arc::ptr_eq(cached, &runtime) {
+                        return Err("Dozer Xfer installed runtime differs from canonical cache".into());
+                    }
+                    Ok(())
+                })?;
             }
         }
         object.validate_owned_death_callbacks(1.0)?;
@@ -649,7 +677,7 @@ impl Object {
         // The supplied versions replace only the owner-dependent wrappers.
         for entry in modules {
             match entry.name().as_str() {
-                "AIUpdateInterface" => {
+                "AIUpdateInterface" | "DozerAIUpdate" => {
                     let ai = ai.as_ref().ok_or("installed AI postload cache absent")?;
                     ai.lock()
                         .map_err(|_| "installed AI postload poisoned")?

@@ -29,7 +29,14 @@ fn prepare_unit_ai_impl(
     if lookup.is_some()
         && (template.is_kind_of(KindOf::Harvester)
             || template.get_behavior_module_info().iter().any(|entry| {
-                entry.data.is_ai_module_data() && entry.name.as_str() != "AIUpdateInterface"
+                entry.data.is_ai_module_data()
+                    && !(entry.name.as_str() == "AIUpdateInterface"
+                        || (entry.name.as_str() == "DozerAIUpdate"
+                            && entry
+                                .data
+                                .as_ref()
+                                .downcast_ref::<DozerAIUpdateModuleData>()
+                                .is_some()))
             }))
     {
         return Err(
