@@ -672,7 +672,9 @@ fn clear_cell_for_diameter_impl(
     cell: GridPos,
     path_diameter: i32,
 ) -> i32 {
-    if path_diameter <= 0 {
+    // C++ recursively reaches diameter zero: radius zero still checks the
+    // center cell and reports one cell of clearance when it is clear.
+    if path_diameter < 0 {
         return 0;
     }
     let radius = path_diameter / 2;
@@ -682,7 +684,7 @@ fn clear_cell_for_diameter_impl(
     }
     let cut_corners = radius > 1;
     let mut clear = true;
-    'outer: for i in (cell.x - radius)..(cell.x + num_cells_above) {
+    for i in (cell.x - radius)..(cell.x + num_cells_above) {
         let x_min_or_max = i == cell.x - radius || i == cell.x + num_cells_above - 1;
         for j in (cell.y - radius)..(cell.y + num_cells_above) {
             let y_min_or_max = j == cell.y - radius || j == cell.y + num_cells_above - 1;
@@ -729,7 +731,9 @@ fn clear_cell_for_diameter_impl(
                 }
             }
             if !clear {
-                break 'outer;
+                // Preserve C++'s inner-loop break. A later column can still
+                // encounter the map boundary and return zero immediately.
+                break;
             }
         }
     }

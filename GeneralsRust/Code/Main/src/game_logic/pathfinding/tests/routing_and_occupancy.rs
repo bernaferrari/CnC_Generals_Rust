@@ -193,13 +193,28 @@ fn clear_cell_for_diameter_open_and_blocked() {
     g.set_blocked(GridPos::new(7, 8), true);
     assert_eq!(
         g.clear_cell_for_diameter(false, GridPos::new(8, 8), 2),
-        0,
-        "diameter 2 must fail when an adjacent cell is blocked"
+        1,
+        "a blocked adjacent cell reduces clearance to the clear center cell"
     );
     let (r, _) = PathfindingGrid::radius_and_center(15.0, 10.0);
     assert_eq!(r, 1);
     assert_eq!(PathfindingGrid::path_diameter_for_unit(15.0, 10.0, true), 2);
     assert_eq!(PathfindingGrid::path_diameter_for_unit(8.0, 10.0, false), 1);
+}
+
+#[test]
+fn diameter_clearance_checks_center_at_zero_and_preserves_boundary_scan() {
+    let mut g = open_grid(16, 16);
+    assert_eq!(g.clear_cell_for_diameter(false, GridPos::new(8, 8), 0), 1);
+    g.set_blocked(GridPos::new(8, 8), true);
+    assert_eq!(g.clear_cell_for_diameter(false, GridPos::new(8, 8), 0), 0);
+
+    // C++ continues scanning columns after a failed row. The off-map column
+    // wins over recursively fitting the two clear cells at the right edge.
+    g.set_blocked(GridPos::new(12, 5), true);
+    g.set_blocked(GridPos::new(13, 6), true);
+    assert_eq!(g.clear_cell_for_diameter(false, GridPos::new(15, 8), 2), 2);
+    assert_eq!(g.clear_cell_for_diameter(false, GridPos::new(15, 8), 6), 0);
 }
 
 /// C++ internalFindPath checks each neighbor cell, not a full-radius stencil.
