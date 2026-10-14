@@ -179,7 +179,7 @@ impl Fixture {
             let mut pos = Coord3D::ZERO;
             let mut slot = -1;
             assert!(
-                dock.reserve_approach_position(self.id(1), &mut pos, &mut slot)
+                dock.reserve_approach_position(self.id(1), &mut pos, &mut slot, false)
                     .unwrap()
             );
             assert_eq!(slot, 0);
@@ -267,7 +267,7 @@ fn held_ai_approach_wait_advance_uses_current_slot_and_halt_cancels() {
     let mut slot = -1;
     fixture.dock(|dock| {
         assert!(
-            dock.reserve_approach_position(fixture.id(1), &mut position, &mut slot)
+            dock.reserve_approach_position(fixture.id(1), &mut position, &mut slot, false)
                 .unwrap()
         )
     });
@@ -478,4 +478,105 @@ fn same_id_dock_move_helper_checks_bound_owner_immobile_status() {
         ai.targets.is_empty(),
         "the actual immobile Object cannot begin moving"
     );
+}
+
+#[test]
+fn installed_dock_missing_enter_uses_borrowed_selected_air_not_targeting_status() {
+    if !child(concat!(
+        module_path!(),
+        "::installed_dock_missing_enter_uses_borrowed_selected_air_not_targeting_status"
+    )) {
+        return;
+    }
+    let fixture = Fixture::new();
+    let mut ai = fixture.ai.lock().unwrap();
+    for (surfaces, status, expected_air) in [
+        (crate::locomotor::SURFACE_AIR, false, true),
+        (crate::locomotor::SURFACE_GROUND, true, false),
+    ] {
+        let mut template =
+            crate::locomotor::LocomotorTemplate::new_infantry("DockObservation".into());
+        template.surfaces = surfaces;
+        ai.locomotor = crate::locomotor::Locomotor::new(Arc::new(template));
+        fixture.objects[2].write().unwrap().set_status(
+            ObjectStatusMaskType::from_status(ObjectStatusTypes::AirborneTarget),
+            status,
+        );
+        for (index, position) in [
+            (0, Coord3D::new(50.0, 0.0, 0.0)),
+            (2, Coord3D::new(90.0, 0.0, 0.0)),
+        ] {
+            let mut object = fixture.objects[index].write().unwrap();
+            let mut matrix = object.get_transform_matrix();
+            matrix.w_axis = position.extend(1.0);
+            object
+                .set_transform_matrix_with_services(
+                    &matrix,
+                    &crate::terrain::TerrainLogic::new(),
+                    &mut crate::object::collide::collision_system::CollisionSystem::new(),
+                    0,
+                    &mut |_| {},
+                    &mut |_| {},
+                )
+                .unwrap();
+            assert_eq!(*object.get_position(), position);
+        }
+        let borrowed = crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *ai);
+        let airborne = selected_airborne(&borrowed);
+        assert_eq!(airborne, expected_air);
+        let mut position = Coord3D::ZERO;
+        fixture.dock(|dock| {
+            dock.get_enter_position(fixture.id(2), &mut position, airborne)
+                .unwrap()
+        });
+        assert_eq!(
+            position,
+            if expected_air {
+                Coord3D::new(50.0, 0.0, 0.0)
+            } else {
+                Coord3D::new(90.0, 0.0, 0.0)
+            }
+        );
+        assert!(
+            fixture.ai.try_lock().is_err(),
+            "query used the already borrowed AI, never reborrowed it"
+        );
+    }
+}
+
+#[test]
+fn saved_air_dock_queue_continues_with_selected_locomotor_while_ai_remains_borrowed() {
+    if !child(concat!(
+        module_path!(),
+        "::saved_air_dock_queue_continues_with_selected_locomotor_while_ai_remains_borrowed"
+    )) {
+        return;
+    }
+    let fixture = Fixture::new();
+    fixture.occupy_front();
+    let mut ai = fixture.ai.lock().unwrap();
+    let mut template = crate::locomotor::LocomotorTemplate::new_infantry("SavedAirDock".into());
+    template.surfaces = crate::locomotor::SURFACE_AIR;
+    ai.locomotor = crate::locomotor::Locomotor::new(Arc::new(template));
+    let mut machine = AIDockMachine::new(fixture.objects[2].clone()).unwrap();
+    assert_eq!(
+        machine.start_with_ai(fixture.id(0), &mut *ai),
+        StateReturnType::Continue
+    );
+    ai.distance = 0.0;
+    machine.update_with_ai(&mut *ai);
+    let bytes = save(&mut machine);
+    let mut restored = AIDockMachine::new(fixture.objects[2].clone()).unwrap();
+    restored
+        .xfer(&mut XferLoad::new(Cursor::new(bytes.clone()), 1))
+        .unwrap();
+    restored.load_post_process().unwrap();
+    assert_eq!(save(&mut restored), bytes);
+    fixture.dock(|dock| dock.cancel_dock(fixture.id(1)).unwrap());
+    assert_eq!(restored.update_with_ai(&mut *ai), StateReturnType::Continue);
+    assert_eq!(restored.test_slot(), 0);
+    let borrowed = crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *ai);
+    assert!(selected_airborne(&borrowed));
+    assert!(fixture.ai.try_lock().is_err());
+    restored.halt().unwrap();
 }

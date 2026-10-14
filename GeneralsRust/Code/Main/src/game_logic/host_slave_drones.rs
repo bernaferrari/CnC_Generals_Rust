@@ -568,7 +568,7 @@ pub fn battle_drone_weld_pose(drone_pos: Vec3, bone_host_local: Option<Vec3>) ->
 }
 
 /// C++ `RepairStates` (`SlavedUpdate.h:102-111`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum BattleDroneRepairState {
     #[default]
     None = 0,
@@ -1218,3 +1218,6 @@ mod tests {
         );
     }
 }
+
+mod owned;
+pub use owned::{SlavedUpdateMetadata, SlavedUpdateState};

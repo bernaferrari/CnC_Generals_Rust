@@ -314,6 +314,7 @@ impl GameLogic {
         Self::apply_authored_parking_place_metadata(&mut template, definition);
         Self::apply_authored_flight_deck_metadata(&mut template, definition);
         Self::apply_authored_deploy_style_metadata(&mut template, definition);
+        Self::apply_authored_slaved_update_metadata(&mut template, definition);
         Self::apply_authored_auto_acquire_metadata(&mut template, definition);
         Self::apply_authored_structure_death_metadata(&mut template, definition);
         Self::apply_authored_wave_guide_audio_metadata(&mut template, definition);

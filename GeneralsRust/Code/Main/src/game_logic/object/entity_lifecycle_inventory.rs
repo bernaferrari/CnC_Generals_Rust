@@ -298,6 +298,7 @@ pub(crate) fn collect_module_states(
     )?;
     push_opt(&mut out, TAG_ASSAULT_TRANSPORT, &object.assault_transport)?;
     push_opt(&mut out, TAG_DEPLOY_STYLE, &object.deploy_style)?;
+    push_opt(&mut out, TAG_SLAVED_UPDATE, &object.slaved_update)?;
     push_opt(
         &mut out,
         TAG_COMMAND_BUTTON_HUNT,

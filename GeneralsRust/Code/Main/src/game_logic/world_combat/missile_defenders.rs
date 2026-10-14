@@ -1810,6 +1810,7 @@ impl GameLogic {
             }
         }
 
+        self.enslave_owned_drone(drone_id, master_id);
         Some(drone_id)
     }
 

@@ -485,6 +485,7 @@ impl DockUpdateInterface for DockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
+        airborne: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         if !self.positions_loaded {
             self.load_dock_positions();
@@ -495,10 +496,10 @@ impl DockUpdateInterface for DockUpdate {
         };
         // Partition search reads the docker again. Keep only immutable query inputs
         // on the stack and release its Object borrow before entering the search.
-        let (their_position, airborne) = {
-            let docker = obj.read().unwrap();
-            (*docker.get_position(), docker.is_using_airborne_locomotor())
-        };
+        let their_position = *obj
+            .read()
+            .map_err(|_| "dock actor borrowed")?
+            .get_position();
 
         for (position_index, owner) in self.approach_position_owners.iter().enumerate() {
             if *owner == obj_id {
@@ -547,6 +548,7 @@ impl DockUpdateInterface for DockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
+        airborne: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         if !self.positions_loaded {
             self.load_dock_positions();
@@ -557,10 +559,10 @@ impl DockUpdateInterface for DockUpdate {
         };
         // Partition search reads the docker again. Keep only immutable query inputs
         // on the stack and release its Object borrow before entering the search.
-        let (their_position, airborne) = {
-            let docker = obj.read().unwrap();
-            (*docker.get_position(), docker.is_using_airborne_locomotor())
-        };
+        let their_position = *obj
+            .read()
+            .map_err(|_| "dock actor borrowed")?
+            .get_position();
 
         if *approach_pos <= 0 {
             return Ok(false);
@@ -641,6 +643,7 @@ impl DockUpdateInterface for DockUpdate {
         &self,
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
+        airborne: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // C++ getEnterPosition always loadDockPositions if not loaded.
         let enter = self.enter_position_or_peek();
@@ -648,7 +651,7 @@ impl DockUpdateInterface for DockUpdate {
         if enter == zero {
             if let Some(obj) = resolve_dock_object(obj_id) {
                 if let Ok(docker_guard) = obj.read() {
-                    if docker_guard.is_using_airborne_locomotor() {
+                    if airborne {
                         if let Some(owner) =
                             crate::helpers::TheGameLogic::find_object_by_id(self.owner_id)
                         {
@@ -1123,9 +1126,10 @@ impl DockUpdateInterface for RepairDockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
+        airborne: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.base
-            .reserve_approach_position(obj_id, goal_pos, approach_pos)
+            .reserve_approach_position(obj_id, goal_pos, approach_pos, airborne)
     }
 
     fn advance_approach_position(
@@ -1133,9 +1137,10 @@ impl DockUpdateInterface for RepairDockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
+        airborne: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.base
-            .advance_approach_position(obj_id, goal_pos, approach_pos)
+            .advance_approach_position(obj_id, goal_pos, approach_pos, airborne)
     }
 
     fn is_clear_to_advance(
@@ -1164,8 +1169,9 @@ impl DockUpdateInterface for RepairDockUpdate {
         &self,
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
+        airborne: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.get_enter_position(obj_id, goal_pos)
+        self.base.get_enter_position(obj_id, goal_pos, airborne)
     }
 
     fn on_enter_reached(
@@ -1557,9 +1563,10 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
+        airborne: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.base
-            .reserve_approach_position(obj_id, goal_pos, approach_pos)
+            .reserve_approach_position(obj_id, goal_pos, approach_pos, airborne)
     }
 
     fn advance_approach_position(
@@ -1567,9 +1574,10 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
+        airborne: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.base
-            .advance_approach_position(obj_id, goal_pos, approach_pos)
+            .advance_approach_position(obj_id, goal_pos, approach_pos, airborne)
     }
 
     fn is_clear_to_advance(
@@ -1598,8 +1606,9 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
         &self,
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
+        airborne: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.get_enter_position(obj_id, goal_pos)
+        self.base.get_enter_position(obj_id, goal_pos, airborne)
     }
 
     fn on_enter_reached(

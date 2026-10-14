@@ -4,7 +4,8 @@
 use super::*;
 
 impl GameLogic {
-    pub(super) fn commit_combat_shot(&mut self, input: CombatAttackInput, slot: u8) {
+    pub(super) fn commit_combat_shot(&mut self, input: CombatAttackInput, slot: u8,
+        visual: Option<crate::game_logic::world_combat::AcceptedWeaponDischarge>) {
         let CombatAttackInput {
             attacker_id,
             current_time,
@@ -116,38 +117,6 @@ impl GameLogic {
                 })
                 .unwrap_or_default()
         };
-        let (fire_ocl, det_ocl) = {
-            self.objects
-                .get(&attacker_id)
-                .and_then(|attacker| {
-                    let veterancy = attacker.experience.level;
-                    attacker.weapon_name_for_slot(slot).map(|weapon_name| {
-                        (
-                            crate::game_logic::weapon_bootstrap::host_fire_ocl_for_weapon_name_at_veterancy(
-                                weapon_name,
-                                veterancy,
-                            ),
-                            crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name_at_veterancy(
-                                weapon_name,
-                                veterancy,
-                            ),
-                        )
-                    })
-                })
-                .unwrap_or_default()
-        };
-        // C++ Weapon::fireWeaponTemplate invokes FireOCL with the
-        // firing object (`Weapon.cpp:943-949`).  This normal combat
-        // path does not route through PendingProjectile, so retain
-        // the firing context for the parsed OCL below.
-        let fire_ocl_source = self.objects.get(&attacker_id).map(|attacker| {
-            (
-                attacker.team,
-                attacker.experience.level,
-                attacker.get_orientation(),
-                attacker.movement.velocity,
-            )
-        });
         // C++ Weapon::fireWeaponTemplate FireFX stealth gate residual:
         // stealthed+undetected+non-disguised suppress muzzle FX unless
         // the observer locally controls the source, PlayFXWhenStealthed
@@ -193,26 +162,6 @@ impl GameLogic {
             attacker_id,
             fire_target,
         );
-        let _ = det_ocl;
-        // C++ performs FireFX before FireOCL (`Weapon.cpp:889-949`).
-        // FireOCL is intentionally outside the visual stealth gate:
-        // hiding a muzzle effect does not suppress the authored game
-        // object creation effect.
-        if !fire_ocl.is_empty() {
-            if let Some((source_team, source_veterancy, source_orientation, source_velocity)) =
-                fire_ocl_source
-            {
-                let _ = self.execute_parsed_weapon_ocl_at(
-                    &fire_ocl,
-                    Some(attacker_id),
-                    source_team,
-                    source_veterancy,
-                    source_orientation,
-                    source_velocity,
-                    muzzle_pos,
-                );
-            }
-        }
         // C++ Weapon.ini LaserName residual: short-lived combat beam for
         // presentation / laser_segment_upload observe path.
         {
@@ -280,12 +229,6 @@ impl GameLogic {
             .get(&attacker_id)
             .and_then(|attacker| attacker.weapon_name_for_slot(slot).map(str::to_owned));
         if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-            let _ = attacker.capture_pending_weapon_visual_dispatch(
-                slot,
-                self.frame,
-                fire_target,
-                impact_pos,
-            );
             let auto_reloaded_clip = if let Some(weapon) = attacker.weapon_slot_mut(slot) {
                 Object::consume_ammo_on_fire_named(weapon, current_time, fire_wname.as_deref());
                 Object::auto_reloaded_clip_after_firing(weapon, fire_wname.as_deref())
@@ -329,15 +272,10 @@ impl GameLogic {
         // ammo above, so normalize the exact pre-advance barrel here
         // rather than leaving this live route cursor-static or
         // synthesizing recoil from a fire-intent writeback.
-        if self
-            .record_accepted_weapon_discharge(attacker_id, slot)
-            .is_none()
-        {
-            // Keep gameplay cursor progression sound even if a
-            // malformed source state cannot produce presentation.
-            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                attacker.advance_weapon_barrel_after_shot(slot);
-            }
+        if let Some(visual) = visual {
+            self.finish_accepted_weapon_discharge(visual);
+        } else if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+            attacker.advance_weapon_barrel_after_shot(slot);
         }
     }
 }

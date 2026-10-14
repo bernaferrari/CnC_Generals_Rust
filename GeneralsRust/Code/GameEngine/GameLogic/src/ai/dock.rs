@@ -4,6 +4,15 @@
 
 use std::sync::{Arc, RwLock};
 
+// Read inside the existing driving AI loan: never discover or reborrow selfAI.
+fn selected_airborne(ai: &dyn crate::modules::ai_state_runtime::AiStateRuntime) -> bool {
+    let mut airborne = false;
+    ai.with_cur_locomotor(&mut |loco| {
+        airborne = loco.get_legal_surfaces() & crate::locomotor::SURFACE_AIR != 0;
+    });
+    airborne
+}
+
 use crate::common::LOGICFRAMES_PER_SECOND;
 use crate::common::xfer::{Xfer, XferVersion};
 use crate::common::*;
@@ -433,6 +442,7 @@ impl DockState for AIDockApproachState {
                     owner.read().map(|g| g.get_id()).unwrap_or(0),
                     &mut goal_position,
                     &mut context.approach_position,
+                    selected_airborne(ai),
                 )
                 .into_string_err()?
             {
@@ -721,6 +731,7 @@ impl DockState for AIDockAdvancePositionState {
                     owner.read().map(|g| g.get_id()).unwrap_or(0),
                     &mut goal_position,
                     &mut context.approach_position,
+                    selected_airborne(ai),
                 )
                 .into_string_err()?
             {
@@ -859,6 +870,7 @@ impl DockState for AIDockMoveToEntryState {
             dock.get_enter_position(
                 owner.read().map(|g| g.get_id()).unwrap_or(0),
                 &mut goal_position,
+                selected_airborne(ai),
             )
             .into_string_err()?;
             self.move_helper.set_goal_position(goal_position);
@@ -988,6 +1000,7 @@ impl DockState for AIDockMoveToDockState {
             dock.get_dock_position(
                 owner.read().map(|g| g.get_id()).unwrap_or(0),
                 &mut goal_position,
+                selected_airborne(ai),
             )
             .into_string_err()?;
             self.move_helper.set_goal_position(goal_position);
@@ -1340,6 +1353,7 @@ impl DockState for AIDockMoveToExitState {
             dock.get_exit_position(
                 owner.read().map(|g| g.get_id()).unwrap_or(0),
                 &mut goal_position,
+                selected_airborne(ai),
             )
             .into_string_err()?;
             self.move_helper.set_goal_position(goal_position);

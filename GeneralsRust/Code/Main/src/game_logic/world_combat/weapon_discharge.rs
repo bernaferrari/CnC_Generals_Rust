@@ -7,6 +7,14 @@
 
 use super::super::*;
 
+/// Owned continuation across fire effects and damage callbacks. The captured
+/// barrel and source generation survive without retaining a mutable object loan.
+pub(in crate::game_logic) struct AcceptedWeaponDischarge {
+    event: crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent,
+    source_generation: u64,
+    skip_object_barrel: bool,
+}
+
 impl GameLogic {
     /// Normalize one already-accepted live discharge.
     ///
@@ -21,6 +29,15 @@ impl GameLogic {
         source: ObjectId,
         weapon_slot: u8,
     ) -> Option<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent> {
+        let accepted = self.begin_accepted_weapon_discharge(source, weapon_slot)?;
+        Some(self.finish_accepted_weapon_discharge(accepted))
+    }
+
+    pub(in crate::game_logic) fn begin_accepted_weapon_discharge(
+        &mut self,
+        source: ObjectId,
+        weapon_slot: u8,
+    ) -> Option<AcceptedWeaponDischarge> {
         if weapon_slot >= 3 {
             return None;
         }
@@ -69,7 +86,10 @@ impl GameLogic {
         });
         if let (Some(capture), Some(plan)) = (pending.as_ref(), visual_plan.as_ref()) {
             self.play_dispatch_fire_fx(source, capture, plan);
-        } else if let Some(capture) = pending.as_ref() {
+        } else if let Some(capture) = pending.as_ref().filter(|capture| {
+            capture.source_gate(locally_controlled).fx_route()
+                == Some(crate::presentation_frame::FrozenWeaponVisualFxRoute::BroadcastWithFireFx)
+        }) {
             // No frozen Drawable plan (missing modules / probe fail-closed).
             // C++ still calls handleWeaponFireFX, then FXList::doFXPos when
             // FireFX is non-null and leftover did not consume the shot.
@@ -110,22 +130,12 @@ impl GameLogic {
                         Some((_, bone_yaw)) => m * glam::Mat4::from_rotation_y(bone_yaw),
                         None => m,
                     });
-                let _ = crate::game_logic::dispatch_fx_list_at_pos_oriented(
-                    &capture.selected_fx_name,
-                    pos,
-                    target,
-                    speed,
-                    radius,
-                    matrix,
+                let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl_oriented(
+                    pos, target, capture.logic_frame, source, capture.target_id,
+                    &capture.selected_fx_name, "", "", "", speed, radius, matrix,
                 );
             }
         }
-        let marker = WeaponDischargeMarker {
-            sequence,
-            weapon_slot,
-            fired_barrel,
-            logic_frame: self.frame,
-        };
         let event = crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent {
             source,
             weapon_slot,
@@ -134,22 +144,36 @@ impl GameLogic {
             logic_frame: self.frame,
             visual_plan,
         };
-        self.objects
-            .get_mut(&source)?
-            .stamp_weapon_discharge_marker(marker);
-        // C++ passes this precise barrel to Drawable before Weapon advances.
-        // Freeze the source event at the same point; the retained cursor moves
-        // only after the event/marker identity is fully established.
-        self.weapon_discharge_log.record(event.clone());
-        let skip_object_barrel = pending
-            .as_ref()
-            .is_some_and(|capture| capture.skip_object_barrel_advance);
-        if !skip_object_barrel {
-            self.objects
-                .get_mut(&source)?
-                .advance_weapon_barrel_after_shot(weapon_slot);
+        Some(AcceptedWeaponDischarge {
+            event,
+            source_generation: source_object_generation,
+            skip_object_barrel: pending.as_ref().is_some_and(|capture| capture.skip_object_barrel_advance),
+        })
+    }
+
+    /// Advance only the original receiving source after its shot callback.
+    pub(in crate::game_logic) fn finish_accepted_weapon_discharge(
+        &mut self,
+        accepted: AcceptedWeaponDischarge,
+    ) -> crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent {
+        let event = accepted.event;
+        if let Some(object) = self.objects.get_mut(&event.source).filter(|object| {
+            object.visual_object_generation == accepted.source_generation
+        }) {
+            object.stamp_weapon_discharge_marker(WeaponDischargeMarker {
+                sequence: event.sequence,
+                weapon_slot: event.weapon_slot,
+                fired_barrel: event.fired_barrel,
+                logic_frame: event.logic_frame,
+            });
+            if !accepted.skip_object_barrel {
+                object.advance_weapon_barrel_after_shot(event.weapon_slot);
+            }
         }
-        Some(event)
+        // A callback may destroy the source; its already accepted effect is
+        // still published, but a replacement with the same ID is never changed.
+        self.weapon_discharge_log.record(event.clone());
+        event
     }
 
     /// The next unused logical sequence for v4 save capture.

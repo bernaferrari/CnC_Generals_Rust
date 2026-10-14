@@ -212,7 +212,13 @@ impl DockUpdate {
         self.positions_loaded = true;
     }
 
-    fn compute_approach_position(&mut self, position_index: usize, docker: &Object) -> Coord3D {
+    fn compute_approach_position(
+        &mut self,
+        position_index: usize,
+        docker_id: ObjectID,
+        their_position: Coord3D,
+        airborne: bool,
+    ) -> Coord3D {
         if !self.positions_loaded {
             self.load_dock_positions();
         }
@@ -222,7 +228,6 @@ impl DockUpdate {
         } else {
             None
         };
-        let their_position = *docker.get_position();
         let Some(mut working_position) =
             crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
                 let mut working_position = if let Some(approach_pos) = approach {
@@ -253,8 +258,8 @@ impl DockUpdate {
             let mut options = FindPositionOptions::default();
             options.min_radius = 0.0;
             options.max_radius = 100.0;
-            options.source_to_path_to_dest_id = Some(docker.get_id());
-            if docker.is_using_airborne_locomotor() {
+            options.source_to_path_to_dest_id = Some(docker_id);
+            if airborne {
                 options.ignore_object_id = Some(self.owner_id);
             }
 
@@ -286,6 +291,7 @@ impl DockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
+        airborne: bool,
     ) -> Bool {
         if !self.positions_loaded {
             self.load_dock_positions();
@@ -293,17 +299,27 @@ impl DockUpdate {
         let Some(obj) = resolve_dock_object(obj_id) else {
             return false;
         };
-        let obj_guard = obj.write().unwrap();
+        let their_position = *obj.read().unwrap().get_position();
 
         for (position_index, owner) in self.approach_position_owners.iter().enumerate() {
             if *owner == obj_id {
-                *goal_pos = self.compute_approach_position(position_index, &obj_guard);
+                *goal_pos = self.compute_approach_position(
+                    position_index,
+                    obj_id,
+                    their_position,
+                    airborne,
+                );
                 *approach_pos = position_index as i32;
                 return true;
             }
             if *owner == INVALID_ID {
                 self.approach_position_owners[position_index] = obj_id;
-                *goal_pos = self.compute_approach_position(position_index, &obj_guard);
+                *goal_pos = self.compute_approach_position(
+                    position_index,
+                    obj_id,
+                    their_position,
+                    airborne,
+                );
                 *approach_pos = position_index as i32;
                 return true;
             }
@@ -316,7 +332,8 @@ impl DockUpdate {
             self.load_dock_positions();
             let position_index = self.approach_position_owners.len() - 1;
             self.approach_position_owners[position_index] = obj_id;
-            *goal_pos = self.compute_approach_position(position_index, &obj_guard);
+            *goal_pos =
+                self.compute_approach_position(position_index, obj_id, their_position, airborne);
             *approach_pos = position_index as i32;
             return true;
         }
@@ -330,6 +347,7 @@ impl DockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
+        airborne: bool,
     ) -> Bool {
         if !self.positions_loaded {
             self.load_dock_positions();
@@ -337,7 +355,7 @@ impl DockUpdate {
         let Some(obj) = resolve_dock_object(obj_id) else {
             return false;
         };
-        let obj_guard = obj.write().unwrap();
+        let their_position = *obj.read().unwrap().get_position();
         if *approach_pos <= 0 {
             return false;
         }
@@ -352,7 +370,8 @@ impl DockUpdate {
         self.approach_position_reached[current_pos - 1] = false;
         self.approach_position_owners[current_pos] = INVALID_ID;
         self.approach_position_reached[current_pos] = false;
-        *goal_pos = self.compute_approach_position(current_pos - 1, &obj_guard);
+        *goal_pos =
+            self.compute_approach_position(current_pos - 1, obj_id, their_position, airborne);
         *approach_pos = (current_pos - 1) as i32;
         true
     }
@@ -399,7 +418,7 @@ impl DockUpdate {
         obj_id == self.active_docker
     }
 
-    pub fn get_enter_position(&mut self, obj_id: ObjectID, goal_pos: &mut Coord3D) {
+    pub fn get_enter_position(&mut self, obj_id: ObjectID, goal_pos: &mut Coord3D, airborne: bool) {
         if !self.positions_loaded {
             self.load_dock_positions();
         }
@@ -407,7 +426,7 @@ impl DockUpdate {
         if self.enter_position == zero {
             if let Some(obj) = resolve_dock_object(obj_id) {
                 if let Ok(docker_guard) = obj.read() {
-                    if docker_guard.is_using_airborne_locomotor() {
+                    if airborne {
                         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
                             if let Ok(owner_guard) = owner.read() {
                                 *goal_pos = *owner_guard.get_position();
@@ -757,7 +776,7 @@ mod tests {
         let mut dock = DockUpdate::new(data, 1);
         assert!(!dock.positions_loaded);
         let mut goal = Coord3D::ZERO;
-        dock.get_enter_position(99, &mut goal);
+        dock.get_enter_position(99, &mut goal, false);
         // No drawable → C++ leaves positions_loaded false so the next call retries.
         assert!(!dock.positions_loaded);
     }

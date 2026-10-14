@@ -135,6 +135,7 @@ pub trait DockUpdateInterface: Send + Sync {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
+        airborne: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Advance to the next approach position
@@ -143,6 +144,7 @@ pub trait DockUpdateInterface: Send + Sync {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
+        airborne: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Check if clear to advance in queue
@@ -169,6 +171,7 @@ pub trait DockUpdateInterface: Send + Sync {
         &self,
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
+        airborne: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     /// Called when entry position reached

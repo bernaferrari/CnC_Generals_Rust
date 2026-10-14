@@ -19,6 +19,14 @@ pub(crate) fn apply_module_states(
 ) -> Result<Option<crate::game_logic::host_railroad::HostRailroadCar>, EntityLifecycleCodecError> {
     // Preflight the complete tracker payload before any earlier module can
     // mutate the receiving Object. Its owner comes from this exact envelope.
+    let mut slave_seen = false;
+    for module in modules.iter().filter(|m| m.tag == TAG_SLAVED_UPDATE) {
+        let state: crate::game_logic::host_slave_drones::SlavedUpdateState = decode_payload(&module.payload)?;
+        if slave_seen || !state.validate() {
+            return Err(EntityLifecycleCodecError::InvalidOwnerComponent { component: "slaved update" });
+        }
+        slave_seen = true;
+    }
     let mut tracker_seen = false;
     for module in modules
         .iter()
@@ -166,6 +174,7 @@ fn apply_one(
         }
         TAG_ASSAULT_TRANSPORT => object.assault_transport = Some(decode_payload(payload)?),
         TAG_DEPLOY_STYLE => object.deploy_style = Some(decode_payload(payload)?),
+        TAG_SLAVED_UPDATE => object.slaved_update = Some(decode_payload(payload)?),
         TAG_COMMAND_BUTTON_HUNT => object.command_button_hunt = Some(decode_payload(payload)?),
         TAG_FIRE_WEAPON_WHEN_DEAD => {
             let residual: FireWeaponWhenDeadResidual = decode_payload(payload)?;

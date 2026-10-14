@@ -205,7 +205,11 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_RAILROAD,
     TAG_PATH_EXTRA_DISTANCE,
     TAG_OVERLORD_ADDON,
+    TAG_SLAVED_UPDATE,
 ];
 
 /// CPP WeaponSet selected active three slots and row flags.
 pub const TAG_WEAPON_SLOTS: &str = "WeaponSlots";
+
+/// C++ SlavedUpdate exact saved owner/offset/wait/repair fields.
+pub const TAG_SLAVED_UPDATE: &str = "SlavedUpdate";

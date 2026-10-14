@@ -410,7 +410,9 @@ impl GameLogic {
                 weapon_damage *= 1.1;
             }
 
-            shot = CombatShotResult::Fired(slot);
+            let origin = self.objects.get(&attacker_id).map_or(Vec3::ZERO, Object::get_position);
+            let visual = self.begin_owned_weapon_effects(attacker_id, slot, Some(target_id), Some(target_position), origin);
+            shot = CombatShotResult::Fired(slot, visual);
 
             self.apply_combat_object_hit(
                 attacker_id,

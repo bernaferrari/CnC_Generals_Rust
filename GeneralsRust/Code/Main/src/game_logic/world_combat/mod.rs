@@ -12,6 +12,7 @@ mod gps_and_fields;
 mod heroes_and_plans;
 mod infantry_weapons;
 mod missile_defenders;
+mod slaved_update;
 mod ocl_and_scud;
 mod passive_weapon_fire;
 mod registries;
@@ -25,6 +26,8 @@ mod temporary_weapon_status;
 mod vehicle_shells;
 mod weapon_barrel_topology;
 mod weapon_discharge;
+pub(in crate::game_logic) use weapon_discharge::AcceptedWeaponDischarge;
+mod weapon_fire_effects;
 pub(crate) mod weapon_visual_capture;
 mod weapon_visual_freeze;
 

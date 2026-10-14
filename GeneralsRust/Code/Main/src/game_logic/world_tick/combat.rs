@@ -26,10 +26,9 @@ struct CombatAttackInput {
 
 /// A yielded attacker and an approach-only update both skip shot commit.
 /// The marker is set at the original acceptance point, before hit effects.
-#[derive(Clone, Copy)]
 enum CombatShotResult {
     NoShot,
-    Fired(u8),
+    Fired(u8, Option<crate::game_logic::world_combat::AcceptedWeaponDischarge>),
 }
 impl GameLogic {
     pub(crate) fn update_combat(&mut self, object_ids: &[ObjectId], _dt: f32) {
@@ -44,8 +43,8 @@ impl GameLogic {
             } else {
                 CombatShotResult::NoShot
             };
-            if let CombatShotResult::Fired(slot) = shot {
-                self.commit_combat_shot(input, slot);
+            if let CombatShotResult::Fired(slot, visual) = shot {
+                self.commit_combat_shot(input, slot, visual);
             }
         }
 

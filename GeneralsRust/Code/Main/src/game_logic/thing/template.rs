@@ -112,6 +112,8 @@ pub struct ThingTemplate {
     /// `CAN_ATTACK` KindOf never creates deploy authority.
     #[serde(default)]
     pub deploy_style_metadata: Option<DeployStyleMetadata>,
+    #[serde(default)]
+    pub slaved_update_metadata: Option<crate::game_logic::host_slave_drones::SlavedUpdateMetadata>,
     /// Exact `QueueProductionExitUpdate` or `DefaultProductionExitUpdate`
     /// module.  Missing data never grants a named producer a synthetic Queue
     /// delay, authored exit point, or batch-release policy.
@@ -606,6 +608,7 @@ impl ThingTemplate {
             parking_place: None,
             flight_deck: None,
             deploy_style_metadata: None,
+            slaved_update_metadata: None,
             production_exit_metadata: None,
             authored_structure_topple: false,
             structure_topple_definition: None,

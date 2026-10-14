@@ -1560,6 +1560,11 @@ impl GameLogic {
                 object.install_highlander_body();
             }
             object.install_deploy_style_if_needed();
+            if let Some(data) = object.get_template().slaved_update_metadata.as_ref() {
+                let repairs = data.repair_rate > 0.0;
+                object.slaved_update = Some(Default::default());
+                if repairs { object.model_condition_bits |= gamelogic::common::ModelConditionFlags::PACKING.bits() as u32; }
+            }
             object.install_tensile_formation_if_needed();
             if object.has_tensile_formation() {
                 self.tensile_formation_reg.record_install();

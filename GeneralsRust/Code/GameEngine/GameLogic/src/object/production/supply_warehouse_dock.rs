@@ -364,9 +364,10 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
+        airborne: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.base
-            .reserve_approach_position(obj_id, goal_pos, approach_pos)
+            .reserve_approach_position(obj_id, goal_pos, approach_pos, airborne)
     }
 
     fn advance_approach_position(
@@ -374,9 +375,10 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
+        airborne: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.base
-            .advance_approach_position(obj_id, goal_pos, approach_pos)
+            .advance_approach_position(obj_id, goal_pos, approach_pos, airborne)
     }
 
     fn is_clear_to_advance(
@@ -405,8 +407,9 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
         &self,
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
+        airborne: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.get_enter_position(obj_id, goal_pos)
+        self.base.get_enter_position(obj_id, goal_pos, airborne)
     }
 
     fn on_enter_reached(

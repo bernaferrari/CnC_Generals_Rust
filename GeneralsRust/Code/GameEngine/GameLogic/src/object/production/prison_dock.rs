@@ -114,9 +114,10 @@ impl DockUpdateInterface for PrisonDockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
+        airborne: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.base
-            .reserve_approach_position(obj_id, goal_pos, approach_pos)
+            .reserve_approach_position(obj_id, goal_pos, approach_pos, airborne)
     }
 
     fn advance_approach_position(
@@ -124,9 +125,10 @@ impl DockUpdateInterface for PrisonDockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
         approach_pos: &mut i32,
+        airborne: bool,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.base
-            .advance_approach_position(obj_id, goal_pos, approach_pos)
+            .advance_approach_position(obj_id, goal_pos, approach_pos, airborne)
     }
 
     fn is_clear_to_advance(
@@ -155,8 +157,9 @@ impl DockUpdateInterface for PrisonDockUpdate {
         &self,
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
+        airborne: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.get_enter_position(obj_id, goal_pos)
+        self.base.get_enter_position(obj_id, goal_pos, airborne)
     }
 
     fn on_enter_reached(
@@ -186,8 +189,7 @@ impl DockUpdateInterface for PrisonDockUpdate {
         obj_id: ObjectID,
         _drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(false);
         };
         let docker_guard = obj.read().map_err(|_| "Failed to lock docker")?;

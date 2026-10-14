@@ -2656,6 +2656,8 @@ pub struct Object {
     /// C++ AssaultTransportAIUpdate residual state (designated target + members).
     pub assault_transport: Option<crate::game_logic::host_troop_crawler::HostAssaultTransportState>,
     /// C++ DeployStyleAIUpdate pack/unpack residual.
+    #[serde(default)]
+    pub slaved_update: Option<crate::game_logic::host_slave_drones::SlavedUpdateState>,
     pub deploy_style: Option<crate::game_logic::host_deploy_style::HostDeployStyleData>,
     /// C++ CommandButtonHuntUpdate residual (special-button hunt).
     pub command_button_hunt:

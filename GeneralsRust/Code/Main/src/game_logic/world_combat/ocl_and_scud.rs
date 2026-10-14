@@ -73,8 +73,9 @@ impl GameLogic {
             return Vec::new();
         }
 
-        let Some(ocl) =
+        let Some(ocl) = self.weapon_effect_definitions.ocl(ocl_name).or_else(|| {
             gamelogic::helpers::TheObjectCreationListStore::lookup_object_creation_list(ocl_name)
+        })
         else {
             return Vec::new();
         };
