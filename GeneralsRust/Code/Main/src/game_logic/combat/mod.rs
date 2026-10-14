@@ -15,6 +15,11 @@ include!("resolution.rs");
 include!("queued_area.rs");
 include!("pending_snapshot.rs");
 
+mod live_projectile_snapshot;
+pub(crate) use live_projectile_snapshot::{
+    LiveProjectileArenaSnapshot, ValidatedLiveProjectileArena,
+};
+
 #[cfg(test)]
 include!("tests.rs");
 

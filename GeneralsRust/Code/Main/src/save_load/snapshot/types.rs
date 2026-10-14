@@ -18,14 +18,15 @@ use std::time::SystemTime;
 
 /// World body schema 23 remains unchanged. Versions 24–27 advertise required
 /// host alliances / side identities / admission cash and its source in Players v4–v7, so older builds reject
-/// new bundles before host restore. Only these Rust capability versions are readable;
+/// new bundles before host restore. Version 28 requires the live projectile arena
+/// continuation frame. Only these Rust capability versions are readable;
 /// original C++ module Xfer versions remain independently defined.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 27;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 27;
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 28;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 28;
 
 /// Validate the Rust outer envelope before consuming or restoring its body.
 pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
-    if matches!(version, 23..=27) {
+    if matches!(version, 23..=28) {
         Ok(())
     } else {
         Err(crate::save_load::SaveLoadError::VersionMismatch {
@@ -231,7 +232,7 @@ pub struct WorldSnapshot {
     pub pending_combat: crate::game_logic::combat::PendingCombatSnapshot,
 
     /// Named GhostObject block travels with this decoded save. It is outside
-    /// the unchanged v23-27 GameLogic positional body and direct Xfer stream.
+    /// the unchanged v23-28 GameLogic positional body and direct Xfer stream.
     #[serde(skip)]
     pub(crate) w3d_ghost_companion: Option<Vec<u8>>,
 }
@@ -488,7 +489,7 @@ impl Default for WorldSnapshot {
             shroud: ShroudSnapshot::default(),
             // Metadata suffixes follow the lifecycle record, including when
             // that record contains no objects or links.
-            lifecycle_tail: super::lifecycle_tail::encode_lifecycle_tail(&Default::default()),
+            lifecycle_tail: super::combat_projectile_persist::empty_lifecycle_tail(),
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),

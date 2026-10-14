@@ -387,7 +387,6 @@ pub use super::host_live_script_msg_helper_residual_wave570::{
     honesty_script_msg_helper_nav_commands_residual_wave570,
     honesty_script_msg_helper_residual_pack_wave570,
     honesty_script_msg_helper_source_markers_residual_wave570,
-    residual_script_msg_helper_last_action, residual_script_msg_helper_ok,
     simulate_live_script_msg_helper_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]

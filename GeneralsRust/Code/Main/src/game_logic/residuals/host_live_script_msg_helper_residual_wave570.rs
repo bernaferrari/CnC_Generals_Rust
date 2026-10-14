@@ -12,11 +12,6 @@
 //! Fail-closed:
 //! - Shell `playable_claim` stays false; network deferred
 
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-
-static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
-static RESIDUAL_ACTION: AtomicU8 = AtomicU8::new(0);
-
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
     table.iter().position(|n| *n == name)
 }
@@ -38,42 +33,20 @@ pub const LIVE_SCRIPT_MSG_HELPER_NAV_STEPS_WAVE570: &[&str] = &[
 pub const RUNTIME_HOST_LIVE_SCRIPT_MSG_HELPER_CMD_NAMES_WAVE570: &[&str] =
     &["script_msg_helper", "new_script_messages_residual"];
 
-#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResidualScriptMsgHelperAction {
-    None = 0,
-    MethodNames = 1,
-    SourceMarkers = 2,
-    NavCommands = 3,
-    CollectSource = 4,
-    DispatchSource = 5,
-    Composite = 6,
+enum ResidualScriptMsgHelperAction {
+    MethodNames,
+    SourceMarkers,
+    NavCommands,
+    CollectSource,
+    DispatchSource,
+    Composite,
 }
 
-impl ResidualScriptMsgHelperAction {
-    pub fn from_u8(v: u8) -> Self {
-        match v {
-            1 => Self::MethodNames,
-            2 => Self::SourceMarkers,
-            3 => Self::NavCommands,
-            4 => Self::CollectSource,
-            5 => Self::DispatchSource,
-            6 => Self::Composite,
-            _ => Self::None,
-        }
-    }
-}
-
-fn residual_action_store(action: ResidualScriptMsgHelperAction) {
-    RESIDUAL_ACTION.store(action as u8, Ordering::SeqCst);
-}
-
-pub fn residual_script_msg_helper_ok() -> bool {
-    RESIDUAL_OK.load(Ordering::SeqCst)
-}
-
-pub fn residual_script_msg_helper_last_action() -> ResidualScriptMsgHelperAction {
-    ResidualScriptMsgHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct InspectionOutcome {
+    ok: bool,
+    action: ResidualScriptMsgHelperAction,
 }
 
 fn eng_source() -> &'static str {
@@ -113,7 +86,7 @@ pub fn honesty_script_msg_helper_method_names_residual_wave570() -> bool {
         && residual_name_index(names, "take_new_script_messages").is_some()
         && residual_name_index(names, "Wave 570").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
-    residual_action_store(ResidualScriptMsgHelperAction::MethodNames);
+
     ok
 }
 
@@ -126,7 +99,6 @@ pub fn honesty_script_msg_helper_source_markers_residual_wave570() -> bool {
         "fn host_take_presentation_or_boot_new_script_messages(",
     )
     .or_else(|| fn_body(eng, "fn take_presentation_or_boot_new_script_messages(")) else {
-        residual_action_store(ResidualScriptMsgHelperAction::SourceMarkers);
         return false;
     };
     // 2026-08-15: Wave 900 fail-closed — host helper clones freeze messages,
@@ -142,7 +114,7 @@ pub fn honesty_script_msg_helper_source_markers_residual_wave570() -> bool {
         && call_ok
         && !eng.contains("self.game_logic.take_new_script_messages()")
         && !eng.contains("playable_claim = true");
-    residual_action_store(ResidualScriptMsgHelperAction::SourceMarkers);
+
     ok
 }
 
@@ -154,7 +126,7 @@ pub fn honesty_script_msg_helper_nav_commands_residual_wave570() -> bool {
         && residual_name_index(steps, "LIVE_PLAYABLE_CLAIM_FALSE").is_some()
         && residual_name_index(cmds, "script_msg_helper").is_some()
         && residual_name_index(cmds, "new_script_messages_residual").is_some();
-    residual_action_store(ResidualScriptMsgHelperAction::NavCommands);
+
     ok
 }
 
@@ -162,7 +134,7 @@ pub fn simulate_script_msg_helper_collect_source() -> bool {
     let eng = eng_source();
     let ok = eng.contains("Wave 570")
         && eng.contains("fn take_presentation_or_boot_new_script_messages");
-    residual_action_store(ResidualScriptMsgHelperAction::CollectSource);
+
     ok
 }
 
@@ -170,25 +142,44 @@ pub fn simulate_script_msg_helper_dispatch_source() -> bool {
     let eng = eng_source();
     let ok = eng.contains("self.take_presentation_or_boot_new_script_messages()")
         && eng.contains("push_script_message");
-    residual_action_store(ResidualScriptMsgHelperAction::DispatchSource);
+
     ok
+}
+
+fn inspect_script_msg_helper() -> InspectionOutcome {
+    use ResidualScriptMsgHelperAction::*;
+    for (action, predicate) in [
+        (
+            MethodNames,
+            honesty_script_msg_helper_method_names_residual_wave570 as fn() -> bool,
+        ),
+        (
+            SourceMarkers,
+            honesty_script_msg_helper_source_markers_residual_wave570,
+        ),
+        (
+            NavCommands,
+            honesty_script_msg_helper_nav_commands_residual_wave570,
+        ),
+        (CollectSource, simulate_script_msg_helper_collect_source),
+        (DispatchSource, simulate_script_msg_helper_dispatch_source),
+    ] {
+        if !predicate() {
+            return InspectionOutcome { ok: false, action };
+        }
+    }
+    InspectionOutcome {
+        ok: true,
+        action: Composite,
+    }
 }
 
 pub fn honesty_script_msg_helper_residual_pack_wave570() -> bool {
-    honesty_script_msg_helper_method_names_residual_wave570()
-        && honesty_script_msg_helper_source_markers_residual_wave570()
-        && honesty_script_msg_helper_nav_commands_residual_wave570()
-        && simulate_script_msg_helper_collect_source()
-        && simulate_script_msg_helper_dispatch_source()
+    inspect_script_msg_helper().ok
 }
 
 pub fn simulate_live_script_msg_helper_honesty() -> bool {
-    let ok = honesty_script_msg_helper_residual_pack_wave570();
-    if ok {
-        RESIDUAL_OK.store(true, Ordering::SeqCst);
-        residual_action_store(ResidualScriptMsgHelperAction::Composite);
-    }
-    ok
+    inspect_script_msg_helper().ok
 }
 
 #[cfg(test)]
@@ -223,14 +214,20 @@ mod tests {
 
     #[test]
     fn simulate_live_script_msg_helper_honesty_residual_live() {
-        assert!(
-            simulate_live_script_msg_helper_honesty(),
-            "script msg helper residual must latch"
-        );
-        assert!(residual_script_msg_helper_ok());
-        assert_eq!(
-            residual_script_msg_helper_last_action(),
-            ResidualScriptMsgHelperAction::Composite
-        );
+        let result = inspect_script_msg_helper();
+        assert!(result.ok, "script msg helper inspection must succeed");
+        assert_eq!(result.action, ResidualScriptMsgHelperAction::Composite);
+    }
+
+    #[test]
+    fn interleaved_inspections_preserve_each_owned_result() {
+        let first = inspect_script_msg_helper();
+        assert!(honesty_script_msg_helper_source_markers_residual_wave570());
+        assert!(honesty_script_msg_helper_method_names_residual_wave570());
+        let second = inspect_script_msg_helper();
+        assert!(simulate_script_msg_helper_dispatch_source());
+        assert!(first.ok && second.ok);
+        assert_eq!(first.action, ResidualScriptMsgHelperAction::Composite);
+        assert_eq!(second, first);
     }
 }

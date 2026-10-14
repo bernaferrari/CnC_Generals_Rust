@@ -102,11 +102,15 @@ impl ProjectileDefinitions {
 }
 
 #[cfg(test)]
+#[path = "projectile_save_owner_tests.rs"]
+mod save_owner_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
     use glam::Vec3;
-    fn world(delay: u32) -> (GameLogic, super::super::ObjectId, super::super::ObjectId) {
+    pub(super) fn world(delay: u32) -> (GameLogic, super::super::ObjectId, super::super::ObjectId) {
         let mut game = GameLogic::new();
         let mut owner = Player::new(0, Team::USA, "source", false);
         owner.alliance_team = 1;
@@ -294,20 +298,29 @@ mod tests {
         assert_eq!(rule.primary_damage, 20.0);
         assert_eq!(rule.projectile_name, "SameMissile");
         assert_eq!(loaded.weapon.as_ref().unwrap().suspend_fx_frame, 17);
-        // Materialized flight continuation is independently missing from the
-        // current save record (hq-k9p3l, Source307 negative runtime evidence).
-        // This accepted control covers the saved firing owner and its NEXT
-        // real launch through the receiving immutable profile, not live flight.
+        // The saved launch retains its original profile. A later launch uses
+        // the receiving definitions, without rewriting the flight already saved.
         assert_eq!(
             loaded.last_fire_frame,
             source_world.host_object(source).unwrap().last_fire_frame
         );
+        let saved_projectiles = receiving.combat_system.projectiles_snapshot();
+        assert_eq!(saved_projectiles.len(), 1);
+        let saved_id = saved_projectiles[0].id;
+        let HostProjectileFlight::Missile(saved_flight) =
+            saved_projectiles[0].flight.as_ref().unwrap()
+        else {
+            panic!("restored live Missile flight");
+        };
+        assert_eq!(saved_flight.ignition_delay_frames, 0);
         assert!(receiving.fire_owned_passive_weapon(source, target, 0, Vec3::ZERO));
         let shot = receiving
             .combat_system
             .projectiles_snapshot()
-            .pop()
+            .into_iter()
+            .find(|shot| shot.id != saved_id)
             .unwrap();
+        assert_eq!(shot.id.0, saved_id.0 + 1);
         let HostProjectileFlight::Missile(flight) = shot.flight.as_ref().unwrap() else {
             panic!("actual next receiving Missile launch");
         };

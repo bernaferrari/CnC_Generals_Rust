@@ -202,3 +202,5 @@ mod player_academy_persist;
 
 #[cfg(test)]
 mod team_prototype_order_tests;
+
+mod combat_projectile_persist;

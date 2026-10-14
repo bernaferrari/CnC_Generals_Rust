@@ -88,6 +88,7 @@ impl SnapshotBuilder {
                 let mut bytes = super::super::lifecycle_tail::encode_lifecycle_tail(
                     &super::super::lifecycle_tail::capture_lifecycle_tail(game_logic)?,
                 );
+                super::super::combat_projectile_persist::append(&mut bytes, game_logic)?;
                 super::super::special_power_cooldown_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
@@ -286,6 +287,11 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        let projectile_continuation = super::super::combat_projectile_persist::decode(
+            &snapshot.lifecycle_tail,
+            snapshot.version >= 28,
+        )?;
+        let lifecycle_tail = projectile_continuation.legacy_tail.as_ref();
         // Reject malformed companion bytes before this API mutates its receiver.
         // Production map loading then restores this candidate world atomically.
         let ghosts = snapshot
@@ -350,7 +356,7 @@ impl SnapshotBuilder {
         self.restore_weather(&snapshot.weather, game_logic)?;
         self.restore_resource_manager(&snapshot.resource_manager, game_logic)?;
         self.restore_combat_tracker(&snapshot.combat_tracker, game_logic)?;
-        // Accepted world versions (23 through 27) explicitly serialize the AI
+        // Accepted world versions (23 through 28) explicitly serialize the AI
         // roster. An empty roster must not run skirmish constructors, which
         // would invent controllers and overwrite saved player build flags.
         if !snapshot.ai_players.is_empty() {
@@ -435,137 +441,83 @@ impl SnapshotBuilder {
             .restore_host_fog_ghost_shroud_history()
             .map_err(SaveLoadError::Corrupted)?;
 
-        let tail = super::super::lifecycle_tail::decode_lifecycle_tail(&snapshot.lifecycle_tail)?;
+        let tail = super::super::lifecycle_tail::decode_lifecycle_tail(lifecycle_tail)?;
         super::super::lifecycle_tail::apply_lifecycle_tail_to_host(&tail, game_logic)?;
         super::super::special_power_cooldown_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
-        super::super::battle_plan_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::subdual_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::booby_trap_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::carpet_bomb_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::super::battle_plan_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::subdual_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::booby_trap_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::carpet_bomb_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::production_door_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
-        super::super::dozer_repair_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::rebuild_hole_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::weapon_set_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::super::dozer_repair_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::rebuild_hole_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::weapon_set_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         let complete_object_records: std::collections::HashSet<_> =
             snapshot.objects.keys().copied().collect();
         super::super::ai_team_persist::apply_from_lifecycle_tail_with_object_records(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
             Some(&complete_object_records),
         )?;
         super::super::ability_hijack_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
-        super::super::dock_queue_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::super::dock_queue_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::module_runtime_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
         super::super::deliver_payload_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
         super::super::object_module_xfer_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
-        super::super::auto_deposit_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::supply_drop_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::jet_ai_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::chinook_ai_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::hacker_income_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::super::auto_deposit_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::supply_drop_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::jet_ai_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::chinook_ai_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::hacker_income_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::warehouse_crippling_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
-        super::super::helix_napalm_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::money_crate_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::gps_scrambler_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::super::helix_napalm_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::money_crate_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::gps_scrambler_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::dynamic_shroud_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
-        super::super::angry_mob_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::super::angry_mob_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::power_plant_rods_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
         super::super::cleanup_hazard_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
-        super::super::point_defense_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::super::point_defense_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::projectile_stream_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
         super::super::transport_exit_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
         super::super::bridge_behavior_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
         // C++ has ONE TurretAI::xfer per module; here TRAI (15-field subset,
@@ -574,77 +526,56 @@ impl SnapshotBuilder {
         // turret authority — running TRAI after it zeroed OXOB-restored
         // idle-scan/hold/substate state for objects outside TRAI's capture
         // predicate. TRAI stays ahead only for legacy tails without OXOB.
-        super::super::turret_aim_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::super::turret_aim_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::player_academy_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
         super::super::construction_completion_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
-        super::super::object_xfer_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::super::object_xfer_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         // OXOB's active Guard deadline must agree with the immutable nested
         // continuation; neither record may silently repair a conflicting save.
         super::super::guard_state_persist::validate_after_lifecycle_tail(snapshot, game_logic)?;
         super::super::named_unit_history_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
         super::super::ai_player_queue_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
-        super::super::inferno_fire_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::firewall_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::super::inferno_fire_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::firewall_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::neutron_slow_death_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
-        super::super::stealth_grant_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::weapon_leech_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::super::score_keeper_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::super::stealth_grant_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::weapon_leech_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        super::super::score_keeper_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
 
         self.sync_all_garrisoned_units_from_occupants(game_logic);
         self.restore_game_logic_persist_tail(snapshot, game_logic);
         super::super::persist_v18::restore_persist_v18(&snapshot.persist_v18, game_logic)?;
-        super::super::hotkey_squad_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::super::hotkey_squad_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
         super::super::garrison_firepoint_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
         super::super::stealth_detector_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
+            lifecycle_tail,
             game_logic,
         )?;
 
         game_logic
             .combat_system
             .restore_pending_combat(&snapshot.pending_combat);
+        game_logic
+            .combat_system
+            .restore_live_projectile_arena(projectile_continuation.arena);
 
         // Energy::xfer deliberately omits derived production/consumption.
         // Rebuild only after all object/status tails (including disabled_held)
