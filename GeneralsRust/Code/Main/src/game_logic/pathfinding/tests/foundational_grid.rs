@@ -608,7 +608,8 @@ fn stop_prevents_further_attack_damage() {
 fn assign_shared_group_paths_uses_one_spine() {
     use crate::game_logic::{GameLogic, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.force_map_loaded_for_path_test(false);
+    // C++ findGroundPath refuses group queries until m_isMapReady is true.
+    logic.force_map_loaded_for_path_test(true);
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry);
     logic.templates.insert("Ranger".into(), tmpl);
@@ -656,7 +657,7 @@ fn assign_shared_group_paths_uses_one_spine() {
 fn group_march_request_path_clears_safe_and_skips_parachute() {
     use crate::game_logic::{GameLogic, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.force_map_loaded_for_path_test(false);
+    logic.force_map_loaded_for_path_test(true);
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry);
     logic.templates.insert("Ranger".into(), tmpl);

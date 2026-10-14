@@ -335,6 +335,10 @@ mod grid_core;
 mod grid_flight;
 mod grid_layers;
 mod grid_routing;
+mod group_ground;
+mod group_ground_owner;
+#[cfg(test)]
+mod group_ground_tests;
 mod system_attack;
 mod system_requests;
 mod system_routes;

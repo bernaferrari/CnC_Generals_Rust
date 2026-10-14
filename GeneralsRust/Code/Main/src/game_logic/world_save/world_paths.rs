@@ -938,40 +938,23 @@ impl GameLogic {
                     }
                     let p = o.get_position();
                     let d = (p.x - cx).hypot(p.z - cz);
-                    Some((*id, p, d, o.locomotor_surfaces, aircraft))
+                    Some((*id, p, d))
                 })
             })
             .min_by(|a, b| a.2.total_cmp(&b.2));
-        let Some((leader_id, start, _, surfaces, aircraft)) = leader else {
+        let Some((_, start, _)) = leader else {
             return false;
         };
-        let is_crusher = self
-            .objects
-            .get(&leader_id)
-            .is_some_and(|o| o.crusher_level > 0);
-        if let Some(leader) = self.objects.get_mut(&leader_id) {
-            let landed_chinook = leader.chinook_ai.as_ref().is_some_and(|ai| {
-                ai.flight_status
-                    == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
-            });
-            leader.is_final_goal = !leader.is_parachuting()
-                && !landed_chinook
-                && !(leader.chinook_ai.is_some() && leader.allow_invalid_position)
-                && leader.adjust_destinations;
-            leader.num_frames_blocked = 0;
-            leader.is_blocked_and_stuck = false;
-            leader.set_status_moving(true);
+        if !self.map_loaded {
+            return false;
         }
-        let Some((spine, mut pass_scoot)) = self.compute_assigned_unit_path(
-            leader_id,
-            start,
-            destination,
-            &[],
-            aircraft,
-            surfaces,
-            is_crusher,
-            None,
-        ) else {
+        // C++ AIGroup::friend_computeGroundPath uses a fixed ground, non-crusher
+        // group search. A member's individual locomotor and footprint do not
+        // choose the spine or mutate that member during search admission.
+        let Some(spine) =
+            self.pathfinding_system
+                .find_group_ground_path(start, destination, &self.objects)
+        else {
             return false;
         };
         // C++ group march direction = spine start → destination; the lateral
@@ -1058,10 +1041,9 @@ impl GameLogic {
                 None => legacy_spine(),
             };
             let _ = self.note_move_to_request_path(unit_id);
-            if self.apply_computed_unit_path(unit_id, unit_start, goal, path, pass_scoot) {
+            if self.apply_computed_unit_path(unit_id, unit_start, goal, path, false) {
                 any = true;
             }
-            pass_scoot = false;
         }
         any
     }
@@ -2253,7 +2235,10 @@ mod group_lane_tests {
         let mut goals: Vec<(ObjectId, Vec3)> = Vec::new();
         for i in 0..12_i32 {
             let id = ObjectId(8600 + i as u32);
-            let mut unit = ranger(8600 + i as u32, Vec3::new((i as f32 - 5.5) * 6.0, 0.0, 5.0));
+            // Keep the starting group compact so C++'s positive-progress
+            // filter accepts the same first corner for every rank. A spread
+            // group may legitimately skip that corner for some members.
+            let mut unit = ranger(8600 + i as u32, Vec3::new((i as f32 - 5.5) * 2.0, 0.0, 5.0));
             let name = "BasicHumanLocomotor";
             let binding =
                 crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(name)
@@ -2270,6 +2255,29 @@ mod group_lane_tests {
             let stagger = if i % 2 == 1 { 10.0 } else { 0.0 };
             let lateral = column_delta as f32 * 22.0 + stagger;
             goals.push((id, Vec3::new(-lateral, 0.0, 420.0)));
+        }
+        let start = logic.objects[&ObjectId(8605)].get_position();
+        let spine = logic
+            .pathfinding_system
+            .find_group_ground_path(start, destination, &logic.objects)
+            .unwrap();
+        let distance_squared = |a: Vec3, b: Vec3| (a.x - b.x).powi(2) + (a.z - b.z).powi(2);
+        let corner_index = spine
+            .iter()
+            .position(|p| distance_squared(*p, spine[0]) > 3600.0)
+            .unwrap();
+        let next = spine
+            .iter()
+            .skip(corner_index + 1)
+            .find(|p| distance_squared(**p, spine[corner_index]) > 3600.0)
+            .unwrap();
+        let direction = *next - spine[0];
+        for (id, _) in &goals {
+            let forward = spine[corner_index] - logic.objects[id].get_position();
+            assert!(
+                direction.x * forward.x + direction.z * forward.z > 0.0,
+                "fixture requires a common forward corner for all ranks"
+            );
         }
         assert!(logic.assign_shared_group_paths(&goals, destination));
 
