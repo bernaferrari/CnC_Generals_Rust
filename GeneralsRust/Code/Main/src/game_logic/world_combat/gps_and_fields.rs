@@ -1439,23 +1439,34 @@ impl GameLogic {
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
-            .filter(|(_, o)| o.is_alive() && o.default_auto_heal.is_some())
+            // CPP AutoHealBehavior::update uses the explicit dead flag, not
+            // an inferred health predicate (construction can start at zero HP).
+            .filter(|(_, o)| !o.status.effectively_dead && o.default_auto_heal.is_some())
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
-            let Some(obj) = self.objects.get_mut(&id) else {
-                continue;
-            };
-            let max_h = obj.health.maximum.max(obj.max_health).max(1.0);
-            let cur = obj.health.current;
             let amount = {
+                let Some(obj) = self.objects.get_mut(&id) else {
+                    continue;
+                };
                 let Some(ah) = obj.default_auto_heal.as_mut() else {
                     continue;
                 };
-                ah.tick_heal_amount(frame, cur, max_h)
+                // CPP AutoHealBehavior::update reads the receiving Body values,
+                // including small/zero maxima; no bootstrap estimate belongs here.
+                ah.prepare_heal_amount(frame, obj.health.current, obj.health.maximum)
             };
             if amount > 0.0 {
-                obj.heal(amount, &mut self.health_events, self.frame);
+                // Radius-zero pulseHealObject uses the healer itself as source.
+                // Release the module loan before the real synchronous callbacks.
+                let _ = self.apply_owned_healing(id, amount, Some(id));
+                if let Some(ah) = self
+                    .objects
+                    .get_mut(&id)
+                    .and_then(|o| o.default_auto_heal.as_mut())
+                {
+                    ah.complete_heal_pulse(self.frame);
+                }
             }
         }
     }

@@ -172,9 +172,23 @@ impl HostDefaultAutoHealData {
         self.pending_damage = false;
     }
 
-    /// Pulse amount this frame, or 0 if sleeping / full health / stopped.
-    /// Garrisoned / HELD units still heal (C++ DISABLED_HELD).
+    /// Local pulse convenience when no released Body callback phase is needed.
     pub fn tick_heal_amount(
+        &mut self,
+        current_frame: u32,
+        current_health: f32,
+        max_health: f32,
+    ) -> f32 {
+        let amount = self.prepare_heal_amount(current_frame, current_health, max_health);
+        if amount > 0.0 {
+            self.complete_heal_pulse(current_frame);
+        }
+        amount
+    }
+
+    /// Admit a pulse without advancing its clocks across released callbacks.
+    /// Garrisoned / HELD units still heal (C++ DISABLED_HELD).
+    pub fn prepare_heal_amount(
         &mut self,
         current_frame: u32,
         current_health: f32,
@@ -186,16 +200,23 @@ impl HostDefaultAutoHealData {
         if self.pending_damage {
             self.on_damage(current_frame);
         }
-        if max_health <= 0.0 || current_health >= max_health - f32::EPSILON {
+        // CPP uses health < max: unordered values do not admit a pulse either.
+        let needs_healing = current_health < max_health;
+        if !needs_healing {
             // C++ update() at max health: UPDATE_SLEEP_FOREVER until onDamage.
             return 0.0;
         }
         if current_frame < self.wake_frame {
             return 0.0;
         }
+        DEFAULT_AUTO_HEAL_AMOUNT
+    }
+
+    /// CPP pulseHealObject297 commits soonest after Body/particle callbacks;
+    /// the enclosing update then returns the corresponding sleep interval.
+    pub fn complete_heal_pulse(&mut self, current_frame: u32) {
         self.soonest_heal_frame = current_frame.saturating_add(DEFAULT_AUTO_HEAL_DELAY_FRAMES);
         self.wake_frame = self.soonest_heal_frame;
-        DEFAULT_AUTO_HEAL_AMOUNT
     }
 }
 
