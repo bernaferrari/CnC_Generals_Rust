@@ -130,10 +130,22 @@ impl GameLogic {
                         Some((_, bone_yaw)) => m * glam::Mat4::from_rotation_y(bone_yaw),
                         None => m,
                     });
-                let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl_oriented(
-                    pos, target, capture.logic_frame, source, capture.target_id,
-                    &capture.selected_fx_name, "", "", "", speed, radius, matrix,
-                );
+                let _ = self
+                    .combat_particles
+                    .spawn_weapon_fire_fx_named_ocl_oriented(
+                        pos,
+                        target,
+                        capture.logic_frame,
+                        source,
+                        capture.target_id,
+                        &capture.selected_fx_name,
+                        "",
+                        "",
+                        "",
+                        speed,
+                        radius,
+                        matrix,
+                    );
             }
         }
         let event = crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent {
@@ -147,7 +159,9 @@ impl GameLogic {
         Some(AcceptedWeaponDischarge {
             event,
             source_generation: source_object_generation,
-            skip_object_barrel: pending.as_ref().is_some_and(|capture| capture.skip_object_barrel_advance),
+            skip_object_barrel: pending
+                .as_ref()
+                .is_some_and(|capture| capture.skip_object_barrel_advance),
         })
     }
 
@@ -157,9 +171,11 @@ impl GameLogic {
         accepted: AcceptedWeaponDischarge,
     ) -> crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent {
         let event = accepted.event;
-        if let Some(object) = self.objects.get_mut(&event.source).filter(|object| {
-            object.visual_object_generation == accepted.source_generation
-        }) {
+        if let Some(object) = self
+            .objects
+            .get_mut(&event.source)
+            .filter(|object| object.visual_object_generation == accepted.source_generation)
+        {
             object.stamp_weapon_discharge_marker(WeaponDischargeMarker {
                 sequence: event.sequence,
                 weapon_slot: event.weapon_slot,

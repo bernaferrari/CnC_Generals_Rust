@@ -119,6 +119,28 @@ impl Object {
         )
     }
 
+    pub(crate) fn prepare_autonomous_weapon_shot(
+        &mut self,
+        target: ObjectId,
+        time: f32,
+        infantry: bool,
+        faerie: bool,
+        frame: u32,
+        sound: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
+        attacks: &mut crate::game_logic::host_attack_log::AttackEvents,
+    ) -> Option<(u8, super::combat::PendingProjectile)> {
+        self.prepare_weapon_shot(
+            WeaponShotRoute::Autonomous,
+            target,
+            time,
+            infantry,
+            faerie,
+            frame,
+            sound,
+            attacks,
+        )
+    }
+
     fn prepare_weapon_shot(
         &mut self,
         route: WeaponShotRoute,

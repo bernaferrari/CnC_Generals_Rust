@@ -28,7 +28,10 @@ struct CombatAttackInput {
 /// The marker is set at the original acceptance point, before hit effects.
 enum CombatShotResult {
     NoShot,
-    Fired(u8, Option<crate::game_logic::world_combat::AcceptedWeaponDischarge>),
+    Fired(
+        u8,
+        Option<crate::game_logic::world_combat::AcceptedWeaponDischarge>,
+    ),
 }
 impl GameLogic {
     pub(crate) fn update_combat(&mut self, object_ids: &[ObjectId], _dt: f32) {

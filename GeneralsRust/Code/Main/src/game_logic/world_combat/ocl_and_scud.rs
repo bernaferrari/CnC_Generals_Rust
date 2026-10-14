@@ -75,8 +75,8 @@ impl GameLogic {
 
         let Some(ocl) = self.weapon_effect_definitions.ocl(ocl_name).or_else(|| {
             gamelogic::helpers::TheObjectCreationListStore::lookup_object_creation_list(ocl_name)
-        })
-        else {
+                .map(|ocl| (*ocl).clone())
+        }) else {
             return Vec::new();
         };
 

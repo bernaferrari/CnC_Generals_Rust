@@ -58,6 +58,7 @@ impl GameLogic {
             radar: game_engine::common::system::radar::RadarSystem::new(),
             radar_map: Default::default(),
             physics_definitions: Default::default(),
+            weapon_effect_definitions: Default::default(),
             production_energy: Default::default(),
             ai_definitions,
             map_definition_source: None,

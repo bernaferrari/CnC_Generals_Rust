@@ -49,15 +49,34 @@ impl GameLogic {
                                                 )
                                             }))
                                     {
-                                        attacker.fire_at_ex(
+                                        let origin = attacker.get_position();
+                                        let prepared = attacker.prepare_autonomous_weapon_shot(
                                             target_id,
                                             current_time,
                                             tgt_inf,
                                             tgt_faerie,
                                             self.frame,
-                                            &mut self.combat_system,
+                                            &mut self.combat_system.fire_sound_loop_events,
                                             &mut self.attack_events,
                                         );
+                                        if let Some((slot, mut shot)) = prepared {
+                                            let capture =
+                                                attacker.take_pending_weapon_visual_capture();
+                                            let accepted = self.begin_owned_weapon_effects(
+                                                object_id,
+                                                slot,
+                                                Some(target_id),
+                                                None,
+                                                origin,
+                                                capture,
+                                            );
+                                            shot.fire_fx_name.clear();
+                                            shot.fire_ocl_name.clear();
+                                            self.materialize_owned_passive_shot(shot);
+                                            if let Some(accepted) = accepted {
+                                                self.finish_accepted_weapon_discharge(accepted);
+                                            }
+                                        }
                                     }
                                 }
                             }

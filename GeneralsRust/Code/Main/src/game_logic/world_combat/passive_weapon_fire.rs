@@ -30,25 +30,17 @@ impl GameLogic {
         ) else {
             return false;
         };
-        // The accepted Drawable dispatch owns this selected FireFX, including
-        // its visibility/suspension decision. Preserve the separate FireOCL.
-        let visual_owns_fx =
-            shooter
-                .pending_weapon_visual_capture
-                .as_mut()
-                .is_some_and(|capture| {
-                    capture.source_pos = [origin.x, origin.y, origin.z];
-                    capture
-                        .selected_fx_name
-                        .eq_ignore_ascii_case(&shot.fire_fx_name)
-                });
-        // One accepted discharge owns ammo, tracker and barrel state. Damage
-        // callbacks run after that bounded shooter borrow has ended.
-        let discharge = self.record_accepted_weapon_discharge(source, slot);
-        if visual_owns_fx && discharge.is_some() {
-            shot.fire_fx_name.clear();
-        }
+        let capture = shooter.take_pending_weapon_visual_capture();
+        let accepted =
+            self.begin_owned_weapon_effects(source, slot, Some(target), None, origin, capture);
+        // This driving operation has delivered the effects exactly once,
+        // independently of projectile lifetime or source survival.
+        shot.fire_fx_name.clear();
+        shot.fire_ocl_name.clear();
         self.materialize_owned_passive_shot(shot);
+        if let Some(accepted) = accepted {
+            self.finish_accepted_weapon_discharge(accepted);
+        }
         true
     }
 }

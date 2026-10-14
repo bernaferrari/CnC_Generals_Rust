@@ -26,6 +26,7 @@ mod temporary_weapon_status;
 mod vehicle_shells;
 mod weapon_barrel_topology;
 mod weapon_discharge;
+pub(in crate::game_logic) mod weapon_effect_definitions;
 pub(in crate::game_logic) use weapon_discharge::AcceptedWeaponDischarge;
 mod weapon_fire_effects;
 pub(crate) mod weapon_visual_capture;

@@ -4,8 +4,12 @@
 use super::*;
 
 impl GameLogic {
-    pub(super) fn commit_combat_shot(&mut self, input: CombatAttackInput, slot: u8,
-        visual: Option<crate::game_logic::world_combat::AcceptedWeaponDischarge>) {
+    pub(super) fn commit_combat_shot(
+        &mut self,
+        input: CombatAttackInput,
+        slot: u8,
+        visual: Option<crate::game_logic::world_combat::AcceptedWeaponDischarge>,
+    ) {
         let CombatAttackInput {
             attacker_id,
             current_time,
