@@ -656,7 +656,11 @@ impl GameLogic {
         }
     }
     /// C++ `RepairDockUpdate::action` drone snap-to-max via `findMyDrone`.
-    pub(super) fn heal_slave_drone_with_repair_dock(&mut self, master_id: ObjectId) {
+    pub(super) fn heal_slave_drone_with_repair_dock(
+        &mut self,
+        dock_id: ObjectId,
+        master_id: ObjectId,
+    ) {
         let drone_id = self.objects.iter().find_map(|(id, obj)| {
             (obj.is_alive() && obj.is_kind_of(KindOf::Drone) && obj.producer_id == Some(master_id))
                 .then_some(*id)
@@ -664,9 +668,14 @@ impl GameLogic {
         let Some(drone_id) = drone_id else {
             return;
         };
-        if let Some(drone) = self.objects.get_mut(&drone_id) {
-            let max = drone.health.maximum;
-            drone.heal(max, &mut self.health_events, self.frame);
+        if let Some(maximum) = self
+            .objects
+            .get(&drone_id)
+            .map(|drone| drone.health.maximum)
+        {
+            // RepairDockUpdate::action reuses the dock-sourced DamageInfo for
+            // the drone after the master's receiving Body has completed.
+            self.apply_owned_healing(drone_id, maximum, Some(dock_id));
         }
     }
 

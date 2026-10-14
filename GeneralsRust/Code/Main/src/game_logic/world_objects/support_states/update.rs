@@ -554,14 +554,22 @@ impl GameLogic {
                         0.0
                     };
                     let seeking_repair = matches!(state, AIState::SeekingRepair);
+                    if seeking_repair {
+                        self.apply_owned_healing(
+                            object_id,
+                            repair_rate * dt,
+                            Some(support_target_id),
+                        );
+                    }
                     if let Some(obj) = self.objects.get_mut(&object_id) {
-                        let rate = match state {
-                            AIState::SeekingRepair => repair_rate,
-                            AIState::SeekingHealing => HEAL_RATE,
-                            _ => 0.0,
+                        let before = if seeking_repair {
+                            health_current
+                        } else {
+                            obj.health.current
                         };
-                        let before = obj.health.current;
-                        obj.heal(rate * dt, &mut self.health_events, self.frame);
+                        if !seeking_repair {
+                            obj.heal(HEAL_RATE * dt, &mut self.health_events, self.frame);
+                        }
                         let healed = obj.health.current > before + 0.0001;
                         if healed && matches!(state, AIState::SeekingRepair) {
                             vehicle_healed = true;
@@ -576,7 +584,7 @@ impl GameLogic {
                         }
                     }
                     if seeking_repair {
-                        self.heal_slave_drone_with_repair_dock(object_id);
+                        self.heal_slave_drone_with_repair_dock(support_target_id, object_id);
                     }
                     let fully_repaired = self
                         .objects

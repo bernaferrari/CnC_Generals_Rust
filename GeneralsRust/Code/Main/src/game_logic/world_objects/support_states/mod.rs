@@ -15,3 +15,6 @@ mod update;
 
 #[cfg(test)]
 mod containment_healing_owner_tests;
+
+#[cfg(test)]
+mod repair_healing_owner_tests;
