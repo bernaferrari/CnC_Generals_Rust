@@ -18,37 +18,61 @@ impl Object {
         weapon_name: Option<&str>,
         effective_reload: f32,
     ) -> bool {
-        if !Self::weapon_has_ammo_for_shot(weapon, weapon_name) {
+        Self::weapon_ready_selected(weapon, current_time, weapon_name, effective_reload, None)
+    }
+
+    pub(super) fn weapon_ready_selected(
+        weapon: &Weapon,
+        current_time: f32,
+        weapon_name: Option<&str>,
+        effective_reload: f32,
+        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+    ) -> bool {
+        if !Self::weapon_has_ammo_selected(weapon, weapon_name, rule) {
             return false;
         }
-        // C++ Weapon.cpp reloadWithBonus / fireWeapon: an emptied Auto-reload
-        // clip holds fire for ClipReloadTime from the last shot
-        // (m_whenWeCanFireAgain = m_whenLastReloadStarted + getClipReloadTime,
-        // Weapon.cpp:1889-1893); DelayBetweenShots only gates rounds inside a
-        // clip. Manual/ReturnToBase never auto-ready an empty clip via
-        // weapon_has_ammo_for_shot above.
-        if weapon.ammo == Some(0) && current_time - weapon.last_fire_time < weapon.clip_reload_time
-        {
+        // Native callers already supply the exact bonused clip interval. The
+        // old nameless adapter retains its unbonused compatibility wait.
+        let clip_wait = if rule.is_some() {
+            effective_reload
+        } else {
+            weapon.clip_reload_time
+        };
+        if weapon.ammo == Some(0) && current_time - weapon.last_fire_time < clip_wait {
             return false;
         }
         current_time - weapon.last_fire_time >= effective_reload
     }
+    fn selected_reload_policy(
+        weapon_name: Option<&str>,
+        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+    ) -> crate::game_logic::weapon_bootstrap::HostReloadType {
+        use crate::game_logic::weapon_bootstrap::HostReloadType;
+        rule.map(|rule| match rule.reload_type {
+            gamelogic::weapon::WeaponReloadType::AutoReload => HostReloadType::Auto,
+            gamelogic::weapon::WeaponReloadType::ReturnToBaseToReload => {
+                HostReloadType::ReturnToBase
+            }
+            _ => HostReloadType::Manual,
+        })
+        .unwrap_or_else(|| {
+            weapon_name
+                .map(crate::game_logic::weapon_bootstrap::host_reload_type_for_weapon_name)
+                .unwrap_or(HostReloadType::Auto)
+        })
+    }
+    pub(super) fn weapon_has_ammo_selected(
+        weapon: &Weapon,
+        weapon_name: Option<&str>,
+        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+    ) -> bool {
+        Self::selected_reload_policy(weapon_name, rule)
+            == crate::game_logic::weapon_bootstrap::HostReloadType::Auto
+            || weapon.ammo != Some(0)
+    }
 
     pub fn weapon_has_ammo_for_shot(weapon: &Weapon, weapon_name: Option<&str>) -> bool {
-        use crate::game_logic::weapon_bootstrap::{
-            HostReloadType, host_reload_type_for_weapon_name,
-        };
-        let rt = weapon_name
-            .map(host_reload_type_for_weapon_name)
-            .unwrap_or(HostReloadType::Auto);
-        match rt {
-            HostReloadType::Auto => true,
-            HostReloadType::Manual | HostReloadType::ReturnToBase => match weapon.ammo {
-                Some(0) => false,
-                Some(_) => true,
-                None => true, // unlimited residual
-            },
-        }
+        Self::weapon_has_ammo_selected(weapon, weapon_name, None)
     }
 
     /// C++ clip residual: consume one round.
@@ -61,13 +85,17 @@ impl Object {
         current_time: f32,
         weapon_name: Option<&str>,
     ) {
-        use crate::game_logic::weapon_bootstrap::{
-            HostReloadType, host_reload_type_for_weapon_name,
-        };
+        Self::consume_ammo_on_fire_selected(weapon, current_time, weapon_name, None)
+    }
+    pub(super) fn consume_ammo_on_fire_selected(
+        weapon: &mut Weapon,
+        current_time: f32,
+        weapon_name: Option<&str>,
+        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+    ) {
+        use crate::game_logic::weapon_bootstrap::HostReloadType;
         weapon.last_fire_time = current_time;
-        let rt = weapon_name
-            .map(host_reload_type_for_weapon_name)
-            .unwrap_or(HostReloadType::Auto);
+        let rt = Self::selected_reload_policy(weapon_name, rule);
 
         if weapon.clip_size == 0 {
             if let Some(a) = weapon.ammo.as_mut() {
@@ -115,17 +143,17 @@ impl Object {
     /// the equivalent test centralized here.  Manual and return-to-base
     /// clips intentionally do not report this edge.
     pub fn auto_reloaded_clip_after_firing(weapon: &Weapon, weapon_name: Option<&str>) -> bool {
-        use crate::game_logic::weapon_bootstrap::{
-            HostReloadType, host_reload_type_for_weapon_name,
-        };
-
-        if weapon.clip_size == 0 || weapon.ammo != Some(0) {
-            return false;
-        }
-        let reload_type = weapon_name
-            .map(host_reload_type_for_weapon_name)
-            .unwrap_or(HostReloadType::Auto);
-        reload_type == HostReloadType::Auto
+        Self::auto_reloaded_clip_after_firing_selected(weapon, weapon_name, None)
+    }
+    pub(super) fn auto_reloaded_clip_after_firing_selected(
+        weapon: &Weapon,
+        weapon_name: Option<&str>,
+        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+    ) -> bool {
+        weapon.clip_size != 0
+            && weapon.ammo == Some(0)
+            && Self::selected_reload_policy(weapon_name, rule)
+                == crate::game_logic::weapon_bootstrap::HostReloadType::Auto
     }
 
     pub fn rearm_weapon_full(weapon: &mut Weapon) {

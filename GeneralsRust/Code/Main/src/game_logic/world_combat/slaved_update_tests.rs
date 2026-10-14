@@ -404,34 +404,80 @@ End
     if !primary.is_empty() {
         template.set_primary_weapon_name(primary);
     }
-    if matches!(kind, SlaveDroneKind::Hellfire) {
-        // Exact Weapon.ini Hellfire facts, converted locally before factory
-        // admission. A unique fixture name prevents partial ambient catalogs
-        // from replacing this receiving immutable definition.
-        let mut weapon = gamelogic::weapon::WeaponTemplate::new("OwnedAuthoredHellfire".into());
-        weapon.primary_damage = 40.0;
-        weapon.primary_damage_radius = 5.0;
-        weapon.attack_range = 150.0;
-        weapon.weapon_speed = 600.0 / 30.0;
-        weapon.min_weapon_speed = 600.0 / 30.0;
-        weapon.min_delay_between_shots = 30;
-        weapon.max_delay_between_shots = 30;
-        weapon.clip_size = 1;
-        weapon.clip_reload_time = 60;
-        weapon.infantry_inaccuracy_dist = 10.0;
-        weapon.aim_delta = std::f32::consts::PI;
-        weapon.damage_type = gamelogic::damage::DamageType::Explosion;
-        weapon.death_type = gamelogic::damage::DeathType::Exploded;
-        weapon.projectile_name = "MissileDefenderMissile".into();
-        weapon.affects_mask = gamelogic::weapon::WeaponAffectsMask::new(
-            gamelogic::weapon::WeaponAffectsMask::ALLIES
-                | gamelogic::weapon::WeaponAffectsMask::ENEMIES
-                | gamelogic::weapon::WeaponAffectsMask::NEUTRALS,
-        );
-        template.set_primary_weapon_name("OwnedAuthoredHellfire");
-        template.bind_native_weapon_row([Some(&weapon), None, None]);
-        assert!(game.projectile_definitions.admit_object_ini(
-            "MissileDefenderMissile",
+    // Weapon.ini: HumveeGun129375, Hellfire129470, BattleDrone133256.
+    // These are explicit receiving inputs, never an ambient bootstrap snapshot.
+    let mut weapons: std::collections::HashMap<String, gamelogic::weapon::WeaponTemplate> = game
+        .weapon_definition_base
+        .as_ref()
+        .map(|base| {
+            base.iter()
+                .map(|(name, rule)| (name.clone(), (**rule).clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut weapons,
+        r#"
+Weapon HumveeGun
+ PrimaryDamage = 10
+ PrimaryDamageRadius = 0
+ AttackRange = 150
+ DamageType = COMANCHE_VULCAN
+ DeathType = NORMAL
+ WeaponSpeed = 600
+ ProjectileObject = NONE
+ FireFX = WeaponFX_TechnicalGunFire
+ VeterancyFireFX = HEROIC WeaponFX_GenericMachineGunFireWithRedTracers
+ FireSound = HumveeWeapon
+ RadiusDamageAffects = ALLIES ENEMIES NEUTRALS
+ DelayBetweenShots = 200
+ ClipSize = 0
+ ClipReloadTime = 0
+End
+Weapon BattleDroneMachineGun
+ PrimaryDamage = 1
+ PrimaryDamageRadius = 0
+ AttackRange = 110
+ DamageType = SMALL_ARMS
+ DeathType = NORMAL
+ WeaponSpeed = 999999
+ ProjectileObject = NONE
+ FireFX = WeaponFX_TechnicalGunFire
+ FireSound = BattleDroneWeapon
+ RadiusDamageAffects = ENEMIES NEUTRALS
+ DelayBetweenShots = 100
+ ClipSize = 0
+ ClipReloadTime = 0
+ WeaponBonus = PLAYER_UPGRADE DAMAGE 125%
+End
+Weapon HellfireMissileWeapon
+ PrimaryDamage = 40
+ PrimaryDamageRadius = 5
+ ScatterRadiusVsInfantry = 10
+ AttackRange = 150
+ DamageType = EXPLOSION
+ DeathType = EXPLODED
+ WeaponSpeed = 600
+ ProjectileObject = MissileDefenderMissile
+ ProjectileExhaust = MissileDefenderMissileExhaust
+ ProjectileDetonationFX = WeaponFX_RocketBuggyMissileDetonation
+ FireSound = MissileDefenderWeapon
+ RadiusDamageAffects = ALLIES ENEMIES NEUTRALS
+ DelayBetweenShots = 1000
+ ClipSize = 1
+ ClipReloadTime = 2000
+ AutoReloadsClip = Yes
+ AntiGround = Yes
+ AntiAirborneVehicle = No
+ AntiAirborneInfantry = No
+ AcceptableAimDelta = 180
+ ProjectileCollidesWith = STRUCTURES
+End
+"#,
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+    );
+    parser
+        .parse_ini_content(
             r#"
 Object MissileDefenderMissile
  KindOf = PROJECTILE SMALL_MISSILE
@@ -443,8 +489,25 @@ Object MissileDefenderMissile
   DistanceToTravelBeforeTurning = 3
  End
 End
-"#
-        ));
+"#,
+            "receiving-slave-projectile.ini",
+        )
+        .unwrap();
+    let definitions: Vec<_> = parser
+        .get_all_definitions()
+        .iter()
+        .map(|(name, row)| (name.clone(), row.clone()))
+        .collect();
+    let weapons = weapons
+        .into_values()
+        .map(|rule| (rule.name.clone(), rule))
+        .collect();
+    game.admit_weapon_content_snapshot(weapons, &definitions)
+        .unwrap();
+    for name in ["AmericaVehicleHumvee", "Humvee"] {
+        if let Some(master) = game.templates.get_mut(name) {
+            master.set_primary_weapon_name("HumveeGun");
+        }
     }
 
     assert!(template.slaved_update_metadata.is_some());

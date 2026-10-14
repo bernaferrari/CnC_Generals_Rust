@@ -27,6 +27,19 @@ impl GameLogic {
                 attacker.weapon_slot(0).is_some().then_some(0)
             }
         });
+        if let Some(slot) = ground_slot {
+            if !self.objects.get(&attacker_id).is_some_and(|attacker| {
+                attacker.selected_projectile_is_admitted(
+                    slot,
+                    self.weapon_definitions
+                        .as_ref()
+                        .map(|_| &self.projectile_definitions),
+                )
+            }) {
+                return CombatShotResult::NoShot;
+            }
+        }
+
         let rocket_pod_ground = {
             use crate::game_logic::host_comanche_rocket_pods::{
                 UPGRADE_COMANCHE_ROCKET_PODS, is_comanche_template, rocket_pod_ground_fire_active,
@@ -141,9 +154,10 @@ impl GameLogic {
             {
                 let pitch_ok = if let Some(attacker) = self.objects.get(&attacker_id) {
                     let wname = attacker.weapon_name_for_slot(ground_slot);
-                    let limits = wname
-                        .map(crate::game_logic::weapon_bootstrap::host_target_pitch_limits_for_weapon_name)
-                        .unwrap_or_default();
+                    let limits = attacker.selected_native_weapon_rule(ground_slot).map(|rule| crate::game_logic::weapon_bootstrap::HostTargetPitchLimits {
+                        min_pitch: crate::game_logic::weapon_bootstrap::normalize_pitch_radians(rule.min_target_pitch),
+                        max_pitch: crate::game_logic::weapon_bootstrap::normalize_pitch_radians(rule.max_target_pitch),
+                    }).unwrap_or_else(|| wname.map(crate::game_logic::weapon_bootstrap::host_target_pitch_limits_for_weapon_name).unwrap_or_default());
                     crate::game_logic::weapon_bootstrap::is_pitch_within_limits(
                         attacker.get_position(),
                         target_location,
@@ -161,10 +175,8 @@ impl GameLogic {
                 .get(&attacker_id)
                 .map(|attacker| {
                     let name = attacker.weapon_name_for_slot(ground_slot);
-                    let base = name
-                        .and_then(
-                            crate::game_logic::weapon_bootstrap::host_primary_damage_for_weapon_name,
-                        )
+                    let base = attacker.selected_native_weapon_rule(ground_slot).map(|rule| rule.primary_damage)
+                        .or_else(|| name.and_then(crate::game_logic::weapon_bootstrap::host_primary_damage_for_weapon_name))
                         .or_else(|| {
                             attacker.weapon_slot(ground_slot).map(|weapon| weapon.damage)
                         })
@@ -355,28 +367,33 @@ impl GameLogic {
                             .weapon_name_for_slot(ground_slot)
                             .map(str::to_owned)
                     });
-                    let damage_type = ground_wname
-                        .as_deref()
+                    let selected_rule = self
+                        .objects
+                        .get(&attacker_id)
+                        .and_then(|attacker| attacker.selected_native_weapon_rule(ground_slot));
+                    let damage_type = selected_rule.as_ref().map(|rule| crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type))
+                        .or_else(|| ground_wname.as_deref()
                         .map(
                             crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name,
+                        )
                         )
                         // C++ WeaponTemplate ctor defaults m_damageType to
                         // DAMAGE_EXPLOSION (Weapon.cpp:249); an unnamed host
                         // weapon fires Explosion, not Bullet.
                         .unwrap_or(crate::game_logic::combat::DamageType::Explosive);
-                    let context = crate::game_logic::object::DamageHitContext::new(
+                    let context = crate::game_logic::object::DamageHitContext::new_selected(
                         self.objects.get(&attacker_id),
                         ground_wname.as_deref(),
                         damage_type,
+                        selected_rule.as_deref(),
                     );
                     let _ = self.apply_owned_damage(
                         ground_target_id,
                         weapon_damage,
                         Some(attacker_id),
                         damage_type,
-                        crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
-                            damage_type,
-                        ),
+                        selected_rule.as_ref().map(|rule| crate::game_logic::host_usa_pilot::HostDeathType::from_store(rule.death_type))
+                            .unwrap_or_else(|| crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(damage_type)),
                         None,
                         &context,
                     );
@@ -599,6 +616,10 @@ impl GameLogic {
             .into_iter()
             .filter_map(|id| {
                 let candidate = self.objects.get(&id)?;
+                if attacker.selected_native_weapon_rule(firing_slot).is_some() {
+                    let weapon=attacker.weapon_slot(firing_slot)?;
+                    if !attacker.weapon_allows_target_anti_mask(weapon,Some(firing_slot),candidate.weapon_target_anti_mask()) { return None; }
+                }
                 let air =
                     candidate.is_kind_of(KindOf::Aircraft) || candidate.status.airborne_target;
                 if air {
@@ -641,9 +662,8 @@ impl GameLogic {
                         // partition manager without a stealth gate, so a hidden
                         // mine must not be skipped by residual acquire either.
                         effectively_stealthed: candidate.is_effectively_stealthed()
-                            && !(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage(
-                                attacker.weapon_name_for_slot(firing_slot).unwrap_or(""),
-                            ) && candidate.is_disarmable_mine()),
+                            && !(attacker.selected_native_weapon_rule(firing_slot).map(|rule| rule.damage_type == gamelogic::damage::DamageType::Disarm)
+                            .unwrap_or_else(|| crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage(attacker.weapon_name_for_slot(firing_slot).unwrap_or(""))) && candidate.is_disarmable_mine()),
                         is_air: candidate.is_kind_of(KindOf::Aircraft)
                             || candidate.status.airborne_target,
                         combat_kind: true,

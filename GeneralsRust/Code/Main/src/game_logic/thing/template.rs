@@ -1130,9 +1130,9 @@ impl ThingTemplate {
     fn weapon_from_template(wt: &gamelogic::weapon::WeaponTemplate) -> Option<Weapon> {
         use gamelogic::weapon::{WeaponAntiMask, WeaponBonus};
         const FPS: f32 = 30.0;
-        if wt.primary_damage <= 0.0 || wt.attack_range <= 0.0 {
-            return None;
-        }
+        // CPP WeaponStore::allocateNewWeapon installs a supplied definition
+        // even with zero damage/range (WeaponTemplate constructor defaults).
+        // FX-only/status/detonation rules are weapons, not missing content.
         // Leftover WeaponTemplate::get_delay_between_shots (Weapon.cpp:475-490).
         // DelayBetweenShots is a Min/Max range, not clip vs between. Identity
         // RATE_OF_FIRE here — leftover applies the ROF floor at fire. Ready-checks
@@ -1146,11 +1146,9 @@ impl ThingTemplate {
             yardstick.max_delay_between_shots = wt.min_delay_between_shots;
             yardstick.get_delay_between_shots(&WeaponBonus::new())
         };
-        let reload_time = if delay_frames > 0 {
-            delay_frames as f32 / FPS
-        } else {
-            1.0
-        };
+        // CPP WeaponTemplate::getDelayBetweenShots returns zero for an
+        // authored zero delay; no synthetic one-second cooldown is added.
+        let reload_time = delay_frames.max(0) as f32 / FPS;
         let pre_attack_delay = (wt.pre_attack_delay.max(0) as f32) / FPS;
         let projectile_speed = if wt.weapon_speed >= 999_999.0 {
             0.0

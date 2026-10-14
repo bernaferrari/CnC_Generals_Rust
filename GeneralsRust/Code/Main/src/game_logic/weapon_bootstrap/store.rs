@@ -262,6 +262,17 @@ pub(super) fn seed_damage_type_for(name: &str, weapon_speed: f32) -> gamelogic::
     D::SmallArms
 }
 
+/// Seed velocities are authored in distance/second, like Weapon.ini.
+/// Preserve the explicit host instant sentinel; native finite rules use
+/// distance/logic-frame (CPP INI::parseVelocityReal / GameCommon.h).
+pub(super) fn seed_velocity_per_logic_frame(speed: f32) -> f32 {
+    if speed >= 999_999.0 {
+        speed
+    } else {
+        speed * (1.0 / gamelogic::common::LOGICFRAMES_PER_SECOND as f32)
+    }
+}
+
 pub(super) fn seed_known_host_weapons() -> usize {
     let seeds = [
         // AmericaInfantryRanger PRIMARY — PrimaryDamage 5, AttackRange 100,
@@ -1145,7 +1156,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
         t.min_delay_between_shots = seed.delay_frames;
         t.max_delay_between_shots = seed.delay_frames;
         t.clip_size = seed.clip_size;
-        t.weapon_speed = seed.weapon_speed;
+        t.weapon_speed = seed_velocity_per_logic_frame(seed.weapon_speed);
         t.damage_type = seed_damage_type_for(seed.name, seed.weapon_speed);
         // Retail Weapon.ini's exact Avenger rule declares FAERIE_FIRE.
         // Parsed definitions bypass seeding; their default/explicit NONE stays NONE.
@@ -1428,4 +1439,21 @@ pub(super) struct SeedWeapon {
     pub(super) delay_frames: i32,
     pub(super) clip_size: i32,
     pub(super) weapon_speed: f32,
+}
+
+#[cfg(test)]
+mod seed_velocity_tests {
+    use super::seed_velocity_per_logic_frame;
+    #[test]
+    fn finite_seed_velocity_uses_cpp_frame_factor_and_instant_stays_distinct() {
+        // CPP GameCommon.h46/57-60 multiplies by the rounded f32 frame factor.
+        let cpp_factor = 1.0_f32 / 30.0;
+        for seconds in [0.0_f32, 120.0, 600.0, 750.0] {
+            assert_eq!(
+                seed_velocity_per_logic_frame(seconds).to_bits(),
+                (seconds * cpp_factor).to_bits()
+            );
+        }
+        assert_eq!(seed_velocity_per_logic_frame(999_999.0), 999_999.0);
+    }
 }

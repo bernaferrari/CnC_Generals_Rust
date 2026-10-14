@@ -174,11 +174,30 @@ impl Object {
         };
         let weapon_name = self.weapon_name_for_slot(slot).map(str::to_owned);
         let veterancy = self.experience.level;
-        let selected_fx = selected_fx_name_for_weapon(
-            weapon_name.as_deref(),
-            veterancy,
-            is_projectile_detonation,
-        );
+        let native = self.selected_native_weapon_rule(slot);
+        let native_rank = match veterancy {
+            VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
+            VeterancyLevel::Veteran => gamelogic::common::VeterancyLevel::Veteran,
+            VeterancyLevel::Elite => gamelogic::common::VeterancyLevel::Elite,
+            VeterancyLevel::Heroic => gamelogic::common::VeterancyLevel::Heroic,
+        };
+        let selected_fx = native
+            .as_ref()
+            .map(|rule| {
+                let fx = if is_projectile_detonation {
+                    rule.get_projectile_detonate_fx(native_rank)
+                } else {
+                    rule.get_fire_fx(native_rank)
+                };
+                fx.map(|fx| fx.name().to_owned()).unwrap_or_default()
+            })
+            .unwrap_or_else(|| {
+                selected_fx_name_for_weapon(
+                    weapon_name.as_deref(),
+                    veterancy,
+                    is_projectile_detonation,
+                )
+            });
         let (suspend_fx_frame, ammo, fallback_range) = self
             .weapon_slot(slot)
             .map(|weapon| (weapon.suspend_fx_frame, weapon.ammo, weapon.range))
@@ -192,19 +211,19 @@ impl Object {
             source_is_detected: self.status.detected,
             source_is_disguised: self.status.disguised,
             source_is_mine: self.is_kind_of(KindOf::Mine),
-            weapon_plays_fx_when_stealthed: weapon_name
+            weapon_plays_fx_when_stealthed: native.as_ref().map(|rule| rule.play_fx_when_stealthed).unwrap_or_else(|| weapon_name
                 .as_deref()
                 .map(crate::game_logic::weapon_bootstrap::host_play_fx_when_stealthed_for_weapon_name)
-                .unwrap_or(false),
+                .unwrap_or(false)),
             selected_fx_is_present: !selected_fx.is_empty(),
             logic_frame,
             suspend_fx_frame,
-            recoil_amount: host_weapon_recoil_amount(weapon_name.as_deref()),
+            recoil_amount: native.as_ref().map(|rule| rule.weapon_recoil).unwrap_or_else(|| host_weapon_recoil_amount(weapon_name.as_deref())),
             source_orientation: self.get_orientation(),
             source_pos: [source_pos.x, source_pos.y, source_pos.z],
             target_id,
             target_pos: target_pos.map(|pos| [pos.x, pos.y, pos.z]),
-            is_contact_weapon: host_weapon_is_contact(weapon_name.as_deref(), fallback_range),
+            is_contact_weapon: native.as_ref().map(|rule| rule.is_contact_weapon()).unwrap_or_else(|| host_weapon_is_contact(weapon_name.as_deref(), fallback_range)),
             ammo_at_capture: ammo,
             stealthed_at_capture: self.status.stealthed,
             template_name: self.template_name.clone(),

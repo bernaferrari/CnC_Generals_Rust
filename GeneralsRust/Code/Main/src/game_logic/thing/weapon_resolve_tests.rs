@@ -333,3 +333,33 @@ fn leftover_is_contact_weapon_authored_range_under_12_5() {
         edge_w.range
     ));
 }
+
+#[test]
+fn native_zero_delay_stays_zero_and_finite_delay_keeps_logic_frame_units() {
+    // CPP Weapon.cpp475-489 returns the floor of the authored delay; zero
+    // remains zero. Native prototypes have no world-clock side effects.
+    let mut rule = gamelogic::weapon::WeaponTemplate::new("LocalZeroDelay".into());
+    rule.primary_damage = 20.0;
+    rule.attack_range = 100.0;
+    rule.min_delay_between_shots = 0;
+    rule.max_delay_between_shots = 0;
+    let zero = ThingTemplate::weapon_from_template_at(&rule, 91).unwrap();
+    assert_eq!(zero.reload_time, 0.0);
+    assert_eq!(zero.last_fire_time, 0.0);
+    rule.min_delay_between_shots = 3;
+    rule.max_delay_between_shots = 3;
+    let finite = ThingTemplate::weapon_from_template_at(&rule, 91).unwrap();
+    assert_eq!(finite.reload_time, 3.0 / 30.0);
+}
+
+#[test]
+fn native_zero_damage_and_range_are_valid_supplied_weapon_facts() {
+    // CPP WeaponTemplate ctor231+ and Weapon.h815 allocate a real weapon
+    // without positive-damage/range admission filters.
+    let rule = gamelogic::weapon::WeaponTemplate::new("LocalFxOnlyRule".into());
+    let weapon = ThingTemplate::weapon_from_template_at(&rule, 0).unwrap();
+    assert_eq!(weapon.damage, 0.0);
+    assert_eq!(weapon.range, 0.0);
+    assert_eq!(weapon.reload_time, 0.0);
+    assert_eq!(weapon.projectile_speed, 0.0);
+}

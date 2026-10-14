@@ -5,6 +5,49 @@ use super::*;
 #[path = "structure_topple_admission_tests.rs"]
 mod structure_topple_admission_tests;
 
+/// One validation contract for archive admission and detached Map/Solo drafts.
+fn validate_receiving_weapon_rule(
+    name: &str,
+    rule: &gamelogic::weapon::WeaponTemplate,
+) -> Result<(), String> {
+    if name.trim().is_empty() || !name.trim().eq_ignore_ascii_case(rule.name.trim()) {
+        return Err("weapon snapshot has an invalid canonical identity".into());
+    }
+    if ![
+        rule.primary_damage,
+        rule.primary_damage_radius,
+        rule.secondary_damage,
+        rule.secondary_damage_radius,
+        rule.weapon_speed,
+        rule.min_weapon_speed,
+        rule.attack_range,
+        rule.minimum_attack_range,
+        rule.request_assist_range,
+        rule.scatter_radius,
+        rule.infantry_inaccuracy_dist,
+        rule.scatter_target_scalar,
+        rule.shock_wave_amount,
+        rule.shock_wave_radius,
+        rule.shock_wave_taper_off,
+        rule.aim_delta,
+        rule.min_target_pitch,
+        rule.max_target_pitch,
+        rule.weapon_recoil,
+        rule.radius_damage_angle,
+        rule.historic_bonus_radius,
+    ]
+    .iter()
+    .all(|value| value.is_finite())
+        || !rule
+            .scatter_targets
+            .iter()
+            .all(|point| point.x.is_finite() && point.y.is_finite())
+    {
+        return Err("weapon snapshot has non-finite simulation values".into());
+    }
+    Ok(())
+}
+
 impl GameLogic {
     /// Seed templates for retail Object INI entries that the hand-authored
     /// bootstrap does not already cover.
@@ -18,7 +61,7 @@ impl GameLogic {
         let Some(manager_arc) = get_asset_manager() else {
             return 0;
         };
-        let (definitions, available_models) = match manager_arc.lock() {
+        let (definitions, weapons, available_models) = match manager_arc.lock() {
             Ok(manager) => {
                 let definitions = manager.object_definitions_snapshot();
                 let available_models = manager
@@ -26,7 +69,11 @@ impl GameLogic {
                     .into_iter()
                     .map(|model| Self::normalize_model_lookup_key(&model))
                     .collect();
-                (definitions, available_models)
+                (
+                    definitions,
+                    manager.weapon_definitions_snapshot(),
+                    available_models,
+                )
             }
             Err(error) => {
                 log::warn!(
@@ -35,10 +82,77 @@ impl GameLogic {
                 return 0;
             }
         };
+        // The asset loader already resolved file/override order. Freeze those
+        // effective rows before factory callbacks, outside the asset service loan.
+        if let Err(error) = self.admit_weapon_content_snapshot(weapons, &definitions) {
+            log::error!("Cannot admit receiving weapon content: {error}");
+            return 0;
+        }
         self.seed_asset_definition_templates_from_snapshot_with_models(
             definitions,
             Some(&available_models),
         )
+    }
+
+    /// Admit an already-resolved archive snapshot transactionally. Definitions
+    /// are immutable content; neither parsing nor rejection invokes callbacks.
+    pub(in crate::game_logic) fn admit_weapon_content_snapshot(
+        &mut self,
+        weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
+        definitions: &[(String, ObjectDefinition)],
+    ) -> Result<(), String> {
+        let mut catalog: HashMap<String, std::sync::Arc<gamelogic::weapon::WeaponTemplate>> =
+            HashMap::new();
+        for (name, rule) in weapons {
+            let name = name.trim();
+            validate_receiving_weapon_rule(name, &rule)?;
+            let key = name.to_ascii_lowercase();
+            if catalog.insert(key, std::sync::Arc::new(rule)).is_some() {
+                return Err("weapon snapshot has duplicate effective identities".into());
+            }
+        }
+        let mut profiles =
+            crate::game_logic::projectile_definitions::ProjectileDefinitions::default();
+        for (name, definition) in definitions {
+            profiles.admit_definition(name, definition);
+        }
+        self.weapon_definition_base = Some(catalog.clone());
+        self.weapon_definitions = Some(catalog);
+        self.projectile_definitions = profiles;
+        Ok(())
+    }
+
+    /// CPP GameLogic::loadMapINI: Map.ini then Solo.ini CREATE_OVERRIDES.
+    /// Build detached rows and commit once; an earlier map's overrides never
+    /// become the starting definitions for the next map.
+    pub(in crate::game_logic) fn apply_receiving_weapon_overrides(
+        &mut self,
+        texts: &[String],
+    ) -> Result<(), String> {
+        let Some(base) = self.weapon_definition_base.as_ref() else {
+            return Ok(());
+        };
+        let mut draft: HashMap<String, gamelogic::weapon::WeaponTemplate> = base
+            .iter()
+            .map(|(name, rule)| (name.clone(), (**rule).clone()))
+            .collect();
+        for text in texts {
+            crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+                &mut draft,
+                text,
+                crate::assets::ini_template_loader::WeaponDefinitionLoadType::CreateOverrides,
+            );
+        }
+        for (name, rule) in &draft {
+            validate_receiving_weapon_rule(name, rule)?;
+        }
+        self.weapon_definitions = Some(
+            draft
+                .into_iter()
+                .map(|(name, rule)| (name, std::sync::Arc::new(rule)))
+                .collect(),
+        );
+        Ok(())
     }
 
     /// Catalogue seeding core with no global state, used to characterize the
@@ -146,15 +260,25 @@ impl GameLogic {
                 Self::apply_authored_structure_death_metadata(template, &definition);
                 Self::apply_authored_geometry(template, &definition);
                 Self::apply_authored_ghost_draw_metadata(template, &definition);
+                // Effective Object definitions select immutable weapon rows;
+                // curated movement/render adapters cannot override those names.
+                if let Some(name) = definition.base_weapon_name(0) {
+                    template.set_primary_weapon_name(name);
+                }
+                if let Some(name) = definition.base_weapon_name(1) {
+                    template.set_secondary_weapon_name(name);
+                }
+                if let Some(name) = definition.base_weapon_name(2) {
+                    template.set_tertiary_weapon_name(name);
+                }
                 Self::apply_authored_weapon_set_create_policy(template, &definition);
                 crate::game_logic::host_move_ambient_audio::apply_authored_audio_events(
                     template,
                     &definition,
                 );
 
-                // Existing curated starters keep their broader host combat
-                // bindings, but a mine-clear conditional primary is source
-                // authority only. Clear any stale value when a resolved
+                // A mine-clear conditional primary is source authority only.
+                // Clear any stale value when a resolved
                 // ChildObject replaced its parent's WeaponSet collection.
                 template.mine_clearing_primary_weapon = None;
                 template.mine_clearing_primary_weapon_name = definition

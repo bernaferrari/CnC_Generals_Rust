@@ -72,3 +72,7 @@ impl GameLogic {
 
 #[cfg(test)]
 mod firing_clock_tests;
+
+#[cfg(test)]
+#[path = "combat/selected_weapon_owner_tests.rs"]
+mod selected_weapon_owner_tests;

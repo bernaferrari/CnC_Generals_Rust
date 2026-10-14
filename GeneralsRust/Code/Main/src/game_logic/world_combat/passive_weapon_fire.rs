@@ -27,6 +27,9 @@ impl GameLogic {
             origin,
             &mut self.combat_system.fire_sound_loop_events,
             &mut self.attack_events,
+            self.weapon_definitions
+                .as_ref()
+                .map(|_| &self.projectile_definitions),
         ) else {
             return false;
         };

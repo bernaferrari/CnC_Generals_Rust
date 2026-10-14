@@ -386,6 +386,11 @@ impl GameLogic {
             self.frame,
             pending,
             self.projectile_definitions.get(&projectile_name),
+            if self.weapon_definitions.is_some() {
+                crate::game_logic::projectile_definitions::ProjectileDefinitionMode::ReceivingContent
+            } else {
+                crate::game_logic::projectile_definitions::ProjectileDefinitionMode::LegacyBootstrap
+            },
         );
         if let Some(shot) = ready {
             let limit = game_engine::common::global_data::read().historic_damage_limit;

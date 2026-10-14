@@ -189,8 +189,12 @@ impl Object {
         let source_weapon_name = self
             .weapon_barrel_source_name_for_slot(slot)
             .map(ToOwned::to_owned);
-        let shots_per_barrel =
-            Self::authored_shots_per_barrel_for_weapon_name(source_weapon_name.as_deref());
+        let shots_per_barrel = self
+            .selected_native_weapon_rule(slot)
+            .map(|rule| rule.shots_per_barrel.max(1) as u32)
+            .unwrap_or_else(|| {
+                Self::authored_shots_per_barrel_for_weapon_name(source_weapon_name.as_deref())
+            });
         let source_changed =
             self.weapon_barrel_states[index].source_weapon_name != source_weapon_name;
         let authored_config_changed = source_weapon_name.is_some()
@@ -284,8 +288,12 @@ impl Object {
         let source_weapon_name = self
             .weapon_barrel_source_name_for_slot(slot)
             .map(ToOwned::to_owned);
-        let authored_shots_per_barrel =
-            Self::authored_shots_per_barrel_for_weapon_name(source_weapon_name.as_deref());
+        let authored_shots_per_barrel = self
+            .selected_native_weapon_rule(slot)
+            .map(|rule| rule.shots_per_barrel.max(1) as u32)
+            .unwrap_or_else(|| {
+                Self::authored_shots_per_barrel_for_weapon_name(source_weapon_name.as_deref())
+            });
         // A v4 restore can arrive before the host-side W3D topology cache has
         // configured its real barrel count. Re-saving in that interval must
         // retain the raw multi-barrel cursor rather than serializing the

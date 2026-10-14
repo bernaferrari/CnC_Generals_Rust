@@ -481,7 +481,14 @@ pub fn drain_pending_projectiles(
     let pending = std::mem::take(&mut combat.pending_projectiles);
 
     for p in pending {
-        if let Some(immediate) = materialize_accepted_projectile(combat, objects, frame, p, None) {
+        if let Some(immediate) = materialize_accepted_projectile(
+            combat,
+            objects,
+            frame,
+            p,
+            None,
+            crate::game_logic::projectile_definitions::ProjectileDefinitionMode::LegacyBootstrap,
+        ) {
             combat.projectileless_delayed.push(immediate);
         }
     }
@@ -498,6 +505,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     frame: u32,
     p: PendingProjectile,
     profile: Option<&crate::game_logic::projectile_definitions::ProjectileProfile>,
+    definition_mode: crate::game_logic::projectile_definitions::ProjectileDefinitionMode,
 ) -> Option<LiveProjectilelessDelayedDamage> {
     // Queue acceptance normally froze this field. Retain the parsed-only
     // fallback for legacy shadow records created before that bridge; an
@@ -505,10 +513,9 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     let projectile_lifecycle = profile
         .map(|p| p.lifecycle)
         .or(p.projectile_lifecycle)
-        .or_else(|| {
-            crate::game_logic::weapon_bootstrap::host_projectile_lifecycle_for_object_name(
-                &p.projectile_object_name,
-            )
+        .or_else(|| match definition_mode {
+            crate::game_logic::projectile_definitions::ProjectileDefinitionMode::ReceivingContent => None,
+            crate::game_logic::projectile_definitions::ProjectileDefinitionMode::LegacyBootstrap => crate::game_logic::weapon_bootstrap::host_projectile_lifecycle_for_object_name(&p.projectile_object_name),
         });
     // C++ Weapon::fireWeaponTemplate executes FireOCL at the source when
     // the weapon fires, independent of whether a later projectile target
@@ -629,13 +636,9 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         fire_target_id = None;
     }
 
-    // C++ DamageDealtAtSelfPosition: fire/detonate at source, not victim.
-    if crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name(
-        &p.historic_weapon_key,
-    ) {
-        fire_target_id = None;
-        target_pos = p.shooter_pos;
-    }
+    // DamageDealtAtSelfPosition was frozen by the firing owner's selected
+    // definition into target_id/target_pos. A different named catalogue cannot
+    // reinterpret an already accepted shot during materialization.
 
     // C++ DumbProjectileBehavior ScaleWeaponSpeed residual (2D range ratio).
     let mut flight_speed = p.speed;
@@ -735,7 +738,9 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         if let Some(profile) = profile {
             proj.flight = Some(profile.flight.clone());
         }
-        proj.bind_authored_flight(p.shooter_pos, target_pos, flight_speed_per_second);
+        if profile.is_some() || definition_mode == crate::game_logic::projectile_definitions::ProjectileDefinitionMode::LegacyBootstrap {
+            proj.bind_authored_flight(p.shooter_pos, target_pos, flight_speed_per_second);
+        }
         proj.is_small_missile = host_projectile_is_small_missile(proj);
     }
     None

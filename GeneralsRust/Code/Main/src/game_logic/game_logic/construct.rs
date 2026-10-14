@@ -57,6 +57,8 @@ impl GameLogic {
             host_ghosts: Default::default(),
             radar: game_engine::common::system::radar::RadarSystem::new(),
             radar_map: Default::default(),
+            weapon_definition_base: None,
+            weapon_definitions: None,
             projectile_definitions: Default::default(),
             physics_definitions: Default::default(),
             weapon_effect_definitions: Default::default(),
@@ -765,6 +767,7 @@ impl GameLogic {
 
     /// Reset method - matching C++ GameLogic interface
     pub fn reset(&mut self) {
+        self.weapon_definitions = self.weapon_definition_base.clone();
         log::debug!("GameLogic::reset() - resetting game state");
         self.map_definition_source = None;
         self.w3d_ghosts = Default::default();

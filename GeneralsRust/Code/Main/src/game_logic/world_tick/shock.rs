@@ -286,6 +286,19 @@ impl GameLogic {
         weapon_name: Option<&str>,
         skip_id: Option<ObjectId>,
     ) -> u32 {
+        // Content cannot be changed by an earlier victim's callbacks. Keep
+        // this accepted rule alive while preserving original visitation order.
+        let native_rule = weapon_name.and_then(|name| {
+            self.weapon_definitions
+                .as_ref()?
+                .get(&name.to_ascii_lowercase())
+                .cloned()
+        });
+        if self.weapon_definitions.is_some() && weapon_name.is_some() && native_rule.is_none() {
+            log::error!("Receiving weapon definition missing for accepted splash/shock");
+            return 0;
+        }
+
         use crate::game_logic::weapon_bootstrap::{
             compute_shock_wave_force, host_shock_wave_amount_for_weapon_name,
             host_shock_wave_radius_for_weapon_name, host_shock_wave_taper_for_weapon_name,
@@ -293,9 +306,22 @@ impl GameLogic {
         let Some(name) = weapon_name else {
             return 0;
         };
-        let amount = host_shock_wave_amount_for_weapon_name(name);
-        let radius = host_shock_wave_radius_for_weapon_name(name);
-        let taper = host_shock_wave_taper_for_weapon_name(name);
+        let (amount, radius, taper) = native_rule
+            .as_ref()
+            .map(|rule| {
+                (
+                    rule.shock_wave_amount,
+                    rule.shock_wave_radius,
+                    rule.shock_wave_taper_off,
+                )
+            })
+            .unwrap_or_else(|| {
+                (
+                    host_shock_wave_amount_for_weapon_name(name),
+                    host_shock_wave_radius_for_weapon_name(name),
+                    host_shock_wave_taper_for_weapon_name(name),
+                )
+            });
         if amount <= 0.0 || radius <= 0.0 || search_radius <= 0.0 {
             return 0;
         }
@@ -350,6 +376,19 @@ impl GameLogic {
         intended_id: ObjectId,
         weapon_name: Option<&str>,
     ) -> u32 {
+        // Content cannot be changed by an earlier victim's callbacks. Keep
+        // this accepted rule alive while preserving original visitation order.
+        let native_rule = weapon_name.and_then(|name| {
+            self.weapon_definitions
+                .as_ref()?
+                .get(&name.to_ascii_lowercase())
+                .cloned()
+        });
+        if self.weapon_definitions.is_some() && weapon_name.is_some() && native_rule.is_none() {
+            log::error!("Receiving weapon definition missing for accepted splash/shock");
+            return 0;
+        }
+
         let max_r = primary_radius.max(secondary_radius);
         if max_r <= 0.0 || (primary_damage <= 0.0 && secondary_damage <= 0.0) {
             return 0;
@@ -358,9 +397,14 @@ impl GameLogic {
             WEAPON_AFFECTS_DEFAULT, host_radius_damage_affects_for_weapon_name,
             radius_damage_affects_victim,
         };
-        let affects = weapon_name
-            .map(host_radius_damage_affects_for_weapon_name)
-            .unwrap_or(WEAPON_AFFECTS_DEFAULT);
+        let affects = native_rule
+            .as_ref()
+            .map(|rule| rule.affects_mask.bits())
+            .unwrap_or_else(|| {
+                weapon_name
+                    .map(host_radius_damage_affects_for_weapon_name)
+                    .unwrap_or(WEAPON_AFFECTS_DEFAULT)
+            });
         let (shooter_template, attacker_owner, attacker_team_instance, attacker_producer) = self
             .objects
             .get(&attacker_id)
@@ -451,20 +495,36 @@ impl GameLogic {
             // Earlier victims may synchronously kill another snapshotted
             // candidate through onDie. Re-fetch instead of replaying that hit.
             if self.objects.get(&id).is_some_and(|obj| obj.is_alive()) {
-                let damage_type = weapon_name
+                let damage_type = native_rule
+                    .as_ref()
+                    .map(|rule| {
+                        crate::game_logic::host_armor_residual::map_store_damage_type(
+                            rule.damage_type,
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        weapon_name
                     .map(crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name)
-                    // C++ WeaponTemplate ctor defaults m_damageType to
-                    // DAMAGE_EXPLOSION (Weapon.cpp:249); an unnamed host
-                    // weapon blasts Explosion, not Bullet.
-                    .unwrap_or(crate::game_logic::combat::DamageType::Explosive);
-                let death_type = crate::game_logic::host_armor_residual::resolve_host_death_type(
-                    weapon_name,
-                    damage_type,
-                );
-                let context = crate::game_logic::object::DamageHitContext::new(
+                    .unwrap_or(crate::game_logic::combat::DamageType::Explosive)
+                    });
+                let death_type = native_rule
+                    .as_ref()
+                    .map(|rule| {
+                        crate::game_logic::host_usa_pilot::HostDeathType::from_store(
+                            rule.death_type,
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        crate::game_logic::host_armor_residual::resolve_host_death_type(
+                            weapon_name,
+                            damage_type,
+                        )
+                    });
+                let context = crate::game_logic::object::DamageHitContext::new_selected(
                     self.objects.get(&attacker_id),
                     weapon_name,
                     damage_type,
+                    native_rule.as_deref(),
                 );
                 // C++ Weapon::dealDamageInternal completes each attemptDamage:
                 // body callbacks -> scoreTheKill -> onDie -> fresh-source FX.
@@ -504,38 +564,71 @@ impl GameLogic {
         skip_id: ObjectId,
         weapon_name: Option<&str>,
     ) -> u32 {
+        // Content cannot be changed by an earlier victim's callbacks. Keep
+        // this accepted rule alive while preserving original visitation order.
+        let native_rule = weapon_name.and_then(|name| {
+            self.weapon_definitions
+                .as_ref()?
+                .get(&name.to_ascii_lowercase())
+                .cloned()
+        });
+        if self.weapon_definitions.is_some() && weapon_name.is_some() && native_rule.is_none() {
+            log::error!("Receiving weapon definition missing for accepted splash/shock");
+            return 0;
+        }
+
         use crate::game_logic::weapon_bootstrap::{
             WEAPON_AFFECTS_DEFAULT, host_primary_damage_radius_for_weapon_name,
             host_radius_damage_affects_for_weapon_name, host_secondary_damage_for_weapon_name,
             host_secondary_damage_radius_for_weapon_name, radius_damage_affects_victim,
         };
         // C++ dealDamageInternal: authored primary/secondary radii, no 1.5x ring.
-        let (primary_r, secondary_r, primary_dmg, secondary_dmg) = match weapon_name {
-            Some(n) => {
-                let radius_mult = self
-                    .objects
-                    .get(&attacker_id)
-                    .map(|a| a.weapon_bonus_radius())
-                    .unwrap_or(1.0);
-                let pr = host_primary_damage_radius_for_weapon_name(n) * radius_mult;
-                let sr = host_secondary_damage_radius_for_weapon_name(n) * radius_mult;
-                let sd = host_secondary_damage_for_weapon_name(n);
-                let primary = if pr > 0.0 {
-                    pr
-                } else {
-                    splash_radius * radius_mult
-                };
-                (primary, sr, weapon_damage, sd)
-            }
-            None => (splash_radius, 0.0, weapon_damage, 0.0),
-        };
+        let radius_mult = self
+            .objects
+            .get(&attacker_id)
+            .map(|source| source.weapon_bonus_radius())
+            .unwrap_or(1.0);
+        let (primary_r, secondary_r, primary_dmg, secondary_dmg) =
+            if let Some(rule) = native_rule.as_ref() {
+                (
+                    rule.primary_damage_radius * radius_mult,
+                    rule.secondary_damage_radius * radius_mult,
+                    weapon_damage,
+                    rule.secondary_damage,
+                )
+            } else {
+                match weapon_name {
+                    Some(n) => {
+                        let radius_mult = self
+                            .objects
+                            .get(&attacker_id)
+                            .map(|a| a.weapon_bonus_radius())
+                            .unwrap_or(1.0);
+                        let pr = host_primary_damage_radius_for_weapon_name(n) * radius_mult;
+                        let sr = host_secondary_damage_radius_for_weapon_name(n) * radius_mult;
+                        let sd = host_secondary_damage_for_weapon_name(n);
+                        let primary = if pr > 0.0 {
+                            pr
+                        } else {
+                            splash_radius * radius_mult
+                        };
+                        (primary, sr, weapon_damage, sd)
+                    }
+                    None => (splash_radius, 0.0, weapon_damage, 0.0),
+                }
+            };
         let max_r = primary_r.max(secondary_r);
         if max_r <= 0.0 || (primary_dmg <= 0.0 && secondary_dmg <= 0.0) {
             return 0;
         }
-        let affects = weapon_name
-            .map(host_radius_damage_affects_for_weapon_name)
-            .unwrap_or(WEAPON_AFFECTS_DEFAULT);
+        let affects = native_rule
+            .as_ref()
+            .map(|rule| rule.affects_mask.bits())
+            .unwrap_or_else(|| {
+                weapon_name
+                    .map(host_radius_damage_affects_for_weapon_name)
+                    .unwrap_or(WEAPON_AFFECTS_DEFAULT)
+            });
         let (shooter_template, attacker_owner, attacker_team_instance, attacker_producer) = self
             .objects
             .get(&attacker_id)
@@ -625,20 +718,36 @@ impl GameLogic {
             // Earlier victims may synchronously kill another snapshotted
             // candidate through onDie. Re-fetch instead of replaying that hit.
             if self.objects.get(&id).is_some_and(|obj| obj.is_alive()) {
-                let damage_type = weapon_name
+                let damage_type = native_rule
+                    .as_ref()
+                    .map(|rule| {
+                        crate::game_logic::host_armor_residual::map_store_damage_type(
+                            rule.damage_type,
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        weapon_name
                     .map(crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name)
-                    // C++ WeaponTemplate ctor defaults m_damageType to
-                    // DAMAGE_EXPLOSION (Weapon.cpp:249); an unnamed host
-                    // weapon blasts Explosion, not Bullet.
-                    .unwrap_or(crate::game_logic::combat::DamageType::Explosive);
-                let death_type = crate::game_logic::host_armor_residual::resolve_host_death_type(
-                    weapon_name,
-                    damage_type,
-                );
-                let context = crate::game_logic::object::DamageHitContext::new(
+                    .unwrap_or(crate::game_logic::combat::DamageType::Explosive)
+                    });
+                let death_type = native_rule
+                    .as_ref()
+                    .map(|rule| {
+                        crate::game_logic::host_usa_pilot::HostDeathType::from_store(
+                            rule.death_type,
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        crate::game_logic::host_armor_residual::resolve_host_death_type(
+                            weapon_name,
+                            damage_type,
+                        )
+                    });
+                let context = crate::game_logic::object::DamageHitContext::new_selected(
                     self.objects.get(&attacker_id),
                     weapon_name,
                     damage_type,
+                    native_rule.as_deref(),
                 );
                 // C++ Weapon::dealDamageInternal completes each attemptDamage:
                 // body callbacks -> scoreTheKill -> onDie -> fresh-source FX.

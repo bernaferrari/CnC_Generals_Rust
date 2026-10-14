@@ -2784,6 +2784,7 @@ fn battle_drone_residual_attach_fire_and_repair() {
 
     // Humvee master residual.
     let mut humvee_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleHumvee");
+    humvee_tpl.set_primary_weapon_name("HumveeGun");
     humvee_tpl
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)

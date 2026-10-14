@@ -303,6 +303,13 @@ pub(in super::super) fn fire_fx_weapon_speed(object: Option<&Object>, slot: u8) 
     let Some(object) = object else {
         return 0.0;
     };
+    if let Some(rule) = object.selected_native_weapon_rule(slot) {
+        return if rule.weapon_speed > 0.0 && rule.weapon_speed < 999_000.0 {
+            rule.weapon_speed
+        } else {
+            0.0
+        };
+    }
     if let Some(weapon) = object.weapon_slot(slot).or(object.weapon.as_ref()) {
         if weapon.projectile_speed > 0.0 && weapon.projectile_speed < 999_000.0 {
             return weapon.projectile_speed;
@@ -321,6 +328,9 @@ pub(in super::super) fn fire_fx_weapon_speed(object: Option<&Object>, slot: u8) 
 
 /// C++ `Weapon::getPrimaryDamageRadius(bonus)` for FireFX `overrideRadius`.
 pub(in super::super) fn fire_fx_primary_damage_radius(object: Option<&Object>, slot: u8) -> f32 {
+    if let Some(rule) = object.and_then(|object| object.selected_native_weapon_rule(slot)) {
+        return rule.primary_damage_radius;
+    }
     let Some(name) = object.and_then(|o| o.weapon_name_for_slot(slot)) else {
         return 0.0;
     };

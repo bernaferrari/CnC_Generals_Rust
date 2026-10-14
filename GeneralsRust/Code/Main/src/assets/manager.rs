@@ -44,6 +44,8 @@ pub struct AssetManager {
     texture_manager: TextureManager,
     /// WW3D Asset Manager for object definitions and texture lookup
     ww3d_manager: WW3DAssetManager,
+    /// Effective native weapons parsed from the same archive content load.
+    weapon_definitions: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
     /// Cache of loaded models
     model_cache: HashMap<String, W3DModel>,
     /// C++ `WW3DAssetManager`-style source records for render-object names.
@@ -649,6 +651,7 @@ impl AssetManager {
             model_loader: W3DLoader::new(),
             texture_manager: TextureManager::new(),
             ww3d_manager: WW3DAssetManager::new(),
+            weapon_definitions: Vec::new(),
             model_cache: HashMap::new(),
             w3d_render_object_prototypes: W3dRenderObjectPrototypeRegistry::default(),
             weapon_barrel_count_cache: HashMap::new(),
@@ -755,6 +758,7 @@ impl AssetManager {
             .await
         {
             Ok(stats) => {
+                self.weapon_definitions = stats.weapon_definitions;
                 let elapsed = template_load_start.elapsed().unwrap_or_default();
                 info!(
                     "✅ INI templates loaded in {:.2}s: {} weapons, {} upgrades, {} sciences",
@@ -1624,6 +1628,13 @@ impl AssetManager {
     /// GameLogic uses this at world initialization to seed exact template
     /// identities without holding the global asset-manager lock while it
     /// constructs gameplay state.
+    /// Owned receiving-content snapshot. Never query an ambient WeaponStore.
+    pub(crate) fn weapon_definitions_snapshot(
+        &self,
+    ) -> Vec<(String, gamelogic::weapon::WeaponTemplate)> {
+        self.weapon_definitions.clone()
+    }
+
     pub fn object_definitions_snapshot(&self) -> Vec<(String, crate::assets::ObjectDefinition)> {
         self.ww3d_manager.object_definitions_snapshot()
     }

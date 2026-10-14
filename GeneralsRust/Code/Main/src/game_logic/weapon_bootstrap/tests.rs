@@ -1191,7 +1191,7 @@ fn scale_weapon_speed_lob_residual() {
     // Seed peel for firebase.
     let fb = seed_weapon_speed_peel_for("AmericaFireBaseHowitzer");
     assert!(fb.scale_weapon_speed);
-    assert_eq!(fb.min_weapon_speed, 75.0);
+    assert_eq!(fb.min_weapon_speed, 75.0 * (1.0 / 30.0));
 }
 
 #[test]

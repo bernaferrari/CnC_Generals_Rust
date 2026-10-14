@@ -48,6 +48,7 @@ fn passive_exact_slot_returns_only_its_shot_and_preserves_contained_ai_and_peer(
             origin,
             &mut combat.fire_sound_loop_events,
             &mut attacks,
+            None,
         )
         .unwrap();
     assert_eq!(slot, 1);
@@ -87,7 +88,8 @@ fn passive_windup_and_rejection_keep_ammo_and_never_enter_attack_state() {
                 30,
                 origin,
                 &mut sounds,
-                &mut attacks
+                &mut attacks,
+                None,
             )
             .is_none()
     );
@@ -104,7 +106,8 @@ fn passive_windup_and_rejection_keep_ammo_and_never_enter_attack_state() {
                 45,
                 origin,
                 &mut sounds,
-                &mut attacks
+                &mut attacks,
+                None,
             )
             .is_some()
     );
@@ -122,7 +125,8 @@ fn passive_windup_and_rejection_keep_ammo_and_never_enter_attack_state() {
                 150,
                 origin,
                 &mut sounds,
-                &mut attacks
+                &mut attacks,
+                None,
             )
             .is_none()
     );
@@ -139,7 +143,8 @@ fn passive_windup_and_rejection_keep_ammo_and_never_enter_attack_state() {
                 150,
                 origin,
                 &mut sounds,
-                &mut attacks
+                &mut attacks,
+                None,
             )
             .is_none()
     );

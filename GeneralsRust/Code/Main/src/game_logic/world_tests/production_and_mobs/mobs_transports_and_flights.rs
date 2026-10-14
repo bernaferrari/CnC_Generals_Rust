@@ -2491,6 +2491,7 @@ fn upgrade_die_removes_producer_drone_upgrade() {
     ensure_test_tank_template(&mut game_logic);
     // Humvee-like master.
     let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+    humvee.set_primary_weapon_name("HumveeGun");
     humvee
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)

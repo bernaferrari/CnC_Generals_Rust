@@ -1883,6 +1883,7 @@ fn host_upgrade_complete_slave_drone_attaches_to_humvee() {
         .insert(0, Player::new(0, Team::USA, "USA", true));
 
     let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+    humvee.set_primary_weapon_name("HumveeGun");
     humvee
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)

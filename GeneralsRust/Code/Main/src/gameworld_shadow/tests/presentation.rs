@@ -163,7 +163,9 @@ fn residual_auto_fire_consume_ammo_source() {
     let attack = include_str!("../../game_logic/object/attack.rs");
     let shared = last_rust_fn_body(attack, "prepare_weapon_shot").expect("shared accepted shot");
     assert_eq!(
-        shared.matches("Self::consume_ammo_on_fire_named(").count(),
+        shared
+            .matches("Self::consume_ammo_on_fire_selected(")
+            .count(),
         1
     );
     let passive =

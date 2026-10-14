@@ -1,5 +1,6 @@
 //! Behavior suite extracted from `strategy_and_stealth`.
 use super::*;
+use std::collections::HashMap;
 
 #[test]
 fn attack_ground_advances_reload_without_victim() {
@@ -1715,19 +1716,16 @@ fn script_named_timer_and_superweapon_mutations_respect_order() {
 }
 
 #[test]
-fn combat_kill_spawns_particle_system_registry_entries() {
+fn combat_kill_retains_death_particle_registry_without_inventing_weapon_fx() {
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
-    // C++ Weapon.cpp:904-939 only dispatches authored non-null FXLists.
-    // This instant-hit fixture needs a real detonation list, not a synthetic
-    // impact inferred from a nameless Weapon. Admit the exact original
-    // ArtilleryBarrageDamageWeapon fields through the production parser;
-    // rename only its definition identity to isolate it from retail overlays.
-    // INIZH.big Weapon.ini payload: offset3880112,size418787. The unrelated
-    // loose extraction is not an admission prerequisite for this local test.
+    // CPP Weapon.cpp904 selects ProjectileDetonationFX only for an actual
+    // projectile-detonation call. Ordinary fire with null FireFX stays silent.
     const IMPACT_WEAPON: &str = "CombatRegistryFixtureArtilleryDamage";
+    let mut definitions = HashMap::new();
     assert_eq!(
-        crate::assets::ini_template_loader::register_weapons_from_ini_text(
+        crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut definitions,
             r#"
 Weapon CombatRegistryFixtureArtilleryDamage
   PrimaryDamage = 105.0
@@ -1736,6 +1734,8 @@ Weapon CombatRegistryFixtureArtilleryDamage
   DamageType = EXPLOSION
   DeathType = EXPLODED
   WeaponSpeed = 99999.0
+  ProjectileObject = NONE
+  FireFX = None
   ProjectileDetonationFX = FX_ArtilleryBarrage
   RadiusDamageAffects = ENEMIES NEUTRALS ALLIES
   DelayBetweenShots = 0
@@ -1743,26 +1743,33 @@ Weapon CombatRegistryFixtureArtilleryDamage
   ClipReloadTime = 0
   AutoReloadsClip = No
 End
-"#
+"#,
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal
         ),
-        1,
-        "original-backed fixture definition must use actual ordered admission"
+        1
     );
-    let detonation_fx =
-        crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name(IMPACT_WEAPON);
+    let rule = definitions
+        .get(&IMPACT_WEAPON.to_ascii_lowercase())
+        .unwrap();
+    assert!(rule.fire_fx.iter().all(Option::is_none));
     assert_eq!(
-        detonation_fx, "FX_ArtilleryBarrage",
-        "actual admitted Weapon.ini detonation prerequisite"
-    );
-    assert!(
-        crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name(IMPACT_WEAPON).is_empty(),
-        "this fixture exercises the no-FireFX recoil/muzzle route"
+        rule.projectile_detonate_fx[0].as_ref().unwrap().name(),
+        "FX_ArtilleryBarrage"
     );
     game_logic
         .templates
         .get_mut("TestTank")
         .unwrap()
         .set_primary_weapon_name(IMPACT_WEAPON);
+    game_logic
+        .admit_weapon_content_snapshot(
+            definitions
+                .into_values()
+                .map(|rule| (rule.name.clone(), rule))
+                .collect(),
+            &[],
+        )
+        .unwrap();
 
     let attacker_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -1789,29 +1796,19 @@ End
     game_logic.frame = 60;
     game_logic.update_combat(&[attacker_id, target_id], LOGIC_FRAME_TIMESTEP);
 
-    // Fire path: muzzle + impact registry entries exist before destroy cleanup.
     assert!(
-        game_logic.combat_particles().active_count() >= 2,
-        "weapon fire must register muzzle/impact particle systems, got {}",
-        game_logic.combat_particles().active_count()
-    );
-    assert_eq!(
         game_logic
             .combat_particles()
             .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
-            .len(),
-        1,
-        "muzzle flash entry required"
+            .is_empty(),
+        "known null FireFX cannot invent a generic muzzle"
     );
-
     assert!(
         game_logic
             .combat_particles()
             .systems_of_kind(CombatParticleKind::WeaponImpact)
-            .iter()
-            .any(|entry| entry.fx_list_name == detonation_fx
-                && entry.target_object == Some(target_id)),
-        "impact must retain the admitted detonation FX identity and victim"
+            .is_empty(),
+        "ordinary instant fire does not play projectile-detonation FX"
     );
 
     // Process destroy list (same end-of-step path as step_simulation).
@@ -1836,8 +1833,8 @@ End
         "kill must register DeathSmoke particle system entry"
     );
     assert!(
-        game_logic.combat_particles().active_count() >= 4,
-        "fire + death systems must remain registered (not log-only); count={}",
+        game_logic.combat_particles().active_count() >= 2,
+        "real death systems must remain registered (not log-only); count={}",
         game_logic.combat_particles().active_count()
     );
 

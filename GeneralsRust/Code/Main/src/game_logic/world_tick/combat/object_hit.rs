@@ -13,6 +13,10 @@ impl GameLogic {
         enemy_or_forced: bool,
         mut weapon_damage: f32,
     ) {
+        let native_rule = self
+            .objects
+            .get(&attacker_id)
+            .and_then(|source| source.selected_native_weapon_rule(slot));
         // Aurora dive bomb residual: queue delayed area damage at target.
         // AuroraBomb projectile flight residual closed; FuelAir gas OCL path.
         // Instant single-target take_damage is skipped; AOE applies after delay.
@@ -56,13 +60,23 @@ impl GameLogic {
                     return None;
                 }
                 let weapon = a.weapon_name_for_slot(slot);
-                let kind = weapon
+                let kind = native_rule
+                    .as_ref()
+                    .map(|rule| {
+                        crate::game_logic::host_armor_residual::map_store_damage_type(
+                            rule.damage_type,
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        weapon
                     .map(crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name)
-                    .unwrap_or(crate::game_logic::combat::DamageType::Explosive);
-                Some(crate::game_logic::object::DamageHitContext::new(
+                    .unwrap_or(crate::game_logic::combat::DamageType::Explosive)
+                    });
+                Some(crate::game_logic::object::DamageHitContext::new_selected(
                     Some(a),
                     weapon,
                     kind,
+                    native_rule.as_deref(),
                 ))
             });
             let avenger_paint = avenger_paint_context.as_ref().is_some_and(|context| {
@@ -1431,10 +1445,10 @@ impl GameLogic {
                                     );
                                 let carrier =
                                     is_bunker_buster_carrier(&a.template_name);
-                                let kill_garrisoned = a
+                                let kill_garrisoned = native_rule.as_ref().map(|rule| rule.damage_type == gamelogic::damage::DamageType::KillGarrisoned).unwrap_or_else(|| a
                                     .weapon_name_for_slot(slot)
                                     .map(crate::game_logic::weapon_bootstrap::host_weapon_is_kill_garrisoned_damage)
-                                    .unwrap_or(false);
+                                    .unwrap_or(false));
                                 (
                                     should_apply_bunker_buster(
                                         has_upgrade,
@@ -1513,29 +1527,35 @@ impl GameLogic {
                         let fire_wname = self.objects.get(&attacker_id).and_then(|attacker| {
                             attacker.weapon_name_for_slot(slot).map(str::to_owned)
                         });
-                        let damage_type = fire_wname.as_deref().map(
+                        let damage_type = native_rule.as_ref().map(|rule| crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type)).unwrap_or_else(|| fire_wname.as_deref().map(
                             crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name,
                         )
                         // C++ WeaponTemplate ctor defaults m_damageType
                         // to DAMAGE_EXPLOSION (Weapon.cpp:249); an
                         // unnamed host weapon fires Explosion, not Bullet.
-                        .unwrap_or(crate::game_logic::combat::DamageType::Explosive);
-                        let death_type =
-                            crate::game_logic::host_armor_residual::resolve_host_death_type(
-                                fire_wname.as_deref(),
-                                damage_type,
-                            );
+                        .unwrap_or(crate::game_logic::combat::DamageType::Explosive));
+                        let death_type = native_rule
+                            .as_ref()
+                            .map(|rule| {
+                                crate::game_logic::host_usa_pilot::HostDeathType::from_store(
+                                    rule.death_type,
+                                )
+                            })
+                            .unwrap_or_else(|| {
+                                crate::game_logic::host_armor_residual::resolve_host_death_type(
+                                    fire_wname.as_deref(),
+                                    damage_type,
+                                )
+                            });
                         let context = avenger_paint_context.unwrap_or_else(|| {
-                            crate::game_logic::object::DamageHitContext::new(
+                            crate::game_logic::object::DamageHitContext::new_selected(
                                 self.objects.get(&attacker_id),
                                 fire_wname.as_deref(),
                                 damage_type,
+                                native_rule.as_deref(),
                             )
                         });
-                        let at_self = fire_wname.as_deref().map(
-                            crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name,
-                        )
-                        .unwrap_or(false);
+                        let at_self = native_rule.as_ref().map(|rule| rule.damage_dealt_at_self_position).unwrap_or_else(|| fire_wname.as_deref().map(crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name).unwrap_or(false));
                         let shooter_pos = self
                             .objects
                             .get(&attacker_id)
@@ -1579,7 +1599,13 @@ impl GameLogic {
                             let wname = self.objects.get(&attacker_id).and_then(|attacker| {
                                 attacker.weapon_name_for_slot(slot).map(str::to_owned)
                             });
-                            let (pr, sr, sd) = if let Some(ref n) = wname {
+                            let (pr, sr, sd) = if let Some(rule) = native_rule.as_ref() {
+                                (
+                                    rule.primary_damage_radius,
+                                    rule.secondary_damage_radius,
+                                    rule.secondary_damage,
+                                )
+                            } else if let Some(ref n) = wname {
                                 (
                                     host_primary_damage_radius_for_weapon_name(n),
                                     host_secondary_damage_radius_for_weapon_name(n),

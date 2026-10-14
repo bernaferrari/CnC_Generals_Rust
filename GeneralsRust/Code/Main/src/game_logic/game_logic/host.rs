@@ -19,6 +19,11 @@ pub struct GameLogic {
         crate::game_logic::game_logic::world_objects::radar_live::HostRadarMapState,
     /// CPP GameLogic ctor/reset/Xfer: scoring permission belongs to this match.
     pub(super) is_scoring_enabled: bool,
+    /// Effective immutable Weapon INI rows admitted for this receiving match.
+    /// None retains the explicitly unmigrated bootstrap route; Some(empty) never substitutes it.
+    pub(crate) weapon_definition_base:
+        Option<HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>>,
+    pub(crate) weapon_definitions: Option<HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>>,
     pub(crate) projectile_definitions:
         crate::game_logic::projectile_definitions::ProjectileDefinitions,
     pub(crate) physics_definitions: crate::game_logic::physics_rules::PhysicsDefinitions,

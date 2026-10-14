@@ -2,6 +2,12 @@
 use super::super::*;
 use super::AcceptedWeaponDischarge;
 
+struct AcceptedSelfDamagePose {
+    epoch: u64,
+    generation: u64,
+    at_self: bool,
+}
+
 impl GameLogic {
     /// Finish one prepared shot synchronously, after releasing its Object loan.
     /// All callers share CPP FireFX -> FireOCL -> delivery -> barrel ordering.
@@ -11,6 +17,8 @@ impl GameLogic {
         mut shot: crate::game_logic::combat::PendingProjectile,
         capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
     ) -> bool {
+        let source_pose = self.prepare_accepted_self_damage_pose(shot.shooter_id, slot);
+        let epoch = source_pose.epoch;
         let accepted = self.begin_owned_weapon_effects(
             shot.shooter_id,
             slot,
@@ -22,12 +30,55 @@ impl GameLogic {
         // Accepted effects belong to this callback, never to later flight.
         shot.fire_fx_name.clear();
         shot.fire_ocl_name.clear();
+        if self.visual_world_epoch != epoch {
+            // The receiving match itself ended during the effect phase. An
+            // old shot must not enter its replacement match's combat queue.
+            return false;
+        }
+        self.refresh_accepted_self_damage_pose(&mut shot, source_pose);
         self.materialize_owned_passive_shot(shot);
         if let Some(accepted) = accepted {
             self.finish_accepted_weapon_discharge(accepted);
             true
         } else {
             false
+        }
+    }
+
+    /// Freeze template identity before callbacks, not the source's final pose.
+    fn prepare_accepted_self_damage_pose(
+        &mut self,
+        source: ObjectId,
+        slot: u8,
+    ) -> AcceptedSelfDamagePose {
+        let at_self = self.objects.get(&source).is_some_and(|object| {
+            object.selected_native_weapon_rule(slot).map(|rule| rule.damage_dealt_at_self_position)
+                .unwrap_or_else(|| object.weapon_name_for_slot(slot).is_some_and(
+                    crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name))
+        });
+        AcceptedSelfDamagePose {
+            epoch: self.visual_world_epoch,
+            generation: self.stamp_visual_object_generation(source),
+            at_self,
+        }
+    }
+
+    /// CPP Weapon.cpp998 rereads the original source after fire FX/OCL.
+    /// An accepted shot survives source removal; a replacement ID is never
+    /// allowed to supply the original source's pose.
+    fn refresh_accepted_self_damage_pose(
+        &self,
+        shot: &mut crate::game_logic::combat::PendingProjectile,
+        pose: AcceptedSelfDamagePose,
+    ) {
+        if !pose.at_self || pose.epoch != self.visual_world_epoch {
+            return;
+        }
+        if let Some(source) = self.objects.get(&shot.shooter_id).filter(|object| {
+            pose.generation != 0 && object.visual_object_generation == pose.generation
+        }) {
+            shot.target_id = None;
+            shot.target_pos = Some(source.get_position());
         }
     }
 
@@ -42,16 +93,28 @@ impl GameLogic {
     ) -> Option<AcceptedWeaponDischarge> {
         let object = self.objects.get(&source)?;
         let name = object.weapon_name_for_slot(slot).map(str::to_owned);
+        let native = object.selected_native_weapon_rule(slot);
+        let native_rank = |rank| match rank {
+            VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
+            VeterancyLevel::Veteran => gamelogic::common::VeterancyLevel::Veteran,
+            VeterancyLevel::Elite => gamelogic::common::VeterancyLevel::Elite,
+            VeterancyLevel::Heroic => gamelogic::common::VeterancyLevel::Heroic,
+        };
         let rank = object.experience.level;
-        let fx = name.as_deref().map(|name| {
+        let fx = native.as_ref().map(|rule| rule.get_fire_fx(native_rank(rank)).map(|fx| fx.name().to_owned()).unwrap_or_default()).unwrap_or_else(|| name.as_deref().map(|name| {
             self.weapon_effect_definitions.fire(name, rank).map(|effects| effects.fire_fx)
                 .unwrap_or_else(|| crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name_at_veterancy(name, rank))
-        }).unwrap_or_default();
-        let play_when_stealthed = name.as_deref().and_then(|name| {
-            self.weapon_effect_definitions
-                .fire(name, rank)
-                .map(|effects| effects.play_fx_when_stealthed)
-        });
+        }).unwrap_or_default());
+        let play_when_stealthed = native
+            .as_ref()
+            .map(|rule| rule.play_fx_when_stealthed)
+            .or_else(|| {
+                name.as_deref().and_then(|name| {
+                    self.weapon_effect_definitions
+                        .fire(name, rank)
+                        .map(|effects| effects.play_fx_when_stealthed)
+                })
+            });
         let object = self.objects.get_mut(&source)?;
         if let Some(capture) = prepared_capture {
             object.pending_weapon_visual_capture = Some(capture);
@@ -77,10 +140,10 @@ impl GameLogic {
         // spans this callback, and no queued shot can repeat these effects.
         if let Some(object) = self.objects.get(&source) {
             let rank = object.experience.level;
-            let ocl = name.as_deref().map(|name| {
+            let ocl = native.as_ref().map(|rule| rule.get_fire_ocl_name(native_rank(rank)).unwrap_or_default().to_owned()).unwrap_or_else(|| name.as_deref().map(|name| {
                 self.weapon_effect_definitions.fire(name, rank).map(|effects| effects.fire_ocl)
                     .unwrap_or_else(|| crate::game_logic::weapon_bootstrap::host_fire_ocl_for_weapon_name_at_veterancy(name, rank))
-            }).unwrap_or_default();
+            }).unwrap_or_default());
             let (team, orientation, velocity, source_position) = (
                 object.team,
                 object.get_orientation(),
@@ -100,5 +163,107 @@ impl GameLogic {
             }
         }
         Some(accepted)
+    }
+}
+
+#[cfg(test)]
+mod accepted_self_pose_tests {
+    use super::*;
+    use crate::assets::ini_template_loader::{
+        WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
+    };
+
+    fn prepared() -> (GameLogic, crate::game_logic::combat::PendingProjectile) {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::USA, "owner", false));
+        world.add_player(Player::new(1, Team::GLA, "target", false));
+        let mut rules = std::collections::HashMap::new();
+        parse_weapon_definitions_ini_into(
+            &mut rules,
+            r#"
+Weapon OwnedSelfPose
+ PrimaryDamage = 20
+ AttackRange = 100
+ DelayBetweenShots = 0
+ DamageDealtAtSelfPosition = Yes
+ ProjectileObject = NONE
+End
+"#,
+            WeaponDefinitionLoadType::Normal,
+        );
+        world
+            .admit_weapon_content_snapshot(
+                rules
+                    .into_values()
+                    .map(|rule| (rule.name.clone(), rule))
+                    .collect(),
+                &[],
+            )
+            .unwrap();
+        let mut source = ThingTemplate::new("OwnedSelfPoseSource");
+        source
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable);
+        source.set_primary_weapon_name("OwnedSelfPose");
+        world.templates.insert(source.name.clone(), source);
+        let target = ThingTemplate::new("OwnedSelfPoseTarget");
+        world.templates.insert(target.name.clone(), target);
+        let source = world
+            .create_object_for_player("OwnedSelfPoseSource", 0, Vec3::ZERO)
+            .unwrap();
+        let target = world
+            .create_object_for_player("OwnedSelfPoseTarget", 1, Vec3::new(20.0, 0.0, 0.0))
+            .unwrap();
+        world.frame = 30;
+        let (_, shot) = world
+            .objects
+            .get_mut(&source)
+            .unwrap()
+            .prepare_passive_weapon_shot(
+                0,
+                target,
+                1.0,
+                false,
+                false,
+                30,
+                Vec3::ZERO,
+                &mut world.combat_system.fire_sound_loop_events,
+                &mut world.attack_events,
+                Some(&world.projectile_definitions),
+            )
+            .unwrap();
+        (world, shot)
+    }
+    #[test]
+    fn accepted_self_damage_pose_rereads_original_owner_after_effect_phase() {
+        // Explicit continuation control; not a claim of native FX execution.
+        let (mut world, mut shot) = prepared();
+        let pose = world.prepare_accepted_self_damage_pose(shot.shooter_id, 0);
+        assert_eq!(shot.target_pos, Some(Vec3::ZERO));
+        let changed = Vec3::new(7.0, 3.0, 5.0);
+        world
+            .host_object_mut(shot.shooter_id)
+            .unwrap()
+            .set_position(changed);
+        world.refresh_accepted_self_damage_pose(&mut shot, pose);
+        assert_eq!(shot.target_id, None);
+        assert_eq!(shot.target_pos, Some(changed));
+    }
+    #[test]
+    fn accepted_self_damage_pose_rejects_reused_birth_after_reset() {
+        let (mut world, mut shot) = prepared();
+        let pose = world.prepare_accepted_self_damage_pose(shot.shooter_id, 0);
+        let before = shot.target_pos;
+        world.reset();
+        world.add_player(Player::new(0, Team::USA, "new owner", false));
+        let replacement = world
+            .create_object_for_player("OwnedSelfPoseSource", 0, Vec3::new(99.0, 0.0, 0.0))
+            .unwrap();
+        assert_eq!(replacement, shot.shooter_id);
+        world.refresh_accepted_self_damage_pose(&mut shot, pose);
+        assert_eq!(
+            shot.target_pos, before,
+            "new match cannot supply an old accepted source pose"
+        );
     }
 }

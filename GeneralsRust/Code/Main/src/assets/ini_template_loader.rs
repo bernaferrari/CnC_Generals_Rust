@@ -32,6 +32,8 @@ pub struct IniTemplateLoadStats {
     pub weapon_files_processed: usize,
     pub upgrade_files_processed: usize,
     pub science_files_processed: usize,
+    /// Effective native rules built from this archive load, not the ambient store.
+    pub(crate) weapon_definitions: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
 }
 
 /// Parse a block of INI text into section headers and their key=value properties.
@@ -52,7 +54,13 @@ pub struct IniTemplateLoadStats {
 /// `VeterancyFireFX`, `VeterancyProjectileExhaust`, and their OCL/detonation
 /// equivalents may legitimately occur more than once in one block. Retaining
 /// source order is therefore necessary to reproduce `Weapon.cpp`'s parser.
-type OrderedIniProperties = Vec<(String, String)>;
+pub(crate) type OrderedIniProperties = Vec<(String, String)>;
+/// CPP WeaponStore permits an existing-name override only in CREATE_OVERRIDES.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WeaponDefinitionLoadType {
+    Normal,
+    CreateOverrides,
+}
 
 /// Parse a block of INI text without discarding repeated assignments.
 ///
@@ -386,10 +394,18 @@ where
 pub async fn load_weapon_templates(
     archive_system: &mut ArchiveFileSystem,
 ) -> Result<usize, String> {
+    load_weapon_templates_with_definitions(archive_system)
+        .await
+        .map(|(count, _)| count)
+}
+
+async fn load_weapon_templates_with_definitions(
+    archive_system: &mut ArchiveFileSystem,
+) -> Result<(usize, Vec<(String, gamelogic::weapon::WeaponTemplate)>), String> {
     let weapon_files = discover_weapon_ini_files(archive_system);
     if weapon_files.is_empty() {
         info!("No weapon INI files found in archives");
-        return Ok(0);
+        return Ok((0, Vec::new()));
     }
 
     info!(
@@ -402,6 +418,7 @@ pub async fn load_weapon_templates(
     );
 
     let mut total_weapons = 0usize;
+    let mut definitions = HashMap::new();
 
     for (idx, ini_file) in weapon_files.iter().enumerate() {
         debug!(
@@ -427,7 +444,18 @@ pub async fn load_weapon_templates(
             }
         };
 
-        let file_weapon_count = register_weapons_from_ini_text(&content);
+        let rows = parse_weapon_definition_rows_into(
+            &mut definitions,
+            &content,
+            WeaponDefinitionLoadType::Normal,
+        );
+        let file_weapon_count = rows.len();
+        // Legacy publication uses the exact same outputs in original block
+        // order; the owned catalogue never depends on registration success.
+        let _ = gamelogic::initialize_weapon_store();
+        for definition in rows {
+            let _ = publish_weapon_template(definition);
+        }
         total_weapons += file_weapon_count;
         debug!(
             "Loaded {} weapon templates from {}",
@@ -436,7 +464,7 @@ pub async fn load_weapon_templates(
     }
 
     info!("Loaded {} weapon templates total", total_weapons);
-    Ok(total_weapons)
+    Ok((total_weapons, owned_weapon_snapshot(definitions)))
 }
 
 /// Load `Default/Upgrade.ini` then `Upgrade.ini` from BIG archives into the
@@ -574,9 +602,10 @@ pub async fn load_all_ini_templates(
     let mut stats = IniTemplateLoadStats::default();
 
     // 1. Load weapons first (objects may reference weapon names)
-    match load_weapon_templates(archive_system).await {
-        Ok(count) => {
+    match load_weapon_templates_with_definitions(archive_system).await {
+        Ok((count, definitions)) => {
             stats.weapons_loaded = count;
+            stats.weapon_definitions = definitions;
         }
         Err(e) => {
             warn!("Weapon template loading failed: {}", e);
@@ -622,7 +651,19 @@ pub async fn load_all_ini_templates(
 ///
 /// Used by AssetManager (archive path) and host bootstrap (filesystem path).
 /// Returns the number of successfully registered templates.
+/// Existing synthetic/map adapters historically re-declared names as overrides.
+/// Shipping archive admission uses explicit Normal mode and never calls this.
 pub fn register_weapons_from_ini_text(content: &str) -> usize {
+    register_weapons_from_ini_text_with_load_type(
+        content,
+        WeaponDefinitionLoadType::CreateOverrides,
+    )
+}
+
+pub(crate) fn register_weapons_from_ini_text_with_load_type(
+    content: &str,
+    load_type: WeaponDefinitionLoadType,
+) -> usize {
     // Ensure store exists before registration attempts.
     if let Err(e) = gamelogic::initialize_weapon_store() {
         warn!("Cannot register weapons — WeaponStore init failed: {e}");
@@ -634,10 +675,21 @@ pub fn register_weapons_from_ini_text(content: &str) -> usize {
     let sections = parse_ini_sections_ordered(content);
     let mut count = 0usize;
     for (block_type, block_name, properties) in &sections {
-        if block_type.eq_ignore_ascii_case("Weapon")
-            && register_weapon_template_ordered(block_name, properties)
-        {
-            count += 1;
+        if block_type.eq_ignore_ascii_case("Weapon") {
+            let exists = gamelogic::with_weapon_store(|store| {
+                store.find_weapon_template_ci(block_name).is_some()
+            })
+            .unwrap_or(false);
+            if load_type == WeaponDefinitionLoadType::Normal && exists {
+                warn!(
+                    "Weapon '{}' already exists, but CREATE_OVERRIDES not specified",
+                    block_name
+                );
+                continue;
+            }
+            if register_weapon_template_ordered(block_name, properties) {
+                count += 1;
+            }
         }
     }
     count
@@ -663,7 +715,7 @@ fn parse_ini_bool(val: &str) -> Option<bool> {
 
 /// C++ `ConvertVelocityInSecsToFrames` (`GameCommon.h`): dist/sec → dist/frame.
 fn secs_to_frames_velocity(speed: f32) -> f32 {
-    speed / 30.0
+    speed * (1.0_f32 / 30.0_f32)
 }
 
 /// C++ `INI::parseAngleReal`: authored degrees → radians.
@@ -870,24 +922,46 @@ fn register_weapon_template_ordered(name: &str, ordered: &OrderedIniProperties) 
 /// Register a weapon template parsed from INI into the GameLogic WeaponStore.
 fn register_weapon_template_from_properties(
     name: &str,
-    properties: &HashMap<String, String>,
+    _properties: &HashMap<String, String>,
     ordered: &OrderedIniProperties,
 ) -> bool {
-    use gamelogic::WeaponTemplate;
-
-    // C++ parseWeaponTemplateDefinition: find existing by NameKey, then
-    // initFromINI listed fields. CREATE_OVERRIDES copies the base first
-    // (newOverride). A fresh WeaponTemplate::new would zero unlisted
-    // PrimaryDamage/range on a partial Map.ini re-declare.
-    let mut template = gamelogic::with_weapon_store(|store| {
+    let base = gamelogic::with_weapon_store(|store| {
         store
             .find_weapon_template_ci(name)
-            .map(|existing| (**existing).clone())
+            .map(|old| (**old).clone())
     })
     .ok()
-    .flatten()
-    .unwrap_or_else(|| WeaponTemplate::new(name.to_string()));
+    .flatten();
+    publish_weapon_template(build_weapon_template_ordered(name, ordered, base.as_ref()))
+}
 
+fn publish_weapon_template(template: gamelogic::weapon::WeaponTemplate) -> bool {
+    let name = template.name.clone();
+    match gamelogic::with_weapon_store_mut(|store| {
+        store.add_weapon_template(template);
+    }) {
+        Ok(()) => {
+            debug!("Registered weapon template: {}", name);
+            true
+        }
+        Err(error) => {
+            warn!("Failed to register weapon '{}': {}", name, error);
+            false
+        }
+    }
+}
+
+/// CPP parseWeaponTemplateDefinition/newOverride: copy the supplied effective
+/// base, then assign ordered INI fields. This never discovers or publishes a store.
+pub(crate) fn build_weapon_template_ordered(
+    name: &str,
+    ordered: &OrderedIniProperties,
+    base: Option<&gamelogic::weapon::WeaponTemplate>,
+) -> gamelogic::weapon::WeaponTemplate {
+    let properties = ordered.iter().cloned().collect::<HashMap<_, _>>();
+    let mut template = base
+        .cloned()
+        .unwrap_or_else(|| gamelogic::weapon::WeaponTemplate::new(name.to_owned()));
     // Map Common INI properties to GameLogic WeaponTemplate fields.
 
     if let Some(val) = properties.get("DamageType") {
@@ -1298,19 +1372,54 @@ fn register_weapon_template_from_properties(
     // repeated `Veterancy…` / `WeaponBonus` / `ScatterTarget` assignments.
     apply_weapon_effect_references(&mut template, ordered);
 
-    // Register the template into the GameLogic WeaponStore
-    match gamelogic::with_weapon_store_mut(|store| {
-        store.add_weapon_template(template);
-    }) {
-        Ok(()) => {
-            debug!("Registered weapon template: {}", name);
-            true
+    template
+}
+
+/// Source/file order controls effective definitions; sorting is only for export.
+pub(crate) fn parse_weapon_definitions_ini_into(
+    definitions: &mut HashMap<String, gamelogic::weapon::WeaponTemplate>,
+    content: &str,
+    load_type: WeaponDefinitionLoadType,
+) -> usize {
+    parse_weapon_definition_rows_into(definitions, content, load_type).len()
+}
+
+fn parse_weapon_definition_rows_into(
+    definitions: &mut HashMap<String, gamelogic::weapon::WeaponTemplate>,
+    content: &str,
+    load_type: WeaponDefinitionLoadType,
+) -> Vec<gamelogic::weapon::WeaponTemplate> {
+    let mut rows = Vec::new();
+    for (kind, name, ordered) in parse_ini_sections_ordered(content) {
+        if !kind.eq_ignore_ascii_case("Weapon") || name.trim().is_empty() {
+            continue;
         }
-        Err(e) => {
-            warn!("Failed to register weapon '{}': {}", name, e);
-            false
+        let key = name.trim().to_ascii_lowercase();
+        if load_type == WeaponDefinitionLoadType::Normal && definitions.contains_key(&key) {
+            // CPP Weapon.cpp1689: DEBUG_CRASH then return without changing it.
+            warn!(
+                "Weapon '{}' already exists, but CREATE_OVERRIDES not specified",
+                name
+            );
+            continue;
         }
+
+        let template = build_weapon_template_ordered(&name, &ordered, definitions.get(&key));
+        definitions.insert(key, template.clone());
+        rows.push(template);
     }
+    rows
+}
+
+fn owned_weapon_snapshot(
+    definitions: HashMap<String, gamelogic::weapon::WeaponTemplate>,
+) -> Vec<(String, gamelogic::weapon::WeaponTemplate)> {
+    let mut out: Vec<_> = definitions
+        .into_values()
+        .map(|definition| (definition.name.clone(), definition))
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
 }
 
 /// Parse the one identifier C++ `INI::getNextToken` consumes for a named
@@ -1714,7 +1823,10 @@ End
         assert_eq!(parse_shot_delay_msec("500"), Some((500, 500)));
         assert_eq!(parse_shot_delay_msec("Min:200 Max:800"), Some((200, 800)));
         assert_eq!(msec_to_logic_frames(500), 15);
-        assert_eq!(secs_to_frames_velocity(600.0), 20.0);
+        assert_eq!(
+            secs_to_frames_velocity(600.0),
+            600.0_f32 * (1.0_f32 / 30.0_f32)
+        );
         let delta = parse_angle_real("30").unwrap();
         assert!((delta - std::f32::consts::PI / 6.0).abs() < 1e-5);
     }
@@ -2226,3 +2338,7 @@ End
         assert_eq!(sections[0].2.get("DamageType").unwrap(), "Explosion");
     }
 }
+
+#[cfg(test)]
+#[path = "weapon_definition_tests.rs"]
+mod weapon_definition_tests;

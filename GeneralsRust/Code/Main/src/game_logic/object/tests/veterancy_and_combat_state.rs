@@ -773,44 +773,50 @@ fn garrison_range_bonus_extends_is_within_attack_range() {
 
 #[test]
 fn fire_at_scales_secondary_damage_with_damage_bonus() {
-    let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
-
-    let mut shot_combat = crate::game_logic::combat::CombatSystem::new();
+    use crate::assets::ini_template_loader::{
+        WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
+    };
     use crate::game_logic::host_unit_training::VETERANCY_DAMAGE_BONUS_VETERAN;
-    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-
-    crate::game_logic::combat::clear_pending_projectile_queue_for_test(&mut shot_combat);
-    let mut tmpl = ThingTemplate::new("Scorpion");
-    tmpl.add_kind_of(KindOf::Vehicle);
-    tmpl.add_kind_of(KindOf::Attackable);
-    tmpl.set_health(100.0);
-    tmpl.primary_weapon_name = Some("ScorpionTankGun".into());
-    let mut atk = Object::new(tmpl, ObjectId(1), Team::GLA);
-    atk.weapon = Some(Weapon {
-        damage: 25.0,
-        range: 100.0,
-        // C++ Weapon::fireWeapon respects the ROF window from the last shot;
-        // Weapon::default() is born with last_fire_time 0 / reload 1s, so a
-        // shot at t=0 must be staged from a long-past last shot (same
-        // convention as sold_and_under_construction).
-        last_fire_time: -10.0,
-        ..Weapon::default()
-    });
-    atk.weapon_bonus_veteran = true;
-    assert!(atk.fire_at(ObjectId(2), 0.0, 0, &mut shot_combat, &mut _attack_output,));
-    let raw = crate::game_logic::weapon_bootstrap::host_secondary_damage_for_weapon_name(
-        "ScorpionTankGun",
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut definitions = std::collections::HashMap::new();
+    // This is an authored generic secondary-ring contract, not retail
+    // ScorpionTankGun (Weapon.ini128876 has no SecondaryDamage field).
+    assert_eq!(
+        parse_weapon_definitions_ini_into(
+            &mut definitions,
+            "Weapon OwnedSecondaryDamageBonus\nPrimaryDamage = 25\nPrimaryDamageRadius = 5\nSecondaryDamage = 25\nSecondaryDamageRadius = 10\nAttackRange = 100\nWeaponSpeed = 30000000\nProjectileObject = NONE\nDamageType = ARMOR_PIERCING\nDeathType = NORMAL\nDelayBetweenShots = 1000\nClipSize = 0\nClipReloadTime = 0\nEnd\n",
+            WeaponDefinitionLoadType::Normal
+        ),
+        1
     );
-    assert!(raw > 0.0, "ScorpionTankGun must have a secondary ring");
+    let native = definitions.remove("ownedsecondarydamagebonus").unwrap();
+    let mut template = ThingTemplate::new("OwnedSecondaryBonusSource");
+    template.add_kind_of(KindOf::Vehicle);
+    template.add_kind_of(KindOf::Attackable);
+    template.set_health(100.0);
+    template.set_primary_weapon_name(&native.name);
+    template.bind_native_weapon_row([Some(&native), None, None]);
+    let mut attacker = Object::new_with_logic_frame(template, ObjectId(1), Team::GLA, 0);
+    attacker.weapon = ThingTemplate::weapon_from_template_at(&native, 0);
+    attacker.weapon_bonus_veteran = true;
+    let mut shot_combat = crate::game_logic::combat::CombatSystem::new();
+    let mut attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+    // Wait through the actual authored one-second reload window, instead of
+    // fabricating a mutable cached weapon's old last-fire timestamp.
+    assert!(attacker.fire_at(ObjectId(2), 1.0, 30, &mut shot_combat, &mut attack_output));
+    assert_eq!(
+        crate::game_logic::combat::pending_projectile_queue_len_for_test(&shot_combat),
+        1
+    );
     let stamped =
         crate::game_logic::combat::last_pending_projectile_secondary_damage_for_test(&shot_combat)
             .expect("queued splash");
-    let expected = raw * VETERANCY_DAMAGE_BONUS_VETERAN;
+    let expected = native.secondary_damage * VETERANCY_DAMAGE_BONUS_VETERAN;
+    assert_eq!(expected, 27.5);
     assert!(
         (stamped - expected).abs() < 0.01,
         "secondary ring must scale with DAMAGE bonus ({stamped} vs {expected})"
     );
-    crate::game_logic::combat::clear_pending_projectile_queue_for_test(&mut shot_combat);
 }
 
 #[test]

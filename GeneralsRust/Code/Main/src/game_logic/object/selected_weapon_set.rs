@@ -7,6 +7,7 @@ pub(crate) struct WeaponDefinition {
     prototype: Weapon,
     suspend_delay: u32,
     projectile_name: Option<String>,
+    native: Option<std::sync::Arc<gamelogic::weapon::WeaponTemplate>>,
 }
 impl WeaponDefinition {
     fn instantiate(&self, frame: u32) -> Weapon {
@@ -54,6 +55,7 @@ impl ThingTemplate {
                     prototype: ThingTemplate::weapon_from_template_at(rule, 0)?,
                     suspend_delay: rule.suspend_fx_delay,
                     projectile_name: Some(rule.projectile_name.clone()),
+                    native: Some(std::sync::Arc::new(rule.clone())),
                 })
             })
         });
@@ -67,6 +69,58 @@ impl ThingTemplate {
                 names,
                 shared: self.weapon_lock_shared_across_sets,
             },
+            mine,
+        });
+    }
+    /// Resolve both active three-slot modes from this match's effective content.
+    pub(crate) fn bind_receiving_weapon_sets(
+        &mut self,
+        catalog: &std::collections::HashMap<
+            String,
+            std::sync::Arc<gamelogic::weapon::WeaponTemplate>,
+        >,
+    ) {
+        fn row(
+            names: [Option<String>; 3],
+            shared: bool,
+            catalog: &std::collections::HashMap<
+                String,
+                std::sync::Arc<gamelogic::weapon::WeaponTemplate>,
+            >,
+        ) -> WeaponRow {
+            let slots = std::array::from_fn(|i| {
+                let native = catalog
+                    .get(&names[i].as_ref()?.to_ascii_lowercase())?
+                    .clone();
+                Some(WeaponDefinition {
+                    prototype: ThingTemplate::weapon_from_template_at(&native, 0)?,
+                    suspend_delay: native.suspend_fx_delay,
+                    projectile_name: Some(native.projectile_name.clone()),
+                    native: Some(native),
+                })
+            });
+            WeaponRow {
+                slots,
+                names,
+                shared,
+            }
+        }
+        let names = [
+            self.primary_weapon_name.clone(),
+            self.secondary_weapon_name.clone(),
+            self.tertiary_weapon_name.clone(),
+        ];
+        let mine = self
+            .mine_weapon_set_names
+            .clone()
+            .or_else(|| {
+                self.mine_clearing_primary_weapon_name
+                    .as_ref()
+                    .map(|name| [Some(name.clone()), None, None])
+            })
+            .map(|names| row(names, self.mine_weapon_set_shared, catalog));
+        self.selected_weapon_sets = Some(BoundWeaponSets {
+            base: row(names, self.weapon_lock_shared_across_sets, catalog),
             mine,
         });
     }
@@ -85,12 +139,14 @@ impl ThingTemplate {
                     prototype,
                     suspend_delay: native.suspend_fx_delay,
                     projectile_name: Some(native.projectile_name.clone()),
+                    native: Some(native.clone()),
                 })
             } else {
                 prototype.map(|prototype| WeaponDefinition {
                     prototype,
                     suspend_delay: 0,
                     projectile_name: None,
+                    native: None,
                 })
             }
         }
@@ -128,6 +184,18 @@ impl ThingTemplate {
     }
 }
 impl Object {
+    pub(in crate::game_logic) fn selected_native_weapon_rule(
+        &self,
+        slot: u8,
+    ) -> Option<std::sync::Arc<gamelogic::weapon::WeaponTemplate>> {
+        let rows = self.thing.template.selected_weapon_sets.as_ref()?;
+        let row = if self.weapon_set_mine_clearing_detail {
+            rows.mine.as_ref().unwrap_or(&rows.base)
+        } else {
+            &rows.base
+        };
+        row.slots.get(usize::from(slot))?.as_ref()?.native.clone()
+    }
     pub(in crate::game_logic) fn selected_projectile_name(&self, slot: u8) -> Option<&str> {
         let rows = self.thing.template.selected_weapon_sets.as_ref()?;
         let row = if self.weapon_set_mine_clearing_detail {

@@ -79,6 +79,16 @@ impl GameLogic {
         // Keep the same owned slot for all remaining checks, including
         // an unready backup weapon chosen for approaching the victim.
         if let Some(slot) = selected_slot {
+            if !self.objects.get(&attacker_id).is_some_and(|attacker| {
+                attacker.selected_projectile_is_admitted(
+                    slot,
+                    self.weapon_definitions
+                        .as_ref()
+                        .map(|_| &self.projectile_definitions),
+                )
+            }) {
+                return CombatShotResult::NoShot;
+            }
             if let Some(attacker) = self.objects.get_mut(&attacker_id) {
                 attacker.set_active_weapon_slot(slot);
             }
@@ -277,9 +287,10 @@ impl GameLogic {
             {
                 let pitch_ok = if let Some(attacker) = self.objects.get(&attacker_id) {
                     let wname = attacker.weapon_name_for_slot(slot);
-                    let limits = wname
-                        .map(crate::game_logic::weapon_bootstrap::host_target_pitch_limits_for_weapon_name)
-                        .unwrap_or_default();
+                    let limits = attacker.selected_native_weapon_rule(slot).map(|rule| crate::game_logic::weapon_bootstrap::HostTargetPitchLimits {
+                        min_pitch: crate::game_logic::weapon_bootstrap::normalize_pitch_radians(rule.min_target_pitch),
+                        max_pitch: crate::game_logic::weapon_bootstrap::normalize_pitch_radians(rule.max_target_pitch),
+                    }).unwrap_or_else(|| wname.map(crate::game_logic::weapon_bootstrap::host_target_pitch_limits_for_weapon_name).unwrap_or_default());
                     let src_half = {
                         let b = &attacker.thing().geometry.bounds_max.y
                             - attacker.thing().geometry.bounds_min.y;
@@ -336,12 +347,17 @@ impl GameLogic {
                         .map(|w| w.pre_attack_delay.max(0.0))
                         .unwrap_or(0.0);
                     let prefire = {
-                        attacker.weapon_name_for_slot(slot).map(
-                            crate::game_logic::weapon_bootstrap::host_prefire_type_for_weapon_name,
-                        )
-                        .unwrap_or(
-                            crate::game_logic::weapon_bootstrap::HostPrefireType::PerShot,
-                        )
+                        attacker.selected_native_weapon_rule(slot).map(|rule| {
+                            use gamelogic::weapon::WeaponPrefireType;
+                            use crate::game_logic::weapon_bootstrap::HostPrefireType;
+                            match rule.prefire_type {
+                                WeaponPrefireType::PrefirePerAttack => HostPrefireType::PerAttack,
+                                WeaponPrefireType::PrefirePerClip => HostPrefireType::PerClip,
+                                WeaponPrefireType::PrefirePerShot => HostPrefireType::PerShot,
+                            }
+                        }).unwrap_or_else(|| attacker.weapon_name_for_slot(slot)
+                            .map(crate::game_logic::weapon_bootstrap::host_prefire_type_for_weapon_name)
+                            .unwrap_or(crate::game_logic::weapon_bootstrap::HostPrefireType::PerShot))
                     };
                     let apply =
                         attacker.pre_attack_delay_applies(slot, target_id, prefire, pre_delay);
@@ -397,10 +413,8 @@ impl GameLogic {
                 .get(&attacker_id)
                 .map(|attacker| {
                     let name = attacker.weapon_name_for_slot(slot);
-                    let base = name
-                        .and_then(
-                            crate::game_logic::weapon_bootstrap::host_primary_damage_for_weapon_name,
-                        )
+                    let base = attacker.selected_native_weapon_rule(slot).map(|rule| rule.primary_damage)
+                        .or_else(|| name.and_then(crate::game_logic::weapon_bootstrap::host_primary_damage_for_weapon_name))
                         .or_else(|| attacker.weapon_slot(slot).map(|w| w.damage))
                         .unwrap_or(0.0);
                     attacker.effective_weapon_damage(base)

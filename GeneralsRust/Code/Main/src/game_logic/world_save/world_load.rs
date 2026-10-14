@@ -133,6 +133,15 @@ impl GameLogic {
                     str::to_string,
                 );
                 self.map_definition_source = Some(definition_source.clone());
+                let weapon_overrides: Vec<_> =
+                    super::script_loader::read_weapon_override_companions(&definition_source)
+                        .into_iter()
+                        .map(|(_, text)| text)
+                        .collect();
+                if let Err(error) = self.apply_receiving_weapon_overrides(&weapon_overrides) {
+                    log::error!("Cannot admit map weapon overrides: {error}");
+                    return false;
+                }
                 if let Some(chunks) = super::script_loader::inspect_map_chunks_from_chunky(&chunky)
                 {
                     log::debug!(

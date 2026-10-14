@@ -2,18 +2,54 @@
 //! Parsing constructs definitions only; it never publishes a simulation owner.
 use super::weapon_bootstrap::{HostProjectileFlight, HostProjectileLifecycle};
 use std::collections::HashMap;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::game_logic) enum ProjectileDefinitionMode {
+    ReceivingContent,
+    LegacyBootstrap,
+}
 #[derive(Debug, Clone)]
 pub(in crate::game_logic) struct ProjectileProfile {
     pub(in crate::game_logic) flight: HostProjectileFlight,
     pub(in crate::game_logic) lifecycle: HostProjectileLifecycle,
 }
 #[derive(Debug, Clone, Default)]
-pub(in crate::game_logic) struct ProjectileDefinitions {
+pub(crate) struct ProjectileDefinitions {
     entries: HashMap<String, ProjectileProfile>,
 }
 impl ProjectileDefinitions {
     pub(in crate::game_logic) fn get(&self, name: &str) -> Option<&ProjectileProfile> {
         self.entries.get(name)
+    }
+    /// Reconstruct projectile module data from the effective archive object row.
+    /// Only definition parsing occurs here; factory callbacks are never executed.
+    pub(in crate::game_logic) fn admit_definition(
+        &mut self,
+        name: &str,
+        definition: &crate::assets::ini_parser::ObjectDefinition,
+    ) -> bool {
+        let mut text = format!("Object {name}\n");
+        for (index, module) in definition.behavior_modules.iter().enumerate() {
+            if !module.class_name.eq_ignore_ascii_case("MissileAIUpdate")
+                && !module
+                    .class_name
+                    .eq_ignore_ascii_case("DumbProjectileBehavior")
+            {
+                continue;
+            }
+            text.push_str(&format!(
+                " Behavior = {} ModuleTag_Owned{index}\n",
+                module.class_name
+            ));
+            // Effective scalar attributes have no remaining source-order dependence.
+            let mut attributes: Vec<_> = module.attributes.iter().collect();
+            attributes.sort_by(|a, b| a.0.cmp(b.0));
+            for (key, value) in attributes {
+                text.push_str(&format!("  {key} = {value}\n"));
+            }
+            text.push_str(" End\n");
+        }
+        text.push_str("End\n");
+        self.admit_object_ini(name, &text)
     }
     /// Existing ThingFactory parses the supplied immutable Object INI locally.
     pub(in crate::game_logic) fn admit_object_ini(&mut self, name: &str, text: &str) -> bool {
@@ -81,29 +117,43 @@ mod tests {
         let text = format!(
             "Object SameMissile\n Behavior = MissileAIUpdate Profile\n IgnitionDelay = {delay}\n TryToFollowTarget = Yes\n End\nEnd"
         );
-        assert!(
-            game.projectile_definitions
-                .admit_object_ini("SameMissile", &text)
+        let mut parser = crate::assets::ini_parser::IniParser::new();
+        parser
+            .parse_ini_content(&text, "receiving-profile.ini")
+            .unwrap();
+        let definitions: Vec<_> = parser
+            .get_all_definitions()
+            .iter()
+            .map(|(name, row)| (name.clone(), row.clone()))
+            .collect();
+        let mut weapons = HashMap::new();
+        assert_eq!(
+            crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+                &mut weapons,
+                "Weapon LocalProfileWeapon\n PrimaryDamage = 20\n PrimaryDamageRadius = 5\n AttackRange = 200\n WeaponSpeed = 300\n MinWeaponSpeed = 300\n ProjectileObject = SameMissile\n SuspendFXDelay = 233\n DelayBetweenShots = 0\n End",
+                crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+            ),
+            1
         );
-        assert!(
-            !game
-                .projectile_definitions
-                .admit_object_ini("SameMissile", &text)
-        );
-        assert!(!game.projectile_definitions.admit_object_ini(" ", &text));
-        let mut native = gamelogic::weapon::WeaponTemplate::new("LocalProfileWeapon".into());
-        native.primary_damage = 20.0;
-        native.primary_damage_radius = 5.0;
-        native.attack_range = 200.0;
-        native.weapon_speed = 10.0;
-        native.min_weapon_speed = 10.0;
-        native.projectile_name = "SameMissile".into();
-        native.suspend_fx_delay = 7;
+        let native = weapons.remove("localprofileweapon").unwrap();
         let mut source = ThingTemplate::new("ProfileSource");
         source
             .add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Attackable);
-        source.bind_native_weapon_row([Some(&native), None, None]);
+        source.set_primary_weapon_name(&native.name);
+        game.admit_weapon_content_snapshot(vec![(native.name.clone(), native)], &definitions)
+            .unwrap();
+        // Invalid detached content cannot replace the admitted receiving owner.
+        assert!(
+            game.admit_weapon_content_snapshot(
+                vec![(
+                    " ".into(),
+                    gamelogic::weapon::WeaponTemplate::new("bad".into())
+                )],
+                &definitions
+            )
+            .is_err()
+        );
         game.templates.insert(source.name.clone(), source);
         let mut target = ThingTemplate::new("ProfileTarget");
         target
@@ -129,12 +179,150 @@ mod tests {
             weapon.suspend_fx_frame, 17,
             "factory instantiation must use its receiving frame"
         );
-        // Current zero-delay stat compatibility maps to a one-second
-        // readiness interval; this profile test admits a legitimately ready
-        // shot rather than changing that separately tracked timing policy.
+        // Advance this receiving match independently of the peer match clock.
         game.frame = 40;
         (game, source, target)
     }
+    #[test]
+    fn unadmitted_native_projectile_rejects_before_ammo_and_effects() {
+        let (mut owner, _, target) = world(0);
+        owner.apply_receiving_weapon_overrides(&[
+            "Weapon LocalProfileWeapon\n ProjectileObject = UnadmittedFlight\n ClipSize = 2\n End".into(),
+        ]).unwrap();
+        let source = owner
+            .create_object_for_player("ProfileSource", 0, Vec3::ZERO)
+            .unwrap();
+        let object = owner.host_object(source).unwrap();
+        let before = object.weapon.as_ref().unwrap().clone();
+        let marker = object.last_fire_frame;
+        assert_eq!(before.ammo, Some(2));
+        assert!(!owner.fire_owned_passive_weapon(source, target, 0, Vec3::ZERO));
+        let object = owner.host_object(source).unwrap();
+        let after = object.weapon.as_ref().unwrap();
+        assert_eq!(after.ammo, before.ammo);
+        assert_eq!(after.last_fire_time, before.last_fire_time);
+        assert_eq!(object.last_fire_frame, marker);
+        assert!(owner.combat_system.projectiles_snapshot().is_empty());
+    }
+
+    #[test]
+    fn map_then_solo_weapon_overrides_are_receiving_owned_and_reset_to_base() {
+        let (mut owner, _, _) = world(0);
+        let (mut peer, _, _) = world(0);
+        owner
+            .apply_receiving_weapon_overrides(&[
+                "Weapon LocalProfileWeapon\n PrimaryDamage = 0\n End".into(),
+                "Weapon LocalProfileWeapon\n SecondaryDamage = 9\n End".into(),
+            ])
+            .unwrap();
+        // A bad later draft leaves both the effective Map/Solo row and the
+        // immutable startup base unchanged; no factory ever sees the NaN.
+        assert!(
+            owner
+                .apply_receiving_weapon_overrides(&[
+                    "Weapon LocalProfileWeapon\n PrimaryDamage = NaN\n End".into(),
+                ])
+                .is_err()
+        );
+        assert_eq!(
+            owner.weapon_definition_base.as_ref().unwrap()["localprofileweapon"].primary_damage,
+            20.0
+        );
+        let id = owner
+            .create_object_for_player("ProfileSource", 0, Vec3::ZERO)
+            .unwrap();
+        let object = owner.host_object(id).unwrap();
+        let rule = object.selected_native_weapon_rule(0).unwrap();
+        assert_eq!(rule.primary_damage, 0.0);
+        assert_eq!(rule.secondary_damage, 9.0);
+        assert_eq!(
+            rule.weapon_speed,
+            300.0_f32 * (1.0_f32 / 30.0),
+            "overrides inherit the receiving base row"
+        );
+        assert_eq!(
+            object.weapon.as_ref().unwrap().damage,
+            0.0,
+            "zero is an allocated native weapon, not absent content"
+        );
+        let peer_id = peer
+            .create_object_for_player("ProfileSource", 0, Vec3::ZERO)
+            .unwrap();
+        assert_eq!(
+            peer.host_object(peer_id)
+                .unwrap()
+                .selected_native_weapon_rule(0)
+                .unwrap()
+                .primary_damage,
+            20.0
+        );
+        owner.reset();
+        let mut player = Player::new(0, Team::USA, "source", false);
+        player.alliance_team = 1;
+        owner.add_player(player);
+        let fresh = owner
+            .create_object_for_player("ProfileSource", 0, Vec3::ZERO)
+            .unwrap();
+        let rule = owner
+            .host_object(fresh)
+            .unwrap()
+            .selected_native_weapon_rule(0)
+            .unwrap();
+        assert_eq!(rule.primary_damage, 20.0);
+        assert_eq!(
+            rule.secondary_damage, 0.0,
+            "a fresh map does not inherit the preceding Solo override"
+        );
+    }
+
+    #[test]
+    fn encoded_save_reconstructs_receiving_native_rules_and_next_launch() {
+        let (mut source_world, source, target) = world(0);
+        assert!(source_world.fire_owned_passive_weapon(source, target, 0, Vec3::ZERO));
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source_world).unwrap();
+        let bytes = bincode::serde::encode_to_vec(&snapshot, bincode::config::legacy()).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        // Definitions are external content, not mutable save state. This
+        // independently admitted receiving match must retain its own rules.
+        let (mut receiving, _, _) = world(1000);
+        builder
+            .restore_from_snapshot(&decoded, &mut receiving)
+            .unwrap();
+        let loaded = receiving.host_object(source).unwrap();
+        let rule = loaded.selected_native_weapon_rule(0).unwrap();
+        assert_eq!(rule.primary_damage, 20.0);
+        assert_eq!(rule.projectile_name, "SameMissile");
+        assert_eq!(loaded.weapon.as_ref().unwrap().suspend_fx_frame, 17);
+        // Materialized flight continuation is independently missing from the
+        // current save record (hq-k9p3l, Source307 negative runtime evidence).
+        // This accepted control covers the saved firing owner and its NEXT
+        // real launch through the receiving immutable profile, not live flight.
+        assert_eq!(
+            loaded.last_fire_frame,
+            source_world.host_object(source).unwrap().last_fire_frame
+        );
+        assert!(receiving.fire_owned_passive_weapon(source, target, 0, Vec3::ZERO));
+        let shot = receiving
+            .combat_system
+            .projectiles_snapshot()
+            .pop()
+            .unwrap();
+        let HostProjectileFlight::Missile(flight) = shot.flight.as_ref().unwrap() else {
+            panic!("actual next receiving Missile launch");
+        };
+        assert_eq!(flight.ignition_delay_frames, 30);
+        let HostProjectileFlight::Missile(profile) = &receiving
+            .projectile_definitions
+            .get("SameMissile")
+            .unwrap()
+            .flight
+        else {
+            panic!("receiving immutable profile");
+        };
+        assert_eq!(profile.ignition_delay_frames, 30);
+    }
+
     #[test]
     fn same_name_receiving_profiles_are_isolated_and_reset_preserves_content() {
         let (mut owner, source, target) = world(0);
@@ -146,7 +334,7 @@ mod tests {
         let own = owner.combat_system.projectiles_snapshot().pop().unwrap();
         let other = peer.combat_system.projectiles_snapshot().pop().unwrap();
         assert_eq!(own.projectile_object_name, "SameMissile");
-        assert_eq!(own.speed, 300.0);
+        assert_eq!(own.speed, (300.0_f32 * (1.0_f32 / 30.0)) * 30.0);
         let HostProjectileFlight::Missile(own) = own.flight.as_ref().unwrap() else {
             panic!("actual owned Missile profile")
         };

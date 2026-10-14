@@ -75,6 +75,11 @@ impl Object {
     /// anti-mask. Parsed Weapon.ini data is authoritative; hand-authored host
     /// weapons retain their legacy air/ground booleans only when no exact
     /// store template is available.
+    pub(super) fn selected_slot_has_ammo_for_shot(&self, slot: u8, weapon: &Weapon) -> bool {
+        let rule = self.selected_native_weapon_rule(slot);
+        Self::weapon_has_ammo_selected(weapon, self.weapon_name_for_slot(slot), rule.as_deref())
+    }
+
     pub fn weapon_allows_target_anti_mask(
         &self,
         weapon: &Weapon,
@@ -87,23 +92,24 @@ impl Object {
             return false;
         }
 
+        let selected = slot.and_then(|slot| self.selected_native_weapon_rule(slot));
         // Target-mask lookup must use the exact authored WeaponSet entry.
         // `secondary_weapon_name()` intentionally falls back to PRIMARY for
         // several legacy readiness paths, but that fallback is not a second
         // C++ WeaponSet declaration and must not make a hand-authored
         // secondary inherit PRIMARY's AntiMask.
-        if let Some(template_mask) = slot
-            .and_then(|slot| self.authored_weapon_name_for_slot(slot))
-            .and_then(|name| {
-                with_weapon_store(|store| {
-                    store
-                        .find_weapon_template(name)
-                        .map(|template| template.get_anti_mask())
+        if let Some(template_mask) = selected.map(|rule| rule.get_anti_mask()).or_else(|| {
+            slot.and_then(|slot| self.authored_weapon_name_for_slot(slot))
+                .and_then(|name| {
+                    with_weapon_store(|store| {
+                        store
+                            .find_weapon_template(name)
+                            .map(|template| template.get_anti_mask())
+                    })
+                    .ok()
+                    .flatten()
                 })
-                .ok()
-                .flatten()
-            })
-        {
+        }) {
             if (template_mask & target_anti_mask) != 0 {
                 return true;
             }
@@ -232,7 +238,7 @@ impl Object {
             // RELOADING_CLIP onto siblings even while their clip is full.
             if weapon.reloading_clip {
                 WeaponFireStatus::ReloadingClip
-            } else if !Self::weapon_has_ammo_for_shot(weapon, name) {
+            } else if !self.selected_slot_has_ammo_for_shot(slot, weapon) {
                 WeaponFireStatus::OutOfAmmo
             } else {
                 let reload = self.effective_weapon_reload(weapon.reload_time);
@@ -291,10 +297,14 @@ impl Object {
                 continue;
             };
             let name = self.weapon_name_for_slot(slot);
-            let Some(n) = name else {
-                continue;
-            };
-            if !host_shows_ammo_pips_for_weapon_name(n) {
+            if !self
+                .selected_native_weapon_rule(slot)
+                .map(|rule| rule.is_shows_ammo_pips)
+                .unwrap_or_else(|| {
+                    name.map(host_shows_ammo_pips_for_weapon_name)
+                        .unwrap_or(false)
+                })
+            {
                 continue;
             }
             let total = if w.clip_size > 0 {
@@ -330,9 +340,13 @@ impl Object {
                 continue;
             };
             let name = self.weapon_name_for_slot(slot);
-            if name
-                .map(host_capable_of_following_waypoint_for_weapon_name)
-                .unwrap_or(false)
+            if self
+                .selected_native_weapon_rule(slot)
+                .map(|rule| rule.capable_of_following_waypoint)
+                .unwrap_or_else(|| {
+                    name.map(host_capable_of_following_waypoint_for_weapon_name)
+                        .unwrap_or(false)
+                })
             {
                 return Some(slot);
             }
@@ -400,10 +414,20 @@ impl Object {
         let mut completed = false;
         for slot in [0u8, 1, 2] {
             let name = self.weapon_name_for_slot(slot).map(str::to_owned);
-            let reload_type = name
-                .as_deref()
-                .map(host_reload_type_for_weapon_name)
-                .unwrap_or(HostReloadType::Auto);
+            let reload_type = self
+                .selected_native_weapon_rule(slot)
+                .map(|rule| match rule.reload_type {
+                    gamelogic::weapon::WeaponReloadType::AutoReload => HostReloadType::Auto,
+                    gamelogic::weapon::WeaponReloadType::ReturnToBaseToReload => {
+                        HostReloadType::ReturnToBase
+                    }
+                    _ => HostReloadType::Manual,
+                })
+                .unwrap_or_else(|| {
+                    name.as_deref()
+                        .map(host_reload_type_for_weapon_name)
+                        .unwrap_or(HostReloadType::Auto)
+                });
             if reload_type != HostReloadType::Auto {
                 continue;
             }
@@ -467,7 +491,7 @@ impl Object {
         };
         let name = self.weapon_name_for_slot(slot);
         let reload = self.live_reload_interval(weapon, name, self.weapon_bonus_fields().2);
-        if !Self::weapon_has_ammo_for_shot(weapon, name) {
+        if !self.selected_slot_has_ammo_for_shot(slot, weapon) {
             self.weapon_fire_status = WeaponFireStatus::OutOfAmmo;
             self.sync_weapon_model_conditions_from_status();
             return;
@@ -730,7 +754,7 @@ impl Object {
         // empty clip that does not AutoReloadsClip is skipped entirely
         // (not even backup). Live maps that to weapon_has_ammo_for_shot
         // (HostReloadType::Manual | ReturnToBase + ammo == 0).
-        if !Self::weapon_has_ammo_for_shot(weapon, self.weapon_name_for_slot(slot)) {
+        if !self.selected_slot_has_ammo_for_shot(slot, weapon) {
             return false;
         }
         // C++ WeaponSet.cpp:826-833: chooseBest elimination is anti-mask only.
@@ -780,6 +804,9 @@ impl Object {
     }
 
     fn leftover_slot_damage_type(&self, slot: u8) -> Option<gamelogic::damage::DamageType> {
+        if let Some(rule) = self.selected_native_weapon_rule(slot) {
+            return Some(rule.damage_type);
+        }
         let name = self.weapon_name_for_slot(slot)?;
         if name.is_empty() {
             return None;
@@ -849,10 +876,27 @@ impl Object {
         // Pitch belongs to this concrete WeaponSet entry. The legacy
         // secondary-name fallback is not an authored SECONDARY declaration.
         let name = self.authored_weapon_name_for_slot(slot).unwrap_or("");
-        if !name.is_empty() && host_is_contact_weapon_name(name) {
+        let selected = self.selected_native_weapon_rule(slot);
+        let contact = selected
+            .as_ref()
+            .map(|rule| rule.is_contact_weapon())
+            .unwrap_or_else(|| !name.is_empty() && host_is_contact_weapon_name(name));
+        if contact {
             return true;
         }
-        let limits = host_target_pitch_limits_for_weapon_name(name);
+        let limits = selected
+            .as_ref()
+            .map(
+                |rule| crate::game_logic::weapon_bootstrap::HostTargetPitchLimits {
+                    min_pitch: crate::game_logic::weapon_bootstrap::normalize_pitch_radians(
+                        rule.min_target_pitch,
+                    ),
+                    max_pitch: crate::game_logic::weapon_bootstrap::normalize_pitch_radians(
+                        rule.max_target_pitch,
+                    ),
+                },
+            )
+            .unwrap_or_else(|| host_target_pitch_limits_for_weapon_name(name));
         let src = self.get_position();
         let tgt = victim.get_position();
         let src_half = self.thing.template.geometry_info.height.max(0.0) * 0.5;
@@ -927,6 +971,32 @@ impl Object {
             return 0.0;
         };
         let name = self.weapon_name_for_slot(slot).unwrap_or("");
+        if let Some(rule) = self.selected_native_weapon_rule(slot) {
+            use gamelogic::damage::{DamageType, DeathType};
+            let est = crate::game_logic::weapon_bootstrap::HostEstimateWeapon {
+                damage_type_sniper: rule.damage_type == DamageType::Sniper,
+                damage_type_surrender: rule.damage_type == DamageType::Surrender,
+                damage_type_disarm: rule.damage_type == DamageType::Disarm,
+                damage_type_deploy: rule.damage_type == DamageType::Deploy,
+                damage_type_kill_garrisoned: rule.damage_type == DamageType::KillGarrisoned,
+                death_type_burned: rule.death_type == DeathType::Burned,
+                allow_attack_garrisoned_bldgs: rule.allow_attack_garrisoned_bldgs,
+                primary_damage: rule.primary_damage,
+            };
+            let victim = crate::game_logic::weapon_bootstrap::host_estimate_victim_from_object(
+                target,
+                target.garrison_count() as u32,
+                crate::game_logic::host_armor_residual::apply_residual_armor(
+                    target,
+                    crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type),
+                    1.0,
+                ),
+            );
+            return crate::game_logic::weapon_bootstrap::estimate_weapon_template_damage(
+                &est,
+                Some(&victim),
+            );
+        }
         // C++ WeaponSet.cpp:847-851 estimates the WEAPON TEMPLATE's
         // PrimaryDamage, not a host-stamped Object copy. Retail STATUS paint
         // weapons (AvengerTargetDesignator) carry their authored duration
@@ -1220,6 +1290,9 @@ impl Object {
 
     /// Resolve AcceptableAimDelta for the active/named weapon slot (radians).
     pub fn aim_delta_for_slot(&self, slot: u8) -> f32 {
+        if let Some(rule) = self.selected_native_weapon_rule(slot) {
+            return rule.aim_delta;
+        }
         let name = self.weapon_name_for_slot(slot);
         name.map(crate::game_logic::weapon_bootstrap::host_aim_delta_for_weapon_name)
             .unwrap_or(crate::game_logic::weapon_bootstrap::AIM_DELTA_REL_THRESH_RAD)
@@ -1298,7 +1371,11 @@ impl Object {
     ) -> u32 {
         let delay = self.weapon_slot(slot).map_or(0.0, |weapon| {
             crate::game_logic::host_avenger::effective_reload_vs_target(
-                self.effective_weapon_reload(weapon.reload_time),
+                self.live_reload_interval(
+                    weapon,
+                    self.weapon_name_for_slot(slot),
+                    self.weapon_bonus_fields().2,
+                ),
                 target_has_faerie_fire,
             )
         });
@@ -1449,13 +1526,17 @@ impl Object {
 
     /// Bind the force-reload delay from the weapon that just fired.
     pub fn stamp_auto_reload_when_idle_from_slot(&mut self, slot: u8, frame: u32) {
-        let delay = match self.weapon_name_for_slot(slot) {
-            Some(name) => {
-                crate::game_logic::thing::ThingTemplate::weapon_tracker_from_store(name)
-                    .auto_reload_when_idle_frames
+        let delay = if let Some(rule) = self.selected_native_weapon_rule(slot) {
+            rule.auto_reload_when_idle_frames
+        } else {
+            match self.weapon_name_for_slot(slot) {
+                Some(name) => {
+                    crate::game_logic::thing::ThingTemplate::weapon_tracker_from_store(name)
+                        .auto_reload_when_idle_frames
+                }
+                None if slot == 0 => self.auto_reload_when_idle_frames,
+                None => 0,
             }
-            None if slot == 0 => self.auto_reload_when_idle_frames,
-            None => 0,
         };
         if delay == 0 {
             return;
@@ -1534,3 +1615,7 @@ fn leftover_parse_controlled_weapon_slots(template_name: &str) -> Option<u32> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "selected_weapon_rule_tests.rs"]
+mod selected_weapon_rule_tests;

@@ -17,6 +17,16 @@ impl GameLogic {
             target_location,
             ..
         } = input;
+        let native_rule = self
+            .objects
+            .get(&attacker_id)
+            .and_then(|source| source.selected_native_weapon_rule(slot));
+        let native_rank = |rank| match rank {
+            VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
+            VeterancyLevel::Veteran => gamelogic::common::VeterancyLevel::Veteran,
+            VeterancyLevel::Elite => gamelogic::common::VeterancyLevel::Elite,
+            VeterancyLevel::Heroic => gamelogic::common::VeterancyLevel::Heroic,
+        };
         let target_has_faerie_fire = target_id
             .and_then(|id| self.objects.get(&id))
             .is_some_and(|target| target.is_faerie_fire());
@@ -106,6 +116,12 @@ impl GameLogic {
                 .get(&attacker_id)
                 .and_then(|attacker| {
                     let veterancy = attacker.experience.level;
+                    if let Some(rule) = native_rule.as_ref() {
+                        return Some((
+                            rule.get_fire_fx(native_rank(veterancy)).map(|fx| fx.name().to_owned()).unwrap_or_default(),
+                            rule.get_projectile_detonate_fx(native_rank(veterancy)).map(|fx| fx.name().to_owned()).unwrap_or_default(),
+                        ));
+                    }
                     attacker.weapon_name_for_slot(slot).map(|weapon_name| {
                         (
                             crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name_at_veterancy(
@@ -142,11 +158,9 @@ impl GameLogic {
                     return false;
                 }
                 let wname = o.weapon_name_for_slot(slot);
-                let play = wname
-                    .map(
-                        crate::game_logic::weapon_bootstrap::host_play_fx_when_stealthed_for_weapon_name,
-                    )
-                    .unwrap_or(false);
+                let play = native_rule.as_ref().map(|rule| rule.play_fx_when_stealthed).unwrap_or_else(|| wname
+                    .map(crate::game_logic::weapon_bootstrap::host_play_fx_when_stealthed_for_weapon_name)
+                    .unwrap_or(false));
                 !play
             })
             .unwrap_or(false)
@@ -156,12 +170,16 @@ impl GameLogic {
         // (TestTank has no Weapon.ini name). Residual muzzle/impact
         // still registers so fire is observable; named FireFX stays
         // on the dispatch path. See combat_fire_fx.rs.
+        // A known native null FireFX is silent. The primitive fallback below
+        // belongs only to explicitly unadmitted, nameless probes.
         // The accepted definition was sampled before callbacks. A promotion
         // or a receiving-only definition must not create a second generic
         // muzzle after its named FireFX already ran (or was suppressed).
-        if !visual
-            .as_ref()
-            .is_some_and(|shot| shot.has_authored_fire_fx)
+        if native_rule.is_none()
+            && self.weapon_definitions.is_none()
+            && !visual
+                .as_ref()
+                .is_some_and(|shot| shot.has_authored_fire_fx)
         {
             self.spawn_residual_muzzle_when_dispatch_has_no_fire_fx(
                 suppress_fire_fx,
@@ -181,13 +199,16 @@ impl GameLogic {
                 .objects
                 .get(&attacker_id)
                 .and_then(|attacker| attacker.weapon_name_for_slot(slot));
-            let laser_name = weapon_name
-                .map(crate::game_logic::weapon_bootstrap::host_laser_name_for_weapon_name)
-                .unwrap_or_default();
+            let laser_name = native_rule
+                .as_ref()
+                .map(|rule| rule.laser_name.clone())
+                .unwrap_or_else(|| {
+                    weapon_name
+                        .map(crate::game_logic::weapon_bootstrap::host_laser_name_for_weapon_name)
+                        .unwrap_or_default()
+                });
             if !laser_name.is_empty() {
-                let laser_bone = weapon_name
-                    .map(crate::game_logic::weapon_bootstrap::host_laser_bone_name_for_weapon_name)
-                    .unwrap_or_default();
+                let laser_bone = native_rule.as_ref().map(|rule| rule.laser_bone_name.clone()).unwrap_or_else(|| weapon_name.map(crate::game_logic::weapon_bootstrap::host_laser_bone_name_for_weapon_name).unwrap_or_default());
                 let to = impact_pos.unwrap_or(muzzle_pos);
                 let laser_name_owned = laser_name.clone();
                 self.weapon_lasers.push(
@@ -220,12 +241,16 @@ impl GameLogic {
         // no authored FireSound is silent. Never queue an invented
         // generic token — no "WeaponFire" AudioEvent exists in retail
         // SoundEffects.ini, so it can only dead-end as ERR(no-info).
-        let fire_sound = self
-            .objects
-            .get(&attacker_id)
-            .and_then(|attacker| attacker.weapon_name_for_slot(slot))
-            .map(crate::game_logic::weapon_bootstrap::host_fire_sound_for_weapon_name)
-            .filter(|sound| !sound.is_empty());
+        let fire_sound = if let Some(rule) = native_rule.as_ref() {
+            let name = rule.fire_sound.name();
+            (!name.is_empty()).then(|| name.to_owned())
+        } else {
+            self.objects
+                .get(&attacker_id)
+                .and_then(|attacker| attacker.weapon_name_for_slot(slot))
+                .map(crate::game_logic::weapon_bootstrap::host_fire_sound_for_weapon_name)
+                .filter(|sound| !sound.is_empty())
+        };
         if let Some(fire_sound) = fire_sound {
             self.queue_audio_event(
                 AudioEventRequest::new(fire_sound.as_str())

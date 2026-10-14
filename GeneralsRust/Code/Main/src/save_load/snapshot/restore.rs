@@ -112,22 +112,26 @@ impl SnapshotBuilder {
         // may not have the full INI catalog — synthesize a minimal template so
         // retail map saves remain restorable. Queued unit definitions are
         // validated against the loaded catalog before this fallback can run.
-        let template = if let Some(t) = game_logic.templates.get(snapshot.template_name.as_str()) {
-            t.clone()
-        } else {
-            let mut t = ThingTemplate::new(&snapshot.template_name);
-            t.set_health(snapshot.health.maximum.max(1.0));
-            game_logic
-                .templates
-                .insert(snapshot.template_name.clone(), t.clone());
-            log::debug!(
-                "Synthesized template '{}' while restoring object {}",
-                snapshot.template_name,
-                snapshot.id
-            );
-            t
-        };
+        let mut template =
+            if let Some(t) = game_logic.templates.get(snapshot.template_name.as_str()) {
+                t.clone()
+            } else {
+                let mut t = ThingTemplate::new(&snapshot.template_name);
+                t.set_health(snapshot.health.maximum.max(1.0));
+                game_logic
+                    .templates
+                    .insert(snapshot.template_name.clone(), t.clone());
+                log::debug!(
+                    "Synthesized template '{}' while restoring object {}",
+                    snapshot.template_name,
+                    snapshot.id
+                );
+                t
+            };
 
+        if let Some(catalog) = game_logic.weapon_definitions.as_ref() {
+            template.bind_receiving_weapon_sets(catalog);
+        }
         if let Some(Err(error)) = &template.structure_topple_definition {
             return Err(SaveLoadError::Corrupted(format!(
                 "Cannot restore object {}: {error}",

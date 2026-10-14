@@ -2273,6 +2273,7 @@ fn slave_drone_attach_inherits_master_rank() {
     );
     let mid = ObjectId(6100);
     let mut mt = ThingTemplate::new("AmericaVehicleHumvee");
+    mt.set_primary_weapon_name("HumveeGun");
     mt.add_kind_of(KindOf::Vehicle);
     logic.objects.insert(mid, {
         let mut o = Object::new(mt, mid, Team::USA);

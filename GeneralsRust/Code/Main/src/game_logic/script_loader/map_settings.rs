@@ -1,5 +1,50 @@
 // C++ ownership: WorldHeightMap::ParseLightingDataChunk and GameLogic::loadMapINI map settings.
 
+/// CPP loadMapINI loads Map.ini then Solo.ini from the pristine map source.
+/// Reuse the map settings reader; retain the concrete source for diagnostics.
+pub(crate) fn read_weapon_override_companions(source: &str) -> Vec<(PathBuf, String)> {
+    let Some(map_path) = resolve_map_companion_source(source) else {
+        return Vec::new();
+    };
+    let Some(directory) = map_path.parent() else {
+        return Vec::new();
+    };
+    [["Map.ini", "map.ini"], ["Solo.ini", "solo.ini"]]
+        .into_iter()
+        .filter_map(|names| first_readable_map_ini_companion(directory, &names))
+        .collect()
+}
+
+#[cfg(test)]
+mod weapon_override_companion_tests {
+    use super::*;
+    #[test]
+    fn actual_companion_reader_preserves_map_then_solo_paths_without_geometry() {
+        let directory = tempfile::tempdir().unwrap();
+        let map = directory.path().join("SavedPristine.map");
+        let map_ini = directory.path().join("Map.ini");
+        let solo_ini = directory.path().join("Solo.ini");
+        fs::write(&map_ini, "Weapon SameRule\nPrimaryDamage = 40\nEnd\n").unwrap();
+        fs::write(&solo_ini, "Weapon SameRule\nPrimaryDamage = 55\nEnd\n").unwrap();
+        assert!(
+            !map.exists(),
+            "saved geometry need not remain beside companions"
+        );
+        let texts = read_weapon_override_companions(map.to_str().unwrap());
+        assert_eq!(texts.len(), 2);
+        assert_eq!(texts[0].0, map_ini);
+        assert_eq!(texts[1].0, solo_ini);
+        assert!(texts[0].1.contains("PrimaryDamage = 40"));
+        assert!(texts[1].1.contains("PrimaryDamage = 55"));
+        fs::remove_file(&map_ini).unwrap();
+        fs::remove_file(&solo_ini).unwrap();
+        assert!(
+            texts[0].1.contains("PrimaryDamage = 40"),
+            "owned text outlives source files"
+        );
+        assert!(read_weapon_override_companions(map.to_str().unwrap()).is_empty());
+    }
+}
 /// Parse high-level settings like world bounds and lighting colors.
 pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
     let mut meta = MapMetadata::default();

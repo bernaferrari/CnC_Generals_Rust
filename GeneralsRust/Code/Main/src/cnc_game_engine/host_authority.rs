@@ -1410,6 +1410,10 @@ impl CnCGameEngine {
         slot: &str,
         active_mode: crate::game_logic::GameMode,
         template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
+        weapon_catalog: &Option<
+            std::collections::HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>,
+        >,
+        projectile_definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
@@ -1429,6 +1433,8 @@ impl CnCGameEngine {
             slot,
             active_mode,
             template_catalog,
+            weapon_catalog,
+            projectile_definitions,
             ai_definition_base,
             production_energy_base,
             physics_rules_base,
@@ -1454,6 +1460,10 @@ impl CnCGameEngine {
         slot: &str,
         active_mode: crate::game_logic::GameMode,
         template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
+        weapon_catalog: &Option<
+            std::collections::HashMap<String, Arc<gamelogic::weapon::WeaponTemplate>>,
+        >,
+        projectile_definitions: &crate::game_logic::projectile_definitions::ProjectileDefinitions,
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
@@ -1511,6 +1521,9 @@ impl CnCGameEngine {
         // custom/mod templates from the source match while retaining the fresh
         // world's standard startup catalog.
         staged.templates.extend(template_catalog.clone());
+        staged.weapon_definition_base = weapon_catalog.clone();
+        staged.weapon_definitions = weapon_catalog.clone();
+        staged.projectile_definitions = projectile_definitions.clone();
 
         // Preserve the saved logical identity in `GameLogic::map_name`; the
         // prior resolution above only proves that this exact identity maps to
@@ -1590,6 +1603,8 @@ impl CnCGameEngine {
             slot,
             active_mode,
             &template_catalog,
+            &self.game_logic.weapon_definition_base,
+            &self.game_logic.projectile_definitions,
             self.game_logic.ai_definitions.baseline(),
             self.game_logic.production_energy_baseline(),
             self.game_logic.physics_rules_baseline(),
@@ -2143,6 +2158,8 @@ mod staged_restore_tests {
             "missing_map",
             GameMode::Shell,
             &catalog,
+            &source.weapon_definition_base,
+            &source.projectile_definitions,
             source.ai_definitions.baseline(),
             source.production_energy_baseline(),
             source.physics_rules_baseline(),
@@ -2180,6 +2197,8 @@ mod staged_restore_tests {
                     "corrupt_client",
                     GameMode::Skirmish,
                     &catalog,
+                    &logic.weapon_definition_base,
+                    &logic.projectile_definitions,
                     logic.ai_definitions.baseline(),
                     logic.production_energy_baseline(),
                     logic.physics_rules_baseline(),
@@ -2283,6 +2302,8 @@ mod staged_restore_tests {
                     "valid_map",
                     GameMode::Shell,
                     &catalog,
+                    &source.weapon_definition_base,
+                    &source.projectile_definitions,
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
                     source.physics_rules_baseline(),
@@ -2535,6 +2556,8 @@ mod staged_restore_tests {
                     "forced_stage_failure",
                     GameMode::Skirmish,
                     &catalog,
+                    &source.weapon_definition_base,
+                    &source.projectile_definitions,
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
                     source.physics_rules_baseline(),
@@ -2814,6 +2837,8 @@ mod staged_restore_tests {
                             "owned_companions",
                             GameMode::Skirmish,
                             &catalog,
+                            &source.weapon_definition_base,
+                            &source.projectile_definitions,
                             source.ai_definitions.baseline(),
                             source.production_energy_baseline(),
                             source.physics_rules_baseline(),
@@ -3045,6 +3070,8 @@ mod staged_restore_tests {
                     "rng_continue",
                     GameMode::Shell,
                     &catalog,
+                    &source.weapon_definition_base,
+                    &source.projectile_definitions,
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
                     source.physics_rules_baseline(),
@@ -3303,6 +3330,8 @@ mod staged_restore_tests {
                         "owned_services",
                         GameMode::Skirmish,
                         &catalog,
+                        &source.weapon_definition_base,
+                        &source.projectile_definitions,
                         source.ai_definitions.baseline(),
                         source.production_energy_baseline(),
                         source.physics_rules_baseline(),
@@ -3339,6 +3368,8 @@ mod staged_restore_tests {
                         "owned_services",
                         GameMode::Skirmish,
                         &catalog,
+                        &source.weapon_definition_base,
+                        &source.projectile_definitions,
                         source.ai_definitions.baseline(),
                         source.production_energy_baseline(),
                         source.physics_rules_baseline(),

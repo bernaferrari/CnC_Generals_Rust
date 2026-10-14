@@ -216,8 +216,8 @@ pub(super) fn seed_weapon_speed_peel_for(name: &str) -> HostWeaponSpeedPeel {
     // AmericaFireBaseHowitzer / StrategyCenter artillery lob residual.
     if n.contains("firebase") || n.contains("howitzer") {
         return HostWeaponSpeedPeel {
-            weapon_speed: 300.0,
-            min_weapon_speed: 75.0,
+            weapon_speed: seed_velocity_per_logic_frame(300.0),
+            min_weapon_speed: seed_velocity_per_logic_frame(75.0),
             scale_weapon_speed: true,
             attack_range: 375.0,
             min_attack_range: 50.0,
@@ -225,8 +225,8 @@ pub(super) fn seed_weapon_speed_peel_for(name: &str) -> HostWeaponSpeedPeel {
     }
     if n.contains("artillery") || n.contains("strategycenter") {
         return HostWeaponSpeedPeel {
-            weapon_speed: 300.0,
-            min_weapon_speed: 75.0,
+            weapon_speed: seed_velocity_per_logic_frame(300.0),
+            min_weapon_speed: seed_velocity_per_logic_frame(75.0),
             scale_weapon_speed: true,
             attack_range: 400.0,
             min_attack_range: 50.0,
@@ -234,8 +234,8 @@ pub(super) fn seed_weapon_speed_peel_for(name: &str) -> HostWeaponSpeedPeel {
     }
     if n.contains("scud") && n.contains("weapon") && !n.contains("damage") {
         return HostWeaponSpeedPeel {
-            weapon_speed: 150.0,
-            min_weapon_speed: 75.0,
+            weapon_speed: seed_velocity_per_logic_frame(150.0),
+            min_weapon_speed: seed_velocity_per_logic_frame(75.0),
             scale_weapon_speed: true,
             attack_range: 250.0,
             min_attack_range: 0.0,

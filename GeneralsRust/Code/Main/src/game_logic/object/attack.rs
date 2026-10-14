@@ -84,6 +84,7 @@ impl Object {
             logic_frame,
             &mut combat.fire_sound_loop_events,
             attack_events,
+            None,
         )?;
         super::combat::queue_projectile(combat, pending);
         Some(slot)
@@ -103,6 +104,7 @@ impl Object {
         muzzle_origin: Vec3,
         sound_events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         self.prepare_weapon_shot(
             WeaponShotRoute::Passive {
@@ -116,6 +118,7 @@ impl Object {
             logic_frame,
             sound_events,
             attack_events,
+            content,
         )
     }
 
@@ -128,6 +131,7 @@ impl Object {
         frame: u32,
         sound: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
         attacks: &mut crate::game_logic::host_attack_log::AttackEvents,
+        content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         self.prepare_weapon_shot(
             WeaponShotRoute::Autonomous,
@@ -138,7 +142,35 @@ impl Object {
             frame,
             sound,
             attacks,
+            content,
         )
+    }
+
+    /// The receiving content catalogue cannot silently substitute a process
+    /// bootstrap profile for an unimplemented authored projectile family.
+    pub(in crate::game_logic) fn selected_projectile_is_admitted(
+        &self,
+        slot: u8,
+        content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
+    ) -> bool {
+        let Some(content) = content else {
+            return true;
+        };
+        let Some(rule) = self.selected_native_weapon_rule(slot) else {
+            return false;
+        };
+        let projectile = rule.projectile_name.trim();
+        if projectile.is_empty()
+            || projectile.eq_ignore_ascii_case("None")
+            || content.get(projectile).is_some()
+        {
+            return true;
+        }
+        log::error!(
+            "Receiving projectile definition '{}' has no admitted flight family",
+            projectile
+        );
+        false
     }
 
     fn prepare_weapon_shot(
@@ -151,6 +183,7 @@ impl Object {
         logic_frame: u32,
         sound_events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
         attack_events: &mut crate::game_logic::host_attack_log::AttackEvents,
+        content: Option<&crate::game_logic::projectile_definitions::ProjectileDefinitions>,
     ) -> Option<(u8, super::combat::PendingProjectile)> {
         let autonomous = matches!(route, WeaponShotRoute::Autonomous);
         // C++ Weapon::getMaxShotCount residual — AI burst / scatter limits.
@@ -184,7 +217,13 @@ impl Object {
                 rof *= crate::game_logic::host_avenger::FAERIE_FIRE_ROF_MULTIPLIER;
             }
             let reload = self.live_reload_interval(weapon, name, rof);
-            if !Self::weapon_ready_named(weapon, current_time, name, reload) {
+            if !Self::weapon_ready_selected(
+                weapon,
+                current_time,
+                name,
+                reload,
+                self.selected_native_weapon_rule(slot).as_deref(),
+            ) {
                 return None;
             }
             slot
@@ -197,16 +236,34 @@ impl Object {
             let secondary_name = self.secondary_weapon_name().map(|s| s.to_string());
             let primary_ready = self.weapon_slot(0).is_some_and(|w| {
                 let reload = self.live_reload_interval(w, primary_name.as_deref(), rof);
-                Self::weapon_ready_named(w, current_time, primary_name.as_deref(), reload)
+                Self::weapon_ready_selected(
+                    w,
+                    current_time,
+                    primary_name.as_deref(),
+                    reload,
+                    self.selected_native_weapon_rule(0).as_deref(),
+                )
             });
             let secondary_ready = self.secondary_weapon.as_ref().is_some_and(|w| {
                 let reload = self.live_reload_interval(w, secondary_name.as_deref(), rof);
-                Self::weapon_ready_named(w, current_time, secondary_name.as_deref(), reload)
+                Self::weapon_ready_selected(
+                    w,
+                    current_time,
+                    secondary_name.as_deref(),
+                    reload,
+                    self.selected_native_weapon_rule(1).as_deref(),
+                )
             });
             let tertiary_name = self.tertiary_weapon_name().map(str::to_owned);
             let tertiary_ready = self.tertiary_weapon.as_ref().is_some_and(|w| {
                 let reload = self.live_reload_interval(w, tertiary_name.as_deref(), rof);
-                Self::weapon_ready_named(w, current_time, tertiary_name.as_deref(), reload)
+                Self::weapon_ready_selected(
+                    w,
+                    current_time,
+                    tertiary_name.as_deref(),
+                    reload,
+                    self.selected_native_weapon_rule(2).as_deref(),
+                )
             });
 
             if self.weapon_lock_type != WeaponLockType::NotLocked {
@@ -239,6 +296,10 @@ impl Object {
             }
         };
 
+        if !self.selected_projectile_is_admitted(slot, content) {
+            return None;
+        }
+
         // C++ Weapon::getPreAttackDelay / PreAttackType residual.
         let pre_delay = {
             let base = self
@@ -249,8 +310,20 @@ impl Object {
         };
         let prefire = {
             let name = self.weapon_name_for_slot(slot);
-            name.map(crate::game_logic::weapon_bootstrap::host_prefire_type_for_weapon_name)
-                .unwrap_or(crate::game_logic::weapon_bootstrap::HostPrefireType::PerShot)
+            self.selected_native_weapon_rule(slot)
+                .map(|rule| {
+                    use crate::game_logic::weapon_bootstrap::HostPrefireType as Host;
+                    use gamelogic::weapon::WeaponPrefireType as Native;
+                    match rule.prefire_type {
+                        Native::PrefirePerShot => Host::PerShot,
+                        Native::PrefirePerAttack => Host::PerAttack,
+                        Native::PrefirePerClip => Host::PerClip,
+                    }
+                })
+                .unwrap_or_else(|| {
+                    name.map(crate::game_logic::weapon_bootstrap::host_prefire_type_for_weapon_name)
+                        .unwrap_or(crate::game_logic::weapon_bootstrap::HostPrefireType::PerShot)
+                })
         };
         let apply_delay = self.pre_attack_delay_applies(slot, target_id, prefire, pre_delay);
         if apply_delay {
@@ -313,9 +386,16 @@ impl Object {
             .unwrap_or((0.0, 0.0, 0.0));
         // Prefer store PrimaryDamage so baked promotion scalars on PRIMARY
         // are not stacked again with weapon_bonus_fields veterancy.
-        let template_damage = name
-            .and_then(crate::game_logic::weapon_bootstrap::host_primary_damage_for_weapon_name)
-            .unwrap_or(fallback_damage);
+        let native_rule = self.selected_native_weapon_rule(slot);
+        let template_damage = native_rule
+            .as_ref()
+            .map(|rule| rule.primary_damage)
+            .unwrap_or_else(|| {
+                name.and_then(
+                    crate::game_logic::weapon_bootstrap::host_primary_damage_for_weapon_name,
+                )
+                .unwrap_or(fallback_damage)
+            });
         let weapon_damage = self.effective_weapon_damage(template_damage);
 
         // Resolve immutable Weapon.ini peels before borrowing the live slot.
@@ -328,87 +408,182 @@ impl Object {
                 name.map(crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name)
                     .unwrap_or_default()
             });
-        let fire_fx_name = name
-            .map(|weapon_name| {
-                crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name_at_veterancy(
-                    weapon_name,
-                    veterancy,
-                )
+        let native_rank = match veterancy {
+            crate::game_logic::VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
+            crate::game_logic::VeterancyLevel::Veteran => {
+                gamelogic::common::VeterancyLevel::Veteran
+            }
+            crate::game_logic::VeterancyLevel::Elite => gamelogic::common::VeterancyLevel::Elite,
+            crate::game_logic::VeterancyLevel::Heroic => gamelogic::common::VeterancyLevel::Heroic,
+        };
+        let fire_fx_name = native_rule
+            .as_ref()
+            .map(|rule| {
+                rule.get_fire_fx(native_rank)
+                    .map(|fx| fx.name().to_owned())
+                    .unwrap_or_default()
             })
-            .unwrap_or_default();
-        let fire_ocl_name = name
-            .map(|weapon_name| {
-                crate::game_logic::weapon_bootstrap::host_fire_ocl_for_weapon_name_at_veterancy(
-                    weapon_name,
-                    veterancy,
-                )
+            .unwrap_or_else(|| {
+                name.map(|weapon_name| {
+                    crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name_at_veterancy(
+                        weapon_name,
+                        veterancy,
+                    )
+                })
+                .unwrap_or_default()
+            });
+        let fire_ocl_name = native_rule
+            .as_ref()
+            .map(|rule| {
+                rule.get_fire_ocl_name(native_rank)
+                    .unwrap_or_default()
+                    .to_owned()
             })
-            .unwrap_or_default();
-        let detonation_fx_name = name
+            .unwrap_or_else(|| {
+                name.map(|weapon_name| {
+                    crate::game_logic::weapon_bootstrap::host_fire_ocl_for_weapon_name_at_veterancy(
+                        weapon_name,
+                        veterancy,
+                    )
+                })
+                .unwrap_or_default()
+            });
+        let detonation_fx_name = native_rule.as_ref().map(|rule| rule.get_projectile_detonate_fx(native_rank).map(|fx| fx.name().to_owned()).unwrap_or_default()).unwrap_or_else(|| name
             .map(|weapon_name| {
                 crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name_at_veterancy(
                     weapon_name,
                     veterancy,
                 )
             })
-            .unwrap_or_default();
-        let detonation_ocl_name = name
+            .unwrap_or_default());
+        let detonation_ocl_name = native_rule.as_ref().map(|rule| rule.get_projectile_detonation_ocl_name(native_rank).unwrap_or_default().to_owned()).unwrap_or_else(|| name
             .map(|weapon_name| {
                 crate::game_logic::weapon_bootstrap::host_detonation_ocl_for_weapon_name_at_veterancy(
                     weapon_name,
                     veterancy,
                 )
             })
-            .unwrap_or_default();
-        let exhaust_name = name
+            .unwrap_or_default());
+        let exhaust_name = native_rule.as_ref().map(|rule| rule.get_projectile_exhaust_name(native_rank).unwrap_or_default().to_owned()).unwrap_or_else(|| name
             .map(|weapon_name| {
                 crate::game_logic::weapon_bootstrap::host_projectile_exhaust_for_weapon_name_at_veterancy(
                     weapon_name,
                     veterancy,
                 )
             })
-            .unwrap_or_default();
+            .unwrap_or_default());
         // C++ getSecondaryDamage(bonus) — WeaponBonus::DAMAGE at fire time.
         let secondary_damage = self.effective_weapon_damage(
-            name.map(crate::game_logic::weapon_bootstrap::host_secondary_damage_for_weapon_name)
-                .unwrap_or(0.0),
+            native_rule
+                .as_ref()
+                .map(|rule| rule.secondary_damage)
+                .unwrap_or_else(|| {
+                    name.map(
+                        crate::game_logic::weapon_bootstrap::host_secondary_damage_for_weapon_name,
+                    )
+                    .unwrap_or(0.0)
+                }),
         );
-        let secondary_damage_radius = name
-            .map(crate::game_logic::weapon_bootstrap::host_secondary_damage_radius_for_weapon_name)
-            .unwrap_or(0.0);
-        let shock_wave_amount = name
-            .map(crate::game_logic::weapon_bootstrap::host_shock_wave_amount_for_weapon_name)
-            .unwrap_or(0.0);
-        let shock_wave_radius = name
-            .map(crate::game_logic::weapon_bootstrap::host_shock_wave_radius_for_weapon_name)
-            .unwrap_or(0.0);
-        let shock_wave_taper_off = name
-            .map(crate::game_logic::weapon_bootstrap::host_shock_wave_taper_for_weapon_name)
-            .unwrap_or(0.0);
-        let radius_damage_affects = name
-            .map(crate::game_logic::weapon_bootstrap::host_radius_damage_affects_for_weapon_name)
-            .unwrap_or(crate::game_logic::weapon_bootstrap::WEAPON_AFFECTS_DEFAULT);
-        let projectile_collides = name
-            .map(crate::game_logic::weapon_bootstrap::host_projectile_collides_for_weapon_name)
-            .unwrap_or(crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT);
+        let secondary_damage_radius = native_rule.as_ref().map(|rule| rule.secondary_damage_radius).unwrap_or_else(||
+            name.map(crate::game_logic::weapon_bootstrap::host_secondary_damage_radius_for_weapon_name).unwrap_or(0.0));
+        let shock_wave_amount = native_rule
+            .as_ref()
+            .map(|rule| rule.shock_wave_amount)
+            .unwrap_or_else(|| {
+                name.map(
+                    crate::game_logic::weapon_bootstrap::host_shock_wave_amount_for_weapon_name,
+                )
+                .unwrap_or(0.0)
+            });
+        let shock_wave_radius = native_rule
+            .as_ref()
+            .map(|rule| rule.shock_wave_radius)
+            .unwrap_or_else(|| {
+                name.map(
+                    crate::game_logic::weapon_bootstrap::host_shock_wave_radius_for_weapon_name,
+                )
+                .unwrap_or(0.0)
+            });
+        let shock_wave_taper_off = native_rule
+            .as_ref()
+            .map(|rule| rule.shock_wave_taper_off)
+            .unwrap_or_else(|| {
+                name.map(crate::game_logic::weapon_bootstrap::host_shock_wave_taper_for_weapon_name)
+                    .unwrap_or(0.0)
+            });
+        let radius_damage_affects = native_rule
+            .as_ref()
+            .map(|rule| rule.affects_mask.bits())
+            .unwrap_or_else(|| {
+                name.map(
+                    crate::game_logic::weapon_bootstrap::host_radius_damage_affects_for_weapon_name,
+                )
+                .unwrap_or(crate::game_logic::weapon_bootstrap::WEAPON_AFFECTS_DEFAULT)
+            });
+        let projectile_collides = native_rule
+            .as_ref()
+            .map(|rule| rule.collide_mask.bits())
+            .unwrap_or_else(|| {
+                name.map(
+                    crate::game_logic::weapon_bootstrap::host_projectile_collides_for_weapon_name,
+                )
+                .unwrap_or(crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT)
+            });
         let scatter_table_offset = self.take_scatter_table_offset(slot, name);
         let scatter_radius = if scatter_table_offset.is_some() {
             0.0
         } else {
-            name.map(|weapon_name| {
-                crate::game_logic::weapon_bootstrap::host_effective_scatter_radius(
-                    weapon_name,
-                    target_is_infantry,
-                )
-            })
-            .unwrap_or(0.0)
+            native_rule
+                .as_ref()
+                .map(|rule| {
+                    rule.scatter_radius
+                        + if target_is_infantry {
+                            rule.infantry_inaccuracy_dist
+                        } else {
+                            0.0
+                        }
+                })
+                .unwrap_or_else(|| {
+                    name.map(|weapon_name| {
+                        crate::game_logic::weapon_bootstrap::host_effective_scatter_radius(
+                            weapon_name,
+                            target_is_infantry,
+                        )
+                    })
+                    .unwrap_or(0.0)
+                })
         };
-        let speed_peel = name
-            .map(crate::game_logic::weapon_bootstrap::host_weapon_speed_peel_for_weapon_name)
-            .unwrap_or_default();
-        let historic_bonus = name
-            .map(crate::game_logic::weapon_bootstrap::host_historic_bonus_for_weapon_name)
-            .unwrap_or_default();
+        let speed_peel = native_rule
+            .as_ref()
+            .map(
+                |rule| crate::game_logic::weapon_bootstrap::HostWeaponSpeedPeel {
+                    weapon_speed: rule.weapon_speed,
+                    min_weapon_speed: rule.min_weapon_speed,
+                    scale_weapon_speed: rule.is_scale_weapon_speed,
+                    attack_range: rule.attack_range,
+                    min_attack_range: rule.minimum_attack_range,
+                },
+            )
+            .unwrap_or_else(|| {
+                name.map(
+                    crate::game_logic::weapon_bootstrap::host_weapon_speed_peel_for_weapon_name,
+                )
+                .unwrap_or_default()
+            });
+        let historic_bonus = native_rule
+            .as_ref()
+            .map(
+                |rule| crate::game_logic::weapon_bootstrap::HostHistoricBonusPeel {
+                    time_frames: rule.historic_bonus_time,
+                    count: rule.historic_bonus_count,
+                    radius: rule.historic_bonus_radius.max(0.0),
+                    bonus_weapon: rule.historic_bonus_weapon_name.clone(),
+                },
+            )
+            .unwrap_or_else(|| {
+                name.map(crate::game_logic::weapon_bootstrap::host_historic_bonus_for_weapon_name)
+                    .unwrap_or_default()
+            });
 
         {
             let _ = self.capture_pending_weapon_visual_dispatch(
@@ -421,14 +596,23 @@ impl Object {
         let (weapon_speed, weapon_splash, weapon_homing, auto_reloaded_clip, clip_emptied) =
             match self.weapon_slot_mut(slot) {
                 Some(weapon) => {
-                    Self::consume_ammo_on_fire_named(weapon, current_time, name);
+                    Self::consume_ammo_on_fire_selected(
+                        weapon,
+                        current_time,
+                        name,
+                        native_rule.as_deref(),
+                    );
                     let clip_emptied = weapon.ammo == Some(0);
                     (
                         weapon.projectile_speed,
                         weapon.splash_radius,
                         // AA residual: air-only weapons home on the live target.
                         weapon.can_target_air && !weapon.can_target_ground,
-                        Self::auto_reloaded_clip_after_firing(weapon, name),
+                        Self::auto_reloaded_clip_after_firing_selected(
+                            weapon,
+                            name,
+                            native_rule.as_deref(),
+                        ),
                         clip_emptied,
                     )
                 }
@@ -445,12 +629,23 @@ impl Object {
             }
             if let Some(weapon_name) = name {
                 let rof = self.weapon_bonus_fields().2;
-                if let Some(rolled) =
-                    crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_with_rof(
-                        weapon_name,
-                        rof,
-                    )
-                {
+                let rolled = native_rule
+                    .as_ref()
+                    .map(|rule| {
+                        let mut bonus = gamelogic::weapon::WeaponBonus::new();
+                        bonus.set_field(
+                            gamelogic::weapon::WeaponBonusField::RateOfFire,
+                            rof.max(0.01),
+                        );
+                        rule.get_delay_between_shots(&bonus) as f32 / 30.0
+                    })
+                    .or_else(|| {
+                        crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_with_rof(
+                            weapon_name,
+                            rof,
+                        )
+                    });
+                if let Some(rolled) = rolled {
                     let nominal = self
                         .weapon_slot(slot)
                         .map(|weapon| self.live_reload_interval(weapon, Some(weapon_name), rof))
@@ -472,7 +667,9 @@ impl Object {
 
         // Prefer Weapon.ini DamageType via store name; shape residual if the
         // source name has no usable host store entry.
-        let weapon_dtype = if let Some(weapon_name) = name {
+        let weapon_dtype = if let Some(rule) = native_rule.as_ref() {
+            crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type)
+        } else if let Some(weapon_name) = name {
             if crate::game_logic::thing::ThingTemplate::weapon_from_host_store(weapon_name)
                 .is_some()
             {
@@ -491,9 +688,8 @@ impl Object {
             // Travel speed and radius do not classify an unnamed weapon.
             super::combat::DamageType::Explosive
         };
-        let at_self = name
-            .map(crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name)
-            .unwrap_or(false);
+        let at_self = native_rule.as_ref().map(|rule| rule.damage_dealt_at_self_position).unwrap_or_else(||
+            name.map(crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name).unwrap_or(false));
         // One receiving CombatSystem owns projectileless travel and damage.
         // Never mirror the shot into a different Core world's WeaponStore.
         let pending = super::combat::PendingProjectile {
@@ -515,7 +711,9 @@ impl Object {
             splash_radius: weapon_splash,
             is_homing: weapon_homing,
             damage_type: weapon_dtype,
-            death_type: if name.is_none() {
+            death_type: if let Some(rule) = native_rule.as_ref() {
+                crate::game_logic::host_usa_pilot::HostDeathType::from_store(rule.death_type)
+            } else if name.is_none() {
                 // C++ initializes DEATH_NORMAL independently of DamageType.
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal
             } else {
@@ -555,9 +753,15 @@ impl Object {
             historic_bonus_count: historic_bonus.count,
             historic_bonus_radius: historic_bonus.radius,
             historic_bonus_weapon: historic_bonus.bonus_weapon,
-            die_on_detonate: name
-                .map(crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name)
-                .unwrap_or(false),
+            die_on_detonate: native_rule
+                .as_ref()
+                .map(|rule| rule.die_on_detonate)
+                .unwrap_or_else(|| {
+                    name.map(
+                        crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name,
+                    )
+                    .unwrap_or(false)
+                }),
         };
 
         // C++ fireWeaponTemplate LeechRange activate residual.
@@ -740,15 +944,25 @@ impl Object {
         weapon_name: Option<&str>,
         events: &mut crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
     ) {
-        let loop_frames = weapon_name
-            .map(crate::game_logic::weapon_bootstrap::host_fire_sound_loop_frames_for_weapon_name)
-            .unwrap_or(0);
+        let native = (0..3).find_map(|slot| {
+            let rule = self.selected_native_weapon_rule(slot)?;
+            weapon_name
+                .is_some_and(|name| rule.name.eq_ignore_ascii_case(name))
+                .then_some(rule)
+        });
+        let loop_frames = native.as_ref().map(|rule| rule.fire_sound_loop_time).unwrap_or_else(||
+            weapon_name.map(crate::game_logic::weapon_bootstrap::host_fire_sound_loop_frames_for_weapon_name).unwrap_or(0));
         if loop_frames == 0 {
             return;
         }
-        let sound = weapon_name
-            .map(crate::game_logic::weapon_bootstrap::host_fire_sound_for_weapon_name)
-            .unwrap_or_default();
+        let sound = native
+            .as_ref()
+            .map(|rule| rule.fire_sound.name().to_owned())
+            .unwrap_or_else(|| {
+                weapon_name
+                    .map(crate::game_logic::weapon_bootstrap::host_fire_sound_for_weapon_name)
+                    .unwrap_or_default()
+            });
         if sound.is_empty() {
             return;
         }
@@ -780,9 +994,15 @@ impl Object {
 
     pub fn activate_leech_range_for_slot(&mut self, slot: u8) {
         let name = self.weapon_name_for_slot(slot);
-        let is_leech = name
-            .map(crate::game_logic::weapon_bootstrap::host_leech_range_weapon_for_weapon_name)
-            .unwrap_or(false);
+        let is_leech = self
+            .selected_native_weapon_rule(slot)
+            .map(|rule| rule.leech_range_weapon)
+            .unwrap_or_else(|| {
+                name.map(
+                    crate::game_logic::weapon_bootstrap::host_leech_range_weapon_for_weapon_name,
+                )
+                .unwrap_or(false)
+            });
         if !is_leech {
             return;
         }
@@ -875,6 +1095,22 @@ impl Object {
         weapon_name: Option<&str>,
         rof: f32,
     ) -> f32 {
+        // A supplied immutable row is authoritative even when its delay is zero.
+        // Readiness uses the minimum yardstick; only accepted fire draws the range.
+        let native = (0..3).find_map(|slot| {
+            let rule = self.selected_native_weapon_rule(slot)?;
+            weapon_name
+                .is_some_and(|name| rule.name.eq_ignore_ascii_case(name))
+                .then_some(rule)
+        });
+        if let Some(rule) = native {
+            let waiting_clip = weapon.reloading_clip
+                || (rule.get_auto_reloads_clip() && weapon.clip_size > 0 && weapon.ammo == Some(0));
+            if waiting_clip {
+                return (weapon.clip_reload_time / rof.max(0.01)).max(0.0);
+            }
+            return ((rule.min_delay_between_shots as f32 / rof.max(0.01)).floor() / 30.0).max(0.0);
+        }
         let auto_clip = weapon_name
             .map(crate::game_logic::weapon_bootstrap::host_reload_type_for_weapon_name)
             .unwrap_or(crate::game_logic::weapon_bootstrap::HostReloadType::Auto)
@@ -904,10 +1140,15 @@ impl Object {
         if index >= 3 {
             return;
         }
-        let count = weapon_name
-            .map(crate::game_logic::weapon_bootstrap::host_scatter_targets_for_weapon_name)
-            .map(|targets| targets.len())
-            .unwrap_or(0);
+        let count = self
+            .selected_native_weapon_rule(slot)
+            .map(|rule| rule.scatter_targets.len())
+            .unwrap_or_else(|| {
+                weapon_name
+                    .map(crate::game_logic::weapon_bootstrap::host_scatter_targets_for_weapon_name)
+                    .map(|targets| targets.len())
+                    .unwrap_or(0)
+            });
         self.weapon_scatter_targets_unused[index] = (0..count)
             .filter_map(|idx| i32::try_from(idx).ok())
             .collect();
@@ -921,8 +1162,18 @@ impl Object {
         weapon_name: Option<&str>,
     ) -> Option<glam::Vec2> {
         let name = weapon_name?;
-        let targets =
-            crate::game_logic::weapon_bootstrap::host_scatter_targets_for_weapon_name(name);
+        let native = self.selected_native_weapon_rule(slot);
+        let targets = native
+            .as_ref()
+            .map(|rule| {
+                rule.scatter_targets
+                    .iter()
+                    .map(|point| (point.x, point.y))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_else(|| {
+                crate::game_logic::weapon_bootstrap::host_scatter_targets_for_weapon_name(name)
+            });
         if targets.is_empty() {
             return None;
         }
@@ -942,8 +1193,14 @@ impl Object {
             crate::game_logic::host_rng_residual::pure_logic_random_int(seed, 0, 0, last) as usize;
         let target_index = self.weapon_scatter_targets_unused[index][pick] as usize;
         let (offset_x, offset_y) = *targets.get(target_index)?;
-        let scalar =
-            crate::game_logic::weapon_bootstrap::host_scatter_target_scalar_for_weapon_name(name);
+        let scalar = native
+            .as_ref()
+            .map(|rule| rule.scatter_target_scalar)
+            .unwrap_or_else(|| {
+                crate::game_logic::weapon_bootstrap::host_scatter_target_scalar_for_weapon_name(
+                    name,
+                )
+            });
         self.weapon_scatter_targets_unused[index].swap_remove(pick);
         Some(glam::Vec2::new(offset_x * scalar, offset_y * scalar))
     }

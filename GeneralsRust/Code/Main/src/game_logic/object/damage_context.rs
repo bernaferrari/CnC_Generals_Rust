@@ -66,6 +66,24 @@ impl<'a> DamageHitContext<'a> {
         }
     }
 
+    /// Selected immutable rule for this hit; an authored NONE status must not
+    /// be replaced by a different world's same-name Weapon definition.
+    pub(crate) fn new_selected(
+        source: Option<&Object>,
+        weapon: Option<&str>,
+        kind: DamageType,
+        rule: Option<&gamelogic::weapon::WeaponTemplate>,
+    ) -> Self {
+        let Some(rule) = rule else {
+            return Self::new(source, weapon, kind);
+        };
+        let mut context = Self::new(source, None, kind);
+        if kind == DamageType::Status {
+            context.status = Some(rule.damage_status_type.into());
+        }
+        context
+    }
+
     /// Refresh history identity/classification without replacing launch/hit FX
     /// observations or the borrowed script interpreter carried by this impact.
     pub(crate) fn with_last_damage_sources(

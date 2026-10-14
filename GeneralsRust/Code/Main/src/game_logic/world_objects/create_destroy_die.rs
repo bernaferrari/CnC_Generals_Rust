@@ -1340,6 +1340,9 @@ impl GameLogic {
             // Instantiate the receiving immutable WeaponSet once, before
             // onCreate. Never replace an admitted local row with an ambient
             // catalog lookup; ordinary unbound templates still resolve here.
+            if let Some(catalog) = self.weapon_definitions.as_ref() {
+                template.bind_receiving_weapon_sets(catalog);
+            }
             let [weapon, secondary_weapon, tertiary_weapon] =
                 if let Some(row) = template.instantiate_base_weapon_row(self.frame) {
                     row

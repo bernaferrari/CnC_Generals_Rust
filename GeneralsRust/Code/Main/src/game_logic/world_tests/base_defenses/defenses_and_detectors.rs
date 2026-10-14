@@ -1262,6 +1262,7 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
 
     // Humvee master residual carrier.
     let mut humvee_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleHumvee");
+    humvee_tpl.set_primary_weapon_name("HumveeGun");
     humvee_tpl
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
@@ -1452,7 +1453,10 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
         .unwrap();
     assert_eq!(launched.projectile_object_name, "MissileDefenderMissile");
     assert_eq!(launched.explosion_radius, 5.0);
-    assert_eq!(launched.speed, 600.0);
+    assert_eq!(
+        launched.speed,
+        (600.0_f32 * (1.0_f32 / 30.0_f32)) * 30.0_f32
+    );
     assert!(
         matches!(
             launched.flight,
@@ -1567,6 +1571,7 @@ fn hellfire_scatter_misses_infantry_residual() {
     ensure_test_tank_template(&mut logic);
 
     let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
+    humvee_tpl.set_primary_weapon_name("HumveeGun");
     humvee_tpl
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
