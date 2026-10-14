@@ -537,7 +537,11 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn projectile_structure_intercept_cpp_surface() {
-        let src = concat!(include_str!("projectile.rs"), include_str!("resolution.rs"));
+        let src = concat!(
+            include_str!("projectile.rs"),
+            include_str!("resolution.rs"),
+            include_str!("projectile_step.rs")
+        );
         assert!(
             src.contains("Intervening structure residual")
                 && src.contains("KindOf::Structure")
@@ -1077,7 +1081,11 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn instant_and_homing_cpp_surface() {
-        let src = concat!(include_str!("projectile.rs"), include_str!("resolution.rs"));
+        let src = concat!(
+            include_str!("projectile.rs"),
+            include_str!("resolution.rs"),
+            include_str!("projectile_step.rs")
+        );
         assert!(src.contains("is_instant_speed"));
         assert!(src.contains("fire_projectile_ex"));
         assert!(src.contains("is_homing"));
@@ -2956,7 +2964,11 @@ pub(in crate::game_logic) mod tests {
             HostMissilePhase::Attack
         );
 
-        let src = concat!(include_str!("projectile.rs"), include_str!("resolution.rs"));
+        let src = concat!(
+            include_str!("projectile.rs"),
+            include_str!("resolution.rs"),
+            include_str!("projectile_step.rs")
+        );
         let start = src
             .find("fn try_enter_missile_ignition")
             .expect("ignition helper");

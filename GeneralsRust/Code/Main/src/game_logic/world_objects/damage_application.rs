@@ -428,23 +428,47 @@ impl GameLogic {
         &mut self,
         dt: f32,
     ) -> Vec<ObjectId> {
+        let ids = self.combat_system.projectile_update_ids();
+        let limit = game_engine::common::global_data::read().historic_damage_limit;
+        let mut retired = Vec::new();
+        for id in ids {
+            let removals = self.update_owned_projectile_impact(id, dt, limit);
+            retired.extend(removals);
+        }
+        // Retain registered entries across callbacks until the existing removal
+        // boundary. C++ destroyObject marks first; physical deletion is later.
+        self.combat_system.retire_projectile_impacts(&retired);
+        retired
+    }
+
+    /// One bounded callback, suitable for the session UpdateModule dispatcher.
+    /// No object/projectile borrow crosses the synchronous Body completion.
+    pub(in crate::game_logic) fn update_owned_projectile_impact(
+        &mut self,
+        id: ObjectId,
+        dt: f32,
+        historic_damage_limit: u32,
+    ) -> Vec<ObjectId> {
         let terrain = crate::game_logic::game_logic::FlightTerrainView {
             grid: &self.pathfinding_system.grid,
             terrain: self.terrain.as_ref(),
             samples: self.pathfinding_height_samples.as_ref(),
         };
-        let (events, retired) = self.combat_system.prepare_projectile_impacts(
+        let (events, retired) = self.combat_system.prepare_projectile_impact(
+            id,
             dt,
             &mut self.objects,
             Some(&mut self.countermeasures),
             self.frame,
             Some(&terrain),
             &mut self.ownership_events,
+            historic_damage_limit,
         );
         for event in events {
             self.apply_owned_combat_damage(&event, ImpactRelationships::MovingProjectile);
         }
-        self.combat_system.retire_projectile_impacts(&retired);
+        // Return deletion requests; do not physically remove the callback's
+        // projectile while other callbacks can still inspect the arena.
         retired
     }
 

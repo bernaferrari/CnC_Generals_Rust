@@ -1,3 +1,6 @@
+#[path = "projectile_step.rs"]
+mod projectile_step;
+
 // C++ ownership: Weapon.cpp projectile resolution, damage ordering, and impact side effects.
 
 impl Default for CombatSystem {
@@ -261,7 +264,7 @@ impl CombatSystem {
         stepped
     }
 
-    /// Refresh homing aim points from live object positions.
+    /// Refresh homing aim points from registered object positions.
     pub fn refresh_homing_aims(&mut self, objects: &HashMap<ObjectId, Object>) {
         for p in self.projectiles.values_mut() {
             if !p.is_homing {
@@ -269,9 +272,7 @@ impl CombatSystem {
             }
             if let Some(tid) = p.target_id {
                 if let Some(tgt) = objects.get(&tid) {
-                    if tgt.is_alive() {
-                        p.target_position = tgt.get_position();
-                    }
+                    p.target_position = tgt.get_position();
                 }
             }
         }
@@ -464,29 +465,38 @@ impl CombatSystem {
         terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> Vec<ObjectId> {
-        let (damage_events, projectiles_to_remove) = self.prepare_projectile_impacts(
-            dt,
-            objects,
-            countermeasures,
-            frame,
-            terrain,
-            ownership_events,
-        );
-        self.apply_damage_events(
-            &damage_events,
-            objects,
-            players,
-            team_factory,
-            frame,
-            health_events,
-            ownership_events,
-        );
-        self.retire_projectile_impacts(&projectiles_to_remove);
-        projectiles_to_remove
+        let ids = self.projectile_update_ids();
+        let limit = game_engine::common::global_data::read().historic_damage_limit;
+        let mut countermeasures = countermeasures;
+        let mut retired = Vec::new();
+        for id in ids {
+            let (damage_events, removals) = self.prepare_projectile_impact(
+                id,
+                dt,
+                objects,
+                countermeasures.as_deref_mut(),
+                frame,
+                terrain,
+                ownership_events,
+                limit,
+            );
+            self.apply_damage_events(
+                &damage_events,
+                objects,
+                players,
+                team_factory,
+                frame,
+                health_events,
+                ownership_events,
+            );
+            retired.extend(removals);
+        }
+        self.retire_projectile_impacts(&retired);
+        retired
     }
 
-    /// Collect the original flight batch before any impact damage is applied.
-    /// Keep its ID snapshot, encounter order, and flight-side mutations intact.
+    /// Test-only flight collection for fixtures that supply no Body callbacks.
+    #[cfg(test)]
     pub(in crate::game_logic) fn prepare_projectile_impacts(
         &mut self,
         dt: f32,
@@ -498,383 +508,39 @@ impl CombatSystem {
         terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> (Vec<DamageEvent>, Vec<ObjectId>) {
-        let projectile_ids: Vec<ObjectId> = self.projectiles.keys().copied().collect();
-        let historic_damage_limit = game_engine::common::global_data::read().historic_damage_limit;
-
-        // Process projectile updates
-        let mut damage_events = Vec::new();
-        let mut projectiles_to_remove = Vec::new();
-
-        for proj_id in projectile_ids {
-            if let Some(projectile) = self.projectiles.get_mut(&proj_id) {
-                if let Some(reg) = countermeasures.as_mut() {
-                    apply_countermeasure_report_and_decoy(projectile, proj_id, objects, reg, frame);
-                }
-                let target_is_live = projectile
-                    .target_id
-                    .map(|target_id| objects.get(&target_id).is_some_and(Object::is_alive))
-                    .unwrap_or(true);
-                // Homing residual: refresh aim point from live target before step.
-                // C++ AIMoveToState::onEnter lifts projectile goals by target height.
-                if projectile.is_homing {
-                    if let Some(tid) = projectile.target_id {
-                        if let Some(tgt) = objects.get(&tid) {
-                            if tgt.is_alive() {
-                                projectile.target_position = projectile_goal_on_object(tgt);
-                            }
-                        }
-                    }
-                }
-                if let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(dumb)) =
-                    projectile.flight.clone()
-                {
-                    if dumb.flight_path_adjust_per_frame > 0.0 {
-                        if let Some(tid) = projectile.target_id {
-                            if let Some(tgt) = objects.get(&tid) {
-                                if tgt.is_alive() {
-                                    crate::game_logic::weapon_bootstrap::adjust_flight_path_end(
-                                        &mut projectile.flight_runtime,
-                                        &dumb,
-                                        tgt.get_position(),
-                                    );
-                                    projectile.target_position = projectile.flight_runtime.path_end;
-                                }
-                            }
-                        }
-                    }
-                }
-                match projectile.update_with_terrain(dt, target_is_live, terrain) {
-                    ProjectileStep::Alive => {
-                        if !projectile.is_warhead_armed() {
-                            continue;
-                        }
-                    }
-                    ProjectileStep::Hold => {
-                        // C++ MissileAIUpdate::KILL_SELF holds for the parsed
-                        // contrail delay, with no impact FX/OCL or damage.
-                        continue;
-                    }
-                    ProjectileStep::Remove => {
-                        projectiles_to_remove.push(proj_id);
-                        continue;
-                    }
-                    step @ (ProjectileStep::Detonate | ProjectileStep::DetonateAndHold) => {
-                        // C++ DumbProjectileBehavior lifespan and
-                        // MissileAIUpdate DetonateOnNoFuel both call the
-                        // detonation weapon at the projectile's current pose.
-                        // A zero-radius weapon has no guessed direct victim.
-                        let impact = projectile.position;
-                        Self::maybe_record_historic_bonus(
-                            &mut self.historic_bonus,
-                            frame,
-                            historic_damage_limit,
-                            projectile,
-                            impact,
-                            objects,
-                        );
-                        if !projectile.no_damage && projectile.explosion_radius > 0.0 {
-                            damage_events
-                                .push(Self::splash_area_event(projectile, objects, impact));
-                        }
-                        if !projectile.detonation_fx_name.is_empty()
-                            || !projectile.detonation_ocl_name.is_empty()
-                        {
-                            self.impact_fx.push(ProjectileImpactFx {
-                                position: impact,
-                                shooter_id: projectile.shooter_id,
-                                target_id: None,
-                                detonation_fx_name: projectile.detonation_fx_name.clone(),
-                                detonation_ocl_name: projectile.detonation_ocl_name.clone(),
-                                source_team: projectile.source_team,
-                                source_veterancy: projectile.source_veterancy,
-                                source_orientation: projectile
-                                    .velocity
-                                    .z
-                                    .atan2(projectile.velocity.x),
-                                source_velocity: projectile.velocity,
-                            });
-                        }
-                        Self::queue_missile_calls_on_die(&mut self.impact_fx, projectile);
-
-                        if step == ProjectileStep::Detonate {
-                            projectiles_to_remove.push(proj_id);
-                        }
-                        continue;
-                    }
-                }
-
-                // Intervening structure residual: ballistic shells impact the first
-                // constructed building whose footprint contains the projectile.
-                // Gated by Weapon.ini ProjectileCollidesWith leftover mask.
-                // C++ Weapon.cpp:716-721 — same-controller structures only if
-                // CONTROLLED_STRUCTURES; STRUCTURES is everyone else.
-                // Skip intended target (handled below) and shooter.
-                let mut hit_structure: Option<ObjectId> = None;
-                let collides_structures =
-                    crate::game_logic::weapon_bootstrap::projectile_collides_structures(
-                        projectile.projectile_collides,
-                    );
-                if collides_structures {
-                    let shooter = projectile.shooter_id;
-                    let intended = projectile.target_id;
-                    let pos = projectile.position;
-                    let sneak_now = frame;
-                    let shooter_obj = objects.get(&shooter);
-                    let proj_owner = shooter_obj
-                        .and_then(|s| s.owner_player_id)
-                        .or(projectile.source_owner_player_id);
-                    let proj_team = shooter_obj
-                        .map(|s| s.team)
-                        .unwrap_or(projectile.source_team);
-                    // C++ Weapon.cpp:663-666 — never collide with the launcher's container.
-                    let launcher_contained_by = shooter_obj.and_then(|s| s.contained_by);
-                    // C++ Weapon.cpp:670-677 — Flame/ParticleBeam skip already-burned.
-                    let skip_burned = matches!(
-                        projectile.damage_type,
-                        DamageType::Flame | DamageType::ParticleBeam
-                    );
-                    for (&oid, obj) in objects.iter() {
-                        if oid == shooter || Some(oid) == intended {
-                            continue;
-                        }
-                        if launcher_contained_by == Some(oid) {
-                            continue;
-                        }
-                        if skip_burned && obj.has_object_status_bit("BURNED") {
-                            continue;
-                        }
-                        if obj.get_sneaky_targeting_offset(sneak_now).is_some() {
-                            continue;
-                        }
-                        if !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
-                            continue;
-                        }
-                        if obj.status.under_construction {
-                            continue;
-                        }
-                        let same_controller =
-                            crate::game_logic::weapon_bootstrap::projectile_structure_same_controller(
-                                proj_owner,
-                                obj.owner_player_id,
-                                obj.team == proj_team,
-                            );
-                        if !crate::game_logic::weapon_bootstrap::projectile_collides_with_structure(
-                            projectile.projectile_collides,
-                            same_controller,
-                        ) {
-                            continue;
-                        }
-                        // C++ Weapon.cpp:679-699 — only skip KINDOF_FS_AIRFIELD
-                        // when the intended victim reserved a parking space.
-                        // Other buildings still detonate AA / airborne shots.
-                        if obj.is_kind_of(KindOf::FSAirfield)
-                            && obj.thing().template.parking_place.is_some()
-                        {
-                            if let Some(tid) = intended {
-                                if let Some(t) = objects.get(&tid) {
-                                    if t.producer_id == Some(oid) || t.contained_by == Some(oid) {
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
-                        let radius = obj.selection_radius.max(8.0);
-                        // Horizontal (XZ) distance — tall buildings block regardless of Y.
-                        let op = obj.get_position();
-                        let dx = pos.x - op.x;
-                        let dz = pos.z - op.z;
-                        if (dx * dx + dz * dz).sqrt() <= radius {
-                            hit_structure = Some(oid);
-                            break;
-                        }
-                    }
-                }
-                if let Some(sid) = hit_structure {
-                    if let Some(flight) = projectile.flight.clone() {
-                        if crate::game_logic::weapon_bootstrap::apply_garrison_hit_kill(
-                            objects,
-                            sid,
-                            projectile.shooter_id,
-                            &flight,
-                            ownership_events,
-                        )
-                        .is_some()
-                        {
-                            Self::play_garrison_hit_kill_fx(
-                                objects,
-                                sid,
-                                flight.garrison_hit_kill_fx(),
-                            );
-                            projectiles_to_remove.push(proj_id);
-                            continue;
-                        }
-                    }
-                    let impact = projectile.position;
-                    Self::maybe_record_historic_bonus(
-                        &mut self.historic_bonus,
-                        frame,
-                        historic_damage_limit,
-                        projectile,
-                        impact,
-                        objects,
-                    );
-                    if !projectile.no_damage && projectile.explosion_radius > 0.0 {
-                        damage_events.push(Self::splash_area_event(projectile, objects, impact));
-                    } else if !projectile.no_damage {
-                        damage_events.push(DamageEvent::Direct {
-                            target_id: sid,
-                            position: impact,
-                            damage: projectile.damage,
-                            damage_type: projectile.damage_type,
-                            death_type: projectile.death_type,
-
-                            shooter_id: projectile.shooter_id,
-                        });
-                    }
-                    if !projectile.detonation_fx_name.is_empty()
-                        || !projectile.detonation_ocl_name.is_empty()
-                    {
-                        self.impact_fx.push(ProjectileImpactFx {
-                            position: impact,
-                            shooter_id: projectile.shooter_id,
-                            target_id: Some(sid),
-                            detonation_fx_name: projectile.detonation_fx_name.clone(),
-                            detonation_ocl_name: projectile.detonation_ocl_name.clone(),
-                            source_team: projectile.source_team,
-                            source_veterancy: projectile.source_veterancy,
-                            source_orientation: projectile.velocity.z.atan2(projectile.velocity.x),
-                            source_velocity: projectile.velocity,
-                        });
-                    }
-                    Self::queue_missile_calls_on_die(&mut self.impact_fx, projectile);
-
-                    projectiles_to_remove.push(proj_id);
-                    continue;
-                }
-
-                // Check for hits
-                if let Some(target_id) = projectile.target_id {
-                    if let Some(target) = objects.get(&target_id) {
-                        let distance = projectile.position.distance(target.get_position());
-                        if distance <= 5.0 {
-                            if let Some(flight) = projectile.flight.clone() {
-                                if crate::game_logic::weapon_bootstrap::apply_garrison_hit_kill(
-                                    objects,
-                                    target_id,
-                                    projectile.shooter_id,
-                                    &flight,
-                                    ownership_events,
-                                )
-                                .is_some()
-                                {
-                                    Self::play_garrison_hit_kill_fx(
-                                        objects,
-                                        target_id,
-                                        flight.garrison_hit_kill_fx(),
-                                    );
-                                    projectiles_to_remove.push(proj_id);
-                                    continue;
-                                }
-                            }
-                            let impact = projectile.position;
-                            Self::maybe_record_historic_bonus(
-                                &mut self.historic_bonus,
-                                frame,
-                                historic_damage_limit,
-                                projectile,
-                                impact,
-                                objects,
-                            );
-                            if !projectile.no_damage && projectile.explosion_radius > 0.0 {
-                                // C++ Weapon.cpp:1438: primary inside primaryRadius, else secondary.
-                                damage_events
-                                    .push(Self::splash_area_event(projectile, objects, impact));
-                            } else if !projectile.no_damage {
-                                damage_events.push(DamageEvent::Direct {
-                                    target_id,
-                                    position: impact,
-                                    damage: projectile.damage,
-                                    damage_type: projectile.damage_type,
-                                    death_type: projectile.death_type,
-
-                                    shooter_id: projectile.shooter_id,
-                                });
-                            }
-                            if !projectile.detonation_fx_name.is_empty()
-                                || !projectile.detonation_ocl_name.is_empty()
-                            {
-                                self.impact_fx.push(ProjectileImpactFx {
-                                    position: impact,
-                                    shooter_id: projectile.shooter_id,
-                                    target_id: Some(target_id),
-                                    detonation_fx_name: projectile.detonation_fx_name.clone(),
-                                    detonation_ocl_name: projectile.detonation_ocl_name.clone(),
-                                    source_team: projectile.source_team,
-                                    source_veterancy: projectile.source_veterancy,
-                                    source_orientation: projectile
-                                        .velocity
-                                        .z
-                                        .atan2(projectile.velocity.x),
-                                    source_velocity: projectile.velocity,
-                                });
-                            }
-                            Self::queue_missile_calls_on_die(&mut self.impact_fx, projectile);
-
-                            projectiles_to_remove.push(proj_id);
-                        }
-                    }
-                } else {
-                    // Check ground impact
-                    let distance = projectile.position.distance(projectile.target_position);
-                    if distance <= 2.0 {
-                        let impact = projectile.target_position;
-                        Self::maybe_record_historic_bonus(
-                            &mut self.historic_bonus,
-                            frame,
-                            historic_damage_limit,
-                            projectile,
-                            impact,
-                            objects,
-                        );
-                        if !projectile.no_damage && projectile.explosion_radius > 0.0 {
-                            damage_events
-                                .push(Self::splash_area_event(projectile, objects, impact));
-                        }
-                        if !projectile.detonation_fx_name.is_empty()
-                            || !projectile.detonation_ocl_name.is_empty()
-                        {
-                            self.impact_fx.push(ProjectileImpactFx {
-                                position: impact,
-                                shooter_id: projectile.shooter_id,
-                                target_id: None,
-                                detonation_fx_name: projectile.detonation_fx_name.clone(),
-                                detonation_ocl_name: projectile.detonation_ocl_name.clone(),
-                                source_team: projectile.source_team,
-                                source_veterancy: projectile.source_veterancy,
-                                source_orientation: projectile
-                                    .velocity
-                                    .z
-                                    .atan2(projectile.velocity.x),
-                                source_velocity: projectile.velocity,
-                            });
-                        }
-                        Self::queue_missile_calls_on_die(&mut self.impact_fx, projectile);
-
-                        projectiles_to_remove.push(proj_id);
-                    }
-                }
-            }
+        let ids = self.projectile_update_ids();
+        let limit = game_engine::common::global_data::read().historic_damage_limit;
+        let mut events = Vec::new();
+        let mut retired = Vec::new();
+        for id in ids {
+            let (hits, removals) = self.prepare_projectile_impact(
+                id,
+                dt,
+                objects,
+                countermeasures.as_deref_mut(),
+                frame,
+                terrain,
+                ownership_events,
+                limit,
+            );
+            events.extend(hits);
+            retired.extend(removals);
         }
-
-        (damage_events, projectiles_to_remove)
+        (events, retired)
     }
 
-    /// Retirement stays after completion of the entire collected event batch.
+    /// Existing arena encounter only; actual UpdateModule admission is hq-om90a.
+    pub(in crate::game_logic) fn projectile_update_ids(&self) -> Vec<ObjectId> {
+        self.projectiles.keys().copied().collect()
+    }
+
+    /// Existing physical removal boundary after all selected callbacks complete.
     pub(in crate::game_logic) fn retire_projectile_impacts(
         &mut self,
         projectiles_to_remove: &[ObjectId],
     ) {
-        // CPP projectile destruction follows the full ordered impact batch.
+        // CPP destroyObject marks destruction before later physical removal.
+        // Full per-module deletion phases remain tracked in hq-om90a.
         // The observation importer discovers retirement from this canonical map.
         for proj_id in projectiles_to_remove {
             self.projectiles.remove(proj_id);
