@@ -1,11 +1,10 @@
 //! Deployed/slaved callers use the ordinary installed weapon lifecycle.
 use crate::game_logic::{
-    AIState, DeployStyleMetadata, GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate,
-    Weapon,
+    AIState, DeployStyleMetadata, GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, Weapon,
 };
 use glam::Vec3;
-const SOURCE: ObjectId = ObjectId(99211);
-const TARGET: ObjectId = ObjectId(99212);
+const SOURCE: ObjectId = ObjectId(1);
+const TARGET: ObjectId = ObjectId(2);
 
 fn world(deployed: bool, pre_delay: f32) -> GameLogic {
     let mut game = GameLogic::new();
@@ -24,8 +23,13 @@ fn world(deployed: bool, pre_delay: f32) -> GameLogic {
     }
     game.templates
         .insert(template.name.clone(), template.clone());
-    let mut source = Object::new(template, SOURCE, Team::USA);
-    source.owner_player_id = Some(0);
+    // Factory admission installs the authored DeployStyle runtime; an inert
+    // Object constructor deliberately has no update-module callbacks.
+    let source_id = game
+        .create_object_for_player("OwnedDroneShot", 0, Vec3::ZERO)
+        .unwrap();
+    assert_eq!(source_id, SOURCE);
+    let source = game.host_object_mut(source_id).unwrap();
     source.weapon = Some(Weapon {
         damage: 37.0,
         range: 200.0,
@@ -44,11 +48,10 @@ fn world(deployed: bool, pre_delay: f32) -> GameLogic {
         .set_health(100.0);
     game.templates
         .insert(template.name.clone(), template.clone());
-    let mut target = Object::new(template, TARGET, Team::China);
-    target.owner_player_id = Some(1);
-    target.set_position(Vec3::new(90.0, 0.0, 0.0));
-    game.add_object(source);
-    game.add_object(target);
+    let target_id = game
+        .create_object_for_player("OwnedDroneVictim", 1, Vec3::new(90.0, 0.0, 0.0))
+        .unwrap();
+    assert_eq!(target_id, TARGET);
     game.frame = 30;
     game
 }

@@ -15181,6 +15181,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs"
           },
           {
@@ -18028,6 +18035,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs"
           },
           {
             "cargo_reachable": true,
@@ -29519,6 +29533,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs"
           },
           {
             "cargo_reachable": true,
@@ -59226,6 +59247,7 @@
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deliver_payload_data.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deploy_style_ai_update.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs",
@@ -62731,6 +62753,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs"
           },
           {
@@ -64985,6 +65014,7 @@
         "unreviewed_symbol_ownership",
         "unreviewed_source_range_ownership",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs"
@@ -65007,6 +65037,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs"
           },
           {
             "cargo_reachable": true,
@@ -65567,6 +65604,7 @@
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deliver_payload_data.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/deploy_style_ai_update.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/owned_state.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/primary_owned.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/snapshot.rs",
@@ -65717,6 +65755,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs"
           },
           {
             "cargo_reachable": true,
@@ -159225,7 +159270,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "9591f521687eb6b0f5fd40fa9d19c50248089f04f64034129423a047ec2ceae9",
+  "input_digest": "f4d9095596b90ec4da608737bc98bde24a763b1c10fc7516da4264ac1de2aa78",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -203570,11 +203615,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 187,
+        "end_line": 196,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_destroy_owned.rs",
-      "sha256": "8b7c4cfbc415d7079fb3e447064378ea9d728324ca93dc3c4a609bb9ee860126",
+      "sha256": "f6dff797d9bcec267fc1fa924e8cfda9a1d2c05aa913796c106fee716bb8a9ee",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204686,11 +204731,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1568,
+        "end_line": 1600,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_commands.rs",
-      "sha256": "14c9d40f95ee8c0568d04eee1475a80868fb8017c8093f8392838ed1c1a450ec",
+      "sha256": "437ea7df5ea6d9bb7f422a1089b567ed371b3f375d8f531f1886d2506286b5e6",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204794,11 +204839,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1301,
+        "end_line": 1317,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_interface.rs",
-      "sha256": "b569f9585b71e412f36eddffe3e7c3a729090dc1890688fac89a843c9782237c",
+      "sha256": "cd14ccc684802a8072ea5f5d41d66f222af88aa8872ff5b08d47e561aad47362",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204806,11 +204851,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1982,
+        "end_line": 2069,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_interface_update.rs",
-      "sha256": "16f46e74b494369812db48db03be5f5d182b11410360d82caedd81212842e8e6",
+      "sha256": "d4b45efada12e7c115d89b6c52d2f7393e2f2a42dd31bf02c205c771a32e0ce1",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205562,6 +205607,18 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
+        "end_line": 27,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update/delete_owned.rs",
+      "sha256": "ac17d74f7bf3541f53c939ca30a5661965f68ed0585931d129769b5ade12ebc9",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
         "end_line": 339,
         "start_line": 1
       },
@@ -205598,11 +205655,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1864,
+        "end_line": 1865,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/dozer_ai_update.rs",
-      "sha256": "7561970df9a4cdb113d06354b501754475b4974fa7d1a7a77741342d257f923b",
+      "sha256": "7e4527a34259235217fac89ad3259db013ea0fdf3cef10de1096bae284b34d33",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -221775,7 +221832,7 @@
     },
     "behavior_verified": 1,
     "blockers_by_kind": {
-      "duplicate_implementation_destination": 694,
+      "duplicate_implementation_destination": 697,
       "missing_mapping": 23,
       "no_reachable_implementation": 686,
       "ownership_symbol": 6,
@@ -221841,13 +221898,13 @@
       }
     },
     "deferred_network_translation_units": 47,
-    "duplicate_implementation_destinations": 327,
+    "duplicate_implementation_destinations": 328,
     "orphan_ownership_records": 0,
     "reachable_implementation_candidates": 703,
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 4235,
+    "strict_blockers": 4238,
     "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }

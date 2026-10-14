@@ -1370,13 +1370,52 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
         game_logic.honesty_hellfire_drone_auto_fire_ok(),
         "hellfire auto-fire residual honesty must fire"
     );
+    assert_eq!(
+        game_logic
+            .host_object(damage_target_id)
+            .unwrap()
+            .health
+            .current,
+        enemy_hp_before,
+        "named Hellfire missile launch must not immediately hit the Vehicle"
+    );
+    assert!(
+        game_logic
+            .combat_system
+            .projectiles_snapshot()
+            .iter()
+            .any(|projectile| {
+                projectile.shooter_id == hf_id && !projectile.projectile_object_name.is_empty()
+            }),
+        "accepted authored Hellfire creates its actual physical projectile"
+    );
+    // Prevent another accepted shot; the already launched projectile continues
+    // under the real receiving simulation/flight owner, not a fixture HP write.
+    game_logic
+        .host_object_mut(hf_id)
+        .unwrap()
+        .status
+        .weapons_jammed = true;
+    for _ in 0..120 {
+        game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
+        if game_logic
+            .host_object(damage_target_id)
+            .unwrap()
+            .health
+            .current
+            < enemy_hp_before
+        {
+            break;
+        }
+    }
     let enemy_hp_after = game_logic
         .host_object(damage_target_id)
-        .map(|e| e.health.current)
-        .unwrap_or(0.0);
+        .unwrap()
+        .health
+        .current;
     assert!(
         enemy_hp_after < enemy_hp_before,
-        "hellfire residual must damage enemy (before={enemy_hp_before} after={enemy_hp_after})"
+        "actual named Hellfire flight must damage Vehicle at impact (before={enemy_hp_before} after={enemy_hp_after})"
     );
 }
 
