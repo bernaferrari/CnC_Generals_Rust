@@ -378,6 +378,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn materialize_owned_passive_shot(
         &mut self,
         pending: crate::game_logic::combat::PendingProjectile,
+        stream_binding: Option<crate::game_logic::combat::ProjectileStreamBinding>,
     ) {
         let projectile_name = pending.projectile_object_name.clone();
         let ready = crate::game_logic::combat::materialize_accepted_projectile(
@@ -385,6 +386,7 @@ impl GameLogic {
             &self.objects,
             self.frame,
             pending,
+            stream_binding,
             self.projectile_definitions.get(&projectile_name),
             if self.weapon_definitions.is_some() {
                 crate::game_logic::projectile_definitions::ProjectileDefinitionMode::ReceivingContent

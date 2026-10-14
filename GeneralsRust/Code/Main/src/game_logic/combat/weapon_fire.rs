@@ -487,6 +487,7 @@ pub fn drain_pending_projectiles(
             frame,
             p,
             None,
+            None,
             crate::game_logic::projectile_definitions::ProjectileDefinitionMode::LegacyBootstrap,
         ) {
             combat.projectileless_delayed.push(immediate);
@@ -504,6 +505,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     objects: &HashMap<ObjectId, Object>,
     frame: u32,
     p: PendingProjectile,
+    stream_binding: Option<ProjectileStreamBinding>,
     profile: Option<&crate::game_logic::projectile_definitions::ProjectileProfile>,
     definition_mode: crate::game_logic::projectile_definitions::ProjectileDefinitionMode,
 ) -> Option<LiveProjectilelessDelayedDamage> {
@@ -728,6 +730,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         proj.shock_wave_taper_off = p.shock_wave_taper_off;
         proj.radius_damage_affects = p.radius_damage_affects;
         proj.historic_weapon_key = p.historic_weapon_key.clone();
+        proj.stream_binding = stream_binding;
         proj.historic_bonus_time_frames = p.historic_bonus_time_frames;
         proj.historic_bonus_count = p.historic_bonus_count;
         proj.historic_bonus_radius = p.historic_bonus_radius;

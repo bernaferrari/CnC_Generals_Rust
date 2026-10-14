@@ -1,7 +1,7 @@
 //! Real authored accepted fire -> owned materialization -> snapshot continuation.
 //! The parent fixture binds parsed named weapons through actual world admission.
 use super::*;
-use crate::game_logic::combat::{WeaponFireOcl, live_projectileless_delayed_count_for_test};
+use crate::game_logic::combat::live_projectileless_delayed_count_for_test;
 use crate::save_load::snapshot::{
     SnapshotBuilder, WORLD_SNAPSHOT_BINCODE_VERSION, WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
     WorldSnapshot,
@@ -15,13 +15,6 @@ fn encoded_snapshot(world: &GameLogic) -> WorldSnapshot {
     bincode_legacy::deserialize(&wire).expect("decode actual schema")
 }
 
-fn materialize(world: &mut GameLogic) -> Vec<WeaponFireOcl> {
-    drain_pending_projectiles(&mut world.combat_system, &world.objects, world.frame);
-    let effects = world.combat_system.take_fire_ocl();
-    apply_due(world);
-    effects
-}
-
 fn apply_due(world: &mut GameLogic) {
     apply_ready_projectileless_delayed_damage(
         &mut world.combat_system,
@@ -33,43 +26,33 @@ fn apply_due(world: &mut GameLogic) {
     );
 }
 
-fn assert_fifo_effects(effects: &[WeaponFireOcl], source: ObjectId, other: ObjectId) {
-    assert_eq!(effects.len(), 3);
-    assert_eq!(
-        effects
-            .iter()
-            .map(|event| event.shooter_id)
-            .collect::<Vec<_>>(),
-        vec![source, other, source]
-    );
-    assert_eq!(
-        effects
-            .iter()
-            .map(|event| event.fire_ocl_name.as_str())
-            .collect::<Vec<_>>(),
-        vec![
-            "OCL_AcceptedQueueFirst",
-            "OCL_AcceptedQueueSecond",
-            "OCL_AcceptedQueueFirst"
-        ]
-    );
-    assert_eq!(effects[0].source_team, Team::USA);
-    assert_eq!(effects[2].source_team, Team::USA);
-    assert_eq!(
-        effects[0].source_veterancy,
-        crate::game_logic::VeterancyLevel::Rookie
-    );
-    assert_eq!(effects[0].source_orientation, 1.25);
-    assert_eq!(effects[2].source_orientation, 1.25);
-    assert_eq!(effects[0].source_velocity, Vec3::new(2.0, 0.0, 3.0));
-    assert_eq!(effects[2].source_velocity, Vec3::new(2.0, 0.0, 3.0));
+fn fire_children(world: &GameLogic) -> Vec<(ObjectId, String, Option<ObjectId>)> {
+    let mut children: Vec<_> = world
+        .objects
+        .iter()
+        .filter(|(_, child)| {
+            matches!(
+                child.template_name.as_str(),
+                "AcceptedFireFirstChild" | "AcceptedFireSecondChild"
+            )
+        })
+        .map(|(id, child)| {
+            (
+                *id,
+                child.template_name.clone(),
+                child
+                    .producer_id
+                    .filter(|producer| world.objects.contains_key(producer)),
+            )
+        })
+        .collect();
+    children.sort_by_key(|(id, _, _)| id.0);
+    children
 }
 
 #[test]
 fn pending_combat_snapshot_accepted_fifo_replaces_in_place_queue_and_keeps_retired_source() {
-    let _serial = combat_test_guard();
-    let _restore = RestoreInputs::install();
-    let (mut source_world, source, target) = world(FIRST_WEAPON);
+    let (mut source_world, source, target) = world(FLIGHT_FIRST);
     {
         let source_object = source_world.objects.get_mut(&source).unwrap();
         source_object.set_orientation(1.25);
@@ -78,7 +61,7 @@ fn pending_combat_snapshot_accepted_fifo_replaces_in_place_queue_and_keeps_retir
     let other = admit(
         &mut source_world,
         "SnapshotOtherShooter",
-        Some(SECOND_WEAPON),
+        Some(FLIGHT_SECOND),
         Team::USA,
         Vec3::new(0.0, 0.0, 1.0),
     );
@@ -91,103 +74,75 @@ fn pending_combat_snapshot_accepted_fifo_replaces_in_place_queue_and_keeps_retir
     accept(&mut source_world, source, target, 10.0);
     accept(&mut source_world, other, target, 10.0);
     accept(&mut source_world, source, target, 12.0);
+    assert_eq!(source_world.combat_system.projectile_count(), 3);
+    let children = fire_children(&source_world);
+    assert_eq!(
+        children
+            .iter()
+            .map(|(_, name, producer)| (name.as_str(), *producer))
+            .collect::<Vec<_>>(),
+        vec![
+            ("AcceptedFireFirstChild", Some(source)),
+            ("AcceptedFireSecondChild", Some(other)),
+            ("AcceptedFireFirstChild", Some(source))
+        ]
+    );
+    assert!(source_world.combat_system.take_fire_ocl().is_empty());
     source_world.destroy_object(source);
     source_world.process_destroy_list_if_needed();
     assert!(!source_world.objects.contains_key(&source));
+    // C++ getProducer resolves through the current roster. The original
+    // producer was present at fire time and is absent at the save boundary.
+    let children = fire_children(&source_world);
     assert_eq!(source_world.objects[&target].health.current, 100.0);
-
     let captured = encoded_snapshot(&source_world);
     assert!(!captured.objects.contains_key(&source));
-    let (mut destination, reused_source, reused_target) = world(SECOND_WEAPON);
+    assert_eq!(
+        source_world.combat_system.projectile_count(),
+        3,
+        "snapshot capture must not consume real flight"
+    );
+    let (mut destination, reused_source, reused_target) = world(FLIGHT_SECOND);
     assert_eq!((source, target), (reused_source, reused_target));
     accept(&mut destination, reused_source, reused_target, 10.0);
-
-    // Capture is observational: the original still owns all three accepted shots.
-    let original_effects = materialize(&mut source_world);
-    assert_fifo_effects(&original_effects, source, other);
+    assert_eq!(destination.combat_system.projectile_count(), 1);
+    finish_accepted_flight(&mut source_world);
     assert_eq!(source_world.objects[&target].health.current, 53.0);
-
     destination.templates = source_world.templates.clone();
     SnapshotBuilder::new()
         .restore_from_snapshot(&captured, &mut destination)
-        .expect("restore into actual same-ID destination with its own pending shot");
+        .expect("replace receiving destination flight, not append its prior shot");
     assert!(!destination.objects.contains_key(&source));
     assert_eq!(destination.objects[&target].health.current, 100.0);
-    let restored_effects = materialize(&mut destination);
-    assert_fifo_effects(&restored_effects, source, other);
+    assert_eq!(destination.combat_system.projectile_count(), 3);
+    assert_eq!(
+        fire_children(&destination),
+        children,
+        "acceptance effects were already created and saved, never replayed"
+    );
+    finish_accepted_flight(&mut destination);
     assert_eq!(destination.objects[&target].health.current, 53.0);
     assert_eq!(source_world.objects[&target].health.current, 53.0);
-    assert!(materialize(&mut destination).is_empty());
+    finish_accepted_flight(&mut destination);
     assert_eq!(destination.objects[&target].health.current, 53.0);
+    assert_eq!(fire_children(&destination), children);
+    assert!(destination.combat_system.take_fire_ocl().is_empty());
 }
 
 const SLOW_FIRST: &str = "SnapshotFiniteFirstWeapon";
 const SLOW_SECOND: &str = "SnapshotFiniteSecondWeapon";
 
-fn install_finite_weapons() {
-    let source = r#"
-Weapon SnapshotFiniteFirstWeapon
-  PrimaryDamage = 17
-  PrimaryDamageRadius = 0
-  AttackRange = 200
-  DamageType = SMALL_ARMS
-  ProjectileObject = NONE
-  WeaponSpeed = 300
-  DelayBetweenShots = 1000
-  ClipSize = 8
-  ClipReloadTime = 1000
-  PreAttackDelay = 0
-  AntiGround = Yes
-End
-Weapon SnapshotFiniteSecondWeapon
-  PrimaryDamage = 13
-  PrimaryDamageRadius = 0
-  AttackRange = 200
-  DamageType = SMALL_ARMS
-  ProjectileObject = NONE
-  WeaponSpeed = 300
-  DelayBetweenShots = 1000
-  ClipSize = 8
-  ClipReloadTime = 1000
-  PreAttackDelay = 0
-  AntiGround = Yes
-End
-"#;
-    assert_eq!(
-        crate::assets::ini_template_loader::register_weapons_from_ini_text(source),
-        2
-    );
-    gamelogic::weapon::with_weapon_store(|store| {
-        for (name, damage) in [(SLOW_FIRST, 17.0), (SLOW_SECOND, 13.0)] {
-            let authored = store
-                .find_weapon_template(name)
-                .expect("real authored finite weapon");
-            assert_eq!(authored.primary_damage, damage);
-            // C++ float multiplication by rounded 1/30 retains this bit.
-            assert_eq!(authored.weapon_speed.to_bits(), 0x4120_0001);
-            assert_eq!(authored.attack_range, 200.0);
-            assert!(authored.projectile_name.eq_ignore_ascii_case("NONE"));
-            assert_eq!(authored.clip_size, 8);
-        }
-    })
-    .expect("actual registered finite rules");
-}
-
 #[test]
 fn pending_combat_snapshot_finite_deadline_survives_fresh_and_in_place_same_id_loads() {
-    let _serial = combat_test_guard();
-    let _restore = RestoreInputs::install();
-    install_finite_weapons();
     let (mut first, source, target) = world(SLOW_FIRST);
     let (mut second, other_source, other_target) = world(SLOW_SECOND);
     assert_eq!((source, target), (other_source, other_target));
     assert_eq!(first.frame, 100);
     assert_eq!(
         first.objects[&source]
-            .weapon
-            .as_ref()
+            .selected_native_weapon_rule(0)
             .unwrap()
-            .projectile_speed
+            .weapon_speed
             .to_bits(),
         0x4120_0001
     );
@@ -212,7 +167,7 @@ fn pending_combat_snapshot_finite_deadline_survives_fresh_and_in_place_same_id_l
     let first_save = encoded_snapshot(&first);
     let second_save = encoded_snapshot(&second);
 
-    let mut fresh = GameLogic::new();
+    let mut fresh = new_owned_world();
     fresh.templates = first.templates.clone();
     SnapshotBuilder::new()
         .restore_from_snapshot(&first_save, &mut fresh)
@@ -260,9 +215,6 @@ fn pending_combat_snapshot_finite_deadline_survives_fresh_and_in_place_same_id_l
 
 #[test]
 fn pending_combat_snapshot_explicit_empty_state_replaces_both_dirty_destination_queues() {
-    let _serial = combat_test_guard();
-    let _restore = RestoreInputs::install();
-    install_finite_weapons();
     let (empty, source, target) = world(SLOW_FIRST);
     let captured = encoded_snapshot(&empty);
     let (mut destination, same_source, same_target) = world(SLOW_SECOND);
@@ -285,21 +237,25 @@ fn pending_combat_snapshot_explicit_empty_state_replaces_both_dirty_destination_
     destination.drain_pending_projectiles_into_combat();
     assert_eq!(destination.objects[&target].health.current, 100.0);
     assert_eq!(destination.combat_system.projectile_count(), 0);
-    assert!(materialize(&mut destination).is_empty());
+    assert!(destination.combat_system.take_fire_ocl().is_empty());
     assert_eq!(destination.objects[&target].health.current, 100.0);
 }
 
 #[test]
 fn pending_combat_snapshot_rejects_old_schema_before_mutating_live_owner() {
-    let _serial = combat_test_guard();
-    let _restore = RestoreInputs::install();
-    let (mut source, shooter, target) = world(FIRST_WEAPON);
+    let (mut source, shooter, target) = world(FLIGHT_FIRST);
     accept(&mut source, shooter, target, 10.0);
     let mut captured = encoded_snapshot(&source);
     captured.version = 22;
     captured.frame_number = 999;
-    let (mut destination, own_shooter, own_target) = world(SECOND_WEAPON);
+    let (mut destination, own_shooter, own_target) = world(FLIGHT_SECOND);
     accept(&mut destination, own_shooter, own_target, 10.0);
+    let observe = |world: &GameLogic| {
+        let mut snapshot = encoded_snapshot(world);
+        snapshot.timestamp = std::time::UNIX_EPOCH;
+        serde_json::to_value(snapshot).expect("canonical serialized simulation observation")
+    };
+    let before = observe(&destination);
     let result = SnapshotBuilder::new().restore_from_snapshot(&captured, &mut destination);
     assert!(matches!(
         result,
@@ -308,11 +264,19 @@ fn pending_combat_snapshot_rejects_old_schema_before_mutating_live_owner() {
             actual: 22
         })
     ));
+    assert_eq!(
+        observe(&destination),
+        before,
+        "failed version admission must leave actual receiving state untouched"
+    );
     assert_eq!(destination.frame, 100);
     assert_eq!(destination.objects[&own_target].health.current, 100.0);
-    destination.drain_pending_projectiles_into_combat();
+    assert_eq!(destination.combat_system.projectile_count(), 1);
+    finish_accepted_flight(&mut destination);
     assert_eq!(destination.objects[&own_target].health.current, 87.0);
-    source.drain_pending_projectiles_into_combat();
+    assert_eq!(source.objects[&target].health.current, 100.0);
+    assert_eq!(source.combat_system.projectile_count(), 1);
+    finish_accepted_flight(&mut source);
     assert_eq!(source.objects[&target].health.current, 83.0);
 }
 
@@ -335,12 +299,8 @@ fn save_info(slot: &str) -> crate::save_load::SaveGameInfo {
 
 #[test]
 fn pending_combat_snapshot_common_save_load_continues_both_real_queues() {
-    let _serial = combat_test_guard();
-    let _restore = RestoreInputs::install();
-    install_finite_weapons();
     let (mut source, shooter, target) = world(SLOW_FIRST);
     accept(&mut source, shooter, target, 10.0);
-    source.drain_pending_projectiles_into_combat();
     assert_eq!(
         live_projectileless_delayed_count_for_test(&source.combat_system),
         1
@@ -348,13 +308,17 @@ fn pending_combat_snapshot_common_save_load_continues_both_real_queues() {
     let fast = admit(
         &mut source,
         "SnapshotFastShooter",
-        Some(SECOND_WEAPON),
+        Some(FLIGHT_SECOND),
         Team::USA,
         Vec3::ZERO,
     );
     let victim_pos = source.objects[&target].get_position();
     source.objects.get_mut(&fast).unwrap().prev_victim_pos = Some(victim_pos);
     accept(&mut source, fast, target, 10.0);
+    assert_eq!(source.combat_system.projectile_count(), 1);
+    assert_eq!(source.objects[&target].health.current, 100.0);
+    let children = fire_children(&source);
+    assert_eq!(children.len(), 1);
     let dir = tempfile::TempDir::new().expect("owned save directory");
     let mut manager = crate::save_load::SaveFileManager::with_save_directory(dir.path());
     manager.init().expect("real manager init");
@@ -364,38 +328,64 @@ fn pending_combat_snapshot_common_save_load_continues_both_real_queues() {
     let (decoded, _) = manager
         .load_game_snapshot("both_queues")
         .expect("actual current decoder");
-    let mut restored = GameLogic::new();
+    let mut restored = new_owned_world();
     restored.templates = source.templates.clone();
     manager
         .restore_game_snapshot(&decoded, &mut restored)
         .expect("actual staging restore route");
+    assert_eq!(restored.combat_system.projectile_count(), 1);
     assert_eq!(
         live_projectileless_delayed_count_for_test(&restored.combat_system),
         1
     );
-    restored.drain_pending_projectiles_into_combat();
-    assert_eq!(restored.objects[&target].health.current, 87.0);
+    assert_eq!(fire_children(&restored), children);
+    for _ in 0..40 {
+        source.frame += 1;
+        restored.frame += 1;
+        source.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP);
+        restored.update_owned_projectile_impacts(LOGIC_FRAME_TIMESTEP);
+        source.apply_owned_projectileless_delayed_damage();
+        restored.apply_owned_projectileless_delayed_damage();
+        assert_eq!(restored.frame, source.frame);
+        assert_eq!(
+            restored.objects[&target].health.current,
+            source.objects[&target].health.current
+        );
+        assert_eq!(
+            restored.combat_system.projectile_count(),
+            source.combat_system.projectile_count()
+        );
+        assert_eq!(
+            live_projectileless_delayed_count_for_test(&restored.combat_system),
+            live_projectileless_delayed_count_for_test(&source.combat_system)
+        );
+        assert_eq!(fire_children(&restored), children);
+        assert!(restored.combat_system.take_fire_ocl().is_empty());
+        assert!(source.combat_system.take_fire_ocl().is_empty());
+        if source.combat_system.projectile_count() == 0
+            && live_projectileless_delayed_count_for_test(&source.combat_system) == 0
+        {
+            break;
+        }
+    }
+    assert_eq!(source.objects[&target].health.current, 70.0);
+    assert_eq!(restored.objects[&target].health.current, 70.0);
     assert_eq!(restored.combat_system.projectile_count(), 0);
-    restored.set_current_frame(103);
-    apply_due(&mut restored);
-    assert_eq!(restored.objects[&target].health.current, 70.0);
-    restored.drain_pending_projectiles_into_combat();
-    apply_due(&mut restored);
-    assert_eq!(restored.objects[&target].health.current, 70.0);
-    assert_eq!(source.objects[&target].health.current, 100.0);
     assert_eq!(
-        live_projectileless_delayed_count_for_test(&source.combat_system),
-        1
+        live_projectileless_delayed_count_for_test(&restored.combat_system),
+        0
     );
+    finish_accepted_flight(&mut restored);
+    restored.apply_owned_projectileless_delayed_damage();
+    assert_eq!(restored.objects[&target].health.current, 70.0);
+    assert_eq!(fire_children(&restored), children);
 }
 
 #[test]
 fn pending_combat_snapshot_direct_xfer_continues_real_queue_and_following_record() {
     use crate::save_load::{Snapshot, Xfer, XferLoad, XferSave};
     use std::io::Cursor;
-    let _serial = combat_test_guard();
-    let _restore = RestoreInputs::install();
-    let (mut source, shooter, target) = world(FIRST_WEAPON);
+    let (mut source, shooter, target) = world(SLOW_FIRST);
     accept(&mut source, shooter, target, 10.0);
     let mut captured = SnapshotBuilder::new()
         .create_world_snapshot(&source)
@@ -417,23 +407,37 @@ fn pending_combat_snapshot_direct_xfer_continues_real_queue_and_following_record
     let mut following = 0;
     reader.xfer_u32(&mut following).unwrap();
     assert_eq!(following, 0xF19E_0711);
-    let mut restored = GameLogic::new();
+    let mut restored = new_owned_world();
     restored.templates = source.templates.clone();
     SnapshotBuilder::new()
         .restore_from_snapshot(&decoded, &mut restored)
         .unwrap();
-    restored.drain_pending_projectiles_into_combat();
+    assert_eq!(
+        live_projectileless_delayed_count_for_test(&source.combat_system),
+        1,
+        "direct capture is observational"
+    );
+    assert_eq!(
+        live_projectileless_delayed_count_for_test(&restored.combat_system),
+        1
+    );
+    restored.frame = 102;
+    restored.apply_owned_projectileless_delayed_damage();
+    assert_eq!(restored.objects[&target].health.current, 100.0);
+    restored.frame = 103;
+    restored.apply_owned_projectileless_delayed_damage();
     assert_eq!(restored.objects[&target].health.current, 83.0);
-    restored.drain_pending_projectiles_into_combat();
+    restored.apply_owned_projectileless_delayed_damage();
     assert_eq!(restored.objects[&target].health.current, 83.0);
+    assert_eq!(
+        live_projectileless_delayed_count_for_test(&restored.combat_system),
+        0
+    );
     assert_eq!(source.objects[&target].health.current, 100.0);
 }
 
 #[test]
 fn pending_combat_snapshot_current_wire_has_exact_schema_and_end_boundary() {
-    let _serial = combat_test_guard();
-    let _restore = RestoreInputs::install();
-    install_finite_weapons();
     let (mut source, shooter, target) = world(SLOW_FIRST);
     accept(&mut source, shooter, target, 10.0);
     source.drain_pending_projectiles_into_combat();

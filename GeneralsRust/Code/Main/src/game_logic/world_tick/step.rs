@@ -1278,9 +1278,12 @@ impl GameLogic {
                     // C++ Weapon::newProjectileFired never searches another
                     // WeaponSet slot. Accepted shots retain their own name even
                     // after the shooter's current selection changes or it dies.
-                    let sname = firing_name
-                        .map(crate::game_logic::weapon_bootstrap::host_projectile_stream_name_for_weapon_name)
-                        .unwrap_or_default();
+                    let sname = match &p.stream_binding {
+                        Some(binding) => binding.name.clone(),
+                        None => firing_name
+                            .map(crate::game_logic::weapon_bootstrap::host_projectile_stream_name_for_weapon_name)
+                            .unwrap_or_default(),
+                    };
                     if sname.is_empty() {
                         return None;
                     }

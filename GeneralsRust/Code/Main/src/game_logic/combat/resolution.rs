@@ -40,6 +40,14 @@ impl CombatSystem {
         }
     }
 
+    /// Reset all mutable combat state for this receiving match. C++
+    /// GameLogic.cpp410–435 destroys projectile Objects and resets allocation;
+    /// WeaponStore.cpp1627–1646 clears delayed damage and template history.
+    /// Immutable weapon/projectile definitions live on GameLogic, not here.
+    pub(crate) fn reset_for_new_game(&mut self) {
+        *self = Self::new();
+    }
+
     /// Discard accepted shots only when this owning game resets.
     pub(crate) fn reset_pending_projectiles(&mut self) {
         self.pending_projectiles.clear();
@@ -887,15 +895,6 @@ impl CombatSystem {
         &mut self,
     ) -> Vec<crate::game_logic::host_historic_bonus::PendingHistoricFirestorm> {
         self.historic_bonus.drain_pending_firestorms()
-    }
-
-    /// C++ WeaponStore::reset clears delayed damage for this match.
-    pub(in crate::game_logic) fn reset_projectileless_delayed(&mut self) {
-        self.projectileless_delayed.clear();
-    }
-
-    pub(in crate::game_logic) fn reset_historic_bonus(&mut self) {
-        self.historic_bonus.reset();
     }
 
     pub(in crate::game_logic) fn historic_bonus_honesty(

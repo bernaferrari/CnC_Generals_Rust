@@ -814,11 +814,9 @@ impl GameLogic {
         self.objects_receive_difficulty_bonus = true;
         self.session_difficulty = None;
         self.ambient_sound_retries.clear();
-        // C++ WeaponStore::resetWeaponTemplates clears same-template history.
-        self.combat_system.reset_historic_bonus();
-        // C++ WeaponStore::reset also drops pending delayed damage.
-        self.combat_system.reset_projectileless_delayed();
-        self.combat_system.reset_pending_projectiles();
+        // Projectile Objects, allocation, delayed damage, history, and pending
+        // effects all end with this match; another world's combat is untouched.
+        self.combat_system.reset_for_new_game();
         self.ownership_events.clear();
         self.economy_events.clear();
         self.attack_events.clear();

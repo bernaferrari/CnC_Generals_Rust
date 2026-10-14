@@ -1,5 +1,13 @@
 // C++ ownership: Projectile, DumbProjectileBehavior, and MissileAIUpdate flight state.
 
+/// C++ Weapon::newProjectileFired binds the exact firing Weapon template.
+/// Empty names are authoritative; None on Projectile denotes unbound legacy input.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectileStreamBinding {
+    pub slot: u8,
+    pub name: String,
+}
+
 /// Projectile for ranged combat
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Projectile {
@@ -66,6 +74,9 @@ pub struct Projectile {
     pub projectile_collides: u32,
     /// C++ HistoricBonus weapon-template key (empty = none).
     pub historic_weapon_key: String,
+    /// Runtime continuation is framed separately by CPRJ v2, preserving v1 bytes.
+    #[serde(skip)]
+    pub stream_binding: Option<ProjectileStreamBinding>,
     pub historic_bonus_time_frames: u32,
     pub historic_bonus_count: i32,
     pub historic_bonus_radius: f32,
@@ -140,6 +151,7 @@ impl Projectile {
             radius_damage_affects: crate::game_logic::weapon_bootstrap::WEAPON_AFFECTS_DEFAULT,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             historic_weapon_key: String::new(),
+            stream_binding: None,
             historic_bonus_time_frames: 0,
             historic_bonus_count: 0,
             historic_bonus_radius: 0.0,

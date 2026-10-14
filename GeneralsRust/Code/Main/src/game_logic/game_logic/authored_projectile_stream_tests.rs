@@ -16,25 +16,23 @@ const PRIMARY_STREAM: &str = "AuthoredPrimaryProjectileStream";
 const SECONDARY_STREAM: &str = "AuthoredSecondaryProjectileStream";
 const TERTIARY_STREAM: &str = "AuthoredTertiaryProjectileStream";
 
-fn register_stream_rules() {
-    // A genuine partial Weapon.ini override clears a previous stream, rather
-    // than an empty host field being mistaken for missing authored rules.
+fn stream_world(missing_projectile: bool) -> GameLogic {
+    use crate::assets::ini_template_loader::{
+        WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
+    };
+    let mut rows = HashMap::new();
     assert_eq!(
-        crate::assets::ini_template_loader::register_weapons_from_ini_text(
-            "Weapon AuthoredDragonFlameExplicitEmptyStream\n  ProjectileStreamName = PreviouslyAuthoredProjectileStream\nEnd\n"
+        parse_weapon_definitions_ini_into(
+            &mut rows,
+            "Weapon AuthoredDragonFlameExplicitEmptyStream\n ProjectileStreamName = PreviouslyAuthoredProjectileStream\nEnd\n",
+            WeaponDefinitionLoadType::Normal,
         ),
         1
     );
-    gamelogic::weapon::with_weapon_store(|store| {
-        assert_eq!(
-            store
-                .find_weapon_template(EMPTY_DRAGON)
-                .unwrap()
-                .projectile_stream_name,
-            "PreviouslyAuthoredProjectileStream"
-        );
-    })
-    .unwrap();
+    assert_eq!(
+        rows[&EMPTY_DRAGON.to_ascii_lowercase()].projectile_stream_name,
+        "PreviouslyAuthoredProjectileStream"
+    );
     let rules = [
         (PRIMARY, Some(PRIMARY_STREAM)),
         (SECONDARY, Some(SECONDARY_STREAM)),
@@ -55,25 +53,57 @@ fn register_stream_rules() {
         ini.push_str("End\n");
     }
     assert_eq!(
-        crate::assets::ini_template_loader::register_weapons_from_ini_text(&ini),
+        parse_weapon_definitions_ini_into(
+            &mut rows,
+            &ini,
+            WeaponDefinitionLoadType::CreateOverrides,
+        ),
         rules.len()
     );
-    gamelogic::weapon::with_weapon_store(|store| {
-        for (name, stream) in rules {
-            let definition = store.find_weapon_template(name).unwrap();
-            assert_eq!(definition.projectile_stream_name, stream.unwrap_or(""));
-            assert_eq!(definition.projectile_name, "AuthoredStreamLiveProjectile");
-            assert_eq!(definition.weapon_speed, 1.0); // CPP distance/logic frame
-            assert_eq!(definition.clip_size, 8);
-            assert_eq!(definition.attack_range, 200.0);
-        }
-    })
-    .unwrap();
+    for (name, stream) in rules {
+        let definition = &rows[&name.to_ascii_lowercase()];
+        assert_eq!(definition.projectile_stream_name, stream.unwrap_or(""));
+        assert_eq!(definition.projectile_name, "AuthoredStreamLiveProjectile");
+        assert_eq!(
+            definition.weapon_speed.to_bits(),
+            (30.0f32 * (1.0f32 / 30.0f32)).to_bits()
+        );
+        assert_eq!(definition.clip_size, 8);
+        assert_eq!(definition.attack_range, 200.0);
+    }
+    if missing_projectile {
+        rows.get_mut(&PRIMARY.to_ascii_lowercase())
+            .unwrap()
+            .projectile_name = "UnresolvedHostDragonFlameStreamContract".into();
+    }
+    let mut parser = crate::assets::ini_parser::IniParser::new();
+    parser.parse_ini_content(
+        "Object AuthoredStreamLiveProjectile\n Behavior = MissileAIUpdate ModuleTag_Flight\n IgnitionDelay = 0\n TryToFollowTarget = Yes\n End\nEnd",
+        "authored-stream-content.ini",
+    ).unwrap();
+    let objects: Vec<_> = parser
+        .get_all_definitions()
+        .iter()
+        .map(|(name, row)| (name.clone(), row.clone()))
+        .collect();
+    let mut world = GameLogic::new();
+    world
+        .admit_weapon_content_snapshot(
+            rows.into_values()
+                .map(|row| (row.name.clone(), row))
+                .collect(),
+            &objects,
+        )
+        .unwrap();
+    world
 }
 
-fn fire_and_tick(slots: [&str; 3], selected: u8) -> (GameLogic, ObjectId, ObjectId) {
-    register_stream_rules();
-    let mut world = GameLogic::new();
+fn prepare_world(
+    slots: [&str; 3],
+    selected: u8,
+    missing_projectile: bool,
+) -> (GameLogic, ObjectId, ObjectId) {
+    let mut world = stream_world(missing_projectile);
     let mut source_definition = ThingTemplate::new("AuthoredStreamShooter");
     source_definition
         .set_health(100.0)
@@ -125,6 +155,11 @@ fn fire_and_tick(slots: [&str; 3], selected: u8) -> (GameLogic, ObjectId, Object
         shooter.prev_victim_pos = Some(target_position);
         assert_eq!(shooter.selected_weapon_slot(), Some(selected));
     }
+    (world, source, target)
+}
+
+fn fire_and_tick(slots: [&str; 3], selected: u8) -> (GameLogic, ObjectId, ObjectId) {
+    let (mut world, source, target) = prepare_world(slots, selected, false);
     assert!(
         world.objects[&source].is_within_attack_range_for_slot(selected, &world.objects[&target])
     );
@@ -171,8 +206,6 @@ fn fire_and_tick(slots: [&str; 3], selected: u8) -> (GameLogic, ObjectId, Object
 }
 
 fn assert_stream_case(slots: [&str; 3], selected: u8, expected: Option<&str>) {
-    let _serial = combat_test_guard();
-    let _restore = RestoreInputs::install();
     let (world, source, target) = fire_and_tick(slots, selected);
     let streams = world.projectile_stream_snapshot();
     match expected {
@@ -222,16 +255,74 @@ fn authored_tertiary_stream_uses_exact_accepted_weapon_template() {
 }
 
 #[test]
-fn missing_host_template_stream_fallback_is_distinct_from_authored_empty() {
-    let _serial = combat_test_guard();
-    let _restore = RestoreInputs::install();
-    const MISSING: &str = "UnresolvedHostDragonFlameStreamContract";
-    gamelogic::weapon::with_weapon_store(|store| {
-        assert!(store.find_weapon_template(MISSING).is_none())
-    })
-    .unwrap();
+fn missing_receiving_projectile_rejects_before_ammo_effects_or_stream() {
+    let (mut world, source, target) = prepare_world([PRIMARY, SECONDARY, TERTIARY], 0, true);
+    let marker = world.objects[&source].weapon_discharge_marker().sequence;
+    assert_ne!(
+        world.attack_fire_weapon_update(source, target, 10.0),
+        AttackFireResult::Success
+    );
+    for slot in 0..3u8 {
+        assert_eq!(
+            world.objects[&source].weapon_slot(slot).unwrap().ammo,
+            Some(8)
+        );
+    }
     assert_eq!(
-        crate::game_logic::weapon_bootstrap::host_projectile_stream_name_for_weapon_name(MISSING),
-        "DragonTankFlameStream"
+        world.objects[&source].weapon_discharge_marker().sequence,
+        marker
+    );
+    assert!(world.take_weapon_discharges_for_presentation().is_empty());
+    world.drain_pending_projectiles_into_combat();
+    assert_eq!(world.combat_system.projectile_count(), 0);
+    let _ = world.update_with_dt(1.0 / 30.0);
+    assert!(world.projectile_stream_snapshot().is_empty());
+    assert_eq!(world.objects[&target].health.current, 100.0);
+}
+
+#[test]
+fn receiving_stream_launch_binding_survives_override_and_encoded_save_load() {
+    let (mut world, source, target) = fire_and_tick([PRIMARY, SECONDARY, TERTIARY], 1);
+    let binding = world.combat_system.projectiles_snapshot()[0]
+        .stream_binding
+        .clone()
+        .unwrap();
+    assert_eq!(binding.slot, 1);
+    assert_eq!(binding.name, SECONDARY_STREAM);
+    world
+        .apply_receiving_weapon_overrides(&[format!(
+            "Weapon {SECONDARY}\n ProjectileStreamName = ChangedAfterLaunch\nEnd\n"
+        )])
+        .unwrap();
+    let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&world).unwrap();
+    let encoded = bincode::serde::encode_to_vec(&snapshot, bincode::config::legacy()).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&encoded).unwrap();
+    let (mut restored, _, _) = prepare_world([PRIMARY, SECONDARY, TERTIARY], 1, false);
+    restored
+        .apply_receiving_weapon_overrides(&[format!(
+            "Weapon {SECONDARY}\n ProjectileStreamName = ForeignRestoreStream\nEnd\n"
+        )])
+        .unwrap();
+    builder
+        .restore_from_snapshot(&decoded, &mut restored)
+        .unwrap();
+    assert_eq!(restored.combat_system.projectile_count(), 1);
+    assert_eq!(
+        restored.combat_system.projectiles_snapshot()[0]
+            .stream_binding
+            .as_ref(),
+        Some(&binding)
+    );
+    restored.update_with_dt(1.0 / 30.0);
+    let streams = restored.projectile_stream_snapshot();
+    assert_eq!(streams.len(), 1);
+    assert_eq!(streams[0].0, source);
+    assert_eq!(streams[0].1, SECONDARY_STREAM);
+    assert_eq!(streams[0].3, Some(target));
+    assert_eq!(restored.objects[&target].health.current, 100.0);
+    assert_eq!(
+        restored.objects[&source].weapon_slot(1).unwrap().ammo,
+        Some(7)
     );
 }

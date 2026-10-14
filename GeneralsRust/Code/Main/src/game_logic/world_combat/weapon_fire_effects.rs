@@ -17,6 +17,16 @@ impl GameLogic {
         mut shot: crate::game_logic::combat::PendingProjectile,
         capture: Option<super::weapon_visual_capture::PendingWeaponVisualDispatchCapture>,
     ) -> bool {
+        // Retain the selected immutable template before FireFX/FireOCL callbacks
+        // can change content, selection, ownership or the firing object itself.
+        let stream_binding = self.objects.get(&shot.shooter_id).and_then(|object| {
+            object.selected_native_weapon_rule(slot).map(|rule| {
+                crate::game_logic::combat::ProjectileStreamBinding {
+                    slot,
+                    name: rule.projectile_stream_name.clone(),
+                }
+            })
+        });
         let source_pose = self.prepare_accepted_self_damage_pose(shot.shooter_id, slot);
         let epoch = source_pose.epoch;
         let accepted = self.begin_owned_weapon_effects(
@@ -36,7 +46,7 @@ impl GameLogic {
             return false;
         }
         self.refresh_accepted_self_damage_pose(&mut shot, source_pose);
-        self.materialize_owned_passive_shot(shot);
+        self.materialize_owned_passive_shot(shot, stream_binding);
         if let Some(accepted) = accepted {
             self.finish_accepted_weapon_discharge(accepted);
             true

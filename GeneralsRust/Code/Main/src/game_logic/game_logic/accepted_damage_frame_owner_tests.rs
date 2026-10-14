@@ -1,8 +1,38 @@
 //! Driving-clock evidence at the real accepted-shot -> materialization ->
-//! ready-consumer boundary. Normal GameLogic drain still publishes an ambient
-//! compatibility clock; this tests the actual consumer's supplied frame.
+//! ready-consumer boundary. Finite NONE shots reach frame103 from frame100;
+//! a foreign ordinary drain cannot change the receiving body clock.
 //! C++ ActiveBody.cpp:547-572,817-820. No private shot/timestamp injection.
 use super::*;
+
+const FINITE_DAMAGE: &str = "AcceptedImpactFrameDamage";
+const FINITE_HEALING: &str = "AcceptedImpactFrameHealing";
+
+fn assert_finite_weapon(world: &GameLogic, name: &str, damage_type: &str) {
+    let catalog = world
+        .weapon_definitions
+        .as_ref()
+        .expect("receiving immutable rules");
+    let rules = &catalog[&name.to_ascii_lowercase()];
+    assert_eq!(rules.primary_damage, 17.0);
+    assert_eq!(rules.weapon_speed.to_bits(), 0x4120_0001);
+    assert!(rules.projectile_name.eq_ignore_ascii_case("NONE"));
+    assert_eq!(rules.clip_size, 8);
+    assert_eq!(
+        rules.damage_type,
+        if damage_type == "HEALING" {
+            gamelogic::damage::DamageType::Healing
+        } else {
+            gamelogic::damage::DamageType::SmallArms
+        }
+    );
+}
+
+fn consume_before_due(world: &mut GameLogic, target: ObjectId, hp: f32) {
+    world.set_current_frame(102);
+    consume_only(world);
+    assert_eq!(world.objects[&target].health.current, hp);
+    world.set_current_frame(103);
+}
 
 fn materialize_only(world: &mut GameLogic) {
     drain_pending_projectiles(&mut world.combat_system, &world.objects, world.frame);
@@ -22,9 +52,8 @@ fn consume_only(world: &mut GameLogic) {
 
 #[test]
 fn accepted_impact_timestamp_uses_driving_frame_after_foreign_normal_drain() {
-    let _serial = combat_test_guard();
-    let _restore = RestoreInputs::install();
-    let (mut first, source, target) = world(FIRST_WEAPON);
+    let (mut first, source, target) = world(FINITE_DAMAGE);
+    assert_finite_weapon(&first, FINITE_DAMAGE, "SMALL_ARMS");
     let (mut second, other_source, other_target) = world(SECOND_WEAPON);
     second.set_current_frame(300);
     assert_eq!((source, target), (other_source, other_target));
@@ -32,9 +61,10 @@ fn accepted_impact_timestamp_uses_driving_frame_after_foreign_normal_drain() {
     materialize_only(&mut first);
     assert_eq!(first.objects[&target].health.current, 100.0);
     // A genuine ordinary second-world drain publishes frame300. The first
-    // ready consumer already accepts its own frame100 and must retain it.
+    // ready consumer receives its own due frame103, independently of that drain.
     second.drain_pending_projectiles_into_combat();
-    assert_eq!(crate::game_logic::host_historic_bonus::logic_frame(), 300);
+    consume_before_due(&mut first, target, 100.0);
+    assert_eq!(first.objects[&target].last_damage_timestamp, None);
     consume_only(&mut first);
     assert_eq!(first.objects[&target].health.current, 83.0);
     assert_eq!(first.objects[&target].last_damage_source, Some(source));
@@ -51,25 +81,25 @@ fn accepted_impact_timestamp_uses_driving_frame_after_foreign_normal_drain() {
     );
     assert_eq!(
         first.objects[&target].last_damage_timestamp,
-        Some(100),
-        "actual damage uses consumer frame, not foreign published300"
+        Some(103),
+        "actual damage uses the receiving consumer frame after the foreign drain"
     );
 }
 
 #[test]
 fn accepted_impact_same_owner_clock_control_preserves_hp_source_and_timestamp() {
-    let _serial = combat_test_guard();
-    let _restore = RestoreInputs::install();
-    let (mut first, source, target) = world(FIRST_WEAPON);
-    first.drain_pending_projectiles_into_combat(); // actual own empty drain publishes100
-    assert_eq!(crate::game_logic::host_historic_bonus::logic_frame(), 100);
+    let (mut first, source, target) = world(FINITE_DAMAGE);
+    assert_finite_weapon(&first, FINITE_DAMAGE, "SMALL_ARMS");
+    first.drain_pending_projectiles_into_combat();
     accept(&mut first, source, target, 10.0);
     materialize_only(&mut first);
     assert_eq!(first.objects[&target].health.current, 100.0);
+    consume_before_due(&mut first, target, 100.0);
+    assert_eq!(first.objects[&target].last_damage_timestamp, None);
     consume_only(&mut first);
     assert_eq!(first.objects[&target].health.current, 83.0);
     assert_eq!(first.objects[&target].last_damage_source, Some(source));
-    assert_eq!(first.objects[&target].last_damage_timestamp, Some(100));
+    assert_eq!(first.objects[&target].last_damage_timestamp, Some(103));
     assert_eq!(first.objects[&target].last_healing_timestamp, None);
     consume_only(&mut first);
     assert_eq!(first.objects[&target].health.current, 83.0);
@@ -77,38 +107,8 @@ fn accepted_impact_same_owner_clock_control_preserves_hp_source_and_timestamp() 
 
 #[test]
 fn accepted_healing_timestamp_uses_driving_frame_after_foreign_normal_drain() {
-    let _serial = combat_test_guard();
-    let _restore = RestoreInputs::install();
-    assert_eq!(
-        crate::assets::ini_template_loader::register_weapons_from_ini_text(
-            r#"
-Weapon AcceptedImpactFrameHealing
-  PrimaryDamage = 17
-  PrimaryDamageRadius = 0
-  AttackRange = 200
-  DamageType = HEALING
-  ProjectileObject = NONE
-  WeaponSpeed = 30000000
-  DelayBetweenShots = 1000
-  ClipSize = 8
-  ClipReloadTime = 1000
-  PreAttackDelay = 0
-  AntiGround = Yes
-End
-"#
-        ),
-        1
-    );
-    gamelogic::weapon::with_weapon_store(|store| {
-        let rules = store
-            .find_weapon_template("AcceptedImpactFrameHealing")
-            .unwrap();
-        assert_eq!(rules.primary_damage, 17.0);
-        assert_eq!(rules.damage_type, gamelogic::damage::DamageType::Healing);
-        assert!(rules.projectile_name.eq_ignore_ascii_case("NONE"));
-    })
-    .unwrap();
     let (mut first, source, target) = world(FIRST_WEAPON);
+    assert_finite_weapon(&first, FINITE_HEALING, "HEALING");
     let (mut second, other_source, other_target) = world(SECOND_WEAPON);
     second.set_current_frame(300);
     assert_eq!((source, target), (other_source, other_target));
@@ -129,7 +129,9 @@ End
     materialize_only(&mut first);
     assert_eq!(first.objects[&target].health.current, 83.0);
     second.drain_pending_projectiles_into_combat();
-    assert_eq!(crate::game_logic::host_historic_bonus::logic_frame(), 300);
+    consume_before_due(&mut first, target, 83.0);
+    assert_eq!(first.objects[&target].last_damage_timestamp, Some(100));
+    assert_eq!(first.objects[&target].last_healing_timestamp, None);
     consume_only(&mut first);
     assert_eq!(first.objects[&target].health.current, 100.0);
     assert_eq!(first.objects[&target].last_damage_source, Some(healer));
@@ -142,8 +144,8 @@ End
     assert_eq!(first.objects[&target].health.current, 100.0);
     assert_eq!(
         first.objects[&target].last_healing_timestamp,
-        Some(100),
-        "CPP healing stamps this game's frame100"
+        Some(103),
+        "CPP healing stamps the actual receiving frame103"
     );
-    assert_eq!(first.objects[&target].last_damage_timestamp, Some(100));
+    assert_eq!(first.objects[&target].last_damage_timestamp, Some(103));
 }

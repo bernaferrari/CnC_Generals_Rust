@@ -19,32 +19,37 @@ fn assert_one_owned_cue(world: &mut GameLogic, source: ObjectId, frame: u32) {
     assert!(world.take_weapon_discharges_for_presentation().is_empty());
 }
 
-fn materialize_each_world_once(
+fn assert_immediate_damage_is_not_reapplied_by_drain(
     first: &mut GameLogic,
     second: &mut GameLogic,
     target: ObjectId,
     other_target: ObjectId,
 ) {
-    assert_eq!(first.objects[&target].health.current, 100.0);
-    assert_eq!(second.objects[&other_target].health.current, 100.0);
-    first.drain_pending_projectiles_into_combat();
+    // C++ Weapon.cpp1035: these fast NONE shots hit during acceptance.
     assert_eq!(first.objects[&target].health.current, 83.0);
-    assert_eq!(second.objects[&other_target].health.current, 100.0);
-    second.drain_pending_projectiles_into_combat();
     assert_eq!(second.objects[&other_target].health.current, 87.0);
-    assert_eq!(first.objects[&target].health.current, 83.0);
+    assert_eq!(first.objects[&target].last_damage_timestamp, Some(100));
+    assert_eq!(
+        second.objects[&other_target].last_damage_timestamp,
+        Some(300)
+    );
     assert_eq!(first.combat_system.projectile_count(), 0);
     assert_eq!(second.combat_system.projectile_count(), 0);
-    first.drain_pending_projectiles_into_combat();
-    second.drain_pending_projectiles_into_combat();
-    assert_eq!(first.objects[&target].health.current, 83.0);
-    assert_eq!(second.objects[&other_target].health.current, 87.0);
+    for _ in 0..2 {
+        first.drain_pending_projectiles_into_combat();
+        second.drain_pending_projectiles_into_combat();
+        assert_eq!(first.objects[&target].health.current, 83.0);
+        assert_eq!(second.objects[&other_target].health.current, 87.0);
+        assert_eq!(first.objects[&target].last_damage_timestamp, Some(100));
+        assert_eq!(
+            second.objects[&other_target].last_damage_timestamp,
+            Some(300)
+        );
+    }
 }
 
 #[test]
 fn accepted_fire_frame_foreign_drain_cannot_stamp_other_worlds_normal_shot() {
-    let _serial = combat_test_guard();
-    let _restore = RestoreInputs::install();
     let (mut first, source, target) = world(FIRST_WEAPON);
     let (mut second, other_source, other_target) = world(SECOND_WEAPON);
     assert_eq!((source, target), (other_source, other_target));
@@ -55,15 +60,21 @@ fn accepted_fire_frame_foreign_drain_cannot_stamp_other_worlds_normal_shot() {
     // no test writes the compatibility clock to manufacture the defect.
     second.drain_pending_projectiles_into_combat();
     accept(&mut first, source, target, 10.0);
+    assert_eq!(first.objects[&target].health.current, 83.0);
+    assert_eq!(second.objects[&other_target].health.current, 100.0);
     accept(&mut second, other_source, other_target, 10.0);
     assert_one_owned_cue(&mut first, source, 100);
     assert_one_owned_cue(&mut second, other_source, 300);
-    materialize_each_world_once(&mut first, &mut second, target, other_target);
+    assert_immediate_damage_is_not_reapplied_by_drain(
+        &mut first,
+        &mut second,
+        target,
+        other_target,
+    );
     assert_eq!(first.objects[&source].last_fire_sim_time, 10.0);
     assert_eq!(second.objects[&other_source].last_fire_sim_time, 10.0);
     assert_eq!(second.objects[&other_source].last_fire_frame, 300);
-    // All real acceptance, ammo, cue and damage controls precede the OLD
-    // witness: current Object acceptance incorrectly stamps foreign frame 300.
+    // Real acceptance, ammo, cues and immediate damage use the driving frame.
     assert_eq!(
         first.objects[&source].last_fire_frame, 100,
         "normal accepted fire must use its driving world, after a foreign ordinary drain"
@@ -72,8 +83,6 @@ fn accepted_fire_frame_foreign_drain_cannot_stamp_other_worlds_normal_shot() {
 
 #[test]
 fn accepted_fire_frame_own_drain_control_keeps_timestamps_ammo_and_damage_order() {
-    let _serial = combat_test_guard();
-    let _restore = RestoreInputs::install();
     let (mut first, source, target) = world(FIRST_WEAPON);
     let (mut second, other_source, other_target) = world(SECOND_WEAPON);
     assert_eq!((source, target), (other_source, other_target));
@@ -81,12 +90,17 @@ fn accepted_fire_frame_own_drain_control_keeps_timestamps_ammo_and_damage_order(
 
     first.drain_pending_projectiles_into_combat();
     accept(&mut first, source, target, 10.0);
-    // First's accepted shot remains owned while second publishes its frame.
+    // First's synchronous impact remains owned after the foreign drain.
     second.drain_pending_projectiles_into_combat();
     accept(&mut second, other_source, other_target, 10.0);
     assert_one_owned_cue(&mut first, source, 100);
     assert_one_owned_cue(&mut second, other_source, 300);
-    materialize_each_world_once(&mut first, &mut second, target, other_target);
+    assert_immediate_damage_is_not_reapplied_by_drain(
+        &mut first,
+        &mut second,
+        target,
+        other_target,
+    );
     assert_eq!(first.objects[&source].last_fire_frame, 100);
     assert_eq!(second.objects[&other_source].last_fire_frame, 300);
     // Same f32 time deliberately accompanies two distinct actual frames.
