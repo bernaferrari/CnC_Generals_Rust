@@ -177,23 +177,31 @@ pub(crate) fn xfer_live_game_client_state(
             xfer.xfer_int(&mut client.local_player_id)?;
             xfer.xfer_unsigned_int(&mut client.rendered_object_count)?;
 
-            let mut next_drawable_id = client.next_drawable_id.0;
+            let mut next_drawable_id = client.drawables.next_drawable_id.0;
             xfer.xfer_unsigned_int(&mut next_drawable_id)?;
-            client.next_drawable_id = DrawableId(next_drawable_id.max(1));
+            client.drawables.next_drawable_id = DrawableId(next_drawable_id.max(1));
 
             let mut startup_sizzle_pending = client.startup_sizzle_pending;
             xfer.xfer_bool(&mut startup_sizzle_pending)?;
             client.startup_sizzle_pending = startup_sizzle_pending;
 
-            let mut drawable_count = client.drawable_map.len() as u32;
+            let mut drawable_count = client.drawables.drawable_map.len() as u32;
             xfer.xfer_unsigned_int(&mut drawable_count)?;
 
             if xfer.get_xfer_mode() == RuntimeXferMode::Load {
-                if client.next_drawable_id.0 <= 1 && !client.drawable_map.is_empty() {
-                    let max_id = client.drawable_map.keys().map(|id| id.0).max().unwrap_or(1);
-                    client.next_drawable_id = DrawableId(max_id.saturating_add(1));
+                if client.drawables.next_drawable_id.0 <= 1
+                    && !client.drawables.drawable_map.is_empty()
+                {
+                    let max_id = client
+                        .drawables
+                        .drawable_map
+                        .keys()
+                        .map(|id| id.0)
+                        .max()
+                        .unwrap_or(1);
+                    client.drawables.next_drawable_id = DrawableId(max_id.saturating_add(1));
                 }
-                client.set_drawable_id_counter(client.next_drawable_id.0);
+                client.set_drawable_id_counter(client.drawables.next_drawable_id.0);
             }
             return Ok(());
         }
@@ -212,11 +220,14 @@ pub(crate) fn xfer_live_game_client_state(
                     .collect_saveable_drawables_sorted()
                     .map_err(|_| RuntimeXferStatus::InvalidData)?
             } else {
-                client.drawable_map.clear();
-                client.ray_effects.reset();
-                client.owned_laser_order.clear();
-                client.drawable_object_map.clear();
-                client.presentation_direct_drawable_bindings.clear();
+                client.drawables.drawable_map.clear();
+                client.drawables.ray_effects.reset();
+                client.drawables.owned_laser_order.clear();
+                client.drawables.drawable_object_map.clear();
+                client
+                    .drawables
+                    .presentation_direct_drawable_bindings
+                    .clear();
                 Vec::new()
             };
 
@@ -236,7 +247,7 @@ pub(crate) fn xfer_live_game_client_state(
                     .collect();
 
                 for (drawable_id, template_name) in save_entries {
-                    let Some(drawable) = client.drawable_map.get_mut(&drawable_id) else {
+                    let Some(drawable) = client.drawables.drawable_map.get_mut(&drawable_id) else {
                         return Err(RuntimeXferStatus::InvalidData);
                     };
                     let mut toc_id = toc_lookup
@@ -299,7 +310,7 @@ pub(crate) fn xfer_live_game_client_state(
 
                     let mut drawable = if let Some(existing_id) = reuse_id {
                         let needs_replace = if let Some(existing) =
-                            client.drawable_map.get(&existing_id)
+                            client.drawables.drawable_map.get(&existing_id)
                         {
                             let guard =
                                 get_thing_factory().map_err(|_| RuntimeXferStatus::InvalidData)?;
@@ -318,7 +329,7 @@ pub(crate) fn xfer_live_game_client_state(
                                 .map_err(|_| RuntimeXferStatus::InvalidData)?;
                             None
                         } else {
-                            client.drawable_map.remove(&existing_id)
+                            client.drawables.drawable_map.remove(&existing_id)
                         }
                     } else {
                         None
@@ -329,10 +340,12 @@ pub(crate) fn xfer_live_game_client_state(
                             .create_drawable_from_template(template.as_ref())
                             .map_err(|_| RuntimeXferStatus::InvalidData)?;
                         let mut created = client
+                            .drawables
                             .drawable_map
                             .remove(&created_id)
                             .ok_or(RuntimeXferStatus::InvalidData)?;
                         client
+                            .drawables
                             .owned_laser_order
                             .retain(|owner| *owner != created_id);
                         if object_id != INVALID_ID {
@@ -347,18 +360,21 @@ pub(crate) fn xfer_live_game_client_state(
 
                     let id = drawable.get_id();
                     if let Some(object_id) = drawable.get_object_id() {
-                        client.drawable_object_map.insert(object_id, id);
+                        client.drawables.drawable_object_map.insert(object_id, id);
                     }
                     let native_lasers = GameClient::owned_laser_count(drawable.as_mut());
                     if native_lasers > 1 {
                         return Err(RuntimeXferStatus::InvalidData);
                     }
                     GameClient::bind_owned_laser_module(drawable.as_mut(), id);
-                    client.owned_laser_order.retain(|owner| *owner != id);
+                    client
+                        .drawables
+                        .owned_laser_order
+                        .retain(|owner| *owner != id);
                     if native_lasers == 1 {
-                        client.owned_laser_order.insert(0, id);
+                        client.drawables.owned_laser_order.insert(0, id);
                     }
-                    client.drawable_map.insert(id, drawable);
+                    client.drawables.drawable_map.insert(id, drawable);
 
                     adapter.end_block().map_err(common_status_to_runtime)?;
 

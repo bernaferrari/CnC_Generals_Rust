@@ -49,10 +49,11 @@ impl GameClient {
 
     fn draw_drawable_icon_ui(&mut self) {
         let mut text_ids = Vec::new();
-        for (id, drawable) in self.drawable_map.iter_mut() {
+        for (id, drawable) in self.drawables.drawable_map.iter_mut() {
             if drawable.is_visible() {
                 drawable.draw_icon_ui();
-                if let Some(basic) = drawable.downcast_ref::<crate::drawable::drawable::BasicDrawable>()
+                if let Some(basic) =
+                    drawable.downcast_ref::<crate::drawable::drawable::BasicDrawable>()
                 {
                     if basic.overlay_data.queue_ui_text {
                         text_ids.push(*id);
@@ -64,7 +65,6 @@ impl GameClient {
             self.add_text_bearing_drawable(id);
         }
     }
-
 
     pub fn last_live_ingame_hud_draw(&self) -> LiveInGameHudDrawCounts {
         self.last_live_ingame_hud_draw
@@ -89,8 +89,6 @@ impl GameClient {
         counts
     }
 
-
-
     fn packed_ingame_hud_snapshot(
         &self,
     ) -> (
@@ -101,22 +99,10 @@ impl GameClient {
         Vec<(String, [f32; 3], f32, f32, bool, u32)>,
     ) {
         let Some(ui) = &self.subsystem_manager.in_game_ui else {
-            return (
-                Vec::new(),
-                None,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-            );
+            return (Vec::new(), None, Vec::new(), Vec::new(), Vec::new());
         };
         let Ok(guard) = ui.lock() else {
-            return (
-                Vec::new(),
-                None,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-            );
+            return (Vec::new(), None, Vec::new(), Vec::new(), Vec::new());
         };
         let messages: Vec<(String, [f32; 4])> = guard
             .hud_messages()
@@ -152,12 +138,11 @@ impl GameClient {
     }
 
     fn draw_ingame_post_draw_hud(&self, counts: &mut LiveInGameHudDrawCounts) {
-        use crate::display::view::{with_tactical_view_ref, Point3};
+        use crate::display::view::{Point3, with_tactical_view_ref};
         use crate::gui::ui_globals::with_ui_renderer_mut;
         use glam::Vec2;
 
-        let (messages, subtitle, timers, floating, world_anims) =
-            self.packed_ingame_hud_snapshot();
+        let (messages, subtitle, timers, floating, world_anims) = self.packed_ingame_hud_snapshot();
         counts.messages = messages.len() as u32;
         counts.military_subtitles = u32::from(subtitle.is_some());
         counts.superweapon_timers = timers.len() as u32;
@@ -181,16 +166,10 @@ impl GameClient {
             for (text, color) in &messages {
                 // C++ dropColor=black with fill alpha; W3DDisplayString::draw uses +1,+1.
                 let drop = [0.0, 0.0, 0.0, color[3]];
-                let _ = renderer.draw_text_simple(
-                    text,
-                    Vec2::new(11.0, y + 1.0),
-                    10.0,
-                    drop,
-                );
+                let _ = renderer.draw_text_simple(text, Vec2::new(11.0, y + 1.0), 10.0, drop);
                 let _ = renderer.draw_text_simple(text, Vec2::new(10.0, y), 10.0, *color);
                 y += 14.0;
             }
-
 
             // C++ military subtitle (InGameUI.cpp:3461-3484) — typed lines + block.
             let frame = gamelogic::helpers::TheGameLogic::get_frame();
@@ -206,12 +185,8 @@ impl GameClient {
                 let x = pos.0 * (screen_w / 800.0);
                 for line in text.split('\n') {
                     let drop = [0.0, 0.0, 0.0, a];
-                    let _ = renderer.draw_text_simple(
-                        line,
-                        Vec2::new(x + 1.0, y + 1.0),
-                        12.0,
-                        drop,
-                    );
+                    let _ =
+                        renderer.draw_text_simple(line, Vec2::new(x + 1.0, y + 1.0), 12.0, drop);
                     let _ = renderer.draw_text_simple(line, Vec2::new(x, y), 12.0, rgba);
                     y += 12.0;
                 }
@@ -294,12 +269,8 @@ impl GameClient {
                 let char_w = 8.0 * 0.6;
                 let text_w = text.len() as f32 * char_w;
                 let x = screen.0 - text_w * 0.5;
-                let _ = renderer.draw_text_simple(
-                    text,
-                    Vec2::new(x + 1.0, screen.1 + 1.0),
-                    8.0,
-                    drop,
-                );
+                let _ =
+                    renderer.draw_text_simple(text, Vec2::new(x + 1.0, screen.1 + 1.0), 8.0, drop);
                 let _ = renderer.draw_text_simple(text, Vec2::new(x, screen.1), 8.0, rgba);
             }
 
@@ -313,8 +284,7 @@ impl GameClient {
                     continue;
                 }
                 let age = self.frame.saturating_sub(*spawn_frame);
-                let lift =
-                    crate::gui::ingame_ui::InGameUI::world_anim_z_lift(age, *z_rise);
+                let lift = crate::gui::ingame_ui::InGameUI::world_anim_z_lift(age, *z_rise);
                 let world = Point3::new(pos[0], pos[1], pos[2] + lift);
                 let coord = crate::system::Coord3D::new(pos[0], pos[1], pos[2] + lift);
                 if self.get_shroud_status_for_player(self.local_player_id, &coord)
@@ -323,10 +293,8 @@ impl GameClient {
                     continue;
                 }
                 let frames_till = expire.saturating_sub(self.frame);
-                let alpha = crate::gui::ingame_ui::InGameUI::world_anim_fade_alpha(
-                    frames_till,
-                    *fades,
-                );
+                let alpha =
+                    crate::gui::ingame_ui::InGameUI::world_anim_fade_alpha(frames_till, *fades);
                 if alpha <= 0.0 {
                     continue;
                 }
@@ -353,7 +321,6 @@ impl GameClient {
                 );
             }
 
-
             // C++ W3DMouse.cpp:565-567 / Mouse.cpp:963-1023 — tooltip after delay.
             crate::gui::ui_globals::tick_cursor_tooltip();
             let _ = crate::gui::ui_globals::submit_cursor_tooltip(renderer);
@@ -368,6 +335,7 @@ impl GameClient {
         use glam::Vec2;
 
         let overlays: Vec<crate::drawable::drawable::DrawableOverlayData> = self
+            .drawables
             .drawable_map
             .values()
             .filter(|drawable| drawable.is_visible())
@@ -408,7 +376,12 @@ impl GameClient {
                         None,
                     );
                     let _ = renderer.draw_rect_with_scissor(
-                        UIRect::new(bar_x + 1.0, bar_y + 1.0, (bar_w - 2.0) * overlay.health_ratio, bar_h - 2.0),
+                        UIRect::new(
+                            bar_x + 1.0,
+                            bar_y + 1.0,
+                            (bar_w - 2.0) * overlay.health_ratio,
+                            bar_h - 2.0,
+                        ),
                         fill,
                         None,
                     );
@@ -435,9 +408,11 @@ impl GameClient {
                 }
 
                 if overlay.veterancy_level > 0 {
-                    if let Some(name) = crate::drawable::drawable::BasicDrawable::veterancy_image_name(
-                        overlay.veterancy_level,
-                    ) {
+                    if let Some(name) =
+                        crate::drawable::drawable::BasicDrawable::veterancy_image_name(
+                            overlay.veterancy_level,
+                        )
+                    {
                         // C++ Drawable.cpp:3785-3818 — one SCVeter1/2/3 image
                         // anchored at the health-box right edge + (1,1).
                         // SCALE_ICONS_WITH_ZOOM_ML is off in retail ZH, so
@@ -466,7 +441,11 @@ impl GameClient {
                     let pip_y = bar_y + bar_h + 2.0;
                     for i in 0..overlay.ammo_total.min(12) {
                         let filled = i < overlay.ammo_full;
-                        let name = if filled { "SCPAmmoFull" } else { "SCPAmmoEmpty" };
+                        let name = if filled {
+                            "SCPAmmoFull"
+                        } else {
+                            "SCPAmmoEmpty"
+                        };
                         let x = bar_x + (i as f32) * (pip + 1.0);
                         let drew = with_window_manager_ref(|manager| {
                             if let Some(image) = manager.win_find_image(name) {
@@ -549,7 +528,6 @@ impl GameClient {
                 // acquires the UI renderer itself). Colored rects stay as a
                 // fallback when the Anim2D template is missing.
 
-
                 if let Some(numeral) = overlay.group_numeral.as_deref() {
                     let _ = renderer.draw_text_simple(
                         numeral,
@@ -582,9 +560,9 @@ impl GameClient {
         }
     }
 
-
     fn icon_overlay_object_ids(&self) -> std::collections::HashSet<u32> {
-        self.drawable_map
+        self.drawables
+            .drawable_map
             .values()
             .filter_map(|drawable| {
                 let basic = drawable.downcast_ref::<crate::drawable::drawable::BasicDrawable>()?;
@@ -614,7 +592,7 @@ impl GameClient {
             return;
         }
 
-        use crate::display::view::{with_tactical_view_ref, Point3};
+        use crate::display::view::{Point3, with_tactical_view_ref};
         use crate::gui::ui_globals::with_ui_renderer_mut;
         use crate::gui::ui_renderer::UIRect;
 
@@ -677,11 +655,18 @@ fn draw_overlay_anim2d_icons(overlay: &crate::drawable::drawable::DrawableOverla
 
     let mut try_icon = |template: &str, x: f32, y: f32, w: f32, h: f32, fallback: [f32; 4]| {
         if let Ok(icon) = Anim2DIcon::from_template_name(template) {
-            icon.render(Vector3::new(x, y, 0.0), Vector3::new(w.max(1.0), h.max(1.0), 0.0));
+            icon.render(
+                Vector3::new(x, y, 0.0),
+                Vector3::new(w.max(1.0), h.max(1.0), 0.0),
+            );
             return;
         }
         let _ = with_ui_renderer_mut(|renderer| {
-            let _ = renderer.draw_rect_with_scissor(UIRect::new(x, y, w.max(4.0), h.max(4.0)), fallback, None);
+            let _ = renderer.draw_rect_with_scissor(
+                UIRect::new(x, y, w.max(4.0), h.max(4.0)),
+                fallback,
+                None,
+            );
         });
     };
 
@@ -707,14 +692,7 @@ fn draw_overlay_anim2d_icons(overlay: &crate::drawable::drawable::DrawableOverla
         let y = lo.y as f32 + bar_h * 0.5 + 5.0;
         try_icon(name, x, y, size, size, [1.0, 0.75, 0.1, 0.95]);
         if overlay.bomb_type == 1 {
-            try_icon(
-                "BombRemote",
-                x,
-                y,
-                size,
-                size,
-                [1.0, 0.45, 0.1, 0.95],
-            );
+            try_icon("BombRemote", x, y, size, size, [1.0, 0.45, 0.1, 0.95]);
         }
     }
     if overlay.show_disabled {
@@ -795,17 +773,14 @@ fn draw_cpp_drawable_caption(
     renderer: &mut crate::gui::ui_renderer::UIRenderer,
     overlay: &crate::drawable::drawable::DrawableOverlayData,
 ) {
-    use crate::display::view::{with_tactical_view_ref, Point3};
+    use crate::display::view::{Point3, with_tactical_view_ref};
     use crate::gui::ui_renderer::UIRect;
     use glam::Vec2;
 
     let Some(caption) = overlay.caption.as_deref().filter(|c| !c.is_empty()) else {
         return;
     };
-    let Some(world) = overlay
-        .caption_world
-        .map(|p| Point3::new(p[0], p[1], p[2]))
-    else {
+    let Some(world) = overlay.caption_world.map(|p| Point3::new(p[0], p[1], p[2])) else {
         return;
     };
     let Some(screen) = with_tactical_view_ref(|view| {
@@ -846,5 +821,3 @@ fn draw_cpp_drawable_caption(
     );
     let _ = renderer.draw_text_simple(caption, Vec2::new(x, y), point_size, rgba);
 }
-
-

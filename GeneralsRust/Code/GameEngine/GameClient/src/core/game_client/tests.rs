@@ -4,6 +4,9 @@
 
 #[cfg(test)]
 mod tests {
+    mod drawable_world_owner_tests {
+        include!("drawable_world_owner_tests.rs");
+    }
     mod drawable_id_owner_tests {
         include!("drawable_id_owner_tests.rs");
     }
@@ -205,7 +208,10 @@ mod tests {
         drawable.set_id(drawable_id);
         drawable.set_template_name(Some(template_name.to_string()));
         drawable.set_position(position);
-        client.drawable_map.insert(drawable_id, Box::new(drawable));
+        client
+            .drawables
+            .drawable_map
+            .insert(drawable_id, Box::new(drawable));
     }
 
     #[test]
@@ -504,6 +510,7 @@ mod tests {
             Vector3::new(3.0, 4.0, 0.0),
         );
         let drawable = client
+            .drawables
             .drawable_map
             .get(&DrawableId(42))
             .expect("drawable should exist");
@@ -1843,7 +1850,10 @@ mod tests {
         let mut skipped_status = skipped.get_status();
         skipped_status.set(DrawableStatus::NO_SAVE);
         skipped.set_status(skipped_status);
-        client.drawable_map.insert(DrawableId(4), Box::new(skipped));
+        client
+            .drawables
+            .drawable_map
+            .insert(DrawableId(4), Box::new(skipped));
 
         let saveable = client.collect_saveable_drawables_sorted().unwrap();
         let ids: Vec<u32> = saveable.iter().map(|(id, _)| id.0).collect();
@@ -1947,9 +1957,10 @@ mod tests {
             Some("FallbackPersistTemplate")
         );
 
-        assert_eq!(loaded.drawable_map.len(), 2);
+        assert_eq!(loaded.drawables.drawable_map.len(), 2);
         assert!(
             !loaded
+                .drawables
                 .drawable_map
                 .values()
                 .any(|drawable| { drawable.get_template_name() == Some("SkippedTemplate") })
@@ -2489,6 +2500,7 @@ mod tests {
         insert_basic_drawable_for_test(&mut client, 7, "FlashUnit", Vector3::new(0.0, 0.0, 0.0));
         {
             let drawable = client
+                .drawables
                 .drawable_map
                 .get_mut(&DrawableId(7))
                 .expect("inserted drawable");
@@ -2538,6 +2550,7 @@ mod tests {
         );
         {
             let drawable = client
+                .drawables
                 .drawable_map
                 .get_mut(&DrawableId(90_002))
                 .expect("inserted drawable");

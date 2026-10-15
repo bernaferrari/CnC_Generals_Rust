@@ -115,7 +115,8 @@ impl GameClient {
             ));
         }
         let id = self.create_drawable_from_template(template)?;
-        self.drawable_map
+        self.drawables
+            .drawable_map
             .get_mut(&id)
             .ok_or(GameClientError::DrawableNotFound(id))?
             .set_position(crate::drawable::Vector3::new(
@@ -124,7 +125,7 @@ impl GameClient {
                 (start.z + end.z) * 0.5,
             ));
         // C++ addRayEffect does not destroy a successfully created Drawable on capacity exhaustion.
-        self.ray_effects.add(id, start, end);
+        self.drawables.ray_effects.add(id, start, end);
         Ok(id)
     }
 
@@ -134,6 +135,7 @@ impl GameClient {
         operation: impl FnOnce(&mut LaserUpdateModule) -> Result<T, String>,
     ) -> GameClientResult<T> {
         let drawable = self
+            .drawables
             .drawable_map
             .get_mut(&id)
             .ok_or(GameClientError::DrawableNotFound(id))?;
@@ -180,7 +182,7 @@ impl GameClient {
                 continue;
             };
             let client_id = DrawableId(tracked);
-            let Some(drawable) = self.drawable_map.get(&client_id) else {
+            let Some(drawable) = self.drawables.drawable_map.get(&client_id) else {
                 continue;
             };
             let position = drawable.get_position();
@@ -188,6 +190,7 @@ impl GameClient {
             // host XYZ and apply_frozen_direct_presentation_poses rotates Y).
             // Authored Core/client FX drawables remain original C++ Z-up.
             let host_projection = self
+                .drawables
                 .presentation_direct_drawable_bindings
                 .contains_key(&client_id);
             let to_cpp = |x, y, z| {
@@ -231,12 +234,17 @@ impl GameClient {
         phase: ClientLaserPhase<'_, '_>,
     ) -> GameClientResult<()> {
         if let Some(position) = phase.final_position {
-            let native_position = if self.presentation_direct_drawable_bindings.contains_key(&id) {
+            let native_position = if self
+                .drawables
+                .presentation_direct_drawable_bindings
+                .contains_key(&id)
+            {
                 crate::drawable::Vector3::new(position.x, position.z, position.y)
             } else {
                 crate::drawable::Vector3::new(position.x, position.y, position.z)
             };
-            self.drawable_map
+            self.drawables
+                .drawable_map
                 .get_mut(&id)
                 .ok_or(GameClientError::DrawableNotFound(id))?
                 .set_position(native_position);
@@ -324,6 +332,7 @@ impl GameClient {
         terrain_height: &mut dyn FnMut(f32, f32) -> Option<f32>,
     ) -> GameClientResult<Vec<game_engine::common::system::SceneLineDesc>> {
         let drawable = self
+            .drawables
             .drawable_map
             .get_mut(&id)
             .ok_or(GameClientError::DrawableNotFound(id))?;
@@ -420,7 +429,7 @@ impl GameClient {
         services: &mut ClientLaserServices<'_>,
     ) -> GameClientResult<()> {
         // Real owning Drawable order, including those beyond the bookkeeping capacity.
-        let ids = self.owned_laser_order.clone();
+        let ids = self.drawables.owned_laser_order.clone();
         for id in ids {
             self.update_owned_laser(id, services)?;
         }
@@ -431,7 +440,7 @@ impl GameClient {
         texture_aspect: &dyn Fn(&str) -> Result<f32, String>,
         terrain_height: &mut dyn FnMut(f32, f32) -> Option<f32>,
     ) -> GameClientResult<Vec<game_engine::common::system::SceneLineDesc>> {
-        let ids = self.owned_laser_order.clone();
+        let ids = self.drawables.owned_laser_order.clone();
         let mut output = Vec::new();
         for id in ids {
             output.extend(self.owned_laser_geometry(id, texture_aspect, terrain_height)?);
@@ -527,11 +536,11 @@ impl GameClient {
         &mut self,
         services: &mut ClientLaserServices<'_>,
     ) -> GameClientResult<()> {
-        let owners = self.owned_laser_order.clone();
+        let owners = self.drawables.owned_laser_order.clone();
         for owner in owners {
             self.destroy_owned_laser(owner, services)?;
         }
-        self.ray_effects.reset();
+        self.drawables.ray_effects.reset();
         Ok(())
     }
 }

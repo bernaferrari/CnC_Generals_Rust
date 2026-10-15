@@ -43,7 +43,7 @@ impl GameClient {
 
     fn collect_saveable_drawables_sorted(&self) -> Result<Vec<(DrawableId, String)>, String> {
         let mut entries = Vec::new();
-        for (&id, drawable) in &self.drawable_map {
+        for (&id, drawable) in &self.drawables.drawable_map {
             if !Self::should_save_drawable(drawable.as_ref()) {
                 continue;
             }
@@ -213,30 +213,33 @@ impl GameClient {
 
         let object_id = drawable.get_object_id();
         if let Some(object_id) = object_id {
-            if let Some(previous_drawable_id) = self.drawable_object_map.get(&object_id).copied() {
+            if let Some(previous_drawable_id) =
+                self.drawables.drawable_object_map.get(&object_id).copied()
+            {
                 if previous_drawable_id != id {
                     if let Some(previous_drawable) =
-                        self.drawable_map.get_mut(&previous_drawable_id)
+                        self.drawables.drawable_map.get_mut(&previous_drawable_id)
                     {
                         previous_drawable.set_object_id(None);
                     }
-                    self.drawable_object_map.remove(&object_id);
+                    self.drawables.drawable_object_map.remove(&object_id);
                     // A generic registration displaced a presentation-owned
                     // direct visual.  Its runtime key is no longer valid;
                     // host sync will mint a new one if this remains a direct
                     // presentation resident.
-                    self.presentation_direct_drawable_bindings
+                    self.drawables
+                        .presentation_direct_drawable_bindings
                         .remove(&previous_drawable_id);
                 }
             }
         }
-        self.drawable_map.insert(id, drawable);
+        self.drawables.drawable_map.insert(id, drawable);
         if native_lasers == 1 {
             // GameClient.cpp480 prepends actual Drawables, independently of RayEffect bookkeeping.
-            self.owned_laser_order.insert(0, id);
+            self.drawables.owned_laser_order.insert(0, id);
         }
         if let Some(object_id) = object_id {
-            self.drawable_object_map.insert(object_id, id);
+            self.drawables.drawable_object_map.insert(object_id, id);
         }
 
         log::debug!("Registered drawable with ID {:?}", id);
@@ -500,17 +503,17 @@ impl GameClient {
 
     /// Finds a drawable by its ID
     pub fn find_drawable_by_id(&self, id: DrawableId) -> Option<&dyn Drawable> {
-        self.drawable_map.get(&id).map(|d| d.as_ref())
+        self.drawables.drawable_map.get(&id).map(|d| d.as_ref())
     }
 
     /// Finds a mutable drawable by its ID
     pub fn find_drawable_by_id_mut(&mut self, id: DrawableId) -> Option<&mut Box<dyn Drawable>> {
-        self.drawable_map.get_mut(&id)
+        self.drawables.drawable_map.get_mut(&id)
     }
 
     /// Destroys a drawable and removes it from all systems
     pub fn destroy_drawable(&mut self, id: DrawableId) -> GameClientResult<()> {
-        if self.owned_laser_order.contains(&id)
+        if self.drawables.owned_laser_order.contains(&id)
             && self
                 .with_owned_laser(id, |module| Ok(module.requires_owned_particle_retirement()))?
         {
@@ -518,9 +521,11 @@ impl GameClient {
                 "owned laser destruction requires its receiving particle services".into(),
             ));
         }
-        self.ray_effects.delete(id);
-        self.owned_laser_order.retain(|owner| *owner != id);
-        if let Some(drawable) = self.drawable_map.get(&id) {
+        self.drawables.ray_effects.delete(id);
+        self.drawables
+            .owned_laser_order
+            .retain(|owner| *owner != id);
+        if let Some(drawable) = self.drawables.drawable_map.get(&id) {
             // Notify UI systems
             if let Some(ref ui) = self.subsystem_manager.in_game_ui {
                 ui.lock()
@@ -532,19 +537,22 @@ impl GameClient {
         }
 
         // Remove from the map (this drops the drawable)
-        if let Some(drawable) = self.drawable_map.remove(&id) {
+        if let Some(drawable) = self.drawables.drawable_map.remove(&id) {
             if let Some(object_id) = drawable.get_object_id() {
-                if self.drawable_object_map.get(&object_id).copied() == Some(id) {
-                    self.drawable_object_map.remove(&object_id);
+                if self.drawables.drawable_object_map.get(&object_id).copied() == Some(id) {
+                    self.drawables.drawable_object_map.remove(&object_id);
                 }
                 prune_live_host_animated_particle_sys_bones(object_id);
             }
         }
         // Direct visual identity is runtime-only and dies with the Drawable.
-        self.presentation_direct_drawable_bindings.remove(&id);
+        self.drawables
+            .presentation_direct_drawable_bindings
+            .remove(&id);
 
         // Remove from text bearing list
-        self.text_bearing_drawables
+        self.drawables
+            .text_bearing_drawables
             .retain(|&stored_id| stored_id != id);
 
         Ok(())
@@ -556,6 +564,7 @@ impl GameClient {
         object_id: ObjectID,
     ) -> GameClientResult<()> {
         let old_object_id = self
+            .drawables
             .drawable_map
             .get(&drawable_id)
             .and_then(|drawable| drawable.get_object_id());
@@ -566,8 +575,9 @@ impl GameClient {
         // any owner change, displacement, or broken inverse map is a new
         // visual lifetime and must receive a fresh key on the next host sync.
         let retains_same_direct_binding = old_object_id == Some(object_id)
-            && self.drawable_object_map.get(&object_id).copied() == Some(drawable_id)
+            && self.drawables.drawable_object_map.get(&object_id).copied() == Some(drawable_id)
             && self
+                .drawables
                 .presentation_direct_drawable_bindings
                 .get(&drawable_id)
                 .is_some_and(|binding| {
@@ -575,31 +585,44 @@ impl GameClient {
                         && binding.binding_key.drawable_id == drawable_id
                 });
         if !retains_same_direct_binding {
-            self.presentation_direct_drawable_bindings
+            self.drawables
+                .presentation_direct_drawable_bindings
                 .remove(&drawable_id);
         }
 
         if let Some(old_object_id) = old_object_id {
             if old_object_id != object_id
-                && self.drawable_object_map.get(&old_object_id).copied() == Some(drawable_id)
+                && self
+                    .drawables
+                    .drawable_object_map
+                    .get(&old_object_id)
+                    .copied()
+                    == Some(drawable_id)
             {
-                self.drawable_object_map.remove(&old_object_id);
+                self.drawables.drawable_object_map.remove(&old_object_id);
             }
         }
 
-        if let Some(previous_drawable_id) = self.drawable_object_map.get(&object_id).copied() {
+        if let Some(previous_drawable_id) =
+            self.drawables.drawable_object_map.get(&object_id).copied()
+        {
             if previous_drawable_id != drawable_id {
-                if let Some(previous_drawable) = self.drawable_map.get_mut(&previous_drawable_id) {
+                if let Some(previous_drawable) =
+                    self.drawables.drawable_map.get_mut(&previous_drawable_id)
+                {
                     previous_drawable.set_object_id(None);
                 }
-                self.presentation_direct_drawable_bindings
+                self.drawables
+                    .presentation_direct_drawable_bindings
                     .remove(&previous_drawable_id);
             }
         }
 
-        if let Some(drawable) = self.drawable_map.get_mut(&drawable_id) {
+        if let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) {
             drawable.set_object_id(Some(object_id));
-            self.drawable_object_map.insert(object_id, drawable_id);
+            self.drawables
+                .drawable_object_map
+                .insert(object_id, drawable_id);
             Ok(())
         } else {
             Err(GameClientError::DrawableNotFound(drawable_id))
@@ -607,7 +630,7 @@ impl GameClient {
     }
 
     pub fn get_drawable_for_object(&self, object_id: ObjectID) -> Option<DrawableId> {
-        self.drawable_object_map.get(&object_id).copied()
+        self.drawables.drawable_object_map.get(&object_id).copied()
     }
 
     /// Iterates over drawables in a given region
@@ -619,7 +642,7 @@ impl GameClient {
     where
         F: FnMut(&dyn Drawable),
     {
-        for drawable in self.drawable_map.values() {
+        for drawable in self.drawables.drawable_map.values() {
             let position = drawable.get_position();
 
             let in_region = match region {
@@ -665,7 +688,7 @@ impl GameClient {
 
     /// Gets all drawable IDs
     pub fn get_drawable_ids(&self) -> Vec<DrawableId> {
-        self.drawable_map.keys().copied().collect()
+        self.drawables.drawable_map.keys().copied().collect()
     }
 
     /// Evaluates context commands for a drawable
@@ -685,17 +708,17 @@ impl GameClient {
 
     /// Adds a drawable to the text-bearing list for UI rendering
     pub fn add_text_bearing_drawable(&mut self, drawable_id: DrawableId) {
-        self.text_bearing_drawables.push(drawable_id);
+        self.drawables.text_bearing_drawables.push(drawable_id);
     }
 
     /// Flushes all text-bearing drawables
     pub fn flush_text_bearing_drawables(&mut self) -> GameClientResult<()> {
-        for &drawable_id in &self.text_bearing_drawables {
-            if let Some(drawable) = self.drawable_map.get(&drawable_id) {
+        for &drawable_id in &self.drawables.text_bearing_drawables {
+            if let Some(drawable) = self.drawables.drawable_map.get(&drawable_id) {
                 drawable.draw_ui_text()?;
             }
         }
-        self.text_bearing_drawables.clear();
+        self.drawables.text_bearing_drawables.clear();
         Ok(())
     }
 
@@ -1027,7 +1050,7 @@ impl GameClient {
         angle: f32,
     ) -> GameClientResult<DrawableId> {
         let id = self.create_drawable_from_template(template)?;
-        if let Some(drawable) = self.drawable_map.get_mut(&id) {
+        if let Some(drawable) = self.drawables.drawable_map.get_mut(&id) {
             drawable.set_position(Vector3::new(pos.x, pos.y, pos.z));
             // PARITY_NOTE: C++ stores angle as orientation on the drawable.
             // The Drawable trait doesn't currently expose set_orientation, so
@@ -1170,7 +1193,7 @@ impl GameClient {
 
     /// Wave 1006: presentation/shell drawable map size residual (dual-world safe).
     pub fn drawable_count(&self) -> usize {
-        self.drawable_map.len()
+        self.drawables.drawable_map.len()
     }
 
     /// Update drawable visibility based on shroud/fog of war status
@@ -1204,6 +1227,7 @@ impl GameClient {
         if dual_world_registry_unavailable() {
             let _ = local_player_index;
             let pairs: Vec<(ObjectID, DrawableId)> = self
+                .drawables
                 .drawable_object_map
                 .iter()
                 .map(|(oid, did)| (*oid, *did))
@@ -1224,7 +1248,7 @@ impl GameClient {
                     || entry.sold
                     || entry.masked
                     || (entry.effectively_stealthed && !local);
-                if let Some(drawable) = self.drawable_map.get_mut(&drawable_id) {
+                if let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) {
                     // Trait path: stealth look residual for non-local effectively stealthed.
                     if entry.effectively_stealthed && !local {
                         drawable
@@ -1283,6 +1307,7 @@ impl GameClient {
         // Wave 1050: also peel visibility status (destroyed/stealth/FOW) with pose.
         if dual_world_registry_unavailable() {
             let pairs: Vec<(ObjectID, DrawableId)> = self
+                .drawables
                 .drawable_object_map
                 .iter()
                 .map(|(oid, did)| (*oid, *did))
@@ -1293,7 +1318,7 @@ impl GameClient {
                 else {
                     continue;
                 };
-                let Some(drawable) = self.drawable_map.get_mut(&drawable_id) else {
+                let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) else {
                     continue;
                 };
                 // Wave 1023/1024: catalog pose residual (position + yaw).
@@ -1450,7 +1475,7 @@ impl GameClient {
             return Ok(());
         };
 
-        let object_ids: Vec<u32> = self.drawable_object_map.keys().copied().collect();
+        let object_ids: Vec<u32> = self.drawables.drawable_object_map.keys().copied().collect();
 
         if let Ok(mut bridge_guard) = crate::render_bridge::get_render_bridge().lock() {
             if let Some(bridge) = bridge_guard.as_mut() {
@@ -1485,20 +1510,15 @@ impl GameClient {
     // Private implementation methods
 
     fn alloc_drawable_id(&mut self) -> DrawableId {
-        // GameClient.cpp461-467: allocation advances this client's counter.
-        // Another client, including a detached load candidate, cannot reserve
-        // IDs in this one. The unsigned increment deliberately wraps as in C++.
-        let id = self.next_drawable_id;
-        self.next_drawable_id = DrawableId(id.0.wrapping_add(1));
-        id
+        self.drawables.alloc_drawable_id()
     }
 
     fn get_drawable_id_counter(&self) -> u32 {
-        self.next_drawable_id.0
+        self.drawables.next_drawable_id.0
     }
 
     fn set_drawable_id_counter(&mut self, next_drawable_id: u32) {
-        self.next_drawable_id = DrawableId(next_drawable_id);
+        self.drawables.next_drawable_id = DrawableId(next_drawable_id);
     }
 
     /// Pull this world's DRAWABLE_STATE objectless rows into this archive so
@@ -1512,7 +1532,7 @@ impl GameClient {
                 continue;
             }
             let drawable_id = DrawableId(id);
-            if self.drawable_map.contains_key(&drawable_id) {
+            if self.drawables.drawable_map.contains_key(&drawable_id) {
                 continue;
             }
             let mut drawable = BasicDrawable::new(drawable_id);
@@ -1523,10 +1543,12 @@ impl GameClient {
                 state.position.y,
                 state.position.z,
             ));
-            self.drawable_map.insert(drawable_id, Box::new(drawable));
-            if id >= self.next_drawable_id.0 {
-                self.next_drawable_id = DrawableId(id.saturating_add(1).max(1));
-                self.set_drawable_id_counter(self.next_drawable_id.0);
+            self.drawables
+                .drawable_map
+                .insert(drawable_id, Box::new(drawable));
+            if id >= self.drawables.next_drawable_id.0 {
+                self.drawables.next_drawable_id = DrawableId(id.saturating_add(1).max(1));
+                self.set_drawable_id_counter(self.drawables.next_drawable_id.0);
             }
         }
     }
@@ -1538,7 +1560,7 @@ impl GameClient {
             return;
         };
         visual_world.clear_objectless_drawables();
-        for (id, drawable) in &self.drawable_map {
+        for (id, drawable) in &self.drawables.drawable_map {
             if drawable.get_object_id().is_some() {
                 continue;
             }
@@ -1651,7 +1673,7 @@ impl Snapshotable for GameClient {
 
             xfer.begin_block().map_err(|e| format!("{:?}", e))?;
 
-            if let Some(drawable) = self.drawable_map.get(drawable_id) {
+            if let Some(drawable) = self.drawables.drawable_map.get(drawable_id) {
                 let mut object_id: ObjectID = drawable.get_object_id().unwrap_or(INVALID_ID);
                 xfer.xfer_unsigned_int(&mut object_id)
                     .map_err(|e| e.to_string())?;
@@ -1680,11 +1702,11 @@ impl Snapshotable for GameClient {
         let save_entries = if xfer.is_writing() {
             self.collect_saveable_drawables_sorted()?
         } else {
-            self.drawable_map.clear();
-            self.ray_effects.reset();
-            self.owned_laser_order.clear();
-            self.drawable_object_map.clear();
-            self.presentation_direct_drawable_bindings.clear();
+            self.drawables.drawable_map.clear();
+            self.drawables.ray_effects.reset();
+            self.drawables.owned_laser_order.clear();
+            self.drawables.drawable_object_map.clear();
+            self.drawables.presentation_direct_drawable_bindings.clear();
             Vec::new()
         };
 
@@ -1704,7 +1726,7 @@ impl Snapshotable for GameClient {
                 .collect();
 
             for (drawable_id, template_name) in save_entries {
-                let Some(drawable) = self.drawable_map.get_mut(&drawable_id) else {
+                let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) else {
                     return Err(format!(
                         "Drawable '{}' disappeared during save serialization",
                         drawable_id.0
@@ -1776,7 +1798,8 @@ impl Snapshotable for GameClient {
                 }
 
                 let mut drawable = if let Some(existing_id) = reuse_id {
-                    let needs_replace = if let Some(existing) = self.drawable_map.get(&existing_id)
+                    let needs_replace = if let Some(existing) =
+                        self.drawables.drawable_map.get(&existing_id)
                     {
                         let guard = get_thing_factory().map_err(|_| "ThingFactory lock failed")?;
                         let factory = guard
@@ -1795,7 +1818,7 @@ impl Snapshotable for GameClient {
                             .map_err(|e| e.to_string())?;
                         None
                     } else {
-                        self.drawable_map.remove(&existing_id)
+                        self.drawables.drawable_map.remove(&existing_id)
                     }
                 } else {
                     None
@@ -1811,13 +1834,19 @@ impl Snapshotable for GameClient {
                                 e
                             )
                         })?;
-                    let mut created = self.drawable_map.remove(&created_id).ok_or_else(|| {
-                        format!(
-                            "GameClient::xfer - Created drawable '{}' was not registered",
-                            created_id.0
-                        )
-                    })?;
-                    self.owned_laser_order.retain(|owner| *owner != created_id);
+                    let mut created =
+                        self.drawables
+                            .drawable_map
+                            .remove(&created_id)
+                            .ok_or_else(|| {
+                                format!(
+                                    "GameClient::xfer - Created drawable '{}' was not registered",
+                                    created_id.0
+                                )
+                            })?;
+                    self.drawables
+                        .owned_laser_order
+                        .retain(|owner| *owner != created_id);
                     if object_id != INVALID_ID {
                         created.set_object_id(Some(object_id));
                     }
@@ -1829,18 +1858,20 @@ impl Snapshotable for GameClient {
 
                 let id = drawable.get_id();
                 if let Some(object_id) = drawable.get_object_id() {
-                    self.drawable_object_map.insert(object_id, id);
+                    self.drawables.drawable_object_map.insert(object_id, id);
                 }
                 let native_lasers = Self::owned_laser_count(drawable.as_mut());
                 if native_lasers > 1 {
                     return Err("multiple owned LaserUpdate callbacks in restored drawable".into());
                 }
                 Self::bind_owned_laser_module(drawable.as_mut(), id);
-                self.owned_laser_order.retain(|owner| *owner != id);
+                self.drawables
+                    .owned_laser_order
+                    .retain(|owner| *owner != id);
                 if native_lasers == 1 {
-                    self.owned_laser_order.insert(0, id);
+                    self.drawables.owned_laser_order.insert(0, id);
                 }
-                self.drawable_map.insert(id, drawable);
+                self.drawables.drawable_map.insert(id, drawable);
 
                 xfer.end_block().map_err(|e| format!("{:?}", e))?;
 
@@ -1867,17 +1898,17 @@ impl Snapshotable for GameClient {
         // Binding keys describe pre-load runtime Drawable instances and are
         // intentionally not serialized.  Recreated presentation drawables
         // receive fresh keys on the next host sync.
-        self.presentation_direct_drawable_bindings.clear();
-        self.drawable_object_map.clear();
-        let mut next_drawable_id = self.next_drawable_id.0.max(1);
+        self.drawables.presentation_direct_drawable_bindings.clear();
+        self.drawables.drawable_object_map.clear();
+        let mut next_drawable_id = self.drawables.next_drawable_id.0.max(1);
 
-        for drawable in self.drawable_map.values() {
+        for drawable in self.drawables.drawable_map.values() {
             let id = drawable.get_id();
             if id.0 >= next_drawable_id {
                 next_drawable_id = id.0.saturating_add(1).max(1);
             }
             if let Some(object_id) = drawable.get_object_id() {
-                self.drawable_object_map.insert(object_id, id);
+                self.drawables.drawable_object_map.insert(object_id, id);
             }
         }
 
@@ -1885,8 +1916,8 @@ impl Snapshotable for GameClient {
         // so the next ID counter cannot regress after load.
         // Host path: registry empty — drawable_map already drove next_drawable_id.
         if OBJECT_REGISTRY.is_empty() {
-            self.next_drawable_id = DrawableId(next_drawable_id.max(1));
-            self.set_drawable_id_counter(self.next_drawable_id.0);
+            self.drawables.next_drawable_id = DrawableId(next_drawable_id.max(1));
+            self.set_drawable_id_counter(self.drawables.next_drawable_id.0);
             return Ok(());
         }
         for obj_ref in OBJECT_REGISTRY.get_all_objects() {
@@ -1907,13 +1938,14 @@ impl Snapshotable for GameClient {
 
             let object_id = drawable_guard.get_object_id();
             if object_id != INVALID_ID {
-                self.drawable_object_map
+                self.drawables
+                    .drawable_object_map
                     .insert(object_id, DrawableId(drawable_id));
             }
         }
 
-        self.next_drawable_id = DrawableId(next_drawable_id.max(1));
-        self.set_drawable_id_counter(self.next_drawable_id.0);
+        self.drawables.next_drawable_id = DrawableId(next_drawable_id.max(1));
+        self.set_drawable_id_counter(self.drawables.next_drawable_id.0);
         Ok(())
     }
 }
@@ -1924,9 +1956,9 @@ impl Drop for GameClient {
         let owned_live_slot = clear_live_game_client(self);
 
         // Clear all drawables (they'll be dropped automatically)
-        self.drawable_map.clear();
-        self.ray_effects.reset();
-        self.owned_laser_order.clear();
+        self.drawables.drawable_map.clear();
+        self.drawables.ray_effects.reset();
+        self.drawables.owned_laser_order.clear();
 
         if owned_live_slot {
             crate::effects::clear_live_effects_after_drawables();

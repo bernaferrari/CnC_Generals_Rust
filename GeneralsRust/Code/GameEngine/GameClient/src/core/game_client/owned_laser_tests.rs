@@ -33,8 +33,8 @@ fn actual_ray_factory_and_geometry_use_the_receiving_installed_modules() {
     let ray = first.create_owned_ray(&template, start, end).unwrap();
     let peer_ray = peer.create_owned_ray(&template, start, end).unwrap();
     // Match constructor does not import another client's registry.
-    assert_eq!(first.ray_effects.iter().count(), 1);
-    assert_eq!(peer.ray_effects.iter().count(), 1);
+    assert_eq!(first.drawables.ray_effects.iter().count(), 1);
+    assert_eq!(peer.drawables.ray_effects.iter().count(), 1);
     assert_eq!(
         first.find_drawable_by_id(ray).unwrap().get_position().x,
         25.0
@@ -82,8 +82,8 @@ fn actual_ray_factory_and_geometry_use_the_receiving_installed_modules() {
     assert!(first.find_drawable_by_id(ray).is_some());
     assert!(peer.find_drawable_by_id(peer_ray).is_some());
     first.destroy_drawable(ray).unwrap();
-    assert_eq!(first.ray_effects.iter().count(), 0);
-    assert_eq!(peer.ray_effects.iter().count(), 1);
+    assert_eq!(first.drawables.ray_effects.iter().count(), 0);
+    assert_eq!(peer.drawables.ray_effects.iter().count(), 1);
 }
 
 #[test]
@@ -94,8 +94,8 @@ fn invalid_ray_template_never_creates_a_synthetic_drawable() {
             .create_owned_ray(&ThingTemplate::new(), Coord3D::ZERO, Coord3D::ZERO)
             .is_err()
     );
-    assert!(client.drawable_map.is_empty());
-    assert_eq!(client.ray_effects.iter().count(), 0);
+    assert!(client.drawables.drawable_map.is_empty());
+    assert_eq!(client.drawables.ray_effects.iter().count(), 0);
 }
 
 #[test]
@@ -108,8 +108,8 @@ fn full_cpp_ray_registry_keeps_the_real_factory_drawable_alive() {
             .create_owned_ray(&template, Coord3D::ZERO, Coord3D::new(1.0, 0.0, 0.0))
             .unwrap();
     }
-    assert_eq!(client.ray_effects.iter().count(), 128);
-    assert_eq!(client.drawable_map.len(), 129);
+    assert_eq!(client.drawables.ray_effects.iter().count(), 128);
+    assert_eq!(client.drawables.drawable_map.len(), 129);
     assert!(client.find_drawable_by_id(last).is_some());
 }
 
@@ -148,17 +148,17 @@ fn same_id_actual_laser_destructor_retires_only_its_receiving_particle_manager()
         .unwrap();
     // Match-load-style exact identity installation. No process counter/registry
     // publication participates in the actual runtime or destructor assertions.
-    let mut peer_drawable = peer.drawable_map.remove(&peer_id).unwrap();
+    let mut peer_drawable = peer.drawables.drawable_map.remove(&peer_id).unwrap();
     peer_drawable.set_id(id);
-    peer.drawable_map.insert(id, peer_drawable);
+    peer.drawables.drawable_map.insert(id, peer_drawable);
     peer.with_owned_laser(id, |module| {
         module.bind_owned_drawable(id.0);
         Ok(())
     })
     .unwrap();
-    peer.owned_laser_order = vec![id];
-    peer.ray_effects.delete(peer_id);
-    peer.ray_effects.add(id, start, end);
+    peer.drawables.owned_laser_order = vec![id];
+    peer.drawables.ray_effects.delete(peer_id);
+    peer.drawables.ray_effects.add(id, start, end);
     let mut first_particles = crate::effects::particle_manager::ParticleSystemManager::new();
     let mut peer_particles = crate::effects::particle_manager::ParticleSystemManager::new();
     for manager in [&mut first_particles, &mut peer_particles] {
@@ -325,6 +325,7 @@ fn actual_host_direct_drawable_is_converted_once_into_cpp_laser_coordinates() {
     let source_id = client.get_drawable_for_object(77).unwrap();
     assert!(
         client
+            .drawables
             .presentation_direct_drawable_bindings
             .contains_key(&source_id)
     );
@@ -383,6 +384,7 @@ fn actual_host_direct_drawable_is_converted_once_into_cpp_laser_coordinates() {
         crate::drawable::Matrix4::translation(crate::drawable::Vector3::new(17.0, 53.0, 31.0)),
     );
     client
+        .drawables
         .drawable_map
         .get_mut(&source_id)
         .unwrap()
@@ -465,7 +467,7 @@ fn actual_classic_module_rejects_owned_services_before_any_mutation() {
             .to_string()
             .contains("classic LaserUpdate")
     );
-    let drawable = client.drawable_map.get_mut(&id).unwrap();
+    let drawable = client.drawables.drawable_map.get_mut(&id).unwrap();
     let position = drawable.get_position();
     assert_eq!((position.x, position.y, position.z), (13.0, 29.0, 47.0));
     let basic = drawable
@@ -483,8 +485,8 @@ fn actual_classic_module_rejects_owned_services_before_any_mutation() {
     assert!(!module.update_mut().is_dirty());
     assert_eq!(module.tracked_drawables().0, None);
     assert_eq!(module.tracked_drawables().1, None);
-    assert!(client.owned_laser_order.is_empty());
-    assert_eq!(client.ray_effects.iter().count(), 0);
+    assert!(client.drawables.owned_laser_order.is_empty());
+    assert_eq!(client.drawables.ray_effects.iter().count(), 0);
 }
 
 #[test]
@@ -493,10 +495,10 @@ fn normal_template_factory_binds_one_owned_callback_without_ray_enrollment() {
     let template = template();
     let first = client.create_drawable_from_template(&template).unwrap();
     let second = client.create_drawable_from_template(&template).unwrap();
-    assert_eq!(client.owned_laser_order, vec![second, first]);
-    assert_eq!(client.ray_effects.iter().count(), 0);
+    assert_eq!(client.drawables.owned_laser_order, vec![second, first]);
+    assert_eq!(client.drawables.ray_effects.iter().count(), 0);
     for id in [first, second] {
-        let drawable = client.drawable_map.get_mut(&id).unwrap();
+        let drawable = client.drawables.drawable_map.get_mut(&id).unwrap();
         assert_eq!(GameClient::owned_laser_count(drawable.as_mut()), 1);
         client
             .with_owned_laser(id, |module| {
@@ -531,8 +533,8 @@ fn normal_template_factory_binds_one_owned_callback_without_ray_enrollment() {
         .owned_laser_geometry(first, &|_| Err("no texture".into()), &mut |_, _| None)
         .unwrap();
     assert_eq!(first_geometry[0].width, 2.0);
-    assert_eq!(client.owned_laser_order, vec![second, first]);
-    assert_eq!(client.ray_effects.iter().count(), 0);
+    assert_eq!(client.drawables.owned_laser_order, vec![second, first]);
+    assert_eq!(client.drawables.ray_effects.iter().count(), 0);
 }
 
 #[test]
@@ -554,9 +556,9 @@ fn invalid_normal_laser_data_is_rejected_before_native_id_or_slot_admission() {
             .contains("LaserUpdate module data type mismatch")
     );
     assert_eq!(client.get_drawable_id_counter(), counter);
-    assert!(client.drawable_map.is_empty());
-    assert!(client.owned_laser_order.is_empty());
-    assert_eq!(client.ray_effects.iter().count(), 0);
+    assert!(client.drawables.drawable_map.is_empty());
+    assert!(client.drawables.owned_laser_order.is_empty());
+    assert_eq!(client.drawables.ray_effects.iter().count(), 0);
 }
 
 #[test]
@@ -620,8 +622,8 @@ fn supplied_native_reset_marks_real_laser_particles_and_preserves_other_drawable
     assert!(client.find_drawable_by_id(first).is_none());
     assert!(client.find_drawable_by_id(second).is_none());
     assert!(client.find_drawable_by_id(other).is_some());
-    assert!(client.owned_laser_order.is_empty());
-    assert_eq!(client.ray_effects.iter().count(), 0);
+    assert!(client.drawables.owned_laser_order.is_empty());
+    assert_eq!(client.drawables.ray_effects.iter().count(), 0);
     assert!(
         services
             .particles

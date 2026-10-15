@@ -33,9 +33,6 @@ impl GameClient {
         let client = Self {
             frame: 0,
             last_visual_time_frame: u32::MAX,
-            next_drawable_id: DrawableId(1),
-            ray_effects: Default::default(),
-            owned_laser_order: Vec::new(),
             local_player_id: 0,
             visual_world: None,
             last_applied_military_caption: None,
@@ -48,12 +45,8 @@ impl GameClient {
             letterbox_overlay_fade_start: None,
             last_live_ingame_hud_draw: LiveInGameHudDrawCounts::default(),
 
-            drawable_map: std::collections::HashMap::with_capacity(super::DRAWABLE_HASH_SIZE),
-            drawable_object_map: std::collections::HashMap::new(),
-            presentation_direct_drawable_bindings: std::collections::HashMap::new(),
-            next_presentation_direct_binding_generation: 1,
+            drawables: drawable_world::DrawableWorld::new(),
             drawable_toc: Vec::new(),
-            text_bearing_drawables: Vec::new(),
             loaded_map: None,
             translators: [TRANSLATOR_ID_INVALID; super::MAX_CLIENT_TRANSLATORS],
             num_translators: 0,
@@ -161,15 +154,15 @@ impl GameClient {
     /// association; after invalidation they are absent just like all other
     /// presentation drawables.
     pub fn invalidate_presentation_drawable_world(&mut self) {
-        for drawable in self.drawable_map.values_mut() {
+        for drawable in self.drawables.drawable_map.values_mut() {
             drawable.reset_volatile_shroud_state();
         }
-        self.drawable_map.clear();
-        self.ray_effects.reset();
-        self.owned_laser_order.clear();
-        self.drawable_object_map.clear();
-        self.presentation_direct_drawable_bindings.clear();
-        self.text_bearing_drawables.clear();
+        self.drawables.drawable_map.clear();
+        self.drawables.ray_effects.reset();
+        self.drawables.owned_laser_order.clear();
+        self.drawables.drawable_object_map.clear();
+        self.drawables.presentation_direct_drawable_bindings.clear();
+        self.drawables.text_bearing_drawables.clear();
         self.shadow_map.clear();
         self.rendered_object_count = 0;
     }

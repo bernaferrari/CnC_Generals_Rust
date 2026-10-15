@@ -156,6 +156,7 @@ use ww3d_core::w3d_io::{W3DChunk, W3DReader};
 // stay identical to the former `core/game_client.rs` god-file.
 
 include!("ids.rs");
+mod drawable_world;
 include!("presentation_specialized_draw.rs");
 
 include!("live_slot.rs");
@@ -179,6 +180,7 @@ include!("tests.rs");
 pub const GAME_CLIENT_SRC: &str = concat!(
     include_str!("mod.rs"),
     include_str!("ids.rs"),
+    include_str!("drawable_world.rs"),
     include_str!("presentation_specialized_draw.rs"),
     include_str!("live_slot.rs"),
     include_str!("xfer_adapters.rs"),

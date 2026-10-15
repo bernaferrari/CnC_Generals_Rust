@@ -184,8 +184,8 @@ impl GameClient {
         &self,
         object_id: u32,
     ) -> Option<&PresentationSpecializedDrawSnapshot> {
-        let drawable_id = self.drawable_object_map.get(&object_id)?;
-        let drawable = self.drawable_map.get(drawable_id)?;
+        let drawable_id = self.drawables.drawable_object_map.get(&object_id)?;
+        let drawable = self.drawables.drawable_map.get(drawable_id)?;
         let basic = drawable.as_any().downcast_ref::<BasicDrawable>()?;
         basic
             .presentation_specialized_draw
@@ -199,10 +199,12 @@ impl GameClient {
         &self,
         host_epoch: u64,
     ) -> impl Iterator<Item = (u32, &PresentationSpecializedDrawSnapshot)> {
-        self.drawable_object_map
+        self.drawables
+            .drawable_object_map
             .iter()
             .filter_map(move |(&object_id, drawable_id)| {
                 let binding = self
+                    .drawables
                     .presentation_direct_drawable_bindings
                     .get(drawable_id)?;
                 if binding.binding_key.host_epoch != host_epoch
@@ -211,7 +213,7 @@ impl GameClient {
                 {
                     return None;
                 }
-                let drawable = self.drawable_map.get(drawable_id)?;
+                let drawable = self.drawables.drawable_map.get(drawable_id)?;
                 if drawable.get_object_id() != Some(object_id) {
                     return None;
                 }
@@ -466,8 +468,6 @@ impl PresentationSpecializedDrawModule {
             };
         }
     }
-
-
 }
 
 impl DrawModule for PresentationSpecializedDrawModule {

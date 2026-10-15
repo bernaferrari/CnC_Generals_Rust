@@ -25,9 +25,6 @@ pub struct GameClient {
     // Core state
     frame: u32,
     last_visual_time_frame: u32,
-    next_drawable_id: DrawableId,
-    ray_effects: crate::effects::ray_effect_registry::RayEffectSystem,
-    owned_laser_order: Vec<DrawableId>,
     local_player_id: i32,
     /// Presentation companion for the driving GameLogic instance. Bound by
     /// the engine only when a world becomes active, never by construction.
@@ -52,19 +49,8 @@ pub struct GameClient {
     last_live_ingame_hud_draw: LiveInGameHudDrawCounts,
 
     // Drawable management
-    drawable_map: std::collections::HashMap<DrawableId, Box<dyn Drawable>>,
-    drawable_object_map: std::collections::HashMap<ObjectID, DrawableId>,
-    /// Runtime-only identity and visual-template metadata for Main's direct
-    /// host-object drawables.  Do not add this to Xfer: C++ reconstructs these
-    /// client bindings around the loaded Drawable instances.
-    presentation_direct_drawable_bindings:
-        std::collections::HashMap<DrawableId, PresentationDirectDrawableBinding>,
-    /// Never-zero generation allocator for direct visual binding lifetimes.
-    /// It deliberately survives world invalidation so an object id/drawable id
-    /// reuse cannot look like the same visual binding.
-    next_presentation_direct_binding_generation: u64,
+    drawables: drawable_world::DrawableWorld,
     drawable_toc: Vec<DrawableTOCEntry>,
-    text_bearing_drawables: Vec<DrawableId>,
     loaded_map: Option<LoadedMap>,
 
     // Message system

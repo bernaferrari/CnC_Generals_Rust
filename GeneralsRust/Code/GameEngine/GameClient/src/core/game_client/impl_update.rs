@@ -77,7 +77,7 @@ impl GameClient {
             // C++ TheInGameUI->update message/superweapon drains before postDraw.
             self.drain_logic_hud_messages();
             self.apply_queued_weapon_recoils();
-            for drawable in self.drawable_map.values_mut() {
+            for drawable in self.drawables.drawable_map.values_mut() {
                 if let Some(basic) = drawable
                     .as_any_mut()
                     .downcast_mut::<crate::drawable::drawable::BasicDrawable>()
@@ -212,7 +212,7 @@ impl GameClient {
         // the selection list. HashMap iteration is unordered, so pick the
         // lowest DrawableId among selected units for a stable follow target.
         let mut first: Option<(crate::drawable::DrawableId, crate::drawable::Vector3)> = None;
-        for (id, drawable) in &self.drawable_map {
+        for (id, drawable) in &self.drawables.drawable_map {
             let Some(basic) = drawable.downcast_ref::<crate::drawable::drawable::BasicDrawable>()
             else {
                 continue;
@@ -284,6 +284,7 @@ impl GameClient {
     /// then `destroyDrawable` when the expiration date is reached this frame.
     fn tick_mapped_drawables(&mut self, frame: u32, delta_time: f32) {
         let expired: Vec<DrawableId> = self
+            .drawables
             .drawable_map
             .iter_mut()
             .filter_map(|(&id, drawable)| {
@@ -310,10 +311,11 @@ impl GameClient {
         I: IntoIterator<Item = (u32, bool)>,
     {
         for (object_id, fully_obscured) in entries {
-            let Some(drawable_id) = self.drawable_object_map.get(&object_id).copied() else {
+            let Some(drawable_id) = self.drawables.drawable_object_map.get(&object_id).copied()
+            else {
                 continue;
             };
-            let Some(drawable) = self.drawable_map.get_mut(&drawable_id) else {
+            let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) else {
                 continue;
             };
             drawable.set_fully_obscured_by_shroud(fully_obscured);
@@ -349,7 +351,7 @@ impl GameClient {
                 continue;
             }
             let drawable_id = state.binding_key.drawable_id;
-            let Some(drawable) = self.drawable_map.get_mut(&drawable_id) else {
+            let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) else {
                 continue;
             };
             if drawable.get_object_id() != Some(entry.binding_key.object_id) {
@@ -390,7 +392,10 @@ impl GameClient {
         if state.binding_key != binding_key {
             return None;
         }
-        let drawable = self.drawable_map.get_mut(&binding_key.drawable_id)?;
+        let drawable = self
+            .drawables
+            .drawable_map
+            .get_mut(&binding_key.drawable_id)?;
         if drawable.get_object_id() != Some(binding_key.object_id) {
             return None;
         }
@@ -447,8 +452,9 @@ impl GameClient {
         if host_epoch == 0 {
             return None;
         }
-        let drawable_id = self.drawable_object_map.get(&object_id)?;
+        let drawable_id = self.drawables.drawable_object_map.get(&object_id)?;
         let binding = self
+            .drawables
             .presentation_direct_drawable_bindings
             .get(drawable_id)?;
         let binding_key = binding.binding_key;
@@ -458,7 +464,7 @@ impl GameClient {
         {
             return None;
         }
-        let drawable = self.drawable_map.get(drawable_id)?;
+        let drawable = self.drawables.drawable_map.get(drawable_id)?;
         if drawable.get_object_id() != Some(object_id) {
             return None;
         }
@@ -477,8 +483,9 @@ impl GameClient {
     /// [`Self::presentation_direct_drawable_state`] and retain its full key.
     #[must_use]
     pub fn presentation_direct_fully_obscured(&self, object_id: ObjectID) -> Option<bool> {
-        let drawable_id = self.drawable_object_map.get(&object_id)?;
+        let drawable_id = self.drawables.drawable_object_map.get(&object_id)?;
         let host_epoch = self
+            .drawables
             .presentation_direct_drawable_bindings
             .get(drawable_id)?
             .binding_key
@@ -509,7 +516,11 @@ impl GameClient {
             if state.binding_key != entry.binding_key {
                 continue;
             }
-            let Some(drawable) = self.drawable_map.get_mut(&state.binding_key.drawable_id) else {
+            let Some(drawable) = self
+                .drawables
+                .drawable_map
+                .get_mut(&state.binding_key.drawable_id)
+            else {
                 continue;
             };
             if drawable.get_object_id() != Some(entry.binding_key.object_id) {
@@ -536,10 +547,11 @@ impl GameClient {
     {
         let mut updated = 0usize;
         for (object_id, pos, orientation) in entries {
-            let Some(drawable_id) = self.drawable_object_map.get(&object_id).copied() else {
+            let Some(drawable_id) = self.drawables.drawable_object_map.get(&object_id).copied()
+            else {
                 continue;
             };
-            let Some(drawable) = self.drawable_map.get_mut(&drawable_id) else {
+            let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) else {
                 continue;
             };
             let position = Vector3::new(pos[0], pos[1], pos[2]);
@@ -637,8 +649,9 @@ impl GameClient {
             let visual_template_name = Self::presentation_visual_template_name(&e).to_string();
             live_bindings.insert((e.host_epoch, e.object_id));
 
-            if let Some(&drawable_id) = self.drawable_object_map.get(&e.object_id) {
+            if let Some(&drawable_id) = self.drawables.drawable_object_map.get(&e.object_id) {
                 let retains_binding = self
+                    .drawables
                     .presentation_direct_drawable_bindings
                     .get(&drawable_id)
                     .map(|binding| {
@@ -646,14 +659,14 @@ impl GameClient {
                             && binding.binding_key.object_id == e.object_id
                             && binding.binding_key.drawable_id == drawable_id
                             && binding.visual_template_name == visual_template_name
-                            && self.drawable_map.get(&drawable_id).is_some_and(|drawable| {
-                                drawable.get_object_id() == Some(e.object_id)
-                            })
+                            && self.drawables.drawable_map.get(&drawable_id).is_some_and(
+                                |drawable| drawable.get_object_id() == Some(e.object_id),
+                            )
                     })
                     .unwrap_or(false);
 
                 if retains_binding {
-                    let Some(drawable) = self.drawable_map.get_mut(&drawable_id) else {
+                    let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) else {
                         continue;
                     };
                     let position = Vector3::new(e.position[0], e.position[1], e.position[2]);
@@ -676,10 +689,17 @@ impl GameClient {
                 // template, or missing direct record cannot retain volatile
                 // direct state.  Recreate it instead of silently rebinding.
                 let _ = self.destroy_drawable(drawable_id);
-                if self.drawable_object_map.get(&e.object_id).copied() == Some(drawable_id) {
-                    self.drawable_object_map.remove(&e.object_id);
+                if self
+                    .drawables
+                    .drawable_object_map
+                    .get(&e.object_id)
+                    .copied()
+                    == Some(drawable_id)
+                {
+                    self.drawables.drawable_object_map.remove(&e.object_id);
                 }
-                self.presentation_direct_drawable_bindings
+                self.drawables
+                    .presentation_direct_drawable_bindings
                     .remove(&drawable_id);
             }
 
@@ -704,11 +724,11 @@ impl GameClient {
             let id = self.alloc_drawable_id();
             drawable.set_id(id);
             Self::bind_owned_laser_module(&mut drawable, id);
-            self.drawable_map.insert(id, Box::new(drawable));
+            self.drawables.drawable_map.insert(id, Box::new(drawable));
             if native_laser {
-                self.owned_laser_order.insert(0, id);
+                self.drawables.owned_laser_order.insert(0, id);
             }
-            self.drawable_object_map.insert(e.object_id, id);
+            self.drawables.drawable_object_map.insert(e.object_id, id);
             let binding_generation = self.alloc_presentation_direct_binding_generation();
             let binding_key = PresentationDirectDrawableBindingKey {
                 host_epoch: e.host_epoch,
@@ -716,7 +736,7 @@ impl GameClient {
                 drawable_id: id,
                 binding_generation,
             };
-            self.presentation_direct_drawable_bindings.insert(
+            self.drawables.presentation_direct_drawable_bindings.insert(
                 id,
                 PresentationDirectDrawableBinding {
                     binding_key,
@@ -727,6 +747,7 @@ impl GameClient {
         }
 
         let stale: Vec<(DrawableId, PresentationDirectDrawableBindingKey)> = self
+            .drawables
             .presentation_direct_drawable_bindings
             .iter()
             .filter_map(|(&drawable_id, binding)| {
@@ -742,14 +763,18 @@ impl GameClient {
         for (drawable_id, binding_key) in stale {
             let _ = self.destroy_drawable(drawable_id);
             if self
+                .drawables
                 .drawable_object_map
                 .get(&binding_key.object_id)
                 .copied()
                 == Some(drawable_id)
             {
-                self.drawable_object_map.remove(&binding_key.object_id);
+                self.drawables
+                    .drawable_object_map
+                    .remove(&binding_key.object_id);
             }
-            self.presentation_direct_drawable_bindings
+            self.drawables
+                .presentation_direct_drawable_bindings
                 .remove(&drawable_id);
             pruned = pruned.saturating_add(1);
         }
@@ -766,9 +791,7 @@ impl GameClient {
     }
 
     fn alloc_presentation_direct_binding_generation(&mut self) -> u64 {
-        let generation = self.next_presentation_direct_binding_generation.max(1);
-        self.next_presentation_direct_binding_generation = generation.wrapping_add(1).max(1);
-        generation
+        self.drawables.alloc_binding_generation()
     }
 
     fn stamp_presentation_object_residual(
@@ -1325,8 +1348,13 @@ impl GameClient {
 
         // Wave 1055: stamp control-group residual onto drawable presentation shell.
         for u in &units {
-            if let Some(did) = self.drawable_object_map.get(&u.object_id).copied() {
-                if let Some(drawable) = self.drawable_map.get_mut(&did) {
+            if let Some(did) = self
+                .drawables
+                .drawable_object_map
+                .get(&u.object_id)
+                .copied()
+            {
+                if let Some(drawable) = self.drawables.drawable_map.get_mut(&did) {
                     if let Some(basic) = drawable
                         .as_any_mut()
                         .downcast_mut::<crate::drawable::drawable::BasicDrawable>()
@@ -1483,7 +1511,7 @@ impl GameClient {
             if is_snow {
                 set.set(ModelConditionFlags::SNOW, true);
             }
-            for drawable in self.drawable_map.values_mut() {
+            for drawable in self.drawables.drawable_map.values_mut() {
                 use crate::drawable::drawable::DrawableExt;
                 if let Some(basic) =
                     drawable.downcast_mut::<crate::drawable::drawable::BasicDrawable>()
@@ -1498,7 +1526,7 @@ impl GameClient {
             let Some(drawable_id) = self.get_drawable_for_object(object_id) else {
                 continue;
             };
-            if let Some(drawable) = self.drawable_map.get_mut(&drawable_id) {
+            if let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) {
                 use crate::drawable::drawable::DrawableExt;
                 // White selection flash residual (C++ Drawable::flashAsSelected).
                 if let Some(basic) =
