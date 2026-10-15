@@ -309,6 +309,25 @@ impl ModelConditionInfo {
         if (self.valid_stuff & MODEL_CONDITION_PRISTINE_BONES_VALID) != 0 {
             return;
         }
+        if !self.pristine_bones.is_empty() {
+            self.valid_stuff |= MODEL_CONDITION_PRISTINE_BONES_VALID;
+            return;
+        }
+        let standard = game_engine::common::global_data::read()
+            .standard_public_bones
+            .clone();
+        self.validate_cached_bones_with(scale, &standard, &mut lookup_pristine_bone);
+    }
+
+    fn validate_cached_bones_with(
+        &mut self,
+        scale: Real,
+        standard: &[String],
+        lookup: &mut dyn FnMut(&str, Real, i32, &str) -> Option<(i32, Matrix3D)>,
+    ) {
+        if (self.valid_stuff & MODEL_CONDITION_PRISTINE_BONES_VALID) != 0 {
+            return;
+        }
         // Tests / xfer may already have inserted bones without the valid bit.
         // C++ would have set the bit when it produced them; keep that map.
         if !self.pristine_bones.is_empty() {
@@ -331,37 +350,34 @@ impl ModelConditionInfo {
         let model = self.model_name.as_str().to_string();
         let public_bones = self.public_bones.clone();
 
-        {
-            let global = game_engine::common::global_data::read();
-            for bone in &global.standard_public_bones {
-                let _ = do_single_bone_name(
-                    &mut self.pristine_bones,
-                    &model,
-                    scale,
-                    frame,
-                    bone,
-                );
-            }
+        for bone in standard {
+            let _ = do_single_bone_name_with(
+                &mut self.pristine_bones,
+                &model,
+                scale,
+                frame,
+                bone,
+                lookup,
+            );
         }
         for bone in &public_bones {
-            let _ = do_single_bone_name(
+            let _ = do_single_bone_name_with(
                 &mut self.pristine_bones,
                 &model,
                 scale,
                 frame,
                 bone.as_str(),
+                lookup,
             );
         }
     }
 
     fn validate_turret_info(&mut self) {
-
         if (self.valid_stuff & MODEL_CONDITION_TURRETS_VALID) != 0 {
             return;
         }
         // C++ `validateTurretInfo` does not bail when the pristine map is empty
         // after `PRISTINE_BONES_VALID` is set. Missing bones stay index 0.
-
 
         let angle_keys: Vec<NameKeyType> = self
             .turrets
@@ -403,7 +419,6 @@ impl ModelConditionInfo {
             return;
         }
         // C++ still walks authored weapon-bone names after a failed model load.
-
 
         let mut validated_barrels = vec![Vec::new(); WEAPONSLOT_COUNT];
 
@@ -533,6 +548,21 @@ impl ModelConditionInfo {
         self.validate_weapon_barrel_info();
     }
 
+    fn validate_runtime_caches_with_receiver(
+        &mut self,
+        extra_public_bones: &[AsciiString],
+        scale: Real,
+        receiver: &mut dyn ClientParticleStateRuntime,
+    ) {
+        self.validate_public_bones(extra_public_bones);
+        let standard = receiver.standard_public_bones();
+        self.validate_cached_bones_with(scale, &standard, &mut |model, scale, frame, name| {
+            receiver.pristine_bone(model, scale, frame, name)
+        });
+        self.validate_turret_info();
+        self.validate_weapon_barrel_info();
+    }
+
     fn refresh_projectile_valid_bit(&mut self) {
         self.valid_stuff &= !MODEL_CONDITION_HAS_PROJECTILE_BONES;
         if self
@@ -557,8 +587,9 @@ const PRISTINE_BONE_LAST_FRAME: i32 = -1;
 pub type PristineBoneLookupHook =
     std::sync::Arc<dyn Fn(&str, Real, i32, &str) -> Option<(i32, Matrix3D)> + Send + Sync>;
 
-static PRISTINE_BONE_LOOKUP: std::sync::LazyLock<std::sync::RwLock<Option<PristineBoneLookupHook>>> =
-    std::sync::LazyLock::new(|| std::sync::RwLock::new(None));
+static PRISTINE_BONE_LOOKUP: std::sync::LazyLock<
+    std::sync::RwLock<Option<PristineBoneLookupHook>>,
+> = std::sync::LazyLock::new(|| std::sync::RwLock::new(None));
 
 /// Register a W3D backend that can pose a state model and return a bone.
 /// `frame == -1` means last clip frame. `None` unregisters.
@@ -620,21 +651,13 @@ fn lookup_pristine_bone(
 }
 
 /// Live-host FIREPOINT/STATION lookup. Bone space is C++ (X/Y ground, Z up).
-pub fn lookup_pristine_bone_translation(
-    model: &str,
-    scale: Real,
-    bone: &str,
-) -> Option<Coord3D> {
+pub fn lookup_pristine_bone_translation(model: &str, scale: Real, bone: &str) -> Option<Coord3D> {
     lookup_pristine_bone_pose(model, scale, bone).map(|(translation, _)| translation)
 }
 
 /// C++ `getPristineBonePositions` translation + `Matrix3D::Get_Z_Rotation`.
 /// `Get_Z_Rotation` is `atan2(Row[1][0], Row[0][0])` (column-major m10, m00).
-pub fn lookup_pristine_bone_pose(
-    model: &str,
-    scale: Real,
-    bone: &str,
-) -> Option<(Coord3D, Real)> {
+pub fn lookup_pristine_bone_pose(model: &str, scale: Real, bone: &str) -> Option<(Coord3D, Real)> {
     let (_, mtx) = lookup_pristine_bone(model, scale, 0, bone)?;
     let (_, _, translation) = mtx.to_scale_rotation_translation();
     let cols = mtx.to_cols_array();
@@ -663,7 +686,6 @@ pub fn lookup_current_client_bone_pose(
     ))
 }
 
-
 /// C++ `doSingleBoneName`: base name plus numbered `name01`..`name99` variants.
 fn do_single_bone_name(
     map: &mut HashMap<NameKeyType, PristineBoneInfo>,
@@ -672,12 +694,30 @@ fn do_single_bone_name(
     frame: i32,
     bone_name: &str,
 ) -> bool {
+    do_single_bone_name_with(
+        map,
+        model,
+        scale,
+        frame,
+        bone_name,
+        &mut lookup_pristine_bone,
+    )
+}
+
+fn do_single_bone_name_with(
+    map: &mut HashMap<NameKeyType, PristineBoneInfo>,
+    model: &str,
+    scale: Real,
+    frame: i32,
+    bone_name: &str,
+    lookup: &mut dyn FnMut(&str, Real, i32, &str) -> Option<(i32, Matrix3D)>,
+) -> bool {
     if bone_name.is_empty() || bone_name.eq_ignore_ascii_case("none") {
         return false;
     }
     let bone_name = bone_name.to_ascii_lowercase();
     let mut found = false;
-    if let Some((bone_index, transform)) = lookup_pristine_bone(model, scale, frame, &bone_name) {
+    if let Some((bone_index, transform)) = lookup(model, scale, frame, &bone_name) {
         map.insert(
             name_key_generate(&bone_name),
             PristineBoneInfo {
@@ -689,8 +729,7 @@ fn do_single_bone_name(
     }
     for index in 1..=99 {
         let numbered = format!("{bone_name}{index:02}");
-        if let Some((bone_index, transform)) = lookup_pristine_bone(model, scale, frame, &numbered)
-        {
+        if let Some((bone_index, transform)) = lookup(model, scale, frame, &numbered) {
             map.insert(
                 name_key_generate(&numbered),
                 PristineBoneInfo {
@@ -705,4 +744,3 @@ fn do_single_bone_name(
     }
     found
 }
-

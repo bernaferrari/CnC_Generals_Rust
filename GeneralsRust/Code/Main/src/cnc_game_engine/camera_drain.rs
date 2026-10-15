@@ -2772,7 +2772,16 @@ impl CnCGameEngine {
         // Wave 862: presentation pose/shroud/caption residual already applied above.
         // Do not call full update_drawables — double-ticks and overwrites presentation FOW.
         // Boot/loading without freeze still uses the same shell tick (empty registry early-out).
-        if let Err(e) = self.game_client.update_presentation_shell(visual_delta) {
+        if let Err(e) = self
+            .game_client
+            .update_presentation_shell_with_particle_frames(
+                visual_delta,
+                game_client::core::game_client::NativeParticleFrames {
+                    logic_frame: self.game_logic.frame,
+                    client_frame: self.game_client.get_frame(),
+                },
+            )
+        {
             log::trace!("GameClient presentation shell update failed (non-fatal): {e}");
         }
     }

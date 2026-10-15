@@ -10,6 +10,8 @@ use super::*;
 pub(super) struct DrawableWorld {
     pub(super) next_drawable_id: DrawableId,
     pub(super) ray_effects: crate::effects::ray_effect_registry::RayEffectSystem,
+    /// C++ GameClient.cpp480 prepends each newly constructed Drawable.
+    pub(super) native_drawable_order: Vec<DrawableId>,
     pub(super) owned_laser_order: Vec<DrawableId>,
     pub(super) drawable_map: HashMap<DrawableId, Box<dyn Drawable>>,
     pub(super) drawable_object_map: HashMap<ObjectID, DrawableId>,
@@ -27,6 +29,7 @@ impl DrawableWorld {
         Self {
             next_drawable_id: DrawableId(1),
             ray_effects: Default::default(),
+            native_drawable_order: Vec::new(),
             owned_laser_order: Vec::new(),
             drawable_map: HashMap::with_capacity(super::super::DRAWABLE_HASH_SIZE),
             drawable_object_map: HashMap::new(),
@@ -34,6 +37,40 @@ impl DrawableWorld {
             next_presentation_direct_binding_generation: 1,
             text_bearing_drawables: Vec::new(),
         }
+    }
+
+    pub(super) fn admit_native_drawable(&mut self, id: DrawableId, drawable: Box<dyn Drawable>) {
+        if !self.native_drawable_order.contains(&id) {
+            self.native_drawable_order.insert(0, id);
+        }
+        self.drawable_map.insert(id, drawable);
+    }
+
+    /// A decoding receiver is absent from both live lookup and visitation until
+    /// decoding succeeds. An early error drops the detached node, never a live ID.
+    pub(super) fn take_native_drawable_for_load(
+        &mut self,
+        id: DrawableId,
+    ) -> Option<(Box<dyn Drawable>, usize)> {
+        let drawable = self.drawable_map.remove(&id)?;
+        let position = self
+            .native_drawable_order
+            .iter()
+            .position(|known| *known == id)
+            .expect("registered native decoding receiver has its canonical roster node");
+        self.native_drawable_order.remove(position);
+        self.owned_laser_order.retain(|known| *known != id);
+        Some((drawable, position))
+    }
+
+    pub(super) fn restore_native_drawable_after_load(
+        &mut self,
+        id: DrawableId,
+        drawable: Box<dyn Drawable>,
+        position: usize,
+    ) {
+        self.native_drawable_order.insert(position, id);
+        self.drawable_map.insert(id, drawable);
     }
 
     pub(super) fn alloc_drawable_id(&mut self) -> DrawableId {

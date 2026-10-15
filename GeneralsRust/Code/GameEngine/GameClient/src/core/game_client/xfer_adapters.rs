@@ -247,6 +247,7 @@ pub(crate) fn xfer_live_game_client_state(
                     .map_err(|_| RuntimeXferStatus::InvalidData)?
             } else {
                 client.drawables.drawable_map.clear();
+                client.drawables.native_drawable_order.clear();
                 client.drawables.ray_effects.reset();
                 client.drawables.owned_laser_order.clear();
                 client.drawables.drawable_object_map.clear();
@@ -289,6 +290,7 @@ pub(crate) fn xfer_live_game_client_state(
                     adapter
                         .xfer_unsigned_int(&mut object_id)
                         .map_err(|_| RuntimeXferStatus::InvalidData)?;
+                    let receiving_id = drawable.get_id();
                     GameClient::xfer_drawable_snapshot(drawable.as_mut(), &mut adapter)
                         .map_err(|_| RuntimeXferStatus::InvalidData)?;
                     adapter.end_block().map_err(common_status_to_runtime)?;
@@ -355,7 +357,7 @@ pub(crate) fn xfer_live_game_client_state(
                                 .map_err(|_| RuntimeXferStatus::InvalidData)?;
                             None
                         } else {
-                            client.drawables.drawable_map.remove(&existing_id)
+                            client.drawables.take_native_drawable_for_load(existing_id)
                         }
                     } else {
                         None
@@ -365,10 +367,9 @@ pub(crate) fn xfer_live_game_client_state(
                         let created_id = client
                             .create_drawable_from_template(template.as_ref())
                             .map_err(|_| RuntimeXferStatus::InvalidData)?;
-                        let mut created = client
+                        let (mut created, receiving_position) = client
                             .drawables
-                            .drawable_map
-                            .remove(&created_id)
+                            .take_native_drawable_for_load(created_id)
                             .ok_or(RuntimeXferStatus::InvalidData)?;
                         client
                             .drawables
@@ -377,13 +378,13 @@ pub(crate) fn xfer_live_game_client_state(
                         if object_id != INVALID_ID {
                             created.set_object_id(Some(object_id));
                         }
-                        drawable = Some(created);
+                        drawable = Some((created, receiving_position));
                     }
 
-                    let mut drawable = drawable.ok_or(RuntimeXferStatus::InvalidData)?;
+                    let (mut drawable, receiving_position) =
+                        drawable.ok_or(RuntimeXferStatus::InvalidData)?;
                     GameClient::xfer_drawable_snapshot(drawable.as_mut(), &mut adapter)
                         .map_err(|_| RuntimeXferStatus::InvalidData)?;
-
                     let id = drawable.get_id();
                     if let Some(object_id) = drawable.get_object_id() {
                         client.drawables.drawable_object_map.insert(object_id, id);
@@ -400,7 +401,11 @@ pub(crate) fn xfer_live_game_client_state(
                     if native_lasers == 1 {
                         client.drawables.owned_laser_order.insert(0, id);
                     }
-                    client.drawables.drawable_map.insert(id, drawable);
+                    client.drawables.restore_native_drawable_after_load(
+                        id,
+                        drawable,
+                        receiving_position,
+                    );
 
                     adapter.end_block().map_err(common_status_to_runtime)?;
 

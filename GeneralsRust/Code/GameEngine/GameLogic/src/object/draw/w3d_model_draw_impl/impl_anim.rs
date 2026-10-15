@@ -9,6 +9,15 @@ impl W3DModelDraw {
         state_index: usize,
         drawable: Option<&ModelDrawContext>,
     ) {
+        self.set_model_state_with_receiver(state_index, drawable, None);
+    }
+
+    fn set_model_state_with_receiver(
+        &mut self,
+        state_index: usize,
+        drawable: Option<&ModelDrawContext>,
+        mut receiver: Option<&mut dyn ClientParticleStateRuntime>,
+    ) {
         if state_index >= self.data.condition_states.len() {
             return;
         }
@@ -18,8 +27,16 @@ impl W3DModelDraw {
             .or_else(|| self.with_owner_drawable(|drawable| drawable.get_instance_scale()))
             .filter(|s| s.is_finite() && *s > 0.0)
             .unwrap_or(1.0);
-        self.data.condition_states[state_index]
-            .validate_runtime_caches_scaled(&extra_public_bones, scale);
+        if let Some(runtime) = receiver.as_mut() {
+            self.data.condition_states[state_index].validate_runtime_caches_with_receiver(
+                &extra_public_bones,
+                scale,
+                *runtime,
+            );
+        } else {
+            self.data.condition_states[state_index]
+                .validate_runtime_caches_scaled(&extra_public_bones, scale);
+        }
 
         let mut new_state_ref = ActiveModelState::Condition(state_index);
         let mut pending_next_state: Option<usize> = None;
@@ -61,7 +78,11 @@ impl W3DModelDraw {
         }
 
         if let Some(state) = self.resolve_state_mut(new_state_ref) {
-            state.validate_runtime_caches_scaled(&extra_public_bones, scale);
+            if let Some(runtime) = receiver.as_mut() {
+                state.validate_runtime_caches_with_receiver(&extra_public_bones, scale, *runtime);
+            } else {
+                state.validate_runtime_caches_scaled(&extra_public_bones, scale);
+            }
         }
 
         let prev_state = self.cur_state;
@@ -80,7 +101,13 @@ impl W3DModelDraw {
         if state_particles {
             self.need_recalc_bone_particle_systems = true;
         }
-        self.stop_client_particle_systems();
+        if let Some(runtime) = receiver.as_mut() {
+            for id in self.take_particle_systems_for_deletion() {
+                runtime.destroy_particle_system(id);
+            }
+        } else {
+            self.stop_client_particle_systems();
+        }
         // C++ calls `hideAllMuzzleFlashes(newState)` once, after the transition
         // decision and before the render-object swap. The second call below
         // runs once `cur_state` is the state that will actually show.
@@ -151,7 +178,11 @@ impl W3DModelDraw {
         self.next_state = pending_next_state;
         self.next_state_anim_loop_duration = NO_NEXT_DURATION;
         self.bind_terrain_track_if_needed();
-        self.hide_all_headlights();
+        if let Some(runtime) = receiver.as_mut() {
+            self.hide_all_headlights_with(&mut |model| runtime.sub_object_names(model));
+        } else {
+            self.hide_all_headlights();
+        }
         self.adjust_animation(prev_state, prev_anim_fraction);
     }
 

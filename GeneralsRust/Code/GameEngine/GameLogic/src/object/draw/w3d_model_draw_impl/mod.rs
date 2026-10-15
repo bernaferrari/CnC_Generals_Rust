@@ -86,3 +86,9 @@ pub const W3D_MODEL_DRAW_SRC: &str = concat!(
     include_str!("anim_playback.rs"),
     include_str!("shadow_bind.rs"),
 );
+
+#[cfg(test)]
+mod receiving_state_particle_tests;
+
+#[cfg(test)]
+mod receiving_particle_tests;

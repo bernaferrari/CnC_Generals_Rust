@@ -18373,10 +18373,16 @@
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
             "unreviewed_source_range_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/client_particle_bones.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/draw_module.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/projectile_launch.rs"
           ],
           "candidate_destinations": [
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/client_particle_bones.rs"
+            },
             {
               "cargo_reachable": true,
               "classification": "implementation",
@@ -21175,6 +21181,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_particle_draw.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_laser.rs"
             },
             {
@@ -21191,6 +21202,26 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/presentation_specialized_draw.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/receiving_client_update_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/receiving_native_capability_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/receiving_native_draw_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/receiving_native_load_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -50976,6 +51007,7 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/die/rebuild_hole_expose_die.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/die/special_power_completion_die.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/die/upgrade_die.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/client_particle_bones.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/draw_module.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/projectile_launch.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_debris_draw.rs",
@@ -52270,6 +52302,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/client_particle_bones.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/client_visual.rs"
             },
             {
@@ -52391,6 +52428,16 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/projectile_plan_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/receiving_particle_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/receiving_state_particle_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -189653,7 +189700,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "1051e6fa78b3016da0a10eef69511aa2c3430184db3ffe8b2b8c00d68ae9077a",
+  "provenance_input_digest": "897e3b638908127cfefd1e8cc9ad8de026be31c9f491056974093d90ac86a9db",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

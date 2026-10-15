@@ -204,6 +204,38 @@ impl DrawModule for W3DSupplyDraw {
     }
 }
 impl ObjectDrawInterface for W3DSupplyDraw {
+    fn native_state_particle_count(&self) -> usize {
+        self.base.native_state_particle_count()
+    }
+    fn set_native_particle_visibility(
+        &mut self,
+        hidden: bool,
+        fully_obscured: bool,
+        receiver: &mut dyn ClientParticleStateRuntime,
+    ) {
+        self.base
+            .set_native_particle_visibility(hidden, fully_obscured, receiver);
+    }
+    fn retire_native_state_particles(&mut self, receiver: &mut dyn ClientParticleStateRuntime) {
+        self.base.retire_native_state_particles(receiver);
+    }
+
+    fn prepare_state_particles_with_receiver(
+        &mut self,
+        context: &NativeStateParticleContext,
+        receiver: &mut dyn ClientParticleStateRuntime,
+    ) -> Result<NativeStateParticlePreparation, String> {
+        self.base
+            .prepare_state_particles_with_receiver(context, receiver)
+    }
+
+    fn update_particle_bones_with_receiver(
+        &mut self,
+        receiver: &mut dyn ClientParticleBoneRuntime,
+    ) -> bool {
+        self.base.update_particle_bones_with_receiver(receiver)
+    }
+
     fn client_only_get_render_obj_info(
         &self,
         pos: &mut Coord3D,

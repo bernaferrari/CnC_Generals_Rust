@@ -25,6 +25,10 @@ pub struct W3DModelDraw {
 
     /// Whether bone particle systems need recalculation
     need_recalc_bone_particle_systems: bool,
+    /// Rust recoverable boundary for a C++ fatal state-emitter admission.
+    /// Successful prefix remains owned until normal teardown; repeating the
+    /// failed state cannot allocate or consume random inputs a second time.
+    native_state_particle_failure: Option<String>,
 
     /// Whether fully obscured by shroud
     fully_obscured_by_shroud: bool,
@@ -109,6 +113,7 @@ impl W3DModelDraw {
             which_anim_in_cur_state: -1,
             weapon_recoil_info,
             need_recalc_bone_particle_systems: false,
+            native_state_particle_failure: None,
             fully_obscured_by_shroud: false,
             hidden: false,
             shadow_enabled: true,
@@ -799,6 +804,10 @@ impl W3DModelDraw {
     }
 
     fn hide_all_headlights(&mut self) {
+        self.hide_all_headlights_with(&mut lookup_sub_object_names);
+    }
+
+    fn hide_all_headlights_with(&mut self, names: &mut dyn FnMut(&str) -> Vec<String>) {
         // C++ scans every render sub-object for HEADLIGHT and Set_Hidden.
         // Those names are not pushed into m_subObjectVec, so they are not saved.
         let hide = self.hide_headlights;
@@ -809,7 +818,7 @@ impl W3DModelDraw {
             .map(|state| state.model_name.as_str().to_string())
             .unwrap_or_default();
         if hide && !model.is_empty() {
-            for name in lookup_sub_object_names(&model) {
+            for name in names(&model) {
                 if name.contains("HEADLIGHT") {
                     self.unsaved_subobject_hides.push(HideShowSubObjInfo {
                         sub_obj_name: AsciiString::from(name.as_str()),

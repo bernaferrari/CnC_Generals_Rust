@@ -33,6 +33,9 @@ impl GameClient {
         let client = Self {
             frame: 0,
             last_visual_time_frame: u32::MAX,
+            // C++ W3DDisplay initializes lastFrame to ~0; reset does not clear it.
+            last_native_draw_frame: u32::MAX,
+            native_particle_capability_gaps: Vec::new(),
             local_player_id: 0,
             visual_world: None,
             last_applied_military_caption: None,
@@ -154,10 +157,19 @@ impl GameClient {
     /// association; after invalidation they are absent just like all other
     /// presentation drawables.
     pub fn invalidate_presentation_drawable_world(&mut self) {
+        // Explicit void world boundary, never a Drop cleanup. A poisoned
+        // required service cannot silently discard owner retirement.
+        self.try_invalidate_presentation_drawable_world()
+            .expect("native Drawable retirement must complete before invalidation");
+    }
+
+    fn try_invalidate_presentation_drawable_world(&mut self) -> GameClientResult<()> {
+        self.retire_native_drawable_particles(None)?;
         for drawable in self.drawables.drawable_map.values_mut() {
             drawable.reset_volatile_shroud_state();
         }
         self.drawables.drawable_map.clear();
+        self.drawables.native_drawable_order.clear();
         self.drawables.ray_effects.reset();
         self.drawables.owned_laser_order.clear();
         self.drawables.drawable_object_map.clear();
@@ -165,6 +177,7 @@ impl GameClient {
         self.drawables.text_bearing_drawables.clear();
         self.shadow_map.clear();
         self.rendered_object_count = 0;
+        Ok(())
     }
 
     /// Resets the game client for a new game
@@ -188,7 +201,7 @@ impl GameClient {
                 })
         });
 
-        self.invalidate_presentation_drawable_world();
+        self.try_invalidate_presentation_drawable_world()?;
 
         if let Some(loaded) = self.loaded_map.take() {
             if let Some(ref asset_manager) = self.subsystem_manager.asset_manager {

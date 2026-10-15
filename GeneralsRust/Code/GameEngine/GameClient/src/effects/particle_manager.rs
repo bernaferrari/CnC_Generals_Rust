@@ -543,6 +543,23 @@ impl ParticleSystemManager {
         self.create_particle_system_with_id(template, system_id, create_slaves)
     }
 
+    /// Native receiving Draw-phase creation. Every authored slave observes the
+    /// same explicitly admitted Client frame; prior manager updates do not select it.
+    pub(crate) fn create_particle_system_for_client_frame(
+        &mut self,
+        template: &Arc<ParticleSystemTemplate>,
+        create_slaves: bool,
+        creation_frame: u32,
+    ) -> Result<ParticleSystemId, ParticleSystemError> {
+        self.create_authored_system_chain(
+            template,
+            self.next_system_id,
+            create_slaves,
+            &mut get_game_client_random_value_real,
+            creation_frame,
+        )
+    }
+
     /// Create a particle system by template name at a given world position.
     ///
     /// Convenience wrapper that looks up the template by name, creates the
@@ -586,7 +603,7 @@ impl ParticleSystemManager {
         create_slaves: bool,
         random: &mut dyn FnMut(f32, f32) -> f32,
     ) -> Result<ParticleSystemId, ParticleSystemError> {
-        self.create_authored_system_chain(template, system_id, create_slaves, random)
+        self.create_authored_system_chain(template, system_id, create_slaves, random, 0)
     }
 
     pub fn create_particle_system_with_random(
@@ -679,7 +696,13 @@ impl ParticleSystemManager {
     /// * `local_player_index` - Player index for visibility checks
     /// * `current_frame` - Current game frame for timing
     pub fn update(&mut self, local_player_index: i32, current_frame: u32) {
-        self.update_with_particle_lod(local_player_index, current_frame, &mut AmbientParticleLod);
+        self.update_with_particle_lod(
+            local_player_index,
+            current_frame,
+            &mut AmbientParticleLod,
+            current_frame,
+            None,
+        );
     }
 
     /// Use this operation's explicitly owned LOD state, including its skip counter.
@@ -690,20 +713,44 @@ impl ParticleSystemManager {
         current_frame: u32,
         lod: &mut game_engine::common::ini::GameLODManager,
     ) {
-        self.update_with_particle_lod(local_player_index, current_frame, lod);
+        self.update_with_particle_lod(local_player_index, current_frame, lod, current_frame, None);
+    }
+
+    pub(crate) fn update_with_receiving_drawables(
+        &mut self,
+        local_player_index: i32,
+        logic_frame: u32,
+        client_frame: u32,
+        drawable_pose: &dyn Fn(
+            DrawableId,
+        )
+            -> Option<crate::effects::particle_system::DrawableParticlePose>,
+    ) {
+        self.update_with_particle_lod(
+            local_player_index,
+            logic_frame,
+            &mut AmbientParticleLod,
+            client_frame,
+            Some(drawable_pose),
+        );
     }
 
     fn update_with_particle_lod(
         &mut self,
         local_player_index: i32,
-        current_frame: u32,
+        logic_frame: u32,
         lod: &mut dyn ParticleLod,
+        client_frame: u32,
+        drawable_pose: Option<
+            &dyn Fn(DrawableId) -> Option<crate::effects::particle_system::DrawableParticlePose>,
+        >,
     ) {
-        // Prevent double-updates in same frame (C++ lines 2273-2275)
-        if self.last_logic_frame_update == current_frame {
+        // CPP ParticleSys2906-2911 deduplicates the actual GameLogic clock.
+        // Individual systems/particles observe the separate Client clock.
+        if self.last_logic_frame_update == logic_frame {
             return;
         }
-        self.last_logic_frame_update = current_frame;
+        self.last_logic_frame_update = logic_frame;
         self.local_player_index = local_player_index;
 
         // C++ per system: emit/createParticle then update those particles same frame.
@@ -715,7 +762,11 @@ impl ParticleSystemManager {
                     .active_systems
                     .get_mut(&id)
                     .expect("particle admission order references a registered system");
-                system.prepare_frame_emit(local_player_index, current_frame)
+                system.prepare_frame_emit_with_drawable_poses(
+                    local_player_index,
+                    client_frame,
+                    drawable_pose,
+                )
             };
             // Attachment resolution and direct module destruction can mark the
             // current system without borrowing its descendants. Apply the
@@ -800,7 +851,7 @@ impl ParticleSystemManager {
                     let particle = crate::effects::particle_system::Particle::new(
                         &info,
                         personality,
-                        current_frame,
+                        client_frame,
                     );
                     let position = particle.position;
                     // C++ createParticle admits the parent before attached ctors.
@@ -809,7 +860,16 @@ impl ParticleSystemManager {
                         .expect("particle admission identity available");
                     if !attached_name.is_empty() {
                         if let Some(tmpl) = self.find_template(&attached_name) {
-                            if let Ok(att_id) = self.create_particle_system(&tmpl, true) {
+                            let created = if drawable_pose.is_some() {
+                                self.create_particle_system_for_client_frame(
+                                    &tmpl,
+                                    true,
+                                    client_frame,
+                                )
+                            } else {
+                                self.create_particle_system(&tmpl, true)
+                            };
+                            if let Ok(att_id) = created {
                                 self.active_systems
                                     .get_mut(&att_id)
                                     .expect("successful attached constructor admits its system")
@@ -823,7 +883,7 @@ impl ParticleSystemManager {
                             }
                         }
                     }
-                    self.admit_slave_for_master(id, priority, current_frame, lod);
+                    self.admit_slave_for_master(id, priority, client_frame, lod);
                 }
                 self.active_systems
                     .get_mut(&id)
@@ -831,7 +891,7 @@ impl ParticleSystemManager {
                     .finish_emission_burst(cursor);
             }
 
-            self.integrate_particle_system(id, current_frame)
+            self.integrate_particle_system(id, client_frame)
                 .expect("current system remains admitted through integration");
             self.refresh_controlled_particle_origins(id);
             if self

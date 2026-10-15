@@ -233,7 +233,7 @@ impl GameClient {
                 }
             }
         }
-        self.drawables.drawable_map.insert(id, drawable);
+        self.drawables.admit_native_drawable(id, drawable);
         if native_lasers == 1 {
             // GameClient.cpp480 prepends actual Drawables, independently of RayEffect bookkeeping.
             self.drawables.owned_laser_order.insert(0, id);
@@ -293,7 +293,14 @@ impl GameClient {
             }
         }
 
+        // C++ module destructor retires its own state emitters before removal.
+        // Release the receiving manager before generic Drawable destruction.
+        self.retire_native_drawable_particles(Some(id))?;
+
         // Remove from the map (this drops the drawable)
+        self.drawables
+            .native_drawable_order
+            .retain(|known| *known != id);
         if let Some(drawable) = self.drawables.drawable_map.remove(&id) {
             if let Some(object_id) = drawable.get_object_id() {
                 if self.drawables.drawable_object_map.get(&object_id).copied() == Some(id) {
@@ -1239,8 +1246,7 @@ impl GameClient {
                 state.position.z,
             ));
             self.drawables
-                .drawable_map
-                .insert(drawable_id, Box::new(drawable));
+                .admit_native_drawable(drawable_id, Box::new(drawable));
             if id >= self.drawables.next_drawable_id.0 {
                 self.drawables.next_drawable_id = DrawableId(id.saturating_add(1).max(1));
                 self.set_drawable_id_counter(self.drawables.next_drawable_id.0);
@@ -1407,6 +1413,7 @@ impl Snapshotable for GameClient {
             self.collect_saveable_drawables_sorted()?
         } else {
             self.drawables.drawable_map.clear();
+            self.drawables.native_drawable_order.clear();
             self.drawables.ray_effects.reset();
             self.drawables.owned_laser_order.clear();
             self.drawables.drawable_object_map.clear();
@@ -1522,7 +1529,7 @@ impl Snapshotable for GameClient {
                             .map_err(|e| e.to_string())?;
                         None
                     } else {
-                        self.drawables.drawable_map.remove(&existing_id)
+                        self.drawables.take_native_drawable_for_load(existing_id)
                     }
                 } else {
                     None
@@ -1538,26 +1545,25 @@ impl Snapshotable for GameClient {
                                 e
                             )
                         })?;
-                    let mut created =
-                        self.drawables
-                            .drawable_map
-                            .remove(&created_id)
-                            .ok_or_else(|| {
-                                format!(
-                                    "GameClient::xfer - Created drawable '{}' was not registered",
-                                    created_id.0
-                                )
-                            })?;
+                    let (mut created, receiving_position) = self
+                        .drawables
+                        .take_native_drawable_for_load(created_id)
+                        .ok_or_else(|| {
+                            format!(
+                                "GameClient::xfer - Created drawable '{}' was not registered",
+                                created_id.0
+                            )
+                        })?;
                     self.drawables
                         .owned_laser_order
                         .retain(|owner| *owner != created_id);
                     if object_id != INVALID_ID {
                         created.set_object_id(Some(object_id));
                     }
-                    drawable = Some(created);
+                    drawable = Some((created, receiving_position));
                 }
 
-                let mut drawable = drawable.expect("drawable exists");
+                let (mut drawable, receiving_position) = drawable.expect("drawable exists");
                 Self::xfer_drawable_snapshot(drawable.as_mut(), xfer)?;
 
                 let id = drawable.get_id();
@@ -1575,7 +1581,8 @@ impl Snapshotable for GameClient {
                 if native_lasers == 1 {
                     self.drawables.owned_laser_order.insert(0, id);
                 }
-                self.drawables.drawable_map.insert(id, drawable);
+                self.drawables
+                    .restore_native_drawable_after_load(id, drawable, receiving_position);
 
                 xfer.end_block().map_err(|e| format!("{:?}", e))?;
 
@@ -1661,6 +1668,7 @@ impl Drop for GameClient {
 
         // Clear all drawables (they'll be dropped automatically)
         self.drawables.drawable_map.clear();
+        self.drawables.native_drawable_order.clear();
         self.drawables.ray_effects.reset();
         self.drawables.owned_laser_order.clear();
 

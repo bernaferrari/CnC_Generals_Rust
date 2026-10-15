@@ -363,11 +363,18 @@ pub fn lookup_w3d_client_bone(
     let guard = THE_RENDER_BRIDGE.lock().ok()?;
     let bridge = guard.as_ref()?;
     let assets = bridge.asset_manager();
-    let hierarchy = assets.get_hierarchy_prototype(model).or_else(|| {
-        assets
-            .get_prototype_as::<HlodPrototype>(model)
-            .and_then(|hlod| assets.get_hierarchy_prototype(&hlod.hierarchy_name))
-    })?;
+    lookup_w3d_client_bone_in_assets(assets, model, scale, _frame, bone)
+}
+
+/// The same native bone lookup on explicitly receiving immutable assets.
+pub(crate) fn lookup_w3d_client_bone_in_assets(
+    assets: &ww3d_assets::AssetManager,
+    model: &str,
+    scale: Real,
+    _frame: i32,
+    bone: &str,
+) -> Option<(i32, Matrix3D)> {
+    let hierarchy = model_hierarchy_in_assets(assets, model)?;
     let idx = hierarchy
         .pivots
         .iter()
@@ -381,6 +388,30 @@ pub fn lookup_w3d_client_bone(
         mtx = Mat4::from_scale(Vec3::splat(scale)) * mtx;
     }
     Some((idx as i32, mtx))
+}
+
+fn model_hierarchy_in_assets<'a>(
+    assets: &'a ww3d_assets::AssetManager,
+    model: &str,
+) -> Option<&'a ww3d_assets::prototypes::HierarchyPrototype> {
+    assets.get_hierarchy_prototype(model).or_else(|| {
+        assets
+            .get_prototype_as::<HlodPrototype>(model)
+            .and_then(|hlod| assets.get_hierarchy_prototype(&hlod.hierarchy_name))
+    })
+}
+
+/// C++ Get_Bone_Transform reads the selected render object's retained index,
+/// independently of the public/pristine name cache used by other bone APIs.
+pub(crate) fn lookup_w3d_client_bone_index_in_assets(
+    assets: &ww3d_assets::AssetManager,
+    model: &str,
+    index: i32,
+) -> Option<Matrix3D> {
+    let hierarchy = model_hierarchy_in_assets(assets, model)?;
+    let index = usize::try_from(index).ok()?;
+    hierarchy.pivots.get(index)?;
+    hierarchy.bind_transforms.get(index).copied()
 }
 
 fn lookup_pristine_bone(
@@ -399,10 +430,14 @@ fn lookup_sub_object_names(model: &str) -> Vec<String> {
     let Some(bridge) = guard.as_ref() else {
         return Vec::new();
     };
-    let Some(hlod) = bridge
-        .asset_manager()
-        .get_prototype_as::<HlodPrototype>(model)
-    else {
+    lookup_sub_object_names_in_assets(bridge.asset_manager(), model)
+}
+
+pub(crate) fn lookup_sub_object_names_in_assets(
+    assets: &ww3d_assets::AssetManager,
+    model: &str,
+) -> Vec<String> {
+    let Some(hlod) = assets.get_prototype_as::<HlodPrototype>(model) else {
         return Vec::new();
     };
     hlod.lods

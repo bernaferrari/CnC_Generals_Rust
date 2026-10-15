@@ -25,6 +25,10 @@ pub struct GameClient {
     // Core state
     frame: u32,
     last_visual_time_frame: u32,
+    /// Display-phase admission belongs to this receiving Client, independently
+    /// of any peer with the same frame number. Not serialized, like C++ static lastFrame.
+    last_native_draw_frame: u32,
+    native_particle_capability_gaps: Vec<NativeParticleCapabilityGap>,
     local_player_id: i32,
     /// Presentation companion for the driving GameLogic instance. Bound by
     /// the engine only when a world becomes active, never by construction.

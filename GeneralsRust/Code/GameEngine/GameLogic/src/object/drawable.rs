@@ -665,6 +665,74 @@ fn with_draw_module_kind(
     }
 }
 
+/// Count systems owned by the installed native module; this does not clone it.
+pub fn native_state_particle_count(module: &mut dyn Module) -> usize {
+    let mut count = 0;
+    let _ = with_draw_module_kind(module, |draw| {
+        if let Some(interface) = draw.into_draw_module().get_object_draw_interface() {
+            count = interface.native_state_particle_count();
+        }
+    });
+    count
+}
+
+/// Synchronize only existing emitters when Drawable visibility skips Draw.
+pub fn set_native_particle_visibility(
+    module: &mut dyn Module,
+    hidden: bool,
+    fully_obscured: bool,
+    receiver: &mut dyn crate::object::draw::draw_module::ClientParticleStateRuntime,
+) {
+    let _ = with_draw_module_kind(module, |draw| {
+        if let Some(interface) = draw.into_draw_module().get_object_draw_interface_mut() {
+            interface.set_native_particle_visibility(hidden, fully_obscured, receiver);
+        }
+    });
+}
+
+/// Mark this installed module's systems for destruction in original tracker order.
+pub fn retire_native_state_particles(
+    module: &mut dyn Module,
+    receiver: &mut dyn crate::object::draw::draw_module::ClientParticleStateRuntime,
+) {
+    let _ = with_draw_module_kind(module, |draw| {
+        if let Some(interface) = draw.into_draw_module().get_object_draw_interface_mut() {
+            interface.retire_native_state_particles(receiver);
+        }
+    });
+}
+
+/// Advance only the installed native model state and its particle runtime.
+/// This performs no mesh submission and never creates another model instance.
+pub fn prepare_native_state_particles(
+    module: &mut dyn Module,
+    context: &crate::object::draw::draw_module::NativeStateParticleContext,
+    receiver: &mut dyn crate::object::draw::draw_module::ClientParticleStateRuntime,
+) -> Option<Result<crate::object::draw::draw_module::NativeStateParticlePreparation, String>> {
+    let mut result = None;
+    let _ = with_draw_module_kind(module, |draw| {
+        if let Some(interface) = draw.into_draw_module().get_object_draw_interface_mut() {
+            result = Some(interface.prepare_state_particles_with_receiver(context, receiver));
+        }
+    });
+    result
+}
+
+/// Dispatch using the existing native class table and ObjectDraw inheritance.
+/// The receiving Drawable retains declaration order and stops at the first true.
+pub fn update_client_particle_bones(
+    module: &mut dyn Module,
+    receiver: &mut dyn crate::object::draw::draw_module::ClientParticleBoneRuntime,
+) -> bool {
+    let mut updated = false;
+    let _ = with_draw_module_kind(module, |draw| {
+        updated = draw
+            .into_draw_module()
+            .update_particle_bones_with_receiver(receiver);
+    });
+    updated
+}
+
 fn set_decal_on_draw_module(module: &mut dyn Module, decal_type: TerrainDecalType) {
     let _ = with_draw_module_kind(module, |draw| {
         draw.set_terrain_decal(decal_type);

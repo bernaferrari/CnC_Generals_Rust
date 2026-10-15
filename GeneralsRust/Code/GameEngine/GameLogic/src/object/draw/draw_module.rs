@@ -6,8 +6,14 @@
 use crate::common::*;
 use crate::effects::FXList;
 
+#[path = "client_particle_bones.rs"]
+mod client_particle_bones;
 #[path = "projectile_launch.rs"]
 mod projectile_launch;
+pub use client_particle_bones::{
+    ClientParticleBoneRuntime, ClientParticleStateRuntime, NativeStateParticleContext,
+    NativeStateParticlePreparation,
+};
 use game_engine::common::thing::module::{Module, ModuleData, ModuleInterfaceType, ModuleType};
 pub use projectile_launch::ProjectileLaunchPlan;
 use std::any::Any;
@@ -188,6 +194,16 @@ pub trait DrawModule: Module {
         false
     }
 
+    /// Update against the particle manager and pose of the receiving Drawable.
+    /// No object registry or active-world lookup is permitted by this operation.
+    fn update_particle_bones_with_receiver(
+        &mut self,
+        receiver: &mut dyn ClientParticleBoneRuntime,
+    ) -> bool {
+        self.get_object_draw_interface_mut()
+            .is_some_and(|draw| draw.update_particle_bones_with_receiver(receiver))
+    }
+
     /// Update from the Drawable that is already driving this callback.
     fn update_bones_for_client_particle_systems_for_owner(
         &mut self,
@@ -259,6 +275,35 @@ pub trait DrawModule: Module {
 ///
 /// Reference: ObjectDrawInterface in DrawModule.h
 pub trait ObjectDrawInterface {
+    fn native_state_particle_count(&self) -> usize {
+        0
+    }
+    fn set_native_particle_visibility(
+        &mut self,
+        _hidden: bool,
+        _fully_obscured: bool,
+        _receiver: &mut dyn ClientParticleStateRuntime,
+    ) {
+    }
+    fn retire_native_state_particles(&mut self, _receiver: &mut dyn ClientParticleStateRuntime) {}
+
+    fn prepare_state_particles_with_receiver(
+        &mut self,
+        _context: &NativeStateParticleContext,
+        _receiver: &mut dyn ClientParticleStateRuntime,
+    ) -> Result<NativeStateParticlePreparation, String> {
+        Ok(NativeStateParticlePreparation::UnsupportedModule)
+    }
+
+    /// Query without discovering an active Drawable or object registry.
+    /// Original ObjectDrawInterface first-success animated-particle operation.
+    fn update_particle_bones_with_receiver(
+        &mut self,
+        _receiver: &mut dyn ClientParticleBoneRuntime,
+    ) -> bool {
+        false
+    }
+
     /// Get render object information (client-only)
     ///
     /// WARNING: This method must ONLY be called from the client, NEVER from game logic.

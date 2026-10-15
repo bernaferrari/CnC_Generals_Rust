@@ -172,6 +172,7 @@ include!("dispatcher.rs");
 include!("impl_init.rs");
 include!("impl_update.rs");
 include!("impl_draw.rs");
+include!("native_particle_draw.rs");
 include!("leftover.rs");
 include!("owned_laser.rs");
 include!("owned_laser_factory.rs");
@@ -195,6 +196,7 @@ pub const GAME_CLIENT_SRC: &str = concat!(
     include_str!("impl_init.rs"),
     include_str!("impl_update.rs"),
     include_str!("impl_draw.rs"),
+    include_str!("native_particle_draw.rs"),
     include_str!("leftover.rs"),
     include_str!("template_modules.rs"),
 );
@@ -204,3 +206,12 @@ mod xfer_client_frame_tests;
 
 #[cfg(test)]
 mod client_clock_tests;
+
+#[cfg(test)]
+mod receiving_client_update_tests;
+
+#[cfg(test)]
+mod receiving_native_draw_tests;
+
+#[cfg(test)]
+mod receiving_native_load_tests;

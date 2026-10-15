@@ -9,6 +9,7 @@ impl ParticleSystemManager {
         root_id: ParticleSystemId,
         create_slaves: bool,
         random: &mut dyn FnMut(f32, f32) -> f32,
+        creation_frame: u32,
     ) -> Result<ParticleSystemId, ParticleSystemError> {
         // C++ has no cycle guard. Reject malformed chains before consuming IDs,
         // draws or list entries; iteration also avoids a content-driven stack.
@@ -57,7 +58,15 @@ impl ParticleSystemManager {
         let mut systems: Vec<_> = chain
             .into_iter()
             .zip(&ids)
-            .map(|(template, &id)| ParticleSystem::new_with_random(template, id, false, random))
+            .map(|(template, &id)| {
+                ParticleSystem::new_with_random_at_frame(
+                    template,
+                    id,
+                    false,
+                    creation_frame,
+                    random,
+                )
+            })
             .collect();
         for (index, system) in systems.iter_mut().enumerate() {
             system.set_master(index.checked_sub(1).map(|i| ids[i]));

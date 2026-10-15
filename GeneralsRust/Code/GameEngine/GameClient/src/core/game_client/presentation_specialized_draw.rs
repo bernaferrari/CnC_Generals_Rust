@@ -431,9 +431,8 @@ impl PresentationSpecializedDrawModule {
                 leftover_science_model_data(visual).as_ref(),
             );
         }
-        if leftover_template_uses_animated_particle_sys_bones(visual) {
-            tick_live_host_animated_particle_sys_bones(e.object_id);
-        }
+        // Authored Animated CU runs on the receiving native Drawable before
+        // fade. This specialized draw tick must not re-enter the Core registry.
     }
 
     fn tick_debris(&mut self, e: &PresentationDrawableSync) {

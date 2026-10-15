@@ -242,6 +242,36 @@ impl DrawModule for W3DModelDraw {
 }
 
 impl ObjectDrawInterface for W3DModelDraw {
+    fn native_state_particle_count(&self) -> usize {
+        W3DModelDraw::native_state_particle_count(self)
+    }
+    fn set_native_particle_visibility(
+        &mut self,
+        hidden: bool,
+        fully_obscured: bool,
+        receiver: &mut dyn ClientParticleStateRuntime,
+    ) {
+        W3DModelDraw::set_native_particle_visibility(self, hidden, fully_obscured, receiver);
+    }
+    fn retire_native_state_particles(&mut self, receiver: &mut dyn ClientParticleStateRuntime) {
+        W3DModelDraw::retire_native_state_particles(self, receiver);
+    }
+
+    fn prepare_state_particles_with_receiver(
+        &mut self,
+        context: &NativeStateParticleContext,
+        receiver: &mut dyn ClientParticleStateRuntime,
+    ) -> Result<NativeStateParticlePreparation, String> {
+        W3DModelDraw::prepare_state_particles_with_receiver(self, context, receiver)
+    }
+
+    fn update_particle_bones_with_receiver(
+        &mut self,
+        receiver: &mut dyn ClientParticleBoneRuntime,
+    ) -> bool {
+        W3DModelDraw::update_particle_bones_with_receiver(self, receiver)
+    }
+
     fn client_only_get_render_obj_info(
         &self,
         pos: &mut Coord3D,

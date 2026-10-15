@@ -29,10 +29,19 @@ impl AnimatedParticleSysBoneClientUpdateModule {
         }
     }
 
-    pub fn client_update(&mut self) {
+    /// Advance the admitted module before querying its receiving Draw bucket.
+    pub fn client_update_with(&mut self, update_bones: impl FnOnce()) {
         self.life = self.life.wrapping_add(1);
+        update_bones();
+    }
 
-        let Some(object) = TheGameLogic::find_object_by_id(self.owner_id) else {
+    pub fn client_update(&mut self) {
+        let owner_id = self.owner_id;
+        self.client_update_with(|| Self::update_bones_for_legacy_owner(owner_id));
+    }
+
+    fn update_bones_for_legacy_owner(owner_id: ObjectID) {
+        let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
             return;
         };
         let Ok(obj_guard) = object.read() else {
@@ -213,5 +222,28 @@ mod tests {
         let mut module = AnimatedParticleSysBoneClientUpdateModule::new(11, module_data, 22);
 
         assert!(module.get_client_update_interface().is_some());
+    }
+}
+
+#[cfg(test)]
+mod receiving_update_tests {
+    use super::*;
+    use game_engine::common::thing::module::BaseModuleData;
+
+    #[test]
+    fn receiving_animated_update_advances_once_and_keeps_peer_independent() {
+        let data: Arc<dyn ModuleData> = Arc::new(BaseModuleData::new());
+        let mut a = AnimatedParticleSysBoneClientUpdateModule::new(1, Arc::clone(&data), 91);
+        let mut b = AnimatedParticleSysBoneClientUpdateModule::new(1, data, 91);
+        let mut callbacks = 0;
+        a.client_update_with(|| callbacks += 1);
+        assert_eq!(a.life(), 1);
+        assert_eq!(b.life(), 0);
+        assert_eq!(callbacks, 1);
+        b.life = u32::MAX;
+        b.client_update_with(|| callbacks += 1);
+        assert_eq!(b.life(), 0);
+        assert_eq!(a.life(), 1);
+        assert_eq!(callbacks, 2);
     }
 }

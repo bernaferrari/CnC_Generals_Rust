@@ -7,6 +7,15 @@ impl Snapshotable for W3DModelDraw {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ factory failure is fatal. A recoverably failed Rust admission
+        // cannot claim a usable native continuation or write a partial block.
+        if xfer.is_writing() {
+            if let Some(error) = &self.native_state_particle_failure {
+                return Err(format!(
+                    "cannot save failed native state-particle admission: {error}"
+                ));
+            }
+        }
         // C++ parity: W3DModelDraw::xfer (version 2) serializes recoil vectors,
         // sub-object visibility list, and optional animation frame payload.
         const CURRENT_VERSION: XferVersion = 2;

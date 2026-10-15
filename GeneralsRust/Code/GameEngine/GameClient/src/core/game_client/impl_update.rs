@@ -68,10 +68,17 @@ impl GameClient {
                 self.finish_frame_timing(current_time);
                 return Ok(());
             }
-            self.update_particle_system_local_player()?;
             self.update_effects(visual_delta)?;
             apply_pending_script_display_state();
             self.update_display_only()?;
+            self.update_native_draw_particle_phase(
+                freeze_time,
+                NativeParticleFrames {
+                    logic_frame: TheGameLogic::get_frame(),
+                    client_frame: self.frame,
+                },
+                true,
+            )?;
             // No draw_display — Main RenderPipeline is sole present path.
             self.draw_drawable_icon_ui();
             self.draw_presentation_selection_residual();
@@ -111,12 +118,18 @@ impl GameClient {
             return Ok(());
         }
 
-        self.set_particle_system_local_player()?;
-
         // C++ line 721: terrain visual, C++ line 726: display UPDATE
         self.update_effects(visual_delta)?;
         apply_pending_script_display_state();
         self.update_display_only()?;
+        self.update_native_draw_particle_phase(
+            freeze_time,
+            NativeParticleFrames {
+                logic_frame: TheGameLogic::get_frame(),
+                client_frame: self.frame,
+            },
+            false,
+        )?;
 
         // W3DDisplay.cpp:1730-1835 — freeze/sync/updateViews/particles before DRAW GPU.
         crate::display::client_draw_schedule::run_dual_world_cpu_phases();
@@ -277,30 +290,69 @@ impl GameClient {
         // BasicDrawable::update consumes `flash_count` from `self.current_frame`;
         // leaving it at 0 makes `0 % 15 == 0` fire every tick.
         let frame = self.frame;
-        self.tick_mapped_drawables(frame, delta_time);
+        self.tick_mapped_drawables(frame, delta_time)?;
         Ok(())
     }
 
     /// C++ `GameClient` drawable walk: stamp the client frame, `updateDrawable`,
     /// then `destroyDrawable` when the expiration date is reached this frame.
-    fn tick_mapped_drawables(&mut self, frame: u32, delta_time: f32) {
-        let expired: Vec<DrawableId> = self
-            .drawables
-            .drawable_map
-            .iter_mut()
-            .filter_map(|(&id, drawable)| {
-                drawable.set_current_frame(frame);
-                drawable.update(delta_time);
-                if drawable.is_expired(frame) {
-                    Some(id)
-                } else {
-                    None
-                }
-            })
-            .collect();
+    fn tick_mapped_drawables(&mut self, frame: u32, delta_time: f32) -> GameClientResult<()> {
+        // This is the existing native manager boundary, borrowed once. Installed
+        // CU/bone callbacks receive the receiver and never relock this parent.
+        let expired = {
+            let assets = crate::render_bridge::THE_RENDER_BRIDGE
+                .lock()
+                .map_err(|err| {
+                    GameClientError::SubsystemError(format!("Render assets unavailable: {err}"))
+                })?;
+            let mut guard = crate::effects::particle_manager::get_particle_system_manager_mut()
+                .map_err(|err| {
+                    GameClientError::SubsystemError(format!("Particle manager unavailable: {err}"))
+                })?;
+            let particles = guard.as_mut();
+            self.tick_mapped_drawables_with_particles(
+                frame,
+                delta_time,
+                particles,
+                assets.as_ref().map(|bridge| bridge.asset_manager()),
+            )?
+        };
+        // Draw module destructors may use existing parent cleanup adapters.
+        // Release the manager loan before destroying expired Drawables.
         for id in expired {
             let _ = self.destroy_drawable(id);
         }
+        Ok(())
+    }
+
+    fn tick_mapped_drawables_with_particles(
+        &mut self,
+        frame: u32,
+        delta_time: f32,
+        mut particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
+        assets: Option<&ww3d_assets::AssetManager>,
+    ) -> GameClientResult<Vec<DrawableId>> {
+        let host_bindings = &self.drawables.presentation_direct_drawable_bindings;
+        let mut expired = Vec::new();
+        for (&id, drawable) in &mut self.drawables.drawable_map {
+            drawable.set_current_frame(frame);
+            if let Some(basic) = drawable.as_any_mut().downcast_mut::<BasicDrawable>() {
+                basic
+                    .update_native_client_modules(
+                        particles.as_deref_mut(),
+                        host_bindings.contains_key(&id),
+                        assets,
+                    )
+                    .map_err(GameClientError::InvalidOperation)?;
+                basic.update_after_client_modules();
+            } else {
+                drawable.update(delta_time);
+            }
+            if drawable.is_expired(frame) {
+                expired.push(id);
+            }
+        }
+        Ok(expired)
     }
 
     /// Apply presentation-owned FOW shroud to bound drawables (no OBJECT_REGISTRY).
@@ -690,7 +742,7 @@ impl GameClient {
             let id = self.alloc_drawable_id();
             drawable.set_id(id);
             Self::bind_owned_laser_module(&mut drawable, id);
-            self.drawables.drawable_map.insert(id, Box::new(drawable));
+            self.drawables.admit_native_drawable(id, Box::new(drawable));
             if native_laser {
                 self.drawables.owned_laser_order.insert(0, id);
             }
@@ -1435,6 +1487,38 @@ impl GameClient {
     /// sole RenderPipeline 3D draw (`draw_display` stays off). Shroud still comes from
     /// PresentationFrame at render time — not live OBJECT_REGISTRY.
     pub fn update_presentation_shell(&mut self, delta_time: f32) -> GameClientResult<()> {
+        // Compatibility entry for the classic Core driver. Native Main passes
+        // both actual owners explicitly through the operation below.
+        let frames = NativeParticleFrames {
+            logic_frame: TheGameLogic::get_frame(),
+            client_frame: self.frame,
+        };
+        self.update_presentation_shell_with_particle_policy(
+            delta_time,
+            frames,
+            OBJECT_REGISTRY.is_empty(),
+        )
+    }
+
+    pub fn update_presentation_shell_with_particle_frames(
+        &mut self,
+        delta_time: f32,
+        particle_frames: NativeParticleFrames,
+    ) -> GameClientResult<()> {
+        self.update_presentation_shell_with_particle_policy(delta_time, particle_frames, true)
+    }
+
+    fn update_presentation_shell_with_particle_policy(
+        &mut self,
+        delta_time: f32,
+        particle_frames: NativeParticleFrames,
+        advance_particles: bool,
+    ) -> GameClientResult<()> {
+        if particle_frames.client_frame != self.frame {
+            return Err(GameClientError::InvalidOperation(
+                "native particle Client frame does not match receiving owner".into(),
+            ));
+        }
         if !self.initialized {
             return Err(GameClientError::InvalidOperation(
                 "GameClient not initialized".to_string(),
@@ -1544,7 +1628,6 @@ impl GameClient {
             return Ok(());
         }
 
-        self.update_particle_system_local_player()?;
         self.update_effects(visual_delta)?;
         apply_pending_script_display_state();
         // C++ GameClient.cpp:719-722 — TheTerrainVisual->UPDATE().
@@ -1552,6 +1635,7 @@ impl GameClient {
         // C++ line 726: display UPDATE (not DRAW). Main RenderPipeline remains sole
         // 3D present path; skip draw_display to avoid dual surface present.
         self.update_display_only()?;
+        self.update_native_draw_particle_phase(freeze_time, particle_frames, advance_particles)?;
         // C++ W3DView::drawablePostDraw icon UI residual (health/status icons).
         self.draw_drawable_icon_ui();
         // Wave 980: weapon/UI residual peels companion.
@@ -1593,7 +1677,7 @@ impl GameClient {
         let frame = self.frame;
         let local_player_index = self.local_player_id;
 
-        self.tick_mapped_drawables(frame, delta_time);
+        self.tick_mapped_drawables(frame, delta_time)?;
 
         // Host/presentation path: Wave 1020/1021 peels catalog shroud onto drawable_map
         // when dual-world registry is empty (PresentationFrame apply_* still primary).
@@ -1994,38 +2078,6 @@ impl GameClient {
     pub fn update_display_string_manager(&self) -> GameClientResult<()> {
         crate::display_string_manager::update_display_string_manager()
             .map_err(|err| GameClientError::SubsystemError(format!("{err}")))
-    }
-
-    fn update_particle_system_local_player(&self) -> GameClientResult<()> {
-        self.set_particle_system_local_player()?;
-        if let Ok(mut manager_guard) =
-            crate::effects::particle_manager::get_particle_system_manager_mut()
-        {
-            if let Some(manager) = manager_guard.as_mut() {
-                // C++ particle systems tick on logic frames: SystemLifetime is
-                // counted in logic frames (ParticleSys.cpp:2066-2081). The
-                // client frame above increments per render update, so passing
-                // it drains finite lifetimes at render rate (one-shot FX
-                // flickers out early). Pass the published logic frame; the
-                // manager de-duplicates repeats within one logic frame itself.
-                manager.update(self.local_player_id as i32, TheGameLogic::get_frame());
-            }
-        }
-        let logic_frame = TheGameLogic::get_frame();
-        crate::effects::update_tracer_fx(logic_frame);
-        crate::effects::update_ray_effects(logic_frame);
-        Ok(())
-    }
-
-    fn set_particle_system_local_player(&self) -> GameClientResult<()> {
-        if let Ok(mut manager_guard) =
-            crate::effects::particle_manager::get_particle_system_manager_mut()
-        {
-            if let Some(manager) = manager_guard.as_mut() {
-                manager.set_local_player_index(self.local_player_id);
-            }
-        }
-        Ok(())
     }
 
     fn update_ui(&mut self) -> GameClientResult<()> {
