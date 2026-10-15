@@ -278,48 +278,68 @@ impl ParticleBatch {
         self.dirty = true;
     }
 
-    /// Add layered volume-particle slices sorted from the camera-facing side.
+    /// Compatibility adapter for a single point through the same volume group algorithm.
     pub fn add_volume_particle(
         &mut self,
         particle: &Particle,
         system: &ParticleSystem,
         camera_position: [f32; 3],
     ) {
-        let info = system.info();
-        let layer_count = info
-            .volume_particle_depth
-            .max(OPTIMUM_VOLUME_PARTICLE_DEPTH)
-            .min(MAX_VOLUME_PARTICLE_DEPTH) as usize;
-        if layer_count == 0 {
-            self.add_particle(particle, system);
+        self.append_volume_group(&[particle], system, camera_position);
+    }
+
+    /// W3DParticleSys.cpp:224 caps SOURCE points before PointGroup expands layers.
+    fn add_volume_system(&mut self, system: &ParticleSystem, camera_position: [f32; 3]) {
+        let particles: Vec<_> = system
+            .particles()
+            .iter()
+            .filter(|particle| particle.is_draw_alive())
+            .take(MAX_PARTICLES_PER_BATCH)
+            .collect();
+        self.append_volume_group(&particles, system, camera_position);
+    }
+
+    fn append_volume_group(
+        &mut self,
+        particles: &[&Particle],
+        system: &ParticleSystem,
+        camera_position: [f32; 3],
+    ) {
+        let Some(first) = particles.first() else {
             return;
-        }
-
-        let view_dir = Vec3::new(
-            particle.position.x - camera_position[0],
-            particle.position.y - camera_position[1],
-            particle.position.z - camera_position[2],
-        )
-        .try_normalize()
-        .unwrap_or_else(|| Vec3::new(0.0, 0.0, 1.0));
-
-        let spacing = particle.size / layer_count as f32;
-        let first_offset = -0.5 * spacing * (layer_count.saturating_sub(1) as f32);
-
-        for layer in 0..layer_count {
-            if self.vertices.len() >= MAX_PARTICLES_PER_BATCH {
-                break;
+        };
+        debug_assert!(particles.len() <= MAX_PARTICLES_PER_BATCH);
+        // ParticleSys.h:560 returns a fixed six layers for VOLUME_PARTICLE;
+        // the serialized m_volumeParticleDepth is not the render-time selector.
+        let depth = if system.info().particle_type == ParticleType::VolumeParticle {
+            OPTIMUM_VOLUME_PARTICLE_DEPTH.min(MAX_VOLUME_PARTICLE_DEPTH) as usize
+        } else {
+            1
+        };
+        self.vertices.reserve(particles.len() * depth);
+        let camera_position = Vec3::from(camera_position);
+        let reciprocal_depth = 0.1 / depth as f32;
+        // PointGroup::RenderVolumeParticle (pointgr.cpp:1626-1814) renders
+        // every source point in a layer before beginning the next layer.
+        for layer in 0..depth {
+            // The original dereferences current_size, not current_size[i].
+            let shift = layer as f32 * first.size * reciprocal_depth;
+            for particle in particles {
+                let mut vertex = particle_billboard_vertex(particle, system);
+                if system.should_billboard() {
+                    let mut toward_camera = camera_position - particle.position;
+                    // Vector3::Normalize leaves a zero-length vector unchanged.
+                    let length_squared = toward_camera.length_squared();
+                    if length_squared != 0.0 {
+                        toward_camera *= 1.0 / length_squared.sqrt();
+                    }
+                    let position = particle.position + toward_camera * shift;
+                    vertex.position = position.to_array();
+                }
+                // The C++ attenuation block is commented out: retain full alpha.
+                self.vertices.push(vertex);
             }
-
-            let mut vertex = particle_billboard_vertex(particle, system);
-            let offset = first_offset + spacing * layer as f32;
-            vertex.position[0] += view_dir.x * offset;
-            vertex.position[1] += view_dir.y * offset;
-            vertex.position[2] += view_dir.z * offset;
-            vertex.alpha /= layer_count as f32;
-            self.vertices.push(vertex);
         }
-
         self.dirty = true;
     }
 
@@ -441,7 +461,7 @@ pub fn begin_particle_heat_smudge_frame() {
     let _ = manager.add_smudge_set();
 }
 
-/// Convert a SMUD* / SMUDGE system into `TheSmudgeManager` heat smudges.
+/// Convert a SMUD-prefixed particle-name system into `TheSmudgeManager` heat smudges.
 /// C++ `W3DParticleSys.cpp:142-172` — never drawn as sprites.
 pub fn feed_system_heat_smudges(system: &ParticleSystem) -> usize {
     if !system_is_heat_smudge(system) {
@@ -2264,16 +2284,24 @@ mod tests {
         let mut info = ParticleInfo::default();
         info.position = Vec3::new(0.0, 0.0, 3.0);
         info.size = 6.0;
+        info.alpha_keys[0].value = 0.75;
         let particle = Particle::new(&info, 0, 0);
         let mut batch = ParticleBatch::new(ParticleShaderType::Alpha, "test.tga".to_string());
 
         batch.add_volume_particle(&particle, &system, [0.0, 0.0, 0.0]);
 
         assert_eq!(batch.vertices.len(), OPTIMUM_VOLUME_PARTICLE_DEPTH as usize);
-        let alpha_sum: f32 = batch.vertices.iter().map(|vertex| vertex.alpha).sum();
-        assert!((alpha_sum - particle.alpha).abs() < 0.0001);
-        assert!(batch.vertices.first().unwrap().position[2] < particle.position.z);
-        assert!(batch.vertices.last().unwrap().position[2] > particle.position.z);
+        assert!(
+            batch
+                .vertices
+                .iter()
+                .all(|vertex| vertex.alpha == particle.alpha)
+        );
+        assert_eq!(
+            batch.vertices.first().unwrap().position,
+            particle.position.to_array()
+        );
+        assert!(batch.vertices.last().unwrap().position[2] < particle.position.z);
     }
 
     #[test]

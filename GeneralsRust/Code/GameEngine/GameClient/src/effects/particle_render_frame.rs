@@ -59,7 +59,7 @@ impl ParticleRenderFrame {
         ) {
             return;
         }
-        // C++ DWORD "SMUD" prefix / Type=SMUDGE: convert visible particles
+        // C++ DWORD "SMUD" prefix: convert visible particles
         // into heat smudges and continue — never submit as sprites
         // (`W3DParticleSys.cpp:142-172`).
         if system_is_heat_smudge(system) {
@@ -85,20 +85,20 @@ impl ParticleRenderFrame {
             let before = batch.vertices.len();
             batch.add_streak_polyline(system);
             self.particles_rendered += batch.vertices.len().saturating_sub(before);
+        } else if info.particle_type == ParticleType::VolumeParticle {
+            // One bounded source group expands layer-major, not one complete
+            // stack per particle. The 512-source cap does not cap layer instances.
+            batch.add_volume_system(system, camera_position);
+            self.particles_rendered += batch.vertices.len();
         } else {
             for particle in system.particles() {
                 if !particle.is_draw_alive() {
                     continue;
                 }
                 match info.particle_type {
-                    ParticleType::VolumeParticle => {
-                        let before = batch.vertices.len();
-                        batch.add_volume_particle(particle, system, camera_position);
-                        self.particles_rendered += batch.vertices.len().saturating_sub(before);
-                        continue;
-                    }
                     ParticleType::Particle => batch.add_particle(particle, system),
-                    ParticleType::Streak
+                    ParticleType::VolumeParticle
+                    | ParticleType::Streak
                     | ParticleType::Invalid
                     | ParticleType::Drawable
                     | ParticleType::Smudge => continue,
@@ -185,3 +185,7 @@ mod owned_info_tests {
         assert!(Arc::ptr_eq(saved.template(), &authored));
     }
 }
+
+#[cfg(test)]
+#[path = "particle_render_frame/volume_tests.rs"]
+mod volume_tests;
