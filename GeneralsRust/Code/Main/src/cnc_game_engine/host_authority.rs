@@ -16,6 +16,8 @@ struct StagedRestoreWorld {
     /// Decoded client state stays detached until the candidate world commits.
     game_client_xfer_bytes: Option<Vec<u8>>,
     client_persist: crate::save_load::snapshot::WorldPersistV18,
+    /// Detached groups decoded before candidate admission; no pending slot.
+    control_groups: Option<std::collections::HashMap<i32, std::collections::HashMap<u8, Vec<u32>>>>,
     /// Driving-instance Rust RNG state capsule captured at save time.
     /// The commit boundary restores the staged instance from these words
     /// rather than leaving it on the game-start seed. `[0; 6]` marks a
@@ -1176,6 +1178,7 @@ impl CnCGameEngine {
             client_drawables,
             game_client_xfer_bytes,
             client_persist,
+            mut control_groups,
             logic_rng_seed_words,
         } = staged;
         // Destroy the previous client's Drawables while its own world and the
@@ -1285,7 +1288,10 @@ impl CnCGameEngine {
         // stale timeline on a later frame.
         self.render_pipeline
             .queue_client_drawable_restore(client_drawables);
-        if let Some(groups) = crate::save_load::snapshot::take_pending_control_groups() {
+        if let Some(groups) = control_groups
+            .as_mut()
+            .and_then(|owners| owners.remove(&(self.current_player_id as i32)))
+        {
             self.control_groups = groups
                 .into_iter()
                 .map(|(slot, ids)| {
@@ -1328,12 +1334,17 @@ impl CnCGameEngine {
             target: self.camera_target.to_array(),
             zoom: self.camera_zoom,
         };
-        crate::save_load::snapshot::set_pending_control_groups(
-            self.control_groups
-                .iter()
-                .map(|(slot, ids)| (*slot, ids.iter().map(|id| id.0).collect()))
-                .collect(),
-        );
+        let client_save = crate::save_load::snapshot::ClientSaveState {
+            camera: Some(camera),
+            control_groups: Some(crate::save_load::snapshot::ControlGroupSave {
+                player_index: self.current_player_id as i32,
+                groups: self
+                    .control_groups
+                    .iter()
+                    .map(|(slot, ids)| (*slot, ids.iter().map(|id| id.0).collect()))
+                    .collect(),
+            }),
+        };
         let visual_world = gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
             &self.game_logic.world_services,
         ));
@@ -1343,13 +1354,13 @@ impl CnCGameEngine {
         let save_path = self.save_file_manager.get_save_path(slot);
         let result = self
             .save_file_manager
-            .save_game_with_client_state_and_camera(
+            .save_game_with_client_save_state(
                 slot,
                 &self.game_logic,
                 client_drawables,
                 &mut self.game_client,
                 save_info,
-                camera,
+                client_save,
             )
             .map_err(|e| format!("{e}"));
         // C++ GameState::saveGame (GameState.cpp:547-597): HUD
@@ -1525,6 +1536,9 @@ impl CnCGameEngine {
             crate::save_load::snapshot::validate_game_client_xfer_bytes(bytes)
                 .map_err(|err| format!("{err}"))?;
         }
+        let control_groups =
+            crate::save_load::snapshot::read_control_groups(&snapshot.lifecycle_tail)
+                .map_err(|err| format!("{err}"))?;
         let saved_map = save_info.map_name.trim();
         if saved_map.is_empty() || saved_map == "-" || saved_map.eq_ignore_ascii_case("unknown") {
             return Err(format!(
@@ -1609,6 +1623,7 @@ impl CnCGameEngine {
             client_drawables: snapshot.client_drawables.clone(),
             game_client_xfer_bytes,
             client_persist: snapshot.persist_v18.clone(),
+            control_groups,
             logic_rng_seed_words: snapshot.logic_rng_seed_words,
         })
     }

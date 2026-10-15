@@ -85,7 +85,7 @@ impl GameLogic {
         team_dicts: &[Dict],
         side_builds: &[super::script_loader::SideBuildEntry],
         script_lists: &[ScriptList],
-    ) {
+    ) -> Vec<Dict> {
         // Preparation may load faction scripts. Neither that IO nor host admission
         // needs to hold, or discover its owner through, the compatibility registry.
         let prepared = self.prepare_map_sides(side_dicts, team_dicts, side_builds, script_lists);
@@ -146,6 +146,15 @@ impl GameLogic {
         // Creating only civilians here would make its roster-preservation check
         // skip that path. Complete map-player reconstruction remains separate.
 
+        // TeamFactory::initFromSides consumes this exact prepared order, not
+        // the raw map dictionaries or a later ambient SidesList selection.
+        let team_definitions = (0..prepared.get_num_teams())
+            .filter_map(|index| {
+                prepared
+                    .get_team_info(index)
+                    .map(|team| team.get_dict().clone())
+            })
+            .collect();
         let adapter = get_sides_list();
         match adapter.try_write() {
             Ok(mut sides) => *sides = prepared,
@@ -153,5 +162,6 @@ impl GameLogic {
                 "Fast legacy runtime sync skipped SidesList publication (THE_SIDES_LIST busy)"
             ),
         }
+        team_definitions
     }
 }

@@ -8,14 +8,13 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! (and after SPCD / BPPL / SUBD) so older decoders ignore the extra bytes.
 //! No world snapshot version bump. Restore writes leftover
-//! `process_create_team_game_message` and parks a pending map for the live
-//! host `control_groups` remirror.
+//! `process_create_team_game_message`; explicit decoding supplies the live
+//! host `control_groups` admission through its detached save candidate.
 
 use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
 
 const HSQD_MAGIC: &[u8; 4] = b"HSQD";
 const HSQD_VERSION: u32 = 1;
@@ -33,28 +32,108 @@ struct PlayerHotkeySquadPersist {
     squads: Vec<Vec<u32>>,
 }
 
-static PENDING_CONTROL_GROUPS: Mutex<Option<HashMap<u8, Vec<u32>>>> = Mutex::new(None);
+/// Detached client values captured from one driving engine at its save boundary.
+#[derive(Debug, Clone, Default)]
+pub struct ClientSaveState {
+    pub camera: Option<super::CameraPersist>,
+    pub control_groups: Option<ControlGroupSave>,
+}
 
-/// Host save stamps live `control_groups` so capture can union them onto
-/// leftover `m_squads` (smoke assign used to skip leftover).
-pub fn set_pending_control_groups(groups: HashMap<u8, Vec<u32>>) {
-    if let Ok(mut slot) = PENDING_CONTROL_GROUPS.lock() {
-        *slot = Some(groups);
+#[derive(Debug, Clone)]
+pub struct ControlGroupSave {
+    pub player_index: i32,
+    pub groups: HashMap<u8, Vec<u32>>,
+}
+
+impl ControlGroupSave {
+    pub(crate) fn validate(&self) -> SaveLoadResult<()> {
+        if self.player_index < 0
+            || self
+                .groups
+                .keys()
+                .any(|&slot| slot as usize >= NUM_HOTKEY_SQUADS)
+        {
+            return Err(SaveLoadError::Corrupted(
+                "invalid client control-group owner or slot".into(),
+            ));
+        }
+        Ok(())
     }
 }
 
-pub fn take_pending_control_groups() -> Option<HashMap<u8, Vec<u32>>> {
-    PENDING_CONTROL_GROUPS
-        .lock()
-        .ok()
-        .and_then(|mut slot| slot.take())
+/// Replace only this tagged record, preserving all later lifecycle extensions.
+pub fn write_control_groups(bytes: &mut Vec<u8>, owned: &ControlGroupSave) -> SaveLoadResult<()> {
+    owned.validate()?;
+    // Players/teams is an outer terminal capsule. Edit only its validated
+    // lifecycle prefix and carry its original bytes through unchanged.
+    let prefix_len = super::player_team_chunks::lifecycle_prefix(bytes)?.len();
+    let mut prefix = bytes[..prefix_len].to_vec();
+    write_control_groups_prefix(&mut prefix, owned)?;
+    prefix.extend_from_slice(&bytes[prefix_len..]);
+    *bytes = prefix;
+    Ok(())
 }
 
-pub fn peek_pending_control_groups() -> Option<HashMap<u8, Vec<u32>>> {
-    PENDING_CONTROL_GROUPS
-        .lock()
-        .ok()
-        .and_then(|slot| slot.clone())
+fn write_control_groups_prefix(
+    bytes: &mut Vec<u8>,
+    owned: &ControlGroupSave,
+) -> SaveLoadResult<()> {
+    let mut payload = decode_payload(bytes)?.unwrap_or_default();
+    let mut squads = vec![Vec::new(); NUM_HOTKEY_SQUADS];
+    for (&slot, ids) in &owned.groups {
+        squads[slot as usize] = ids.clone();
+    }
+    if let Some(player) = payload
+        .players
+        .iter_mut()
+        .find(|p| p.player_index == owned.player_index)
+    {
+        player.squads = squads;
+    } else {
+        payload.players.push(PlayerHotkeySquadPersist {
+            player_index: owned.player_index,
+            squads,
+        });
+    }
+    payload.players.sort_by_key(|p| p.player_index);
+    let encoded = bincode_legacy::serialize(&payload)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    let mut record = HSQD_MAGIC.to_vec();
+    append_u32(&mut record, HSQD_VERSION);
+    append_u32(&mut record, encoded.len() as u32);
+    record.extend_from_slice(&encoded);
+    if let Some(start) = bytes.windows(4).rposition(|w| w == HSQD_MAGIC) {
+        let mut rest = &bytes[start + 4..];
+        take_u32(&mut rest)?;
+        let len = take_u32(&mut rest)? as usize;
+        bytes.splice(start..start + 12 + len, record);
+    } else {
+        bytes.extend(record);
+    }
+    Ok(())
+}
+
+/// Absence is distinct from a present owner with ten empty squads.
+pub fn read_control_groups(
+    bytes: &[u8],
+) -> SaveLoadResult<Option<HashMap<i32, HashMap<u8, Vec<u32>>>>> {
+    Ok(decode_payload(bytes)?.map(|payload| {
+        payload
+            .players
+            .into_iter()
+            .map(|p| {
+                (
+                    p.player_index,
+                    p.squads
+                        .into_iter()
+                        .enumerate()
+                        .filter(|(_, ids)| !ids.is_empty())
+                        .map(|(slot, ids)| (slot as u8, ids))
+                        .collect(),
+                )
+            })
+            .collect()
+    }))
 }
 
 pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, _game_logic: &GameLogic) {
@@ -76,9 +155,16 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, _game_logic: &GameLogic) {
 }
 
 pub fn apply_from_lifecycle_tail(bytes: &[u8], _game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+    if let Some(payload) = decode_payload(bytes)? {
+        apply_payload(payload);
+    }
+    Ok(())
+}
+
+fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<HotkeySquadPersistPayload>> {
+    let bytes = super::player_team_chunks::lifecycle_prefix(bytes)?;
     let Some(suffix) = find_hsqd_suffix(bytes) else {
-        set_pending_control_groups(HashMap::new());
-        return Ok(());
+        return Ok(None);
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
@@ -89,14 +175,19 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], _game_logic: &mut GameLogic) -> S
     }
     let payload_len = take_u32(&mut rest)? as usize;
     if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "HSQD payload truncated".to_string(),
-        ));
+        return Err(SaveLoadError::Corrupted("HSQD payload truncated".into()));
     }
     let payload: HotkeySquadPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("HSQD payload decode: {err}")))?;
-    apply_payload(payload);
-    Ok(())
+        .map_err(|e| SaveLoadError::Corrupted(format!("HSQD payload decode: {e}")))?;
+    let mut owners = std::collections::HashSet::new();
+    if payload.players.iter().any(|p| {
+        p.player_index < 0 || !owners.insert(p.player_index) || p.squads.len() != NUM_HOTKEY_SQUADS
+    }) {
+        return Err(SaveLoadError::Corrupted(
+            "invalid HSQD owner or squad count".into(),
+        ));
+    }
+    Ok(Some(payload))
 }
 
 fn capture() -> HotkeySquadPersistPayload {
@@ -116,15 +207,6 @@ fn capture() -> HotkeySquadPersistPayload {
             by_index.insert(index, squads);
         }
     }
-    if let Some(pending) = peek_pending_control_groups() {
-        let local = leftover_local_player_index();
-        let entry = by_index.entry(local).or_default();
-        for (slot, ids) in pending {
-            if (slot as usize) < NUM_HOTKEY_SQUADS {
-                entry[slot as usize] = ids;
-            }
-        }
-    }
     let mut players: Vec<PlayerHotkeySquadPersist> = by_index
         .into_iter()
         .map(|(player_index, squads)| PlayerHotkeySquadPersist {
@@ -139,7 +221,6 @@ fn capture() -> HotkeySquadPersistPayload {
 fn apply_payload(payload: HotkeySquadPersistPayload) {
     let arcs: Vec<_> = {
         let Ok(list) = gamelogic::player::ThePlayerList().read() else {
-            set_pending_control_groups(HashMap::new());
             return;
         };
         list.iter().cloned().collect()
@@ -160,44 +241,6 @@ fn apply_payload(payload: HotkeySquadPersistPayload) {
             player.process_create_team_game_message(slot as i32, ids);
         }
     }
-    set_pending_control_groups(pending_from_leftover_local());
-}
-
-fn pending_from_leftover_local() -> HashMap<u8, Vec<u32>> {
-    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
-        return HashMap::new();
-    };
-    let Some(arc) = list
-        .get_local_player()
-        .cloned()
-        .or_else(|| list.get_player(leftover_local_player_index()).cloned())
-    else {
-        return HashMap::new();
-    };
-    drop(list);
-    let Ok(player) = arc.read() else {
-        return HashMap::new();
-    };
-    let mut groups = HashMap::new();
-    for slot in 0..NUM_HOTKEY_SQUADS {
-        let Some(squad) = player.get_hotkey_squad_const(slot as i32) else {
-            continue;
-        };
-        let ids = squad.get_object_ids();
-        if !ids.is_empty() {
-            groups.insert(slot as u8, ids.clone());
-        }
-    }
-    groups
-}
-
-fn leftover_local_player_index() -> i32 {
-    gamelogic::player::ThePlayerList()
-        .read()
-        .ok()
-        .map(|list| list.get_local_player_index())
-        .filter(|&index| index >= 0)
-        .unwrap_or(0)
 }
 
 fn find_hsqd_suffix(bytes: &[u8]) -> Option<&[u8]> {
@@ -261,25 +304,32 @@ mod tests {
                 let loaded = restored.read().expect("player");
                 let squad = loaded.get_hotkey_squad_const(1).expect("squad 1");
                 assert_eq!(squad.get_object_ids(), &vec![10, 20, 30]);
-                let pending = take_pending_control_groups().expect("pending remirror");
+                let groups = read_control_groups(&bytes).unwrap().unwrap();
+                let pending = groups.get(&0).unwrap();
                 assert_eq!(pending.get(&1).map(Vec::as_slice), Some(&[10, 20, 30][..]));
             },
         );
     }
 
     #[test]
-    fn pending_engine_groups_union_onto_leftover_local() {
+    fn explicit_engine_groups_replace_only_their_detached_owner() {
         crate::game_logic::game_logic::pose_owner_tests::isolated_at(
             module_path!(),
-            "pending_engine_groups_union_onto_leftover_local",
+            "explicit_engine_groups_replace_only_their_detached_owner",
             || {
                 reset_leftover(0);
                 let mut groups = HashMap::new();
                 groups.insert(3, vec![7, 8]);
-                set_pending_control_groups(groups);
-
                 let mut bytes = Vec::new();
                 append_to_lifecycle_tail(&mut bytes, &GameLogic::new());
+                write_control_groups(
+                    &mut bytes,
+                    &ControlGroupSave {
+                        player_index: 0,
+                        groups,
+                    },
+                )
+                .unwrap();
 
                 let restored = reset_leftover(0);
                 apply_from_lifecycle_tail(&bytes, &mut GameLogic::new()).expect("apply");
@@ -291,16 +341,24 @@ mod tests {
     }
 
     #[test]
-    fn absent_suffix_clears_pending_groups() {
-        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
-            module_path!(),
-            "absent_suffix_clears_pending_groups",
-            || {
-                set_pending_control_groups(HashMap::from([(1, vec![1])]));
-                apply_from_lifecycle_tail(b"no-magic-here", &mut GameLogic::new()).expect("apply");
-                let pending = take_pending_control_groups().expect("cleared pending");
-                assert!(pending.is_empty());
+    fn absent_suffix_is_distinct_from_an_explicit_empty_owner() {
+        assert!(read_control_groups(b"no-magic-here").unwrap().is_none());
+        let mut bytes = Vec::new();
+        write_control_groups(
+            &mut bytes,
+            &ControlGroupSave {
+                player_index: 0,
+                groups: HashMap::new(),
             },
+        )
+        .unwrap();
+        assert!(
+            read_control_groups(&bytes)
+                .unwrap()
+                .unwrap()
+                .get(&0)
+                .unwrap()
+                .is_empty()
         );
     }
 
@@ -336,3 +394,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "hotkey_squad_ownership_tests.rs"]
+mod ownership_tests;

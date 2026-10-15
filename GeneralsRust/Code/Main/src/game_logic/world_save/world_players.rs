@@ -262,7 +262,7 @@ impl GameLogic {
             return false;
         }
         let script_lists = self.loaded_script_lists.clone();
-        self.sync_legacy_sides_list_from_dicts(
+        let prepared_team_definitions = self.sync_legacy_sides_list_from_dicts(
             &sides_data.side_dicts,
             &sides_data.team_dicts,
             &sides_data.side_builds,
@@ -280,7 +280,7 @@ impl GameLogic {
             self.apply_host_players_from_side_dicts(&sides_data.side_dicts, false);
         }
         self.stash_side_builds_on_host(&sides_data.side_builds);
-        if !self.sync_legacy_team_factory_from_team_dicts(&sides_data.team_dicts) {
+        if !self.sync_legacy_team_factory_from_team_dicts(&prepared_team_definitions) {
             return false;
         }
         if !self.finish_map_script_foundation() {
@@ -840,7 +840,14 @@ impl GameLogic {
             let controller = self
                 .players
                 .values()
-                .find(|player| player.name == owner)
+                .find(|player| !owner.is_empty() && player.map_side.map_player_name == owner)
+                .or_else(|| {
+                    self.players.values().find(|player| {
+                        player.map_side.map_player_name.is_empty()
+                            && !owner.is_empty()
+                            && player.name == owner
+                    })
+                })
                 .or_else(|| {
                     self.players
                         .values()
@@ -877,24 +884,6 @@ impl GameLogic {
             }
         }
         true
-    }
-
-    pub(in super::super) fn sync_legacy_team_factory_from_sides(&mut self) {
-        let sides_list = get_sides_list();
-        let Ok(sides_guard) = sides_list.try_read() else {
-            log::warn!("Fast legacy runtime sync skipped TeamFactory derive (THE_SIDES_LIST busy)");
-            return;
-        };
-
-        let team_dicts: Vec<Dict> = (0..sides_guard.get_num_teams())
-            .filter_map(|index| {
-                sides_guard
-                    .get_team_info(index)
-                    .map(|team| team.get_dict().clone())
-            })
-            .collect();
-        drop(sides_guard);
-        self.sync_legacy_team_factory_from_team_dicts(&team_dicts);
     }
 
     pub(in super::super) fn sync_named_shell_object_into_legacy_runtime(
@@ -1123,3 +1112,7 @@ mod map_singleton_owner_tests {
         assert!(!owner.finish_map_script_foundation());
     }
 }
+
+#[cfg(test)]
+#[path = "prepared_team_factory_tests.rs"]
+mod prepared_team_factory_tests;

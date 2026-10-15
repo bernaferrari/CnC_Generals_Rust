@@ -7,6 +7,19 @@ mod retaliation_owner_tests;
 mod wander_owner_tests;
 use super::super::*;
 
+/// Script identity used by C++ Player::setDefaultTeam. Display labels only
+/// supply pre-map fixtures which have not admitted an authored side identity.
+pub(super) fn default_team_owner_name(player: &Player) -> Option<&str> {
+    if player.is_reserved_neutral() {
+        return Some("");
+    }
+    if !player.map_side.map_player_name.is_empty() {
+        return Some(&player.map_side.map_player_name);
+    }
+    let display = player.name.trim();
+    (!display.is_empty()).then_some(display)
+}
+
 #[cfg(test)]
 #[path = "guard_movement_owner_tests.rs"]
 mod guard_movement_owner_tests;
@@ -511,8 +524,7 @@ impl GameLogic {
     ) -> String {
         if let Some(pid) = owner_player_id {
             if let Some(player) = self.players.get(&pid) {
-                let name = player.name.trim();
-                if !name.is_empty() {
+                if let Some(name) = default_team_owner_name(player) {
                     return format!("team{name}");
                 }
             }
@@ -538,7 +550,7 @@ impl GameLogic {
                     super::team_membership::ensure_default_team_definition(
                         &mut factory,
                         team_name,
-                        &player.name,
+                        default_team_owner_name(player).unwrap_or(&player.name),
                         player_id,
                     );
                 }
@@ -3177,3 +3189,7 @@ mod tests {
 #[cfg(test)]
 #[path = "teams/terrain_owner_tests.rs"]
 mod terrain_owner_tests;
+
+#[cfg(test)]
+#[path = "default_team_identity_tests.rs"]
+mod default_team_identity_tests;

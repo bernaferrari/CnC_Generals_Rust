@@ -154,7 +154,7 @@ pub use gamelogic::system::shroud_manager::{
     ShroudCellSnapshot, ShroudGridSnapshot, ShroudPendingUndoRevealSnapshot, ShroudSnapshot,
 };
 pub use hotkey_squad_persist::{
-    peek_pending_control_groups, set_pending_control_groups, take_pending_control_groups,
+    ClientSaveState, ControlGroupSave, read_control_groups, write_control_groups,
 };
 pub use lifecycle_tail::{
     ContainLink, LifecycleTail, ProducerLink, apply_lifecycle_tail_to_host, capture_lifecycle_tail,

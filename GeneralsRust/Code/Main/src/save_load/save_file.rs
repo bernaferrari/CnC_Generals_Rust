@@ -842,7 +842,7 @@ impl SaveFileManager {
             client_drawables,
             None,
             save_info,
-            None,
+            crate::save_load::snapshot::ClientSaveState::default(),
         )
     }
 
@@ -861,7 +861,7 @@ impl SaveFileManager {
             client_drawables,
             Some(client),
             save_info,
-            None,
+            crate::save_load::snapshot::ClientSaveState::default(),
         )
     }
 
@@ -881,7 +881,30 @@ impl SaveFileManager {
             client_drawables,
             Some(client),
             save_info,
-            Some(camera),
+            crate::save_load::snapshot::ClientSaveState {
+                camera: Some(camera),
+                control_groups: None,
+            },
+        )
+    }
+
+    /// Capture camera and control groups from the same driving engine.
+    pub fn save_game_with_client_save_state(
+        &mut self,
+        filename: &str,
+        game_logic: &GameLogic,
+        client_drawables: ClientDrawableWorldSnapshot,
+        client: &mut game_client::core::game_client::GameClient,
+        save_info: &SaveGameInfo,
+        state: crate::save_load::snapshot::ClientSaveState,
+    ) -> SaveLoadResult<()> {
+        self.save_game_with_client_state_impl(
+            filename,
+            game_logic,
+            client_drawables,
+            Some(client),
+            save_info,
+            state,
         )
     }
 
@@ -892,10 +915,13 @@ impl SaveFileManager {
         client_drawables: ClientDrawableWorldSnapshot,
         mut client: Option<&mut game_client::core::game_client::GameClient>,
         save_info: &SaveGameInfo,
-        camera: Option<crate::save_load::snapshot::CameraPersist>,
+        state: crate::save_load::snapshot::ClientSaveState,
     ) -> SaveLoadResult<()> {
-        if let Some(camera) = camera {
+        if let Some(camera) = state.camera {
             camera.validate()?;
+        }
+        if let Some(groups) = &state.control_groups {
+            groups.validate()?;
         }
         let save_path = self.get_save_path(filename);
         let temp_path = self.get_temp_path(&format!("{}_temp", filename));
@@ -908,8 +934,14 @@ impl SaveFileManager {
             snapshot_builder.create_world_snapshot(game_logic)?
         };
         world_snapshot.client_drawables = client_drawables;
-        if let Some(camera) = camera {
+        if let Some(camera) = state.camera {
             camera.write_to(&mut world_snapshot.persist_v18);
+        }
+        if let Some(groups) = &state.control_groups {
+            crate::save_load::snapshot::write_control_groups(
+                &mut world_snapshot.lifecycle_tail,
+                groups,
+            )?;
         }
         // C++ GameState writes the logic chunk before GameClient::xfer.
         let client_xfer_bytes = if let Some(client) = client {
