@@ -1,0 +1,2010 @@
+[
+  {
+    "input": {
+      "name": "half_range",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            1106247680,
+            1109393408,
+            1203982336
+          ],
+          "kind": 1,
+          "angle_bits": 0
+        }
+      ],
+      "steps": 3
+    },
+    "expected": [
+      {
+        "case": "half_range",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "half_range",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1065353216,
+          1065353216,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "half_range",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1061158912,
+          3212836864,
+          2147483648,
+          1065353216,
+          0
+        ],
+        "draws": 1
+      },
+      {
+        "case": "half_range",
+        "phase": "step",
+        "index": 1,
+        "state_bits": [
+          1058013184,
+          1065353216,
+          0,
+          3208642560,
+          2147483648
+        ],
+        "draws": 1
+      },
+      {
+        "case": "half_range",
+        "phase": "step",
+        "index": 2,
+        "state_bits": [
+          1054343168,
+          3212836864,
+          2147483648,
+          1058013184,
+          0
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "exact_range",
+      "initial_bits": [
+        1073741824,
+        1065353216,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            1120403456,
+            0,
+            1203982336
+          ],
+          "kind": 1,
+          "angle_bits": 1067320345
+        }
+      ],
+      "steps": 3
+    },
+    "expected": [
+      {
+        "case": "exact_range",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          1073741824,
+          1065353216,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "exact_range",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1073741824,
+          1051260123,
+          1064413412,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "exact_range",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1069547520,
+          3198743771,
+          3211897060,
+          1059648731,
+          1072802020
+        ],
+        "draws": 1
+      },
+      {
+        "case": "exact_range",
+        "phase": "step",
+        "index": 1,
+        "state_bits": [
+          1066401792,
+          1051260123,
+          1064413412,
+          3204280136,
+          3216326315
+        ],
+        "draws": 1
+      },
+      {
+        "case": "exact_range",
+        "phase": "step",
+        "index": 2,
+        "state_bits": [
+          1062731776,
+          3198743771,
+          3211897060,
+          1052644214,
+          1065873152
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "outside_changes_direction",
+      "initial_bits": [
+        1073741824,
+        1065353216,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            1120534528,
+            0,
+            1203982336
+          ],
+          "kind": 1,
+          "angle_bits": 1070141403
+        }
+      ],
+      "steps": 3
+    },
+    "expected": [
+      {
+        "case": "outside_changes_direction",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          1073741824,
+          1065353216,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "outside_changes_direction",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1073741824,
+          3007036718,
+          1065353216,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "outside_changes_direction",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1069547520,
+          859553070,
+          3212836864,
+          3015425326,
+          1073741824
+        ],
+        "draws": 1
+      },
+      {
+        "case": "outside_changes_direction",
+        "phase": "step",
+        "index": 1,
+        "state_bits": [
+          1066401792,
+          3007036718,
+          1065353216,
+          864865762,
+          3217031168
+        ],
+        "draws": 1
+      },
+      {
+        "case": "outside_changes_direction",
+        "phase": "step",
+        "index": 2,
+        "state_bits": [
+          1062731776,
+          859553070,
+          3212836864,
+          3008574676,
+          1066401792
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "quiet_exact",
+      "initial_bits": [
+        1008981770,
+        1048576000,
+        3204448256,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [],
+      "steps": 2
+    },
+    "expected": [
+      {
+        "case": "quiet_exact",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          1008981770,
+          1048576000,
+          3204448256,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "quiet_exact",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          0,
+          1048576000,
+          3204448256,
+          0,
+          0
+        ],
+        "draws": 0
+      },
+      {
+        "case": "quiet_exact",
+        "phase": "step",
+        "index": 1,
+        "state_bits": [
+          0,
+          1048576000,
+          3204448256,
+          0,
+          0
+        ],
+        "draws": 0
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "quiet_below",
+      "initial_bits": [
+        1008981769,
+        1048576000,
+        3204448256,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [],
+      "steps": 2
+    },
+    "expected": [
+      {
+        "case": "quiet_below",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          1008981769,
+          1048576000,
+          3204448256,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "quiet_below",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          0,
+          1048576000,
+          3204448256,
+          0,
+          0
+        ],
+        "draws": 0
+      },
+      {
+        "case": "quiet_below",
+        "phase": "step",
+        "index": 1,
+        "state_bits": [
+          0,
+          1048576000,
+          3204448256,
+          0,
+          0
+        ],
+        "draws": 0
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "active_above",
+      "initial_bits": [
+        1008981771,
+        1048576000,
+        3204448256,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [],
+      "steps": 2
+    },
+    "expected": [
+      {
+        "case": "active_above",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          1008981771,
+          1048576000,
+          3204448256,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "active_above",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1005961872,
+          3196059648,
+          1056964608,
+          992204555,
+          3148076811
+        ],
+        "draws": 0
+      },
+      {
+        "case": "active_above",
+        "phase": "step",
+        "index": 1,
+        "state_bits": [
+          0,
+          3196059648,
+          1056964608,
+          0,
+          0
+        ],
+        "draws": 0
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "overflow_fixed_three",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1082130432,
+      "rule_intensities_bits": [
+        1065353216,
+        1084227584,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 1,
+          "angle_bits": 0
+        }
+      ],
+      "steps": 3
+    },
+    "expected": [
+      {
+        "case": "overflow_fixed_three",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "overflow_fixed_three",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1077936128,
+          1065353216,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "overflow_fixed_three",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1074790400,
+          3212836864,
+          2147483648,
+          1077936128,
+          0
+        ],
+        "draws": 1
+      },
+      {
+        "case": "overflow_fixed_three",
+        "phase": "step",
+        "index": 1,
+        "state_bits": [
+          1071120384,
+          1065353216,
+          0,
+          3222274048,
+          2147483648
+        ],
+        "draws": 1
+      },
+      {
+        "case": "overflow_fixed_three",
+        "phase": "step",
+        "index": 2,
+        "state_bits": [
+          1067581440,
+          3212836864,
+          2147483648,
+          1071120384,
+          0
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "multiple_then_outside",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1075838976,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 1,
+          "angle_bits": 1039979355
+        },
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 1,
+          "angle_bits": 1067320345
+        },
+        {
+          "epicenter_bits": [
+            1148846080,
+            0,
+            1203982336
+          ],
+          "kind": 1,
+          "angle_bits": 1082864435
+        }
+      ],
+      "steps": 3
+    },
+    "expected": [
+      {
+        "case": "multiple_then_outside",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "multiple_then_outside",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1073741824,
+          1065225537,
+          1039937302,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "multiple_then_outside",
+        "phase": "enqueue",
+        "index": 1,
+        "state_bits": [
+          1077936128,
+          1051260123,
+          1064413412,
+          1095761920,
+          3235905536
+        ],
+        "draws": 2
+      },
+      {
+        "case": "multiple_then_outside",
+        "phase": "enqueue",
+        "index": 2,
+        "state_bits": [
+          1077936128,
+          3199566393,
+          3211747226,
+          1095761920,
+          3235905536
+        ],
+        "draws": 3
+      },
+      {
+        "case": "multiple_then_outside",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1074790400,
+          1052082745,
+          1064263578,
+          3213369771,
+          3224602548
+        ],
+        "draws": 3
+      },
+      {
+        "case": "multiple_then_outside",
+        "phase": "step",
+        "index": 1,
+        "state_bits": [
+          1071120384,
+          3199566393,
+          3211747226,
+          1061958272,
+          1074177479
+        ],
+        "draws": 3
+      },
+      {
+        "case": "multiple_then_outside",
+        "phase": "step",
+        "index": 2,
+        "state_bits": [
+          1067581440,
+          1052082745,
+          1064263578,
+          3206096352,
+          3217684650
+        ],
+        "draws": 3
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "kind_0",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 0,
+          "angle_bits": 1082864435
+        }
+      ],
+      "steps": 1
+    },
+    "expected": [
+      {
+        "case": "kind_0",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "kind_0",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1065353216,
+          3199566393,
+          3211747226,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "kind_0",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1061158912,
+          1052082745,
+          1064263578,
+          3199566393,
+          3211747226
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "kind_1",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 1,
+          "angle_bits": 1082864435
+        }
+      ],
+      "steps": 1
+    },
+    "expected": [
+      {
+        "case": "kind_1",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "kind_1",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1073741824,
+          3199566393,
+          3211747226,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "kind_1",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1069547520,
+          1052082745,
+          1064263578,
+          3207955001,
+          3220135834
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "kind_2",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 2,
+          "angle_bits": 1082864435
+        }
+      ],
+      "steps": 1
+    },
+    "expected": [
+      {
+        "case": "kind_2",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "kind_2",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1077936128,
+          3199566393,
+          3211747226,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "kind_2",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1074790400,
+          1052082745,
+          1064263578,
+          3213369771,
+          3224602548
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "kind_3",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 3,
+          "angle_bits": 1082864435
+        }
+      ],
+      "steps": 1
+    },
+    "expected": [
+      {
+        "case": "kind_3",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "kind_3",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1082130432,
+          3199566393,
+          3211747226,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "kind_3",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1077936128,
+          1052082745,
+          1064263578,
+          3216343609,
+          3228524442
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "kind_4",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 4,
+          "angle_bits": 1082864435
+        }
+      ],
+      "steps": 1
+    },
+    "expected": [
+      {
+        "case": "kind_4",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "kind_4",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1084227584,
+          3199566393,
+          3211747226,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "kind_4",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1081081856,
+          1052082745,
+          1064263578,
+          3219317447,
+          3231030208
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "kind_5",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 5,
+          "angle_bits": 1082864435
+        }
+      ],
+      "steps": 1
+    },
+    "expected": [
+      {
+        "case": "kind_5",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "kind_5",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1086324736,
+          3199566393,
+          3211747226,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "kind_5",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1083179008,
+          1052082745,
+          1064263578,
+          3221758379,
+          3232991156
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "trig_distinguishing_0",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 1,
+          "angle_bits": 1077464651
+        }
+      ],
+      "steps": 2
+    },
+    "expected": [
+      {
+        "case": "trig_distinguishing_0",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "trig_distinguishing_0",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1073741824,
+          3212298562,
+          1048618920,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "trig_distinguishing_0",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1069547520,
+          1064814914,
+          3196102568,
+          3220687170,
+          1057007528
+        ],
+        "draws": 1
+      },
+      {
+        "case": "trig_distinguishing_0",
+        "phase": "step",
+        "index": 1,
+        "state_bits": [
+          1066401792,
+          3212298562,
+          1048618920,
+          1069143794,
+          3200318332
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "trig_distinguishing_1",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 1,
+          "angle_bits": 1077474553
+        }
+      ],
+      "steps": 2
+    },
+    "expected": [
+      {
+        "case": "trig_distinguishing_1",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "trig_distinguishing_1",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1073741824,
+          3212308469,
+          1048508444,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "trig_distinguishing_1",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1069547520,
+          1064824821,
+          3195992092,
+          3220697077,
+          1056897052
+        ],
+        "draws": 1
+      },
+      {
+        "case": "trig_distinguishing_1",
+        "phase": "step",
+        "index": 1,
+        "state_bits": [
+          1066401792,
+          3212308469,
+          1048508444,
+          1069151224,
+          3200203285
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "trig_distinguishing_2",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 1,
+          "angle_bits": 1083190310
+        }
+      ],
+      "steps": 2
+    },
+    "expected": [
+      {
+        "case": "trig_distinguishing_2",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "trig_distinguishing_2",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1073741824,
+          3193074958,
+          3212478703,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "trig_distinguishing_2",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1069547520,
+          1045591310,
+          1064995055,
+          3201463566,
+          3220867311
+        ],
+        "draws": 1
+      },
+      {
+        "case": "trig_distinguishing_2",
+        "phase": "step",
+        "index": 1,
+        "state_bits": [
+          1066401792,
+          3193074958,
+          3212478703,
+          1050531786,
+          1069278899
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "trig_distinguishing_3",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 1,
+          "angle_bits": 1081662887
+        }
+      ],
+      "steps": 2
+    },
+    "expected": [
+      {
+        "case": "trig_distinguishing_3",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "trig_distinguishing_3",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1073741824,
+          3208370333,
+          3207457982,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "trig_distinguishing_3",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1069547520,
+          1060886685,
+          1059974334,
+          3216758941,
+          3215846590
+        ],
+        "draws": 1
+      },
+      {
+        "case": "trig_distinguishing_3",
+        "phase": "step",
+        "index": 1,
+        "state_bits": [
+          1066401792,
+          3208370333,
+          3207457982,
+          1066197622,
+          1065513358
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "trig_distinguishing_4",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 1,
+          "angle_bits": 1059201335
+        }
+      ],
+      "steps": 2
+    },
+    "expected": [
+      {
+        "case": "trig_distinguishing_4",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "trig_distinguishing_4",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1073741824,
+          1062099569,
+          1058505152,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "trig_distinguishing_4",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1069547520,
+          3209583217,
+          3205988800,
+          1070488177,
+          1066893760
+        ],
+        "draws": 1
+      },
+      {
+        "case": "trig_distinguishing_4",
+        "phase": "step",
+        "index": 1,
+        "state_bits": [
+          1066401792,
+          1062099569,
+          1058505152,
+          3214590933,
+          3210953376
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "trig_distinguishing_5",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 1,
+          "angle_bits": 1085750285
+        }
+      ],
+      "steps": 2
+    },
+    "expected": [
+      {
+        "case": "trig_distinguishing_5",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "trig_distinguishing_5",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1073741824,
+          1062816323,
+          3204930283,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "trig_distinguishing_5",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1069547520,
+          3210299971,
+          1057446635,
+          1071204931,
+          3213318891
+        ],
+        "draws": 1
+      },
+      {
+        "case": "trig_distinguishing_5",
+        "phase": "step",
+        "index": 1,
+        "state_bits": [
+          1066401792,
+          1062816323,
+          3204930283,
+          3215128498,
+          1061881952
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "trig_distinguishing_6",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 1,
+          "angle_bits": 1075638112
+        }
+      ],
+      "steps": 2
+    },
+    "expected": [
+      {
+        "case": "trig_distinguishing_6",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "trig_distinguishing_6",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1073741824,
+          3209004535,
+          1059248623,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "trig_distinguishing_6",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1069547520,
+          1061520887,
+          3206732271,
+          3217393143,
+          1067637231
+        ],
+        "draws": 1
+      },
+      {
+        "case": "trig_distinguishing_6",
+        "phase": "step",
+        "index": 1,
+        "state_bits": [
+          1066401792,
+          3209004535,
+          1059248623,
+          1066673273,
+          3212068582
+        ],
+        "draws": 1
+      }
+    ]
+  },
+  {
+    "input": {
+      "name": "trig_distinguishing_7",
+      "initial_bits": [
+        0,
+        0,
+        0,
+        1095761920,
+        3235905536
+      ],
+      "view_position_bits": [
+        0,
+        0,
+        1148682240
+      ],
+      "range_bits": 1120403456,
+      "max_intensity_bits": 1092616192,
+      "rule_intensities_bits": [
+        1065353216,
+        1073741824,
+        1077936128,
+        1082130432,
+        1084227584,
+        1086324736
+      ],
+      "events": [
+        {
+          "epicenter_bits": [
+            0,
+            0,
+            1203982336
+          ],
+          "kind": 1,
+          "angle_bits": 1073938019
+        }
+      ],
+      "steps": 2
+    },
+    "expected": [
+      {
+        "case": "trig_distinguishing_7",
+        "phase": "initial",
+        "index": 0,
+        "state_bits": [
+          0,
+          0,
+          0,
+          1095761920,
+          3235905536
+        ],
+        "draws": 0
+      },
+      {
+        "case": "trig_distinguishing_7",
+        "phase": "enqueue",
+        "index": 0,
+        "state_bits": [
+          1073741824,
+          3203046013,
+          1063488328,
+          1095761920,
+          3235905536
+        ],
+        "draws": 1
+      },
+      {
+        "case": "trig_distinguishing_7",
+        "phase": "step",
+        "index": 0,
+        "state_bits": [
+          1069547520,
+          1055562365,
+          3210971976,
+          3211434621,
+          1071876936
+        ],
+        "draws": 1
+      },
+      {
+        "case": "trig_distinguishing_7",
+        "phase": "step",
+        "index": 1,
+        "state_bits": [
+          1066401792,
+          3203046013,
+          1063488328,
+          1060107230,
+          3215632502
+        ],
+        "draws": 1
+      }
+    ]
+  }
+]

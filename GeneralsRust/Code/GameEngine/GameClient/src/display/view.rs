@@ -359,6 +359,21 @@ pub enum CameraShakeType {
     CineInsane,  // For cinematics only
 }
 
+// Keep the retained View enum and its serde discriminants unchanged while
+// sharing the authoring kind with the backend-independent impulse helper.
+impl From<CameraShakeType> for game_engine::common::ini::ini_fx_list::CameraShakeType {
+    fn from(kind: CameraShakeType) -> Self {
+        match kind {
+            CameraShakeType::Subtle => Self::Subtle,
+            CameraShakeType::Normal => Self::Normal,
+            CameraShakeType::Strong => Self::Strong,
+            CameraShakeType::Severe => Self::Severe,
+            CameraShakeType::CineExtreme => Self::CineExtreme,
+            CameraShakeType::CineInsane => Self::CineInsane,
+        }
+    }
+}
+
 /// Return values for world-to-screen transformations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorldToScreenReturn {
@@ -902,16 +917,13 @@ impl View {
 
     /// Advance the damped-oscillation impulse (C++ `W3DView::update` shake block).
     pub fn tick_impulse_shake(&mut self) {
-        if self.shake_intensity > 0.01 {
-            self.shake_offset.x = self.shake_intensity * self.shake_angle_cos;
-            self.shake_offset.y = self.shake_intensity * self.shake_angle_sin;
-            self.shake_intensity *= 0.75;
-            self.shake_angle_cos = -self.shake_angle_cos;
-            self.shake_angle_sin = -self.shake_angle_sin;
-        } else {
-            self.shake_intensity = 0.0;
-            self.shake_offset = Vector2::zero();
+        let offset = game_engine::common::view_impulse::ViewImpulse {
+            intensity: &mut self.shake_intensity,
+            cosine: &mut self.shake_angle_cos,
+            sine: &mut self.shake_angle_sin,
         }
+        .step();
+        self.shake_offset = Vector2::new(offset[0], offset[1]);
     }
 
     /// Clear impulse shake so FXList tests start from rest.
@@ -2891,35 +2903,18 @@ impl View {
         data: &game_engine::common::global_data::GlobalData,
         random: &mut dyn FnMut(f32, f32) -> f32,
     ) {
-        let angle = random(0.0, 2.0 * PI);
-        self.shake_angle_cos = angle.cos();
-        self.shake_angle_sin = angle.sin();
-
-        let mut intensity = match _shake_type {
-            CameraShakeType::Subtle => data.shake_subtle_intensity,
-            CameraShakeType::Normal => data.shake_normal_intensity,
-            CameraShakeType::Strong => data.shake_strong_intensity,
-            CameraShakeType::Severe => data.shake_severe_intensity,
-            CameraShakeType::CineExtreme => data.shake_cine_extreme_intensity,
-            CameraShakeType::CineInsane => data.shake_cine_insane_intensity,
-        };
-
-        let dx = _epicenter.x - self.position.x;
-        let dy = _epicenter.y - self.position.y;
-        let distance = (dx * dx + dy * dy).sqrt();
-        if distance > data.max_shake_range {
-            return;
+        game_engine::common::view_impulse::ViewImpulse {
+            intensity: &mut self.shake_intensity,
+            cosine: &mut self.shake_angle_cos,
+            sine: &mut self.shake_angle_sin,
         }
-
-        intensity *= 1.0 - (distance / data.max_shake_range);
-        self.shake_intensity += intensity;
-        if self.shake_intensity > data.max_shake_intensity {
-            // C++ parity (W3DView::shake): overflow clamps to fixed 3.0, not to max_shake_intensity.
-            self.shake_intensity = 3.0;
-        }
-        // Seed offset so same-frame wgpu consumers see the impulse before update().
-        self.shake_offset.x = self.shake_intensity * self.shake_angle_cos;
-        self.shake_offset.y = self.shake_intensity * self.shake_angle_sin;
+        .enqueue(
+            [_epicenter.x, _epicenter.y],
+            [self.position.x, self.position.y],
+            _shake_type.into(),
+            data,
+            random,
+        );
     }
 }
 
@@ -3007,18 +3002,32 @@ mod tests {
     fn test_zoom_limits() {
         let mut view = View::new();
         view.init();
+        view.min_zoom = 0.2;
+        view.max_zoom = 1.3;
+        view.min_height_above_ground = 100.0;
+        view.max_height_above_ground = 500.0;
 
-        // Test zoom limiting when enabled
-        view.set_zoom(10.0); // Try excessive zoom
-        assert!(view.zoom() <= view.max_zoom());
-
-        view.set_zoom(-1.0); // Try negative zoom
-        assert!(view.zoom() >= view.min_zoom);
-
-        // Test no limits when disabled
+        // C++ W3DView.cpp1930-1949 clamps zoom independently of zoomLimited.
+        for limited in [true, false] {
+            view.set_zoom_limited(limited);
+            view.set_zoom(10.0);
+            assert_eq!(view.zoom(), 1.3);
+            view.set_zoom(-1.0);
+            assert_eq!(view.zoom(), 0.2);
+            view.set_zoom(0.75);
+            assert_eq!(view.zoom(), 0.75);
+        }
+        // Only desired HAG uses zoomLimited (W3DView.cpp1902-1916).
+        view.set_zoom_limited(true);
+        view.set_height_above_ground(700.0);
+        assert_eq!(view.height_above_ground(), 500.0);
+        view.set_height_above_ground(50.0);
+        assert_eq!(view.height_above_ground(), 100.0);
         view.set_zoom_limited(false);
-        view.set_zoom(10.0);
-        assert!((view.zoom() - 10.0).abs() < 0.001);
+        view.set_height_above_ground(700.0);
+        assert_eq!(view.height_above_ground(), 700.0);
+        view.set_height_above_ground(50.0);
+        assert_eq!(view.height_above_ground(), 50.0);
     }
 
     #[test]
@@ -3334,13 +3343,19 @@ mod tests {
         view.init();
         view.set_position(&Point3::origin());
         let epicenter = Point3::origin();
-
-        // Accumulate enough shake to overflow max_shake_intensity.
+        let mut rules = game_engine::common::global_data::GlobalData::default();
+        rules.shake_subtle_intensity = 2.0;
+        rules.max_shake_intensity = 3.0;
+        rules.max_shake_range = 100.0;
+        let mut draws = 0;
         for _ in 0..8 {
-            view.shake(&epicenter, CameraShakeType::Subtle);
+            view.shake_with_services(&epicenter, CameraShakeType::Subtle, &rules, &mut |_, _| {
+                draws += 1;
+                0.0
+            });
         }
-
-        assert!((view.shake_intensity - 3.0).abs() < f32::EPSILON);
+        assert_eq!(draws, 8);
+        assert_eq!(view.shake_intensity, 3.0);
     }
 
     #[test]
@@ -3349,10 +3364,12 @@ mod tests {
         view.init();
         view.set_position(&Point3::origin());
         view.shake(&Point3::origin(), CameraShakeType::Severe);
-        let first = view.impulse_shake_offset();
-        assert!(first.x.abs() > 0.0 || first.y.abs() > 0.0);
+        let pending = view.impulse_shake_offset();
+        assert_eq!((pending.x, pending.y), (0.0, 0.0));
         let before = view.camera_shake_intensity();
         view.tick_impulse_shake();
+        let committed = view.impulse_shake_offset();
+        assert!(committed.x.abs() > 0.0 || committed.y.abs() > 0.0);
         assert!(view.camera_shake_intensity() < before);
     }
 

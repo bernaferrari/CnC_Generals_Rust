@@ -122,16 +122,13 @@ pub(super) fn step_view_impulse(
     if !full_view {
         return None;
     }
-    let mut offset = Vec3::ZERO;
-    if *intensity > 0.01 {
-        offset.x = *intensity * *cosine;
-        offset.z = *intensity * *sine;
-        *intensity *= 0.75;
-        *cosine = -*cosine;
-        *sine = -*sine;
-    } else {
-        *intensity = 0.;
+    let [x, z] = game_engine::common::view_impulse::ViewImpulse {
+        intensity,
+        cosine,
+        sine,
     }
+    .step();
+    let offset = Vec3::new(x, 0.0, z);
     Some(offset)
 }
 

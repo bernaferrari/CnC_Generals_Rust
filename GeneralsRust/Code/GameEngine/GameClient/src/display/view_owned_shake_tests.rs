@@ -23,6 +23,11 @@ fn shake_uses_receiving_view_position_and_rules_without_changing_peer() {
         &mut |_, _| 0.0,
     );
     assert_eq!(first.shake_intensity, 1.0);
+    assert_eq!(
+        first.shake_offset.x, 0.0,
+        "enqueue does not commit an update"
+    );
+    first.tick_impulse_shake();
     assert_eq!(first.shake_offset.x, 1.0);
     assert_eq!(peer.shake_intensity, 0.0);
     assert_eq!(peer.shake_offset.x, 0.0);
@@ -42,5 +47,7 @@ fn cpp_shake_overflow_clamps_to_three_after_supplied_impulse() {
         &mut |_, _| 0.0,
     );
     assert_eq!(view.shake_intensity, 3.0);
+    assert_eq!(view.shake_offset.x, 0.0);
+    view.tick_impulse_shake();
     assert_eq!(view.shake_offset.x, 3.0);
 }

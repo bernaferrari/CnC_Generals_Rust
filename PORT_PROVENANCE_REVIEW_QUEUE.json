@@ -20666,6 +20666,16 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_owned_sound.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_view_services.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_view_services_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/FXList.cpp",
@@ -189765,7 +189775,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "49f1c438d522be6ea0bb0090d884e72fc7657a1a3fa35becd4c862a581420c2a",
+  "provenance_input_digest": "dcce9be3387aa34fcf0987a31966274cc216faf680b2d5dd0fc53f29d9ee2151",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

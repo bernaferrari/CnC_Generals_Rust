@@ -44,3 +44,5 @@ pub mod time;
 pub mod user_preferences;
 pub mod version;
 pub mod well_known_keys;
+
+pub mod view_impulse;

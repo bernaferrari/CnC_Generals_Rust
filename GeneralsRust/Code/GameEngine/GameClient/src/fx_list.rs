@@ -14,6 +14,11 @@ pub use owned_execution::{
     FxDrawableExecution, FxExecution, FxInvocation, FxRayRequest, FxTracerRequest,
 };
 
+#[path = "fx_view_services.rs"]
+mod view_services;
+pub use view_services::FxViewServices;
+use view_services::with_tactical_fx_view_services;
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
@@ -290,6 +295,44 @@ pub trait FXNugget: Send + Sync + std::any::Any {
             secondary.map(|pose| &pose.position),
             0.0,
         );
+    }
+
+    /// Receiving camera route. Non-camera nuggets retain their existing
+    /// immediate side effects at this exact authored-list position.
+    fn do_fx_pos_with_view(
+        &self,
+        primary: Option<&Coord3D>,
+        primary_mtx: Option<&Matrix3D>,
+        primary_speed: f32,
+        secondary: Option<&Coord3D>,
+        override_radius: f32,
+        _view: &mut FxViewServices<'_>,
+    ) {
+        self.do_fx_pos(
+            primary,
+            primary_mtx,
+            primary_speed,
+            secondary,
+            override_radius,
+        );
+    }
+
+    fn do_fx_obj_with_view(
+        &self,
+        primary: Option<&Object>,
+        secondary: Option<&Object>,
+        _view: &mut FxViewServices<'_>,
+    ) {
+        self.do_fx_obj(primary, secondary);
+    }
+
+    fn do_fx_obj_host_with_view(
+        &self,
+        primary: &gamelogic::helpers::HostFxObjectPose,
+        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+        _view: &mut FxViewServices<'_>,
+    ) {
+        self.do_fx_obj_host(primary, secondary);
     }
 
     /// C++ `SoundFXNugget::m_soundName`. Other nuggets have none.
@@ -667,24 +710,25 @@ impl FXList {
         if !cell_is_clear {
             return;
         }
-        for nugget in &self.nuggets {
-            nugget.do_fx_pos(
+        with_tactical_fx_view_services(|view| {
+            self.do_fx_pos_visible_with_view(
                 primary,
                 primary_mtx,
                 primary_speed,
                 secondary,
                 override_radius,
+                view,
             );
-        }
+        });
     }
 
     pub fn do_fx_obj(&self, primary: Option<&Object>, secondary: Option<&Object>) {
         if !fx_obj_is_visible(primary) {
             return;
         }
-        for nugget in &self.nuggets {
-            nugget.do_fx_obj(primary, secondary);
-        }
+        with_tactical_fx_view_services(|view| {
+            self.do_fx_obj_visible_with_view(primary, secondary, view)
+        });
     }
 
     pub fn do_fx_obj_host(
@@ -695,9 +739,9 @@ impl FXList {
         if primary.is_shrouded {
             return;
         }
-        for nugget in &self.nuggets {
-            nugget.do_fx_obj_host(primary, secondary);
-        }
+        with_tactical_fx_view_services(|view| {
+            self.do_fx_obj_host_with_view(primary, secondary, view)
+        });
     }
 }
 
@@ -1244,21 +1288,67 @@ impl FXNugget for ViewShakeFXNugget {
     fn do_fx_pos(
         &self,
         primary: Option<&Coord3D>,
+        primary_mtx: Option<&Matrix3D>,
+        primary_speed: f32,
+        secondary: Option<&Coord3D>,
+        override_radius: f32,
+    ) {
+        with_tactical_fx_view_services(|view| {
+            self.do_fx_pos_with_view(
+                primary,
+                primary_mtx,
+                primary_speed,
+                secondary,
+                override_radius,
+                view,
+            );
+        });
+    }
+
+    fn do_fx_pos_with_view(
+        &self,
+        primary: Option<&Coord3D>,
         _primary_mtx: Option<&Matrix3D>,
         _primary_speed: f32,
         _secondary: Option<&Coord3D>,
         _override_radius: f32,
+        view: &mut FxViewServices<'_>,
     ) {
-        let Some(primary) = primary else {
-            return;
-        };
-        // C++ ViewShakeFXNugget::doFXPos → TheTacticalView->shake(primary, m_shake)
-        with_tactical_view(|view| {
-            view.shake(
-                &ViewPoint3::new(primary.x, primary.y, primary.z),
-                to_view_shake(self.shake_type),
-            );
-        });
+        if let Some(primary) = primary {
+            (view.shake)(primary, to_view_shake(self.shake_type));
+        }
+    }
+
+    fn do_fx_obj_with_view(
+        &self,
+        primary: Option<&Object>,
+        secondary: Option<&Object>,
+        view: &mut FxViewServices<'_>,
+    ) {
+        self.do_fx_pos_with_view(
+            primary.map(Object::get_position),
+            None,
+            0.0,
+            secondary.map(Object::get_position),
+            0.0,
+            view,
+        );
+    }
+
+    fn do_fx_obj_host_with_view(
+        &self,
+        primary: &gamelogic::helpers::HostFxObjectPose,
+        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+        view: &mut FxViewServices<'_>,
+    ) {
+        self.do_fx_pos_with_view(
+            Some(&primary.position),
+            Some(&primary.transform),
+            0.0,
+            secondary.map(|pose| &pose.position),
+            0.0,
+            view,
+        );
     }
 }
 
@@ -1481,7 +1571,13 @@ impl FXListAtBonePosFXNugget {
     }
 
     /// C++ `FXListAtBonePosFXNugget::doFxAtBones` (FXList.cpp:711-728).
-    fn do_fx_at_bones(&self, primary: &Object, start: i32, fx: &FXList) {
+    fn do_fx_at_bones(
+        &self,
+        primary: &Object,
+        start: i32,
+        fx: &FXList,
+        view: &mut FxViewServices<'_>,
+    ) {
         if self.bone_name.is_empty() {
             return;
         }
@@ -1500,7 +1596,7 @@ impl FXListAtBonePosFXNugget {
             let world = primary.convert_bone_pos_to_world_pos(None, Some(&transforms[i]));
             let (_, _, world_pos) = world.to_scale_rotation_translation();
             let _ = self.orient_to_bone;
-            fx.do_fx_pos(Some(&world_pos), Some(&world), 0.0, None, 0.0);
+            fx.do_fx_pos_with_view(Some(&world_pos), Some(&world), 0.0, None, 0.0, view);
         }
     }
 
@@ -1509,21 +1605,18 @@ impl FXListAtBonePosFXNugget {
         primary: &gamelogic::helpers::HostFxObjectPose,
         start: i32,
         fx: &FXList,
+        view: &mut FxViewServices<'_>,
     ) {
         if self.bone_name.is_empty() {
             return;
         }
-        let live = crate::core::game_client::query_live_current_client_bone_positions(
-            primary.id,
-            &self.bone_name,
-            start,
-            Self::MAX_BONE_POINTS,
-        );
-        for (_pos, bone_mtx) in live {
+        let live =
+            (view.bone_transforms)(primary.id, &self.bone_name, start, Self::MAX_BONE_POINTS);
+        for bone_mtx in live {
             let world = primary.transform * bone_mtx;
             let (_, _, world_pos) = world.to_scale_rotation_translation();
             let _ = self.orient_to_bone;
-            fx.do_fx_pos(Some(&world_pos), Some(&world), 0.0, None, 0.0);
+            fx.do_fx_pos_with_view(Some(&world_pos), Some(&world), 0.0, None, 0.0, view);
         }
     }
 }
@@ -1540,29 +1633,48 @@ impl FXNugget for FXListAtBonePosFXNugget {
         log::debug!("FXListAtBonePos requires object form");
     }
 
-    fn do_fx_obj(&self, primary: Option<&Object>, _secondary: Option<&Object>) {
+    fn do_fx_obj(&self, primary: Option<&Object>, secondary: Option<&Object>) {
+        with_tactical_fx_view_services(|view| self.do_fx_obj_with_view(primary, secondary, view));
+    }
+
+    fn do_fx_obj_with_view(
+        &self,
+        primary: Option<&Object>,
+        _secondary: Option<&Object>,
+        view: &mut FxViewServices<'_>,
+    ) {
         let Some(primary) = primary else {
             return;
         };
-        let Some(fx) = get_fx_list_store().find_fx_list(&self.fx_name) else {
+        let Some(fx) = (view.find_list)(&self.fx_name) else {
             return;
         };
-
         // C++ doFXObj: unadorned name, then 01,02,… (FXList.cpp:682-686).
-        self.do_fx_at_bones(primary, 0, &fx);
-        self.do_fx_at_bones(primary, 1, &fx);
+        self.do_fx_at_bones(primary, 0, &fx, view);
+        self.do_fx_at_bones(primary, 1, &fx, view);
     }
 
     fn do_fx_obj_host(
         &self,
         primary: &gamelogic::helpers::HostFxObjectPose,
-        _secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
     ) {
-        let Some(fx) = get_fx_list_store().find_fx_list(&self.fx_name) else {
+        with_tactical_fx_view_services(|view| {
+            self.do_fx_obj_host_with_view(primary, secondary, view)
+        });
+    }
+
+    fn do_fx_obj_host_with_view(
+        &self,
+        primary: &gamelogic::helpers::HostFxObjectPose,
+        _secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+        view: &mut FxViewServices<'_>,
+    ) {
+        let Some(fx) = (view.find_list)(&self.fx_name) else {
             return;
         };
-        self.do_fx_at_bones_host(primary, 0, &fx);
-        self.do_fx_at_bones_host(primary, 1, &fx);
+        self.do_fx_at_bones_host(primary, 0, &fx, view);
+        self.do_fx_at_bones_host(primary, 1, &fx, view);
     }
 }
 
