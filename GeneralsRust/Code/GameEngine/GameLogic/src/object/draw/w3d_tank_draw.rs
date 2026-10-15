@@ -271,6 +271,20 @@ pub struct W3DTankDraw {
 }
 
 impl W3DTankDraw {
+    #[cfg(test)]
+    pub(super) fn seed_retirement_test_particles(
+        &mut self,
+        receiver: &mut super::w3d_tank_draw::retirement_test_support::Receiver,
+    ) {
+        use super::w3d_tank_draw::retirement_test_support::{Receiver, model_data};
+        self.base = W3DModelDraw::new(model_data());
+        self.base
+            .prepare_state_particles_with_receiver(&Receiver::context(), receiver)
+            .unwrap();
+        self.tread_debris_left = Some(41);
+        self.tread_debris_right = Some(42);
+    }
+
     pub fn new(data: W3DTankDrawModuleData) -> Self {
         let base_data = data.base.clone();
         let base = W3DModelDraw::new(base_data);
@@ -368,20 +382,20 @@ impl W3DTankDraw {
 
     /// Destroy tread debris emitters
     fn toss_emitters(&mut self) {
-        let ps_manager = TheParticleSystemManager::get();
-        if let Some(id) = self.tread_debris_left {
-            if let Some(ps_manager) = ps_manager {
-                ps_manager.destroy_particle_system(id);
-            }
-        }
-        if let Some(id) = self.tread_debris_right {
-            if let Some(ps_manager) = ps_manager {
-                ps_manager.destroy_particle_system(id);
-            }
-        }
-        self.tread_debris_left = None;
-        self.tread_debris_right = None;
         self.debris_active = false;
+        if self.tread_debris_left.is_none() && self.tread_debris_right.is_none() {
+            return;
+        }
+        let ids = [
+            self.tread_debris_left.take(),
+            self.tread_debris_right.take(),
+        ];
+        self.debris_active = false;
+        if let Some(manager) = TheParticleSystemManager::get() {
+            for id in ids.into_iter().flatten() {
+                manager.destroy_particle_system(id);
+            }
+        }
     }
 
     /// Start creating move debris from tank treads
@@ -650,6 +664,28 @@ impl Module for W3DTankDraw {
 }
 
 impl DrawModule for W3DTankDraw {
+    fn native_state_particle_count(&self) -> usize {
+        self.base.native_state_particle_count()
+            + [self.tread_debris_left, self.tread_debris_right]
+                .into_iter()
+                .flatten()
+                .count()
+    }
+
+    fn retire_native_state_particles(&mut self, receiver: &mut dyn ClientParticleStateRuntime) {
+        // Derived vehicle emitters retire before W3DModelDraw's state emitters.
+        // Clear the actual slots before callbacks so Drop cannot rediscover a manager.
+        let ids = [
+            self.tread_debris_left.take(),
+            self.tread_debris_right.take(),
+        ];
+        self.debris_active = false;
+        for id in ids.into_iter().flatten() {
+            receiver.destroy_particle_system(id);
+        }
+        self.base.retire_native_state_particles(receiver);
+    }
+
     fn on_drawable_bound_to_object_with_context(
         &mut self,
         binding: &DrawModuleBindingContext,
@@ -947,7 +983,50 @@ mod tests {
         assert_eq!(data.get_module_tag_name_key(), 1234);
         assert_eq!(data.base.get_module_tag_name_key(), 1234);
     }
+    #[test]
+    fn receiving_vehicle_retirement_clears_actual_slots_before_drop_and_keeps_peer() {
+        use super::super::w3d_tank_draw::retirement_test_support::{Receiver, model_data};
+        let mut draw = W3DTankDraw::new(W3DTankDrawModuleData {
+            base: model_data(),
+            ..Default::default()
+        });
+        let mut receiver = Receiver::default();
+        draw.base
+            .prepare_state_particles_with_receiver(&Receiver::context(), &mut receiver)
+            .unwrap();
+        draw.tread_debris_left = Some(41);
+        draw.tread_debris_right = Some(42);
+        draw.debris_active = true;
+        let mut peer = W3DTankDraw::new(W3DTankDrawModuleData::default());
+        peer.tread_debris_left = Some(41);
+        peer.tread_debris_right = Some(42);
+        assert_eq!(
+            crate::object::drawable::native_state_particle_count(&mut draw),
+            3
+        );
+        crate::object::drawable::retire_native_state_particles(&mut draw, &mut receiver);
+        assert_eq!(receiver.destroyed, [41, 42, 91]);
+        assert_eq!(
+            crate::object::drawable::native_state_particle_count(&mut draw),
+            0
+        );
+        assert_eq!(
+            crate::object::drawable::native_state_particle_count(&mut peer),
+            2
+        );
+        assert!(!draw.debris_active);
+        assert!(draw.tread_debris_left.is_none());
+        assert!(draw.tread_debris_right.is_none());
+        crate::object::drawable::retire_native_state_particles(&mut draw, &mut receiver);
+        assert_eq!(receiver.destroyed.len(), 3);
+        drop(draw);
+        crate::object::drawable::retire_native_state_particles(&mut peer, &mut receiver);
+    }
 }
 
 #[cfg(test)]
 mod owned_locomotor_speed_tests;
+
+#[cfg(test)]
+#[path = "vehicle_particle_retirement_test_support.rs"]
+pub(super) mod retirement_test_support;

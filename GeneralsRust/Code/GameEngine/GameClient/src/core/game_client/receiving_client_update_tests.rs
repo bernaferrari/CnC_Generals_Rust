@@ -235,28 +235,18 @@ fn native_client_update_and_expiration_follow_cpp_creation_roster() {
         "CPP GameClient.cpp walks the prepended roster; lookup buckets cannot reorder retirement"
     );
     for id in admitted {
-        assert_eq!(
-            lives(&mut client, id),
-            [1, 1],
-            "installed CU modules run before expiration"
+        assert!(
+            client.find_drawable_by_id(id).is_none(),
+            "expired node is already retired"
         );
         assert_eq!(
             lives(&mut peer, id),
             [0, 0],
-            "an equal-ID peer is not advanced"
-        );
-        assert_eq!(
-            client.find_drawable_by_id(id).unwrap().get_tint_color(),
-            Vector3::zero(),
-            "expiration returns before flashing, as in Drawable.cpp1210"
+            "equal-ID peer is not advanced"
         );
     }
-    // The receiving phase reports actual retirement requests; the outer owner
-    // still releases its application service loans before running destruction.
-    // Immediate per-node destruction is a separate lifecycle obligation.
-    for id in expired {
-        client.destroy_drawable(id).unwrap();
-    }
+    // Installed CU-before-retirement is observed through actual module Drop
+    // in receiving_retirement_tests; expired values are no longer queryable.
     assert!(client.drawables.native_drawable_order.is_empty());
     assert!(client.drawables.drawable_map.is_empty());
     assert_eq!(peer.drawables.native_drawable_order, expected);

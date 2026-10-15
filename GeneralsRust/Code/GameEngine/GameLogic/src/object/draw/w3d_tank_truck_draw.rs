@@ -444,6 +444,28 @@ impl Module for W3DTankTruckDraw {
 }
 
 impl DrawModule for W3DTankTruckDraw {
+    fn native_state_particle_count(&self) -> usize {
+        DrawModule::native_state_particle_count(&self.base)
+            + [self.tread_debris_left, self.tread_debris_right]
+                .into_iter()
+                .flatten()
+                .count()
+    }
+
+    fn retire_native_state_particles(&mut self, receiver: &mut dyn ClientParticleStateRuntime) {
+        for id in [
+            self.tread_debris_left.take(),
+            self.tread_debris_right.take(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            receiver.destroy_particle_system(id);
+        }
+        self.tread_debris_active = false;
+        DrawModule::retire_native_state_particles(&mut self.base, receiver);
+    }
+
     fn on_drawable_bound_to_object_with_context(
         &mut self,
         binding: &DrawModuleBindingContext,
@@ -654,6 +676,43 @@ mod tests {
         let mut draw = W3DTankTruckDraw::new(W3DTankTruckDrawModuleData::new());
         draw.bind_owner_id(144);
         assert_eq!(draw.owner_id(), Some(144));
+    }
+    #[test]
+    fn receiving_vehicle_wrapper_retirement_reaches_actual_truck_slots() {
+        use super::super::w3d_tank_draw::retirement_test_support::Receiver;
+        let mut draw = W3DTankTruckDraw::new(W3DTankTruckDrawModuleData::new());
+        let mut peer = W3DTankTruckDraw::new(W3DTankTruckDrawModuleData::new());
+        let mut receiver = Receiver::default();
+        let mut peer_receiver = Receiver::default();
+        draw.base.seed_retirement_test_particles(&mut receiver);
+        peer.base.seed_retirement_test_particles(&mut peer_receiver);
+        // SHOW_TANK_DEBRIS is normally disabled; nevertheless retire any
+        // actual slots before the Truck base, as the original destructor does.
+        draw.tread_debris_left = Some(51);
+        draw.tread_debris_right = Some(52);
+        peer.tread_debris_left = Some(51);
+        peer.tread_debris_right = Some(52);
+        let expected = [51, 52, 41, 42, 43, 91];
+        assert_eq!(
+            crate::object::drawable::native_state_particle_count(&mut draw),
+            expected.len()
+        );
+        crate::object::drawable::retire_native_state_particles(&mut draw, &mut receiver);
+        assert_eq!(receiver.destroyed, expected);
+        assert_eq!(
+            crate::object::drawable::native_state_particle_count(&mut draw),
+            0
+        );
+        assert_eq!(
+            crate::object::drawable::native_state_particle_count(&mut peer),
+            expected.len()
+        );
+        assert!(peer_receiver.destroyed.is_empty());
+        crate::object::drawable::retire_native_state_particles(&mut draw, &mut receiver);
+        assert_eq!(receiver.destroyed, expected);
+        drop(draw);
+        crate::object::drawable::retire_native_state_particles(&mut peer, &mut peer_receiver);
+        assert_eq!(peer_receiver.destroyed, expected);
     }
 }
 

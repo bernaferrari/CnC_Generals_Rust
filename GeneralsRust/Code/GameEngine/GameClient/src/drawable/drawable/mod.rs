@@ -25,6 +25,7 @@ mod drawable_trait;
 mod hidden_status;
 mod icons;
 mod leftover;
+mod native_client_retirement;
 mod native_client_update;
 mod native_state_particles;
 mod selection_flash;

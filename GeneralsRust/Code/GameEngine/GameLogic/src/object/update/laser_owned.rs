@@ -112,12 +112,20 @@ impl LaserUpdate {
         &mut self,
         services: &mut dyn LaserExecution,
     ) -> Result<(), String> {
+        self.retire_particles_with(|id| services.destroy_particle(id))
+    }
+
+    /// Destruction needs only the receiving particle owner, not RNG or target queries.
+    pub fn retire_particles_with(
+        &mut self,
+        mut destroy: impl FnMut(ParticleSystemId) -> Result<(), String>,
+    ) -> Result<(), String> {
         if let Some(id) = self.particle_system_id {
-            services.destroy_particle(id)?;
+            destroy(id)?;
             self.particle_system_id = None;
         }
         if let Some(id) = self.target_particle_system_id {
-            services.destroy_particle(id)?;
+            destroy(id)?;
             self.target_particle_system_id = None;
         }
         Ok(())

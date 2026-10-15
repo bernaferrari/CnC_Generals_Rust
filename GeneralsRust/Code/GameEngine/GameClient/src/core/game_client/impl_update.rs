@@ -303,7 +303,7 @@ impl GameClient {
     ) -> GameClientResult<()> {
         // This is the existing native manager boundary, borrowed once. Installed
         // CU/bone callbacks receive the receiver and never relock this parent.
-        let expired = {
+        {
             let assets = crate::render_bridge::THE_RENDER_BRIDGE
                 .lock()
                 .map_err(|err| {
@@ -321,11 +321,6 @@ impl GameClient {
                 assets.as_ref().map(|bridge| bridge.asset_manager()),
             )?
         };
-        // Draw module destructors may use existing parent cleanup adapters.
-        // Release the manager loan before destroying expired Drawables.
-        for id in expired {
-            let _ = self.destroy_drawable(id);
-        }
         Ok(())
     }
 
@@ -336,11 +331,18 @@ impl GameClient {
         mut particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
         assets: Option<&ww3d_assets::AssetManager>,
     ) -> GameClientResult<Vec<DrawableId>> {
-        let host_bindings = &self.drawables.presentation_direct_drawable_bindings;
         let mut expired = Vec::new();
         // C++ walks the constructor-prepended Drawable list. Lookup storage
         // must not choose the order of ClientUpdate or expiration callbacks.
-        for &id in &self.drawables.native_drawable_order {
+        // Callbacks borrow one installed node and cannot edit this owner's roster.
+        // Removing that node shifts its successor into the current cursor slot,
+        // preserving the C++ cached-next walk without a second snapshot roster.
+        let mut cursor = 0;
+        while let Some(&id) = self.drawables.native_drawable_order.get(cursor) {
+            let host_projection = self
+                .drawables
+                .presentation_direct_drawable_bindings
+                .contains_key(&id);
             let drawable = self
                 .drawables
                 .drawable_map
@@ -349,18 +351,23 @@ impl GameClient {
             drawable.set_current_frame(frames.client_frame);
             if let Some(basic) = drawable.as_any_mut().downcast_mut::<BasicDrawable>() {
                 basic
-                    .update_native_client_modules(
-                        particles.as_deref_mut(),
-                        host_bindings.contains_key(&id),
-                        assets,
-                    )
+                    .update_native_client_modules(particles.as_deref_mut(), host_projection, assets)
                     .map_err(GameClientError::InvalidOperation)?;
                 basic.update_after_client_modules(frames.logic_frame);
             } else {
                 drawable.update(delta_time, frames.logic_frame);
             }
             if drawable.is_expired(frames.logic_frame) {
+                if !drawable.as_any().is::<BasicDrawable>() {
+                    return Err(GameClientError::InvalidOperation(
+                        "native expiration requires an installed BasicDrawable teardown".into(),
+                    ));
+                }
+                self.destroy_drawable_with_particles(id, particles.as_deref_mut())?;
                 expired.push(id);
+                // Current was unlinked; its cached successor now occupies cursor.
+            } else {
+                cursor += 1;
             }
         }
         Ok(expired)

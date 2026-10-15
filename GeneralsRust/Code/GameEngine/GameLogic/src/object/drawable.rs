@@ -669,9 +669,7 @@ fn with_draw_module_kind(
 pub fn native_state_particle_count(module: &mut dyn Module) -> usize {
     let mut count = 0;
     let _ = with_draw_module_kind(module, |draw| {
-        if let Some(interface) = draw.into_draw_module().get_object_draw_interface() {
-            count = interface.native_state_particle_count();
-        }
+        count = draw.into_draw_module().native_state_particle_count();
     });
     count
 }
@@ -696,9 +694,8 @@ pub fn retire_native_state_particles(
     receiver: &mut dyn crate::object::draw::draw_module::ClientParticleStateRuntime,
 ) {
     let _ = with_draw_module_kind(module, |draw| {
-        if let Some(interface) = draw.into_draw_module().get_object_draw_interface_mut() {
-            interface.retire_native_state_particles(receiver);
-        }
+        draw.into_draw_module()
+            .retire_native_state_particles(receiver);
     });
 }
 

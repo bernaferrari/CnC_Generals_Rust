@@ -801,3 +801,83 @@ fn receiving_native_state_bone_scale_is_applied_once_at_birth_and_update() {
 
 #[path = "receiving_native_capability_tests.rs"]
 mod receiving_native_capability_tests;
+
+#[test]
+fn receiving_expiry_retires_actual_factory_emitters_through_supplied_manager() {
+    let assets = static_asset();
+    let mut client = GameClient::new().unwrap();
+    let mut peer = GameClient::new().unwrap();
+    let next = client
+        .create_drawable_from_template(&authored_template())
+        .unwrap();
+    let first = client
+        .create_drawable_from_template(&authored_template())
+        .unwrap();
+    assert_eq!(
+        peer.create_drawable_from_template(&authored_template())
+            .unwrap(),
+        next
+    );
+    assert_eq!(
+        peer.create_drawable_from_template(&authored_template())
+            .unwrap(),
+        first
+    );
+    let mut particles = emitter_manager();
+    let mut peer_particles = emitter_manager();
+    local_draw_phase(&mut client, &mut particles, &assets, 3, 29, false);
+    local_draw_phase(&mut peer, &mut peer_particles, &assets, 3, 29, false);
+    let roots: Vec<_> = particles
+        .all_particle_systems()
+        .filter(|system| system.template().name() == "NativeBoneSmoke")
+        .map(|system| {
+            (
+                system.system_id(),
+                system.slave_system_id().unwrap(),
+                system.attached_drawable_id(),
+            )
+        })
+        .collect();
+    assert_eq!(particles.system_count(), 4, "two actual root/slave chains");
+    assert_eq!(roots.len(), 2);
+    client
+        .find_drawable_by_id_mut(first)
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<BasicDrawable>()
+        .unwrap()
+        .set_expiration_frame(4);
+    client.set_frame(30);
+    assert_eq!(
+        client
+            .tick_mapped_drawables_with_particles(
+                NativeParticleFrames {
+                    logic_frame: 4,
+                    client_frame: 30
+                },
+                0.,
+                Some(&mut particles),
+                Some(&assets),
+            )
+            .unwrap(),
+        [first]
+    );
+    assert!(client.find_drawable_by_id(first).is_none());
+    assert_eq!(client.drawables.native_drawable_order, [next]);
+    for (root, slave, owner) in roots {
+        for id in [root, slave] {
+            assert_eq!(
+                particles.find_particle_system(id).unwrap().is_destroyed(),
+                owner == first
+            );
+            assert!(
+                !peer_particles
+                    .find_particle_system(id)
+                    .unwrap()
+                    .is_destroyed()
+            );
+        }
+    }
+    client.retire_native_drawable_particles_with_services(None, &mut particles);
+    peer.retire_native_drawable_particles_with_services(None, &mut peer_particles);
+}

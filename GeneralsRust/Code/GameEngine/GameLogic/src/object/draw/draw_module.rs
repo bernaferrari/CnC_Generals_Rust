@@ -212,6 +212,19 @@ pub trait DrawModule: Module {
         self.update_bones_for_client_particle_systems()
     }
 
+    /// Include resources owned by derived Draw modules, not only their model base.
+    fn native_state_particle_count(&self) -> usize {
+        self.get_object_draw_interface()
+            .map_or(0, |draw| draw.native_state_particle_count())
+    }
+
+    /// Retire the installed module through its receiving manager before Drop.
+    fn retire_native_state_particles(&mut self, receiver: &mut dyn ClientParticleStateRuntime) {
+        if let Some(draw) = self.get_object_draw_interface_mut() {
+            draw.retire_native_state_particles(receiver);
+        }
+    }
+
     /// Check if this is a laser beam
     ///
     /// # Returns

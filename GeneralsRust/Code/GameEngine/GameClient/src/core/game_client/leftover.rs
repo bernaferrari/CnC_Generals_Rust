@@ -270,38 +270,80 @@ impl GameClient {
 
     /// Destroys a drawable and removes it from all systems
     pub fn destroy_drawable(&mut self, id: DrawableId) -> GameClientResult<()> {
-        if self.drawables.owned_laser_order.contains(&id)
-            && self
-                .with_owned_laser(id, |module| Ok(module.requires_owned_particle_retirement()))?
+        let mut count = 0;
+        if let Some(basic) = self
+            .drawables
+            .drawable_map
+            .get_mut(&id)
+            .and_then(|draw| draw.as_any_mut().downcast_mut::<BasicDrawable>())
         {
-            return Err(GameClientError::InvalidOperation(
-                "owned laser destruction requires its receiving particle services".into(),
+            if basic
+                .native_client_particle_retirement_required()
+                .map_err(GameClientError::InvalidOperation)?
+            {
+                return Err(GameClientError::InvalidOperation(
+                    "owned laser destruction requires its receiving particle services".into(),
+                ));
+            }
+            count = basic.native_state_particle_count();
+        }
+        if count == 0 {
+            return self.destroy_drawable_with_particles(id, None);
+        }
+        let mut particles = crate::effects::particle_manager::get_particle_system_manager_mut()
+            .map_err(|error| {
+                GameClientError::SubsystemError(format!(
+                    "Particle manager unavailable during Drawable retirement: {error}"
+                ))
+            })?;
+        self.destroy_drawable_with_particles(id, particles.as_mut())
+    }
+
+    /// C++ destroyDrawable: disregard UI, unlink identity, then retire modules.
+    /// The update walk supplies its already borrowed receiving particle manager.
+    fn destroy_drawable_with_particles(
+        &mut self,
+        id: DrawableId,
+        mut particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
+    ) -> GameClientResult<()> {
+        let mut laser_particles = false;
+        let mut state_particles = 0;
+        if let Some(basic) = self
+            .drawables
+            .drawable_map
+            .get_mut(&id)
+            .and_then(|draw| draw.as_any_mut().downcast_mut::<BasicDrawable>())
+        {
+            state_particles = basic.native_state_particle_count();
+            laser_particles = basic
+                .native_client_particle_retirement_required()
+                .map_err(GameClientError::InvalidOperation)?;
+        }
+        if particles.is_none() && (laser_particles || state_particles != 0) {
+            return Err(GameClientError::SubsystemError(
+                "receiving particle manager absent during Drawable retirement".into(),
             ));
         }
-        self.drawables.ray_effects.delete(id);
-        self.drawables
-            .owned_laser_order
-            .retain(|owner| *owner != id);
         if let Some(drawable) = self.drawables.drawable_map.get(&id) {
-            // Notify UI systems
             if let Some(ref ui) = self.subsystem_manager.in_game_ui {
                 ui.lock()
                     .map_err(|_| {
-                        GameClientError::SubsystemError("In-game UI lock poisoned".to_string())
+                        GameClientError::SubsystemError("In-game UI lock poisoned".into())
                     })?
                     .disregard_drawable(drawable.as_ref())?;
             }
         }
-
-        // C++ module destructor retires its own state emitters before removal.
-        // Release the receiving manager before generic Drawable destruction.
-        self.retire_native_drawable_particles(Some(id))?;
-
-        // Remove from the map (this drops the drawable)
+        self.native_particle_capability_gaps
+            .retain(|gap| gap.drawable_id != id);
+        self.drawables.ray_effects.delete(id);
+        self.drawables
+            .owned_laser_order
+            .retain(|owner| *owner != id);
         self.drawables
             .native_drawable_order
             .retain(|known| *known != id);
-        if let Some(drawable) = self.drawables.drawable_map.remove(&id) {
+        let mut removed = self.drawables.drawable_map.remove(&id);
+        if let Some(drawable) = removed.as_ref() {
             if let Some(object_id) = drawable.get_object_id() {
                 if self.drawables.drawable_object_map.get(&object_id).copied() == Some(id) {
                     self.drawables.drawable_object_map.remove(&object_id);
@@ -309,16 +351,26 @@ impl GameClient {
                 prune_live_host_animated_particle_sys_bones(object_id);
             }
         }
-        // Direct visual identity is runtime-only and dies with the Drawable.
         self.drawables
             .presentation_direct_drawable_bindings
             .remove(&id);
-
-        // Remove from text bearing list
         self.drawables
             .text_bearing_drawables
             .retain(|&stored_id| stored_id != id);
-
+        // Identity is no longer discoverable, as in C++ deleteInstance. Retire
+        // actual installed fields before Drop without rediscovering this manager.
+        if let Some(basic) = removed
+            .as_mut()
+            .and_then(|draw| draw.as_any_mut().downcast_mut::<BasicDrawable>())
+        {
+            if let Some(manager) = particles.as_deref_mut() {
+                basic.retire_native_state_particles(manager);
+                basic
+                    .retire_native_client_particles(manager)
+                    .map_err(GameClientError::InvalidOperation)?;
+            }
+        }
+        drop(removed);
         Ok(())
     }
 

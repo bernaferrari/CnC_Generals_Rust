@@ -267,6 +267,21 @@ pub struct W3DTruckDraw {
 }
 
 impl W3DTruckDraw {
+    #[cfg(test)]
+    pub(super) fn seed_retirement_test_particles(
+        &mut self,
+        receiver: &mut super::w3d_tank_draw::retirement_test_support::Receiver,
+    ) {
+        use super::w3d_tank_draw::retirement_test_support::{Receiver, model_data};
+        self.base = W3DModelDraw::new(model_data());
+        self.base
+            .prepare_state_particles_with_receiver(&Receiver::context(), receiver)
+            .unwrap();
+        self.dust_effect = Some(41);
+        self.dirt_effect = Some(42);
+        self.powerslide_effect = Some(43);
+    }
+
     pub fn new(data: W3DTruckDrawModuleData) -> Self {
         Self {
             data: data.clone(),
@@ -436,17 +451,22 @@ impl W3DTruckDraw {
         }
     }
     fn toss_emitters(&mut self) {
-        if let Some(ps) = TheParticleSystemManager::get() {
-            for id in [self.dust_effect, self.dirt_effect, self.powerslide_effect]
-                .into_iter()
-                .flatten()
-            {
-                ps.destroy_particle_system(id);
+        if self.dust_effect.is_none()
+            && self.dirt_effect.is_none()
+            && self.powerslide_effect.is_none()
+        {
+            return;
+        }
+        let ids = [
+            self.dust_effect.take(),
+            self.dirt_effect.take(),
+            self.powerslide_effect.take(),
+        ];
+        if let Some(manager) = TheParticleSystemManager::get() {
+            for id in ids.into_iter().flatten() {
+                manager.destroy_particle_system(id);
             }
         }
-        self.dust_effect = None;
-        self.dirt_effect = None;
-        self.powerslide_effect = None;
     }
     fn enable_emitters(&mut self, enable: bool) {
         // C++ always calls createEmitters (hidden-first-time tunnel case).
@@ -789,6 +809,28 @@ impl Module for W3DTruckDraw {
 }
 
 impl DrawModule for W3DTruckDraw {
+    fn native_state_particle_count(&self) -> usize {
+        self.base.native_state_particle_count()
+            + [self.dust_effect, self.dirt_effect, self.powerslide_effect]
+                .into_iter()
+                .flatten()
+                .count()
+    }
+
+    fn retire_native_state_particles(&mut self, receiver: &mut dyn ClientParticleStateRuntime) {
+        // Derived vehicle emitters retire before W3DModelDraw's state emitters.
+        // Clear the actual slots before callbacks so Drop cannot rediscover a manager.
+        let ids = [
+            self.dust_effect.take(),
+            self.dirt_effect.take(),
+            self.powerslide_effect.take(),
+        ];
+        for id in ids.into_iter().flatten() {
+            receiver.destroy_particle_system(id);
+        }
+        self.base.retire_native_state_particles(receiver);
+    }
+
     fn on_drawable_bound_to_object_with_context(
         &mut self,
         binding: &DrawModuleBindingContext,
@@ -1001,5 +1043,45 @@ mod tests {
         let mut draw = W3DTruckDraw::new(W3DTruckDrawModuleData::new());
         draw.bind_owner_id(313);
         assert_eq!(draw.owner_id(), Some(313));
+    }
+    #[test]
+    fn receiving_vehicle_retirement_clears_actual_slots_before_drop_and_keeps_peer() {
+        use super::super::w3d_tank_draw::retirement_test_support::{Receiver, model_data};
+        let mut draw = W3DTruckDraw::new(W3DTruckDrawModuleData {
+            base: model_data(),
+            ..Default::default()
+        });
+        let mut receiver = Receiver::default();
+        draw.base
+            .prepare_state_particles_with_receiver(&Receiver::context(), &mut receiver)
+            .unwrap();
+        draw.dust_effect = Some(41);
+        draw.dirt_effect = Some(42);
+        draw.powerslide_effect = Some(43);
+        let mut peer = W3DTruckDraw::new(W3DTruckDrawModuleData::default());
+        peer.dust_effect = Some(41);
+        peer.dirt_effect = Some(42);
+        peer.powerslide_effect = Some(43);
+        assert_eq!(
+            crate::object::drawable::native_state_particle_count(&mut draw),
+            4
+        );
+        crate::object::drawable::retire_native_state_particles(&mut draw, &mut receiver);
+        assert_eq!(receiver.destroyed, [41, 42, 43, 91]);
+        assert_eq!(
+            crate::object::drawable::native_state_particle_count(&mut draw),
+            0
+        );
+        assert_eq!(
+            crate::object::drawable::native_state_particle_count(&mut peer),
+            3
+        );
+        assert!(draw.dust_effect.is_none());
+        assert!(draw.dirt_effect.is_none());
+        assert!(draw.powerslide_effect.is_none());
+        crate::object::drawable::retire_native_state_particles(&mut draw, &mut receiver);
+        assert_eq!(receiver.destroyed.len(), 4);
+        drop(draw);
+        crate::object::drawable::retire_native_state_particles(&mut peer, &mut receiver);
     }
 }

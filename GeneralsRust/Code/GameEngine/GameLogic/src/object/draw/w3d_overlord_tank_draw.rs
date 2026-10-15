@@ -144,6 +144,14 @@ impl Module for W3DOverlordTankDraw {
 }
 
 impl DrawModule for W3DOverlordTankDraw {
+    fn native_state_particle_count(&self) -> usize {
+        DrawModule::native_state_particle_count(&self.base)
+    }
+
+    fn retire_native_state_particles(&mut self, receiver: &mut dyn ClientParticleStateRuntime) {
+        DrawModule::retire_native_state_particles(&mut self.base, receiver);
+    }
+
     fn on_drawable_bound_to_object_with_context(
         &mut self,
         binding: &DrawModuleBindingContext,
@@ -267,5 +275,36 @@ mod tests {
         draw.bind_owner_id(42);
         draw.do_draw_module(&Matrix3D::IDENTITY);
         draw.set_hidden(true);
+    }
+    #[test]
+    fn receiving_vehicle_wrapper_retirement_reaches_actual_tank_slots() {
+        use super::super::w3d_tank_draw::retirement_test_support::Receiver;
+        let mut draw = W3DOverlordTankDraw::new(W3DOverlordTankDrawModuleData::new());
+        let mut peer = W3DOverlordTankDraw::new(W3DOverlordTankDrawModuleData::new());
+        let mut receiver = Receiver::default();
+        let mut peer_receiver = Receiver::default();
+        draw.base.seed_retirement_test_particles(&mut receiver);
+        peer.base.seed_retirement_test_particles(&mut peer_receiver);
+        let expected = [41, 42, 91];
+        assert_eq!(
+            crate::object::drawable::native_state_particle_count(&mut draw),
+            expected.len()
+        );
+        crate::object::drawable::retire_native_state_particles(&mut draw, &mut receiver);
+        assert_eq!(receiver.destroyed, expected);
+        assert_eq!(
+            crate::object::drawable::native_state_particle_count(&mut draw),
+            0
+        );
+        assert_eq!(
+            crate::object::drawable::native_state_particle_count(&mut peer),
+            expected.len()
+        );
+        assert!(peer_receiver.destroyed.is_empty());
+        crate::object::drawable::retire_native_state_particles(&mut draw, &mut receiver);
+        assert_eq!(receiver.destroyed, expected);
+        drop(draw);
+        crate::object::drawable::retire_native_state_particles(&mut peer, &mut peer_receiver);
+        assert_eq!(peer_receiver.destroyed, expected);
     }
 }
