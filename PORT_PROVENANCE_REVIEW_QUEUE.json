@@ -21209,6 +21209,16 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/template_modules.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/template_modules/tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/tests.rs"
             },
@@ -189633,7 +189643,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "f011dc2631e457433d2fda3a3569978649b1a19e1fab4f6b669c61ea369b6a87",
+  "provenance_input_digest": "23db6ee4bd51f0de28983b0fc428e01435adce443201484b5df303724bba9c46",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

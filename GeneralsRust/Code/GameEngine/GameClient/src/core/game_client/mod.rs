@@ -157,6 +157,7 @@ use ww3d_core::w3d_io::{W3DChunk, W3DReader};
 
 include!("ids.rs");
 mod drawable_world;
+mod template_modules;
 include!("presentation_specialized_draw.rs");
 
 include!("live_slot.rs");
@@ -195,4 +196,5 @@ pub const GAME_CLIENT_SRC: &str = concat!(
     include_str!("impl_update.rs"),
     include_str!("impl_draw.rs"),
     include_str!("leftover.rs"),
+    include_str!("template_modules.rs"),
 );

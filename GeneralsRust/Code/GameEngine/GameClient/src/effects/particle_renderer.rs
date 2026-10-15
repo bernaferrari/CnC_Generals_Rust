@@ -1,8 +1,8 @@
 //! # GPU Particle Renderer
 //!
-//! High-performance GPU-accelerated particle rendering with WGPU.
+//! Particle rendering with WGPU.
 //! Supports all C++ particle shader modes: additive, alpha, alpha test, multiply.
-//! Uses instanced rendering and GPU compute shaders for maximum performance.
+//! Prepares ordered CPU particle batches and submits instanced GPU draws.
 
 use bytemuck::{Pod, Zeroable};
 use image::{DynamicImage, GenericImageView};
@@ -17,6 +17,10 @@ use super::particle_system::{Particle, ParticleSystem};
 use super::weather_complete::WeatherParticle;
 use crate::system::smudge::get_smudge_manager;
 use glam::{Mat4, Vec2, Vec3};
+
+#[path = "particle_render_frame.rs"]
+mod prepared_frame;
+pub use prepared_frame::ParticleRenderFrame;
 
 /// C++ `W3DParticleSystemManager::MAX_POINTS_PER_GROUP`.
 ///
@@ -36,7 +40,7 @@ pub fn particle_multiply_color_blend() -> wgpu::BlendComponent {
 
 /// Particle vertex data for GPU (matches C++ billboard rendering)
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct ParticleVertex {
     /// World position
     pub position: [f32; 3],
@@ -70,7 +74,7 @@ impl Default for ParticleVertex {
 
 /// GPU uniform data for particle rendering
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct ParticleUniforms {
     /// View matrix
     pub view_matrix: [[f32; 4]; 4],
@@ -1321,25 +1325,33 @@ impl ParticleRenderer {
         systems: &[&ParticleSystem],
         uniforms: &ParticleUniforms,
     ) {
+        let prepared = ParticleRenderFrame::prepare(systems, uniforms);
+        self.render_prepared_particles(encoder, view, depth_view, &prepared);
+    }
+
+    /// Submit immutable CPU data. No live ParticleSystem or manager borrow
+    /// survives into texture loading, buffer upload, or command encoding.
+    pub fn render_prepared_particles(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        depth_view: &wgpu::TextureView,
+        prepared: &ParticleRenderFrame,
+    ) {
         let start_time = std::time::Instant::now();
         self.stats.reset_frame_counters();
-
-        // Update uniforms
-        self.queue
-            .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[*uniforms]));
-
-        // C++ uses one transient point group submission for each live system.
-        // Clearing the frame list preserves that order rather than retaining a
-        // cross-system texture bucket from an earlier frame.
+        self.stats.particles_rendered = prepared.particles_rendered;
+        self.queue.write_buffer(
+            &self.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[prepared.uniforms]),
+        );
         self.batches.clear();
-        // C++ `doParticles` allocates one smudge set, then SMUD* systems
-        // `addSmudgeToSet` instead of filling the point-group buffers.
-        begin_particle_heat_smudge_frame();
-
-        // Collect particles into batches
-        for system in systems {
-            self.collect_system_particles(system, uniforms.camera_position);
-        }
+        self.batches.extend(prepared.batches.iter().map(|source| {
+            let mut batch = ParticleBatch::new(source.shader_type, source.texture_name.clone());
+            batch.vertices.clone_from(&source.vertices);
+            batch
+        }));
 
         // C++ ParticleSystemManager preloads direct `ParticleName` textures.
         // The Rust WGPU renderer owns its own texture atlas, so hydrate an
@@ -1437,7 +1449,10 @@ impl ParticleRenderer {
             self.stats.batches_rendered = rendered_batches;
         }
 
-        self.stats.render_time_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+        // Keep the historical metric's CPU collection + GPU encoding scope,
+        // although those responsibilities no longer share a manager borrow.
+        self.stats.render_time_ms =
+            (prepared.preparation_time + start_time.elapsed()).as_secs_f64() * 1000.0;
     }
 
     /// Render weather particles (rain/snow/dust) using the alpha pipeline.
@@ -1824,71 +1839,6 @@ impl ParticleRenderer {
             self.stats.particles_rendered += vertices.len();
         }
         self.stats.render_time_ms += start_time.elapsed().as_secs_f64() * 1000.0;
-    }
-
-    /// Collect particles from a system into appropriate batches
-    fn collect_system_particles(&mut self, system: &ParticleSystem, camera_position: [f32; 3]) {
-        let template = system.template();
-        let info = template.info();
-        if matches!(
-            info.particle_type,
-            ParticleType::Invalid | ParticleType::Drawable
-        ) {
-            return;
-        }
-        // C++ DWORD "SMUD" prefix / Type=SMUDGE: convert visible particles
-        // into heat smudges and continue — never submit as sprites
-        // (`W3DParticleSys.cpp:142-172`).
-        if system_is_heat_smudge(system) {
-            let _ = feed_system_heat_smudges(system);
-            return;
-        }
-        if info.shader_type == ParticleShaderType::Invalid {
-            return;
-        }
-
-        let texture_name = if info.particle_type_name.is_empty() {
-            "default".to_string()
-        } else {
-            info.particle_type_name.clone()
-        };
-
-        // `W3DParticleSystemManager::doParticles` renders every live system
-        // immediately in `m_allParticleSystemList` order.  Keep a separate
-        // submission even when adjacent systems share a texture/shader.
-        let mut batch = ParticleBatch::new(info.shader_type, texture_name);
-
-        if info.particle_type == ParticleType::Streak {
-            let before = batch.vertices.len();
-            batch.add_streak_polyline(system);
-            self.stats.particles_rendered += batch.vertices.len().saturating_sub(before);
-        } else {
-            for particle in system.particles() {
-                if !particle.is_draw_alive() {
-                    continue;
-                }
-                match info.particle_type {
-                    ParticleType::VolumeParticle => {
-                        let before = batch.vertices.len();
-                        batch.add_volume_particle(particle, system, camera_position);
-                        self.stats.particles_rendered +=
-                            batch.vertices.len().saturating_sub(before);
-                        continue;
-                    }
-                    ParticleType::Particle => batch.add_particle(particle, system),
-                    ParticleType::Streak
-                    | ParticleType::Invalid
-                    | ParticleType::Drawable
-                    | ParticleType::Smudge => continue,
-                }
-                self.stats.particles_rendered += 1;
-            }
-        }
-
-        // C++ skips texture lookup and draw submission for an empty system.
-        if !batch.vertices.is_empty() {
-            self.batches.push(batch);
-        }
     }
 
     /// Load texture for particles
@@ -2510,5 +2460,82 @@ mod tests {
             wgpu::BlendFactor::Dst => dest,
             _ => panic!("unexpected factor"),
         }
+    }
+    #[test]
+    fn prepared_particle_frame_keeps_real_manager_order_culling_and_peer_identity() {
+        let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
+        fn owner(x: f32) -> ParticleSystemManager {
+            let mut manager = ParticleSystemManager::new();
+            for (id, texture) in [(19, "FirstTexture"), (3, "SecondTexture")] {
+                let mut template = ParticleSystemTemplate::new(texture.into());
+                template.info_mut().particle_type = ParticleType::Particle;
+                template.info_mut().particle_type_name = texture.into();
+                template.info_mut().shader_type = ParticleShaderType::Alpha;
+                template.info_mut().priority = ParticlePriorityType::AlwaysRender;
+                manager
+                    .create_particle_system_with_id_and_random(
+                        &Arc::new(template),
+                        id,
+                        false,
+                        &mut |lo, _| lo,
+                    )
+                    .unwrap();
+                let system = manager.find_particle_system_mut(id).unwrap();
+                system.push_particle(live_particle(x, 0.0, 0.0, 2.0, 0.75));
+                system.push_particle(live_particle(1000.0, 0.0, 0.0, 2.0, 0.75));
+            }
+            manager.cull_particles_to_visible_box([0.0; 3], [10.0; 3], 512);
+            manager
+        }
+        let mut first = owner(2.0);
+        let mut peer = owner(7.0);
+        let uniforms = ParticleUniforms {
+            particle_count: 4,
+            time: 3.0,
+            ..Default::default()
+        };
+        let frame = ParticleRenderFrame::prepare(&first.draw_particle_systems(), &uniforms);
+        let frozen = frame.clone();
+        assert_eq!(frame.uniforms, uniforms);
+        assert_eq!(frame.batches.len(), 2);
+        assert_eq!(frame.batches[0].texture_name, "FirstTexture");
+        assert_eq!(frame.batches[1].texture_name, "SecondTexture");
+        assert_eq!(frame.particles_rendered, 2);
+        assert_eq!(frame.batches[0].vertices.len(), 1);
+        assert_eq!(frame.batches[0].vertices[0].position, [2.0, 0.0, 0.0]);
+        assert_eq!(frame.batches[0].shader_type, ParticleShaderType::Alpha);
+        let other = ParticleRenderFrame::prepare(&peer.draw_particle_systems(), &uniforms);
+        assert_eq!(other.batches[0].vertices[0].position, [7.0, 0.0, 0.0]);
+        peer.destroy_particle_system(19);
+        peer.update(0, 1);
+        first.find_particle_system_mut(19).unwrap().particles_mut()[0].position =
+            Vec3::new(9.0, 0.0, 0.0);
+        first.destroy_particle_system(3);
+        assert_eq!(
+            frame, frozen,
+            "completed vertex/shader/texture/uniform data cannot follow either live owner"
+        );
+        assert_eq!(
+            ParticleRenderFrame::prepare(&first.draw_particle_systems(), &uniforms).batches[0]
+                .vertices[0]
+                .position,
+            [9.0, 0.0, 0.0]
+        );
+    }
+    #[test]
+    fn prepared_particle_frame_freezes_smud_values_before_another_preparation() {
+        let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
+        let mut system = smudge_named_system("SMUDGE RESERVED", ParticleType::Smudge);
+        system.push_particle(live_particle(4.0, 5.0, 6.0, 2.5, 0.55));
+        let frame = ParticleRenderFrame::prepare(&[&system], &ParticleUniforms::default());
+        assert!(frame.batches.is_empty());
+        assert_eq!(frame.heat_smudges().len(), 1);
+        assert_eq!(frame.heat_smudges()[0].world_pos, [4.0, 5.0, 6.0]);
+        assert_eq!(frame.heat_smudges()[0].size, 2.5);
+        assert_eq!(frame.heat_smudges()[0].opacity, 0.55);
+        let before = frame.clone();
+        let empty = ParticleRenderFrame::prepare(&[], &ParticleUniforms::default());
+        assert!(empty.heat_smudges().is_empty());
+        assert_eq!(frame, before);
     }
 }

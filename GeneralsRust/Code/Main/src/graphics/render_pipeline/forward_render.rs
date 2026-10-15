@@ -372,26 +372,37 @@ impl ForwardPass {
                     });
                 }
             }
-            if let Ok(manager_guard) = get_particle_system_manager() {
-                if let Some(manager) = manager_guard.as_ref() {
+            let prepared_particles = get_particle_system_manager()
+                .ok()
+                .and_then(|manager_guard| {
+                    let manager = manager_guard.as_ref()?;
                     let systems = manager.draw_particle_systems();
-                    if !systems.is_empty() {
-                        let mut particle_uniforms = uniforms;
-                        particle_uniforms.particle_count = systems
-                            .iter()
-                            .map(|system| system.particle_count())
-                            .sum::<usize>()
-                            .min(u32::MAX as usize)
-                            as u32;
-                        renderer_guard.render_particles(
-                            encoder,
-                            color_view.as_ref(),
-                            depth_view.as_ref(),
+                    if systems.is_empty() {
+                        return None;
+                    }
+                    let mut particle_uniforms = uniforms;
+                    particle_uniforms.particle_count = systems
+                        .iter()
+                        .map(|system| system.particle_count())
+                        .sum::<usize>()
+                        .min(u32::MAX as usize)
+                        as u32;
+                    Some(
+                        game_client::effects::particle_renderer::ParticleRenderFrame::prepare(
                             &systems,
                             &particle_uniforms,
-                        );
-                    }
-                }
+                        ),
+                    )
+                });
+            // The manager guard and every live system reference end above.
+            // GPU resource loading/upload/submission only sees owned CPU data.
+            if let Some(prepared) = prepared_particles.as_ref() {
+                renderer_guard.render_prepared_particles(
+                    encoder,
+                    color_view.as_ref(),
+                    depth_view.as_ref(),
+                    prepared,
+                );
             }
 
             // C++ W3DDisplay draws FXList Tracer/RayEffect after particles
@@ -450,20 +461,28 @@ impl ForwardPass {
                 );
             }
 
-            if let Ok(manager) = get_smudge_manager().lock() {
-                let smudges = game_client::effects::heat_haze::collect_heat_haze_smudges(
-                    &manager.collect_used_smudges(),
+            let smudges = prepared_particles
+                .as_ref()
+                .map(|frame| frame.heat_smudges().to_vec())
+                .unwrap_or_else(|| {
+                    get_smudge_manager()
+                        .lock()
+                        .map(|manager| {
+                            game_client::effects::heat_haze::collect_heat_haze_smudges(
+                                &manager.collect_used_smudges(),
+                            )
+                        })
+                        .unwrap_or_default()
+                });
+            if !smudges.is_empty() {
+                renderer_guard.render_heat_haze(
+                    encoder,
+                    color_view.as_ref(),
+                    depth_view.as_ref(),
+                    Some(&color_texture),
+                    &smudges,
+                    &uniforms,
                 );
-                if !smudges.is_empty() {
-                    renderer_guard.render_heat_haze(
-                        encoder,
-                        color_view.as_ref(),
-                        depth_view.as_ref(),
-                        Some(&color_texture),
-                        &smudges,
-                        &uniforms,
-                    );
-                }
             }
 
             Ok(())
