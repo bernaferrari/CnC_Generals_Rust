@@ -43,6 +43,17 @@ pub(super) struct AxisStep {
     pub completed: bool,
 }
 
+/// Original View::xfer restores the angle through W3DView::setAngle, which
+/// cancels all three scalar requests (W3DView.cpp:1836-1855). The positional
+/// native save predates CAMC and has no requests to restore either. Borrow only
+/// the receiving camera's active flags: inactive timing metadata, application
+/// input, bookmarks and other sessions are untouched.
+pub(super) fn cancel_scalar_requests(targets: [&mut Option<f32>; 3]) {
+    for target in targets {
+        *target = None;
+    }
+}
+
 /// C++ receives integer milliseconds, clamps them to at least one, then uses
 /// integer division by 33. A short or zero-duration request still takes one
 /// admitted movement step, rather than changing a pose during command intake.

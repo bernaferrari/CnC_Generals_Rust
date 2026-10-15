@@ -1257,6 +1257,15 @@ impl CnCGameEngine {
         self.camera_pitch_radians = 0.0;
         self.camera_yaw_radians = 0.0;
         let has_camera_continuation = camera_continuation.is_some();
+        if !has_camera_continuation {
+            // Pose-only imports must not inherit the previous world's active
+            // scalar movements. Full CAMC imports instead restore their own.
+            super::camera_motion::cancel_scalar_requests([
+                &mut self.camera_zoom_target,
+                &mut self.camera_pitch_target,
+                &mut self.camera_yaw_target,
+            ]);
+        }
         if let Some(camera) = camera_continuation {
             self.admit_camera_continuation(camera);
         } else if let Some(camera) = client_persist.camera() {

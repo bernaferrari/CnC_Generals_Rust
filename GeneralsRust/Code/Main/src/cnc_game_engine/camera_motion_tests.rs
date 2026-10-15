@@ -197,3 +197,29 @@ fn integer_counter_advances_beyond_float_precision_and_preserves_completion() {
     }
     assert_eq!(ordinary.value, 1.0);
 }
+
+#[test]
+fn pose_only_admission_stops_receiving_axes_without_touching_another_camera() {
+    let mut receiving = [Fields::new(), Fields::new(), Fields::new()];
+    let mut foreign = Fields::new();
+    for axis in &mut receiving {
+        axis.step(1.0, AxisKind::ZoomPitch, admitted());
+    }
+    let poses = receiving.each_ref().map(|axis| (axis.value, axis.frame));
+    let [zoom, pitch, yaw] = &mut receiving;
+    cancel_scalar_requests([&mut zoom.target, &mut pitch.target, &mut yaw.target]);
+    for (axis, expected) in receiving.iter_mut().zip(poses) {
+        for _ in 0..40 {
+            let result = axis.step(1.0, AxisKind::ZoomPitch, admitted());
+            assert!(!result.was_active && !result.changed);
+        }
+        assert_eq!((axis.value, axis.frame), expected);
+        assert_eq!(axis.target, None);
+    }
+    assert!(
+        foreign
+            .step(1.0, AxisKind::ZoomPitch, admitted())
+            .was_active
+    );
+    assert_eq!(foreign.target, Some(1.0));
+}
