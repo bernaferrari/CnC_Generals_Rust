@@ -1381,6 +1381,10 @@ impl Snapshotable for GameClient {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        if xfer.get_xfer_mode() == CommonXferMode::Load {
+            xfer.set_client_frame_context(game_engine::ClientFrameContext::Frame(self.frame))
+                .map_err(|e| format!("client frame context: {e:?}"))?;
+        }
         let current_version: XferVersion = 3;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
@@ -1390,6 +1394,11 @@ impl Snapshotable for GameClient {
         xfer.xfer_unsigned_int(&mut frame)
             .map_err(|e| e.to_string())?;
         self.frame = frame;
+        if xfer.get_xfer_mode() == CommonXferMode::Load {
+            // C++ GameClient.cpp1347: the own Client header precedes TOC births.
+            xfer.set_client_frame_context(game_engine::ClientFrameContext::Frame(frame))
+                .map_err(|e| format!("client frame context: {e:?}"))?;
+        }
         publish_live_game_client_frame(self);
 
         self.xfer_drawable_toc(xfer)?;

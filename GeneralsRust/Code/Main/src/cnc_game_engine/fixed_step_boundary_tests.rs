@@ -53,6 +53,7 @@ fn shadow_boundary_observes_each_completed_frame_before_the_next_step() {
         2.0 / 30.0,
         None,
         Some(2),
+        |_| {},
         |owner| {
             frames.push(owner.get_frame());
             gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), owner);
@@ -81,23 +82,39 @@ fn same_id_world_boundaries_keep_their_own_shadow_health() {
     assert_eq!(id_a, id_b);
     let mut a_frames = Vec::new();
     let mut b_frames = Vec::new();
-    CnCGameEngine::host_update_logic_frame(&mut a, false, 2.0 / 30.0, None, Some(2), |owner| {
-        a_frames.push(owner.get_frame());
-        gameworld_shadow::run_owned_host_boundary(Some(&mut shadow_a), owner);
-        assert_eq!(owner.host_authoritative_health(id_a), Some(100.0));
-        CnCGameEngine::host_update_logic_frame(&mut b, false, 1.0 / 30.0, None, Some(1), |other| {
-            b_frames.push(other.get_frame());
-            gameworld_shadow::run_owned_host_boundary(Some(&mut shadow_b), other);
-            assert_eq!(other.host_authoritative_health(id_b), Some(240.0));
-        });
-        assert_eq!(
-            owner.host_authoritative_health(id_a),
-            Some(100.0),
-            "B cannot change A's owner"
-        );
-        let entity = shadow_a.entity_for_host(id_a).unwrap();
-        assert_eq!(shadow_a.world().entity(entity).unwrap().health, 100.0);
-    });
+    CnCGameEngine::host_update_logic_frame(
+        &mut a,
+        false,
+        2.0 / 30.0,
+        None,
+        Some(2),
+        |_| {},
+        |owner| {
+            a_frames.push(owner.get_frame());
+            gameworld_shadow::run_owned_host_boundary(Some(&mut shadow_a), owner);
+            assert_eq!(owner.host_authoritative_health(id_a), Some(100.0));
+            CnCGameEngine::host_update_logic_frame(
+                &mut b,
+                false,
+                1.0 / 30.0,
+                None,
+                Some(1),
+                |_| {},
+                |other| {
+                    b_frames.push(other.get_frame());
+                    gameworld_shadow::run_owned_host_boundary(Some(&mut shadow_b), other);
+                    assert_eq!(other.host_authoritative_health(id_b), Some(240.0));
+                },
+            );
+            assert_eq!(
+                owner.host_authoritative_health(id_a),
+                Some(100.0),
+                "B cannot change A's owner"
+            );
+            let entity = shadow_a.entity_for_host(id_a).unwrap();
+            assert_eq!(shadow_a.world().entity(entity).unwrap().health, 100.0);
+        },
+    );
     assert_eq!(a_frames, vec![1, 2]);
     assert_eq!(b_frames, vec![1, 2]);
     assert_eq!(a.get_frame(), 2);
@@ -109,45 +126,77 @@ fn zero_frozen_paused_and_budgeted_offers_preserve_their_timing() {
     let dt = 1.0 / 30.0;
     let mut zero = GameLogic::new();
     let mut callbacks = 0;
-    let snap =
-        CnCGameEngine::host_update_logic_frame(&mut zero, false, dt * 0.5, None, Some(4), |_| {
-            callbacks += 1
-        });
+    let mut admitted = Vec::new();
+    let snap = CnCGameEngine::host_update_logic_frame(
+        &mut zero,
+        false,
+        dt * 0.5,
+        None,
+        Some(4),
+        |frame| admitted.push(frame),
+        |_| callbacks += 1,
+    );
     assert_eq!(callbacks, 0);
     assert_eq!(snap.frame, 0);
     assert_eq!(snap.steps_run, 0);
+    assert!(admitted.is_empty());
     assert_eq!(snap.accumulated_time_seconds, dt * 0.5);
 
     let mut frozen = GameLogic::new();
     frozen.set_script_time_frozen_for_test(true);
-    let snap =
-        CnCGameEngine::host_update_logic_frame(&mut frozen, false, 4.0 * dt, None, Some(2), |_| {
-            callbacks += 1
-        });
+    let snap = CnCGameEngine::host_update_logic_frame(
+        &mut frozen,
+        false,
+        4.0 * dt,
+        None,
+        Some(2),
+        |frame| admitted.push(frame),
+        |_| callbacks += 1,
+    );
     assert_eq!(callbacks, 0);
     assert_eq!(snap.frame, 0);
     assert_eq!(snap.steps_run, 0);
     assert!(snap.budget_hit);
     assert_eq!(frozen.fixed_step_diagnostics().frozen_steps, 2);
+    assert_eq!(
+        admitted,
+        vec![0, 0],
+        "each frozen script attempt observes the unchanged Client frame"
+    );
+    admitted.clear();
     assert!(snap.accumulated_time_seconds >= dt);
 
     let mut paused = GameLogic::new();
     paused.set_paused(true);
-    let snap = CnCGameEngine::host_update_logic_frame(&mut paused, true, dt, None, Some(1), |_| {
-        callbacks += 1
-    });
+    let snap = CnCGameEngine::host_update_logic_frame(
+        &mut paused,
+        true,
+        dt,
+        None,
+        Some(1),
+        |frame| admitted.push(frame),
+        |_| callbacks += 1,
+    );
     assert_eq!(snap, SimTimingSnapshot::default());
     assert!(paused.is_paused());
+    assert!(admitted.is_empty());
     assert_eq!(callbacks, 0);
-    let snap =
-        CnCGameEngine::host_update_logic_frame(&mut paused, false, dt, None, Some(1), |_| {
-            callbacks += 1
-        });
+    let snap = CnCGameEngine::host_update_logic_frame(
+        &mut paused,
+        false,
+        dt,
+        None,
+        Some(1),
+        |frame| admitted.push(frame),
+        |_| callbacks += 1,
+    );
     assert_eq!(snap.steps_run, 1);
     assert!(!paused.is_paused());
     assert_eq!(callbacks, 1);
+    assert_eq!(admitted, vec![0]);
 
     for (budget, expected, dropped) in [(Some(4), 4, false), (None, 1, true)] {
+        admitted.clear();
         let mut logic = GameLogic::new();
         let mut frames = Vec::new();
         let snap = CnCGameEngine::host_update_logic_frame(
@@ -156,9 +205,11 @@ fn zero_frozen_paused_and_budgeted_offers_preserve_their_timing() {
             20.0 * dt,
             None,
             budget,
+            |frame| admitted.push(frame),
             |logic| frames.push(logic.get_frame()),
         );
         assert_eq!(frames, (1..=expected).collect::<Vec<_>>());
+        assert_eq!(admitted, (0..expected).collect::<Vec<_>>());
         assert_eq!(snap.steps_run, expected as usize);
         assert!(snap.budget_hit);
         assert_eq!(logic.fixed_step_diagnostics().dropped_excess_time, dropped);
@@ -227,7 +278,7 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
         }
         logic
     };
-    let assert_radar = |logic: &GameLogic, expected_online_transitions: u32| {
+    let assert_radar = |logic: &GameLogic, expected_transitions: (u32, u32)| {
         let owner = logic.get_player(0).expect("provider owner");
         let other = logic
             .get_player(1)
@@ -240,10 +291,13 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
         );
         assert!(!other.has_radar());
         assert_eq!(
-            logic.host_radar.online_transitions, expected_online_transitions,
+            (
+                logic.host_radar.online_transitions,
+                logic.host_radar.offline_transitions
+            ),
+            expected_transitions,
             "restoring a provider must not invent another online edge"
         );
-        assert_eq!(logic.host_radar.offline_transitions, 0);
         let dish = logic
             .host_objects()
             .values()
@@ -282,26 +336,38 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
             1.0 / 30.0,
             None,
             Some(1),
-            |logic| assert_radar(logic, 1),
+            |_| {},
+            |logic| assert_radar(logic, (1, 0)),
         );
         assert_eq!(snap.steps_run, 1);
         assert_eq!(snap.frame, expected_frame);
         completed_steps += snap.steps_run;
     }
     assert_eq!(completed_steps, 3);
-    assert_radar(&without_shadow, 1);
+    assert_radar(&without_shadow, (1, 0));
 
     let source = make_world();
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
     let snapshot = builder
         .create_world_snapshot(&source)
         .expect("pending radar snapshot");
-    let mut restored = GameLogic::new();
-    restored.templates = source.templates.clone();
+    // Recreate the map's prototype admission history on the receiving owner.
+    let mut restored = make_world();
+    let restored_transitions = (
+        restored.host_radar.online_transitions,
+        restored.host_radar.offline_transitions,
+    );
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("restore pending radar timer");
-    for (mut logic, expected_online_transitions) in [(source, 1), (restored, 0)] {
+    assert_eq!(
+        (
+            restored.host_radar.online_transitions,
+            restored.host_radar.offline_transitions
+        ),
+        restored_transitions
+    );
+    for (mut logic, expected_transitions) in [(source, (1, 0)), (restored, restored_transitions)] {
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         let mut completed_steps = 0;
@@ -312,10 +378,11 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
                 1.0 / 30.0,
                 None,
                 Some(1),
+                |_| {},
                 |owner| {
-                    assert_radar(owner, expected_online_transitions);
+                    assert_radar(owner, expected_transitions);
                     gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), owner);
-                    assert_radar(owner, expected_online_transitions);
+                    assert_radar(owner, expected_transitions);
                 },
             );
             assert_eq!(snap.steps_run, 1);
@@ -324,18 +391,31 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
         }
         assert_eq!(completed_steps, 3);
         assert_eq!(logic.get_frame(), 3);
-        assert_radar(&logic, expected_online_transitions);
+        assert_radar(&logic, expected_transitions);
     }
 
     // Ordinary production keeps its shadow enabled as an explicitly borrowed
     // observer. Exercise both a fresh owner and its real pending-timer restore.
     let ordinary_source = make_world();
-    let mut ordinary_restored = GameLogic::new();
-    ordinary_restored.templates = ordinary_source.templates.clone();
+    let mut ordinary_restored = make_world();
+    let ordinary_restored_transitions = (
+        ordinary_restored.host_radar.online_transitions,
+        ordinary_restored.host_radar.offline_transitions,
+    );
     builder
         .restore_from_snapshot(&snapshot, &mut ordinary_restored)
         .expect("restore ordinary pending radar timer");
-    for (mut logic, expected_online_transitions) in [(ordinary_source, 1), (ordinary_restored, 0)] {
+    assert_eq!(
+        (
+            ordinary_restored.host_radar.online_transitions,
+            ordinary_restored.host_radar.offline_transitions
+        ),
+        ordinary_restored_transitions
+    );
+    for (mut logic, expected_transitions) in [
+        (ordinary_source, (1, 0)),
+        (ordinary_restored, ordinary_restored_transitions),
+    ] {
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         let mut completed_steps = 0;
@@ -346,10 +426,11 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
                 1.0 / 30.0,
                 None,
                 Some(1),
+                |_| {},
                 |logic| {
-                    assert_radar(logic, expected_online_transitions);
+                    assert_radar(logic, expected_transitions);
                     gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), logic);
-                    assert_radar(logic, expected_online_transitions);
+                    assert_radar(logic, expected_transitions);
                 },
             );
             assert_eq!(snap.steps_run, 1);
@@ -358,6 +439,39 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
         }
         assert_eq!(completed_steps, 3);
         assert_eq!(logic.get_frame(), 3);
-        assert_radar(&logic, expected_online_transitions);
+        assert_radar(&logic, expected_transitions);
     }
+}
+
+#[cfg(feature = "game_client")]
+#[test]
+fn client_frame_is_admitted_before_each_actual_catchup_step() {
+    // GameLogic.cpp:3593-3596: setFrame precedes script/object callbacks.
+    let (mut logic, _, _) = fixture("CreationFrameBoundary", 100.0);
+    let mut client = game_client::core::game_client::GameClient::new().unwrap();
+    let mut admitted = Vec::new();
+    let mut completed = Vec::new();
+    let snapshot = CnCGameEngine::host_update_logic_frame(
+        &mut logic,
+        false,
+        // Leave a quarter-step margin so f32 subtraction admits all three
+        // budgeted steps; the production kernel still owns exact admission.
+        3.25 / 30.0,
+        None,
+        Some(3),
+        |frame| {
+            client.set_frame(frame);
+            admitted.push(frame);
+        },
+        |owner| completed.push(owner.frame),
+    );
+    assert_eq!(snapshot.steps_run, 3);
+    assert_eq!(admitted, vec![0, 1, 2]);
+    assert_eq!(completed, vec![1, 2, 3]);
+    assert_eq!(
+        client.get_frame(),
+        2,
+        "presentation retains last executed client frame"
+    );
+    assert_eq!(logic.frame, 3, "logic has advanced to its next frame");
 }

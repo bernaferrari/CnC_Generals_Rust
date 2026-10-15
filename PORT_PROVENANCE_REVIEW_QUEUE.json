@@ -21094,6 +21094,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/client_clock_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/client_types.rs"
             },
@@ -21226,6 +21231,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/xfer_adapters.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/xfer_client_frame_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GameClient.cpp",
@@ -189643,7 +189653,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "02cee89afb6696f3bf989c22e17b2da15798c4d8e98463baca116a988aa781e3",
+  "provenance_input_digest": "1051e6fa78b3016da0a10eef69511aa2c3430184db3ffe8b2b8c00d68ae9077a",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

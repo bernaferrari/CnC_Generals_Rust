@@ -25,6 +25,9 @@ pub mod common;
 pub mod game_network;
 pub mod memory;
 
+pub mod client_frame;
+pub use client_frame::ClientFrameContext;
+
 pub mod custom_match_preferences;
 pub mod errors;
 pub mod skirmish_preferences;

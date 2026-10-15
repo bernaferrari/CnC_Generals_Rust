@@ -2368,12 +2368,20 @@ impl CnCGameEngine {
             let presentation_entity_count = &mut self.last_gameworld_presentation_entity_count;
             let tracked_carriers = &self.physical_gather_carrier_ids;
             let playability = &mut self.interactive_playability;
+            #[cfg(feature = "game_client")]
+            let client = &mut self.game_client;
             let snap = Self::host_update_logic_frame(
                 &mut self.game_logic,
                 self.game_paused,
                 dt,
                 self.last_frame_timing.as_ref(),
                 headless_step_budget,
+                |frame| {
+                    #[cfg(feature = "game_client")]
+                    client.set_frame(frame);
+                    #[cfg(not(feature = "game_client"))]
+                    let _ = frame;
+                },
                 |logic| {
                     Self::host_drain_physical_gather_dropoffs(
                         logic,
@@ -2469,8 +2477,8 @@ impl CnCGameEngine {
     pub(super) fn host_tick_game_client_presentation_shell(&mut self) {
         // C++ GameLogic::update setFrame(TheGameLogic->getFrame()) before client update.
         // Extra presents with the same host frame freeze drawable/FX time.
-        #[cfg(feature = "game_client")]
-        self.game_client.set_frame(self.game_logic.frame);
+        // The actual client frame is admitted before each logic step, including catch-up.
+        // Presentation must retain the last executed frame rather than the next logic frame.
         // Wave 587: process Main-injected device state before shell UI residual.
         // inject_game_client_* already wrote this client's devices from OS events;
         // update_input only runs Keyboard/Mouse::update bookkeeping (no second OS poll).

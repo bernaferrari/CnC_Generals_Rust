@@ -206,6 +206,18 @@ impl GameLogic {
         budget: Option<usize>,
         after_step: impl FnMut(&mut Self),
     ) -> SimTimingSnapshot {
+        // Standalone/headless callers have no client owner to advance.
+        self.tick_logic_frame_with_client_frame(dt, timing, budget, |_| {}, after_step)
+    }
+
+    pub(crate) fn tick_logic_frame_with_client_frame(
+        &mut self,
+        dt: f32,
+        timing: Option<&FrameTiming>,
+        budget: Option<usize>,
+        mut before_step: impl FnMut(u32),
+        after_step: impl FnMut(&mut Self),
+    ) -> SimTimingSnapshot {
         let (delta_time, absolute_time) = timing
             .map(|timing| (timing.delta_seconds(), Some(timing.total_seconds())))
             .unwrap_or((dt, None));
@@ -213,7 +225,10 @@ impl GameLogic {
             delta_time,
             absolute_time,
             budget.map(|budget| budget.max(1)),
-            |logic, fixed_dt| logic.update_simulation(fixed_dt),
+            |logic, fixed_dt| {
+                before_step(logic.frame);
+                logic.update_simulation(fixed_dt)
+            },
             after_step,
         );
         self.sim_timing_snapshot()
@@ -315,7 +330,7 @@ impl GameLogic {
                         self.accumulated_time -= FIXED_TIMESTEP;
                         // C++ m_frame++ (GameLogic.cpp:3795-3803): this loop is
                         // the single frame/sim-time advancement owner.
-                        self.frame += 1;
+                        self.frame = self.frame.wrapping_add(1);
                         self.host_trigger_world
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
@@ -2214,5 +2229,31 @@ mod tests {
             .expect("first owner scope");
         assert!(!first.host_logic_step_active);
         drop_pending_clear_game_data();
+    }
+    #[test]
+    fn empty_scheduler_clock_boundary_admits_maximum_then_wraps_logic_once() {
+        let mut logic = GameLogic::new();
+        // Isolate UnsignedInt frame arithmetic. C++ sleepy priorities have a
+        // 30-bit wake domain; recurring updates cannot complete at u32::MAX.
+        // This is not a claim that a full match supports that frame value.
+        for kind in super::super::HostSleepyKind::ALL {
+            assert!(logic.host_sleepy.erase(kind));
+        }
+        assert_eq!(logic.host_sleepy.len(), 0);
+        logic.frame = u32::MAX;
+        let mut admitted = Vec::new();
+        let mut completed = Vec::new();
+        let snapshot = logic.tick_logic_frame_with_client_frame(
+            LOGIC_FRAME_TIMESTEP,
+            None,
+            Some(1),
+            |frame| admitted.push(frame),
+            |owner| completed.push(owner.frame),
+        );
+        assert_eq!(admitted, vec![u32::MAX]);
+        assert_eq!(completed, vec![0]);
+        assert_eq!(snapshot.steps_run, 1);
+        assert_eq!(snapshot.frame, 0);
+        assert_eq!(logic.frame, 0);
     }
 }

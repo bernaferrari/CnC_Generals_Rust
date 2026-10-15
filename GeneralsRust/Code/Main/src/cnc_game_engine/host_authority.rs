@@ -188,12 +188,22 @@ impl CnCGameEngine {
             let _ = budget;
             return;
         }
-        let snap = match self.host_game_logic_mut().apply_host_support_op(
-            crate::game_logic::HostSupportOp::UpdateShellWithBudget { dt, budget },
-        ) {
-            crate::game_logic::HostSupportResult::Snapshot(s) => s,
-            _ => return,
-        };
+        // Shell scripts use the same receiving client phase as match scripts.
+        // Keep the existing bounded fixed-step kernel and pause decision.
+        #[cfg(feature = "game_client")]
+        let client = &mut self.game_client;
+        let snap = self.game_logic.tick_logic_frame_with_client_frame(
+            dt,
+            None,
+            Some(budget),
+            |frame| {
+                #[cfg(feature = "game_client")]
+                client.set_frame(frame);
+                #[cfg(not(feature = "game_client"))]
+                let _ = frame;
+            },
+            |_| {},
+        );
         self.host_stamp_sim_timing_from_snapshot(snap);
     }
 
@@ -210,6 +220,7 @@ impl CnCGameEngine {
         dt: f32,
         timing: Option<&FrameTiming>,
         budget: Option<usize>,
+        before_step: impl FnMut(u32),
         after_step: impl FnMut(&mut crate::game_logic::GameLogic),
     ) -> crate::game_logic::SimTimingSnapshot {
         if game_paused {
@@ -219,7 +230,7 @@ impl CnCGameEngine {
         if logic.is_paused() {
             logic.set_paused(false);
         }
-        logic.tick_logic_frame_with_boundary(dt, timing, budget, after_step)
+        logic.tick_logic_frame_with_client_frame(dt, timing, budget, before_step, after_step)
     }
 
     /// Wave 908: stamp sim timing residuals from a post-tick snapshot payload.

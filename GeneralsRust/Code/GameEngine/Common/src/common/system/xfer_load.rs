@@ -16,6 +16,7 @@ pub struct XferLoad<R: Read> {
     identifier: String,
     options: u32,
     post_process_snapshot_callback: Option<Box<dyn FnMut()>>,
+    client_frame_context: Option<crate::ClientFrameContext>,
 }
 
 impl<R: Read> XferLoad<R> {
@@ -27,6 +28,7 @@ impl<R: Read> XferLoad<R> {
             identifier: String::new(),
             options: 0,
             post_process_snapshot_callback: None,
+            client_frame_context: None,
         }
     }
 
@@ -162,6 +164,18 @@ impl<R: Read + Seek> XferLoadWithCRC<R> {
 }
 
 impl<R: Read> Xfer for XferLoad<R> {
+    fn client_frame_context(&self) -> Result<crate::ClientFrameContext, XferStatus> {
+        self.client_frame_context.ok_or(XferStatus::InvalidData)
+    }
+
+    fn set_client_frame_context(
+        &mut self,
+        context: crate::ClientFrameContext,
+    ) -> Result<(), XferStatus> {
+        self.client_frame_context = Some(context);
+        Ok(())
+    }
+
     fn get_xfer_mode(&self) -> XferMode {
         XferMode::Load
     }
@@ -183,11 +197,13 @@ impl<R: Read> Xfer for XferLoad<R> {
     }
 
     fn open(&mut self, identifier: &str) -> Result<(), XferStatus> {
+        self.client_frame_context = None;
         self.identifier = identifier.to_string();
         Ok(())
     }
 
     fn close(&mut self) -> Result<(), XferStatus> {
+        self.client_frame_context = None;
         Ok(())
     }
 

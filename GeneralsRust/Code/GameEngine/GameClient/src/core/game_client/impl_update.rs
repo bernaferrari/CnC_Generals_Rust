@@ -19,7 +19,8 @@ impl GameClient {
             .as_secs_f32();
         self.last_update_time = current_time;
 
-        self.frame = self.frame.wrapping_add(1);
+        // GameLogic owns admission of the client frame (GameLogic.cpp:3593-3596).
+        // Presenting or updating UI never advances simulation time.
         publish_live_game_client_frame(self);
 
         self.create_frame_tick_message()?;
@@ -1442,7 +1443,8 @@ impl GameClient {
 
         let current_time = Instant::now();
         self.last_update_time = current_time;
-        self.frame = self.frame.wrapping_add(1);
+        // GameLogic owns admission of the client frame (GameLogic.cpp:3593-3596).
+        // Presenting or updating UI never advances simulation time.
         publish_live_game_client_frame(self);
 
         self.create_frame_tick_message()?;

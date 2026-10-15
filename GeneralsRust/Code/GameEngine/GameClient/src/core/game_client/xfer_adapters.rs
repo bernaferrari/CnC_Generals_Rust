@@ -87,6 +87,21 @@ impl<'a> RuntimeCommonXferAdapter<'a> {
 }
 
 impl Xfer for RuntimeCommonXferAdapter<'_> {
+    fn client_frame_context(&self) -> Result<game_engine::ClientFrameContext, CommonXferStatus> {
+        self.inner
+            .client_frame_context()
+            .map_err(runtime_status_to_common)
+    }
+
+    fn set_client_frame_context(
+        &mut self,
+        context: game_engine::ClientFrameContext,
+    ) -> Result<(), CommonXferStatus> {
+        self.inner
+            .set_client_frame_context(context)
+            .map_err(runtime_status_to_common)
+    }
+
     fn get_xfer_mode(&self) -> CommonXferMode {
         match self.inner.get_xfer_mode() {
             RuntimeXferMode::Invalid => CommonXferMode::Invalid,
@@ -166,6 +181,9 @@ pub(crate) fn xfer_live_game_client_state(
     xfer: &mut dyn RuntimeXfer,
 ) -> Result<(), RuntimeXferStatus> {
     with_live_game_client_mut(|client| {
+        if xfer.get_xfer_mode() == RuntimeXferMode::Load {
+            xfer.set_client_frame_context(game_engine::ClientFrameContext::Frame(client.frame))?;
+        }
         let current_version: u8 = 3;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)?;
@@ -174,6 +192,11 @@ pub(crate) fn xfer_live_game_client_state(
         // the C++-ordered envelope was introduced.
         if version <= 1 {
             xfer.xfer_unsigned_int(&mut client.frame)?;
+            if xfer.get_xfer_mode() == RuntimeXferMode::Load {
+                xfer.set_client_frame_context(game_engine::ClientFrameContext::Frame(
+                    client.frame,
+                ))?;
+            }
             xfer.xfer_int(&mut client.local_player_id)?;
             xfer.xfer_unsigned_int(&mut client.rendered_object_count)?;
 
@@ -209,6 +232,9 @@ pub(crate) fn xfer_live_game_client_state(
         // C++ parity envelope:
         // v3, frame, drawable TOC, drawable archive blocks, briefing history (v2+)
         xfer.xfer_unsigned_int(&mut client.frame)?;
+        if xfer.get_xfer_mode() == RuntimeXferMode::Load {
+            xfer.set_client_frame_context(game_engine::ClientFrameContext::Frame(client.frame))?;
+        }
         {
             let mut adapter = RuntimeCommonXferAdapter::new(xfer);
             client

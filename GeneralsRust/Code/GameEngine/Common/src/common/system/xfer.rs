@@ -166,6 +166,21 @@ impl RealRange {
 /// Main Xfer trait - matches C++ Xfer class (Xfer.h lines 87-163)
 /// This is the base interface for all data transfer operations
 pub trait Xfer {
+    /// Exact receiving Client clock for this operation. Unknown is an error,
+    /// distinct from the explicitly headless NoPresentation capability.
+    fn client_frame_context(&self) -> Result<crate::ClientFrameContext, XferStatus> {
+        Err(XferStatus::InvalidData)
+    }
+
+    /// The receiving driver seeds this capability; Client Xfer updates it only
+    /// after decoding its own frame header, at the original load phase.
+    fn set_client_frame_context(
+        &mut self,
+        _context: crate::ClientFrameContext,
+    ) -> Result<(), XferStatus> {
+        Err(XferStatus::InvalidData)
+    }
+
     /// Get the current xfer mode - matches C++ line 95
     fn get_xfer_mode(&self) -> XferMode;
 

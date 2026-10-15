@@ -17,6 +17,7 @@ pub mod xfer;
 
 pub use crate::error::GameLogicError as GameError;
 pub use crate::error::{GameLogicError, GameLogicResult};
+pub use game_engine::ClientFrameContext;
 pub use legacy_module::LegacyModuleData;
 
 // Re-export types for convenience

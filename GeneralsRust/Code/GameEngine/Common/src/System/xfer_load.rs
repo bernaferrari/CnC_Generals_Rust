@@ -15,6 +15,7 @@ pub struct XferLoad {
     base: XferBase,
     file: Option<File>,
     post_process_snapshot_callback: Option<Box<dyn FnMut()>>,
+    client_frame_context: Option<crate::ClientFrameContext>,
 }
 
 impl XferLoad {
@@ -24,6 +25,7 @@ impl XferLoad {
             base: XferBase::new(XferMode::Load),
             file: None,
             post_process_snapshot_callback: None,
+            client_frame_context: None,
         }
     }
 
@@ -47,6 +49,18 @@ impl Drop for XferLoad {
 }
 
 impl Xfer for XferLoad {
+    fn client_frame_context(&self) -> Result<crate::ClientFrameContext, XferStatus> {
+        self.client_frame_context.ok_or(XferStatus::InvalidData)
+    }
+
+    fn set_client_frame_context(
+        &mut self,
+        context: crate::ClientFrameContext,
+    ) -> Result<(), XferStatus> {
+        self.client_frame_context = Some(context);
+        Ok(())
+    }
+
     fn get_xfer_mode(&self) -> XferMode {
         self.base.xfer_mode
     }
@@ -78,6 +92,10 @@ impl Xfer for XferLoad {
             return Err(XferStatus::FileAlreadyOpen);
         }
 
+        // This file starts a new receiving operation. Its driver must admit
+        // a clock after opening; a previous file's capability cannot carry over.
+        self.client_frame_context = None;
+
         // Call base class
         self.base.open_base(identifier.clone());
 
@@ -108,6 +126,7 @@ impl Xfer for XferLoad {
         // Clear the filename
         self.base.identifier.clear();
         self.post_process_snapshot_callback = None;
+        self.client_frame_context = None;
 
         Ok(())
     }
@@ -223,8 +242,8 @@ impl Xfer for XferLoad {
     /// # Safety
     /// The caller must ensure that `data` points to a valid mutable buffer
     /// of at least `data_size` bytes.
-        // SAFETY: caller contract — data valid for writes of data_size;
-        // read_exact fills exactly that many bytes.
+    // SAFETY: caller contract — data valid for writes of data_size;
+    // read_exact fills exactly that many bytes.
     unsafe fn xfer_implementation(
         &mut self,
         data: *mut u8,

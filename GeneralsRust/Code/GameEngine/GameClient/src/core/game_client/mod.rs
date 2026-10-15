@@ -198,3 +198,9 @@ pub const GAME_CLIENT_SRC: &str = concat!(
     include_str!("leftover.rs"),
     include_str!("template_modules.rs"),
 );
+
+#[cfg(test)]
+mod xfer_client_frame_tests;
+
+#[cfg(test)]
+mod client_clock_tests;

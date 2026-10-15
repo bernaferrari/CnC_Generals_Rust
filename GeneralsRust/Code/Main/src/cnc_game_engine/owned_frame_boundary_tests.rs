@@ -5,10 +5,17 @@ use super::*;
 
 fn advance_owned(logic: &mut GameLogic, shadow: Option<&mut GameWorldShadow>) {
     let mut shadow = shadow;
-    let snapshot =
-        CnCGameEngine::host_update_logic_frame(logic, false, 1.0 / 30.0, None, Some(1), |owner| {
+    let snapshot = CnCGameEngine::host_update_logic_frame(
+        logic,
+        false,
+        1.0 / 30.0,
+        None,
+        Some(1),
+        |_| {},
+        |owner| {
             gameworld_shadow::run_owned_host_boundary(shadow.as_deref_mut(), owner);
-        });
+        },
+    );
     assert_eq!(snapshot.steps_run, 1);
 }
 
@@ -41,8 +48,10 @@ fn ordinary_shadow_frames_preserve_owned_timer_deadlines_and_save_continuation_c
 
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&source).unwrap();
-    let mut restored = GameLogic::new();
-    restored.templates = source.templates.clone();
+    // Native restore requires the receiving map's actual team definitions.
+    // Re-admit the same content rather than sharing the source factory.
+    let (mut restored, restored_id, _) = fixture("OwnedFrameTimers", 100.0);
+    assert_eq!(restored_id, id);
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
