@@ -22,6 +22,7 @@ fn startup_camera_terrain_frame(
     // BaseHeightMap camera query uses raw logical coordinates plus its border.
     frame.world_env.world_min = [100.0, 0.0, 100.0];
     frame.world_env.world_max = [110.0, 0.0, 110.0];
+    frame.world_env.height_samples_from_terrain = true;
     frame.world_env.height_grid_w = 2;
     frame.world_env.height_grid_h = 2;
     frame.world_env.height_samples = vec![777.0; 4];
