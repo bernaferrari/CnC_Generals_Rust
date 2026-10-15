@@ -1003,16 +1003,33 @@ mod map_singleton_owner_tests {
         let mut world = GameLogic::new();
         world.add_player(Player::new(1, Team::USA, "MapOwner", false));
         let mut template = ThingTemplate::new("MapCallbackInfantry");
-        template.add_kind_of(KindOf::Infantry);
+        template.add_kind_of(KindOf::Infantry).set_health(100.0);
         world.templates.insert(template.name.clone(), template);
         world.install_owned_script_engine(interpreter());
         world
+    }
+
+    fn prototype_identity(world: &GameLogic) -> Vec<(String, u32)> {
+        let factory = world.team_factory.lock().unwrap();
+        factory
+            .prototype_names()
+            .into_iter()
+            .map(|name| {
+                let id = factory.find_team_prototype(&name).unwrap().get_id();
+                (name, id)
+            })
+            .collect()
     }
 
     #[test]
     fn singleton_callbacks_run_in_admission_order_before_new_map_reset_and_preserve_objects() {
         let mut owner = world();
         let mut peer = world();
+        let peer_definitions = prototype_identity(&peer);
+        assert!(
+            !peer_definitions.is_empty(),
+            "player admission creates its default team"
+        );
         peer.owned_script_engine
             .as_ref()
             .unwrap()
@@ -1072,13 +1089,7 @@ mod map_singleton_owner_tests {
             "placed objects append after callback-created objects"
         );
         assert!(peer.objects.is_empty());
-        assert!(
-            peer.team_factory
-                .lock()
-                .unwrap()
-                .prototype_names()
-                .is_empty()
-        );
+        assert_eq!(prototype_identity(&peer), peer_definitions);
         assert_eq!(
             peer.owned_script_engine
                 .as_ref()
@@ -1093,6 +1104,11 @@ mod map_singleton_owner_tests {
     #[test]
     fn map_team_admission_without_owned_interpreter_fails_before_factory_mutation() {
         let mut owner = world();
+        let definitions = prototype_identity(&owner);
+        assert!(
+            !definitions.is_empty(),
+            "player admission creates its default team"
+        );
         owner.owned_script_engine = None;
         assert!(
             !owner.sync_legacy_team_factory_from_team_dicts(&[definition(
@@ -1100,14 +1116,7 @@ mod map_singleton_owner_tests {
                 "FirstCallback"
             )])
         );
-        assert!(
-            owner
-                .team_factory
-                .lock()
-                .unwrap()
-                .prototype_names()
-                .is_empty()
-        );
+        assert_eq!(prototype_identity(&owner), definitions);
         assert!(owner.objects.is_empty());
         assert!(!owner.finish_map_script_foundation());
     }

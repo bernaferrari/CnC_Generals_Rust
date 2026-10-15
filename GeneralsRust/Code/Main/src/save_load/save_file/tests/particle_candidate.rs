@@ -232,42 +232,48 @@ mod particle_companion_runtime_control {
 
     #[test]
     fn particle_companion_runtime_interleaved_archive_restore_uses_a_not_pending_b() {
-        let position_a = Vec3::new(12.0, 23.0, 34.0);
-        let position_b = Vec3::new(56.0, 67.0, 78.0);
-        let payload_a = native_payload("OldCompatibleParticleA", position_a);
-        let payload_b = native_payload("OldCompatibleParticleB", position_b);
-        with_client_particle_manager(|manager| {
-            manager.reset().unwrap();
-            for name in ["OldCompatibleParticleA", "OldCompatibleParticleB"] {
-                let mut template = ParticleSystemTemplate::new(name.into());
-                template.info_mut().system_lifetime = 1000;
-                manager.register_template(Arc::new(template));
-            }
-        })
-        .unwrap();
-        let archive_a = archive_with_raw_particle_chunk(payload_a);
-        let archive_b = archive_with_raw_particle_chunk(payload_b);
-        let (candidate_a, _) =
-            SaveFileManager::read_common_sav_chunks(&archive_a, Path::new("")).unwrap();
-        let (_candidate_b, _) =
-            SaveFileManager::read_common_sav_chunks(&archive_b, Path::new("")).unwrap();
-        // OLD407's shared pending slot now contains B. Restoring A must use
-        // A's actual native archive, irrespective of later candidate parsing.
-        let mut receiving_world = GameLogic::new();
-        SnapshotBuilder::new()
-            .restore_from_snapshot(&candidate_a, &mut receiving_world)
-            .unwrap();
-        with_client_particle_manager(|manager| {
-            assert_eq!(manager.active_system_count(), 1);
-            let actual = manager.find_particle_system(1).unwrap();
-            assert_eq!(
-                actual.position(),
-                position_a,
-                "restoring A consumed B's pending native particle payload"
-            );
-            assert_eq!(actual.template().name(), "OldCompatibleParticleA");
-            manager.reset().unwrap();
-        })
-        .unwrap();
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "particle_companion_runtime_interleaved_archive_restore_uses_a_not_pending_b",
+            || {
+                let position_a = Vec3::new(12.0, 23.0, 34.0);
+                let position_b = Vec3::new(56.0, 67.0, 78.0);
+                let payload_a = native_payload("OldCompatibleParticleA", position_a);
+                let payload_b = native_payload("OldCompatibleParticleB", position_b);
+                with_client_particle_manager(|manager| {
+                    manager.reset().unwrap();
+                    for name in ["OldCompatibleParticleA", "OldCompatibleParticleB"] {
+                        let mut template = ParticleSystemTemplate::new(name.into());
+                        template.info_mut().system_lifetime = 1000;
+                        manager.register_template(Arc::new(template));
+                    }
+                })
+                .unwrap();
+                let archive_a = archive_with_raw_particle_chunk(payload_a);
+                let archive_b = archive_with_raw_particle_chunk(payload_b);
+                let (candidate_a, _) =
+                    SaveFileManager::read_common_sav_chunks(&archive_a, Path::new("")).unwrap();
+                let (_candidate_b, _) =
+                    SaveFileManager::read_common_sav_chunks(&archive_b, Path::new("")).unwrap();
+                // OLD407's shared pending slot now contains B. Restoring A must use
+                // A's actual native archive, irrespective of later candidate parsing.
+                let mut receiving_world = GameLogic::new();
+                SnapshotBuilder::new()
+                    .restore_from_snapshot(&candidate_a, &mut receiving_world)
+                    .unwrap();
+                with_client_particle_manager(|manager| {
+                    assert_eq!(manager.active_system_count(), 1);
+                    let actual = manager.find_particle_system(1).unwrap();
+                    assert_eq!(
+                        actual.position(),
+                        position_a,
+                        "restoring A consumed B's pending native particle payload"
+                    );
+                    assert_eq!(actual.template().name(), "OldCompatibleParticleA");
+                    manager.reset().unwrap();
+                })
+                .unwrap();
+            },
+        );
     }
 }
