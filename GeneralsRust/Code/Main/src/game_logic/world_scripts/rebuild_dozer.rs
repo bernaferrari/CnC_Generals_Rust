@@ -318,7 +318,7 @@ impl GameLogic {
         let captured_owner_player_id = self.player_owner_for_host_object(object);
 
         // Object.cpp:4514: aiIdle precedes score credit and module callbacks.
-        if owner_changed {
+        if owner_changed && object.has_ai_update_interface() {
             if let Some(object) = self.objects.get_mut(&object_id) {
                 object.stop_moving();
                 object.set_status_moving(false);
@@ -327,10 +327,13 @@ impl GameLogic {
             }
             self.clear_target_decision_aware(object_id);
         }
-        if let Some(player) =
-            captured_owner_player_id.and_then(|player_id| self.get_player_mut(player_id))
+        // ScoreKeeper.cpp:196–224 counts structures only, with scoring enabled.
+        if self.is_scoring_enabled()
+            && self.objects.get(&object_id).is_some_and(|object| object.is_kind_of(KindOf::Structure))
         {
-            player.record_object_captured();
+            if let Some(player) = captured_owner_player_id.and_then(|player_id| self.get_player_mut(player_id)) {
+                player.record_object_captured();
+            }
         }
 
         // Module callbacks run even for different teams controlled by one player.

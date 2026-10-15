@@ -163,8 +163,10 @@ impl GameLogic {
         if old_identity.is_some() {
             self.on_capture_object_owned(id, old_faction, faction, old_owner != Some(owner));
         }
-        self.host_radar_remove_object(id);
-        self.host_radar_add_object(id);
+        if self.radar.contains_object(id.0) {
+            self.host_radar_remove_object(id);
+            self.host_radar_add_object(id);
+        }
         if old_owner != Some(owner) || old_faction != faction {
             self.ownership_events.record(id, faction, Some(owner));
         }
@@ -230,8 +232,10 @@ impl GameLogic {
                 object.set_ai_state(AIState::Idle);
             }
         }
-        self.stop_attack_decision_aware(id);
-        self.clear_target_decision_aware(id);
+        if self.objects.get(&id).is_some_and(Object::has_ai_update_interface) {
+            self.stop_attack_decision_aware(id);
+            self.clear_target_decision_aware(id);
+        }
         if let Some(event) = voice_defect {
             self.queue_audio_event(
                 AudioEventRequest::new(&event)

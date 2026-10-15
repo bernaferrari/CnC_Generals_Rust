@@ -1001,21 +1001,18 @@ impl Object {
         if let Some(presence) = self.thing.template.authored_ai_update_interface() {
             return presence;
         }
-        match leftover_stun_template_has_ai_update(&self.template_name) {
-            Some(has) => has,
-            None => {
-                if self.is_kind_of(KindOf::Mine)
-                    || self.is_kind_of(KindOf::Projectile)
-                    || self.is_kind_of(KindOf::Crate)
-                {
-                    return false;
-                }
-                if self.is_kind_of(KindOf::Structure) || self.is_kind_of(KindOf::Immobile) {
-                    return self.can_attack() || self.weapon.is_some();
-                }
-                self.is_mobile()
-            }
+        // Synthesized test/tool templates have no authored module inventory.
+        // Their local fallback must not discover another session's definitions.
+        if self.is_kind_of(KindOf::Mine)
+            || self.is_kind_of(KindOf::Projectile)
+            || self.is_kind_of(KindOf::Crate)
+        {
+            return false;
         }
+        if self.is_kind_of(KindOf::Structure) || self.is_kind_of(KindOf::Immobile) {
+            return self.can_attack() || self.weapon.is_some();
+        }
+        self.is_mobile()
     }
 
     /// C++ PhysicsBehavior::testStunnedUnitForDestruction residual.
@@ -1485,22 +1482,4 @@ impl Object {
             )
         }
     }
-}
-
-/// C++ leftover `get_ai_update_interface().is_some()` via thing-factory modules.
-fn leftover_stun_template_has_ai_update(template_name: &str) -> Option<bool> {
-    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
-    let factory = guard.as_ref()?;
-    let tmpl = factory.find_template(template_name, false)?;
-    Some(
-        tmpl.get_behavior_module_info()
-            .iter()
-            .any(|entry| leftover_stun_module_is_ai_update(entry.name.as_str())),
-    )
-}
-
-fn leftover_stun_module_is_ai_update(name: &str) -> bool {
-    name.eq_ignore_ascii_case("AIUpdateInterface")
-        || name.eq_ignore_ascii_case("AIUpdate")
-        || name.to_ascii_lowercase().ends_with("aiupdate")
 }

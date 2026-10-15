@@ -51,3 +51,6 @@ mod field_lifetime_owner_tests;
 
 #[cfg(test)]
 mod team_removal_owner_tests;
+
+#[cfg(test)]
+mod team_transfer_owner_tests;
