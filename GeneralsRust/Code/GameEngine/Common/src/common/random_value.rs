@@ -429,6 +429,23 @@ pub fn get_game_client_random_value_real(lo: f32, hi: f32) -> f32 {
     (random_val as f32 * MULT_FACTOR) * delta + lo
 }
 
+/// Run a fallible presentation-state decode with a private copy of the current
+/// client stream. Only successful admission advances the application stream.
+/// The operation must use its borrowed stream and never reenter client helpers.
+/// This uses the existing presentation synchronization boundary, not a second
+/// generator or a different random algorithm.
+pub fn with_game_client_random_transaction<T, E>(
+    operation: impl FnOnce(&mut RandomState) -> Result<T, E>,
+) -> Result<T, E> {
+    let mut stream = GAME_CLIENT_RANDOM
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut candidate = stream.clone();
+    let result = operation(&mut candidate)?;
+    *stream = candidate;
+    Ok(result)
+}
+
 /// Get game audio random real value
 pub fn get_game_audio_random_value_real(lo: f32, hi: f32) -> f32 {
     let delta = hi - lo;

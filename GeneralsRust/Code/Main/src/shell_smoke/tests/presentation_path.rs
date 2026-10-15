@@ -37,25 +37,39 @@ fn presentation_shell_update_is_wired() {
 
 fn presentation_particle_client_mirror_same_frame() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
+    let finalize = eng
+        .split("fn host_finalize_presentation_after_logic(&mut self)")
+        .nth(1)
+        .expect("real engine presentation finalization")
+        .split("    pub")
+        .next()
+        .unwrap();
+    let admission = finalize
+        .find(".backfill_client_systems(manager)")
+        .expect("receiving particle admission");
+    let freeze = finalize
+        .find("self.host_sync_shadow_and_build_presentation(true)")
+        .expect("real presentation freeze");
     assert!(
-        eng.contains("apply_particle_systems_to_client")
-            && eng.contains("Same-frame particle residual: backfill client ParticleSystemManager"),
-        "engine must apply presentation particles to client same frame"
+        admission < freeze,
+        "receiving IDs must be retained before the frame freezes"
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     assert!(
-        pf.contains("fn apply_particle_systems_to_client")
-            && pf.contains("mirror_spawn_to_client_manager")
+        !pf.contains("fn apply_particle_systems_to_client")
+            && !pf.contains("mirror_spawn_to_client_manager")
             && pf.contains("ParticleSystemSpawned"),
-        "presentation must backfill client particle mirrors"
+        "presentation must observe particle events without creating resources"
     );
     let cp = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/game_logic/combat_particles.rs"
+        "/src/game_logic/combat_particle_bindings.rs"
     ));
     assert!(
-        cp.contains("pub(crate) fn mirror_spawn_to_client_manager"),
-        "mirror helper must be callable from presentation residual"
+        cp.contains("pub(crate) fn backfill_client_systems")
+            && cp.contains("owner: manager.runtime_owner()")
+            && cp.contains("self.client_bindings.insert(id, binding)"),
+        "receiving registry must retain the actual creation receipt"
     );
 }
 

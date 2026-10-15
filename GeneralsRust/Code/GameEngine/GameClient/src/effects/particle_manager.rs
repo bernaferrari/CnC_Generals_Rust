@@ -12,14 +12,13 @@ use thiserror::Error;
 use crate::core::DrawableId;
 use crate::effects::particle_ini_loader::ParticleSystemINIParser;
 use crate::system::SubsystemInterface;
-use game_engine::System::XferVersion;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::get_game_client_random_value_real;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
 use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
-use game_engine::{Xfer, XferMode, XferStatus};
+use game_engine::{Xfer, XferStatus};
 use std::io::Cursor;
 
 // Authored primitives are owned by a renderer-independent crate. Runtime,
@@ -300,8 +299,27 @@ impl ParticleSystemTemplate {
     }
 }
 
-/// The particle system manager (matches C++ ParticleSystemManager)
+/// Identity of one actual system-ID namespace. Numeric IDs may be reused after
+/// reset/load; retaining this immutable token never shares manager mutation.
+#[derive(Debug, Clone)]
+pub struct ParticleSystemOwner(std::sync::Weak<()>);
+
+impl PartialEq for ParticleSystemOwner {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Weak::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Eq for ParticleSystemOwner {}
+impl ParticleSystemOwner {
+    /// Only the actual manager keeps this namespace alive; receipts cannot.
+    pub fn is_live(&self) -> bool {
+        self.0.strong_count() != 0
+    }
+}
+
+/// The particle system manager (matches C++ ParticleSystemManager).
 pub struct ParticleSystemManager {
+    runtime_owner: Arc<()>,
     pub(crate) templates: HashMap<String, Arc<ParticleSystemTemplate>>,
     active_systems: HashMap<ParticleSystemId, Box<ParticleSystem>>,
     /// C++ keeps `m_allParticleSystemList` in creation order. The lookup map
@@ -332,9 +350,18 @@ pub struct ParticleSystemManager {
 }
 
 impl ParticleSystemManager {
+    pub fn runtime_owner(&self) -> ParticleSystemOwner {
+        ParticleSystemOwner(Arc::downgrade(&self.runtime_owner))
+    }
+
+    fn renew_system_namespace(&mut self) {
+        self.runtime_owner = Arc::new(());
+    }
+
     /// Create a new particle system manager
     pub fn new() -> Self {
         Self {
+            runtime_owner: Arc::new(()),
             templates: HashMap::new(),
             active_systems: HashMap::new(),
             active_system_order: Vec::new(),
@@ -1201,6 +1228,7 @@ impl SubsystemInterface for ParticleSystemManager {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Initialize the particle system manager
         self.templates.clear();
+        self.renew_system_namespace();
         self.active_systems.clear();
         self.active_system_order.clear();
         self.next_system_id = 1;
@@ -1226,6 +1254,7 @@ impl SubsystemInterface for ParticleSystemManager {
 
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Reset all systems and templates
+        self.renew_system_namespace();
         self.active_systems.clear();
         self.active_system_order.clear();
         self.next_system_id = 1;
@@ -1689,207 +1718,13 @@ pub fn initialize_particle_system_manager() -> Result<(), ParticleSystemError> {
     Ok(())
 }
 
-pub fn xfer_particle_system_manager_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-    let current_version: XferVersion = 1;
-    let mut version = current_version;
-    xfer.xfer_version(&mut version, current_version)?;
-
-    let mut manager_guard =
-        get_particle_system_manager_mut().map_err(|_| XferStatus::InvalidData)?;
-    let manager = manager_guard.get_or_insert_with(ParticleSystemManager::new);
-
-    xfer.xfer_unsigned_int(&mut manager.next_system_id)?;
-    // C++ saves the linked `m_allParticleSystemList` in its live creation
-    // order.  Preserve that order rather than serializing a hash-map order or
-    // sorting IDs, because alpha blending and subsequent update order remain
-    // observable after a load.
-    let system_ids = manager.active_system_ids_in_order();
-
-    let mut system_count = system_ids.len() as u32;
-    xfer.xfer_unsigned_int(&mut system_count)?;
-
-    if xfer.get_xfer_mode() == XferMode::Save {
-        for system_id in system_ids {
-            let Some(system) = manager.active_systems.get_mut(&system_id) else {
-                return Err(XferStatus::InvalidData);
-            };
-            let mut template_name = if system.is_destroyed() || !system.is_saveable() {
-                String::new()
-            } else {
-                system.template().name().to_string()
-            };
-            xfer.xfer_ascii_string(&mut template_name)?;
-            if template_name.is_empty() {
-                continue;
-            }
-            // C++ ParticleSys.cpp line 3273: `xferSnapshot(system)`.  The
-            // prior Rust bridge wrote a handful of headers only, losing the
-            // particles, transforms, timers, RNG personality, and attachment
-            // state on every save/load. `ParticleSystem` already owns the full
-            // Snapshotable parity implementation, so use it directly.
-            let mut adapter = crate::core::game_client::RuntimeCommonXferAdapter::new(xfer);
-            Snapshotable::xfer(&mut **system, &mut adapter).map_err(|_| XferStatus::InvalidData)?;
-        }
-    } else {
-        manager.active_systems.clear();
-        manager.active_system_order.clear();
-        manager.particle_count = 0;
-        manager.field_particle_count = 0;
-        manager.system_count = 0;
-        manager.on_screen_particle_count = 0;
-
-        for _ in 0..system_count {
-            let mut template_name = String::new();
-            xfer.xfer_ascii_string(&mut template_name)?;
-            if template_name.is_empty() {
-                continue;
-            }
-
-            let template = manager
-                .find_template(template_name.as_str())
-                .ok_or(XferStatus::InvalidData)?;
-            // Construct a temporary valid system, then let its exact
-            // Snapshotable implementation restore the serialized ID and all
-            // state just as C++ `xferSnapshot` does.
-            let mut system = Box::new(ParticleSystem::new(template, 1, false));
-            let mut adapter = crate::core::game_client::RuntimeCommonXferAdapter::new(xfer);
-            Snapshotable::xfer(&mut *system, &mut adapter).map_err(|_| XferStatus::InvalidData)?;
-            let system_id = system.system_id();
-            if system_id == INVALID_PARTICLE_SYSTEM_ID
-                || manager.active_systems.contains_key(&system_id)
-            {
-                return Err(XferStatus::InvalidData);
-            }
-            manager.next_system_id = manager.next_system_id.max(system_id.saturating_add(1));
-            manager.active_systems.insert(system_id, system);
-            manager.active_system_order.push(system_id);
-        }
-
-        manager.system_count = manager.active_systems.len();
-        manager.particle_count = manager
-            .active_systems
-            .values()
-            .map(|system| system.particle_count())
-            .sum();
-        manager.field_particle_count = manager.particle_count;
-    }
-
-    Ok(())
-}
-
-pub fn load_post_process_particle_system_manager_state() -> Result<(), XferStatus> {
-    let mut manager_guard =
-        get_particle_system_manager_mut().map_err(|_| XferStatus::InvalidData)?;
-    let Some(manager) = manager_guard.as_mut() else {
-        return Ok(());
-    };
-
-    let system_ids = manager.active_system_ids_in_order();
-    for system_id in system_ids {
-        let Some(system) = manager.active_systems.get_mut(&system_id) else {
-            continue;
-        };
-        Snapshotable::load_post_process(&mut **system).map_err(|_| XferStatus::InvalidData)?;
-    }
-
-    Ok(())
-}
-
-/// C++ `CHUNK_ParticleSystem` payload (`ParticleSys.cpp:3232-3323`).
-pub fn capture_live_particle_system_xfer_bytes() -> Result<Vec<u8>, String> {
-    let mut bytes = Vec::new();
-    {
-        let cursor = Cursor::new(&mut bytes);
-        let mut xfer = CommonXferSave::new(cursor, 1);
-        xfer_particle_system_manager_common(&mut xfer)?;
-    }
-    Ok(bytes)
-}
-
-pub fn restore_live_particle_system_from_xfer_bytes(bytes: &[u8]) -> Result<(), String> {
-    if bytes.is_empty() || (bytes.len() == 1 && bytes[0] == 1) {
-        return Ok(());
-    }
-    let mut xfer = CommonXferLoad::new(Cursor::new(bytes.to_vec()), 1);
-    xfer_particle_system_manager_common(&mut xfer)?;
-    load_post_process_particle_system_manager_state().map_err(|e| e.to_string())
-}
-
-fn xfer_particle_system_manager_common(xfer: &mut dyn CommonXfer) -> Result<(), String> {
-    let current_version: u8 = 1;
-    let mut version = current_version;
-    xfer.xfer_version(&mut version, current_version)
-        .map_err(|e| e.to_string())?;
-
-    let mut manager_guard = get_particle_system_manager_mut().map_err(|e| e.to_string())?;
-    let manager = manager_guard.get_or_insert_with(ParticleSystemManager::new);
-
-    xfer.xfer_unsigned_int(&mut manager.next_system_id)
-        .map_err(|e| e.to_string())?;
-    let system_ids = manager.active_system_ids_in_order();
-    let mut system_count = system_ids.len() as u32;
-    xfer.xfer_unsigned_int(&mut system_count)
-        .map_err(|e| e.to_string())?;
-
-    if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Save {
-        for system_id in system_ids {
-            let Some(system) = manager.active_systems.get_mut(&system_id) else {
-                return Err("missing particle system during save".into());
-            };
-            let mut template_name = if system.is_destroyed() || !system.is_saveable() {
-                String::new()
-            } else {
-                system.template().name().to_string()
-            };
-            xfer.xfer_ascii_string(&mut template_name)
-                .map_err(|e| e.to_string())?;
-            if template_name.is_empty() {
-                continue;
-            }
-            Snapshotable::xfer(&mut **system, xfer)?;
-        }
-    } else {
-        manager.active_systems.clear();
-        manager.active_system_order.clear();
-        manager.particle_count = 0;
-        manager.field_particle_count = 0;
-        manager.system_count = 0;
-        manager.on_screen_particle_count = 0;
-
-        for _ in 0..system_count {
-            let mut template_name = String::new();
-            xfer.xfer_ascii_string(&mut template_name)
-                .map_err(|e| e.to_string())?;
-            if template_name.is_empty() {
-                continue;
-            }
-            let template = manager
-                .find_template(template_name.as_str())
-                .ok_or_else(|| format!("unknown particle template '{template_name}'"))?;
-            let mut system = Box::new(ParticleSystem::new(template, 1, false));
-            Snapshotable::xfer(&mut *system, xfer)?;
-            let system_id = system.system_id();
-            if system_id == INVALID_PARTICLE_SYSTEM_ID
-                || manager.active_systems.contains_key(&system_id)
-            {
-                return Err("invalid restored particle system id".into());
-            }
-            manager.next_system_id = manager.next_system_id.max(system_id.saturating_add(1));
-            manager.active_systems.insert(system_id, system);
-            manager.active_system_order.push(system_id);
-        }
-
-        manager.system_count = manager.active_systems.len();
-        manager.particle_count = manager
-            .active_systems
-            .values()
-            .map(|system| system.particle_count())
-            .sum();
-        manager.field_particle_count = manager.particle_count;
-    }
-
-    Ok(())
-}
+#[path = "particle_manager/state.rs"]
+mod state;
+pub use state::{
+    ParticleSystemRestoreReceipt, capture_live_particle_system_xfer_bytes,
+    load_post_process_particle_system_manager_state, restore_live_particle_system_from_xfer_bytes,
+    xfer_particle_system_manager_state,
+};
 
 pub fn register_particle_system_manager_bridge() {
     let _ =

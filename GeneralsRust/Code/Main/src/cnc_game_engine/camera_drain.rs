@@ -2421,14 +2421,21 @@ impl CnCGameEngine {
         }
         // Wave 589: presentation finalize residual.
         // Wave 589/838/926: shadow sync + victory presentation build via single boundary.
+        // Admit actual client bindings into the receiving canonical registry
+        // before freezing observations. Presentation frames never emit systems.
+        let fx_n = crate::game_logic::combat_particles::with_client_particle_manager(|manager| {
+            self.game_logic
+                .combat_particles_mut()
+                .backfill_client_systems(manager)
+        })
+        .unwrap_or(0);
         let mut pres = self.host_sync_shadow_and_build_presentation(true);
         // Presentation → audio subsystem directly (no GameLogic dual-write mid-frame).
         let audio_n = pres.dispatch_audio_events_direct();
         if audio_n > 0 {
             log::trace!("presentation audio events dispatched: {audio_n}");
         }
-        // Same-frame particle residual: backfill client ParticleSystemManager.
-        let fx_n = pres.apply_particle_systems_to_client();
+        // Returned IDs already belong to the receiving canonical registry.
         if fx_n > 0 {
             log::trace!("presentation particle client mirrors: {fx_n}");
         }

@@ -25,6 +25,10 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, world: &GameLogic) {
 /// Locate the outer, EOF-framed admission suffix without interpreting earlier
 /// markers. Inner owner suffixes end exactly at this boundary.
 pub(super) fn suffix_start(bytes: &[u8]) -> SaveLoadResult<usize> {
+    super::combat_particle_attachment_persist::suffix_start(bytes)
+}
+
+pub(super) fn own_suffix_start(bytes: &[u8]) -> SaveLoadResult<usize> {
     let bytes = super::player_team_chunks::lifecycle_prefix(bytes)?;
     if !bytes.ends_with(MAGIC) {
         return Ok(bytes.len());

@@ -14,6 +14,22 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+#[path = "combat_particle_bindings.rs"]
+mod client_bindings;
+#[cfg(feature = "game_client")]
+pub(crate) use client_bindings::with_client_particle_manager;
+use client_bindings::{
+    ClientParticleBinding, can_retire_bindings, retire_client_binding, spawn_client_binding,
+};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CombatParticleAttachment {
+    pub owner: ObjectId,
+    pub local_offset: Vec3,
+    pub lifetime: Option<u32>,
+    pub local_z_rotation: f32,
+}
+
 /// One active combat particle system entry in the host registry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CombatParticleSystemEntry {
@@ -37,22 +53,25 @@ pub struct CombatParticleSystemEntry {
     /// C++ `ParticleSystem::setPosition` + `attachToObject` local bone space.
     #[serde(default)]
     pub attach_offset: Vec3,
+    /// Rebound from receiving save metadata; not positional historical bytes.
+    #[serde(skip)]
+    pub(crate) attachment: Option<CombatParticleAttachment>,
 }
 
 /// Lightweight host particle system registry for combat/build feedback.
 ///
 /// Independent of WGPU so unit tests and headless golden host paths can assert
 /// that kills/fires produce registry entries.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug)]
 pub struct CombatParticleRegistry {
     next_id: u32,
     systems: HashMap<u32, CombatParticleSystemEntry>,
-    /// Client particle-system ids created by this registry in the current run.
+    /// Actual manager namespace receipts keyed by canonical host particle ID.
     ///
     /// This is deliberately not part of a snapshot. A saved client id is only a
     /// historical handle and must never be destroyed by a newly restored host
     /// registry; live projectile exhausts rebind on their next update.
-    client_system_ids: HashSet<u32>,
+    client_bindings: HashMap<u32, ClientParticleBinding>,
     /// Destruction notifications for PresentationFrame events this frame.
     destroyed_this_frame: Vec<(ObjectId, Team)>,
     /// Particle ids spawned this frame (presentation event drain).
@@ -65,12 +84,18 @@ pub struct CombatParticleRegistry {
     current_frame: u32,
 }
 
+impl Default for CombatParticleRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CombatParticleRegistry {
     pub fn new() -> Self {
         Self {
             next_id: 1,
             systems: HashMap::new(),
-            client_system_ids: HashSet::new(),
+            client_bindings: HashMap::new(),
             destroyed_this_frame: Vec::new(),
             spawned_this_frame: Vec::new(),
             muzzle_flash_until: HashMap::new(),
@@ -78,15 +103,27 @@ impl CombatParticleRegistry {
         }
     }
 
-    pub fn clear(&mut self) {
-        for client_system_id in self.client_system_ids.drain() {
-            mirror_destroy_client_system(client_system_id);
+    pub(crate) fn can_clear(&self) -> bool {
+        can_retire_bindings(&self.client_bindings)
+    }
+
+    pub fn clear(&mut self) -> Result<(), String> {
+        if !self.can_clear() {
+            return Err("particle registry requires its actual live receiving manager".into());
+        }
+        for (_, binding) in self.client_bindings.drain() {
+            let retired = retire_client_binding(&binding);
+            debug_assert!(
+                retired,
+                "driving particle owner changed during synchronous clear"
+            );
         }
         self.systems.clear();
         self.destroyed_this_frame.clear();
         self.spawned_this_frame.clear();
         self.muzzle_flash_until.clear();
         self.next_id = 1;
+        Ok(())
     }
 
     /// Allocator cursor for next system id (survives save/load).
@@ -103,14 +140,15 @@ impl CombatParticleRegistry {
         &mut self,
         next_id: u32,
         systems: impl IntoIterator<Item = CombatParticleSystemEntry>,
-    ) {
-        self.clear();
+    ) -> Result<(), String> {
+        self.clear()?;
         let mut max_id = 0_u32;
         for entry in systems {
             max_id = max_id.max(entry.id);
             self.systems.insert(entry.id, entry);
         }
         self.next_id = next_id.max(max_id.saturating_add(1)).max(1);
+        Ok(())
     }
 
     pub fn active_count(&self) -> usize {
@@ -240,12 +278,7 @@ impl CombatParticleRegistry {
         self.current_frame = self.current_frame.max(frame);
         self.next_id = self.next_id.saturating_add(1).max(1);
 
-        let client_system_id = mirror_spawn_to_client_manager(&template_name, position);
-        if let Some(client_system_id) = client_system_id {
-            self.client_system_ids.insert(client_system_id);
-        }
-
-        let entry = CombatParticleSystemEntry {
+        let mut entry = CombatParticleSystemEntry {
             id,
             kind,
             template_name,
@@ -254,11 +287,16 @@ impl CombatParticleRegistry {
             target_object: target,
             spawned_frame: frame,
             active: true,
-            client_system_id,
+            client_system_id: None,
             fx_list_name: String::new(),
             ocl_list_name: String::new(),
             attach_offset: Vec3::ZERO,
+            attachment: None,
         };
+        if let Some(binding) = spawn_client_binding(&entry, &self.client_bindings) {
+            entry.client_system_id = Some(binding.id);
+            self.client_bindings.insert(id, binding);
+        }
         self.systems.insert(id, entry);
         self.spawned_this_frame.push(id);
         id
@@ -604,6 +642,7 @@ impl CombatParticleRegistry {
             fx_list_name: fx_list_name.to_string(),
             ocl_list_name: String::new(),
             attach_offset: Vec3::ZERO,
+            attachment: None,
         };
         self.systems.insert(id, entry);
         self.spawned_this_frame.push(id);
@@ -758,28 +797,7 @@ impl CombatParticleRegistry {
             );
         }
 
-        let current_client_id = self
-            .systems
-            .get(&existing_id)
-            .and_then(|entry| entry.client_system_id);
-        if let Some(client_system_id) = current_client_id
-            .filter(|client_system_id| self.client_system_ids.contains(client_system_id))
-        {
-            mirror_update_client_system_position(client_system_id, position);
-        } else {
-            // Snapshot ids are not safe to destroy or update. Recreate exactly
-            // this template and mark only the new id as host-owned.
-            if let Some(client_system_id) = current_client_id {
-                self.client_system_ids.remove(&client_system_id);
-            }
-            let client_system_id = mirror_spawn_to_client_manager(exhaust_name, position);
-            if let Some(client_system_id) = client_system_id {
-                self.client_system_ids.insert(client_system_id);
-            }
-            if let Some(entry) = self.systems.get_mut(&existing_id) {
-                entry.client_system_id = client_system_id;
-            }
-        }
+        self.update_client_position(existing_id, position);
 
         if let Some(entry) = self.systems.get_mut(&existing_id) {
             entry.position = position;
@@ -1101,18 +1119,17 @@ impl CombatParticleRegistry {
     }
 
     pub fn deactivate(&mut self, id: u32) {
-        let client_system_id = match self.systems.get_mut(&id) {
-            Some(entry) if entry.active => {
-                entry.active = false;
-                entry.client_system_id.take()
-            }
-            _ => None,
-        };
-        if let Some(client_system_id) = client_system_id {
-            if self.client_system_ids.remove(&client_system_id) {
-                mirror_destroy_client_system(client_system_id);
+        if let Some(binding) = self.client_bindings.get(&id) {
+            if !retire_client_binding(binding) {
+                return;
             }
         }
+        let Some(entry) = self.systems.get_mut(&id).filter(|entry| entry.active) else {
+            return;
+        };
+        entry.active = false;
+        entry.client_system_id = None;
+        self.client_bindings.remove(&id);
     }
 }
 
@@ -1449,21 +1466,10 @@ fn spawn_attached_system(
     let id = registry.next_id;
     registry.next_id = registry.next_id.saturating_add(1).max(1);
     registry.current_frame = registry.current_frame.max(frame);
+    // Existing host attachment pose bridge remains until particle simulation
+    // itself receives the driving Object pose explicitly.
     crate::game_logic::publish_host_fx_object(owner.0, origin, yaw, -1);
-
-    let cpp_local = host_local_to_cpp(local);
-    // C++ W3DModelDraw.cpp:2604-2611 setPosition then rotateLocalTransformZ then attach.
-    let leftover_id = gamelogic::helpers::attach_particle_system_to_object_local_oriented(
-        template,
-        owner.0,
-        Some(&cpp_local),
-        lifetime,
-        local_z_rot,
-    );
-    if let Some(client_id) = leftover_id {
-        registry.client_system_ids.insert(client_id);
-    }
-    let entry = CombatParticleSystemEntry {
+    let mut entry = CombatParticleSystemEntry {
         id,
         kind,
         template_name: template.to_string(),
@@ -1472,11 +1478,21 @@ fn spawn_attached_system(
         target_object: None,
         spawned_frame: frame,
         active: true,
-        client_system_id: leftover_id,
+        client_system_id: None,
         fx_list_name: String::new(),
         ocl_list_name: String::new(),
         attach_offset: local,
+        attachment: Some(CombatParticleAttachment {
+            owner,
+            local_offset: local,
+            lifetime,
+            local_z_rotation: local_z_rot,
+        }),
     };
+    if let Some(binding) = spawn_client_binding(&entry, &registry.client_bindings) {
+        entry.client_system_id = Some(binding.id);
+        registry.client_bindings.insert(id, binding);
+    }
     registry.systems.insert(id, entry);
     registry.spawned_this_frame.push(id);
     id
@@ -1577,60 +1593,6 @@ pub fn particle_sys_bones_for_template(
     bones
 }
 
-fn mirror_update_client_system_position(system_id: u32, position: Vec3) {
-    // Leftover ParticleSystemManager is Z-up; host world is Y-up.
-    let position = host_local_to_cpp(position);
-    if let Some(manager) = gamelogic::helpers::TheParticleSystemManager::get() {
-        manager.set_particle_system_position(system_id, &position);
-    }
-}
-
-fn mirror_destroy_client_system(system_id: u32) {
-    if let Some(manager) = gamelogic::helpers::TheParticleSystemManager::get() {
-        manager.destroy_particle_system(system_id);
-    }
-}
-
-/// Best-effort mirror into GameClient ParticleSystemManager so client registry
-/// also observes combat FX. No-op without `game_client` or when manager fails.
-/// Also used by presentation residual to backfill missing client ids same-frame.
-pub(crate) fn mirror_spawn_to_client_manager(template_name: &str, position: Vec3) -> Option<u32> {
-    #[cfg(feature = "game_client")]
-    {
-        use game_client::effects::{
-            ParticleSystemManager, get_particle_system_manager_mut,
-            initialize_particle_system_manager, register_particle_system_manager_bridge,
-        };
-
-        // Position/destroy updates go through GameLogic's C++-shaped bridge.
-        // Register it here too because combat can begin before full GameClient
-        // initialization in a host-driven match startup.
-        register_particle_system_manager_bridge();
-
-        // Ensure global manager exists (idempotent for tests/host).
-        if let Ok(guard) = get_particle_system_manager_mut() {
-            if guard.is_none() {
-                drop(guard);
-                let _ = initialize_particle_system_manager();
-            }
-        }
-
-        let Ok(mut guard) = get_particle_system_manager_mut() else {
-            return None;
-        };
-        let manager = guard.get_or_insert_with(ParticleSystemManager::new);
-        let leftover = host_local_to_cpp(position);
-        manager
-            .create_preset_system_xyz(template_name, leftover.x, leftover.y, leftover.z)
-            .ok()
-    }
-    #[cfg(not(feature = "game_client"))]
-    {
-        let _ = (template_name, position);
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1728,7 +1690,7 @@ mod tests {
         let next = reg.next_id();
 
         let mut loaded = CombatParticleRegistry::new();
-        loaded.restore_from_snapshot(next, snap);
+        loaded.restore_from_snapshot(next, snap).unwrap();
         assert_eq!(loaded.active_count(), 1);
         let entry = loaded.get(id).expect("restored system");
         assert!(entry.active);
@@ -2325,7 +2287,29 @@ mod tests {
         let src = include_str!("combat_particles.rs");
         assert!(src.contains("lookup_pristine_bone_pose"));
         assert!(src.contains("particle_sys_bone_pose"));
-        assert!(src.contains("attach_particle_system_to_object_local_oriented"));
+        assert!(src.contains("spawn_client_binding(&entry, &registry.client_bindings)"));
+        let bindings = include_str!("combat_particle_bindings.rs");
+        let attached = bindings
+            .split("fn create_binding(")
+            .nth(1)
+            .and_then(|body| body.split("    } else {").next())
+            .expect("actual receiving attached particle constructor");
+        let position = attached
+            .find("system.set_position(")
+            .expect("local position");
+        let rotation = attached
+            .find("system.rotate_local_transform_z(")
+            .expect("local Z rotation");
+        let attach = attached
+            .find("system.attach_to_object(")
+            .expect("actual object attachment");
+        let lifetime = attached
+            .find("system.set_system_lifetime(")
+            .expect("explicit lifetime");
+        assert!(
+            position < rotation && rotation < attach && attach < lifetime,
+            "receiving actual-system creation must preserve C++ position, rotation, attach, lifetime order"
+        );
         // Incremental Rotate_Z must not run on already-attached systems.
         let sync = src
             .split("pub fn sync_particle_sys_bones")

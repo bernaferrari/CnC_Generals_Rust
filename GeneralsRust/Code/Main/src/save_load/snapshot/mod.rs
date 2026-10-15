@@ -95,6 +95,7 @@ mod auto_deposit_persist;
 mod bridge_behavior_persist;
 mod chinook_ai_persist;
 mod cleanup_hazard_persist;
+mod combat_particle_attachment_persist;
 mod construction_completion_persist;
 mod deliver_payload_persist;
 mod dock_queue_persist;

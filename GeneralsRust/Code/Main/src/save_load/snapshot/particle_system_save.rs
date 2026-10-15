@@ -29,7 +29,9 @@ pub fn take_loaded_particle_system_xfer() -> Option<Vec<u8>> {
         .and_then(|mut slot| slot.take())
 }
 
-pub fn restore_particle_system_from_xfer_bytes(bytes: &[u8]) -> SaveLoadResult<()> {
+pub fn restore_particle_system_from_xfer_bytes(
+    bytes: &[u8],
+) -> SaveLoadResult<Option<game_client::effects::particle_manager::ParticleSystemRestoreReceipt>> {
     game_client::effects::restore_live_particle_system_from_xfer_bytes(bytes)
         .map_err(SaveLoadError::Serialization)
 }

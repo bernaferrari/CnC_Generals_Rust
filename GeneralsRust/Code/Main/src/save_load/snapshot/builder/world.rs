@@ -207,6 +207,7 @@ impl SnapshotBuilder {
                 super::super::player_academy_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
+                super::super::combat_particle_attachment_persist::append(&mut bytes, game_logic)?;
                 super::super::construction_completion_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
@@ -292,6 +293,13 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        if !game_logic.combat_particles().can_clear() {
+            return Err(SaveLoadError::Corrupted(
+                "snapshot replacement requires the actual live receiving particle manager".into(),
+            ));
+        }
+        let particle_attachments =
+            super::super::combat_particle_attachment_persist::decode_and_validate(snapshot)?;
         let projectile_continuation = super::super::combat_projectile_persist::decode(
             &snapshot.lifecycle_tail,
             snapshot.version >= 28,
@@ -418,7 +426,11 @@ impl SnapshotBuilder {
         }
         self.restore_ai_players(&snapshot.ai_players, game_logic)?;
         self.restore_special_power_strikes(&snapshot.special_power_strikes, game_logic)?;
-        self.restore_combat_particles(&snapshot.combat_particles, game_logic)?;
+        self.restore_combat_particles(
+            &snapshot.combat_particles,
+            &particle_attachments,
+            game_logic,
+        )?;
         self.restore_host_upgrades(&snapshot.host_upgrades, game_logic)?;
         super::super::player_upgrade_persist::apply_completed_upgrades(snapshot, game_logic);
         // The v4 counter is the next unused logical accepted-discharge ID.
@@ -440,7 +452,19 @@ impl SnapshotBuilder {
         ));
         restore_objectless_from_client_drawables(&visual_world, &snapshot.client_drawables);
         if let Some(particle_bytes) = take_loaded_particle_system_xfer() {
-            restore_particle_system_from_xfer_bytes(&particle_bytes)?;
+            if let Some(owner) = restore_particle_system_from_xfer_bytes(&particle_bytes)? {
+                let manager_guard = game_client::effects::get_particle_system_manager()
+                    .map_err(|error| SaveLoadError::Corrupted(error.to_string()))?;
+                let manager = manager_guard.as_ref().ok_or_else(|| {
+                    SaveLoadError::Corrupted(
+                        "paired particle companion has no receiving manager".into(),
+                    )
+                })?;
+                game_logic
+                    .combat_particles_mut()
+                    .adopt_loaded_client_systems(manager, &owner)
+                    .map_err(SaveLoadError::Corrupted)?;
+            }
         }
         if let Some(terrain_visual_bytes) = take_loaded_terrain_visual_xfer() {
             let terrain_handle = game_logic.world_services.terrain().clone();

@@ -1313,6 +1313,9 @@ impl XferData for CombatParticleKind {
 
 impl XferData for CombatParticleSystemEntry {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        if xfer.get_mode() == XferMode::Load {
+            self.attachment = None;
+        }
         xfer.xfer_marker_label("CombatParticleSystemEntry")?;
         xfer.xfer_marker_label("Id")?;
         xfer.xfer_u32(&mut self.id)?;
@@ -1369,6 +1372,7 @@ impl XferData for CombatParticleRegistrySnapshot {
                 fx_list_name: String::new(),
                 ocl_list_name: String::new(),
                 attach_offset: Vec3::ZERO,
+                attachment: None,
             },
         )?;
         Ok(())

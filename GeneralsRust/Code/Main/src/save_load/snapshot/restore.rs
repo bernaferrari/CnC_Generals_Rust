@@ -1279,11 +1279,17 @@ impl SnapshotBuilder {
     pub(super) fn restore_combat_particles(
         &self,
         snapshot: &CombatParticleRegistrySnapshot,
+        attachments: &HashMap<u32, crate::game_logic::combat_particles::CombatParticleAttachment>,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
+        let mut systems = snapshot.systems.clone();
+        for system in &mut systems {
+            system.attachment = attachments.get(&system.id).cloned();
+        }
         game_logic
             .combat_particles_mut()
-            .restore_from_snapshot(snapshot.next_id, snapshot.systems.clone());
+            .restore_from_snapshot(snapshot.next_id, systems)
+            .map_err(SaveLoadError::Corrupted)?;
         Ok(())
     }
 

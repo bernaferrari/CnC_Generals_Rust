@@ -768,6 +768,12 @@ impl GameLogic {
 
     /// Reset method - matching C++ GameLogic interface
     pub fn reset(&mut self) {
+        // Reject an unavailable live particle owner before any world mutation.
+        // The compatibility reset API cannot yet receive that owner explicitly.
+        assert!(
+            self.combat_particles.can_clear(),
+            "GameLogic reset requires its live receiving particle manager"
+        );
         self.native_hulk_max_lifetime_override = -1;
         self.weapon_definitions = self.weapon_definition_base.clone();
         log::debug!("GameLogic::reset() - resetting game state");
@@ -860,7 +866,9 @@ impl GameLogic {
         self.objects_to_destroy.clear();
         self.accepted_gather_commands.clear();
         self.supply_dropoff_events.clear();
-        self.combat_particles.clear();
+        self.combat_particles
+            .clear()
+            .expect("particle owner changed during synchronous reset");
         self.special_power_strikes.clear();
         self.host_paradrops.clear();
         self.host_ambushes.clear();

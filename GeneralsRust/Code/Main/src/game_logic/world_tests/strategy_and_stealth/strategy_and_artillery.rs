@@ -1861,15 +1861,21 @@ End
 
     #[cfg(feature = "game_client")]
     {
-        // Deliver the actual owned frame before observing native client state.
-        // Eager host mirror IDs are an optional optimization, not the producer
-        // contract; this adapter backfills systems that were not mirrored.
+        // Admit through the actual receiving registry before observing native
+        // client state. The frozen frame is observational and cannot spawn;
+        // eager host bindings and one canonical retry share the same owner.
         let already_delivered = presentation
             .particle_systems
             .iter()
             .filter(|entry| entry.client_system_id.is_some())
             .count();
-        let delivered = presentation.apply_particle_systems_to_client();
+        let delivered =
+            crate::game_logic::combat_particles::with_client_particle_manager(|manager| {
+                game_logic
+                    .combat_particles_mut()
+                    .backfill_client_systems(manager)
+            })
+            .unwrap_or(0);
         assert!(
             already_delivered + delivered > 0,
             "actual presentation delivery must admit combat systems into client manager"
