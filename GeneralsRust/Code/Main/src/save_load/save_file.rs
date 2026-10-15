@@ -890,6 +890,15 @@ impl SaveFileManager {
         } else {
             Vec::new()
         };
+        // C++ named phases: GameLogic, GameClient, then ParticleSystem. Capture
+        // once on this new save candidate; the writer never consults a later
+        // live manager for a decoded or absent companion.
+        world_snapshot.particle_system_companion = if save_info.save_type == SaveFileType::Mission {
+            // C++ mission saves contain only GameState and Campaign blocks.
+            None
+        } else {
+            Some(capture_particle_system_xfer_bytes()?)
+        };
         set_pending_save_game_mode(Some(cpp_game_mode_from_live(game_logic.game_mode())));
 
         // C++ GameState::saveGame (GameState.cpp:534) makes sure the save
@@ -1235,7 +1244,10 @@ impl SaveFileManager {
             Some(bytes) => bytes.to_vec(),
             None => capture_w3d_ghost_xfer_bytes(&Default::default())?,
         };
-        let particle_system_bytes = capture_particle_system_xfer_bytes().unwrap_or_default();
+        let particle_system_bytes = world_snapshot
+            .particle_system_companion
+            .as_deref()
+            .unwrap_or_default();
         let terrain_visual_bytes = capture_terrain_visual_xfer_bytes().unwrap_or_default();
         let block_names: &[&str] = if save_info.save_type == SaveFileType::Mission {
             // C++ `xferSaveData` (`GameState.cpp:1339-1346`) writes only
@@ -1294,7 +1306,7 @@ impl SaveFileManager {
                         if particle_system_bytes.is_empty() {
                             write_null_snapshot_version(xfer)
                         } else {
-                            let mut bytes = particle_system_bytes.clone();
+                            let mut bytes = particle_system_bytes.to_vec();
                             // SAFETY: owned byte vector of exact length
                             // handed to the save writer.
                             unsafe {
@@ -1425,6 +1437,7 @@ impl SaveFileManager {
         let mut players_payload: Option<Vec<u8>> = None;
         let mut team_factory_payload: Option<Vec<u8>> = None;
         let mut ghost_companion: Option<Vec<u8>> = None;
+        let mut particle_companion: Option<Vec<u8>> = None;
 
         for (token, payload) in blocks {
             if token.eq_ignore_ascii_case(CHUNK_GAME_STATE) {
@@ -1469,7 +1482,7 @@ impl SaveFileManager {
                 // NullSnapshot is a lone version-1 byte. Manager xfer is
                 // version 1 plus uniqueSystemID / systemCount / systems.
                 if payload.len() > 1 {
-                    stash_loaded_particle_system_xfer(payload);
+                    particle_companion = Some(payload);
                 }
             } else if token.eq_ignore_ascii_case(CHUNK_TERRAIN_VISUAL) {
                 // NullSnapshot is a lone version-1 byte. W3DTerrainVisual::xfer
@@ -1531,6 +1544,7 @@ impl SaveFileManager {
         }
         bind_player_team_chunks(&mut world_snapshot, &player_team_chunks)?;
         world_snapshot.w3d_ghost_companion = ghost_companion;
+        world_snapshot.particle_system_companion = particle_companion;
         apply_persist_chunks(
             &mut world_snapshot,
             ingame_ui_payload.as_deref(),

@@ -82,6 +82,9 @@ impl SnapshotBuilder {
             // attaches it through the explicit companion-aware save API.
             client_drawables: ClientDrawableWorldSnapshot::default(),
             w3d_ghost_companion: Some(capture_w3d_ghost_xfer_bytes(&game_logic.w3d_ghosts)?),
+            // Production save attaches this after GameClient::xfer, preserving
+            // C++ named-block phase order. Pure logic snapshots have none.
+            particle_system_companion: None,
             player_template_bindings: self.snapshot_player_template_bindings(game_logic)?,
             shroud: self.snapshot_shroud_state(game_logic)?,
             lifecycle_tail: {
@@ -451,8 +454,8 @@ impl SnapshotBuilder {
             &game_logic.world_services,
         ));
         restore_objectless_from_client_drawables(&visual_world, &snapshot.client_drawables);
-        if let Some(particle_bytes) = take_loaded_particle_system_xfer() {
-            if let Some(owner) = restore_particle_system_from_xfer_bytes(&particle_bytes)? {
+        if let Some(particle_bytes) = snapshot.particle_system_companion.as_deref() {
+            if let Some(owner) = restore_particle_system_from_xfer_bytes(particle_bytes)? {
                 let manager_guard = game_client::effects::get_particle_system_manager()
                     .map_err(|error| SaveLoadError::Corrupted(error.to_string()))?;
                 let manager = manager_guard.as_ref().ok_or_else(|| {

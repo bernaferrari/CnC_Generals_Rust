@@ -1,6 +1,8 @@
 //! Actual current named-chunk save routes.
 
 mod historical_player_cash;
+mod particle_candidate;
+mod particle_capture_failure;
 
 use super::*;
 use crate::game_logic::{
@@ -117,7 +119,10 @@ fn host_pause_save_persists_terrain_scorches_and_particle_systems() {
         1
     ));
 
-    let snapshot = WorldSnapshot::default();
+    let mut snapshot = WorldSnapshot::default();
+    let particle_bytes =
+        particle_candidate::local_particle_bytes("SavedFxFixture", Vec3::new(4.0, 5.0, 6.0));
+    snapshot.particle_system_companion = Some(particle_bytes.clone());
     let save_info = fixture_save_info();
     let bytes = SaveFileManager::write_common_sav_chunks(&snapshot, &save_info)
         .expect("write sav with FX chunks");
@@ -138,9 +143,10 @@ fn host_pause_save_persists_terrain_scorches_and_particle_systems() {
         .find(|(name, _)| name.eq_ignore_ascii_case(CHUNK_PARTICLE_SYSTEM))
         .expect("CHUNK_ParticleSystem");
     assert!(
-        !particles.1.is_empty(),
-        "CHUNK_ParticleSystem must write manager xfer"
+        particles.1.len() > 1,
+        "CHUNK_ParticleSystem must write actual manager xfer, not null version1"
     );
+    assert_eq!(particles.1, particle_bytes);
 
     game_client::terrain::clear_terrain_scorches();
     assert!(game_client::terrain::terrain_scorch_marks().is_empty());

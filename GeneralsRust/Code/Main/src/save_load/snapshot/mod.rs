@@ -164,8 +164,7 @@ pub use lifecycle_tail::{
 pub use object::*;
 pub use particle_system_save::{
     CHUNK_PARTICLE_SYSTEM, capture_particle_system_xfer_bytes,
-    restore_particle_system_from_xfer_bytes, stash_loaded_particle_system_xfer,
-    take_loaded_particle_system_xfer,
+    restore_particle_system_from_xfer_bytes,
 };
 pub use persist_v18::{
     CameraPersist, WorldPersistV18, peek_pending_camera, set_pending_camera, take_pending_camera,

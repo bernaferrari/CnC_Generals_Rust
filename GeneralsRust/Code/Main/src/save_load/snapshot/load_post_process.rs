@@ -40,6 +40,7 @@ impl Snapshot for WorldSnapshot {
             // The separate named GhostObject block is never part of this
             // direct GameLogic stream; retain no companion from a prior load.
             self.w3d_ghost_companion = None;
+            self.particle_system_companion = None;
         }
 
         xfer.xfer_marker_label("Timestamp")?;

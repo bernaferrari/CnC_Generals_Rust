@@ -235,6 +235,10 @@ pub struct WorldSnapshot {
     /// the unchanged v23-28 GameLogic positional body and direct Xfer stream.
     #[serde(skip)]
     pub(crate) w3d_ghost_companion: Option<Vec<u8>>,
+    /// Raw named ParticleSystem block owned by this load/save candidate, never
+    /// inserted into the historical GameLogic positional body.
+    #[serde(skip)]
+    pub(crate) particle_system_companion: Option<Vec<u8>>,
 }
 
 /// C++ `ExperienceTracker::xfer` `m_experienceSink` + `m_experienceScalar`.
@@ -515,6 +519,7 @@ impl Default for WorldSnapshot {
             next_object_id: 0,
             pending_combat: Default::default(),
             w3d_ghost_companion: None,
+            particle_system_companion: None,
         };
         // A current empty snapshot is still a valid session value. Encode its
         // known default admission input without constructing/publishing a world.
