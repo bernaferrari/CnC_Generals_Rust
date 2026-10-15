@@ -121,7 +121,7 @@ impl ParticleSystemManager {
                     false,
                     &mut |lo, hi| random.next_real(lo, hi),
                 ));
-                Snapshotable::xfer(&mut *system, xfer)?;
+                system.xfer_with_particle_random(xfer, random)?;
                 let id = system.system_id();
                 if id == INVALID_PARTICLE_SYSTEM_ID || loaded.systems.contains_key(&id) {
                     return Err("invalid restored particle system id".into());

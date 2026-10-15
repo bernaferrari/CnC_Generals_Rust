@@ -115,9 +115,31 @@ fn late_unknown_template_or_duplicate_id_cannot_partially_admit_a_particle_list(
     assert_unchanged_on_error(&payload_with_second_entry(true));
 }
 
+fn saved_particle_payloads(manager: &mut ParticleSystemManager) -> Vec<Vec<u8>> {
+    let mut payloads = Vec::new();
+    for id in manager.active_system_ids_in_order() {
+        for particle in manager
+            .find_particle_system_mut(id)
+            .unwrap()
+            .particles_mut()
+        {
+            let mut bytes = Vec::new();
+            Snapshotable::xfer(
+                particle,
+                &mut CommonXferSave::new(Cursor::new(&mut bytes), 1),
+            )
+            .unwrap();
+            payloads.push(bytes);
+        }
+    }
+    payloads
+}
+
 #[test]
 fn both_particle_decoders_admit_the_complete_native_payload_in_creation_order() {
-    let bytes = encode(&mut populated());
+    let mut source = populated();
+    let particle_payloads = saved_particle_payloads(&mut source);
+    let bytes = encode(&mut source);
     for runtime in [false, true] {
         let mut destination = populated();
         let owner = destination.runtime_owner();
@@ -130,10 +152,25 @@ fn both_particle_decoders_admit_the_complete_native_payload_in_creation_order() 
         assert_eq!(destination.active_system_ids_in_order(), [19, 3]);
         assert_eq!(destination.particle_count, 2);
         assert_eq!(destination.system_count, 2);
+        // C++ force creation increments the loaded personality store, while
+        // each saved particle payload overwrites its generated attributes.
+        for id in [19, 3] {
+            let system = destination.find_particle_system_mut(id).unwrap();
+            assert_eq!(system.personality_counter(), 2);
+            let particle = &system.particles()[0];
+            assert_eq!(particle.personality, id);
+            assert_eq!(particle.lifetime, 24);
+            assert_eq!(particle.create_timestamp, 0);
+        }
         assert_eq!(
+            saved_particle_payloads(&mut destination),
+            particle_payloads,
+            "all saved particle fields remain byte-exact"
+        );
+        assert_ne!(
             encode(&mut destination),
             bytes,
-            "native system payloads survive both adapters"
+            "original load has metadata side effects"
         );
     }
 }

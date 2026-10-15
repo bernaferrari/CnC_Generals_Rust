@@ -475,6 +475,7 @@ fn receiving_particle_loaded_receipt_rejects_peer_without_mutating_host_bindings
 #[test]
 fn paired_particle_sav_companion_adopts_actual_loaded_ids_without_replaying_omissions() {
     use crate::save_load::SaveFileManager;
+    use game_client::effects::particle_manager::{GameClientRandomVariable, ParticlePriorityType};
     let directory = tempfile::tempdir().unwrap();
     let mut saves = SaveFileManager::with_save_directory(directory.path());
     saves.init().unwrap();
@@ -494,7 +495,21 @@ fn paired_particle_sav_companion_adopts_actual_loaded_ids_without_replaying_omis
         // This real .sav test intentionally drives the existing compatibility
         // manager/companion stream; broader pending-slot isolation is separate.
         let mut template = ParticleSystemTemplate::new("PairedArchiveParticle".into());
-        template.info_mut().system_lifetime = 1000;
+        let info = template.info_mut();
+        info.system_lifetime = 1000;
+        info.priority = ParticlePriorityType::AlwaysRender;
+        info.start_size = GameClientRandomVariable::new(3.0, 3.0);
+        info.start_size_rate = GameClientRandomVariable::new(2.0, 2.0);
+        info.size_rate = GameClientRandomVariable::new(0.0, 0.0);
+        info.burst_count = GameClientRandomVariable::new(1.0, 1.0);
+        info.burst_delay = GameClientRandomVariable::new(0.0, 0.0);
+        info.initial_delay = GameClientRandomVariable::new(0.0, 0.0);
+        info.lifetime = GameClientRandomVariable::new(100.0, 100.0);
+        for key in &mut info.alpha_keys[..2] {
+            key.min_value = 1.0;
+            key.max_value = 1.0;
+        }
+        info.alpha_keys[1].frame = 100;
         manager.register_template(Arc::new(template));
         assert_eq!(
             world
@@ -512,6 +527,10 @@ fn paired_particle_sav_companion_adopts_actual_loaded_ids_without_replaying_omis
                     .unwrap()
             })
             .collect();
+        manager.update(0, 1);
+        let particle = &manager.find_particle_system(ids[0]).unwrap().particles()[0];
+        assert_eq!((particle.size, particle.personality), (3.0, 0));
+        assert_eq!(particle.create_timestamp, 1);
         manager.destroy_particle_system(ids[1]);
         manager
             .find_particle_system_mut(ids[2])
@@ -533,6 +552,21 @@ fn paired_particle_sav_companion_adopts_actual_loaded_ids_without_replaying_omis
         );
         assert!(!restored.combat_particles().get(2).unwrap().active);
         assert!(!restored.combat_particles().get(3).unwrap().active);
+        let particle = &manager
+            .find_particle_system(saved_ids[0])
+            .unwrap()
+            .particles()[0];
+        assert_eq!((particle.size, particle.personality), (3.0, 0));
+        assert_eq!(particle.create_timestamp, 1);
+        // C++ ParticleSys.cpp:2488 generates once on load, advancing the
+        // size bonus2 ->4; forced restoration also advances store1 ->2.
+        // These observations pass through the real .sav companion adoption.
+        manager.update(0, 2);
+        let system = manager.find_particle_system(saved_ids[0]).unwrap();
+        assert_eq!(system.particle_count(), 2);
+        let next = &system.particles()[1];
+        assert_eq!((next.size, next.personality), (7.0, 2));
+        assert_eq!(next.create_timestamp, 2);
         let count = manager.active_system_count();
         for _ in 0..3 {
             assert_eq!(

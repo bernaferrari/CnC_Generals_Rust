@@ -3,9 +3,7 @@
 //! Complete particle system implementation matching C++ behavior exactly.
 //! Handles particle creation, physics simulation, and lifecycle management.
 
-use game_engine::common::random_value::{
-    get_game_client_random_value, get_game_client_random_value_real,
-};
+use game_engine::common::random_value::get_game_client_random_value_real;
 use glam::{Mat3, Vec3};
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -749,96 +747,7 @@ impl Snapshotable for ParticleSystem {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        const CURRENT_VERSION: XferVersion = 1;
-        let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION)
-            .map_err(|e| e.to_string())?;
-
-        let mut system_info = self.info().clone();
-        system_info.xfer(xfer)?;
-        if xfer.get_xfer_mode() == XferMode::Load {
-            self.info.clone_from(&system_info);
-        }
-
-        xfer.xfer_unsigned_int(&mut self.system_id)
-            .map_err(|e| e.to_string())?;
-
-        let mut attached_drawable_id = self.attached_drawable_id.0;
-        xfer.xfer_drawable_id(&mut attached_drawable_id)
-            .map_err(|e| e.to_string())?;
-        self.attached_drawable_id = DrawableId(attached_drawable_id);
-
-        xfer.xfer_object_id(&mut self.attached_object_id)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.is_local_identity)
-            .map_err(|e| e.to_string())?;
-        xfer_matrix3(xfer, &mut self.local_transform, &mut self.local_translation)?;
-        xfer.xfer_bool(&mut self.is_identity)
-            .map_err(|e| e.to_string())?;
-        xfer_matrix3(xfer, &mut self.transform, &mut self.transform_translation)?;
-        xfer.xfer_unsigned_int(&mut self.burst_delay_left)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut self.delay_left)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut self.start_timestamp)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut self.system_lifetime_left)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut self.personality_counter)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.is_forever)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut self.accumulated_size_bonus)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.is_stopped)
-            .map_err(|e| e.to_string())?;
-        xfer_vec3(xfer, &mut self.vel_coeff)?;
-        xfer.xfer_real(&mut self.count_coeff)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut self.delay_coeff)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut self.size_coeff)
-            .map_err(|e| e.to_string())?;
-        xfer_point3(xfer, &mut self.position)?;
-        xfer_point3(xfer, &mut self.last_position)?;
-        xfer.xfer_bool(&mut self.is_first_pos)
-            .map_err(|e| e.to_string())?;
-
-        let mut slave_system = self.slave_system.unwrap_or(INVALID_PARTICLE_SYSTEM_ID);
-        let mut master_system = self.master_system.unwrap_or(INVALID_PARTICLE_SYSTEM_ID);
-        xfer.xfer_unsigned_int(&mut slave_system)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut master_system)
-            .map_err(|e| e.to_string())?;
-        self.slave_system = if slave_system == INVALID_PARTICLE_SYSTEM_ID {
-            None
-        } else {
-            Some(slave_system)
-        };
-        self.master_system = if master_system == INVALID_PARTICLE_SYSTEM_ID {
-            None
-        } else {
-            Some(master_system)
-        };
-
-        let mut particle_count = self.particles.len() as u32;
-        xfer.xfer_unsigned_int(&mut particle_count)
-            .map_err(|e| e.to_string())?;
-
-        if xfer.get_xfer_mode() == XferMode::Load {
-            self.particles.clear();
-            for _ in 0..particle_count {
-                let mut particle = Particle::new(&ParticleInfo::default(), 0, 0);
-                particle.xfer(xfer)?;
-                self.particles.push_back(particle);
-            }
-        } else {
-            for particle in &mut self.particles {
-                particle.xfer(xfer)?;
-            }
-        }
-
-        Ok(())
+        self.xfer_with_particle_random(xfer, &mut random::AmbientParticleRandom)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -912,15 +821,6 @@ fn xfer_matrix3(
             .map_err(|e| e.to_string())?;
     }
     Ok(())
-}
-
-/// Engine adapters retain the existing client RNG call sites and ordering.
-fn compute_point_on_unit_sphere() -> Vec3 {
-    generals_particles::point_on_unit_sphere(get_game_client_random_value_real)
-}
-
-fn compute_point_on_unit_hemisphere() -> Vec3 {
-    generals_particles::point_on_unit_hemisphere(get_game_client_random_value_real)
 }
 
 /// Extract rotation + translation from a glam/SAGE 4x4 (column-major).
@@ -2008,238 +1908,6 @@ impl ParticleSystem {
         self.burst_delay_left = (delay as f32 * self.delay_coeff) as u32;
     }
 
-    /// Generate particle info (matches C++ ParticleSystem::generateParticleInfo)
-    /// pub(crate) so the manager can call it for slave merge processing.
-    pub(crate) fn generate_particle_info(
-        &mut self,
-        particle_num: u32,
-        particle_count: u32,
-    ) -> Option<ParticleInfo> {
-        let info = &self.info;
-
-        let mut particle_info = ParticleInfo::default();
-
-        // C++ computeParticlePosition/Velocity stay in local space; transform is
-        // applied below only when m_isIdentity is false (ParticleSys.cpp:1724-1771).
-        particle_info.position = self.compute_particle_position();
-        particle_info.emitter_position = Vec3::from(self.transform_translation);
-
-        particle_info.velocity = self.compute_particle_velocity(&particle_info.position);
-        let vel_scale = 0.5 + self.particle_scale / 2.0;
-        particle_info.velocity *= self.vel_coeff;
-        particle_info.velocity *= vel_scale;
-
-        if !self.is_identity {
-            if self.is_first_pos {
-                self.last_position = self.position;
-                self.is_first_pos = false;
-            }
-            let last = self.last_position;
-            let denom = particle_count.max(1) as f32;
-            let spread = 1.0 - (particle_num as f32 / denom);
-            let adjustment = (self.position - last) * spread;
-            let world = self.transform * particle_info.position + self.transform_translation;
-            particle_info.position = Vec3::from(world) - adjustment;
-            particle_info.velocity = self.transform * particle_info.velocity;
-        }
-        particle_info.vel_damping = info.vel_damping.sample();
-        particle_info.angular_damping = info.angular_damping.sample();
-        particle_info.angle_z = info.angle_z.sample();
-        particle_info.angular_rate_z = info.angular_rate_z.sample();
-        particle_info.lifetime = info.lifetime.sample() as u32;
-        particle_info.size = info.start_size.sample() * self.size_coeff * self.particle_scale;
-        particle_info.size_rate = info.size_rate.sample() * self.size_coeff * self.particle_scale;
-        particle_info.size_rate_damping = info.size_rate_damping.sample();
-        particle_info.size += self.accumulated_size_bonus;
-        self.accumulated_size_bonus += info.start_size_rate.sample();
-        self.accumulated_size_bonus = self.accumulated_size_bonus.min(50.0);
-
-        // Copy keyframes (sample random alpha keyframes into fixed runtime values).
-        for (dst, src) in particle_info
-            .alpha_keys
-            .iter_mut()
-            .zip(info.alpha_keys.iter())
-        {
-            dst.value = GameClientRandomVariable {
-                min: src.min_value,
-                max: src.max_value,
-                distribution_type: src.distribution_type,
-            }
-            .sample();
-            dst.frame = src.frame;
-        }
-        particle_info.color_keys = info.color_keys;
-
-        // Runtime info, including native-loaded info, is already normalized.
-        particle_info.color_scale = info.color_scale.sample();
-
-        // Wind randomness — C++ ParticleSys.cpp:1817 (client stream)
-        particle_info.wind_randomness = get_game_client_random_value_real(0.7, 1.3);
-
-        // Particle up towards emitter
-        particle_info.particle_up_towards_emitter = info.is_particle_up_towards_emitter;
-
-        Some(particle_info)
-    }
-
-    /// Compute particle position based on emission volume (matches C++ ParticleSystem::computeParticlePosition)
-    fn compute_particle_position(&self) -> Vec3 {
-        let info = &self.info;
-
-        let emission_volume = self.effective_emission_volume();
-        let local_pos = match emission_volume {
-            EmissionVolume::Point => Vec3::ZERO,
-
-            EmissionVolume::Line { start, end } => {
-                // C++ ParticleSys.cpp:1629 — t from the client stream.
-                let t = get_game_client_random_value_real(0.0, 1.0);
-                start + (end - start) * t
-            }
-
-            EmissionVolume::Box { half_size } => {
-                if info.is_emission_volume_hollow {
-                    // Match C++ bug exactly: side % 3 == 1 uses halfSize.y for X
-                    // (C++ ParticleSys.cpp:1579-1598; the side draw is
-                    // GameClientRandomValue(0, 6) — seven outcomes).
-                    let side = get_game_client_random_value(0, 6);
-                    if side % 3 == 0 {
-                        // Bottom or top face (Z = -/+halfSize.z)
-                        Vec3::new(
-                            get_game_client_random_value_real(-half_size.x, half_size.x),
-                            get_game_client_random_value_real(-half_size.y, half_size.y),
-                            if side == 0 { -half_size.z } else { half_size.z },
-                        )
-                    } else if side % 3 == 1 {
-                        // Left or right face (X = -/+halfSize.x)
-                        // C++ bug: uses halfSize.y instead of halfSize.x for X coordinate
-                        Vec3::new(
-                            if side == 1 { -half_size.x } else { half_size.y },
-                            get_game_client_random_value_real(-half_size.y, half_size.y),
-                            get_game_client_random_value_real(-half_size.z, half_size.z),
-                        )
-                    } else {
-                        // Front or back face (Y = -/+halfSize.y)
-                        Vec3::new(
-                            get_game_client_random_value_real(-half_size.x, half_size.x),
-                            if side == 2 { -half_size.y } else { half_size.y },
-                            get_game_client_random_value_real(-half_size.z, half_size.z),
-                        )
-                    }
-                } else {
-                    Vec3::new(
-                        get_game_client_random_value_real(-half_size.x, half_size.x),
-                        get_game_client_random_value_real(-half_size.y, half_size.y),
-                        get_game_client_random_value_real(-half_size.z, half_size.z),
-                    )
-                }
-            }
-
-            EmissionVolume::Sphere { radius } => {
-                // C++ ParticleSys.cpp:1553-1568 — radius draw first, then the
-                // unit-sphere draws.
-                let r = if info.is_emission_volume_hollow {
-                    radius
-                } else {
-                    get_game_client_random_value_real(0.0, radius)
-                };
-                compute_point_on_unit_sphere() * r
-            }
-
-            EmissionVolume::Cylinder { radius, length } => {
-                // C++ ParticleSys.cpp:1534-1550 — angle, radius, then z.
-                let half_length = length * 0.5;
-                let theta = get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
-                let r = if info.is_emission_volume_hollow {
-                    radius
-                } else {
-                    get_game_client_random_value_real(0.0, radius)
-                };
-                let z = get_game_client_random_value_real(-half_length, half_length);
-                Vec3::new(r * theta.cos(), r * theta.sin(), z)
-            }
-        };
-
-        // C++ parity: ParticleSys.cpp lines 1644-1646
-        // C++: newPos *= (0.5f + m_particleScale/2.0f)
-        let pos_scale = 0.5 + self.particle_scale / 2.0;
-        Vec3::from(local_pos * pos_scale)
-    }
-
-    fn effective_emission_volume(&self) -> EmissionVolume {
-        self.emission_volume_override
-            .unwrap_or(self.info().emission_volume)
-    }
-
-    /// Compute particle velocity based on emission properties (matches C++ ParticleSystem::computeParticleVelocity)
-    fn compute_particle_velocity(&self, position: &Vec3) -> Vec3 {
-        let info = &self.info;
-
-        match info.emission_velocity {
-            EmissionVelocity::Ortho { x, y, z } => Vec3::new(x.sample(), y.sample(), z.sample()),
-
-            EmissionVelocity::Spherical { speed } => {
-                speed.sample() * compute_point_on_unit_sphere()
-            }
-
-            EmissionVelocity::Hemispherical { speed } => {
-                speed.sample() * compute_point_on_unit_hemisphere()
-            }
-
-            EmissionVelocity::Cylindrical { radial, normal } => {
-                // C++ ParticleSys.cpp:1386-1392 — radial, angle, then normal.
-                let radial_speed = radial.sample();
-                let theta = get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
-                let normal_speed = normal.sample();
-                Vec3::new(
-                    radial_speed * theta.cos(),
-                    radial_speed * theta.sin(),
-                    normal_speed,
-                )
-            }
-
-            EmissionVelocity::Outward { speed, other_speed } => {
-                let speed_val = speed.sample();
-                let other_speed_val = other_speed.sample();
-
-                match info.emission_volume_type {
-                    EmissionVolumeType::Invalid => Vec3::ZERO,
-                    EmissionVolumeType::Cylinder => {
-                        let dx = position.x;
-                        let dy = position.y;
-                        let len = (dx * dx + dy * dy).sqrt();
-                        if len > 0.0 {
-                            Vec3::new(speed_val * dx / len, speed_val * dy / len, other_speed_val)
-                        } else {
-                            Vec3::new(speed_val, 0.0, other_speed_val)
-                        }
-                    }
-                    EmissionVolumeType::Box | EmissionVolumeType::Sphere => {
-                        let dir = position;
-                        let len = dir.length();
-                        if len > 0.0 {
-                            dir * (speed_val / len)
-                        } else {
-                            speed_val * compute_point_on_unit_sphere()
-                        }
-                    }
-                    EmissionVolumeType::Line => {
-                        let vol = self.effective_emission_volume();
-                        if let EmissionVolume::Line { start, end } = vol {
-                            let along = (end - start).normalize();
-                            let up = Vec3::new(0.0, 0.0, 1.0);
-                            let perp = up.cross(along).normalize();
-                            let new_up = along.cross(perp);
-                            speed_val * perp + other_speed_val * new_up
-                        } else {
-                            Vec3::new(0.0, 0.0, other_speed_val)
-                        }
-                    }
-                    EmissionVolumeType::Point => speed_val * compute_point_on_unit_sphere(),
-                }
-            }
-        }
-    }
-
     /// Update transform matrix
     fn update_transform(&mut self) {
         self.transform = self.local_transform;
@@ -2964,3 +2632,14 @@ mod color_scale_tests;
 #[path = "particle_system/integration.rs"]
 mod integration;
 pub(super) use integration::ParticleIntegrationStep;
+
+#[path = "particle_system/generation.rs"]
+mod generation;
+#[path = "particle_system/random.rs"]
+mod random;
+#[path = "particle_system/state.rs"]
+mod state;
+
+#[cfg(test)]
+#[path = "particle_system/native_load_tests.rs"]
+mod native_load_tests;

@@ -128,8 +128,23 @@ fn immediate_slave_emission_interleaves_fresh_mutable_generations_and_continues_
     restored.update(0, 2);
     assert_eq!(sizes(&manager, master), vec![2.0, 4.0, 6.0, 8.0]);
     assert_eq!(sizes(&manager, slave), vec![9.0, 20.0, 35.0, 54.0]);
-    assert_eq!(sizes(&restored, master), sizes(&manager, master));
-    assert_eq!(sizes(&restored, slave), sizes(&manager, slave));
+    // C++2488 generates once during load, advancing each StartSizeRate bonus.
+    assert_eq!(sizes(&restored, master), vec![2.0, 4.0, 7.0, 9.0]);
+    assert_eq!(sizes(&restored, slave), vec![9.0, 20.0, 48.0, 70.0]);
+    assert_eq!(
+        restored
+            .find_particle_system(master)
+            .unwrap()
+            .personality_counter(),
+        6
+    );
+    assert_eq!(
+        restored
+            .find_particle_system(slave)
+            .unwrap()
+            .personality_counter(),
+        6
+    );
 }
 
 #[test]
