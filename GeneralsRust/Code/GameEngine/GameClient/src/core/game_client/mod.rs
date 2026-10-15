@@ -221,3 +221,6 @@ mod receiving_native_load_tests;
 
 #[cfg(test)]
 mod receiving_retirement_tests;
+
+#[cfg(test)]
+mod receiving_condition_phase_tests;

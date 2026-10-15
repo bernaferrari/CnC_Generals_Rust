@@ -137,9 +137,10 @@ impl BasicDrawable {
 
     pub(crate) fn update_after_client_modules(&mut self, logic_frame: u32) {
         self.update_fade();
-        self.flush_dirty_model_condition();
 
         if self.terrain_decal_type != TerrainDecalType::None {
+            // C++ updateDrawable requests Draw modules only in the decal branch.
+            self.flush_dirty_model_condition();
             if self.decal_opacity_fade_rate != 0.0 {
                 if let Some(dm) = self.draw_modules.first_mut() {
                     dm.set_terrain_decal_opacity(self.decal_opacity);

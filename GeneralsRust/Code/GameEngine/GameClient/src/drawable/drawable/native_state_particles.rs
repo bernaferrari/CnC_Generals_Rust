@@ -153,6 +153,9 @@ impl BasicDrawable {
         public_bones: &[String],
         creation_frame: u32,
     ) -> Result<Vec<(usize, NativeStateParticlePreparation)>, String> {
+        // C++ Drawable::draw requests Draw modules after visibility/admission.
+        // Ordinary CU updates must not substitute for this Draw-entry phase.
+        self.flush_dirty_model_condition();
         let mut outcomes = Vec::new();
         let mut bits = 0u128;
         for index in 0..128 {
