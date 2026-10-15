@@ -21191,6 +21191,26 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_presentation.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_presentation_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_view_draw.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_view_draw_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_laser.rs"
             },
             {
@@ -21252,6 +21272,11 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/receiving_retirement_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/region_iteration_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -189740,7 +189765,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "cd7147cdef74f63f3aea3c17951ad92097e8d8e4a2919cce957a50ea6c93f4a6",
+  "provenance_input_digest": "f1fdbc8fee2a53f4379043324908557a7ad7e28eafa7af5440211c761e9ee5f1",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

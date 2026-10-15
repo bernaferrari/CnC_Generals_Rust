@@ -976,6 +976,7 @@ impl CnCGameEngine {
         }
         let dt = self.apply_frame_timing(*timing);
         self.update_internal(dt);
+        self.finish_display_after_update();
     }
 
     /// Allows external orchestrators (e.g., integration diagnostics pipeline) to push
@@ -1006,6 +1007,7 @@ impl CnCGameEngine {
             (self.menu_loading_tick_accumulator + elapsed).min(Duration::from_millis(250));
 
         if self.menu_loading_tick_accumulator < SHELL_MENU_STEP {
+            self.finish_display_after_update();
             return;
         }
         // C++ GameClient/TransitionHandler update once per logic frame (~30Hz).
@@ -1026,6 +1028,9 @@ impl CnCGameEngine {
             let timing = Self::to_engine_timing(clock_timing, Instant::now());
             let dt = self.apply_frame_timing(timing);
             self.update_internal(dt);
+            // Each actual catch-up update completes its Client continuation
+            // before the next update, preserving every scheduled logic step.
+            self.finish_display_after_update();
         }
     }
 
@@ -1035,6 +1040,13 @@ impl CnCGameEngine {
         let timing = Self::to_engine_timing(clock_timing, Instant::now());
         let adjusted_dt = self.apply_frame_timing(timing);
         self.update_internal(adjusted_dt);
+        self.finish_display_after_update();
+    }
+
+    fn finish_display_after_update(&mut self) {
+        if let Err(error) = self.complete_native_display_step() {
+            log::error!("Native display phase failed: {error}");
+        }
     }
 
     pub(super) fn apply_frame_timing(&mut self, timing: FrameTiming) -> f32 {
@@ -1663,16 +1675,8 @@ impl CnCGameEngine {
                 render_call, skip_world_scene, self.current_state
             );
         }
-        // Keep match camera orbit→view_matrix coherent every draw. Shell→InGame
-        // residual: update_camera may skip apply when no input, leaving a stale
-        // view_matrix from the shell map.
-        if matches!(
-            self.current_state,
-            GameState::InGame | GameState::Paused | GameState::Menu
-        ) {
-            self.apply_camera_orbit_transform();
-        }
-
+        // The display owner already committed camera/view/projection before
+        // native CPU Draw. GPU collection consumes those exact matrices.
         // Full presentation snapshot for render collect (transforms/model/selection/health).
         // Boot/Menu residual: if no frame yet, freeze one from host logic so execute
         // never dual-reads live GameLogic (immutable presentation boundary).
@@ -1711,17 +1715,6 @@ impl CnCGameEngine {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        // First InGame frames: boot camera still stares at the origin while
-        // Lone Eagle / ZH maps live hundreds of world units away.
-        if matches!(self.current_state, GameState::InGame | GameState::Paused) {
-            let at_origin = {
-                let t = self.camera_target;
-                t.x * t.x + t.z * t.z < 80.0 * 80.0
-            };
-            if at_origin {
-                self.snap_camera_to_local_units_if_needed();
-            }
-        }
         self.render_pipeline
             .set_presentation_frame(self.last_presentation_frame.clone());
         #[cfg(feature = "game_client")]
@@ -1736,15 +1729,6 @@ impl CnCGameEngine {
                 &self.game_client,
                 self.host_direct_visual_world_epoch,
             );
-        }
-        {
-            let (w, h) = super::types::render_surface_extent(&self.window);
-            self.render_pipeline.set_tactical_3d_viewport(
-                w as f32,
-                h as f32,
-                self.tactical_view_height_frac(),
-            );
-            self.rebuild_tactical_projection();
         }
         #[cfg(feature = "game_client")]
         self.render_pipeline

@@ -122,14 +122,14 @@ impl GameClient {
             .collect()
     }
 
-    fn advance_native_material_draw(
-        &mut self,
+    fn resolve_material_draw_facts(
+        &self,
         facts: &[NativeMaterialObservation],
-    ) -> GameClientResult<()> {
-        // Ordinary CU may physically retire an owner after admission and
-        // before Draw. Its observation has no remaining receiver. A reused
-        // live ID still undergoes the complete key check below.
-        let live_facts: Vec<_> = facts
+    ) -> GameClientResult<HashMap<PresentationDirectDrawableBindingKey, NativeMaterialObservation>>
+    {
+        // CU may retire an owner before Draw; live reused IDs still undergo
+        // the complete key check. No registry or guessed-alive fallback.
+        let live: Vec<_> = facts
             .iter()
             .copied()
             .filter(|fact| {
@@ -138,13 +138,11 @@ impl GameClient {
                     .contains_key(&fact.binding_key.drawable_id)
             })
             .collect();
-        self.validate_material_observations(&live_facts)?;
-        let by_key: std::collections::HashMap<_, _> = live_facts
-            .iter()
+        self.validate_material_observations(&live)?;
+        let by_key: HashMap<_, _> = live
+            .into_iter()
             .map(|fact| (fact.binding_key, fact))
             .collect();
-        // Missing current-world input is an error, never an ambient object lookup
-        // or a guessed alive observation. Validate the complete batch first.
         for id in &self.drawables.native_drawable_order {
             if let Some(binding) = self.drawables.presentation_direct_drawable_bindings.get(id) {
                 if !by_key.contains_key(&binding.binding_key) {
@@ -154,22 +152,46 @@ impl GameClient {
                 }
             }
         }
-        for id in &self.drawables.native_drawable_order {
-            let drawable = self
-                .drawables
-                .drawable_map
-                .get_mut(id)
-                .expect("native roster receiver");
-            let Some(drawable) = drawable.as_any_mut().downcast_mut::<BasicDrawable>() else {
-                continue;
-            };
-            if let Some(binding) = self.drawables.presentation_direct_drawable_bindings.get(id) {
-                let fact = by_key[&binding.binding_key];
-                drawable.advance_material_draw(fact.effectively_dead, fact.frenzy);
-            } else {
-                // Retained Core/objectless route, distinct from direct native.
-                drawable.advance_core_material_draw();
-            }
+        Ok(by_key)
+    }
+
+    fn advance_material_drawable(
+        &mut self,
+        id: DrawableId,
+        by_key: &HashMap<PresentationDirectDrawableBindingKey, NativeMaterialObservation>,
+    ) -> GameClientResult<()> {
+        let receiver = self.drawables.drawable_map.get_mut(&id).ok_or_else(|| {
+            GameClientError::InvalidOperation(
+                "native Draw receiver retired during traversal".into(),
+            )
+        })?;
+        let Some(receiver) = receiver.as_any_mut().downcast_mut::<BasicDrawable>() else {
+            return Ok(());
+        };
+        if let Some(binding) = self
+            .drawables
+            .presentation_direct_drawable_bindings
+            .get(&id)
+        {
+            let fact = by_key.get(&binding.binding_key).ok_or_else(|| {
+                GameClientError::InvalidOperation(
+                    "native Draw binding changed during traversal".into(),
+                )
+            })?;
+            receiver.advance_material_draw(fact.effectively_dead, fact.frenzy);
+        } else {
+            receiver.advance_core_material_draw();
+        }
+        Ok(())
+    }
+
+    fn advance_native_material_draw(
+        &mut self,
+        facts: &[NativeMaterialObservation],
+    ) -> GameClientResult<()> {
+        let by_key = self.resolve_material_draw_facts(facts)?;
+        for id in self.drawables.native_drawable_order.clone() {
+            self.advance_material_drawable(id, &by_key)?;
         }
         Ok(())
     }

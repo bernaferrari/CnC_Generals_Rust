@@ -1577,6 +1577,33 @@ impl GameClient {
         advance_particles: bool,
         materials: &[NativeMaterialObservation],
     ) -> GameClientResult<()> {
+        let prepared = self.begin_presentation_shell(delta_time, particle_frames)?;
+        if !prepared.skip_draw {
+            self.update_native_draw_particle_phase_with_materials(
+                prepared.frozen,
+                prepared.frames,
+                advance_particles,
+                materials,
+            )?;
+        }
+        self.finish_presentation_shell(prepared)
+    }
+
+    pub fn begin_presentation_shell_with_material_frames(
+        &mut self,
+        delta_time: f32,
+        particle_frames: NativeParticleFrames,
+        materials: &[NativeMaterialObservation],
+    ) -> GameClientResult<PreparedPresentationShell> {
+        self.validate_material_observations(materials)?;
+        self.begin_presentation_shell(delta_time, particle_frames)
+    }
+
+    fn begin_presentation_shell(
+        &mut self,
+        delta_time: f32,
+        particle_frames: NativeParticleFrames,
+    ) -> GameClientResult<PreparedPresentationShell> {
         if particle_frames.client_frame != self.frame {
             return Err(GameClientError::InvalidOperation(
                 "native particle Client frame does not match receiving owner".into(),
@@ -1588,6 +1615,12 @@ impl GameClient {
             ));
         }
 
+        self.presentation_shell_generation = self
+            .presentation_shell_generation
+            .checked_add(1)
+            .ok_or_else(|| {
+                GameClientError::InvalidOperation("Client presentation operation exhausted".into())
+            })?;
         let current_time = Instant::now();
         self.last_update_time = current_time;
         // GameLogic owns admission of the client frame (GameLogic.cpp:3593-3596).
@@ -1688,7 +1721,13 @@ impl GameClient {
         if self.should_skip_visual_updates_for_no_draw() {
             self.rendered_object_count = 0;
             // Wave 876: Main owns frame pacing — no shell dual-sleep.
-            return Ok(());
+            return Ok(PreparedPresentationShell {
+                owner: std::sync::Arc::clone(&self.presentation_shell_owner),
+                generation: self.presentation_shell_generation,
+                frames: particle_frames,
+                frozen: freeze_time,
+                skip_draw: true,
+            });
         }
 
         self.update_effects(visual_delta)?;
@@ -1698,12 +1737,43 @@ impl GameClient {
         // C++ line 726: display UPDATE (not DRAW). Main RenderPipeline remains sole
         // 3D present path; skip draw_display to avoid dual surface present.
         self.update_display_only()?;
-        self.update_native_draw_particle_phase_with_materials(
-            freeze_time,
-            particle_frames,
-            advance_particles,
-            materials,
-        )?;
+        Ok(PreparedPresentationShell {
+            owner: std::sync::Arc::clone(&self.presentation_shell_owner),
+            generation: self.presentation_shell_generation,
+            frames: particle_frames,
+            frozen: freeze_time,
+            skip_draw: false,
+        })
+    }
+
+    pub fn finish_presentation_shell_with_native_views(
+        &mut self,
+        prepared: PreparedPresentationShell,
+        materials: &[NativeMaterialObservation],
+        views: &[NativeDrawView],
+        phase: NativeDrawPhase,
+    ) -> GameClientResult<()> {
+        if !std::sync::Arc::ptr_eq(&prepared.owner, &self.presentation_shell_owner)
+            || prepared.generation != self.presentation_shell_generation
+            || prepared.frames.client_frame != self.frame
+        {
+            return Err(GameClientError::InvalidOperation(
+                "prepared shell Client frame changed".into(),
+            ));
+        }
+        if !prepared.skip_draw {
+            self.draw_native_views_with_frames(prepared.frames, materials, views, phase)?;
+        }
+        self.finish_presentation_shell(prepared)
+    }
+
+    fn finish_presentation_shell(
+        &mut self,
+        prepared: PreparedPresentationShell,
+    ) -> GameClientResult<()> {
+        if prepared.skip_draw {
+            return Ok(());
+        }
         // C++ W3DView::drawablePostDraw icon UI residual (health/status icons).
         self.draw_drawable_icon_ui();
         // Wave 980: weapon/UI residual peels companion.
@@ -1724,7 +1794,6 @@ impl GameClient {
 
         self.rendered_object_count = 0;
         // Wave 876: Main owns frame pacing — no shell dual-sleep.
-        let _ = current_time;
         Ok(())
     }
 

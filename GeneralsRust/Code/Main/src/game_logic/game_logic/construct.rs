@@ -685,6 +685,7 @@ impl GameLogic {
             pending_camera_add_shakers: Vec::new(),
             pending_popup_messages: Vec::new(),
             pending_view_guardband: None,
+            native_view_guardband: [0.; 2],
             pending_camera_bw_mode: None,
             pending_camera_motion_blur: Vec::new(),
             script_skybox_enabled: true,
@@ -1380,6 +1381,7 @@ impl GameLogic {
         self.pending_camera_add_shakers.clear();
         self.pending_popup_messages.clear();
         self.pending_view_guardband = None;
+        self.native_view_guardband = [0.; 2];
         self.pending_camera_bw_mode = None;
         self.pending_camera_motion_blur.clear();
         self.script_skybox_enabled = true;

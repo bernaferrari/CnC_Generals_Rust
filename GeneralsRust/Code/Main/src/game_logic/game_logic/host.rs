@@ -1342,6 +1342,8 @@ pub struct GameLogic {
     pub(super) pending_camera_add_shakers: Vec<CameraAddShakerRequest>,
     pub(super) pending_popup_messages: Vec<ScriptPopupMessageRequest>,
     pub(super) pending_view_guardband: Option<ViewGuardbandRequest>,
+    /// Persistent per-world view configuration; no global tactical View owns it.
+    pub(super) native_view_guardband: [f32; 2],
     pub(super) pending_camera_bw_mode: Option<CameraBwModeRequest>,
     pub(super) pending_camera_motion_blur: Vec<CameraMotionBlurRequest>,
     pub(super) script_skybox_enabled: bool,

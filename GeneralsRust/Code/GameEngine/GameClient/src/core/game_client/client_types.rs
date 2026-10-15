@@ -28,6 +28,9 @@ pub struct GameClient {
     /// Display-phase admission belongs to this receiving Client, independently
     /// of any peer with the same frame number. Not serialized, like C++ static lastFrame.
     last_native_draw_frame: u32,
+    // Immutable lifetime identity, retained by an outstanding cross-crate continuation.
+    presentation_shell_owner: std::sync::Arc<()>,
+    presentation_shell_generation: u64,
     native_particle_capability_gaps: Vec<NativeParticleCapabilityGap>,
     local_player_id: i32,
     /// Presentation companion for the driving GameLogic instance. Bound by

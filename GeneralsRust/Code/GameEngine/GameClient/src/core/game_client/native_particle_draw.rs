@@ -206,40 +206,58 @@ impl GameClient {
         frame: u32,
     ) -> GameClientResult<()> {
         self.native_particle_capability_gaps.clear();
-        for &id in &self.drawables.native_drawable_order {
-            let drawable = self
-                .drawables
-                .drawable_map
-                .get_mut(&id)
-                .expect("native Drawable roster references a live receiver");
-            let visible = drawable.is_visible();
-            if let Some(drawable) = drawable.as_any_mut().downcast_mut::<BasicDrawable>() {
-                drawable.synchronize_native_particle_visibility(particles);
-                if !visible {
-                    continue;
-                }
-                let outcomes = drawable
-                    .prepare_native_state_particles(particles, assets, public_bones, frame)
-                    .map_err(GameClientError::InvalidOperation)?;
-                for (module_index, outcome) in outcomes {
-                    use gamelogic::object::draw::draw_module::NativeStateParticlePreparation;
-                    let (module_preparation, animation_pose, terrain_tracks) = match outcome {
-                        NativeStateParticlePreparation::Prepared(_) => continue,
-                        NativeStateParticlePreparation::Unsupported {
-                            animation_pose,
-                            terrain_tracks,
-                        } => (false, animation_pose, terrain_tracks),
-                        NativeStateParticlePreparation::UnsupportedModule => (true, false, false),
-                    };
-                    self.native_particle_capability_gaps
-                        .push(NativeParticleCapabilityGap {
-                            drawable_id: id,
-                            module_index,
-                            module_preparation,
-                            animation_pose,
-                            terrain_tracks,
-                        });
-                }
+        for id in self.drawables.native_drawable_order.clone() {
+            self.prepare_native_drawable_particles_with_assets(
+                id,
+                particles,
+                assets,
+                public_bones,
+                frame,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn prepare_native_drawable_particles_with_assets(
+        &mut self,
+        id: DrawableId,
+        particles: &mut crate::effects::particle_manager::ParticleSystemManager,
+        assets: Option<&ww3d_assets::AssetManager>,
+        public_bones: &[String],
+        frame: u32,
+    ) -> GameClientResult<()> {
+        let drawable = self
+            .drawables
+            .drawable_map
+            .get_mut(&id)
+            .expect("native Drawable roster references a live receiver");
+        let visible = drawable.is_visible();
+        if let Some(drawable) = drawable.as_any_mut().downcast_mut::<BasicDrawable>() {
+            drawable.synchronize_native_particle_visibility(particles);
+            if !visible {
+                return Ok(());
+            }
+            let outcomes = drawable
+                .prepare_native_state_particles(particles, assets, public_bones, frame)
+                .map_err(GameClientError::InvalidOperation)?;
+            for (module_index, outcome) in outcomes {
+                use gamelogic::object::draw::draw_module::NativeStateParticlePreparation;
+                let (module_preparation, animation_pose, terrain_tracks) = match outcome {
+                    NativeStateParticlePreparation::Prepared(_) => continue,
+                    NativeStateParticlePreparation::Unsupported {
+                        animation_pose,
+                        terrain_tracks,
+                    } => (false, animation_pose, terrain_tracks),
+                    NativeStateParticlePreparation::UnsupportedModule => (true, false, false),
+                };
+                self.native_particle_capability_gaps
+                    .push(NativeParticleCapabilityGap {
+                        drawable_id: id,
+                        module_index,
+                        module_preparation,
+                        animation_pose,
+                        terrain_tracks,
+                    });
             }
         }
         Ok(())

@@ -1,6 +1,6 @@
 use crate::game_logic::{
-    victory::{PlayerOutcome, VictorySummary},
     ObjectId,
+    victory::{PlayerOutcome, VictorySummary},
 };
 use crate::graphics::MinimapCoordinates;
 use crate::localization;
@@ -200,7 +200,7 @@ pub struct GameUIState {
     pub time_frozen_for_simulation: bool,
     /// Pending script FPS limit residual.
     pub script_fps_limit: Option<i32>,
-    /// Pending view guardband residual (x,y bias).
+    /// Persistent owning-view guardband configuration (x,y world-space bias).
     pub view_guardband: Option<(f32, f32)>,
     /// Pending camera focus residual.
     pub camera_focus: Option<[f32; 3]>,

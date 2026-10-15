@@ -35,43 +35,6 @@ pub(super) const W3D_FRAME_LENGTH_MS: u32 = 33;
 /// C++ `W3DDisplay::draw` `minTime = 30` present cap (busy-wait `< minTime-1`).
 pub(super) const W3D_DRAW_MIN_TIME_MS: u32 = 30;
 
-/// C++ W3DDisplay::draw's synchronous clock and fast-time residuals.
-pub(super) struct VisualClock {
-    sync_ms: u32,
-    last_client_frame: u32,
-    time_multiplier_counter: i32,
-}
-
-impl VisualClock {
-    pub(super) const fn new() -> Self {
-        Self {
-            sync_ms: 0,
-            last_client_frame: u32::MAX,
-            time_multiplier_counter: 1,
-        }
-    }
-
-    fn advance(&mut self, frame: u32, frozen: bool) -> u32 {
-        let same_client_frame = self.last_client_frame == frame;
-        self.last_client_frame = frame;
-        if !frozen && !same_client_frame {
-            self.sync_ms = self.sync_ms.wrapping_add(W3D_FRAME_LENGTH_MS);
-        }
-        self.sync_ms
-    }
-
-    fn multiplier_allows_draw(&mut self, multiplier: i32) -> bool {
-        if multiplier > 1 {
-            self.time_multiplier_counter -= 1;
-            if self.time_multiplier_counter > 1 {
-                return false;
-            }
-            self.time_multiplier_counter = multiplier;
-        }
-        true
-    }
-}
-
 pub(super) struct AverageFpsTracker {
     history: [f64; 30],
     offset: usize,
@@ -247,11 +210,7 @@ pub async fn run_cnc_game(
                 }
                 let timing = match ww3d_engine::update() {
                     Ok(_) => match ww3d_engine::timing() {
-                        Ok(timing) => {
-                            let sync_ms = engine.advance_ww3d_visual_sync();
-                            WW3D::sync(sync_ms);
-                            Some(timing)
-                        }
+                        Ok(timing) => Some(timing),
                         Err(err) => {
                             error!("Failed to fetch WW3D frame timing: {err:?}");
                             None
@@ -1084,42 +1043,15 @@ impl CnCGameEngine {
         }
     }
 
-    /// C++ W3DDisplay.cpp:1730-1781 freeze-aware virtual clock.
-    pub(super) fn advance_ww3d_visual_sync(&mut self) -> u32 {
-        let frame = self.host_match_logic_frame.unwrap_or(0);
-        let freeze = self.presentation_or_boot_time_frozen()
-            || self.game_paused
-            || matches!(self.current_state, GameState::Paused);
-        self.visual_clock.advance(frame, freeze)
-    }
-
     /// C++ `TheScriptEngine->isTimeFast()` analog: visual speed at/above logic Hz.
     pub(super) fn script_time_fast(&self) -> bool {
         self.presentation_or_boot_visual_speed() >= 30.0
     }
 
-    /// C++ W3DDisplay.cpp:1741-1795 + 1852-1855 render-throttle contract.
-    pub(super) fn should_present_w3d_frame(&mut self) -> bool {
-        let freeze = self.presentation_or_boot_time_frozen()
-            || self.game_paused
-            || matches!(self.current_state, GameState::Paused);
-        if !freeze && self.script_time_fast() {
-            return false;
-        }
-        let multiplier = self.presentation_or_boot_visual_speed().max(1.0) as i32;
-        if !self.visual_clock.multiplier_allows_draw(multiplier) {
-            return false;
-        }
-        let tivo = game_engine::common::global_data::read_safe()
-            .map(|data| data.tivo_fast_mode)
-            .unwrap_or(false);
-        if tivo && self.presentation_or_boot_in_replay_game() && !freeze {
-            let frame = self.host_match_logic_frame.unwrap_or(0);
-            if frame % 30 != 1 {
-                return false;
-            }
-        }
-        true
+    /// Consume the completed display decision; never advance a second clock
+    /// or multiplier counter while scheduling the optional GPU attempt.
+    pub(super) fn should_present_w3d_frame(&self) -> bool {
+        self.native_display.should_present()
     }
 
     /// C++ execute limiter + W3DDisplay 30ms draw limiter.
@@ -1161,29 +1093,52 @@ mod tests {
 
     #[test]
     fn owned_visual_clock_preserves_freeze_and_frame_cadence() {
-        let mut first = super::VisualClock::new();
-        let mut second = super::VisualClock::new();
-        assert_eq!(first.advance(0, false), 33);
-        assert_eq!(first.advance(0, false), 33);
-        assert_eq!(first.advance(1, true), 33);
-        // C++ remembers the client frame even while frozen.
-        assert_eq!(first.advance(1, false), 33);
-        assert_eq!(first.advance(2, false), 66);
-        assert_eq!(second.advance(2, false), 33);
-        first.sync_ms = u32::MAX - 10;
-        assert_eq!(first.advance(3, false), 22);
+        use super::super::display_clock::DisplayInputs;
+        let mut owner = super::super::native_display::NativeDisplayState::new();
+        let inputs = DisplayInputs {
+            client_frame: 0,
+            frozen: false,
+            time_fast: false,
+            multiplier: 1,
+            device_ready: true,
+            tivo_replay: false,
+            replay_frame: 0,
+        };
+        assert_eq!(owner.admit(inputs).sync_time_ms, 33);
+        assert_eq!(owner.admit(inputs).frame_time_ms, 0);
+        owner.reset_world(2);
+        assert_eq!(
+            owner
+                .admit(DisplayInputs {
+                    client_frame: 1,
+                    ..inputs
+                })
+                .sync_time_ms,
+            66
+        );
     }
 
     #[test]
     fn owned_visual_clock_preserves_multiplier_counter_and_isolation() {
-        let mut first = super::VisualClock::new();
-        let mut second = super::VisualClock::new();
-        let draws: Vec<_> = (0..7).map(|_| first.multiplier_allows_draw(4)).collect();
+        use super::super::display_clock::DisplayInputs;
+        let mut first = super::super::native_display::NativeDisplayState::new();
+        let mut peer = super::super::native_display::NativeDisplayState::new();
+        let input = |client_frame| DisplayInputs {
+            client_frame,
+            frozen: false,
+            time_fast: false,
+            multiplier: 4,
+            device_ready: true,
+            tivo_replay: false,
+            replay_frame: client_frame,
+        };
+        let draws: Vec<_> = (0..7)
+            .map(|frame| first.admit(input(frame)).draw_gpu)
+            .collect();
         assert_eq!(draws, [true, false, false, true, false, false, true]);
-        assert!(second.multiplier_allows_draw(4));
-        assert!(first.multiplier_allows_draw(1));
-        // Dropping back to normal speed does not reset the C++ counter.
-        assert!(!first.multiplier_allows_draw(4));
+        assert!(peer.admit(input(0)).draw_gpu);
+        let before = first.should_present();
+        assert_eq!(first.should_present(), before, "GPU query is inert");
     }
 
     #[test]

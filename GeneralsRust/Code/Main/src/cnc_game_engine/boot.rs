@@ -630,7 +630,7 @@ impl CnCGameEngine {
             frame_counter: 0,
             fps: 0.0,
             average_fps_tracker: super::run_loop::AverageFpsTracker::new(),
-            visual_clock: super::run_loop::VisualClock::new(),
+            native_display: super::native_display::NativeDisplayState::new(),
             last_new_game_identity: None,
             last_frame_timing: None,
             frame_clock: FrameClock::new(),

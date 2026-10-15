@@ -173,6 +173,8 @@ include!("impl_init.rs");
 include!("impl_update.rs");
 include!("impl_draw.rs");
 include!("native_particle_draw.rs");
+include!("native_view_draw.rs");
+include!("native_presentation.rs");
 include!("material_pass.rs");
 include!("leftover.rs");
 include!("owned_laser.rs");
@@ -198,6 +200,8 @@ pub const GAME_CLIENT_SRC: &str = concat!(
     include_str!("impl_update.rs"),
     include_str!("impl_draw.rs"),
     include_str!("native_particle_draw.rs"),
+    include_str!("native_view_draw.rs"),
+    include_str!("native_presentation.rs"),
     include_str!("material_pass.rs"),
     include_str!("leftover.rs"),
     include_str!("template_modules.rs"),

@@ -396,26 +396,25 @@ impl GameClient {
     where
         F: FnMut(&dyn Drawable),
     {
-        for drawable in self.drawables.drawable_map.values() {
-            let position = drawable.get_position();
-
-            let in_region = match region {
-                None => true,
-                Some(r) => {
-                    position.x >= r.lo.x
-                        && position.x <= r.hi.x
-                        && position.y >= r.lo.y
-                        && position.y <= r.hi.y
-                        && position.z >= r.lo.z
-                        && position.z <= r.hi.z
-                }
-            };
-
-            if in_region {
-                callback(drawable.as_ref());
-            }
+        // Public region coordinates retain the original C++ Z-up contract.
+        // Direct-host storage conversion lives in the same view selector used
+        // by material and installed Draw callbacks, never a second predicate.
+        let selected = if let Some(region) = region {
+            self.native_roster_for_view(&NativeDrawView {
+                region: crate::display::client_draw_schedule::ViewAabb {
+                    lo: [region.lo.x, region.lo.y, region.lo.z],
+                    hi: [region.hi.x, region.hi.y, region.hi.z],
+                },
+            })?
+        } else {
+            self.drawables.native_drawable_order.clone()
+        };
+        for id in selected {
+            let drawable = self.drawables.drawable_map.get(&id).ok_or_else(|| {
+                GameClientError::InvalidOperation("native region roster receiver absent".into())
+            })?;
+            callback(drawable.as_ref());
         }
-
         Ok(())
     }
 
@@ -1457,6 +1456,7 @@ impl Snapshotable for GameClient {
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         if xfer.get_xfer_mode() == CommonXferMode::Load {
+            self.invalidate_presentation_shell();
             xfer.set_client_frame_context(game_engine::ClientFrameContext::Frame(self.frame))
                 .map_err(|e| format!("client frame context: {e:?}"))?;
         }

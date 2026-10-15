@@ -1396,7 +1396,7 @@ pub struct CnCGameEngine {
     pub(crate) frame_counter: u32,
     pub(crate) fps: f32,
     pub(super) average_fps_tracker: super::run_loop::AverageFpsTracker,
-    pub(super) visual_clock: super::run_loop::VisualClock,
+    pub(super) native_display: super::native_display::NativeDisplayState,
     pub(super) last_new_game_identity: Option<super::dispatch::LastNewGameIdentity>,
     pub(crate) last_frame_timing: Option<FrameTiming>,
     pub(crate) frame_clock: FrameClock,

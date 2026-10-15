@@ -2216,9 +2216,10 @@ impl PresentationFrame {
             script_default_camera_max_height: logic.script_default_camera_max_height(),
             script_default_camera_pitch: logic.script_default_camera_pitch(),
             script_fps_limit: logic.peek_pending_script_fps_limit(),
-            view_guardband: logic
-                .peek_pending_view_guardband()
-                .map(|g| (g.x_bias, g.y_bias)),
+            view_guardband: {
+                let [x, y] = logic.native_view_guardband();
+                Some((x, y))
+            },
             camera_focus: logic.peek_pending_camera_focus().map(|p| [p.x, p.y, p.z]),
             camera_follow_position: logic
                 .peek_camera_follow_target_position()

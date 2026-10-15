@@ -1878,7 +1878,7 @@ impl CnCGameEngine {
     /// status, and pose from one immutable presentation frame, so the first
     /// InGame W3D candidate can validate and write its clear-frame state.
     #[cfg(feature = "game_client")]
-    fn host_sync_presentation_direct_drawables(
+    pub(super) fn host_sync_presentation_direct_drawables(
         &mut self,
         presentation_time_frozen: bool,
     ) -> Result<(), String> {
@@ -2096,7 +2096,7 @@ impl CnCGameEngine {
     /// current complete Drawable association. The pending command remains on
     /// its host object until the receiving owner accepts the whole batch.
     #[cfg(feature = "game_client")]
-    fn host_prepare_presentation_materials(
+    pub(super) fn host_prepare_presentation_materials(
         &mut self,
     ) -> Result<Vec<game_client::core::game_client::NativeMaterialObservation>, String> {
         super::presentation_materials::prepare(
@@ -2504,6 +2504,10 @@ impl CnCGameEngine {
     /// `OBJECT_REGISTRY` is populated (opt-in bridge); production host keeps it empty.
     #[cfg(feature = "game_client")]
     pub(super) fn host_tick_game_client_presentation_shell(&mut self) {
+        if let Err(error) = self.native_display.require_shell_slot() {
+            log::error!("Native Client prefix rejected: {error}");
+            return;
+        }
         // C++ GameLogic::update setFrame(TheGameLogic->getFrame()) before client update.
         // Extra presents with the same host frame freeze drawable/FX time.
         // The actual client frame is admitted before each logic step, including catch-up.
@@ -2539,13 +2543,15 @@ impl CnCGameEngine {
             self.snow_anim2d_dt_for_present()
         };
         if let Err(error) = self.host_sync_presentation_direct_drawables(presentation_time_frozen) {
-            log::trace!("Drawable association failed: {error}");
+            self.native_display
+                .fail_shell(format!("Drawable association failed: {error}"));
             return;
         }
         let material_observations = match self.host_prepare_presentation_materials() {
             Ok(observations) => observations,
             Err(error) => {
-                log::trace!("Drawable material admission failed: {error}");
+                self.native_display
+                    .fail_shell(format!("Drawable material admission failed: {error}"));
                 return;
             }
         };
@@ -2811,18 +2817,30 @@ impl CnCGameEngine {
         // Wave 862: presentation pose/shroud/caption residual already applied above.
         // Do not call full update_drawables — double-ticks and overwrites presentation FOW.
         // Boot/loading without freeze still uses the same shell tick (empty registry early-out).
-        if let Err(e) = self
+        let frames = game_client::core::game_client::NativeParticleFrames {
+            logic_frame: self.game_logic.frame,
+            client_frame: self.game_client.get_frame(),
+        };
+        match self
             .game_client
-            .update_presentation_shell_with_material_frames(
+            .begin_presentation_shell_with_material_frames(
                 visual_delta,
-                game_client::core::game_client::NativeParticleFrames {
-                    logic_frame: self.game_logic.frame,
-                    client_frame: self.game_client.get_frame(),
-                },
+                frames,
                 &material_observations,
-            )
-        {
-            log::trace!("GameClient presentation shell update failed (non-fatal): {e}");
+            ) {
+            Ok(step) => {
+                if let Err(error) = self.native_display.queue_shell(
+                    step,
+                    material_observations,
+                    self.host_direct_visual_world_epoch,
+                    frames.client_frame,
+                ) {
+                    self.native_display.fail_shell(error);
+                }
+            }
+            Err(error) => self
+                .native_display
+                .fail_shell(format!("Client prefix failed: {error}")),
         }
     }
 }

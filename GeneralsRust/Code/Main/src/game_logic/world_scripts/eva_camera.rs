@@ -948,7 +948,12 @@ impl GameLogic {
         self.pending_camera_focus = Some(pos);
     }
 
+    pub fn native_view_guardband(&self) -> [f32; 2] {
+        self.native_view_guardband
+    }
+
     pub fn queue_pending_view_guardband(&mut self, x_bias: f32, y_bias: f32) {
+        self.native_view_guardband = [x_bias, y_bias];
         self.pending_view_guardband =
             Some(crate::game_logic::mission_scripts::ViewGuardbandRequest { x_bias, y_bias });
     }

@@ -99,6 +99,7 @@ mod camera_drain;
 #[cfg(feature = "game_client")]
 mod control_bar_bridge;
 mod dispatch;
+mod display_clock;
 mod eva_delivery;
 mod host;
 mod host_authority;
@@ -108,6 +109,7 @@ mod input;
 #[cfg(feature = "game_client")]
 mod minimap_bridge;
 mod mouse;
+mod native_display;
 pub(crate) mod object_ini_boot;
 mod options_bridge;
 #[cfg(feature = "game_client")]

@@ -65,6 +65,8 @@ impl GameClient {
             shadows_enabled: true,
             rendered_object_count: 0,
             last_update_time: Instant::now(),
+            presentation_shell_owner: std::sync::Arc::new(()),
+            presentation_shell_generation: 0,
             target_frame_duration: Duration::from_millis(33),
             startup_sizzle_pending: false,
             initialized: false,
@@ -165,6 +167,7 @@ impl GameClient {
 
     fn try_invalidate_presentation_drawable_world(&mut self) -> GameClientResult<()> {
         self.retire_native_drawable_particles(None)?;
+        self.invalidate_presentation_shell();
         for drawable in self.drawables.drawable_map.values_mut() {
             drawable.reset_volatile_shroud_state();
         }

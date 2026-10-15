@@ -61,12 +61,9 @@ fn check(world: &mut GameLogic, value: f32, enabled: bool) {
             CameraMotionBlurRequest::EndFollow,
         ]
     );
+    assert_eq!(world.native_view_guardband(), [value, value + 0.5]);
     #[cfg(feature = "game_client")]
     game_client::display::view::with_tactical_view_ref(|view| {
-        assert_eq!(
-            view.guard_band_bias(),
-            game_client::display::view::Vector2::new(value, value + 0.5)
-        );
         assert_eq!(
             view.get_view_filter_type(),
             game_client::display::view::FilterType::MotionBlur

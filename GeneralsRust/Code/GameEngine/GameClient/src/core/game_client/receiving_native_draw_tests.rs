@@ -10,7 +10,7 @@ use ww3d_assets::prototypes::{
 };
 use ww3d_core::{W3dPivotStruct, W3dTriangleStruct, W3dVectorStruct};
 
-fn static_asset() -> ww3d_assets::AssetManager {
+pub(super) fn static_asset() -> ww3d_assets::AssetManager {
     static_asset_at([2., 3., 4.])
 }
 
@@ -89,7 +89,7 @@ fn static_asset_at(offset: [f32; 3]) -> ww3d_assets::AssetManager {
     assets
 }
 
-fn authored_template() -> ThingTemplate {
+pub(super) fn authored_template() -> ThingTemplate {
     let mut state = ModelConditionInfo::new();
     state.model_name = "NativeEmitterModel".into();
     state.particle_sys_bones.push(ParticleSysBoneInfo {
@@ -252,7 +252,7 @@ fn receiving_native_draw_admits_authored_emitter_before_next_client_bone_update(
     );
 }
 
-fn visible_emitter_manager() -> ParticleSystemManager {
+pub(super) fn visible_emitter_manager() -> ParticleSystemManager {
     let mut manager = emitter_manager();
     // Lifetime tests need particles that survive the original visibility gate.
     // Alpha defaults to zero opacity; C++ AlphaTest never retires for opacity.

@@ -53,6 +53,8 @@ impl CnCGameEngine {
     pub(super) fn host_advance_direct_visual_world_epoch(&mut self) {
         let next = self.host_direct_visual_world_epoch.wrapping_add(1);
         self.host_direct_visual_world_epoch = if next == 0 { 1 } else { next };
+        self.native_display
+            .reset_world(self.host_direct_visual_world_epoch);
     }
 
     #[inline]

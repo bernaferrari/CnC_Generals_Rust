@@ -638,12 +638,7 @@ impl GameLogic {
         // capture boundary and guardband -> BW -> skybox -> blur effect order.
         let camera_view = self.mission_scripts.take_camera_view_requests();
         if let Some(last) = camera_view.guardbands.into_iter().last() {
-            #[cfg(feature = "game_client")]
-            game_client::core::script_action_handler::script_resize_view_guardband(
-                last.x_bias,
-                last.y_bias,
-            );
-            self.pending_view_guardband = Some(last);
+            self.queue_pending_view_guardband(last.x_bias, last.y_bias);
         }
 
         if let Some(last) = camera_view.bw_modes.into_iter().last() {

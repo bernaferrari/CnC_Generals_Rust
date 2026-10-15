@@ -152,7 +152,7 @@ pub struct PresentationFrame {
     pub script_default_camera_pitch: f32,
     /// Pending script FPS limit residual.
     pub script_fps_limit: Option<i32>,
-    /// Pending view guardband residual (x,y bias).
+    /// Persistent owning-view guardband configuration (x,y world-space bias).
     pub view_guardband: Option<(f32, f32)>,
     /// Pending camera focus residual.
     pub camera_focus: Option<[f32; 3]>,
