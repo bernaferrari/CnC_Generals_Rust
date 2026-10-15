@@ -132,8 +132,8 @@ fn self_destruct_transfers_to_living_ally() {
     p1.alliance_team = 1;
     p0.resources.supplies = 4_000;
     p1.resources.supplies = 1_000;
-    logic.get_players_mut().insert(0, p0);
-    logic.get_players_mut().insert(1, p1);
+    logic.add_player(p0);
+    logic.add_player(p1);
     let mut tpl = crate::game_logic::ThingTemplate::new("RangerSD");
     tpl.set_health(100.0);
     logic.templates.insert("RangerSD".into(), tpl);

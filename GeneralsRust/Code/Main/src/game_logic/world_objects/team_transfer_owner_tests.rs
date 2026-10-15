@@ -189,7 +189,9 @@ fn structure_capture_score_obeys_scoring_flag_and_exact_same_team_no_op() {
     structure.add_kind_of(KindOf::Structure).set_health(100.0);
     structure.set_authored_ai_update_interface(Some(false));
     game.templates.insert(structure.name.clone(), structure);
-    let object = game.create_object_for_player("OwnedCaptureStructure", 0, Vec3::ZERO).unwrap();
+    let object = game
+        .create_object_for_player("OwnedCaptureStructure", 0, Vec3::ZERO)
+        .unwrap();
     game.set_scoring_enabled(false);
     assert!(game.transfer_object_to_player(object, 1));
     assert_eq!(game.get_player(1).unwrap().statistics.objects_captured, 0);
@@ -198,4 +200,55 @@ fn structure_capture_score_obeys_scoring_flag_and_exact_same_team_no_op() {
     assert_eq!(game.get_player(0).unwrap().statistics.objects_captured, 1);
     assert!(game.transfer_object_to_player(object, 0));
     assert_eq!(game.get_player(0).unwrap().statistics.objects_captured, 1);
+    let sibling = {
+        let mut factory = game.team_factory.lock().unwrap();
+        factory
+            .init_team_owned(
+                "SameOwnerCapture".into(),
+                "Original".into(),
+                true,
+                None,
+                Some(0),
+            )
+            .unwrap();
+        let instance = factory.find_team_instances("SameOwnerCapture").remove(0);
+        let identity = instance.read().unwrap().get_id();
+        identity
+    };
+    assert!(game.set_host_object_team(object, sibling));
+    assert_eq!(
+        game.get_player(0).unwrap().statistics.objects_captured,
+        2,
+        "CPP onCapture scores a different Team even when its controller is unchanged"
+    );
+}
+
+#[test]
+fn default_team_lookup_and_rejected_defect_do_not_activate_saved_inactive_team() {
+    let (mut game, object) = world();
+    let identity = game.objects[&object].team_instance_id.unwrap();
+    let instance = game
+        .team_factory
+        .lock()
+        .unwrap()
+        .find_team_by_id(identity)
+        .unwrap();
+    instance.write().unwrap().restore_save_script_state(
+        false,
+        false,
+        false,
+        false,
+        false,
+        0,
+        0,
+        None,
+        &[],
+        false,
+        false,
+        "",
+    );
+    assert_eq!(game.host_default_team_id(0), Some(identity));
+    assert!(!game.defect_host_object(object, identity, 1));
+    assert!(!instance.read().unwrap().is_active());
+    assert!(!instance.read().unwrap().is_created());
 }

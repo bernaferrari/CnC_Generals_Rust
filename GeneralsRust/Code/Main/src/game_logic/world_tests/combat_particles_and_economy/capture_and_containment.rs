@@ -19,6 +19,8 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 5000;
     game_logic.add_player(player);
+    // Object::defect requires the target's admitted controller/default team.
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_structure_template(&mut game_logic);
     ensure_test_barracks_template(&mut game_logic);
@@ -309,6 +311,8 @@ fn zero_unpack_capture_clears_approach_goal_and_survives_preparation() {
 
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", false));
+    // Object::defect requires the target's admitted controller/default team.
+    ensure_test_player_for_team(&mut logic, Team::GLA);
     ensure_test_infantry_template(&mut logic);
     ensure_test_structure_template(&mut logic);
     logic
@@ -383,6 +387,8 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 5000;
     game_logic.add_player(player);
+    // Object::defect requires the target's admitted controller/default team.
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_structure_template(&mut game_logic);
     // C++ retail capture module: `StartsPaused = Yes` +

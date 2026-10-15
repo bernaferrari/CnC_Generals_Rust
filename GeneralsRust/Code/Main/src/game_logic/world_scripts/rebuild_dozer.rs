@@ -329,9 +329,14 @@ impl GameLogic {
         }
         // ScoreKeeper.cpp:196–224 counts structures only, with scoring enabled.
         if self.is_scoring_enabled()
-            && self.objects.get(&object_id).is_some_and(|object| object.is_kind_of(KindOf::Structure))
+            && self
+                .objects
+                .get(&object_id)
+                .is_some_and(|object| object.is_kind_of(KindOf::Structure))
         {
-            if let Some(player) = captured_owner_player_id.and_then(|player_id| self.get_player_mut(player_id)) {
+            if let Some(player) =
+                captured_owner_player_id.and_then(|player_id| self.get_player_mut(player_id))
+            {
                 player.record_object_captured();
             }
         }

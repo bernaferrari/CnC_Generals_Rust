@@ -106,10 +106,10 @@ fn self_destruct_transfers_to_living_ally_then_kills() {
     let mut logic = GameLogic::new();
     let mut p0 = Player::new(0, Team::USA, "P0", true);
     p0.alliance_team = 1;
-    logic.get_players_mut().insert(0, p0);
+    logic.add_player(p0);
     let mut p1 = Player::new(1, Team::USA, "P1", false);
     p1.alliance_team = 1;
-    logic.get_players_mut().insert(1, p1);
+    logic.add_player(p1);
 
     let mut unit_tpl = ThingTemplate::new("Ranger");
     unit_tpl.add_kind_of(KindOf::Infantry).set_health(100.0);

@@ -5,7 +5,6 @@ use super::super::*;
 impl GameLogic {
     pub(in crate::game_logic) fn host_default_team_id(&self, player_id: u32) -> Option<u32> {
         let player = self.players.get(&player_id)?;
-        self.ensure_host_default_team(player_id);
         let name = self.default_host_team_instance_name(Some(player_id), player.team);
         let factory = self.team_factory.lock().unwrap_or_else(|e| e.into_inner());
         let instance = factory.find_team_instances(&name).into_iter().next()?;
@@ -232,7 +231,11 @@ impl GameLogic {
                 object.set_ai_state(AIState::Idle);
             }
         }
-        if self.objects.get(&id).is_some_and(Object::has_ai_update_interface) {
+        if self
+            .objects
+            .get(&id)
+            .is_some_and(Object::has_ai_update_interface)
+        {
             self.stop_attack_decision_aware(id);
             self.clear_target_decision_aware(id);
         }

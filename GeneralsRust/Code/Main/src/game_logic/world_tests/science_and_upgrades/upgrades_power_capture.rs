@@ -1543,7 +1543,9 @@ fn capture_object_residual_idle_deselect_ai_sell() {
     barracks
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSBarracks)
-        .set_health(1000.0);
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1000.0)
+        .set_authored_ai_update_interface(Some(true));
     logic.templates.insert("AmericaBarracks".into(), barracks);
 
     let id = logic
@@ -1552,6 +1554,9 @@ fn capture_object_residual_idle_deselect_ai_sell() {
     if let Some(p) = logic.players.get_mut(&0) {
         p.selected_objects.push(id);
     }
+    logic.host_object_mut(id).expect("barracks").select();
+    assert!(logic.host_object(id).unwrap().selected);
+    assert!(logic.host_object(id).unwrap().status.selected);
     // Flip ownership first (C++ order: setTeam then onCapture).
     if let Some((obj, ownership_events)) = logic.host_object_and_ownership_events_mut(id) {
         obj.set_team(Team::GLA, ownership_events);
@@ -1572,9 +1577,10 @@ fn capture_object_residual_idle_deselect_ai_sell() {
             .unwrap_or(false),
         "must deselect from former owner"
     );
-    assert!(logic.capture_deselections > 0);
+    assert!(!obj.selected, "native object selection must clear");
+    assert!(!obj.status.selected, "native selected status must clear");
     assert!(
-        logic.capture_ai_auto_sells > 0 || logic.is_object_being_sold(id) || obj.status.sold,
+        logic.is_object_being_sold(id) && obj.status.sold,
         "skirmish AI must auto-sell captured faction structure"
     );
 }

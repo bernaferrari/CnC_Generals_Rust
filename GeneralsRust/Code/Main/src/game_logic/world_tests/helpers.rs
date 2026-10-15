@@ -592,15 +592,17 @@ pub(super) fn ensure_test_airfield_template(game_logic: &mut GameLogic) {
 }
 
 pub(super) fn ensure_test_player_for_team(game_logic: &mut GameLogic, team: Team) {
-    let player_id = match team {
-        Team::USA => 0,
-        Team::China => 1,
-        Team::GLA => 2,
-        Team::Neutral => 3,
+    // C++ default-team names derive from the exact player name. Distinct
+    // receiving players must not accidentally share one default prototype.
+    let (player_id, player_name) = match team {
+        Team::USA => (0, "TestPlayer"),
+        Team::China => (1, "TestPlayerChina"),
+        Team::GLA => (2, "TestPlayerGLA"),
+        Team::Neutral => (3, "TestPlayerNeutral"),
     };
 
     if game_logic.get_player(player_id).is_none() {
-        let mut player = Player::new(player_id, team, "TestPlayer", true);
+        let mut player = Player::new(player_id, team, player_name, true);
         player.resources.supplies = 100_000;
         player.power_available = 100;
         player.resources.power = 100;

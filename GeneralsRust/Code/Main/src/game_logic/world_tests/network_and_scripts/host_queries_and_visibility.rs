@@ -2065,6 +2065,9 @@ fn infantry_capture_requires_completed_capture_upgrade_when_player_exists() {
 #[test]
 fn capture_channel_uses_authored_ranger_unpack_prepare_and_pack_timing() {
     let mut game_logic = GameLogic::new();
+    // Capture operates between concrete receiving players, as Object::defect requires.
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_structure_template(&mut game_logic);
 
@@ -2164,6 +2167,9 @@ fn capture_channel_uses_authored_ranger_unpack_prepare_and_pack_timing() {
 #[test]
 fn capture_trigger_awards_ranger_award_xp_for_triggering() {
     let mut game_logic = GameLogic::new();
+    // Capture operates between concrete receiving players, as Object::defect requires.
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_structure_template(&mut game_logic);
 
@@ -2207,6 +2213,9 @@ fn capture_trigger_awards_ranger_award_xp_for_triggering() {
 #[test]
 fn capture_does_not_heal_building_to_full() {
     let mut game_logic = GameLogic::new();
+    // Capture operates between concrete receiving players, as Object::defect requires.
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_structure_template(&mut game_logic);
 
@@ -2249,6 +2258,9 @@ fn black_lotus_capture_uses_its_zero_reload_at_preparation_not_ranger_timer() {
     use crate::game_logic::{CapturePowerKind, ThingTemplate};
 
     let mut game_logic = GameLogic::new();
+    // Capture operates between concrete receiving players, as Object::defect requires.
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
     ensure_test_structure_template(&mut game_logic);
 
     let mut lotus = ThingTemplate::new("CaptureTimingBlackLotus");

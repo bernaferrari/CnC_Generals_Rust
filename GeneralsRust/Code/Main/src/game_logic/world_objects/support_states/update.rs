@@ -1510,40 +1510,17 @@ impl GameLogic {
                                 // already matches; call it before the flip so a
                                 // 2v2 same-faction ally victim stays silent.
                                 self.try_eva_building_stolen(capture_target_id);
-                                // C++ capture uses Object::defect (SpecialAbilityUpdate.cpp:1442).
-                                // defect cancelAndRefundAllProduction (Object.cpp:6136-6139)
-                                // before setTeam; onCapture (Object.cpp:4509) then keeps the
-                                // emptied ProductionUpdate module. Do not transfer the queue.
-                                self.cancel_all_production(capture_target_id);
-                                let transferred = match owner_player_id {
-                                    Some(player_id) => {
-                                        self.transfer_object_to_player(capture_target_id, player_id)
-                                    }
-                                    None => {
-                                        if let Some(target) =
-                                            self.objects.get_mut(&capture_target_id)
-                                        {
-                                            target.set_team(team, &mut self.ownership_events);
-                                            true
-                                        } else {
-                                            false
-                                        }
-                                    }
-                                };
-                                if transferred {
-                                    self.objects
-                                        .get_mut(&capture_target_id)
-                                        .map(|target| {
-                                            // C++ Object::defect does not restore HP
-                                            // (SpecialAbilityUpdate.cpp:1442 / Object.cpp:6111).
-                                            // C++ defect(..., 1) one-frame flash residual.
-                                            target.flash_as_selected();
-                                            true
-                                        })
-                                        .unwrap_or(false)
-                                } else {
-                                    false
-                                }
+                                // SpecialAbilityUpdate.cpp:1442 defects to the
+                                // capturer's exact Team with one detection frame.
+                                // The receiving operation owns refund, timer,
+                                // capture callbacks and parking propagation.
+                                let destination = self
+                                    .objects
+                                    .get(&object_id)
+                                    .and_then(|capturer| capturer.team_instance_id);
+                                destination.is_some_and(|team| {
+                                    self.defect_host_object(capture_target_id, team, 1)
+                                })
                             }
                         } else {
                             false
@@ -1587,11 +1564,7 @@ impl GameLogic {
 
                     if did_capture {
                         // C++ Object::onCapture residual (kick/idle/AI-sell/deselect).
-                        // Exact-player transfer already ran the receiving onCapture.
-                        // Unmigrated faction-only admission still needs its adapter.
-                        if owner_player_id.is_none() {
-                            self.on_capture_object_residual(capture_target_id, target_team, team);
-                        }
+                        // The receiving defect operation already ran onCapture.
                         // C++ getAcademyStats()->recordBuildingCapture() residual.
                         let player = match owner_player_id {
                             Some(player_id) => self.get_player_mut(player_id),

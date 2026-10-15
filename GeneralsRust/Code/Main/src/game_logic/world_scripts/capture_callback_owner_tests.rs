@@ -61,7 +61,7 @@ fn same_faction_owner_change_idles_and_orders_exit_only_in_receiving_world() {
 }
 
 #[test]
-fn same_owner_team_callback_scores_without_idling_or_evacuation() {
+fn same_owner_unit_team_callback_preserves_orders_without_scoring_or_evacuation() {
     let (mut world, transport, passenger) = transport_world();
     world
         .objects
