@@ -4,7 +4,7 @@
 //! matching the C++ implementation exactly for visual effects compatibility.
 
 use glam::{Mat3, Mat4 as GlamMat4, Vec3};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
 use thiserror::Error;
@@ -646,18 +646,19 @@ impl ParticleSystemManager {
     /// (ParticleSys.cpp:2028-2060). `ParticleSystemManager::update` then
     /// deletes the system when `update` returns false (ParticleSys.cpp:2923).
     pub fn destroy_particle_system(&mut self, id: ParticleSystemId) {
-        let slave_id = self
-            .active_systems
-            .get(&id)
-            .and_then(|s| s.slave_system_id());
-
-        if let Some(system) = self.active_systems.get_mut(&id) {
+        let mut visited = HashSet::new();
+        let mut next = Some(id);
+        while let Some(id) = next {
+            if !visited.insert(id) {
+                break;
+            }
+            let Some(system) = self.active_systems.get_mut(&id) else {
+                break;
+            };
+            // Preserve C++ parent-before-slave marking without input-sized
+            // recursion. Premarked nodes can still have live descendants.
             system.destroy();
-        }
-
-        // Cascade to slave (C++ line 1258-1260: m_slaveSystem->destroy())
-        if let Some(slave_id) = slave_id {
-            self.destroy_particle_system(slave_id);
+            next = system.slave_system_id();
         }
     }
 
@@ -2150,3 +2151,7 @@ mod emission;
 #[cfg(test)]
 #[path = "particle_manager/reset_clock_tests.rs"]
 mod reset_clock_tests;
+
+#[cfg(test)]
+#[path = "particle_manager/destroy_traversal_tests.rs"]
+mod destroy_traversal_tests;
