@@ -1739,8 +1739,31 @@ impl GameLogic {
                         DamageType::Flame,
                     );
                 } else {
-                    self.special_power_strikes
-                        .spawn_neutron_slow_death_field(source, team, pos, self.frame, 0);
+                    {
+                        let (fx_arg_0, fx_arg_1, fx_arg_2, fx_arg_3, fx_arg_4) =
+                            (source, team, pos, self.frame, 0);
+                        #[cfg(feature = "game_client")]
+                        {
+                            let player = self.local_player_id();
+                            let receiver = &mut self.special_power_strikes;
+                            Self::with_host_fx_view_parts(
+                                &mut self.session_view,
+                                player,
+                                self.world_services.shroud(),
+                                |view| {
+                                    receiver.spawn_neutron_slow_death_field_with_view(
+                                        fx_arg_0, fx_arg_1, fx_arg_2, fx_arg_3, fx_arg_4, view,
+                                    )
+                                },
+                            )
+                        }
+                        #[cfg(not(feature = "game_client"))]
+                        {
+                            self.special_power_strikes.spawn_neutron_slow_death_field(
+                                fx_arg_0, fx_arg_1, fx_arg_2, fx_arg_3, fx_arg_4,
+                            )
+                        }
+                    };
                     // C++ SlowDeath detonation carries the impact sound (FXList
                     // audio at the blast position) — the registry blob that also
                     // queues it is suppressed for live delivery.

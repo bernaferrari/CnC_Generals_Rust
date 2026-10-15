@@ -206,14 +206,14 @@ impl CnCGameEngine {
 
             // Main camera is Y-up; GameClient View / C++ Coord3D is Z-up (X/Y ground).
             let target = Point3::new(
-                self.camera_target.x,
-                self.camera_target.z,
-                self.camera_target.y,
+                self.game_logic.session_view.target.x,
+                self.game_logic.session_view.target.z,
+                self.game_logic.session_view.target.y,
             );
             // C++ look_to = Rotate_Z(angle) * (0,1,0) = (-sin(a), cos(a)).
             // Match heading of camera → look-at on the ground plane.
-            let look_x = self.camera_target.x - self.camera_position.x;
-            let look_y = self.camera_target.z - self.camera_position.z;
+            let look_x = self.game_logic.session_view.target.x - self.camera_position.x;
+            let look_y = self.game_logic.session_view.target.z - self.camera_position.z;
             let angle = f32::atan2(-look_x, look_y);
             let zoom = if self.camera_zoom.is_finite() {
                 self.camera_zoom.max(0.05)

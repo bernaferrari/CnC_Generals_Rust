@@ -3267,6 +3267,7 @@ mod entity_lifecycle_projectiles;
 mod entity_lifecycle_residuals;
 mod entity_lifecycle_tags;
 mod entity_lifecycle_weapon_slots;
+mod fx;
 mod install;
 mod jets;
 mod orders;

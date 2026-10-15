@@ -865,7 +865,7 @@ impl CnCGameEngine {
         // Wave 540/552: prefer presentation fow_shell_bypass when freeze present.
         let in_shell_camera = self.shell_bypass_from_presentation(startup_camera_presentation);
         (
-            self.camera_target,
+            self.game_logic.session_view.target,
             self.camera_position,
             self.camera_zoom,
             self.native_camera,
@@ -881,9 +881,9 @@ impl CnCGameEngine {
         // lookAt/setZoomToDefault builds the initial pose. The match camera
         // must apply that same viewport inset before its first player scroll.
         self.apply_camera_orbit_transform();
-        let clamped_target = self.clamp_to_world_bounds(self.camera_target);
-        if clamped_target != self.camera_target {
-            self.camera_target = clamped_target;
+        let clamped_target = self.clamp_to_world_bounds(self.game_logic.session_view.target);
+        if clamped_target != self.game_logic.session_view.target {
+            self.game_logic.session_view.target = clamped_target;
             self.apply_camera_orbit_transform();
         }
     }
@@ -926,7 +926,7 @@ impl CnCGameEngine {
                     }
                     (n > 0).then_some(sum / n as f32)
                 })
-                .unwrap_or(self.camera_target);
+                .unwrap_or(self.game_logic.session_view.target);
 
             let mut command_center: Option<Vec3> = None;
             let mut nearest_structure: Option<(f32, Vec3)> = None;
@@ -995,12 +995,12 @@ impl CnCGameEngine {
             return;
         };
 
-        let dx = focus.x - self.camera_target.x;
-        let dz = focus.z - self.camera_target.z;
+        let dx = focus.x - self.game_logic.session_view.target.x;
+        let dz = focus.z - self.game_logic.session_view.target.z;
         let dist_sq = dx * dx + dz * dz;
         let looking_at_boot_origin = {
-            let tx = self.camera_target.x;
-            let tz = self.camera_target.z;
+            let tx = self.game_logic.session_view.target.x;
+            let tz = self.game_logic.session_view.target.z;
             tx * tx + tz * tz < 80.0 * 80.0
         };
         let focus_is_real_base = {
@@ -1014,7 +1014,7 @@ impl CnCGameEngine {
             return;
         }
         // Focusing a location does not create a new map camera basis.
-        self.camera_target = Vec3::new(focus.x, 0.0, focus.z);
+        self.game_logic.session_view.target = Vec3::new(focus.x, 0.0, focus.z);
         self.apply_camera_orbit_transform();
     }
 
@@ -1372,12 +1372,15 @@ impl CnCGameEngine {
     /// The same source pose feeds rendering and transform-shaker observation.
     pub(super) fn native_camera_base_pose(&self) -> (Vec3, Vec3) {
         let (eye, look) = self.native_camera.basis().pose(
-            self.camera_target,
+            self.game_logic.session_view.target,
             self.camera_zoom,
             self.camera_pitch_radians,
             self.camera_yaw_radians,
         );
-        self.camera_fx_adjusted_eye_and_look(eye + self.camera_shake_offset, look)
+        self.camera_fx_adjusted_eye_and_look(
+            eye + self.game_logic.session_view.impulse.offset,
+            look,
+        )
     }
 
     pub(super) fn apply_camera_orbit_transform(&mut self) {
@@ -1440,7 +1443,7 @@ impl CnCGameEngine {
         // Native v18 supplies a completed eye, not an unzoomed basis. Recover
         // angles against this map's existing basis; never absorb zoom/shake.
         if let Some(pitch) = self.native_camera.basis().pitch_from_pose(
-            self.camera_target,
+            self.game_logic.session_view.target,
             self.camera_position,
             self.camera_zoom,
             self.camera_yaw_radians,
@@ -1641,14 +1644,14 @@ impl CnCGameEngine {
             .wrapping_mul(1_664_525)
             .wrapping_add((intensity as u32).wrapping_mul(1_013_904_223));
         let angle = (seed as f32 / u32::MAX as f32) * TAU;
-        self.screen_shake_angle_cos = angle.cos();
-        self.screen_shake_angle_sin = angle.sin();
+        self.game_logic.session_view.impulse.cosine = angle.cos();
+        self.game_logic.session_view.impulse.sine = angle.sin();
 
-        self.screen_shake_intensity += shake_value;
+        self.game_logic.session_view.impulse.intensity += shake_value;
         let data = game_engine::common::global_data::read();
-        if self.screen_shake_intensity > data.max_shake_intensity {
+        if self.game_logic.session_view.impulse.intensity > data.max_shake_intensity {
             // C++ parity from W3DView::shake: overflow clamps to fixed 3.0.
-            self.screen_shake_intensity = 3.0;
+            self.game_logic.session_view.impulse.intensity = 3.0;
         }
     }
 
@@ -1673,22 +1676,15 @@ impl CnCGameEngine {
     }
 
     pub(super) fn update_script_camera_shake(&mut self) -> bool {
-        let previous_offset = self.camera_shake_offset;
-        let mut offset = Vec3::ZERO;
-
-        offset += super::camera_view_effects::step_view_impulse(
-            &mut self.screen_shake_intensity,
-            &mut self.screen_shake_angle_cos,
-            &mut self.screen_shake_angle_sin,
-            true,
-        )
-        .expect("called by the admitted full-view phase");
+        let previous_offset = self.game_logic.session_view.impulse.offset;
+        let mut offset = self.game_logic.session_view.advance_impulse();
 
         #[cfg(feature = "game_client")]
         {
-            // C++ W3DView::update: offset = intensity*(cos,sin), intensity *= 0.75,
-            // flip sign. Leftover update_effects (presentation shell) already ticks
-            // the thread-local View once per InGame frame; only sample the offset here.
+            // Temporary retained Object-module adapter: unmigrated standalone
+            // callbacks still enqueue on Core's tactical View. Native receiving
+            // FX routes enqueue directly on session_view. Remove this sample only
+            // after every remaining producer has an explicit receiving view.
             game_client::display::view::with_tactical_view_ref(|view| {
                 let impulse = view.impulse_shake_offset();
                 offset.x += impulse.x;
@@ -1696,8 +1692,8 @@ impl CnCGameEngine {
             });
         }
 
-        self.camera_shake_offset = offset;
-        (self.camera_shake_offset - previous_offset).length_squared() > 0.000001
+        self.game_logic.session_view.impulse.offset = offset;
+        (self.game_logic.session_view.impulse.offset - previous_offset).length_squared() > 0.000001
     }
 
     pub(super) fn normalize_signed_angle(mut angle: f32) -> f32 {
@@ -1714,7 +1710,7 @@ impl CnCGameEngine {
         &mut self,
         request: CameraLookTowardWaypointRequest,
     ) {
-        let to_target = request.position - self.camera_target;
+        let to_target = request.position - self.game_logic.session_view.target;
         let horiz = Vec2::new(to_target.x, to_target.z);
         if horiz.length_squared() <= f32::EPSILON {
             return;
@@ -1773,10 +1769,10 @@ impl CnCGameEngine {
         {
             pres.world_env
                 .sample_height(clamped.x, clamped.z)
-                .unwrap_or(self.camera_target.y)
+                .unwrap_or(self.game_logic.session_view.target.y)
         } else {
             // Wave 905: fail-closed boot height (no terrain_height_at dual-read).
-            self.camera_target.y
+            self.game_logic.session_view.target.y
         }
     }
 
@@ -1798,7 +1794,7 @@ impl CnCGameEngine {
             if let Some(hit) = airborne_look_at_ground(
                 self.camera_position,
                 world_pos,
-                self.camera_target - self.camera_position,
+                self.game_logic.session_view.target - self.camera_position,
                 DEFAULT_VIEW_FAR_CLIP,
                 world_min,
                 world_max,
@@ -1821,7 +1817,7 @@ impl CnCGameEngine {
         let look = self.clamp_to_world_bounds(look);
         // W3DView::lookAt clears unused position Z after elevated-target ray
         // projection. The map basis independently determines render look height.
-        self.camera_target = Vec3::new(look.x, 0.0, look.z);
+        self.game_logic.session_view.target = Vec3::new(look.x, 0.0, look.z);
         self.apply_camera_orbit_transform();
     }
 
@@ -2274,7 +2270,7 @@ impl CnCGameEngine {
         self.game_hud_mut().resize(hud_w, hud_h);
 
         self.camera_position = Vec3::new(0.0, 200.0, 200.0);
-        self.camera_target = Vec3::new(0.0, 0.0, 0.0);
+        self.game_logic.session_view.target = Vec3::new(0.0, 0.0, 0.0);
         self.scripted_camera_constraint_widen = None;
         self.camera_fx_pitch = 1.0;
         self.camera_zoom = 1.0;
@@ -2284,11 +2280,11 @@ impl CnCGameEngine {
         self.camera_zoom_frame = 0;
         self.camera_zoom_ease_in = 0.0;
         self.camera_zoom_ease_out = 0.0;
-        self.camera_shake_offset = Vec3::ZERO;
+        self.game_logic.session_view.impulse.offset = Vec3::ZERO;
         self.camera_shake_rotation = Vec3::ZERO;
-        self.screen_shake_intensity = 0.0;
-        self.screen_shake_angle_cos = 0.0;
-        self.screen_shake_angle_sin = 0.0;
+        self.game_logic.session_view.impulse.intensity = 0.0;
+        self.game_logic.session_view.impulse.cosine = 0.0;
+        self.game_logic.session_view.impulse.sine = 0.0;
         self.script_camera_shakers.clear();
         self.script_fps_limit = None;
         self.script_fps_limit_last_tick = None;
@@ -2614,7 +2610,8 @@ End
         );
         assert!(!body.contains("offset.x += phase_a.sin() * magnitude"));
         assert!(
-            body.contains("step_view_impulse(") && !body.contains("tick_impulse_shake"),
+            body.contains("self.game_logic.session_view.advance_impulse()")
+                && !body.contains("tick_impulse_shake"),
             "the admitted view owns its borrowed impulse spring rather than another decay at intake"
         );
         let mut shaker = ScriptCameraShaker::new(Vec3::ZERO, 500., 2., 15.);
@@ -2907,7 +2904,7 @@ End
         let body = &src[start..start + 280];
         assert!(
             body.contains("position: Vec3::new(position[0]")
-                && !body.contains("position: self.camera_target"),
+                && !body.contains("position: self.game_logic.session_view.target"),
             "CAMERA_ADD_SHAKER must keep the scripted waypoint"
         );
     }

@@ -13,6 +13,54 @@ impl HostSpecialPowerStrikeRegistry {
         spawn_frame: u32,
         parent_strike_id: u32,
     ) -> u32 {
+        self.spawn_neutron_slow_death_field_with_dispatch(
+            source_object,
+            source_team,
+            position,
+            spawn_frame,
+            parent_strike_id,
+            &mut |name, position, secondary, speed, radius, matrix| {
+                crate::game_logic::dispatch_fx_list_at_pos_oriented(
+                    name, position, secondary, speed, radius, matrix,
+                )
+            },
+        )
+    }
+
+    /// Immediate dispatch supplied by the driving session; no callback escapes.
+    #[cfg(feature = "game_client")]
+    pub fn spawn_neutron_slow_death_field_with_view(
+        &mut self,
+        source_object: ObjectId,
+        source_team: crate::game_logic::Team,
+        position: Vec3,
+        spawn_frame: u32,
+        parent_strike_id: u32,
+        view: &mut game_client::fx_list::FxViewServices<'_>,
+    ) -> u32 {
+        self.spawn_neutron_slow_death_field_with_dispatch(
+            source_object,
+            source_team,
+            position,
+            spawn_frame,
+            parent_strike_id,
+            &mut |name, position, secondary, speed, radius, matrix| {
+                crate::game_logic::GameLogic::dispatch_fx_list_at_position_with_view(
+                    name, position, secondary, speed, radius, matrix, view,
+                )
+            },
+        )
+    }
+
+    pub fn spawn_neutron_slow_death_field_with_dispatch(
+        &mut self,
+        source_object: ObjectId,
+        source_team: crate::game_logic::Team,
+        position: Vec3,
+        spawn_frame: u32,
+        parent_strike_id: u32,
+        dispatch_fx: &mut dyn FnMut(&str, Vec3, Option<Vec3>, f32, f32, Option<glam::Mat4>) -> bool,
+    ) -> u32 {
         use crate::game_logic::host_neutron_missile_slow_death::{
             HostNeutronMissileSlowDeathData, NEUTRON_FX_LIST, NEUTRON_SCORCH_MARK_SIZE,
         };
@@ -29,7 +77,7 @@ impl HostSpecialPowerStrikeRegistry {
             scorch_size: NEUTRON_SCORCH_MARK_SIZE,
             fx_list: NEUTRON_FX_LIST.into(),
         });
-        let _ = crate::game_logic::dispatch_fx_list_at_pos(NEUTRON_FX_LIST, position);
+        let _ = dispatch_fx(NEUTRON_FX_LIST, position, None, 0.0, 0.0, None);
         self.neutron_slow_death_spawned_total =
             self.neutron_slow_death_spawned_total.saturating_add(1);
         id
@@ -1324,6 +1372,38 @@ impl HostSpecialPowerStrikeRegistry {
         &mut self,
         object_positions: &[(ObjectId, Vec3, crate::game_logic::Team, bool)],
     ) {
+        self.bind_beam_source_axes_with_dispatch(
+            object_positions,
+            &mut |name, position, secondary, speed, radius, matrix| {
+                crate::game_logic::dispatch_fx_list_at_pos_oriented(
+                    name, position, secondary, speed, radius, matrix,
+                )
+            },
+        )
+    }
+
+    /// Immediate dispatch supplied by the driving session; no callback escapes.
+    #[cfg(feature = "game_client")]
+    pub fn bind_beam_source_axes_with_view(
+        &mut self,
+        object_positions: &[(ObjectId, Vec3, crate::game_logic::Team, bool)],
+        view: &mut game_client::fx_list::FxViewServices<'_>,
+    ) {
+        self.bind_beam_source_axes_with_dispatch(
+            object_positions,
+            &mut |name, position, secondary, speed, radius, matrix| {
+                crate::game_logic::GameLogic::dispatch_fx_list_at_position_with_view(
+                    name, position, secondary, speed, radius, matrix, view,
+                )
+            },
+        )
+    }
+
+    pub fn bind_beam_source_axes_with_dispatch(
+        &mut self,
+        object_positions: &[(ObjectId, Vec3, crate::game_logic::Team, bool)],
+        dispatch_fx: &mut dyn FnMut(&str, Vec3, Option<Vec3>, f32, f32, Option<glam::Mat4>) -> bool,
+    ) {
         for field in &mut self.beam_fields {
             if let Some((_, pos, _, _)) = object_positions
                 .iter()
@@ -1337,7 +1417,7 @@ impl HostSpecialPowerStrikeRegistry {
                         *pos,
                         field.outer_intensity,
                     );
-                    play_particle_beam_launch_fx(*pos);
+                    play_particle_beam_launch_fx_with_dispatch(*pos, dispatch_fx);
                 }
             }
         }

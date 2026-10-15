@@ -10,6 +10,9 @@ use super::script_camera::*;
 use super::*;
 
 pub struct GameLogic {
+    /// Single logical camera target and native impulse, shared by client input
+    /// and synchronous FX. Construction never publishes this session state.
+    pub(crate) session_view: crate::presentation_frame::SessionView,
     /// C++ W3D fog memory belongs to this session, including live host links.
     pub(crate) w3d_ghosts: gamelogic::object::w3d_ghost_object::W3DGhostObjectManager,
     pub(crate) host_ghosts: super::world_objects::fog_ghosts::HostGhostState,

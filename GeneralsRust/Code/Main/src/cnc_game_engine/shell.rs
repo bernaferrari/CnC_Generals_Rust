@@ -2081,7 +2081,7 @@ impl CnCGameEngine {
             // Wave 540/552: prefer presentation fow_shell_bypass when freeze present.
             let in_shell_camera = self.shell_bypass_from_presentation(startup_camera_presentation);
             (
-                self.camera_target,
+                self.game_logic.session_view.target,
                 self.camera_position,
                 self.camera_zoom,
                 self.native_camera,
@@ -2093,10 +2093,12 @@ impl CnCGameEngine {
             );
             self.camera_pitch_radians = 0.0;
             self.camera_yaw_radians = 0.0;
-            let (_, render_look) =
-                self.native_camera
-                    .basis()
-                    .pose(self.camera_target, self.camera_zoom, 0.0, 0.0);
+            let (_, render_look) = self.native_camera.basis().pose(
+                self.game_logic.session_view.target,
+                self.camera_zoom,
+                0.0,
+                0.0,
+            );
             self.view_matrix =
                 glam::Mat4::look_at_rh(self.camera_position, render_look, glam::Vec3::Y);
             let terrain_warm_started = Instant::now();

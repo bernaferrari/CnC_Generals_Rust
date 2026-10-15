@@ -1110,7 +1110,7 @@ impl CnCGameEngine {
 
     /// Wave 935: intentional full GameLogic replace boundary (map-load install).
     #[inline]
-    pub(super) fn host_replace_game_logic(&mut self, logic: crate::game_logic::GameLogic) {
+    pub(super) fn host_replace_game_logic(&mut self, mut logic: crate::game_logic::GameLogic) {
         // Do this before replacing GameLogic so the old world's active token,
         // frozen residual, modal WND, and popup-owned pause all disappear as
         // one boundary. Process-lifetime popup tokens then reject any late
@@ -1118,6 +1118,9 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.host_invalidate_active_popup_for_world_boundary();
 
+        // The receiving application keeps its persistent view until map admission
+        // resets it. A detached candidate never publishes or replaces this state.
+        logic.session_view = std::mem::take(&mut self.game_logic.session_view);
         self.game_logic = logic;
         crate::command_system::bind_host_replay_authority(&self.game_logic.replay_pending);
         if let Some(shadow) = self.gameworld_shadow.as_mut() {
@@ -1172,7 +1175,7 @@ impl CnCGameEngine {
         crate::game_logic::staged_world_effects::discard_live_for_world_replace();
 
         let StagedRestoreWorld {
-            logic,
+            mut logic,
             info: _,
             runtime_world,
             shroud: _,
@@ -1192,6 +1195,7 @@ impl CnCGameEngine {
         self.render_pipeline.invalidate_world_visual_state();
 
         let deferred_effects = runtime_world.install_globals();
+        logic.session_view = std::mem::take(&mut self.game_logic.session_view);
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
         #[cfg(feature = "game_client")]
         self.game_client
@@ -1214,6 +1218,18 @@ impl CnCGameEngine {
             &self.game_logic,
             &mut self.game_client,
         );
+        // Original GameState restores GameClient/View before deferred team
+        // callbacks. Admit the saved view before their immediate camera effects;
+        // do not publish/drain a presentation frame just to recover its target.
+        let has_camera_continuation = camera_continuation.is_some();
+        if let Some(camera) = camera_continuation {
+            self.admit_camera_continuation(camera);
+        } else if let Some(camera) = client_persist.camera() {
+            self.game_logic.session_view.target = glam::Vec3::from_array(camera.target);
+        } else if let Some(camera) = client_persist.tactical_view_camera {
+            self.game_logic.session_view.target =
+                glam::Vec3::new(camera.position[0], camera.position[2], camera.position[1]);
+        }
         // C++ restores CHUNK_GameClient before the post-load world is exposed.
         // Deferred team callbacks may create client FX, so execute them only
         // after the matching client's drawable state has been installed.
@@ -1238,59 +1254,51 @@ impl CnCGameEngine {
             shadow.reset_for_world_boundary();
             shadow.sync_from_host(&self.game_logic);
         }
-        // Recreate map defaults from this newly committed map's INITIAL focus,
-        // never from a saved eye or destination. Both old snapshots are stale.
+        // Recreate map defaults only for older pose-only saves. Full native
+        // continuation already admitted its fixed basis, HAG goal, pending
+        // movements and impulses; rebuilding them here would discard callback FX.
         self.last_presentation_frame = None;
         self.render_pipeline.set_presentation_frame(None);
         self.ensure_presentation_env_seeded();
-        (
-            self.camera_target,
-            self.camera_position,
-            self.camera_zoom,
-            self.native_camera,
-        ) = Self::bootstrap_native_camera_for_loaded_map(
-            self.game_logic.isInShellGame(),
-            self.current_player_id,
-            Self::configured_startup_camera_defaults(),
-            self.last_presentation_frame.as_deref(),
-        );
-        self.camera_pitch_radians = 0.0;
-        self.camera_yaw_radians = 0.0;
-        let has_camera_continuation = camera_continuation.is_some();
         if !has_camera_continuation {
-            // Pose-only imports must not inherit the previous world's active
-            // scalar movements. Full CAMC imports instead restore their own.
+            (
+                self.game_logic.session_view.target,
+                self.camera_position,
+                self.camera_zoom,
+                self.native_camera,
+            ) = Self::bootstrap_native_camera_for_loaded_map(
+                self.game_logic.isInShellGame(),
+                self.current_player_id,
+                Self::configured_startup_camera_defaults(),
+                self.last_presentation_frame.as_deref(),
+            );
+            self.camera_pitch_radians = 0.0;
+            self.camera_yaw_radians = 0.0;
             super::camera_motion::cancel_scalar_requests([
                 &mut self.camera_zoom_target,
                 &mut self.camera_pitch_target,
                 &mut self.camera_yaw_target,
             ]);
-        }
-        if let Some(camera) = camera_continuation {
-            self.admit_camera_continuation(camera);
-        } else if let Some(camera) = client_persist.camera() {
-            self.camera_position = glam::Vec3::from_array(camera.position);
-            self.camera_target = glam::Vec3::from_array(camera.target);
-            self.camera_zoom = camera.zoom;
-            // Native saves include raw View heading; recover pitch only against
-            // the fixed initial-map basis, including over-zenith poses.
-            self.camera_yaw_radians = camera.angle;
-            self.sync_orbit_from_camera_transform();
-            if let Some(terrain) = self.native_camera_terrain_height_around(self.camera_target) {
-                self.native_camera
-                    .admit_restored_pose_height(self.camera_zoom, terrain);
+            if let Some(camera) = client_persist.camera() {
+                self.camera_position = glam::Vec3::from_array(camera.position);
+                self.game_logic.session_view.target = glam::Vec3::from_array(camera.target);
+                self.camera_zoom = camera.zoom;
+                self.camera_yaw_radians = camera.angle;
+                self.sync_orbit_from_camera_transform();
+                if let Some(terrain) =
+                    self.native_camera_terrain_height_around(self.game_logic.session_view.target)
+                {
+                    self.native_camera
+                        .admit_restored_pose_height(self.camera_zoom, terrain);
+                }
+            } else if let Some(camera) = client_persist.tactical_view_camera {
+                self.game_logic.session_view.target =
+                    glam::Vec3::new(camera.position[0], camera.position[2], camera.position[1]);
+                self.camera_yaw_radians = camera.angle;
+                self.apply_camera_orbit_transform();
             }
-        } else if let Some(camera) = client_persist.tactical_view_camera {
-            // Original View::xfer contains logical XYZ position and angle only.
-            // Keep the newly initialized map zoom/HAG and raw default pitch.
-            self.camera_target =
-                glam::Vec3::new(camera.position[0], camera.position[2], camera.position[1]);
-            self.camera_yaw_radians = camera.angle;
-            self.apply_camera_orbit_transform();
-        }
-        if !has_camera_continuation {
             let (_, render_look) = self.native_camera.basis().pose(
-                self.camera_target,
+                self.game_logic.session_view.target,
                 self.camera_zoom,
                 self.camera_pitch_radians,
                 self.camera_yaw_radians,
@@ -1348,7 +1356,7 @@ impl CnCGameEngine {
         let camera = crate::save_load::snapshot::CameraPersist {
             angle: self.camera_yaw_radians,
             position: self.camera_position.to_array(),
-            target: self.camera_target.to_array(),
+            target: self.game_logic.session_view.target.to_array(),
             zoom: self.camera_zoom,
         };
         let client_save = crate::save_load::snapshot::ClientSaveState {
@@ -3068,7 +3076,10 @@ mod staged_restore_tests {
             .find("deferred_effects.execute_after_logic_commit()")
             .expect("deferred team effects");
         let shadow = body.find("shadow.sync_from_host").expect("shadow rebuild");
-        assert!(globals < logic && logic < effects && effects < shadow);
+        let camera = body
+            .find("self.admit_camera_continuation(camera)")
+            .expect("receiving native camera admission");
+        assert!(globals < logic && logic < camera && camera < effects && effects < shadow);
     }
 
     /// C++ keeps RandomValue process-static and no load path reseeds it

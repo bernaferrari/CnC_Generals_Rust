@@ -1250,8 +1250,8 @@ fn damaged_structure_cycle_residual() {
             && cycle.contains("host_set_selection")
     );
     assert!(
-        cycle.contains("self.camera_target.x = clamped.x")
-            && cycle.contains("self.camera_target.z = clamped.z")
+        cycle.contains("self.game_logic.session_view.target.x = clamped.x")
+            && cycle.contains("self.game_logic.session_view.target.z = clamped.z")
     );
     assert!(
         !cycle.contains("push_info_message"),

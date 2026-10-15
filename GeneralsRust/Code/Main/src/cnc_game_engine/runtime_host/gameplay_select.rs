@@ -400,7 +400,9 @@ impl CnCGameEngine {
             self.reset_camera_view_hotkey();
             self.runtime_host_last_gameplay_cmd = format!(
                 "camera_reset_ok:{:.1},{:.1},{:.1}",
-                self.camera_target.x, self.camera_target.y, self.camera_target.z
+                self.game_logic.session_view.target.x,
+                self.game_logic.session_view.target.y,
+                self.game_logic.session_view.target.z
             );
         }
     }

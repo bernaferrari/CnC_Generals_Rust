@@ -296,6 +296,62 @@ impl HostSpecialPowerStrikeRegistry {
         is_final_wave: bool,
         epicenters: &[Vec3],
     ) {
+        self.record_impact_wave_with_dispatch(
+            strike_id,
+            total_damage,
+            objects_hit,
+            objects_destroyed,
+            wave_shell_count,
+            is_final_wave,
+            epicenters,
+            &mut |name, position, secondary, speed, radius, matrix| {
+                crate::game_logic::dispatch_fx_list_at_pos_oriented(
+                    name, position, secondary, speed, radius, matrix,
+                )
+            },
+        )
+    }
+
+    /// Immediate dispatch supplied by the driving session; no callback escapes.
+    #[cfg(feature = "game_client")]
+    pub fn record_impact_wave_with_view(
+        &mut self,
+        strike_id: u32,
+        total_damage: f32,
+        objects_hit: u32,
+        objects_destroyed: u32,
+        wave_shell_count: u32,
+        is_final_wave: bool,
+        epicenters: &[Vec3],
+        view: &mut game_client::fx_list::FxViewServices<'_>,
+    ) {
+        self.record_impact_wave_with_dispatch(
+            strike_id,
+            total_damage,
+            objects_hit,
+            objects_destroyed,
+            wave_shell_count,
+            is_final_wave,
+            epicenters,
+            &mut |name, position, secondary, speed, radius, matrix| {
+                crate::game_logic::GameLogic::dispatch_fx_list_at_position_with_view(
+                    name, position, secondary, speed, radius, matrix, view,
+                )
+            },
+        )
+    }
+
+    pub fn record_impact_wave_with_dispatch(
+        &mut self,
+        strike_id: u32,
+        total_damage: f32,
+        objects_hit: u32,
+        objects_destroyed: u32,
+        wave_shell_count: u32,
+        is_final_wave: bool,
+        epicenters: &[Vec3],
+        dispatch_fx: &mut dyn FnMut(&str, Vec3, Option<Vec3>, f32, f32, Option<glam::Mat4>) -> bool,
+    ) {
         let mut spawn_radiation: Option<(ObjectId, crate::game_logic::Team, Vec3, u32)> = None;
         let mut spawn_toxin: Option<(ObjectId, crate::game_logic::Team, Vec3, u32)> = None;
         let mut spawn_scud_poison: Vec<(
@@ -603,7 +659,14 @@ impl HostSpecialPowerStrikeRegistry {
         if let Some((source, team, pos, impact_frame)) = spawn_radiation {
             self.spawn_radiation_field(source, team, pos, impact_frame, strike_id);
             // Fallback only: live flying missile already owns SlowDeath.
-            self.spawn_neutron_slow_death_field(source, team, pos, impact_frame, strike_id);
+            self.spawn_neutron_slow_death_field_with_dispatch(
+                source,
+                team,
+                pos,
+                impact_frame,
+                strike_id,
+                dispatch_fx,
+            );
         }
         if let Some((source, team, pos, impact_frame)) = spawn_toxin {
             self.spawn_toxin_field(source, team, pos, impact_frame, strike_id);

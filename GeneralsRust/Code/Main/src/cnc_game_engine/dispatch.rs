@@ -1143,7 +1143,9 @@ impl CnCGameEngine {
             ),
             camera_target: format!(
                 "{:.1},{:.1},{:.1}",
-                self.camera_target.x, self.camera_target.y, self.camera_target.z
+                self.game_logic.session_view.target.x,
+                self.game_logic.session_view.target.y,
+                self.game_logic.session_view.target.z
             ),
             sample_unit_pos,
             window_outer_x,

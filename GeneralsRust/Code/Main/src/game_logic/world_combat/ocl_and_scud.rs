@@ -307,22 +307,20 @@ impl GameLogic {
                     .objects
                     .get(&fire.shooter_id)
                     .map(|o| o.get_transform_matrix());
-                let _ = self
-                    .combat_particles
-                    .spawn_weapon_fire_fx_named_ocl_oriented(
-                        fire.origin,
-                        None,
-                        self.frame,
-                        fire.shooter_id,
-                        None,
-                        &fire.fire_fx_name,
-                        "",
-                        &fire.fire_ocl_name,
-                        "",
-                        0.0,
-                        radius,
-                        matrix,
-                    );
+                let _ = self.spawn_receiving_weapon_fire_fx(
+                    fire.origin,
+                    None,
+                    self.frame,
+                    fire.shooter_id,
+                    None,
+                    &fire.fire_fx_name,
+                    "",
+                    &fire.fire_ocl_name,
+                    "",
+                    0.0,
+                    radius,
+                    matrix,
+                );
             }
             if !fire.fire_ocl_name.trim().is_empty()
                 && !fire.fire_ocl_name.trim().eq_ignore_ascii_case("None")
@@ -379,7 +377,7 @@ impl GameLogic {
                     .objects
                     .get(&impact.shooter_id)
                     .map(|o| o.get_transform_matrix());
-                let _ = crate::game_logic::dispatch_fx_list_at_pos_oriented(
+                let _ = self.dispatch_fx_list_at_host_position_oriented(
                     &impact.detonation_fx_name,
                     impact.position,
                     Some(impact.position),

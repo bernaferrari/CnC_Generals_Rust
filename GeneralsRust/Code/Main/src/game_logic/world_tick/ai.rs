@@ -23,6 +23,8 @@ impl GameLogic {
         self.tick_battle_plan_door_residuals();
         // C++ ActiveBody.cpp:574-581 Player::setAttackedBy for PLAYER_ATTACKED_BY.
 
+        #[cfg(feature = "game_client")]
+        let fx_player = self.local_player_id();
         // First pass: Dispatch object AI through the existing state machine.
         for &object_id in object_ids {
             // Advance local update timers. DISABLED_HACKED/EMP expire in
@@ -151,6 +153,22 @@ impl GameLogic {
                 };
                 // C++ MissileLauncherBuildingUpdate::update (ready-frame door SM).
                 let ml_pos = obj.get_position();
+                #[cfg(feature = "game_client")]
+                let (play, stop) = Self::with_host_fx_view_parts(
+                    &mut self.session_view,
+                    fx_player,
+                    self.world_services.shroud(),
+                    |view| {
+                        let shroud = self.world_services.shroud();
+                        let mut dispatch = |name: &str, object: &Object, at_object: bool| {
+                            Self::dispatch_object_phase_fx_with_view(
+                                name, object, at_object, fx_player, shroud, view,
+                            );
+                        };
+                        obj.tick_missile_launcher_building_with_fx(self.frame, &mut dispatch)
+                    },
+                );
+                #[cfg(not(feature = "game_client"))]
                 let (play, stop) = obj.tick_missile_launcher_building(self.frame);
                 if play.is_some() || stop {
                     let stop_name = obj
@@ -196,7 +214,28 @@ impl GameLogic {
                 }
                 // Advance the receiving object's topple state before height death.
                 {
-                    topple_kill = obj.tick_topple();
+                    #[cfg(feature = "game_client")]
+                    {
+                        topple_kill = Self::with_host_fx_view_parts(
+                            &mut self.session_view,
+                            fx_player,
+                            self.world_services.shroud(),
+                            |view| {
+                                let shroud = self.world_services.shroud();
+                                let mut dispatch =
+                                    |name: &str, object: &Object, at_object: bool| {
+                                        Self::dispatch_object_phase_fx_with_view(
+                                            name, object, at_object, fx_player, shroud, view,
+                                        );
+                                    };
+                                obj.tick_topple_with_fx(&mut dispatch)
+                            },
+                        );
+                    }
+                    #[cfg(not(feature = "game_client"))]
+                    {
+                        topple_kill = obj.tick_topple();
+                    }
                     let stump_pos = obj.get_position();
                     let stump_ori = obj.get_orientation();
                     if let Some(td) = obj.topple_data.as_mut() {
@@ -261,6 +300,23 @@ impl GameLogic {
                 // Optional movement authority advances the animation; DONE never deletes.
                 {
                     if !topple_kill && obj.structure_collapse_data.is_some() {
+                        #[cfg(feature = "game_client")]
+                        let _completed = Self::with_host_fx_view_parts(
+                            &mut self.session_view,
+                            fx_player,
+                            self.world_services.shroud(),
+                            |view| {
+                                let shroud = self.world_services.shroud();
+                                let mut dispatch =
+                                    |name: &str, object: &Object, at_object: bool| {
+                                        Self::dispatch_object_phase_fx_with_view(
+                                            name, object, at_object, fx_player, shroud, view,
+                                        );
+                                    };
+                                obj.tick_structure_collapse_with_fx(self.frame, &mut dispatch)
+                            },
+                        );
+                        #[cfg(not(feature = "game_client"))]
                         let _completed = obj.tick_structure_collapse(self.frame);
                     }
                 }
@@ -272,7 +328,23 @@ impl GameLogic {
             }
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.poll_slow_death_phase_fx(self.frame);
-                obj.poll_structure_collapse_phase_fx(self.frame);
+                #[cfg(feature = "game_client")]
+                let _ = Self::with_host_fx_view_parts(
+                    &mut self.session_view,
+                    fx_player,
+                    self.world_services.shroud(),
+                    |view| {
+                        let shroud = self.world_services.shroud();
+                        let mut dispatch = |name: &str, object: &Object, at_object: bool| {
+                            Self::dispatch_object_phase_fx_with_view(
+                                name, object, at_object, fx_player, shroud, view,
+                            );
+                        };
+                        obj.poll_structure_collapse_phase_with_fx(self.frame, &mut dispatch)
+                    },
+                );
+                #[cfg(not(feature = "game_client"))]
+                let _ = obj.poll_structure_collapse_phase_fx(self.frame);
             }
             self.sync_helicopter_attach_particle(object_id);
             if !topple_kill {
@@ -462,6 +534,7 @@ impl GameLogic {
                     for ev in events {
                         let leftover_id =
                             crate::game_logic::host_bone_fx_damage::play_bone_fx_event(
+                                self,
                                 &ev,
                                 object_id.0,
                                 origin,
@@ -543,7 +616,7 @@ impl GameLogic {
                         .with_position(pos)
                         .with_priority(160),
                 );
-                if !crate::game_logic::dispatch_fx_list_at_pos(fx, pos) {
+                if !self.dispatch_fx_list_at_host_position(fx, pos) {
                     let _ = self.combat_particles.spawn_named(
                         crate::game_logic::combat_particles::CombatParticleKind::WeaponImpact,
                         fx,

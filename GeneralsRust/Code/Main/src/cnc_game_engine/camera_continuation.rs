@@ -144,6 +144,7 @@ impl CnCGameEngine {
     pub(crate) fn capture_camera_continuation(&self) -> Result<Vec<u8>, String> {
         let now = Instant::now();
         let inverse_view = self.view_matrix.inverse();
+        let view = self.game_logic.session_view.capture();
         let state = CameraState {
             completed_eye: inverse_view.transform_point3(Vec3::ZERO),
             completed_forward: inverse_view.transform_vector3(Vec3::NEG_Z),
@@ -163,7 +164,7 @@ impl CnCGameEngine {
                 .map(|(group, time)| age(now, Some(time)).map(|value| (group, value.unwrap())))
                 .transpose()?,
             camera_position: self.camera_position.clone(),
-            camera_target: self.camera_target.clone(),
+            camera_target: view.target,
             scripted_camera_constraint_widen: self.scripted_camera_constraint_widen.clone(),
             camera_zoom: self.camera_zoom.clone(),
             camera_zoom_target: self.camera_zoom_target.clone(),
@@ -187,11 +188,11 @@ impl CnCGameEngine {
             camera_yaw_frame: self.camera_yaw_frame.clone(),
             camera_yaw_ease_in: self.camera_yaw_ease_in.clone(),
             camera_yaw_ease_out: self.camera_yaw_ease_out.clone(),
-            camera_shake_offset: self.camera_shake_offset.clone(),
+            camera_shake_offset: view.offset,
             camera_shake_rotation: self.camera_shake_rotation.clone(),
-            screen_shake_intensity: self.screen_shake_intensity.clone(),
-            screen_shake_angle_cos: self.screen_shake_angle_cos.clone(),
-            screen_shake_angle_sin: self.screen_shake_angle_sin.clone(),
+            screen_shake_intensity: view.intensity,
+            screen_shake_angle_cos: view.cosine,
+            screen_shake_angle_sin: view.sine,
             script_camera_shakers: self.script_camera_shakers.clone(),
             script_fps_limit: self.script_fps_limit.clone(),
             camera_follow_factor: self.camera_follow_factor.clone(),
@@ -273,7 +274,16 @@ impl CnCGameEngine {
             .control_group_click
             .map(|(group, nanos)| (group, restore_age(now, Some(nanos)).unwrap()));
         self.camera_position = state.camera_position;
-        self.camera_target = state.camera_target;
+        self.game_logic
+            .session_view
+            .admit(crate::presentation_frame::SessionViewState {
+                target: state.camera_target,
+                intensity: state.screen_shake_intensity,
+                cosine: state.screen_shake_angle_cos,
+                sine: state.screen_shake_angle_sin,
+                offset: state.camera_shake_offset,
+            })
+            .expect("native CameraState was validated before commitment");
         self.scripted_camera_constraint_widen = state.scripted_camera_constraint_widen;
         self.camera_zoom = state.camera_zoom;
         self.camera_zoom_target = state.camera_zoom_target;
@@ -297,11 +307,7 @@ impl CnCGameEngine {
         self.camera_yaw_frame = state.camera_yaw_frame;
         self.camera_yaw_ease_in = state.camera_yaw_ease_in;
         self.camera_yaw_ease_out = state.camera_yaw_ease_out;
-        self.camera_shake_offset = state.camera_shake_offset;
         self.camera_shake_rotation = state.camera_shake_rotation;
-        self.screen_shake_intensity = state.screen_shake_intensity;
-        self.screen_shake_angle_cos = state.screen_shake_angle_cos;
-        self.screen_shake_angle_sin = state.screen_shake_angle_sin;
         self.script_camera_shakers = state.script_camera_shakers;
         self.script_fps_limit = state.script_fps_limit;
         self.camera_follow_factor = state.camera_follow_factor;

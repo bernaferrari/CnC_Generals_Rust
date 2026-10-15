@@ -146,6 +146,29 @@ impl Object {
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         frame: u32,
     ) {
+        self.react_to_body_damage_state_change_with_transition_fx(
+            old_state,
+            source,
+            frame,
+            &mut |object, event, source| {
+                object.queue_transition_damage_fx_event_with_source(event, source)
+            },
+        );
+    }
+
+    /// The driving session supplies synchronous FX playback while the Body is
+    /// borrowed; standalone Object callers retain their existing adapter.
+    pub(super) fn react_to_body_damage_state_change_with_transition_fx(
+        &mut self,
+        old_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        frame: u32,
+        transition_fx: &mut dyn FnMut(
+            &mut Object,
+            crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent,
+            Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        ),
+    ) {
         use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
         let state = self.body_damage_state;
 
@@ -186,7 +209,7 @@ impl Object {
                         self.last_damage_info_type.map(|d| d.to_store()),
                     )
                 {
-                    self.queue_transition_damage_fx_event_with_source(ev, source);
+                    transition_fx(self, ev, source);
                 }
             }
         }

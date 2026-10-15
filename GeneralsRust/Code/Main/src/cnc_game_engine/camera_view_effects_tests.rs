@@ -20,10 +20,7 @@ struct LocalView {
     value: f32,
     target: Option<f32>,
     axis_frame: u32,
-    intensity: f32,
-    cosine: f32,
-    sine: f32,
-    offset: Vec3,
+    view: crate::presentation_frame::SessionView,
 }
 impl LocalView {
     fn new() -> Self {
@@ -32,10 +29,15 @@ impl LocalView {
             value: 0.,
             target: Some(1.),
             axis_frame: 0,
-            intensity: 4.,
-            cosine: 1.,
-            sine: -0.5,
-            offset: Vec3::ZERO,
+            view: crate::presentation_frame::SessionView {
+                target: Vec3::ZERO,
+                impulse: crate::presentation_frame::SessionViewImpulse {
+                    intensity: 4.,
+                    cosine: 1.,
+                    sine: -0.5,
+                    offset: Vec3::ZERO,
+                },
+            },
         }
     }
     fn offer(
@@ -66,13 +68,8 @@ impl LocalView {
                 disable_camera_movement: false,
             },
         );
-        if let Some(offset) = step_view_impulse(
-            &mut self.intensity,
-            &mut self.cosine,
-            &mut self.sine,
-            decision.update_views,
-        ) {
-            self.offset = offset;
+        if decision.update_views {
+            self.view.advance_impulse();
         }
         (decision, axis)
     }
@@ -81,10 +78,10 @@ impl LocalView {
             self.value,
             self.target,
             self.axis_frame,
-            self.intensity,
-            self.cosine,
-            self.sine,
-            self.offset,
+            self.view.impulse.intensity,
+            self.view.impulse.cosine,
+            self.view.impulse.sine,
+            self.view.impulse.offset,
         )
     }
 }
@@ -102,8 +99,8 @@ fn clock_rejection_and_multiplier_do_not_advance_borrowed_axes_or_impulse() {
     );
     assert_eq!(view.axis_frame, 1);
     assert_eq!(view.value, 1. / 30.);
-    assert_eq!(view.offset, Vec3::new(4., 0., -2.));
-    assert_eq!(view.intensity, 3.);
+    assert_eq!(view.view.impulse.offset, Vec3::new(4., 0., -2.));
+    assert_eq!(view.view.impulse.intensity, 3.);
     let completed = view.snapshot();
     for frame in 2..=3 {
         let (decision, axis) = view.offer(
@@ -128,8 +125,8 @@ fn clock_rejection_and_multiplier_do_not_advance_borrowed_axes_or_impulse() {
     );
     assert_eq!(view.axis_frame, 2);
     assert_eq!(view.value, 2. / 30.);
-    assert_eq!(view.offset, Vec3::new(-3., 0., 1.5));
-    assert_eq!(view.intensity, 2.25);
+    assert_eq!(view.view.impulse.offset, Vec3::new(-3., 0., 1.5));
+    assert_eq!(view.view.impulse.intensity, 2.25);
     let completed = view.snapshot();
     let (decision, _) = view.offer(
         DisplayInputs {
@@ -159,7 +156,12 @@ fn fast_camera_subset_advances_one_source_axis_frame_without_decaying_spring() {
     assert!(axis.changed && axis.was_active);
     assert_eq!((view.axis_frame, view.value), (1, 1. / 30.));
     assert_eq!(
-        (view.intensity, view.cosine, view.sine, view.offset),
+        (
+            view.view.impulse.intensity,
+            view.view.impulse.cosine,
+            view.view.impulse.sine,
+            view.view.impulse.offset
+        ),
         (original.3, original.4, original.5, original.6)
     );
     let (decision, _) = view.offer(
@@ -173,8 +175,8 @@ fn fast_camera_subset_advances_one_source_axis_frame_without_decaying_spring() {
     assert!(decision.update_views && !decision.fast_camera_only);
     assert_eq!(decision.frame_time_ms, 33);
     assert_eq!(view.axis_frame, 2);
-    assert_eq!(view.intensity, 3.);
-    assert_eq!(view.offset, Vec3::new(4., 0., -2.));
+    assert_eq!(view.view.impulse.intensity, 3.);
+    assert_eq!(view.view.impulse.offset, Vec3::new(4., 0., -2.));
 }
 
 #[test]
@@ -188,7 +190,7 @@ fn repeated_paused_and_tivo_offers_keep_distinct_axis_spring_and_gpu_semantics()
         view.axis_frame, 2,
         "full View camera movements still step on repeated Client frames"
     );
-    assert_eq!(view.intensity, 2.25);
+    assert_eq!(view.view.impulse.intensity, 2.25);
     let before = (view.value, view.axis_frame);
     let (paused, axis) = view.offer(
         DisplayInputs {
@@ -202,7 +204,7 @@ fn repeated_paused_and_tivo_offers_keep_distinct_axis_spring_and_gpu_semantics()
     assert!(axis.was_active && !axis.changed);
     assert_eq!((view.value, view.axis_frame), before);
     assert_eq!(
-        view.intensity,
+        view.view.impulse.intensity,
         2.25 * 0.75,
         "the full-view spring is independent of the scalar pause gate"
     );
@@ -218,7 +220,7 @@ fn repeated_paused_and_tivo_offers_keep_distinct_axis_spring_and_gpu_semantics()
     assert!(!tivo.draw_gpu && tivo.update_views);
     assert!(axis.changed);
     assert_eq!(view.axis_frame, 3);
-    assert_eq!(view.intensity, 4. * 0.75_f32.powi(4));
+    assert_eq!(view.view.impulse.intensity, 4. * 0.75_f32.powi(4));
 }
 
 #[test]
@@ -365,7 +367,7 @@ fn owning_logic_pause_is_distinct_from_script_freeze_and_keeps_full_view_shake()
     assert!(!axis.changed && axis.was_active);
     assert_eq!(view.axis_frame, 0);
     assert!(!decision.draw_drawables && decision.update_views && decision.draw_gpu);
-    assert_eq!(view.intensity, 3.);
+    assert_eq!(view.view.impulse.intensity, 3.);
     let source = include_str!("native_display.rs");
     let start = source.find("fn native_view_is_paused(").unwrap();
     let end = source[start..].find("/// Invoked once").unwrap() + start;

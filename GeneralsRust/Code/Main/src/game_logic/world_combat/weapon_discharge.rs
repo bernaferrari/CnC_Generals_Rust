@@ -131,22 +131,20 @@ impl GameLogic {
                         Some((_, bone_yaw)) => m * glam::Mat4::from_rotation_y(bone_yaw),
                         None => m,
                     });
-                let _ = self
-                    .combat_particles
-                    .spawn_weapon_fire_fx_named_ocl_oriented(
-                        pos,
-                        target,
-                        capture.logic_frame,
-                        source,
-                        capture.target_id,
-                        &capture.selected_fx_name,
-                        "",
-                        "",
-                        "",
-                        speed,
-                        radius,
-                        matrix,
-                    );
+                let _ = self.spawn_receiving_weapon_fire_fx(
+                    pos,
+                    target,
+                    capture.logic_frame,
+                    source,
+                    capture.target_id,
+                    &capture.selected_fx_name,
+                    "",
+                    "",
+                    "",
+                    speed,
+                    radius,
+                    matrix,
+                );
             }
         }
         let event = crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent {
@@ -271,22 +269,20 @@ impl GameLogic {
                 Some((_, bone_yaw)) => m * glam::Mat4::from_rotation_y(bone_yaw),
                 None => m,
             });
-        let _ = self
-            .combat_particles
-            .spawn_weapon_fire_fx_named_ocl_oriented(
-                where_pos,
-                Some(target_pos),
-                capture.logic_frame,
-                source,
-                capture.target_id,
-                &capture.selected_fx_name,
-                "",
-                "",
-                "",
-                speed,
-                radius,
-                matrix,
-            );
+        let _ = self.spawn_receiving_weapon_fire_fx(
+            where_pos,
+            Some(target_pos),
+            capture.logic_frame,
+            source,
+            capture.target_id,
+            &capture.selected_fx_name,
+            "",
+            "",
+            "",
+            speed,
+            radius,
+            matrix,
+        );
     }
 
     /// Move one accepted-shot batch out of this driving world at publication.
@@ -389,6 +385,72 @@ fn leftover_fire_fx_victim_coord(
 ) -> gamelogic::common::Coord3D {
     let p = capture.target_pos.unwrap_or(capture.source_pos);
     gamelogic::common::Coord3D::new(p[0], p[2], p[1])
+}
+
+/// The receiving session supplies immediate FX while the particle registry is
+/// borrowed independently. Both authored shot paths use this same boundary.
+impl GameLogic {
+    pub(crate) fn spawn_receiving_weapon_fire_fx(
+        &mut self,
+        muzzle_position: Vec3,
+        impact_position: Option<Vec3>,
+        logic_frame: u32,
+        shooter: ObjectId,
+        target: Option<ObjectId>,
+        fire_fx: &str,
+        detonation_fx: &str,
+        fire_ocl: &str,
+        detonation_ocl: &str,
+        weapon_speed: f32,
+        damage_radius: f32,
+        drawable_transform: Option<glam::Mat4>,
+    ) -> Vec<u32> {
+        #[cfg(feature = "game_client")]
+        {
+            let player = self.local_player_id();
+            let particles = &mut self.combat_particles;
+            Self::with_host_fx_view_parts(
+                &mut self.session_view,
+                player,
+                self.world_services.shroud(),
+                |view| {
+                    particles.spawn_weapon_fire_fx_named_ocl_oriented_with_view(
+                        muzzle_position,
+                        impact_position,
+                        logic_frame,
+                        shooter,
+                        target,
+                        fire_fx,
+                        detonation_fx,
+                        fire_ocl,
+                        detonation_ocl,
+                        weapon_speed,
+                        damage_radius,
+                        drawable_transform,
+                        view,
+                    )
+                },
+            )
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            self.combat_particles
+                .spawn_weapon_fire_fx_named_ocl_oriented(
+                    muzzle_position,
+                    impact_position,
+                    logic_frame,
+                    shooter,
+                    target,
+                    fire_fx,
+                    detonation_fx,
+                    fire_ocl,
+                    detonation_ocl,
+                    weapon_speed,
+                    damage_radius,
+                    drawable_transform,
+                )
+        }
+    }
 }
 
 #[cfg(test)]

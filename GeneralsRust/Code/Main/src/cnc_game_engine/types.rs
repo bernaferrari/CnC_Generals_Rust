@@ -1251,7 +1251,6 @@ pub struct CnCGameEngine {
     // Camera system
     pub(in crate::cnc_game_engine) look_at_modes: super::mouse::LookAtHostModes,
     pub(crate) camera_position: Vec3,
-    pub(crate) camera_target: Vec3,
     /// C++ `W3DView::m_cameraConstraint` union of scripted pans
     /// (`W3DView.cpp:3097-3212`). `(lo_x, hi_x, lo_z, hi_z)` in live Y-up.
     pub(crate) scripted_camera_constraint_widen: Option<(f32, f32, f32, f32)>,
@@ -1279,12 +1278,8 @@ pub struct CnCGameEngine {
     pub(crate) camera_yaw_frame: u32,
     pub(crate) camera_yaw_ease_in: f32,
     pub(crate) camera_yaw_ease_out: f32,
-    pub(crate) camera_shake_offset: Vec3,
     /// C++ CameraShakerSystem Compute_Rotations (pitch/yaw/roll radians).
     pub(crate) camera_shake_rotation: Vec3,
-    pub(crate) screen_shake_intensity: f32,
-    pub(crate) screen_shake_angle_cos: f32,
-    pub(crate) screen_shake_angle_sin: f32,
     pub(crate) script_camera_shakers: Vec<ScriptCameraShaker>,
     pub(crate) script_fps_limit: Option<u32>,
     pub(crate) script_fps_limit_last_tick: Option<Instant>,

@@ -1268,8 +1268,8 @@ impl CnCGameEngine {
         // Presentation freeze / Main camera_target own observe path.
         self.cancel_scripted_camera_from_player_look_at();
         let clamped = self.clamp_to_world_bounds(world_pos);
-        self.camera_target.x = clamped.x;
-        self.camera_target.z = clamped.z;
+        self.game_logic.session_view.target.x = clamped.x;
+        self.game_logic.session_view.target.z = clamped.z;
         // C++ W3DView::lookAt/setPosition rebuilds the active camera rather
         // than waiting for unrelated scroll/shake activity.
         self.apply_camera_orbit_transform();

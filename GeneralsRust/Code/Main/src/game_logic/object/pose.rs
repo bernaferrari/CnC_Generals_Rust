@@ -837,6 +837,47 @@ impl Object {
         self.pending_transition_damage_fx.push(ev);
     }
 
+    /// Native playback borrows the receiving session's view at the original
+    /// callback point, before fear RNG, killed rereads and score/onDie.
+    #[cfg(feature = "game_client")]
+    pub(in crate::game_logic) fn queue_transition_damage_fx_event_with_view(
+        &mut self,
+        mut event: crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        view: &mut game_client::fx_list::FxViewServices<'_>,
+    ) {
+        crate::game_logic::host_transition_damage_fx::take_played_transition_event_fx_ocl_with_view(
+            view,
+            &mut event,
+            self.id.0,
+            self.get_position(),
+            self.get_orientation(),
+            &self
+                .thing
+                .template
+                .model_name_for_conditions(self.model_condition_bits),
+            self.thing.template.asset_scale,
+            source,
+        );
+        self.pending_transition_damage_fx.push(event);
+    }
+
+    /// Adapter for isolated Object calls without a driving session. Native
+    /// callers pass an explicit callback to the matching `_with_fx` operation.
+    pub(super) fn standalone_object_fx(name: &str, object: &Object, at_object: bool) {
+        if at_object {
+            crate::game_logic::publish_host_fx_object(
+                object.id.0,
+                object.get_position(),
+                object.get_orientation(),
+                object.owner_player_id.map(|p| p as i32).unwrap_or(-1),
+            );
+            let _ = crate::game_logic::dispatch_fx_list_at_object(name, object.id.0, None);
+        } else {
+            let _ = crate::game_logic::dispatch_fx_list_at_pos(name, object.get_position());
+        }
+    }
+
     /// Model flags observe canonical Body state; pose and AI setters cannot
     /// reclassify health or invoke damage modules and their clocks.
     pub fn refresh_model_condition_bits(&mut self) {

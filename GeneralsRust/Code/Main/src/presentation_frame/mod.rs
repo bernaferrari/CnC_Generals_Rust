@@ -25,6 +25,7 @@ mod apply;
 #[cfg(test)]
 mod authored_model_owner_tests;
 mod build;
+mod camera_terrain;
 mod events;
 mod floating_text;
 mod frame;
@@ -43,7 +44,6 @@ mod spectre;
 mod types;
 mod unit_render;
 mod weapon_visual_dispatch;
-mod camera_terrain;
 mod world_env;
 
 #[cfg(test)]
@@ -99,3 +99,6 @@ pub const PRESENTATION_FRAME_SRC: &str = concat!(
     include_str!("../../../GameEngine/GameDomain/src/lib.rs"),
     include_str!("../../../GameEngine/GameDomain/src/difficulty.rs"),
 );
+
+mod session_view;
+pub(crate) use session_view::{SessionView, SessionViewImpulse, SessionViewState};

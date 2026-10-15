@@ -678,6 +678,7 @@ pub fn bone_world_pos(origin: Vec3, yaw: f32, model: &str, scale: f32, bone: &st
 /// Play leftover-authored FXList / OCL / PSys at the bone.
 /// Returns leftover particle-system id when a PSys was attached (C++ `m_particleSystemIDs`).
 pub fn play_bone_fx_event(
+    world: &mut crate::game_logic::GameLogic,
     ev: &HostBoneFxEvent,
     owner: u32,
     origin: Vec3,
@@ -687,13 +688,15 @@ pub fn play_bone_fx_event(
     drawable_hidden: bool,
 ) -> Option<u32> {
     let local = bone_local_pos(model, scale, &ev.bone);
-    let world = rotate_yaw_host(origin, yaw, local);
+    let effect_position = rotate_yaw_host(origin, yaw, local);
     if let Some(fx) = ev.fx_list.as_deref() {
-        let _ = crate::game_logic::dispatch_fx_list_at_pos(fx, world);
+        let _ = world.dispatch_fx_list_at_host_position(fx, effect_position);
     }
     if let Some(ocl) = ev.ocl.as_deref() {
         crate::game_logic::host_transition_damage_fx::play_authored_transition_ocl(
-            ocl, owner, world,
+            ocl,
+            owner,
+            effect_position,
         );
     }
     let Some(ps) = ev.particle_system.as_deref() else {

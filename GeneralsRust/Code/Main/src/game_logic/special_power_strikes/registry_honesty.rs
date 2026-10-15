@@ -1402,6 +1402,38 @@ impl HostSpecialPowerStrikeRegistry {
     ///
     /// Call once per logic frame (before impact planning is fine).
     pub fn advance_particle_intensity_schedule(&mut self, current_frame: u32) {
+        self.advance_particle_intensity_schedule_with_dispatch(
+            current_frame,
+            &mut |name, position, secondary, speed, radius, matrix| {
+                crate::game_logic::dispatch_fx_list_at_pos_oriented(
+                    name, position, secondary, speed, radius, matrix,
+                )
+            },
+        )
+    }
+
+    /// Immediate dispatch supplied by the driving session; no callback escapes.
+    #[cfg(feature = "game_client")]
+    pub fn advance_particle_intensity_schedule_with_view(
+        &mut self,
+        current_frame: u32,
+        view: &mut game_client::fx_list::FxViewServices<'_>,
+    ) {
+        self.advance_particle_intensity_schedule_with_dispatch(
+            current_frame,
+            &mut |name, position, secondary, speed, radius, matrix| {
+                crate::game_logic::GameLogic::dispatch_fx_list_at_position_with_view(
+                    name, position, secondary, speed, radius, matrix, view,
+                )
+            },
+        )
+    }
+
+    pub fn advance_particle_intensity_schedule_with_dispatch(
+        &mut self,
+        current_frame: u32,
+        dispatch_fx: &mut dyn FnMut(&str, Vec3, Option<Vec3>, f32, f32, Option<glam::Mat4>) -> bool,
+    ) {
         // Pre-fire charge residual on queued ParticleCannon strikes.
         let particle_ids: Vec<u32> = self
             .strikes
@@ -1527,7 +1559,7 @@ impl HostSpecialPowerStrikeRegistry {
                 } else {
                     field.position
                 };
-                play_particle_beam_launch_fx(origin);
+                play_particle_beam_launch_fx_with_dispatch(origin, dispatch_fx);
             }
         }
     }

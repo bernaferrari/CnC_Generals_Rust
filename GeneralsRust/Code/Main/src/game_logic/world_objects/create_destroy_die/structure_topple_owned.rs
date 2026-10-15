@@ -15,7 +15,7 @@ impl GameLogic {
         self.execute_owned_structure_topple_fx(id, effects);
     }
     fn execute_owned_structure_topple_fx(
-        &self,
+        &mut self,
         id: ObjectId,
         effects: Vec<crate::game_logic::host_structure_topple::StructureToppleFxEvent>,
     ) {

@@ -849,8 +849,8 @@ impl CnCGameEngine {
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
             let clamped = self.clamp_to_world_bounds(pos);
-            self.camera_target.x = clamped.x;
-            self.camera_target.z = clamped.z;
+            self.game_logic.session_view.target.x = clamped.x;
+            self.game_logic.session_view.target.z = clamped.z;
         }
     }
 
@@ -890,8 +890,8 @@ impl CnCGameEngine {
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
             let clamped = self.clamp_to_world_bounds(pos);
-            self.camera_target.x = clamped.x;
-            self.camera_target.z = clamped.z;
+            self.game_logic.session_view.target.x = clamped.x;
+            self.game_logic.session_view.target.z = clamped.z;
         }
     }
 
@@ -944,8 +944,8 @@ impl CnCGameEngine {
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
             let clamped = self.clamp_to_world_bounds(pos);
-            self.camera_target.x = clamped.x;
-            self.camera_target.z = clamped.z;
+            self.game_logic.session_view.target.x = clamped.x;
+            self.game_logic.session_view.target.z = clamped.z;
         }
     }
 
@@ -1129,8 +1129,8 @@ impl CnCGameEngine {
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
             let clamped = self.clamp_to_world_bounds(pos);
-            self.camera_target.x = clamped.x;
-            self.camera_target.z = clamped.z;
+            self.game_logic.session_view.target.x = clamped.x;
+            self.game_logic.session_view.target.z = clamped.z;
         }
     }
 
@@ -1450,8 +1450,8 @@ impl CnCGameEngine {
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
             let clamped = self.clamp_to_world_bounds(pos);
-            self.camera_target.x = clamped.x;
-            self.camera_target.z = clamped.z;
+            self.game_logic.session_view.target.x = clamped.x;
+            self.game_logic.session_view.target.z = clamped.z;
         }
     }
 
@@ -1528,8 +1528,8 @@ impl CnCGameEngine {
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
             let clamped = self.clamp_to_world_bounds(pos);
-            self.camera_target.x = clamped.x;
-            self.camera_target.z = clamped.z;
+            self.game_logic.session_view.target.x = clamped.x;
+            self.game_logic.session_view.target.z = clamped.z;
         }
     }
 
@@ -1575,7 +1575,7 @@ impl CnCGameEngine {
             return;
         };
         let team = frame.local_team();
-        let center = self.camera_target;
+        let center = self.game_logic.session_view.target;
         // Fail-closed frustum residual: radius scales with zoom.
         let radius = (180.0 * self.camera_zoom.max(0.5)).clamp(120.0, 600.0);
         let selection = frame.alive_selectable_friendly_near(team, center, radius);

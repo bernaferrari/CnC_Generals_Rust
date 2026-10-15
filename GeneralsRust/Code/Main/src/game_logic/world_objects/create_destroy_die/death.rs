@@ -1273,6 +1273,8 @@ impl GameLogic {
                     .and_then(|engine| engine.topple_direction_for_name(&object.name))
             })
             .map(|direction| (direction.x, direction.y));
+        #[cfg(feature = "game_client")]
+        let fx_player = self.local_player_id();
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -1318,7 +1320,27 @@ impl GameLogic {
             return true;
         }
         // Prefer StructureCollapse for civilian/prop peels; else StructureTopple.
-        if obj.begin_structure_collapse(frame) {
+        #[cfg(feature = "game_client")]
+        let collapse_started = Self::with_host_fx_view_parts(
+            &mut self.session_view,
+            fx_player,
+            self.world_services.shroud(),
+            |view| {
+                obj.begin_structure_collapse_with_fx(frame, &mut |name, object, at_object| {
+                    Self::dispatch_object_phase_fx_with_view(
+                        name,
+                        object,
+                        at_object,
+                        fx_player,
+                        self.world_services.shroud(),
+                        view,
+                    );
+                })
+            },
+        );
+        #[cfg(not(feature = "game_client"))]
+        let collapse_started = obj.begin_structure_collapse(frame);
+        if collapse_started {
             return true;
         }
         if !obj.thing().template.authored_structure_topple {

@@ -369,7 +369,7 @@ impl CnCGameEngine {
         if self.camera_slave_mode.is_none()
             && matches!(self.current_state, GameState::InGame | GameState::Paused)
         {
-            let target = self.camera_target;
+            let target = self.game_logic.session_view.target;
             if target.x * target.x + target.z * target.z < 80. * 80. {
                 self.snap_camera_to_local_units_if_needed();
             }

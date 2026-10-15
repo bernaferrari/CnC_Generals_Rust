@@ -96,6 +96,25 @@ impl DamageApplication {
         victim: &mut Object,
         source: Option<&HostDamageFxVictim>,
     ) {
+        self.complete_body_state_callbacks_with_transition_fx(
+            victim,
+            source,
+            &mut |object, event, source| {
+                object.queue_transition_damage_fx_event_with_source(event, source)
+            },
+        );
+    }
+
+    pub(in crate::game_logic) fn complete_body_state_callbacks_with_transition_fx(
+        &mut self,
+        victim: &mut Object,
+        source: Option<&HostDamageFxVictim>,
+        transition_fx: &mut dyn FnMut(
+            &mut Object,
+            crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent,
+            Option<&HostDamageFxVictim>,
+        ),
+    ) {
         let (victim_id, old_body_state, frame, fear) = match self {
             Self::Active(tail) => (tail.victim_id, tail.old_body_state.take(), tail.frame, true),
             Self::Healing(tail) => (
@@ -113,7 +132,12 @@ impl DamageApplication {
         let Some(old_body_state) = old_body_state else {
             return;
         };
-        victim.react_to_body_damage_state_change(old_body_state, source, frame);
+        victim.react_to_body_damage_state_change_with_transition_fx(
+            old_body_state,
+            source,
+            frame,
+            transition_fx,
+        );
         if fear {
             let id = victim.id;
             let position = victim.get_position();

@@ -540,6 +540,7 @@ impl GameLogic {
             // Inert default; match/replay setup admits its selected seed.
             // Construction never consumes or adopts another world's stream.
             native_hulk_max_lifetime_override: -1,
+            session_view: crate::presentation_frame::SessionView::default(),
             logic_random: game_engine::common::random_value::SessionRandom::default(),
             logic_base_seed: 0,
 

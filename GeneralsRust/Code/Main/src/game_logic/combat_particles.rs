@@ -543,6 +543,82 @@ impl CombatParticleRegistry {
         override_radius: f32,
         drawable_matrix: Option<glam::Mat4>,
     ) -> Vec<u32> {
+        self.spawn_weapon_fire_fx_named_ocl_oriented_with_dispatch(
+            muzzle_pos,
+            impact_pos,
+            frame,
+            shooter,
+            target,
+            fire_fx_name,
+            detonation_fx_name,
+            fire_ocl_name,
+            detonation_ocl_name,
+            primary_speed,
+            override_radius,
+            drawable_matrix,
+            &mut |name, position, secondary, speed, radius, matrix| {
+                crate::game_logic::dispatch_fx_list_at_pos_oriented(
+                    name, position, secondary, speed, radius, matrix,
+                )
+            },
+        )
+    }
+
+    /// Immediate dispatch supplied by the driving session; no callback escapes.
+    #[cfg(feature = "game_client")]
+    pub fn spawn_weapon_fire_fx_named_ocl_oriented_with_view(
+        &mut self,
+        muzzle_pos: Vec3,
+        impact_pos: Option<Vec3>,
+        frame: u32,
+        shooter: ObjectId,
+        target: Option<ObjectId>,
+        fire_fx_name: &str,
+        detonation_fx_name: &str,
+        fire_ocl_name: &str,
+        detonation_ocl_name: &str,
+        primary_speed: f32,
+        override_radius: f32,
+        drawable_matrix: Option<glam::Mat4>,
+        view: &mut game_client::fx_list::FxViewServices<'_>,
+    ) -> Vec<u32> {
+        self.spawn_weapon_fire_fx_named_ocl_oriented_with_dispatch(
+            muzzle_pos,
+            impact_pos,
+            frame,
+            shooter,
+            target,
+            fire_fx_name,
+            detonation_fx_name,
+            fire_ocl_name,
+            detonation_ocl_name,
+            primary_speed,
+            override_radius,
+            drawable_matrix,
+            &mut |name, position, secondary, speed, radius, matrix| {
+                crate::game_logic::GameLogic::dispatch_fx_list_at_position_with_view(
+                    name, position, secondary, speed, radius, matrix, view,
+                )
+            },
+        )
+    }
+
+    pub fn spawn_weapon_fire_fx_named_ocl_oriented_with_dispatch(
+        &mut self,
+        muzzle_pos: Vec3,
+        impact_pos: Option<Vec3>,
+        frame: u32,
+        shooter: ObjectId,
+        target: Option<ObjectId>,
+        fire_fx_name: &str,
+        detonation_fx_name: &str,
+        fire_ocl_name: &str,
+        detonation_ocl_name: &str,
+        primary_speed: f32,
+        override_radius: f32,
+        drawable_matrix: Option<glam::Mat4>,
+        dispatch_fx: &mut dyn FnMut(&str, Vec3, Option<Vec3>, f32, f32, Option<glam::Mat4>) -> bool,
+    ) -> Vec<u32> {
         self.note_muzzle_flash_unhide(shooter, frame);
         let mut ids = Vec::new();
         if let Some(fx) = usable_particle_template_name(fire_fx_name) {
@@ -563,7 +639,7 @@ impl CombatParticleRegistry {
                 }
             }
             ids.push(muzzle_id);
-            let _ = crate::game_logic::dispatch_fx_list_at_pos_oriented(
+            let _ = dispatch_fx(
                 fx,
                 muzzle_pos,
                 impact_pos,
@@ -601,7 +677,7 @@ impl CombatParticleRegistry {
                         e.ocl_list_name = detonation_ocl_name.to_string();
                     }
                 }
-                let _ = crate::game_logic::dispatch_fx_list_at_pos_oriented(
+                let _ = dispatch_fx(
                     fx,
                     impact,
                     Some(impact),

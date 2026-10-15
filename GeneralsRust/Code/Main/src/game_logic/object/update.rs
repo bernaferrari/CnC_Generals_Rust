@@ -123,6 +123,14 @@ impl Object {
     /// C++ MissileLauncherBuildingUpdate::update — door bits keyed to ready-frame.
     /// Returns `(DoorOpenIdleAudio play, stop)` for GameLogic to queue.
     pub fn tick_missile_launcher_building(&mut self, now: u32) -> (Option<String>, bool) {
+        self.tick_missile_launcher_building_with_fx(now, &mut Self::standalone_object_fx)
+    }
+
+    pub(in crate::game_logic) fn tick_missile_launcher_building_with_fx(
+        &mut self,
+        now: u32,
+        dispatch: &mut dyn FnMut(&str, &Object, bool),
+    ) -> (Option<String>, bool) {
         if self.status.under_construction {
             return (None, false);
         }
@@ -166,7 +174,7 @@ impl Object {
         self.apply_missile_launcher_door_bits();
         if let Some(fx) = pending_fx {
             if !fx.is_empty() && !fx.eq_ignore_ascii_case("None") {
-                let _ = crate::game_logic::dispatch_fx_list_at_pos(&fx, self.get_position());
+                dispatch(&fx, self, false);
             }
         }
         (pending_idle, stop_idle)

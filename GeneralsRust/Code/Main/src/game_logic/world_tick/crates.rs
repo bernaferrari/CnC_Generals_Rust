@@ -1493,11 +1493,37 @@ impl GameLogic {
         }
 
         let mut empty_kills: Vec<ObjectId> = Vec::new();
+        #[cfg(feature = "game_client")]
+        let fx_player = self.local_player_id();
         for (bus_id, _pending, _occ, passenger_count, z) in &bus_snapshots {
             let above = *z > 0.5;
             let Some(bus) = self.objects.get_mut(bus_id) else {
                 continue;
             };
+            #[cfg(feature = "game_client")]
+            let (_landed, empty_kill) = Self::with_host_fx_view_parts(
+                &mut self.session_view,
+                fx_player,
+                self.world_services.shroud(),
+                |view| {
+                    bus.tick_battle_bus_slow_death_with_fx(
+                        frame,
+                        above,
+                        *passenger_count,
+                        &mut |name, object, at_object| {
+                            Self::dispatch_object_phase_fx_with_view(
+                                name,
+                                object,
+                                at_object,
+                                fx_player,
+                                self.world_services.shroud(),
+                                view,
+                            )
+                        },
+                    )
+                },
+            );
+            #[cfg(not(feature = "game_client"))]
             let (_landed, empty_kill) =
                 bus.tick_battle_bus_slow_death(frame, above, *passenger_count);
             if empty_kill {

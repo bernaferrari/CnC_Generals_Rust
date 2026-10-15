@@ -628,15 +628,39 @@ impl GameLogic {
                 );
             }
 
-            self.special_power_strikes.record_impact_wave(
-                plan.strike_id,
-                total_damage,
-                objects_hit,
-                objects_destroyed,
-                plan.wave_shell_count,
-                plan.is_final_wave,
-                &plan.epicenters,
-            );
+            {
+                let (fx_arg_0, fx_arg_1, fx_arg_2, fx_arg_3, fx_arg_4, fx_arg_5, fx_arg_6) = (
+                    plan.strike_id,
+                    total_damage,
+                    objects_hit,
+                    objects_destroyed,
+                    plan.wave_shell_count,
+                    plan.is_final_wave,
+                    &plan.epicenters,
+                );
+                #[cfg(feature = "game_client")]
+                {
+                    let player = self.local_player_id();
+                    let receiver = &mut self.special_power_strikes;
+                    Self::with_host_fx_view_parts(
+                        &mut self.session_view,
+                        player,
+                        self.world_services.shroud(),
+                        |view| {
+                            receiver.record_impact_wave_with_view(
+                                fx_arg_0, fx_arg_1, fx_arg_2, fx_arg_3, fx_arg_4, fx_arg_5,
+                                fx_arg_6, view,
+                            )
+                        },
+                    )
+                }
+                #[cfg(not(feature = "game_client"))]
+                {
+                    self.special_power_strikes.record_impact_wave(
+                        fx_arg_0, fx_arg_1, fx_arg_2, fx_arg_3, fx_arg_4, fx_arg_5, fx_arg_6,
+                    )
+                }
+            };
 
             // NuclearMissile residual: radiation field ambient cue on spawn.
             if plan.is_final_wave
@@ -2003,8 +2027,25 @@ impl GameLogic {
             .abort_beam_fields_on_owner_disable(frame, |id| aborting.contains(&id));
         // Pre-fire intensity schedule + BeamLaunchFX + POSTFIRE/PACKING residual
         // (also advances ScudStorm PreAttack residual frame counter).
-        self.special_power_strikes
-            .advance_particle_intensity_schedule(frame);
+        {
+            let (fx_arg_0,) = (frame,);
+            #[cfg(feature = "game_client")]
+            {
+                let player = self.local_player_id();
+                let receiver = &mut self.special_power_strikes;
+                Self::with_host_fx_view_parts(
+                    &mut self.session_view,
+                    player,
+                    self.world_services.shroud(),
+                    |view| receiver.advance_particle_intensity_schedule_with_view(fx_arg_0, view),
+                )
+            }
+            #[cfg(not(feature = "game_client"))]
+            {
+                self.special_power_strikes
+                    .advance_particle_intensity_schedule(fx_arg_0)
+            }
+        };
         self.drain_puc_loop_audio();
         // Manual beam driving residual: advance current target toward override
         // before damage / scorch planning (retail update order).
@@ -2016,8 +2057,24 @@ impl GameLogic {
             .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
             .collect();
         // C++ SwathOfDeath rotates onto building→target, not world +X.
-        self.special_power_strikes
-            .bind_beam_source_axes(&object_positions);
+        {
+            let (fx_arg_0,) = (&object_positions,);
+            #[cfg(feature = "game_client")]
+            {
+                let player = self.local_player_id();
+                let receiver = &mut self.special_power_strikes;
+                Self::with_host_fx_view_parts(
+                    &mut self.session_view,
+                    player,
+                    self.world_services.shroud(),
+                    |view| receiver.bind_beam_source_axes_with_view(fx_arg_0, view),
+                )
+            }
+            #[cfg(not(feature = "game_client"))]
+            {
+                self.special_power_strikes.bind_beam_source_axes(fx_arg_0)
+            }
+        };
 
         let plans = self
             .special_power_strikes
@@ -2260,8 +2317,7 @@ impl GameLogic {
             // for a natural detonation; it stays reserved for damage kills.
             let detonation_pos = self.objects.get(&id).map(|o| o.get_position());
             if let Some(pos) = detonation_pos {
-                let _ =
-                    crate::game_logic::dispatch_fx_list_at_pos(SPECTRE_HOWITZER_DETONATION_FX, pos);
+                let _ = self.dispatch_fx_list_at_host_position(SPECTRE_HOWITZER_DETONATION_FX, pos);
                 // C++ Weapon.cpp:897-941 handleProjectileDetonation — the FX
                 // also registers in the host particle registry (visual parity).
                 let _ = self.combat_particles.spawn_named(

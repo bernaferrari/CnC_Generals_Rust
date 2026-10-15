@@ -88,3 +88,36 @@ fn restored_body_does_not_consume_the_obsolete_predicted_transition() {
     assert_eq!(bone.transitions, 0);
     assert!(bone.pending.is_empty());
 }
+
+#[test]
+fn receiving_transition_callback_runs_inline_and_is_consumed_once() {
+    use crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxData;
+    let mut object = body();
+    let mut transition = HostTransitionDamageFxData::default();
+    transition.enabled = true;
+    transition.fx_lists_for_state[HostBodyDamageType::Damaged.ordinal() as usize] =
+        vec!["FX_ReceivingBodyTransition".into()];
+    object.transition_damage_fx = Some(transition);
+    let mut application = begin(&mut object);
+    let mut observations = Vec::new();
+    let mut receive = |victim: &mut Object, event: crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent, source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>| {
+        observations.push((victim.id, victim.health.current, event.fx_name.clone()));
+        assert!(source.is_none());
+        assert_eq!(victim.body_damage_state, HostBodyDamageType::Damaged);
+        // The callback is a synchronous borrowed phase, not an end-of-frame
+        // queue: the caller sees its mutation before continuing this impact.
+        victim.name = "ObservedDuringBodyCallback".into();
+    };
+    application.complete_body_state_callbacks_with_transition_fx(&mut object, None, &mut receive);
+    assert_eq!(object.name, "ObservedDuringBodyCallback");
+    application.complete_body_state_callbacks_with_transition_fx(&mut object, None, &mut receive);
+    assert_eq!(
+        observations,
+        vec![(
+            ObjectId(947),
+            60.0,
+            Some("FX_ReceivingBodyTransition".into())
+        )]
+    );
+    assert!(object.pending_transition_damage_fx.is_empty());
+}

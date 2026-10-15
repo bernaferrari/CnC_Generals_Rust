@@ -87,6 +87,21 @@ impl Object {
         _above_terrain_hint: bool,
         passenger_count: usize,
     ) -> (bool, bool) {
+        self.tick_battle_bus_slow_death_with_fx(
+            current_frame,
+            _above_terrain_hint,
+            passenger_count,
+            &mut Self::standalone_object_fx,
+        )
+    }
+
+    pub(in crate::game_logic) fn tick_battle_bus_slow_death_with_fx(
+        &mut self,
+        current_frame: u32,
+        _above_terrain_hint: bool,
+        passenger_count: usize,
+        dispatch: &mut dyn FnMut(&str, &Object, bool),
+    ) -> (bool, bool) {
         use crate::game_logic::host_battle_bus::{
             BATTLE_BUS_MC_BIT_SECOND_LIFE, battle_bus_hit_ground_fx_name,
         };
@@ -130,13 +145,7 @@ impl Object {
             self.refresh_model_condition_bits();
             // Leftover `finish_first_death` / C++ `FXList::doFXObj(m_fxHitGround, me)`.
             let fx = battle_bus_hit_ground_fx_name(&self.template_name);
-            crate::game_logic::publish_host_fx_object(
-                self.id.0,
-                self.get_position(),
-                self.get_orientation(),
-                self.owner_player_id.map(|p| p as i32).unwrap_or(-1),
-            );
-            let _ = crate::game_logic::dispatch_fx_list_at_object(&fx, self.id.0, None);
+            dispatch(&fx, self, true);
         }
         let empty_kill = self
             .battle_bus_body

@@ -212,7 +212,7 @@ impl CnCGameEngine {
             let (ease_in, ease_out) = pres.camera_zoom_reset_ease;
             if !player_cancel.cancels_set() {
                 let zoom = self.compute_default_camera_zoom_for_target(
-                    self.camera_target,
+                    self.game_logic.session_view.target,
                     self.ui_script_default_camera_max_height(),
                 );
                 self.camera_zoom_start = self.camera_zoom;
@@ -335,7 +335,7 @@ impl CnCGameEngine {
             self.camera_follow_factor = (self.camera_follow_factor + 0.05).min(1.0);
         }
 
-        let current = self.camera_target;
+        let current = self.game_logic.session_view.target;
         let dx = target.x - current.x;
         let dz = target.z - current.z;
         let cell = game_engine::common::global_data::read().partition_cell_size;

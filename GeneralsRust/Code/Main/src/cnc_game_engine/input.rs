@@ -2118,7 +2118,7 @@ impl CnCGameEngine {
             });
             let terrain_z = Some(self.game_logic.radar().terrain_average_z())
                 .filter(|z| z.is_finite())
-                .unwrap_or(self.camera_target.y);
+                .unwrap_or(self.game_logic.session_view.target.y);
             let pts = with_tactical_view_ref(|view| {
                 view.get_screen_corner_world_points_at_z(terrain_z).ok()
             })?;
@@ -2147,11 +2147,11 @@ impl CnCGameEngine {
             {
                 Some(self.game_logic.radar().terrain_average_z())
                     .filter(|z| z.is_finite())
-                    .unwrap_or(self.camera_target.y)
+                    .unwrap_or(self.game_logic.session_view.target.y)
             }
             #[cfg(not(feature = "game_client"))]
             {
-                self.camera_target.y
+                self.game_logic.session_view.target.y
             }
         };
         // C++ View.cpp:216-223: UL, UR, then "bottomLeft"=LR, "bottomRight"=LL.

@@ -916,7 +916,21 @@ pub fn spawn_particle_outer_node_flares(
 
 /// C++ `ParticleUplinkCannonUpdate.cpp:711-721` BeamLaunchFX at laser origin.
 pub fn play_particle_beam_launch_fx(origin: Vec3) {
-    let _ = crate::game_logic::dispatch_fx_list_at_pos(PARTICLE_BEAM_LAUNCH_FX, origin);
+    play_particle_beam_launch_fx_with_dispatch(
+        origin,
+        &mut |name, pos, secondary, speed, radius, matrix| {
+            crate::game_logic::dispatch_fx_list_at_pos_oriented(
+                name, pos, secondary, speed, radius, matrix,
+            )
+        },
+    );
+}
+
+pub fn play_particle_beam_launch_fx_with_dispatch(
+    origin: Vec3,
+    dispatch_fx: &mut dyn FnMut(&str, Vec3, Option<Vec3>, f32, f32, Option<glam::Mat4>) -> bool,
+) {
+    let _ = dispatch_fx(PARTICLE_BEAM_LAUNCH_FX, origin, None, 0.0, 0.0, None);
 }
 
 /// Connector residual origin (dish connector bone) for STATUS_FIRING residual.
@@ -1139,6 +1153,22 @@ pub fn particle_scorch_radius(spawn_frame: u32, current_frame: u32) -> f32 {
 /// `GameClientRandomValue(SCORCH_1, SCORCH_4)` — C++ `SCORCH_1=0` .. `SCORCH_4=3`.
 /// Host `position` is Y-up; leftover / `addScorch` is Z-up.
 pub fn apply_particle_beam_scorch_and_ground_hit_fx(position: Vec3, scorch_radius: f32) {
+    apply_particle_beam_scorch_and_ground_hit_fx_with_dispatch(
+        position,
+        scorch_radius,
+        &mut |name, pos, secondary, speed, radius, matrix| {
+            crate::game_logic::dispatch_fx_list_at_pos_oriented(
+                name, pos, secondary, speed, radius, matrix,
+            )
+        },
+    );
+}
+
+pub fn apply_particle_beam_scorch_and_ground_hit_fx_with_dispatch(
+    position: Vec3,
+    scorch_radius: f32,
+    dispatch_fx: &mut dyn FnMut(&str, Vec3, Option<Vec3>, f32, f32, Option<glam::Mat4>) -> bool,
+) {
     const SCORCH_1: i32 = 0;
     const SCORCH_4: i32 = 3;
     let leftover = gamelogic::common::Coord3D::new(position.x, position.z, position.y);
@@ -1146,7 +1176,7 @@ pub fn apply_particle_beam_scorch_and_ground_hit_fx(position: Vec3, scorch_radiu
         let scorch_id = gamelogic::helpers::game_client_random_value(SCORCH_1, SCORCH_4);
         client.add_scorch(&leftover, scorch_radius, scorch_id);
     }
-    let _ = crate::game_logic::dispatch_fx_list_at_pos(PARTICLE_GROUND_HIT_FX, position);
+    let _ = dispatch_fx(PARTICLE_GROUND_HIT_FX, position, None, 0.0, 0.0, None);
 }
 
 /// Next absolute frame for the next scorch mark (fractional residual).
@@ -1360,4 +1390,36 @@ fn parse_puc_death_type(token: &str) -> crate::game_logic::host_usa_pilot::HostD
         "DETONATED" => HostDeathType::Detonated,
         _ => HostDeathType::Lasered,
     }
+}
+
+/// Borrowed receiving view used by Main while the strike registry is loaned.
+#[cfg(feature = "game_client")]
+pub fn play_particle_beam_launch_fx_with_view(
+    origin: Vec3,
+    view: &mut game_client::fx_list::FxViewServices<'_>,
+) {
+    play_particle_beam_launch_fx_with_dispatch(
+        origin,
+        &mut |name, pos, secondary, speed, radius, matrix| {
+            crate::game_logic::GameLogic::dispatch_fx_list_at_position_with_view(
+                name, pos, secondary, speed, radius, matrix, view,
+            )
+        },
+    );
+}
+#[cfg(feature = "game_client")]
+pub fn apply_particle_beam_scorch_and_ground_hit_fx_with_view(
+    position: Vec3,
+    scorch_radius: f32,
+    view: &mut game_client::fx_list::FxViewServices<'_>,
+) {
+    apply_particle_beam_scorch_and_ground_hit_fx_with_dispatch(
+        position,
+        scorch_radius,
+        &mut |name, pos, secondary, speed, radius, matrix| {
+            crate::game_logic::GameLogic::dispatch_fx_list_at_position_with_view(
+                name, pos, secondary, speed, radius, matrix, view,
+            )
+        },
+    );
 }

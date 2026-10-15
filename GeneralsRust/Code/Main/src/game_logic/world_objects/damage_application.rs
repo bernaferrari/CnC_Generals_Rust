@@ -346,6 +346,26 @@ impl GameLogic {
             .source_id()
             .and_then(|id| self.objects.get(&id))
             .map(crate::game_logic::host_transition_damage_fx::snapshot_damage_fx_source);
+        #[cfg(feature = "game_client")]
+        let callback_player = self.local_player_id();
+        #[cfg(feature = "game_client")]
+        Self::with_host_fx_view_parts(
+            &mut self.session_view,
+            callback_player,
+            self.world_services.shroud(),
+            |view| {
+                if let Some(victim) = self.objects.get_mut(&victim_id) {
+                    application.complete_body_state_callbacks_with_transition_fx(
+                        victim,
+                        callback_source.as_ref(),
+                        &mut |object, event, source| {
+                            object.queue_transition_damage_fx_event_with_view(event, source, view);
+                        },
+                    );
+                }
+            },
+        );
+        #[cfg(not(feature = "game_client"))]
         if let Some(victim) = self.objects.get_mut(&victim_id) {
             application.complete_body_state_callbacks(victim, callback_source.as_ref());
         }

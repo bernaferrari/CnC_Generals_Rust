@@ -709,8 +709,35 @@ mod tests {
             "HitGround FX name missing: {land_win}"
         );
         assert!(
-            land_win.contains("dispatch_fx_list_at_object(&fx, self.id.0, None)"),
-            "C++ doFXObj HitGround missing: {land_win}"
+            land_win.contains("dispatch(&fx, self, true)"),
+            "C++ HitGround must dispatch the current object form synchronously: {land_win}"
+        );
+        assert!(
+            land_win.find("if landed {").unwrap()
+                < land_win.find("dispatch(&fx, self, true)").unwrap(),
+            "HitGround must remain gated by the landing transition"
+        );
+        let native_tick = include_str!("world_tick/crates.rs");
+        let native_start = native_tick
+            .find("let mut empty_kills: Vec<ObjectId>")
+            .unwrap();
+        let native_end = native_tick[native_start..]
+            .find("for bus_id in empty_kills")
+            .unwrap()
+            + native_start;
+        let native_land = &native_tick[native_start..native_end];
+        assert!(native_land.contains("Self::with_host_fx_view_parts("));
+        assert!(native_land.contains("&mut self.session_view"));
+        assert!(native_land.contains("bus.tick_battle_bus_slow_death_with_fx("));
+        assert!(native_land.contains("Self::dispatch_object_phase_fx_with_view("));
+        let dispatch = include_str!("object/fx.rs");
+        let object_start = dispatch.find("if at_object {").unwrap();
+        let object_end = dispatch[object_start..].find("} else {").unwrap() + object_start;
+        let object_form = &dispatch[object_start..object_end];
+        assert!(object_form.contains("Self::observe_host_fx_object(object, player, shroud)"));
+        assert!(
+            object_form
+                .contains("Self::dispatch_fx_list_at_object_with_view(name, &pose, None, view)")
         );
     }
 }

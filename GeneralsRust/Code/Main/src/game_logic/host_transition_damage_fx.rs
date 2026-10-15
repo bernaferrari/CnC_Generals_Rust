@@ -655,23 +655,36 @@ pub fn leftover_named_slot_world_pos(
 /// world matrix when one exists (C++ `FXList.cpp:711-728` passes the bone
 /// matrix so `FXListAtBonePos` nuggets keep the bone orientation); positional
 /// fallback when no bone matrix resolved.
-fn dispatch_transition_fx_list(name: &str, world: glam::Vec3, matrix: Option<glam::Mat4>) {
+fn dispatch_transition_fx_list(
+    dispatch_fx: &mut dyn FnMut(
+        &str,
+        glam::Vec3,
+        Option<glam::Vec3>,
+        f32,
+        f32,
+        Option<glam::Mat4>,
+    ) -> bool,
+    name: &str,
+    world: glam::Vec3,
+    matrix: Option<glam::Mat4>,
+) {
     if let Some(matrix) = matrix {
-        let _ = crate::game_logic::dispatch_fx_list_at_pos_oriented(
-            name,
-            world,
-            None,
-            0.0,
-            0.0,
-            Some(matrix),
-        );
+        let _ = dispatch_fx(name, world, None, 0.0, 0.0, Some(matrix));
     } else {
-        let _ = crate::game_logic::dispatch_fx_list_at_pos(name, world);
+        let _ = dispatch_fx(name, world, None, 0.0, 0.0, None);
     }
 }
 
 /// Leftover `play_fx_for_state` FXList/OCL: `doFXPos` / OCL create at bone/loc world pos.
-pub fn play_transition_event_fx_ocl(
+fn play_transition_event_fx_ocl_with_dispatch(
+    dispatch_fx: &mut dyn FnMut(
+        &str,
+        glam::Vec3,
+        Option<glam::Vec3>,
+        f32,
+        f32,
+        Option<glam::Mat4>,
+    ) -> bool,
     ev: &HostTransitionDamageFxEvent,
     owner: u32,
     host_pos: glam::Vec3,
@@ -689,7 +702,7 @@ pub fn play_transition_event_fx_ocl(
             model,
             scale,
         );
-        dispatch_transition_fx_list(fx, world, matrix);
+        dispatch_transition_fx_list(dispatch_fx, fx, world, matrix);
     }
     for (i, fx) in ev.extra_fx_names.iter().enumerate() {
         let (world, matrix) = leftover_named_slot_world_transform(
@@ -700,13 +713,83 @@ pub fn play_transition_event_fx_ocl(
             model,
             scale,
         );
-        dispatch_transition_fx_list(fx, world, matrix);
+        dispatch_transition_fx_list(dispatch_fx, fx, world, matrix);
     }
     for (i, ocl) in ev.ocl_names.iter().enumerate() {
         let world =
             leftover_named_slot_world_pos(ev.ocl_locs.get(i), owner, host_pos, yaw, model, scale);
         play_authored_transition_ocl_with_source(ocl, owner, world, source);
     }
+}
+
+/// Standalone compatibility entrypoint. Main Object callbacks use receiving services.
+pub fn play_transition_event_fx_ocl(
+    ev: &HostTransitionDamageFxEvent,
+    owner: u32,
+    host_pos: glam::Vec3,
+    yaw: f32,
+    model: &str,
+    scale: f32,
+    source: Option<&HostDamageFxVictim>,
+) {
+    play_transition_event_fx_ocl_with_dispatch(
+        &mut |name, pos, secondary, speed, radius, matrix| {
+            crate::game_logic::dispatch_fx_list_at_pos_oriented(
+                name, pos, secondary, speed, radius, matrix,
+            )
+        },
+        ev,
+        owner,
+        host_pos,
+        yaw,
+        model,
+        scale,
+        source,
+    );
+}
+
+#[cfg(feature = "game_client")]
+pub fn play_transition_event_fx_ocl_with_view(
+    view: &mut game_client::fx_list::FxViewServices<'_>,
+    ev: &HostTransitionDamageFxEvent,
+    owner: u32,
+    host_pos: glam::Vec3,
+    yaw: f32,
+    model: &str,
+    scale: f32,
+    source: Option<&HostDamageFxVictim>,
+) {
+    play_transition_event_fx_ocl_with_dispatch(
+        &mut |name, pos, secondary, speed, radius, matrix| {
+            crate::game_logic::GameLogic::dispatch_fx_list_at_position_with_view(
+                name, pos, secondary, speed, radius, matrix, view,
+            )
+        },
+        ev,
+        owner,
+        host_pos,
+        yaw,
+        model,
+        scale,
+        source,
+    );
+}
+
+#[cfg(feature = "game_client")]
+pub fn take_played_transition_event_fx_ocl_with_view(
+    view: &mut game_client::fx_list::FxViewServices<'_>,
+    ev: &mut HostTransitionDamageFxEvent,
+    owner: u32,
+    host_pos: glam::Vec3,
+    yaw: f32,
+    model: &str,
+    scale: f32,
+    source: Option<&HostDamageFxVictim>,
+) {
+    play_transition_event_fx_ocl_with_view(view, ev, owner, host_pos, yaw, model, scale, source);
+    ev.fx_name = None;
+    ev.extra_fx_names.clear();
+    ev.ocl_names.clear();
 }
 
 /// Play leftover FX/OCL then drop names so origin-dispatch consumers do not replay.

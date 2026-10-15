@@ -670,6 +670,14 @@ impl FXList {
         }
     }
 
+    /// Compile the effective immutable authoring definition using the same
+    /// nugget compiler as INI admission, without installing a mutable owner.
+    pub fn from_definition(definition: &game_engine::common::ini::ini_fx_list::FXList) -> Self {
+        Self {
+            nuggets: definition.nuggets.iter().map(executable_nugget).collect(),
+        }
+    }
+
     pub fn add_fx_nugget(&mut self, nugget: Box<dyn FXNugget>) {
         self.nuggets.push(nugget);
     }
@@ -839,7 +847,6 @@ fn parse_fx_list_definition(ini: &mut INI) -> INIResult<()> {
 
     use game_engine::common::ini::ini_fx_list::{FXList as Definition, parse_fx_nugget_definition};
     let mut definition = Definition::new(name.as_str().into());
-    let mut fx_list = FXList::new();
     loop {
         ini.read_line()?;
         if ini.is_eof() {
@@ -866,10 +873,10 @@ fn parse_fx_list_definition(ini: &mut INI) -> INIResult<()> {
         }
         let nugget =
             parse_fx_nugget_definition(&kind, &fields).map_err(|_| INIError::InvalidData)?;
-        fx_list.add_fx_nugget(executable_nugget(&nugget));
         definition.add_nugget(nugget);
     }
     // Common owns authored definitions; this store is the derived client backend.
+    let fx_list = FXList::from_definition(&definition);
     game_engine::common::ini::ini_fx_list::get_fx_list_store_mut().add_fx_list(definition);
     get_fx_list_store_mut().add_fx_list(name, fx_list);
     Ok(())

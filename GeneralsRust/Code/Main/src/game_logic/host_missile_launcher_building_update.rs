@@ -436,7 +436,11 @@ mod tests {
         let start = tick
             .find("pub fn tick_missile_launcher_building")
             .expect("tick_missile_launcher_building");
-        let win = &tick[start..start + 2800];
+        let end = tick[start..]
+            .find("fn apply_missile_launcher_door_bits")
+            .expect("door model-bit application")
+            + start;
+        let win = &tick[start..end];
         assert!(
             win.contains("let pending_fx = data.pending_fx.take()"),
             "door pending_fx must be consumed: {win}"
@@ -450,8 +454,34 @@ mod tests {
             "DoorOpenIdleAudio stop_idle_audio must be consumed: {win}"
         );
         assert!(
-            win.contains("dispatch_fx_list_at_pos(&fx, self.get_position())"),
-            "C++ doFXPos at building missing: {win}"
+            win.contains("dispatch(&fx, self, false)"),
+            "C++ door effect must use the current building's positional form: {win}"
         );
+        assert!(
+            win.find("let pending_fx = data.pending_fx.take()").unwrap()
+                < win.find("dispatch(&fx, self, false)").unwrap(),
+            "dispatch must consume the pending door effect in this update"
+        );
+        let native = include_str!("world_tick/ai.rs");
+        let native_start = native
+            .find("// C++ MissileLauncherBuildingUpdate::update")
+            .unwrap();
+        let native_end = native[native_start..]
+            .find("if play.is_some() || stop")
+            .unwrap()
+            + native_start;
+        let native_door = &native[native_start..native_end];
+        assert!(native_door.contains("Self::with_host_fx_view_parts("));
+        assert!(native_door.contains("&mut self.session_view"));
+        assert!(native_door.contains("Self::dispatch_object_phase_fx_with_view("));
+        assert!(
+            native_door
+                .contains("obj.tick_missile_launcher_building_with_fx(self.frame, &mut dispatch)")
+        );
+        let dispatch = include_str!("object/fx.rs");
+        let positional = &dispatch[dispatch.find("} else {").unwrap()..];
+        assert!(positional.contains("Self::dispatch_fx_list_at_position_with_view("));
+        assert!(positional.contains("object.get_position()"));
+        assert!(!positional.contains("dispatch_fx_list_at_object_with_view"));
     }
 }

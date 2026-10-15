@@ -523,12 +523,13 @@ impl GameLogic {
             .record_detonation(hits, via_capture, via_death);
         // C++ StickyBombUpdate::detonate: FXList::doFXPos(m_geometryBasedDamageFX,
         // pos, NULL, 0, NULL, secondaryDamageRange). Never queue the FXList name.
-        if !crate::game_logic::dispatch_fx_list_at_pos_ex(
+        if !self.dispatch_fx_list_at_host_position_oriented(
             BOOBY_GEOMETRY_DAMAGE_FX,
             structure_pos,
             None,
             0.0,
             max_r,
+            None,
         ) {
             for sound in crate::game_logic::sound_names_for_fx_list(BOOBY_GEOMETRY_DAMAGE_FX) {
                 self.queue_audio_event(

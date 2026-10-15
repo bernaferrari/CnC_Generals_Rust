@@ -1757,8 +1757,10 @@ impl GameLogic {
         };
         // Leftover GenerateMinefieldBehavior::place_mines play_fx GenerationFX
         // at the bomb/object center (`TheFXList::do_fx_at_position`).
-        let _ =
-            crate::game_logic::host_cluster_mines_flight::play_cluster_mines_generation_fx(center);
+        let _ = self.dispatch_fx_list_at_host_position(
+            &crate::game_logic::host_cluster_mines_flight::cluster_mines_generation_fx_name(),
+            center,
+        );
 
         let positions = cluster_smart_border_positions(center);
         let mut ids = Vec::with_capacity(positions.len());

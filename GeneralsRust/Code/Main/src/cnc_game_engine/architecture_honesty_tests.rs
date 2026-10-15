@@ -106,7 +106,7 @@ fn live_run_loop_updates_common_the_audio_each_frame() {
     assert!(
         audio.contains("sync_audio_listener_from_main_camera")
             && audio.contains("camera_position")
-            && audio.contains("camera_target")
+            && audio.contains("session_view.target")
             && audio.contains("GameAudio.cpp:281"),
         "host_update_the_audio must sync 3D listener/mic from Main camera"
     );

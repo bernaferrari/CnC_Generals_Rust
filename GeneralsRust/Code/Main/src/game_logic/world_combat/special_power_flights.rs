@@ -1946,7 +1946,7 @@ impl GameLogic {
             .map(|s| s.random_surface_position(self.frame))
             .or_else(|| self.objects.get(&span_id).map(|o| o.get_position()))
             .unwrap_or(glam::Vec3::ZERO);
-        let _ = crate::game_logic::host_fx_list_dispatch::dispatch_fx_list_at_pos(
+        let _ = self.dispatch_fx_list_at_host_position(
             crate::game_logic::host_bridge_behavior::BRIDGE_DIE_FX_NAME,
             pos,
         );
@@ -2001,7 +2001,7 @@ impl GameLogic {
                 .span(span_id)
                 .map(|s| s.random_surface_position(self.frame.wrapping_add(i as u32 * 7 + 1)))
                 .unwrap_or(glam::Vec3::ZERO);
-            let _ = crate::game_logic::host_fx_list_dispatch::dispatch_fx_list_at_pos(fx, pos);
+            let _ = self.dispatch_fx_list_at_host_position(fx, pos);
         }
         for (i, ocl) in cue.ocl.iter().enumerate() {
             let pos = self

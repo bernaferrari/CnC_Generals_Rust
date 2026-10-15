@@ -3,6 +3,14 @@ use super::*;
 impl Object {
     /// C++ StructureCollapseUpdate::onDie / beginStructureCollapse residual.
     pub fn begin_structure_collapse(&mut self, current_frame: u32) -> bool {
+        self.begin_structure_collapse_with_fx(current_frame, &mut Self::standalone_object_fx)
+    }
+
+    pub(in crate::game_logic) fn begin_structure_collapse_with_fx(
+        &mut self,
+        current_frame: u32,
+        fx: &mut dyn FnMut(&str, &Object, bool),
+    ) -> bool {
         if !self.is_kind_of(crate::game_logic::KindOf::Structure) {
             return false;
         }
@@ -40,17 +48,25 @@ impl Object {
         // ActiveBody has already committed lethal HP/dead state before onDie.
         // The independently scheduled structure update must not revive that body.
         // C++ beginStructureCollapse: doPhaseStuff(SCPHASE_INITIAL) → FXList::doFXPos.
-        self.dispatch_pending_collapse_fx();
+        self.dispatch_pending_collapse_fx_with(fx);
         true
     }
 
     /// C++ StructureCollapseUpdate::update. Animation completion does not request deletion.
     pub fn tick_structure_collapse(&mut self, current_frame: u32) -> bool {
+        self.tick_structure_collapse_with_fx(current_frame, &mut Self::standalone_object_fx)
+    }
+
+    pub(in crate::game_logic) fn tick_structure_collapse_with_fx(
+        &mut self,
+        current_frame: u32,
+        fx: &mut dyn FnMut(&str, &Object, bool),
+    ) -> bool {
         let Some(sc) = self.structure_collapse_data.as_mut() else {
             return false;
         };
         let done = sc.tick(current_frame);
-        self.dispatch_pending_collapse_fx();
+        self.dispatch_pending_collapse_fx_with(fx);
         if !done {
             return false;
         }
@@ -61,22 +77,29 @@ impl Object {
 
     /// Drain INITIAL/BURST/DELAY/FINAL when a dual-peel owns sink motion.
     pub fn poll_structure_collapse_phase_fx(&mut self, current_frame: u32) {
+        self.poll_structure_collapse_phase_with_fx(current_frame, &mut Self::standalone_object_fx)
+    }
+
+    pub(in crate::game_logic) fn poll_structure_collapse_phase_with_fx(
+        &mut self,
+        current_frame: u32,
+        fx: &mut dyn FnMut(&str, &Object, bool),
+    ) {
         let Some(sc) = self.structure_collapse_data.as_mut() else {
             return;
         };
         sc.poll_phase_fx(current_frame);
-        self.dispatch_pending_collapse_fx();
+        self.dispatch_pending_collapse_fx_with(fx);
     }
 
     /// C++ `doPhaseStuff` → `FXList::doFXPos` at the building position.
-    fn dispatch_pending_collapse_fx(&mut self) {
-        let pos = self.get_position();
+    fn dispatch_pending_collapse_fx_with(&mut self, dispatch: &mut dyn FnMut(&str, &Object, bool)) {
         let Some(sc) = self.structure_collapse_data.as_mut() else {
             return;
         };
         for fx in sc.take_pending_phase_fx() {
             if !fx.is_empty() && !fx.eq_ignore_ascii_case("None") {
-                let _ = crate::game_logic::dispatch_fx_list_at_pos(&fx, pos);
+                dispatch(&fx, self, false);
             }
         }
     }
@@ -1053,7 +1076,7 @@ impl Object {
             td.burned_at_topple = burned;
             td.apply_toppling_force(dir_x, dir_y, topple_speed, options)
         };
-        self.dispatch_pending_topple_fx(pos);
+        self.dispatch_pending_topple_fx_with(&mut Self::standalone_object_fx);
         if kill_now {
             self.internal_change_health(-self.health.current);
             self.status.destroyed = true;
@@ -1062,7 +1085,7 @@ impl Object {
         kill_now
     }
 
-    fn dispatch_pending_topple_fx(&mut self, _pos: glam::Vec3) {
+    fn dispatch_pending_topple_fx_with(&mut self, dispatch: &mut dyn FnMut(&str, &Object, bool)) {
         let (topple, bounce) = {
             let Some(td) = self.topple_data.as_mut() else {
                 return;
@@ -1072,24 +1095,24 @@ impl Object {
         // C++ ToppleUpdate.cpp:189/324 FXList::doFXObj — tree transform,
         // object-shroud, Sound player index.
         for fx in [topple, bounce].into_iter().flatten() {
-            crate::game_logic::publish_host_fx_object(
-                self.id.0,
-                self.get_position(),
-                self.get_orientation(),
-                self.owner_player_id.map(|p| p as i32).unwrap_or(-1),
-            );
-            let _ = crate::game_logic::dispatch_fx_list_at_object(&fx, self.id.0, None);
+            dispatch(&fx, self, true);
         }
     }
 
     /// C++ ToppleUpdate::update residual. Returns true if death-by-topple this frame.
     pub fn tick_topple(&mut self) -> bool {
+        self.tick_topple_with_fx(&mut Self::standalone_object_fx)
+    }
+
+    pub(in crate::game_logic) fn tick_topple_with_fx(
+        &mut self,
+        fx: &mut dyn FnMut(&str, &Object, bool),
+    ) -> bool {
         let Some(td) = self.topple_data.as_mut() else {
             return false;
         };
         let died = td.tick();
-        let pos = self.get_position();
-        self.dispatch_pending_topple_fx(pos);
+        self.dispatch_pending_topple_fx_with(fx);
         if !died {
             return false;
         }

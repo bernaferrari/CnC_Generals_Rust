@@ -272,7 +272,7 @@ impl CnCGameEngine {
                 if should_apply_host_replay_camera(pose.player_index) {
                     // C++ GameLogicDispatch.cpp:1801-1823 setLocation always applies pitch.
                     let clamped = self.clamp_to_world_bounds(pose.pos);
-                    self.camera_target = clamped;
+                    self.game_logic.session_view.target = clamped;
                     self.camera_yaw_radians = pose.yaw;
                     self.camera_pitch_radians =
                         super::super::camera_height::clamp_pitch(pose.pitch);
@@ -389,8 +389,9 @@ impl CnCGameEngine {
         if movement.length() > 0.0 {
             // C++ W3DView::scrollBy cancels only rotate, not zoom/pitch/path.
             self.cancel_scripted_camera_from_player_scroll();
-            self.camera_target += movement;
-            self.camera_target = self.clamp_to_world_bounds(self.camera_target);
+            self.game_logic.session_view.target += movement;
+            self.game_logic.session_view.target =
+                self.clamp_to_world_bounds(self.game_logic.session_view.target);
             camera_changed = true;
         }
 
@@ -426,7 +427,7 @@ impl CnCGameEngine {
             };
             crate::command_system::tap_replay_camera_for_recorder(
                 crate::command_system::ReplayCameraPose {
-                    pos: self.camera_target,
+                    pos: self.game_logic.session_view.target,
                     yaw: self.camera_yaw_radians,
                     pitch: self.camera_pitch_radians,
                     zoom: self.camera_zoom,
@@ -504,7 +505,9 @@ impl CnCGameEngine {
         scroll_amount: f32,
         did_scripted_movement: bool,
     ) -> bool {
-        let Some(terrain) = self.native_camera_terrain_height_around(self.camera_target) else {
+        let Some(terrain) =
+            self.native_camera_terrain_height_around(self.game_logic.session_view.target)
+        else {
             return false;
         };
         let (rules, use_camera_in_replay) = {
@@ -993,22 +996,30 @@ impl CnCGameEngine {
         };
         if let Some(eye_pos) = eye {
             self.camera_position = eye_pos;
-            self.camera_target = look.unwrap_or(origin);
-            self.view_matrix = Mat4::look_at_rh(self.camera_position, self.camera_target, Vec3::Y);
+            self.game_logic.session_view.target = look.unwrap_or(origin);
+            self.view_matrix = Mat4::look_at_rh(
+                self.camera_position,
+                self.game_logic.session_view.target,
+                Vec3::Y,
+            );
             true
         } else if !mode.bone_name.is_empty() {
             // Bone missing: still parent the camera at the unit, not an orbit look-at.
             self.camera_position = origin + Vec3::Y * 2.0;
-            self.camera_target = origin;
-            self.view_matrix = Mat4::look_at_rh(self.camera_position, self.camera_target, Vec3::Y);
+            self.game_logic.session_view.target = origin;
+            self.view_matrix = Mat4::look_at_rh(
+                self.camera_position,
+                self.game_logic.session_view.target,
+                Vec3::Y,
+            );
             true
         } else {
             let clamped = self.clamp_to_world_bounds(origin);
-            if (self.camera_target.x - clamped.x).abs() > 0.001
-                || (self.camera_target.z - clamped.z).abs() > 0.001
+            if (self.game_logic.session_view.target.x - clamped.x).abs() > 0.001
+                || (self.game_logic.session_view.target.z - clamped.z).abs() > 0.001
             {
-                self.camera_target.x = clamped.x;
-                self.camera_target.z = clamped.z;
+                self.game_logic.session_view.target.x = clamped.x;
+                self.game_logic.session_view.target.z = clamped.z;
                 true
             } else {
                 false
@@ -1213,7 +1224,9 @@ impl CnCGameEngine {
         self.camera_zoom_target = None;
         // C++ W3DView::setAngleAndPitchToDefault / resetCamera: m_FXPitch = 1.0.
         self.camera_fx_pitch = 1.0;
-        if let Some(terrain) = self.native_camera_terrain_height_around(self.camera_target) {
+        if let Some(terrain) =
+            self.native_camera_terrain_height_around(self.game_logic.session_view.target)
+        {
             let data = game_engine::common::global_data::read();
             let (_, max_height) = live_view_height_clamp(
                 data.min_camera_height,
@@ -1249,7 +1262,7 @@ impl CnCGameEngine {
         }
         if save {
             let loc = CameraViewLocation {
-                pos: self.camera_target,
+                pos: self.game_logic.session_view.target,
                 yaw: self.camera_yaw_radians,
                 pitch: self.camera_pitch_radians,
                 zoom: self.camera_zoom,
@@ -1260,7 +1273,7 @@ impl CnCGameEngine {
             self.game_hud_mut().push_info_message(&msg);
         } else if let Some(loc) = self.look_at_modes.views[slot] {
             let clamped = self.clamp_to_world_bounds(loc.pos);
-            self.camera_target = clamped;
+            self.game_logic.session_view.target = clamped;
             self.camera_yaw_radians = loc.yaw;
             self.camera_pitch_radians = super::super::camera_height::clamp_pitch(loc.pitch);
             self.camera_zoom = clamp_w3d_zoom(loc.zoom);

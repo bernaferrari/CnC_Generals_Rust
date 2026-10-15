@@ -248,88 +248,197 @@ fn host_object_fx_radius(obj: &crate::game_logic::Object) -> f32 {
 impl crate::game_logic::GameLogic {
     /// CPP doFXPos samples a positional cell, separately from an object's
     /// attached-FX status. Both viewer and shroud belong to this match.
-    pub(crate) fn dispatch_fx_list_at_host_position(&self, name: &str, position: Vec3) -> bool {
+    pub(crate) fn dispatch_fx_list_at_host_position(&mut self, name: &str, position: Vec3) -> bool {
+        self.dispatch_fx_list_at_host_position_oriented(name, position, None, 0.0, 0.0, None)
+    }
+
+    pub(crate) fn dispatch_fx_list_at_host_position_oriented(
+        &mut self,
+        name: &str,
+        position: Vec3,
+        secondary: Option<Vec3>,
+        speed: f32,
+        radius: f32,
+        matrix: Option<glam::Mat4>,
+    ) -> bool {
         let name = strip_fx_list_prefix(name);
         if is_none_fx_list(name) {
             return false;
         }
         #[cfg(feature = "game_client")]
         {
-            let Some(player) = self.local_player_id() else {
-                return false;
-            };
-            let position = host_to_leftover_coord(position);
-            let cell_is_clear = {
-                let Ok(shroud) = self.world_services.shroud().lock() else {
-                    return false;
-                };
-                matches!(
-                    shroud.get_shroud_state(player, &position),
-                    gamelogic::system::shroud_manager::ShroudState::Visible
+            self.with_host_fx_view(|view| {
+                Self::dispatch_fx_list_at_position_with_view(
+                    name, position, secondary, speed, radius, matrix, view,
                 )
-            };
-            let fx = game_client::fx_list::get_fx_list_store().find_fx_list(name);
-            let Some(fx) = fx else {
-                return false;
-            };
-            fx.do_fx_pos_with_cell_visibility(Some(&position), None, 0.0, None, 0.0, cell_is_clear);
-            true
+            })
         }
         #[cfg(not(feature = "game_client"))]
         {
-            dispatch_fx_list_at_pos(name, position)
+            dispatch_fx_list_at_pos_oriented(name, position, secondary, speed, radius, matrix)
         }
     }
 
-    fn host_object_fx_is_shrouded(&self, id: crate::game_logic::ObjectId) -> bool {
+    /// Borrow only the camera scalar owner across immediate nuggets. Object
+    /// observations are already owned before entering here, and no catalog,
+    /// shroud or global-rules guard survives a callback.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn with_host_fx_view<R>(
+        &mut self,
+        run: impl FnOnce(&mut game_client::fx_list::FxViewServices<'_>) -> R,
+    ) -> R {
+        let player = self.local_player_id();
+        Self::with_host_fx_view_parts(
+            &mut self.session_view,
+            player,
+            self.world_services.shroud(),
+            run,
+        )
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(crate) fn dispatch_fx_list_at_position_with_view(
+        name: &str,
+        position: Vec3,
+        secondary: Option<Vec3>,
+        speed: f32,
+        radius: f32,
+        matrix: Option<glam::Mat4>,
+        view: &mut game_client::fx_list::FxViewServices<'_>,
+    ) -> bool {
+        let name = strip_fx_list_prefix(name);
+        if is_none_fx_list(name) {
+            return false;
+        }
+        let Some(fx) = (view.find_list)(name) else {
+            return false;
+        };
+        let position = host_to_leftover_coord(position);
+        let secondary = secondary.map(host_to_leftover_coord);
+        let matrix = matrix.map(host_to_leftover_mat4);
+        fx.do_fx_pos_with_view(
+            Some(&position),
+            matrix.as_ref(),
+            speed,
+            secondary.as_ref(),
+            radius,
+            view,
+        );
+        true
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(crate) fn dispatch_fx_list_at_object_with_view(
+        name: &str,
+        primary: &gamelogic::helpers::HostFxObjectPose,
+        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+        view: &mut game_client::fx_list::FxViewServices<'_>,
+    ) -> bool {
+        let name = strip_fx_list_prefix(name);
+        if is_none_fx_list(name) {
+            return false;
+        }
+        let Some(fx) = (view.find_list)(name) else {
+            return false;
+        };
+        fx.do_fx_obj_host_with_view(primary, secondary, view);
+        true
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(crate) fn with_host_fx_view_parts<R>(
+        session_view: &mut crate::presentation_frame::SessionView,
+        player: Option<u32>,
+        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        run: impl FnOnce(&mut game_client::fx_list::FxViewServices<'_>) -> R,
+    ) -> R {
+        let target = session_view.target;
+        let rules = game_engine::common::global_data::read().clone();
+        let impulse = &mut session_view.impulse;
+        let mut shake =
+            |position: &gamelogic::common::Coord3D,
+             kind: game_client::display::view::CameraShakeType| {
+                impulse.enqueue(
+                    Vec3::new(position.x, position.z, position.y),
+                    target,
+                    kind.into(),
+                    &rules,
+                    &mut game_engine::common::random_value::get_game_client_random_value_real,
+                );
+            };
+        let mut find_list =
+            |name: &str| game_client::fx_list::get_fx_list_store().find_fx_list(name);
+        // This existing native Drawable adapter is an independent lifecycle
+        // residual. Camera/shroud never select its ambient tactical View.
+        let mut bone_transforms = |id, name: &str, start, limit| {
+            game_client::core::game_client::query_live_current_client_bone_positions(
+                id, name, start, limit,
+            )
+            .into_iter()
+            .map(|(_, matrix)| matrix)
+            .collect()
+        };
+        let mut position_visible = |position: Option<&gamelogic::common::Coord3D>| {
+            let (Some(player), Some(position)) = (player, position) else {
+                return false;
+            };
+            let Ok(shroud) = shroud.lock() else {
+                return false;
+            };
+            matches!(
+                shroud.get_shroud_state(player, position),
+                gamelogic::system::shroud_manager::ShroudState::Visible
+            )
+        };
+        run(&mut game_client::fx_list::FxViewServices {
+            shake: &mut shake,
+            find_list: &mut find_list,
+            bone_transforms: &mut bone_transforms,
+            position_visible: &mut position_visible,
+        })
+    }
+
+    /// Capture the receiving object's event-time pose before any FX callback.
+    pub(crate) fn observe_host_fx_object(
+        object: &crate::game_logic::Object,
+        player: Option<u32>,
+        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+    ) -> gamelogic::helpers::HostFxObjectPose {
         use gamelogic::common::types::ObjectShroudStatus;
-        let Some(player) = self.local_player_id() else {
-            return true;
+        let is_shrouded = match (player, shroud.lock()) {
+            (Some(player), Ok(shroud)) => shroud
+                .get_host_object_shroud_status(player, object.id.0)
+                .is_some_and(|status| (status as u8) >= ObjectShroudStatus::Fogged as u8),
+            _ => true,
         };
-        let Ok(shroud) = self.world_services.shroud().lock() else {
-            return true;
-        };
-        // Keep the host adapter's existing unknown-status policy. The status
-        // must be sampled from this owner at the synchronous FX observation,
-        // not from the most recently activated world or presentation frame.
-        shroud
-            .get_host_object_shroud_status(player, id.0)
-            .is_some_and(|status| (status as u8) >= (ObjectShroudStatus::Fogged as u8))
+        let mut pose = host_fx_object_pose(
+            object.id.0,
+            object.get_position(),
+            object.get_orientation(),
+            object.owner_player_id.map(|p| p as i32).unwrap_or(-1),
+            host_object_fx_radius(object),
+            is_shrouded,
+        );
+        pose.transform = host_to_leftover_mat4(object.get_transform_matrix());
+        pose
     }
 
     /// C++ `FXList::doFXObj` using the live host object, not leftover registry.
     pub fn dispatch_fx_list_at_host_object(
-        &self,
+        &mut self,
         name: &str,
         primary_id: crate::game_logic::ObjectId,
         secondary_id: Option<crate::game_logic::ObjectId>,
     ) -> bool {
-        let primary = self.host_object(primary_id).map(|obj| {
-            let mut pose = host_fx_object_pose(
-                obj.id.0,
-                obj.get_position(),
-                obj.get_orientation(),
-                obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
-                host_object_fx_radius(obj),
-                self.host_object_fx_is_shrouded(primary_id),
-            );
-            pose.transform = host_to_leftover_mat4(obj.get_transform_matrix());
-            pose
+        let player = self.local_player_id();
+        let primary = self.host_object(primary_id).map(|object| {
+            Self::observe_host_fx_object(object, player, self.world_services.shroud())
         });
-        let secondary = secondary_id.and_then(|sid| {
-            self.host_object(sid).map(|obj| {
-                let mut pose = host_fx_object_pose(
-                    obj.id.0,
-                    obj.get_position(),
-                    obj.get_orientation(),
-                    obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
-                    host_object_fx_radius(obj),
-                    self.host_object_fx_is_shrouded(sid),
-                );
-                pose.transform = host_to_leftover_mat4(obj.get_transform_matrix());
-                pose
-            })
-        });
+        let secondary = secondary_id
+            .and_then(|id| self.host_object(id))
+            .map(|object| {
+                Self::observe_host_fx_object(object, player, self.world_services.shroud())
+            });
         // Attached systems still use the published scene poses between logic
         // callbacks. Immediate FX receives these owned values directly.
         if let Some(primary) = primary {
@@ -351,7 +460,9 @@ impl crate::game_logic::GameLogic {
             let Some(fx) = fx else {
                 return false;
             };
-            fx.do_fx_obj_host(&primary, secondary.as_ref());
+            self.with_host_fx_view(|view| {
+                fx.do_fx_obj_host_with_view(&primary, secondary.as_ref(), view)
+            });
             return true;
         }
         #[cfg(not(feature = "game_client"))]
