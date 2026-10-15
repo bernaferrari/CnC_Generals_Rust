@@ -1249,6 +1249,7 @@ pub struct CnCGameEngine {
     pub(crate) save_file_manager: SaveFileManager,
 
     // Camera system
+    pub(in crate::cnc_game_engine) look_at_modes: super::mouse::LookAtHostModes,
     pub(crate) camera_position: Vec3,
     pub(crate) camera_target: Vec3,
     /// C++ `W3DView::m_cameraConstraint` union of scripted pans

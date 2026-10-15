@@ -535,6 +535,7 @@ impl CnCGameEngine {
             save_file_manager,
             camera_position,
             camera_target,
+            look_at_modes: super::mouse::LookAtHostModes::default(),
             scripted_camera_constraint_widen: None,
             camera_zoom,
             camera_zoom_target: None,

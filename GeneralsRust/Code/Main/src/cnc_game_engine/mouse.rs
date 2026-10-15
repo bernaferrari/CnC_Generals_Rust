@@ -98,7 +98,10 @@ impl ScriptedCameraPlayerCancel {
     }
 }
 
-struct LookAtHostModes {
+/// Input translator and view requests owned by one driving engine. Building a
+/// second engine never publishes or resets this state.
+#[derive(Default)]
+pub(super) struct LookAtHostModes {
     prev_cursor: Option<&'static str>,
     mouse_locked: bool,
     mmb_original_anchor: Option<(f32, f32)>,
@@ -176,74 +179,59 @@ pub fn live_home_pitch_radians(orbit_pitch_degrees: f32, script_default_pitch: f
     orbit_deg.to_radians() + extra
 }
 
-fn note_scripted_camera_player_cancel(next: ScriptedCameraPlayerCancel) {
-    let mut modes = look_at_host_modes();
-    modes.scripted_camera_player_cancel = modes.scripted_camera_player_cancel.raise(next);
-}
+impl LookAtHostModes {
+    fn note_scripted_camera_player_cancel(&mut self, next: ScriptedCameraPlayerCancel) {
+        self.scripted_camera_player_cancel = self.scripted_camera_player_cancel.raise(next);
+    }
 
-pub(super) fn take_scripted_camera_player_cancel() -> ScriptedCameraPlayerCancel {
-    let mut modes = look_at_host_modes();
-    std::mem::take(&mut modes.scripted_camera_player_cancel)
-}
+    pub(super) fn take_scripted_camera_player_cancel(&mut self) -> ScriptedCameraPlayerCancel {
+        std::mem::take(&mut self.scripted_camera_player_cancel)
+    }
 
-fn look_at_host_modes() -> std::sync::MutexGuard<'static, LookAtHostModes> {
-    static STATE: std::sync::LazyLock<std::sync::Mutex<LookAtHostModes>> =
-        std::sync::LazyLock::new(|| {
-            std::sync::Mutex::new(LookAtHostModes {
-                prev_cursor: None,
-                mouse_locked: false,
-                mmb_original_anchor: None,
-                mmb_press_frame: 0,
-                views: [None; 8],
-                scroll_type: LookAtScrollType::None,
-                last_mouse_move_frame: 0,
-                last_mouse_pixel: (0.0, 0.0),
-                desired_height_above_ground: None,
-                camera_follow_lock_broken: false,
-                scripted_camera_player_cancel: ScriptedCameraPlayerCancel::None,
-                wheel_stopped_scroll: false,
-                letterbox_os_cursor_hidden: false,
-            })
-        });
-    STATE.lock().unwrap_or_else(|e| e.into_inner())
-}
+    pub(super) fn look_at_host_mouse_locked(&self) -> bool {
+        self.mouse_locked
+    }
 
-pub(crate) fn look_at_host_mouse_locked() -> bool {
-    look_at_host_modes().mouse_locked
-}
+    pub(super) fn look_at_host_is_scrolling(&self) -> bool {
+        self.scroll_type.is_scrolling()
+    }
 
-pub(crate) fn look_at_host_is_scrolling() -> bool {
-    look_at_host_modes().scroll_type.is_scrolling()
+    fn lookat_note_mouse_moved(&mut self, frame: u32, pixel: (f32, f32)) {
+        if self.last_mouse_pixel != pixel {
+            self.last_mouse_move_frame = frame;
+            self.last_mouse_pixel = pixel;
+            // C++ RAW_MOUSE_POSITION can restart SCREENEDGE after a wheel abort.
+            self.wheel_stopped_scroll = false;
+        }
+    }
+
+    /// C++ LookAtXlat.cpp:199,214,226,239,335 — stamp even without pixel movement.
+    fn lookat_stamp_mouse_activity(&mut self, frame: u32) {
+        self.last_mouse_move_frame = frame;
+    }
+
+    /// C++ RAW_KEY can restart KEY scroll after a wheel stopScrolling.
+    pub(super) fn lookat_note_raw_key_activity(&mut self) {
+        self.wheel_stopped_scroll = false;
+    }
+
+    fn lookat_has_mouse_moved_recently(&self, frame: u32) -> bool {
+        let last = self.last_mouse_move_frame;
+        let last = if last > frame { 0 } else { last };
+        last + game_engine::common::game_common::LOGICFRAMES_PER_SECOND as u32 >= frame
+    }
+
+    /// Preserve resetModes' narrow lifetime: bookmarks, height goal, activity
+    /// and pending player cancellation survive; only translator modes stop.
+    fn reset_modes(&mut self) {
+        self.mmb_original_anchor = None;
+        self.mmb_press_frame = 0;
+        self.scroll_type = LookAtScrollType::None;
+    }
 }
 
 fn clamp_w3d_zoom(zoom: f32) -> f32 {
     zoom.clamp(W3D_MIN_ZOOM, W3D_MAX_ZOOM)
-}
-
-fn lookat_note_mouse_moved(frame: u32, pixel: (f32, f32)) {
-    let mut modes = look_at_host_modes();
-    if modes.last_mouse_pixel != pixel {
-        modes.last_mouse_move_frame = frame;
-        modes.last_mouse_pixel = pixel;
-        // C++ RAW_MOUSE_POSITION can restart SCREENEDGE after a wheel abort.
-        modes.wheel_stopped_scroll = false;
-    }
-}
-
-/// C++ LookAtXlat.cpp:199,214,226,239,335 — stamp even if the cursor did not move.
-fn lookat_stamp_mouse_activity(frame: u32) {
-    look_at_host_modes().last_mouse_move_frame = frame;
-}
-
-/// C++ RAW_KEY can restart KEY scroll after a wheel `stopScrolling`.
-pub(super) fn lookat_note_raw_key_activity() {
-    look_at_host_modes().wheel_stopped_scroll = false;
-}
-
-fn lookat_has_mouse_moved_recently(frame: u32) -> bool {
-    let last = look_at_host_modes().last_mouse_move_frame;
-    let last = if last > frame { 0 } else { last };
-    last + game_engine::common::game_common::LOGICFRAMES_PER_SECOND as u32 >= frame
 }
 
 /// C++ `W3DView::scrollBy` (W3DView.cpp:1779-1823): unproject the view's
@@ -386,6 +374,7 @@ fn lookat_keyboard_scroll_blocked(is_selecting: bool, non_key_scrolling: bool) -
 /// C++ `LookAtXlat.cpp` exclusive `m_scrollType` start/stop.
 /// Key messages are processed before mouse-move, so idle+keys+edge starts Key.
 fn lookat_resolve_scroll_type(
+    wheel_stopped_scroll: bool,
     current: LookAtScrollType,
     input_enabled: bool,
     is_selecting: bool,
@@ -400,7 +389,7 @@ fn lookat_resolve_scroll_type(
     if is_rmb_scrolling {
         return LookAtScrollType::Rmb;
     }
-    if look_at_host_modes().wheel_stopped_scroll {
+    if wheel_stopped_scroll {
         return LookAtScrollType::None;
     }
     let current = if current == LookAtScrollType::Rmb {
@@ -1008,3 +997,7 @@ const MOUSE_SOURCE: &str = concat!(
     include_str!("mouse/ui_dispatch.rs"),
     include_str!("mouse/world_pick.rs"),
 );
+
+#[cfg(test)]
+#[path = "mouse/look_at_modes_tests.rs"]
+mod look_at_modes_tests;

@@ -221,7 +221,7 @@ impl CnCGameEngine {
                 match state {
                     ElementState::Pressed => {
                         self.keys_pressed.insert(key.clone());
-                        super::mouse::lookat_note_raw_key_activity();
+                        self.look_at_modes.lookat_note_raw_key_activity();
                         let mut construction_consumed = false;
                         if route_keyboard_to_legacy_ui {
                             if let Some(ui_key) = Self::to_ui_key_code(key) {
@@ -463,9 +463,9 @@ impl CnCGameEngine {
         // C++ WindowXlat.cpp:147-172 (Kris Aug-15-2003): while mouse-locked,
         // KEEP the stream message except LMB down/up when InGameUI is scrolling
         // so ControlBar still receives clicks during keyboard/RMB scroll.
-        let lookat_locked = super::mouse::look_at_host_mouse_locked();
+        let lookat_locked = self.look_at_modes.look_at_host_mouse_locked();
         let scrolling_lmb =
-            super::mouse::look_at_host_is_scrolling() && matches!(button, MouseButton::Left);
+            self.look_at_modes.look_at_host_is_scrolling() && matches!(button, MouseButton::Left);
         let wnd_used_raw = if lookat_locked && !scrolling_lmb {
             false
         } else {

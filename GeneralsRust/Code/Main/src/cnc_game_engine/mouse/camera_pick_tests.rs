@@ -365,32 +365,64 @@ fn lookat_arrow_keys_blocked_during_box_select_and_rmb_scroll() {
 fn lookat_scroll_types_are_exclusive() {
     // C++ m_scrollType: frame tick applies only one of RMB / KEY / SCREENEDGE.
     assert_eq!(
-        lookat_resolve_scroll_type(LookAtScrollType::Rmb, true, false, true, true, true),
+        lookat_resolve_scroll_type(false, LookAtScrollType::Rmb, true, false, true, true, true),
         LookAtScrollType::Rmb
     );
     assert_eq!(
-        lookat_resolve_scroll_type(LookAtScrollType::ScreenEdge, true, false, false, true, true),
+        lookat_resolve_scroll_type(
+            false,
+            LookAtScrollType::ScreenEdge,
+            true,
+            false,
+            false,
+            true,
+            true
+        ),
         LookAtScrollType::ScreenEdge
     );
     assert_eq!(
-        lookat_resolve_scroll_type(LookAtScrollType::Key, true, false, false, true, true),
+        lookat_resolve_scroll_type(false, LookAtScrollType::Key, true, false, false, true, true),
         LookAtScrollType::Key
     );
     assert_eq!(
-        lookat_resolve_scroll_type(LookAtScrollType::None, true, false, false, false, true),
+        lookat_resolve_scroll_type(
+            false,
+            LookAtScrollType::None,
+            true,
+            false,
+            false,
+            false,
+            true
+        ),
         LookAtScrollType::ScreenEdge
     );
     assert_eq!(
-        lookat_resolve_scroll_type(LookAtScrollType::None, true, false, false, true, true),
+        lookat_resolve_scroll_type(
+            false,
+            LookAtScrollType::None,
+            true,
+            false,
+            false,
+            true,
+            true
+        ),
         LookAtScrollType::Key
     );
     // Edge may start while box-selecting; keys may not.
     assert_eq!(
-        lookat_resolve_scroll_type(LookAtScrollType::None, true, true, false, true, true),
+        lookat_resolve_scroll_type(false, LookAtScrollType::None, true, true, false, true, true),
         LookAtScrollType::ScreenEdge
     );
     assert_eq!(
-        lookat_resolve_scroll_type(LookAtScrollType::Key, false, false, false, true, true),
+        lookat_resolve_scroll_type(
+            false,
+            LookAtScrollType::Key,
+            false,
+            false,
+            false,
+            true,
+            true
+        ),
         LookAtScrollType::None
     );
 }
@@ -765,17 +797,26 @@ fn letterbox_lifts_min_max_camera_height_clamp() {
 
 #[test]
 fn lookat_mouse_moved_recently_is_one_logic_second() {
-    look_at_host_modes().last_mouse_move_frame = 10;
-    assert!(lookat_has_mouse_moved_recently(10));
-    assert!(lookat_has_mouse_moved_recently(40));
-    assert!(!lookat_has_mouse_moved_recently(41));
+    let mut modes = LookAtHostModes::default();
+    modes.last_mouse_move_frame = 10;
+    assert!(modes.lookat_has_mouse_moved_recently(10));
+    assert!(modes.lookat_has_mouse_moved_recently(40));
+    assert!(!modes.lookat_has_mouse_moved_recently(41));
 }
 
 #[test]
 fn disable_input_blocks_key_and_edge_scroll() {
     // C++ LookAtXlat setScrolling / RAW_MOUSE_POSITION gate on input enabled.
     assert_eq!(
-        lookat_resolve_scroll_type(LookAtScrollType::None, false, false, false, true, true),
+        lookat_resolve_scroll_type(
+            false,
+            LookAtScrollType::None,
+            false,
+            false,
+            false,
+            true,
+            true
+        ),
         LookAtScrollType::None
     );
 }
@@ -784,27 +825,45 @@ fn disable_input_blocks_key_and_edge_scroll() {
 fn wheel_stop_blocks_key_and_edge_until_next_input() {
     // C++ MSG_RAW_MOUSE_WHEEL fallthrough stopScrolling; KEY/EDGE stay down
     // until the next RAW_KEY / RAW_MOUSE_POSITION.
-    look_at_host_modes().wheel_stopped_scroll = true;
+    let mut modes = LookAtHostModes::default();
+    modes.wheel_stopped_scroll = true;
     assert_eq!(
-        lookat_resolve_scroll_type(LookAtScrollType::None, true, false, false, true, true),
+        lookat_resolve_scroll_type(
+            modes.wheel_stopped_scroll,
+            LookAtScrollType::None,
+            true,
+            false,
+            false,
+            true,
+            true
+        ),
         LookAtScrollType::None
     );
-    lookat_note_raw_key_activity();
+    modes.lookat_note_raw_key_activity();
     assert_eq!(
-        lookat_resolve_scroll_type(LookAtScrollType::None, true, false, false, true, false),
+        lookat_resolve_scroll_type(
+            modes.wheel_stopped_scroll,
+            LookAtScrollType::None,
+            true,
+            false,
+            false,
+            true,
+            false
+        ),
         LookAtScrollType::Key
     );
 }
 
 #[test]
 fn click_and_wheel_stamp_activity_without_pixel_change() {
-    look_at_host_modes().last_mouse_move_frame = 0;
-    look_at_host_modes().last_mouse_pixel = (10.0, 10.0);
-    lookat_note_mouse_moved(50, (10.0, 10.0));
-    assert_eq!(look_at_host_modes().last_mouse_move_frame, 0);
-    lookat_stamp_mouse_activity(50);
-    assert_eq!(look_at_host_modes().last_mouse_move_frame, 50);
-    assert!(lookat_has_mouse_moved_recently(50));
+    let mut modes = LookAtHostModes::default();
+    modes.last_mouse_move_frame = 0;
+    modes.last_mouse_pixel = (10.0, 10.0);
+    modes.lookat_note_mouse_moved(50, (10.0, 10.0));
+    assert_eq!(modes.last_mouse_move_frame, 0);
+    modes.lookat_stamp_mouse_activity(50);
+    assert_eq!(modes.last_mouse_move_frame, 50);
+    assert!(modes.lookat_has_mouse_moved_recently(50));
 }
 
 #[test]
@@ -987,7 +1046,7 @@ fn key_and_screenedge_scroll_mouse_lock_like_cpp() {
         "doDisableInput reset must not leave KEY/SCREENEDGE mouse-locked"
     );
     assert!(
-        src.contains("if look_at_host_mouse_locked()")
+        src.contains("if self.look_at_modes.look_at_host_mouse_locked()")
             && src.contains("do not overwrite the locked cursor mid KEY/RMB/EDGE pan"),
         "context cursor must stay put during KEY/SCREENEDGE lock"
     );

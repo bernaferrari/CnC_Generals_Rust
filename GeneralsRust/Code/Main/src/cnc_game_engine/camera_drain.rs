@@ -190,7 +190,7 @@ impl CnCGameEngine {
         &mut self,
         pres: &crate::presentation_frame::PresentationFrame,
     ) {
-        let player_cancel = super::mouse::take_scripted_camera_player_cancel();
+        let player_cancel = self.look_at_modes.take_scripted_camera_player_cancel();
         if let Some(focus) = pres.camera_focus {
             if !player_cancel.cancels_move() {
                 self.center_camera_on(Vec3::new(focus[0], focus[1], focus[2]));

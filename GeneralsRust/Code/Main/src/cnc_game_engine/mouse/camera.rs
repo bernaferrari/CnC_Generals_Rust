@@ -59,7 +59,8 @@ impl CnCGameEngine {
         }
 
         // C++ LookAtXlat.cpp:335 stamps m_lastMouseMoveFrame on every wheel.
-        lookat_stamp_mouse_activity(self.frame_counter);
+        self.look_at_modes
+            .lookat_stamp_mouse_activity(self.frame_counter);
 
         #[cfg(feature = "game_client")]
         self.inject_game_client_mouse_scroll(delta_y);
@@ -93,7 +94,7 @@ impl CnCGameEngine {
         }
         // C++ stopScrolling unlocks KEY/SCREENEDGE immediately, not next tick.
         self.set_lookat_scroll_mouse_lock(false);
-        let mut modes = look_at_host_modes();
+        let modes = &mut self.look_at_modes;
         modes.scroll_type = LookAtScrollType::None;
         modes.wheel_stopped_scroll = true;
     }
@@ -135,7 +136,7 @@ impl CnCGameEngine {
                 self.stop_rmb_lookat_scroll();
             }
             self.set_lookat_scroll_mouse_lock(false);
-            look_at_host_modes().scroll_type = LookAtScrollType::None;
+            self.look_at_modes.scroll_type = LookAtScrollType::None;
         }
         // C++ LookAt keyboard scroll uses arrows (not WASD). Tokens must stay
         // near the top of update_camera for ENGINE_SRC residual scans.
@@ -150,7 +151,8 @@ impl CnCGameEngine {
             )
         };
         const SCROLL_AMT: f32 = 100.0;
-        lookat_note_mouse_moved(self.frame_counter, self.mouse_position);
+        self.look_at_modes
+            .lookat_note_mouse_moved(self.frame_counter, self.mouse_position);
         let scroll_dt = dt.max(0.0).min(2.0 / logic_frames_per_second);
         let scroll_step = SCROLL_AMT * keyboard_scroll_factor * scroll_dt * logic_frames_per_second;
         let input_enabled = self.lookat_input_enabled();
@@ -191,8 +193,9 @@ impl CnCGameEngine {
             }
         }
         let at_screen_edge = edge_dx != 0.0 || edge_dy != 0.0;
-        let prev_scroll = look_at_host_modes().scroll_type;
+        let prev_scroll = self.look_at_modes.scroll_type;
         let scroll_type = lookat_resolve_scroll_type(
+            self.look_at_modes.wheel_stopped_scroll,
             prev_scroll,
             input_enabled,
             self.host_is_selecting(),
@@ -200,7 +203,7 @@ impl CnCGameEngine {
             key_dirs,
             at_screen_edge,
         );
-        look_at_host_modes().scroll_type = scroll_type;
+        self.look_at_modes.scroll_type = scroll_type;
         if scroll_type.is_scrolling() && !prev_scroll.is_scrolling() {
             self.break_camera_follow_lock();
         }
@@ -276,8 +279,11 @@ impl CnCGameEngine {
                     self.camera_yaw_target = None;
                     self.camera_pitch_target = None;
                     self.camera_zoom_target = None;
-                    look_at_host_modes().desired_height_above_ground = None;
-                    if !lookat_has_mouse_moved_recently(self.frame_counter) {
+                    self.look_at_modes.desired_height_above_ground = None;
+                    if !self
+                        .look_at_modes
+                        .lookat_has_mouse_moved_recently(self.frame_counter)
+                    {
                         self.mouse_position = (pose.pixel.0 as f32, pose.pixel.1 as f32);
                         self.mouse_cursor_seen = true;
                         #[cfg(feature = "game_client")]
@@ -479,12 +485,13 @@ impl CnCGameEngine {
         if basis <= f32::EPSILON {
             return;
         }
-        let current_hag = look_at_host_modes()
+        let current_hag = self
+            .look_at_modes
             .desired_height_above_ground
             .unwrap_or(self.camera_zoom * basis);
         let zoom_limited = live_camera_zoom_limited();
         let new_hag = height_after_zoom_steps(current_hag, steps, min_h, max_h, zoom_limited);
-        look_at_host_modes().desired_height_above_ground = Some(new_hag);
+        self.look_at_modes.desired_height_above_ground = Some(new_hag);
         // C++ setHeightAboveGround cancels scripted rotate/pitch/zoom/path/lock.
         self.cancel_scripted_camera_from_player_set();
         // C++ setHeightAboveGround invalidates m_cameraConstraint (recalc from map).
@@ -549,7 +556,8 @@ impl CnCGameEngine {
         }
 
         // C++ W3DView.cpp:1334-1343 eases m_zoom toward (terrain+HAG)/offset.z.
-        let mut desired_hag = look_at_host_modes()
+        let mut desired_hag = self
+            .look_at_modes
             .desired_height_above_ground
             .unwrap_or(height_above_ground);
         if min_height.is_finite() && desired_hag < min_height {
@@ -585,7 +593,7 @@ impl CnCGameEngine {
     pub(in crate::cnc_game_engine) fn sync_context_mouse_cursor(&mut self) {
         // C++ LookAtXlat.cpp:55-70 saves prevCursor for the scroll and restores
         // it on stop; do not overwrite the locked cursor mid KEY/RMB/EDGE pan.
-        if look_at_host_mouse_locked() {
+        if self.look_at_modes.look_at_host_mouse_locked() {
             return;
         }
         // C++ SelectionXlat.cpp:425-446 + HintSpy.cpp:26-35 — hover always
@@ -594,7 +602,9 @@ impl CnCGameEngine {
         // C++ InGameUI.cpp:2462 — replayed SELECTING/ARROW stays put until
         // the viewer moves the mouse (LookAtXlat hasMouseMovedRecently).
         if crate::command_system::host_recorder_is_playback()
-            && !lookat_has_mouse_moved_recently(self.frame_counter)
+            && !self
+                .look_at_modes
+                .lookat_has_mouse_moved_recently(self.frame_counter)
         {
             return;
         }
@@ -614,7 +624,8 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.game_client.feed_look_at_replay_hover_gate(
             crate::command_system::host_recorder_is_playback(),
-            lookat_has_mouse_moved_recently(self.frame_counter),
+            self.look_at_modes
+                .lookat_has_mouse_moved_recently(self.frame_counter),
         );
         // C++ SelectionXlat.cpp:429 hardcodes getPickTypesForContext(true).
         let hover = self.host_pick_hover_object_at_cursor();
@@ -930,11 +941,11 @@ impl CnCGameEngine {
     }
 
     pub(in crate::cnc_game_engine) fn look_at_player_broke_camera_lock(&self) -> bool {
-        look_at_host_modes().camera_follow_lock_broken
+        self.look_at_modes.camera_follow_lock_broken
     }
 
-    pub(in crate::cnc_game_engine) fn look_at_clear_player_broke_camera_lock(&self) {
-        look_at_host_modes().camera_follow_lock_broken = false;
+    pub(in crate::cnc_game_engine) fn look_at_clear_player_broke_camera_lock(&mut self) {
+        self.look_at_modes.camera_follow_lock_broken = false;
     }
 
     fn host_camera_movement_finished(&self) -> bool {
@@ -944,7 +955,8 @@ impl CnCGameEngine {
     }
 
     pub(in crate::cnc_game_engine) fn cancel_scripted_camera_from_player_set(&mut self) {
-        note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::Set);
+        self.look_at_modes
+            .note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::Set);
         self.camera_zoom_target = None;
         self.camera_pitch_target = None;
         self.camera_yaw_target = None;
@@ -961,7 +973,8 @@ impl CnCGameEngine {
     }
 
     pub(in crate::cnc_game_engine) fn cancel_scripted_camera_from_player_look_at(&mut self) {
-        note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::LookAt);
+        self.look_at_modes
+            .note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::LookAt);
         self.camera_yaw_target = None;
         self.camera_yaw_duration = 0.0;
         self.game_logic.cancel_scripted_camera_from_player_look_at();
@@ -985,7 +998,7 @@ impl CnCGameEngine {
     }
 
     fn break_camera_follow_lock(&mut self) {
-        look_at_host_modes().camera_follow_lock_broken = true;
+        self.look_at_modes.camera_follow_lock_broken = true;
         self.host_set_camera_follow_object(None);
         #[cfg(feature = "game_client")]
         {
@@ -1102,7 +1115,7 @@ impl CnCGameEngine {
     fn sync_letterbox_os_cursor_visibility(&mut self) {
         #[cfg(feature = "game_client")]
         {
-            if look_at_host_mouse_locked() {
+            if self.look_at_modes.look_at_host_mouse_locked() {
                 return;
             }
             let fade = self.game_client.letterbox_overlay_fade();
@@ -1115,10 +1128,10 @@ impl CnCGameEngine {
             let my = self.mouse_position.1;
             let over_bar = (plan.draw_top && my < plan.bar_height)
                 || (plan.draw_bottom && my >= height - plan.bar_height);
-            let hidden = look_at_host_modes().letterbox_os_cursor_hidden;
+            let hidden = self.look_at_modes.letterbox_os_cursor_hidden;
             if over_bar != hidden {
                 self.window.set_cursor_visible(!over_bar);
-                look_at_host_modes().letterbox_os_cursor_hidden = over_bar;
+                self.look_at_modes.letterbox_os_cursor_hidden = over_bar;
             }
         }
     }
@@ -1130,14 +1143,12 @@ impl CnCGameEngine {
     /// RMB, and MMB off HUD gadgets. Idempotent: RMB start/stop may already
     /// have applied the same flags.
     fn set_lookat_scroll_mouse_lock(&mut self, locked: bool) {
-        if look_at_host_modes().mouse_locked == locked {
+        if self.look_at_modes.mouse_locked == locked {
             return;
         }
         if locked {
-            let mut modes = look_at_host_modes();
-            modes.prev_cursor = self.last_context_cursor;
-            modes.mouse_locked = true;
-            drop(modes);
+            self.look_at_modes.prev_cursor = self.last_context_cursor;
+            self.look_at_modes.mouse_locked = true;
             #[cfg(feature = "game_client")]
             {
                 game_client::helpers::TheInGameUI::set_scrolling(true);
@@ -1150,7 +1161,7 @@ impl CnCGameEngine {
             self.window.set_cursor(winit::window::CursorIcon::AllScroll);
         } else {
             {
-                let mut modes = look_at_host_modes();
+                let modes = &mut self.look_at_modes;
                 modes.mouse_locked = false;
                 // C++ LookAtXlat.cpp:70 TheMouse->setCursor(prevCursor).
                 let _prev = modes.prev_cursor.take();
@@ -1169,22 +1180,21 @@ impl CnCGameEngine {
 
     /// C++ `LookAtXlat.cpp:50-62` `setScrolling(SCROLL_RMB)`.
     pub(in crate::cnc_game_engine) fn start_rmb_lookat_scroll(&mut self) {
-        lookat_stamp_mouse_activity(self.frame_counter);
+        self.look_at_modes
+            .lookat_stamp_mouse_activity(self.frame_counter);
         self.rmb_scroll_anchor = Some(self.mouse_position);
         // C++ :204-206: start only when `!isSelecting() && !m_isScrolling`.
         if self.host_is_selecting() || self.is_rmb_scrolling {
             return;
         }
-        if look_at_host_modes().scroll_type.is_scrolling() {
+        if self.look_at_modes.scroll_type.is_scrolling() {
             return;
         }
         if !self.lookat_input_enabled() {
             return;
         }
-        let mut modes = look_at_host_modes();
-        modes.wheel_stopped_scroll = false;
-        modes.scroll_type = LookAtScrollType::Rmb;
-        drop(modes);
+        self.look_at_modes.wheel_stopped_scroll = false;
+        self.look_at_modes.scroll_type = LookAtScrollType::Rmb;
         self.is_rmb_scrolling = true;
         self.break_camera_follow_lock();
         self.set_lookat_scroll_mouse_lock(true);
@@ -1192,9 +1202,10 @@ impl CnCGameEngine {
 
     /// C++ `LookAtXlat.cpp:65-76` `stopScrolling`.
     pub(in crate::cnc_game_engine) fn stop_rmb_lookat_scroll(&mut self) {
-        lookat_stamp_mouse_activity(self.frame_counter);
+        self.look_at_modes
+            .lookat_stamp_mouse_activity(self.frame_counter);
         {
-            let mut modes = look_at_host_modes();
+            let modes = &mut self.look_at_modes;
             if modes.scroll_type == LookAtScrollType::Rmb {
                 modes.scroll_type = LookAtScrollType::None;
             }
@@ -1219,27 +1230,26 @@ impl CnCGameEngine {
         self.camera_rotate_right_held = false;
         self.camera_zoom_in_held = false;
         self.camera_zoom_out_held = false;
-        let mut modes = look_at_host_modes();
-        modes.mmb_original_anchor = None;
-        modes.mmb_press_frame = 0;
-        modes.scroll_type = LookAtScrollType::None;
+        self.look_at_modes.reset_modes();
     }
 
     /// C++ `LookAtXlat.cpp:224-233` middle-button down.
     pub(in crate::cnc_game_engine) fn begin_mmb_lookat_rotate(&mut self) {
-        lookat_stamp_mouse_activity(self.frame_counter);
+        self.look_at_modes
+            .lookat_stamp_mouse_activity(self.frame_counter);
         self.is_mmb_rotating = true;
         self.mmb_anchor = Some(self.mouse_position);
-        let mut modes = look_at_host_modes();
+        let modes = &mut self.look_at_modes;
         modes.mmb_original_anchor = Some(self.mouse_position);
         modes.mmb_press_frame = self.frame_counter;
     }
 
     /// C++ `LookAtXlat.cpp:237-254` short MMB click resets angle/pitch/zoom.
     pub(in crate::cnc_game_engine) fn end_mmb_lookat_rotate(&mut self) {
-        lookat_stamp_mouse_activity(self.frame_counter);
+        self.look_at_modes
+            .lookat_stamp_mouse_activity(self.frame_counter);
         let (original, press_frame) = {
-            let mut modes = look_at_host_modes();
+            let modes = &mut self.look_at_modes;
             (modes.mmb_original_anchor.take(), modes.mmb_press_frame)
         };
         self.is_mmb_rotating = false;
@@ -1306,11 +1316,11 @@ impl CnCGameEngine {
                 pitch: self.camera_pitch_radians,
                 zoom: self.camera_zoom,
             };
-            look_at_host_modes().views[slot] = Some(loc);
+            self.look_at_modes.views[slot] = Some(loc);
             self.camera_view_bookmarks[slot] = Some(loc.pos);
             let msg = lookat_bookmark_message(slot + 1);
             self.game_hud_mut().push_info_message(&msg);
-        } else if let Some(loc) = look_at_host_modes().views[slot] {
+        } else if let Some(loc) = self.look_at_modes.views[slot] {
             let clamped = self.clamp_to_world_bounds(loc.pos);
             self.camera_target = clamped;
             self.camera_yaw_radians = loc.yaw;
@@ -1319,7 +1329,7 @@ impl CnCGameEngine {
             self.camera_yaw_target = None;
             self.camera_pitch_target = None;
             self.camera_zoom_target = None;
-            look_at_host_modes().desired_height_above_ground = None;
+            self.look_at_modes.desired_height_above_ground = None;
             self.apply_camera_orbit_transform();
             if matches!(self.current_state, GameState::InGame | GameState::Paused) {
                 self.update_mouse_world_position();
