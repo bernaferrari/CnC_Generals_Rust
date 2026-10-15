@@ -1,8 +1,6 @@
 //! Borrowed scalar camera movements at the original admitted View boundary.
 //! W3DView.cpp:2407-2537, 2951-3071. No second camera or runtime clock lives here.
 
-const FRAME_SECONDS: f32 = 0.033;
-
 #[derive(Debug, Clone, Copy)]
 pub(super) struct MotionAdmission {
     pub update_views: bool,
@@ -24,13 +22,13 @@ pub(super) enum AxisKind {
     Yaw,
 }
 
-/// These references point to the existing engine fields. Elapsed seconds encode
-/// whole source frames; requests initialize them to zero. Camera timers are not
-/// part of the current native/persist-v18 save payload.
+/// These references point to the existing engine fields. The canonical counter
+/// is an integer, matching source curFrame; requests initialize it to zero.
+/// Camera movement timers are absent from native/persist-v18 save payloads.
 pub(super) struct AxisMotion<'a> {
     pub value: &'a mut f32,
     pub target: &'a mut Option<f32>,
-    pub elapsed_seconds: &'a mut f32,
+    pub frame: &'a mut u32,
     pub start: f32,
     pub duration_seconds: f32,
     pub ease_in_seconds: f32,
@@ -72,11 +70,8 @@ pub(super) fn step_axis(
     if !admission.advances() {
         return result;
     }
-    // Reconstruct only the integral frame already encoded by this helper, not
-    // a wall-clock delta. Rounding avoids .033 representation drift on step N.
-    let frame = (*axis.elapsed_seconds / FRAME_SECONDS).round().max(0.0) as u32;
-    let frame = frame.saturating_add(1);
-    *axis.elapsed_seconds = frame as f32 * FRAME_SECONDS;
+    *axis.frame = axis.frame.saturating_add(1);
+    let frame = *axis.frame;
     let count = frame_count(axis.duration_seconds);
     let before = *axis.value;
     if !admission.disable_camera_movement {

@@ -12,14 +12,14 @@ fn admitted() -> MotionAdmission {
 struct Fields {
     value: f32,
     target: Option<f32>,
-    elapsed: f32,
+    frame: u32,
 }
 impl Fields {
     fn new() -> Self {
         Self {
             value: 0.0,
             target: Some(1.0),
-            elapsed: 0.0,
+            frame: 0,
         }
     }
     fn step(&mut self, duration: f32, kind: AxisKind, mode: MotionAdmission) -> AxisStep {
@@ -27,7 +27,7 @@ impl Fields {
             AxisMotion {
                 value: &mut self.value,
                 target: &mut self.target,
-                elapsed_seconds: &mut self.elapsed,
+                frame: &mut self.frame,
                 start: 0.0,
                 duration_seconds: duration,
                 ease_in_seconds: 0.0,
@@ -50,12 +50,12 @@ fn rejected_view_offers_never_advance_actual_borrowed_fields() {
         let result = fields.step(1.0, AxisKind::ZoomPitch, rejected);
         assert!(result.was_active && !result.changed && !result.completed);
         assert_eq!(
-            (fields.value, fields.elapsed, fields.target),
-            (0.0, 0.0, Some(1.0))
+            (fields.value, fields.frame, fields.target),
+            (0.0, 0, Some(1.0))
         );
     }
     fields.step(1.0, AxisKind::ZoomPitch, admitted());
-    assert_eq!(fields.elapsed, 0.033);
+    assert_eq!(fields.frame, 1);
     assert_eq!(fields.value, 1.0 / 30.0);
 }
 
@@ -73,14 +73,14 @@ fn paused_and_debug_freeze_block_full_view_but_script_freeze_does_not() {
     ] {
         let mut fields = Fields::new();
         fields.step(1.0, AxisKind::ZoomPitch, mode);
-        assert_eq!(fields.elapsed, 0.0);
+        assert_eq!(fields.frame, 0);
         assert_eq!(fields.value, 0.0);
     }
     // Script freeze is intentionally not a movement gate; an admitted frozen
     // View still performs one source updateCameraMovements step.
     let mut fields = Fields::new();
     fields.step(1.0, AxisKind::ZoomPitch, admitted());
-    assert_eq!(fields.elapsed, 0.033);
+    assert_eq!(fields.frame, 1);
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn fast_camera_subset_steps_once_without_a_full_view() {
             ..admitted()
         },
     );
-    assert_eq!((fields.elapsed, fields.value), (0.033, 1.0 / 30.0));
+    assert_eq!((fields.frame, fields.value), (1, 1.0 / 30.0));
 }
 
 #[test]
@@ -112,10 +112,10 @@ fn integer_millisecond_division_preserves_short_and_completion_boundaries() {
     assert!(fields.target.is_some());
     assert!(fields.step(1.0, AxisKind::ZoomPitch, admitted()).completed);
     assert_eq!((fields.value, fields.target), (1.0, None));
-    assert_eq!(fields.elapsed, 30.0 * 0.033);
-    let after = fields.elapsed;
+    assert_eq!(fields.frame, 30);
+    let after = fields.frame;
     assert!(!fields.step(1.0, AxisKind::ZoomPitch, admitted()).was_active);
-    assert_eq!(fields.elapsed, after);
+    assert_eq!(fields.frame, after);
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn easing_uses_source_frame_ratio_and_receiving_fields_are_independent() {
         AxisMotion {
             value: &mut first.value,
             target: &mut first.target,
-            elapsed_seconds: &mut first.elapsed,
+            frame: &mut first.frame,
             start: 0.0,
             duration_seconds: 0.132,
             ease_in_seconds: 0.066,
@@ -166,29 +166,34 @@ fn easing_uses_source_frame_ratio_and_receiving_fields_are_independent() {
         first.value,
         super::super::CnCGameEngine::parabolic_ease(0.25, 0.5, 0.0)
     );
-    assert_eq!(
-        (peer.value, peer.elapsed, peer.target),
-        (0.0, 0.0, Some(1.0))
-    );
+    assert_eq!((peer.value, peer.frame, peer.target), (0.0, 0, Some(1.0)));
     peer.step(0.066, AxisKind::ZoomPitch, admitted());
-    assert_eq!(first.elapsed, 0.033);
+    assert_eq!(first.frame, 1);
 }
 
 #[test]
-fn elapsed_encoding_rounds_to_nearest_frame_without_accumulation_drift() {
+fn integer_counter_advances_beyond_float_precision_and_preserves_completion() {
     let mut fields = Fields::new();
-    fields.elapsed = 0.033 + f32::EPSILON;
-    fields.step(0.132, AxisKind::ZoomPitch, admitted());
-    assert_eq!((fields.elapsed, fields.value), (2.0 * 0.033, 0.5));
-    let mut long = Fields::new();
+    fields.frame = 1 << 24;
+    // Still a valid original i32 millisecond duration: 33,000,000 frames.
+    for expected in [(1 << 24) + 1, (1 << 24) + 2, (1 << 24) + 3] {
+        let result = fields.step(1_089_000.0, AxisKind::ZoomPitch, admitted());
+        assert_eq!(
+            fields.frame, expected,
+            "source integer counter never stalls at f32 precision limit"
+        );
+        assert!(result.was_active && !result.completed);
+        assert!(fields.target.is_some());
+    }
+    let mut ordinary = Fields::new();
     for frame in 1..=1000 {
-        let result = long.step(33.0, AxisKind::ZoomPitch, admitted());
-        assert_eq!(long.elapsed, frame as f32 * 0.033);
+        let result = ordinary.step(33.0, AxisKind::ZoomPitch, admitted());
+        assert_eq!(ordinary.frame, frame);
         assert_eq!(result.completed, frame == 1000);
         assert!(
             result.was_active,
             "completion frame remains scripted for HAG"
         );
     }
-    assert_eq!(long.value, 1.0);
+    assert_eq!(ordinary.value, 1.0);
 }

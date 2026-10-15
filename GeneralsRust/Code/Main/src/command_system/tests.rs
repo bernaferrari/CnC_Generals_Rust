@@ -1226,6 +1226,24 @@ fn right_click_damaged_vehicle_get_repaired_context_residual() {
 }
 
 #[test]
+fn return_to_base_named_command_reaches_existing_aircraft_executor_route() {
+    for name in [
+        "Command_ReturnToBase",
+        "returntobase",
+        "  COMMAND_return_to_base  ",
+    ] {
+        assert!(
+            matches!(
+                command_type_from_button_name(name),
+                Some(CommandType::ReturnToBase)
+            ),
+            "existing UI command {name} must reach the executor"
+        );
+    }
+    assert!(command_type_from_button_name("Command_ReturnToBaseUnknown").is_none());
+}
+
+#[test]
 fn command_type_from_button_name_view_and_formation_residual() {
     use crate::command_system::{CommandType, command_type_from_button_name};
     assert!(matches!(

@@ -219,7 +219,7 @@ impl CnCGameEngine {
                 self.camera_zoom_start = self.camera_zoom;
                 self.camera_zoom_target = Some(zoom);
                 self.camera_zoom_duration = duration;
-                self.camera_zoom_elapsed = 0.0;
+                self.camera_zoom_frame = 0;
                 self.camera_zoom_ease_in = ease_in;
                 self.camera_zoom_ease_out = ease_out;
 
@@ -237,7 +237,7 @@ impl CnCGameEngine {
                 self.camera_yaw_start = self.camera_yaw_radians;
                 self.camera_yaw_target = Some(target_yaw);
                 self.camera_yaw_duration = duration;
-                self.camera_yaw_elapsed = 0.0;
+                self.camera_yaw_frame = 0;
                 self.camera_yaw_ease_in = ease_in;
                 self.camera_yaw_ease_out = ease_out;
             }
@@ -249,7 +249,7 @@ impl CnCGameEngine {
                 self.camera_zoom_start = self.camera_zoom;
                 self.camera_zoom_target = Some(zoom);
                 self.camera_zoom_duration = duration_seconds;
-                self.camera_zoom_elapsed = 0.0;
+                self.camera_zoom_frame = 0;
                 self.camera_zoom_ease_in = ease_in;
                 self.camera_zoom_ease_out = ease_out;
             }

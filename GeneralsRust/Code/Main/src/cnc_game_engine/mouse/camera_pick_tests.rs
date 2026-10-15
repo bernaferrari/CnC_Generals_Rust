@@ -894,9 +894,21 @@ fn update_camera_does_not_gate_arrows_on_modifiers() {
         body.contains("clamp_w3d_zoom"),
         "replay/bookmark zoom must clamp"
     );
+    // Wiring check only: C++ view effects run after display admission, not
+    // during manual input. Numeric admission behavior is covered by the actual
+    // borrowed camera fields in camera_view_effects::tests.
     assert!(
-        body.contains("apply_host_slave_camera") && body.contains("apply_airborne_follow_yaw"),
-        "slave bone + airborne follow yaw must be live"
+        !body.contains("self.apply_host_slave_camera(")
+            && !body.contains("self.apply_airborne_follow_yaw("),
+        "manual input must not advance admitted view effects"
+    );
+    let view = include_str!("../camera_view_effects.rs");
+    let display = include_str!("../native_display.rs");
+    assert!(
+        view.contains("self.apply_airborne_follow_yaw()")
+            && display.contains("self.advance_native_camera_view(decision, camera_scroll)")
+            && display.contains("let slave_pose = self.apply_host_slave_camera()"),
+        "airborne follow and slave pose must remain connected to the native view"
     );
     assert!(
         body.contains("cancel_scripted_camera_from_player_set")

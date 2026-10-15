@@ -50,7 +50,7 @@ impl CnCGameEngine {
             AxisMotion {
                 value: &mut self.camera_zoom,
                 target: &mut self.camera_zoom_target,
-                elapsed_seconds: &mut self.camera_zoom_elapsed,
+                frame: &mut self.camera_zoom_frame,
                 start: self.camera_zoom_start,
                 duration_seconds: self.camera_zoom_duration,
                 ease_in_seconds: self.camera_zoom_ease_in,
@@ -63,7 +63,7 @@ impl CnCGameEngine {
             AxisMotion {
                 value: &mut self.camera_fx_pitch,
                 target: &mut self.camera_pitch_target,
-                elapsed_seconds: &mut self.camera_pitch_elapsed,
+                frame: &mut self.camera_pitch_frame,
                 start: self.camera_pitch_start,
                 duration_seconds: self.camera_pitch_duration,
                 ease_in_seconds: self.camera_pitch_ease_in,
@@ -76,7 +76,7 @@ impl CnCGameEngine {
             AxisMotion {
                 value: &mut self.camera_yaw_radians,
                 target: &mut self.camera_yaw_target,
-                elapsed_seconds: &mut self.camera_yaw_elapsed,
+                frame: &mut self.camera_yaw_frame,
                 start: self.camera_yaw_start,
                 duration_seconds: self.camera_yaw_duration,
                 ease_in_seconds: self.camera_yaw_ease_in,

@@ -3,24 +3,105 @@
 
 use super::*;
 
+// Source-only wiring checks. These delimit the actual function rather than an
+// arbitrary character window; behavioral acceptance lives in runtime suites.
+fn live_function<'a>(source: &'a str, name: &str) -> &'a str {
+    let marker = format!("fn {name}(");
+    let start = source
+        .find(&marker)
+        .unwrap_or_else(|| panic!("missing live {marker}"));
+    live_braced(source, start)
+}
+
+fn live_braced(source: &str, start: usize) -> &str {
+    let open = start + source[start..].find('{').expect("function body");
+    let bytes = source.as_bytes();
+    let (mut index, mut depth, mut block_comment) = (open, 0usize, 0usize);
+    let (mut line_comment, mut quoted, mut escaped) = (false, false, false);
+    while index < bytes.len() {
+        let ch = bytes[index];
+        let next = bytes.get(index + 1).copied();
+        if line_comment {
+            if ch == b'\n' {
+                line_comment = false;
+            }
+        } else if block_comment > 0 {
+            if ch == b'/' && next == Some(b'*') {
+                block_comment += 1;
+                index += 1;
+            } else if ch == b'*' && next == Some(b'/') {
+                block_comment -= 1;
+                index += 1;
+            }
+        } else if quoted {
+            if escaped {
+                escaped = false;
+            } else if ch == b'\\' {
+                escaped = true;
+            } else if ch == b'"' {
+                quoted = false;
+            }
+        } else if ch == b'/' && next == Some(b'/') {
+            line_comment = true;
+            index += 1;
+        } else if ch == b'/' && next == Some(b'*') {
+            block_comment = 1;
+            index += 1;
+        } else if ch == b'"' {
+            quoted = true;
+        } else if ch == b'\'' && bytes.get(index + 2) == Some(&b'\'') {
+            index += 2;
+        } else if ch == b'{' {
+            depth += 1;
+        } else if ch == b'}' {
+            depth -= 1;
+            if depth == 0 {
+                return &source[start..=index];
+            }
+        }
+        index += 1;
+    }
+    panic!("unclosed live source block at {start}");
+}
+
+fn live_hotkey_arm<'a>(source: &'a str, character: &str) -> &'a str {
+    let marker = format!("c.eq_ignore_ascii_case(\"{character}\")");
+    // Select the plain key arm, not its earlier Ctrl/Alt variants.
+    source
+        .match_indices(&marker)
+        .filter_map(|(at, _)| {
+            let rest = &source[at..];
+            let arrow = rest.find("=>")?;
+            let guard = &rest[..arrow];
+            if !guard.contains("!ctrl_down")
+                || !guard.contains("!self.keys_pressed.contains(&Key::Named(NamedKey::Alt))")
+            {
+                return None;
+            }
+            let body_start = arrow + 2;
+            let block = live_braced(&rest[body_start..], 0);
+            Some(&rest[..body_start + block.len()])
+        })
+        .next()
+        .unwrap_or_else(|| panic!("missing unmodified {character} hotkey arm"))
+}
+
 #[test]
 fn stop_and_guard_hotkeys_residual() {
-    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let entry = live_function(include_str!("hotkeys.rs"), "handle_key_press");
+    assert!(entry.contains("self.handle_mapped_key_press(key, None, false)"));
+    let keys = live_function(include_str!("hotkeys.rs"), "handle_mapped_key_press");
+    let stop = live_hotkey_arm(keys, "s");
+    let guard = live_hotkey_arm(keys, "g");
+    assert!(stop.contains("Command_Stop") && stop.contains("command_map_binds_host(\"STOP\")"));
+    assert!(guard.contains("issue_named_command_from_ui(\"Command_Guard\")"));
+    let quick_save_at = keys
+        .find("Key::Character(c) if c.eq_ignore_ascii_case(\"s\") && ctrl_down =>")
+        .expect("distinct Ctrl+S arm");
+    let quick_save = live_braced(keys, quick_save_at);
     assert!(
-        src.contains("eq_ignore_ascii_case(\"s\") && !ctrl_down")
-            && src.contains("issue_named_command_from_ui(\"Command_Stop\")"),
-        "S must issue Command_Stop residual"
-    );
-    assert!(
-        src.contains("eq_ignore_ascii_case(\"g\") && !ctrl_down")
-            && src.contains("issue_named_command_from_ui(\"Command_Guard\")"),
-        "G must issue Command_Guard residual"
-    );
-    // Ctrl+S quick-save must remain distinct from Stop.
-    assert!(
-        src.contains("eq_ignore_ascii_case(\"s\") && ctrl_down")
-            && src.contains("quick_save_from_hotkey"),
-        "Ctrl+S quick-save residual must remain"
+        quick_save.contains("self.quick_save_from_hotkey(\"Ctrl+S\")"),
+        "the bounded Ctrl+S arm must dispatch quick-save, separately from plain Stop"
     );
 }
 
@@ -78,18 +159,12 @@ fn retail_selection_and_scatter_hotkeys_residual() {
 
 #[test]
 fn select_all_adds_not_replaces() {
-    let src = crate::cnc_game_engine::ENGINE_SRC;
-    let select_all_at = src
-        .find("fn select_all_units_by_type")
-        .expect("select_all_units_by_type");
-    let select_all_body = &src[select_all_at..src.len().min(select_all_at + 2500)];
-    assert!(
-        select_all_body.contains("kindOfUnitSelection skips already-selected")
-            && select_all_body.contains("if !already.contains(id)")
-            && select_all_body.contains("kept.push(id)")
-            && !select_all_body.contains("host_set_selection(self.current_player_id, on_screen)"),
-        "SELECT_ALL must add to current selection, not replace with the on-screen subset"
-    );
+    let body = live_function(include_str!("selection.rs"), "select_all_units_by_type");
+    assert!(body.contains("current") && body.contains("let mut kept = if incompatible"));
+    assert!(body.contains(".filter(|id| !already.contains(id))"));
+    assert!(body.contains("if !kept.contains(&id)") && body.contains("kept.push(id)"));
+    assert!(body.contains("host_set_selection(self.current_player_id, kept)"));
+    assert!(!body.contains("host_set_selection(self.current_player_id, on_screen)"));
 }
 
 #[test]
@@ -259,7 +334,11 @@ fn chat_and_screenshot_hotkeys_residual() {
 fn deploy_and_numpad_camera_hold_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
-        src.contains("eq_ignore_ascii_case(\"d\") && !ctrl_down") && src.contains("Command_Deploy"),
+        live_hotkey_arm(
+            live_function(include_str!("hotkeys.rs"), "handle_mapped_key_press"),
+            "d"
+        )
+        .contains("Command_Deploy"),
         "D must Deploy residual"
     );
     assert!(
@@ -427,17 +506,23 @@ fn hud_h_does_not_steal_view_command_center_residual() {
 
 #[test]
 fn drag_select_rect_overlay_residual() {
-    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let render = live_function(include_str!("input.rs"), "render");
     assert!(
-        src.contains("selection_start_screen")
-            && src.contains("DragSelectRect")
-            && src.contains("drag_rect.filter(|r| r.is_valid())"),
-        "InGame render must feed DragSelectRect while dragging"
+        render.contains("selection_start_screen")
+            && render.contains("DragSelectRect")
+            && render.contains("drag_rect.filter(|r| r.is_valid())")
     );
+    let source = include_str!("mouse/selection_input.rs");
+    let press = live_function(source, "handle_left_click");
+    assert!(press.contains("selection_start_screen = Some(self.mouse_position)"));
     assert!(
-        src.contains("Defer empty-ground clear until left-release")
-            || src.contains("Instant clear on mousedown fights drag-select"),
-        "mousedown must not clear selection before drag completes"
+        !press.contains("host_set_selection(") && !press.contains("host_clear_selection("),
+        "raw down only anchors; release owns selection"
+    );
+    let release = live_function(source, "handle_left_release");
+    assert!(
+        release.contains("selection_start_screen.take()")
+            && release.contains("select_left_click_target")
     );
 }
 
@@ -481,7 +566,16 @@ fn pending_map_radius_cursor_residual() {
         "attack-ground must use leftover damage radius, not OFFENSIVE_SPECIALPOWER table 0"
     );
     assert!(
-        !src.contains("o.weapon_range") && !src.contains("o.vision_range"),
+        !live_function(
+            include_str!("ui_commands.rs"),
+            "resolve_radius_cursor_radius"
+        )
+        .contains("o.weapon_range")
+            && !live_function(
+                include_str!("ui_commands.rs"),
+                "resolve_radius_cursor_radius"
+            )
+            .contains("o.vision_range"),
         "radius cursor must not substitute presentation weapon/vision proxies"
     );
 }
@@ -802,24 +896,12 @@ fn sneak_attack_place_keeps_placement_angle() {
 
 #[test]
 fn deploy_d_key_not_shadowed_by_debug_defeat_residual() {
-    let src = crate::cnc_game_engine::ENGINE_SRC;
-    let start = src.find("fn handle_key_press").expect("handle_key_press");
-    let end = src[start + 1..]
-        .find("\n    fn ")
-        .map(|i| start + 1 + i)
-        .unwrap_or(start + 8000);
-    let body = &src[start..end];
+    let body = live_function(include_str!("hotkeys.rs"), "handle_mapped_key_press");
+    let deploy = live_hotkey_arm(body, "d");
+    assert!(deploy.contains("issue_named_command_from_ui(\"Command_Deploy\")"));
     assert!(
-        body.contains("Command_Deploy")
-            && body.contains("eq_ignore_ascii_case(\"d\") && !ctrl_down"),
-        "D must issue Command_Deploy residual"
-    );
-    // Bare D must not be bound to debug_show_victory(None) ahead of Deploy.
-    assert!(
-        !body.contains(
-            "eq_ignore_ascii_case(\"d\") => {\n                self.debug_show_victory(None)"
-        ),
-        "debug defeat must not steal D from Deploy"
+        !deploy.contains("debug_show_victory"),
+        "plain D may not dispatch debug defeat"
     );
 }
 
@@ -901,13 +983,13 @@ fn idle_worker_period_key_residual() {
             && src.contains("SELECT_IDLE_WORKER"),
         "period key must cycle idle workers residual"
     );
-    let start = src
-        .find("fn cycle_friendly_worker_selection")
-        .expect("cycle_friendly_worker_selection");
-    let body = &src[start..start + 2200];
+    let body = live_function(
+        include_str!("selection.rs"),
+        "cycle_friendly_worker_selection",
+    );
     assert!(
-        body.contains("KindOf::Dozer") && body.contains("host_center_camera_on"),
-        "SELECT_NEXT/PREV_WORKER must be KINDOF_DOZER + lookAt (CommandXlat.cpp:2573-2798)"
+        body.contains("KindOf::Dozer") && body.contains("host_player_look_at(next.1)"),
+        "worker cycle filters actual Dozer kind and dispatches source player lookAt"
     );
 }
 
@@ -964,9 +1046,17 @@ fn patrol_and_sell_hotkey_residual() {
         cmd.contains("Patrol") && cmd.contains("\"patrol\""),
         "Patrol command residual must exist"
     );
-    let ex = crate::command_executor::COMMAND_EXECUTOR_SRC;
     assert!(
-        ex.contains("fn execute_patrol") && ex.contains("AIState::Patrolling"),
+        live_function(
+            include_str!("../command_executor/movement.rs"),
+            "execute_patrol"
+        )
+        .contains("unit_command_patrol(unit_id)")
+            && live_function(
+                include_str!("../game_logic/world_scripts/unit_commands.rs"),
+                "unit_command_patrol"
+            )
+            .contains("set_ai_state(AIState::Patrolling)"),
         "execute_patrol must set Patrolling residual"
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
@@ -1145,13 +1235,27 @@ fn named_superweapon_button_residual() {
 
 #[test]
 fn damaged_structure_cycle_residual() {
-    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let keys = live_function(include_str!("hotkeys.rs"), "handle_mapped_key_press");
     assert!(
-        src.contains("fn cycle_damaged_structure_selection")
-            && src.contains("No damaged structures")
-            && src.contains("NamedKey::Alt")
-            && src.contains("cycle_damaged_structure_selection(1)"),
-        "Ctrl+Alt+arrows must cycle damaged structures residual"
+        keys.contains("NamedKey::Alt")
+            && keys.contains("cycle_damaged_structure_selection(1)")
+            && keys.contains("cycle_damaged_structure_selection(-1)")
+    );
+    let cycle = live_function(
+        include_str!("selection.rs"),
+        "cycle_damaged_structure_selection",
+    );
+    assert!(
+        cycle.contains("alive_selectable_friendly_damaged_structure_ids")
+            && cycle.contains("host_set_selection")
+    );
+    assert!(
+        cycle.contains("self.camera_target.x = clamped.x")
+            && cycle.contains("self.camera_target.z = clamped.z")
+    );
+    assert!(
+        !cycle.contains("push_info_message"),
+        "empty selection is silent, not an invented English toast"
     );
 }
 
@@ -1189,10 +1293,17 @@ fn unit_attitude_hotkey_residual() {
         ex.contains("fn execute_set_attitude") && ex.contains("set_ai_attitude"),
         "execute_set_attitude residual"
     );
-    let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    let strip = live_function(
+        include_str!("../presentation_frame/command_set_strip.rs"),
+        "populate_command_set_strip",
+    );
     assert!(
-        pf.contains("Command_AttitudeAggressive") && pf.contains("Command_AttitudeSleep"),
-        "strip must expose attitude residual"
+        strip.contains("command_set_slots_for")
+            && strip.contains("command_name: command_name.clone()")
+    );
+    assert!(
+        !strip.contains("Command_AttitudeAggressive") && !strip.contains("Command_AttitudeSleep"),
+        "source CommandSet slots may expose attitudes; no invented hardcoded extras"
     );
 }
 
@@ -1328,6 +1439,7 @@ fn hack_internet_and_cleanup_area_residual() {
 
 #[test]
 fn return_to_base_aircraft_residual() {
+    // Existing Rust UI capability. No original retail Alt+R mapping is claimed.
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
         src.contains("Command_ReturnToBase")
@@ -1335,10 +1447,12 @@ fn return_to_base_aircraft_residual() {
             && src.contains("NamedKey::Alt"),
         "Alt+R must ReturnToBase residual"
     );
-    let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     assert!(
-        cs.contains("ReturnToBase") && cs.contains("\"returntobase\""),
-        "ReturnToBase command map residual"
+        matches!(
+            crate::command_system::command_type_from_button_name("Command_ReturnToBase"),
+            Some(crate::command_system::CommandType::ReturnToBase)
+        ),
+        "live named RTB route must resolve the executable command"
     );
     let ex = crate::command_executor::COMMAND_EXECUTOR_SRC;
     assert!(
@@ -1348,10 +1462,14 @@ fn return_to_base_aircraft_residual() {
             && !ex.contains("self.execute_dock(&[unit_id], airfield_id)"),
         "execute_return_to_base must use authoritative producer-first parking, not generic Dock"
     );
-    let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    let strip = live_function(
+        include_str!("../presentation_frame/command_set_strip.rs"),
+        "populate_command_set_strip",
+    );
     assert!(
-        pf.contains("Command_ReturnToBase"),
-        "aircraft strip must expose RTB residual"
+        strip.contains("command_set_slots_for")
+            && strip.contains("command_name: command_name.clone()"),
+        "aircraft strip follows authored slots, not invented RTB extras"
     );
 }
 
@@ -1370,9 +1488,10 @@ fn on_screen_select_and_camera_follow_residual() {
             && src.contains("eq_ignore_ascii_case(\"f\")"),
         "Alt+F must toggle camera follow residual without HUD toast"
     );
-    let gl = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
+    let gl = include_str!("../game_logic/world_scripts/eva_camera.rs");
     assert!(
-        gl.contains("fn set_camera_follow_object") && gl.contains("fn camera_follow_object_id"),
+        live_function(gl, "set_camera_follow_object").contains("self.camera_follow_target = id")
+            && live_function(gl, "camera_follow_object_id").contains("self.camera_follow_target"),
         "GameLogic camera follow API residual"
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
@@ -2582,7 +2701,7 @@ mod runtime_host_windowed_bridge_tests {
 
     #[test]
     fn windowed_executable_smoke_construct_train_without_cheats() {
-        let src = include_str!("../executable_smoke.rs");
+        let src = include_str!("../executable_smoke/gameplay_chain.rs");
         let windowed_writes = windowed_write_control_args(src);
         assert!(
             !windowed_writes.is_empty(),
@@ -2705,20 +2824,11 @@ mod runtime_host_windowed_bridge_tests {
             "pause_save must be a shipped host command"
         );
         assert!(host.contains("fn runtime_host_cmd_pause_load"));
-        let pause_save = {
-            let i = host
-                .find("fn runtime_host_cmd_pause_save")
-                .expect("pause_save");
-            &host[i..]
-        };
-        let pause_save = pause_save
-            .split("fn runtime_host_cmd_pause_load")
-            .next()
-            .unwrap_or(pause_save);
+        let pause_save = super::live_function(host, "runtime_host_cmd_pause_save");
         assert!(pause_save.contains("drive_os_wnd_quit_menu_save_load_like_cpp"));
         assert!(pause_save.contains("ensure_live_quit_menu_layout"));
         assert!(pause_save.contains("ensure_live_popup_save_load_layout"));
-        assert!(pause_save.contains("drive_os_wnd_popup_save_load_save_like_cpp"));
+        assert!(pause_save.contains("drive_os_wnd_popup_save_load_save_and_confirm_like_cpp"));
         assert!(
             !pause_save.contains("simulate_quit_menu")
                 && !pause_save.contains("simulate_save_load"),

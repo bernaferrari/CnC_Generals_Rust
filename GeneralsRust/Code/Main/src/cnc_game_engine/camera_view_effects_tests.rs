@@ -19,7 +19,7 @@ struct LocalView {
     clock: VisualClock,
     value: f32,
     target: Option<f32>,
-    elapsed: f32,
+    axis_frame: u32,
     intensity: f32,
     cosine: f32,
     sine: f32,
@@ -31,7 +31,7 @@ impl LocalView {
             clock: VisualClock::new(),
             value: 0.,
             target: Some(1.),
-            elapsed: 0.,
+            axis_frame: 0,
             intensity: 4.,
             cosine: 1.,
             sine: -0.5,
@@ -51,7 +51,7 @@ impl LocalView {
             AxisMotion {
                 value: &mut self.value,
                 target: &mut self.target,
-                elapsed_seconds: &mut self.elapsed,
+                frame: &mut self.axis_frame,
                 start: 0.,
                 duration_seconds: duration,
                 ease_in_seconds: 0.,
@@ -76,11 +76,11 @@ impl LocalView {
         }
         (decision, axis)
     }
-    fn snapshot(&self) -> (f32, Option<f32>, f32, f32, f32, f32, Vec3) {
+    fn snapshot(&self) -> (f32, Option<f32>, u32, f32, f32, f32, Vec3) {
         (
             self.value,
             self.target,
-            self.elapsed,
+            self.axis_frame,
             self.intensity,
             self.cosine,
             self.sine,
@@ -100,7 +100,7 @@ fn clock_rejection_and_multiplier_do_not_advance_borrowed_axes_or_impulse() {
         false,
         1.,
     );
-    assert_eq!(view.elapsed, 0.033);
+    assert_eq!(view.axis_frame, 1);
     assert_eq!(view.value, 1. / 30.);
     assert_eq!(view.offset, Vec3::new(4., 0., -2.));
     assert_eq!(view.intensity, 3.);
@@ -126,7 +126,7 @@ fn clock_rejection_and_multiplier_do_not_advance_borrowed_axes_or_impulse() {
         false,
         1.,
     );
-    assert_eq!(view.elapsed, 0.066);
+    assert_eq!(view.axis_frame, 2);
     assert_eq!(view.value, 2. / 30.);
     assert_eq!(view.offset, Vec3::new(-3., 0., 1.5));
     assert_eq!(view.intensity, 2.25);
@@ -157,7 +157,7 @@ fn fast_camera_subset_advances_one_source_axis_frame_without_decaying_spring() {
     );
     assert!(decision.fast_camera_only && !decision.update_views && !decision.sync);
     assert!(axis.changed && axis.was_active);
-    assert_eq!((view.elapsed, view.value), (0.033, 1. / 30.));
+    assert_eq!((view.axis_frame, view.value), (1, 1. / 30.));
     assert_eq!(
         (view.intensity, view.cosine, view.sine, view.offset),
         (original.3, original.4, original.5, original.6)
@@ -172,7 +172,7 @@ fn fast_camera_subset_advances_one_source_axis_frame_without_decaying_spring() {
     );
     assert!(decision.update_views && !decision.fast_camera_only);
     assert_eq!(decision.frame_time_ms, 33);
-    assert_eq!(view.elapsed, 0.066);
+    assert_eq!(view.axis_frame, 2);
     assert_eq!(view.intensity, 3.);
     assert_eq!(view.offset, Vec3::new(4., 0., -2.));
 }
@@ -185,11 +185,11 @@ fn repeated_paused_and_tivo_offers_keep_distinct_axis_spring_and_gpu_semantics()
     assert_eq!(repeated.frame_time_ms, 0);
     assert!(repeated.update_views && !repeated.draw_drawables);
     assert_eq!(
-        view.elapsed, 0.066,
+        view.axis_frame, 2,
         "full View camera movements still step on repeated Client frames"
     );
     assert_eq!(view.intensity, 2.25);
-    let before = (view.value, view.elapsed);
+    let before = (view.value, view.axis_frame);
     let (paused, axis) = view.offer(
         DisplayInputs {
             frozen: true,
@@ -200,7 +200,7 @@ fn repeated_paused_and_tivo_offers_keep_distinct_axis_spring_and_gpu_semantics()
     );
     assert!(paused.update_views);
     assert!(axis.was_active && !axis.changed);
-    assert_eq!((view.value, view.elapsed), before);
+    assert_eq!((view.value, view.axis_frame), before);
     assert_eq!(
         view.intensity,
         2.25 * 0.75,
@@ -217,7 +217,7 @@ fn repeated_paused_and_tivo_offers_keep_distinct_axis_spring_and_gpu_semantics()
     );
     assert!(!tivo.draw_gpu && tivo.update_views);
     assert!(axis.changed);
-    assert_eq!(view.elapsed, 0.099);
+    assert_eq!(view.axis_frame, 3);
     assert_eq!(view.intensity, 4. * 0.75_f32.powi(4));
 }
 
@@ -363,7 +363,7 @@ fn owning_logic_pause_is_distinct_from_script_freeze_and_keeps_full_view_shake()
         1.,
     );
     assert!(!axis.changed && axis.was_active);
-    assert_eq!(view.elapsed, 0.);
+    assert_eq!(view.axis_frame, 0);
     assert!(!decision.draw_drawables && decision.update_views && decision.draw_gpu);
     assert_eq!(view.intensity, 3.);
     let source = include_str!("native_display.rs");
@@ -386,13 +386,13 @@ fn admitted_zoom_matches_executed_cpp_mixed_precision_ease_trace() {
         (16, 1_062_594_296),
         (23, 1_066_753_389),
     ];
-    let (mut value, mut target, mut elapsed) = (0.2, Some(1.3), 0.);
+    let (mut value, mut target, mut elapsed) = (0.2, Some(1.3), 0);
     for frame in 1..=30 {
         step_axis(
             AxisMotion {
                 value: &mut value,
                 target: &mut target,
-                elapsed_seconds: &mut elapsed,
+                frame: &mut elapsed,
                 start: 0.2,
                 duration_seconds: 1.,
                 ease_in_seconds: 0.2,

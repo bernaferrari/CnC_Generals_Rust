@@ -1501,14 +1501,14 @@ impl CnCGameEngine {
         self.camera_pitch_target = None;
         self.camera_pitch_start = self.camera_pitch_radians;
         self.camera_pitch_duration = 0.0;
-        self.camera_pitch_elapsed = 0.0;
+        self.camera_pitch_frame = 0;
         self.camera_pitch_ease_in = 0.0;
         self.camera_pitch_ease_out = 0.0;
 
         self.camera_yaw_target = None;
         self.camera_yaw_start = self.camera_yaw_radians;
         self.camera_yaw_duration = 0.0;
-        self.camera_yaw_elapsed = 0.0;
+        self.camera_yaw_frame = 0;
         self.camera_yaw_ease_in = 0.0;
         self.camera_yaw_ease_out = 0.0;
 
@@ -1522,7 +1522,7 @@ impl CnCGameEngine {
         self.camera_pitch_start = self.camera_fx_pitch;
         self.camera_pitch_target = Some(target);
         self.camera_pitch_duration = request.duration_seconds;
-        self.camera_pitch_elapsed = 0.0;
+        self.camera_pitch_frame = 0;
         self.camera_pitch_ease_in = request.ease_in_seconds.max(0.0);
         self.camera_pitch_ease_out = request.ease_out_seconds.max(0.0);
     }
@@ -1533,7 +1533,7 @@ impl CnCGameEngine {
         self.camera_yaw_start = self.camera_yaw_radians;
         self.camera_yaw_target = Some(target_yaw);
         self.camera_yaw_duration = request.duration_seconds;
-        self.camera_yaw_elapsed = 0.0;
+        self.camera_yaw_frame = 0;
         self.camera_yaw_ease_in = request.ease_in_seconds.max(0.0);
         self.camera_yaw_ease_out = request.ease_out_seconds.max(0.0);
     }
@@ -1793,7 +1793,7 @@ impl CnCGameEngine {
         self.camera_yaw_start = self.camera_yaw_radians;
         self.camera_yaw_target = Some(target_yaw);
         self.camera_yaw_duration = request.duration_seconds;
-        self.camera_yaw_elapsed = 0.0;
+        self.camera_yaw_frame = 0;
         self.camera_yaw_ease_in = request.ease_in_seconds.max(0.0);
         self.camera_yaw_ease_out = request.ease_out_seconds.max(0.0);
     }
@@ -2332,7 +2332,7 @@ impl CnCGameEngine {
         self.camera_zoom_target = None;
         self.camera_zoom_start = self.camera_zoom;
         self.camera_zoom_duration = 0.0;
-        self.camera_zoom_elapsed = 0.0;
+        self.camera_zoom_frame = 0;
         self.camera_zoom_ease_in = 0.0;
         self.camera_zoom_ease_out = 0.0;
         self.camera_shake_offset = Vec3::ZERO;
@@ -2748,12 +2748,12 @@ End
                 && !view.contains("value: &mut self.camera_pitch_radians")
         );
         let (mut fx_pitch, mut target, mut elapsed) =
-            (1., Some(CnCGameEngine::script_pitch_is_fx_pitch(2.)), 0.);
+            (1., Some(CnCGameEngine::script_pitch_is_fx_pitch(2.)), 0);
         let rejected = step_axis(
             AxisMotion {
                 value: &mut fx_pitch,
                 target: &mut target,
-                elapsed_seconds: &mut elapsed,
+                frame: &mut elapsed,
                 start: 1.,
                 duration_seconds: 0.,
                 ease_in_seconds: 0.,
@@ -2769,12 +2769,12 @@ End
             },
         );
         assert!(rejected.was_active && !rejected.changed);
-        assert_eq!((fx_pitch, target, elapsed), (1., Some(2.), 0.));
+        assert_eq!((fx_pitch, target, elapsed), (1., Some(2.), 0));
         let admitted = step_axis(
             AxisMotion {
                 value: &mut fx_pitch,
                 target: &mut target,
-                elapsed_seconds: &mut elapsed,
+                frame: &mut elapsed,
                 start: 1.,
                 duration_seconds: 0.,
                 ease_in_seconds: 0.,
@@ -2790,7 +2790,7 @@ End
             },
         );
         assert!(admitted.was_active && admitted.completed && admitted.changed);
-        assert_eq!((fx_pitch, target, elapsed), (2., None, 0.033));
+        assert_eq!((fx_pitch, target, elapsed), (2., None, 1));
         assert!(
             src.contains("tactical_view_height_frac")
                 && src.contains("rebuild_tactical_projection"),
@@ -2912,12 +2912,12 @@ End
         );
         assert!(!view.contains("shake_dt = if self.presentation_or_boot_time_frozen()"));
         for paused in [true, false] {
-            let (mut value, mut target, mut elapsed) = (0., Some(1.), 0.);
+            let (mut value, mut target, mut elapsed) = (0., Some(1.), 0);
             let step = step_axis(
                 AxisMotion {
                     value: &mut value,
                     target: &mut target,
-                    elapsed_seconds: &mut elapsed,
+                    frame: &mut elapsed,
                     start: 0.,
                     duration_seconds: 1.,
                     ease_in_seconds: 0.,
@@ -2934,7 +2934,7 @@ End
             );
             assert!(step.was_active);
             assert_eq!(step.changed, !paused);
-            assert_eq!(elapsed, if paused { 0. } else { 0.033 });
+            assert_eq!(elapsed, if paused { 0 } else { 1 });
             assert_eq!(value, if paused { 0. } else { 1. / 30. });
         }
     }

@@ -79,6 +79,7 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         }),
         "executerailedtransport" | "railedtransport" => Some(CommandType::ExecuteRailedTransport),
         "deploy" => Some(CommandType::Deploy),
+        "returntobase" => Some(CommandType::ReturnToBase),
         "cheer" | "allcheer" | "groupcheer" => Some(CommandType::Cheer),
         "createformation" | "formation" => Some(CommandType::CreateFormation),
         "viewcommandcenter" | "centerbase" => Some(CommandType::ViewCommandCenter),
