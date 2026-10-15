@@ -2392,18 +2392,6 @@ impl Object {
             .unwrap_or(false)
     }
 
-    /// C++ Object::defect(team, detectionFrames) residual.
-    pub fn defect(
-        &mut self,
-        new_team: Team,
-        now: u32,
-        detection_frames: u32,
-        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
-    ) {
-        self.set_team(new_team, ownership_events);
-        self.begin_undetected_defection(now, detection_frames, true);
-    }
-
     /// C++ Object::defect / friend_setUndetectedDefector + DefectionHelper timer.
     pub fn begin_undetected_defection(&mut self, now: u32, protection_frames: u32, with_fx: bool) {
         if self.defection_helper.is_none() {
@@ -3050,5 +3038,117 @@ impl Object {
         self.thing.template.repair_dock_frames_for_full_heal = Some(frames);
         self.repair_dock_last_id = last;
         self.repair_dock_health_per_frame = per_frame;
+    }
+}
+
+#[cfg(test)]
+mod defection_timer_owner_tests {
+    use super::*;
+
+    fn object() -> Object {
+        Object::new(ThingTemplate::new("Defector"), ObjectId(76001), Team::USA)
+    }
+
+    #[test]
+    fn zero_duration_never_grants_cover_or_reinitializes_a_previous_timer() {
+        let mut obj = object();
+        obj.begin_undetected_defection(40, 60, true);
+        obj.tick_defection_helper(41);
+        let previous = obj.defection_helper.as_ref().unwrap().clone();
+        obj.begin_undetected_defection(50, 0, true);
+        assert!(!obj.is_undetected_defector());
+        let timer = obj.defection_helper.as_ref().unwrap();
+        assert_eq!(timer.detection_start, previous.detection_start);
+        assert_eq!(timer.detection_end, previous.detection_end);
+        assert_eq!(timer.flash_phase.to_bits(), previous.flash_phase.to_bits());
+        assert_eq!(timer.do_defector_fx, previous.do_defector_fx);
+        obj.tick_defection_helper(100);
+        assert!(!obj.defection_helper.as_ref().unwrap().final_white_flash);
+
+        let mut fresh = object();
+        fresh.begin_undetected_defection(90, 0, false);
+        assert!(!fresh.is_undetected_defector());
+        assert_eq!(fresh.defection_helper.as_ref().unwrap().detection_end, 0);
+    }
+
+    #[test]
+    fn requested_duration_is_not_clamped_to_flash_curve_window() {
+        let mut obj = object();
+        obj.begin_undetected_defection(20, 600, true);
+        assert_eq!(obj.defection_helper.as_ref().unwrap().detection_end, 620);
+        obj.tick_defection_helper(320);
+        assert!(obj.is_undetected_defector());
+        obj.tick_defection_helper(619);
+        assert!(obj.is_undetected_defector());
+        obj.tick_defection_helper(620);
+        assert!(!obj.is_undetected_defector());
+        let timer = obj.defection_helper.as_ref().unwrap();
+        assert_eq!(timer.detection_end, 620);
+        assert!(timer.final_white_flash);
+    }
+
+    #[test]
+    fn wrapped_zero_deadline_expires_by_original_absolute_comparison() {
+        let mut obj = object();
+        let now = u32::MAX - 4;
+        obj.begin_undetected_defection(now, 5, true);
+        assert!(obj.is_undetected_defector());
+        assert_eq!(obj.defection_helper.as_ref().unwrap().detection_end, 0);
+        // C++ compares now >= end, rather than using wrapping elapsed time.
+        obj.tick_defection_helper(now);
+        assert!(!obj.is_undetected_defector());
+        assert!(obj.defection_helper.as_ref().unwrap().final_white_flash);
+    }
+
+    #[test]
+    fn expiry_precedes_attack_or_death_cover_break() {
+        for dead in [false, true] {
+            let mut obj = object();
+            obj.begin_undetected_defection(10, 30, true);
+            obj.status.is_firing_weapon = true;
+            obj.status.effectively_dead = dead;
+            obj.tick_defection_helper(40);
+            let timer = obj.defection_helper.as_mut().unwrap();
+            assert!(!timer.undetected_defector);
+            assert!(timer.final_white_flash);
+            assert_eq!(timer.drain_audio(), ["DefectorTimerDing"]);
+        }
+        let mut early = object();
+        early.begin_undetected_defection(10, 30, true);
+        early.status.effectively_dead = true;
+        early.tick_defection_helper(39);
+        let timer = early.defection_helper.as_ref().unwrap();
+        assert!(!timer.undetected_defector);
+        assert!(!timer.final_white_flash);
+        assert_eq!((timer.detection_start, timer.detection_end), (10, 40));
+        assert!(timer.do_defector_fx);
+    }
+
+    #[test]
+    fn helper_snapshot_continues_remaining_phase_and_expiry() {
+        let mut original = object();
+        original.begin_undetected_defection(10, 60, true);
+        for frame in 10..35 {
+            original.tick_defection_helper(frame);
+            original.defection_helper.as_mut().unwrap().drain_audio();
+        }
+        let mut restored = object();
+        restored.defection_helper = Some(
+            serde_json::from_str(
+                &serde_json::to_string(original.defection_helper.as_ref().unwrap()).unwrap(),
+            )
+            .unwrap(),
+        );
+        for frame in 35..=71 {
+            original.tick_defection_helper(frame);
+            restored.tick_defection_helper(frame);
+            assert_eq!(
+                serde_json::to_value(original.defection_helper.as_ref().unwrap()).unwrap(),
+                serde_json::to_value(restored.defection_helper.as_ref().unwrap()).unwrap(),
+            );
+        }
+        assert!(!restored.is_undetected_defector());
+        let timer = restored.defection_helper.as_ref().unwrap();
+        assert_eq!((timer.detection_start, timer.detection_end), (10, 70));
     }
 }

@@ -159,18 +159,6 @@ impl Object {
         }
     }
 
-    /// Factory-explicit variant for capture/hijack operations in a live world.
-    pub fn set_team_and_owner_with_factory(
-        &mut self,
-        team: Team,
-        owner_player_id: Option<u32>,
-        team_factory: &gamelogic::team::TeamFactoryHandle,
-        ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
-    ) {
-        self.set_team_and_owner(team, owner_player_id, ownership_events);
-        self.apply_named_team_ai_profile(team_factory, true);
-    }
-
     /// Check if this object is visible to a team (for fog of war / targeting UI).
     /// C++ residual: stealthed-and-undetected units are hidden from non-allied teams.
     /// Detected stealthed units become visible (and targetable).

@@ -283,68 +283,60 @@ impl GameLogic {
         old_team: Team,
         new_team: Team,
     ) {
-        // TunnelContain::onCapture remeshes Player::m_tunnelSystem even when
-        // two same-faction players trade an entrance.
-        self.on_capture_tunnel_network_residual(object_id, old_team, new_team);
-        // C++ Object::onCapture handlePartitionCellMaintenance (Object.cpp:6165)
-        // after the ownership flip: unstamp old player mask, restamp new.
-        if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.handle_partition_cell_maintenance();
-        }
-        if old_team == new_team {
-            self.capture_authored_radar_provider(object_id);
-            return;
-        }
-        // Capture has already changed this object's owner by the time the
-        // C++-style post-capture hooks run.  Credit that concrete owner rather
-        // than whichever same-faction player happens to be first in the map.
-        let captured_owner_player_id = self
-            .objects
-            .get(&object_id)
-            .and_then(|object| self.player_owner_for_host_object(object));
-        // Contain kick residual.
-        self.on_capture_kick_passengers(object_id, old_team, new_team);
-        // C++ Object::defect → ParkingPlaceBehavior::defectAllParkedUnits
-        // (SpecialAbilityUpdate.cpp:1442). Only on capture, not a per-tick walk.
-        self.defect_all_parked_units(object_id);
-        self.capture_authored_radar_provider(object_id);
-
-        // Deselect from all players (C++ TheGameLogic->deselectObject residual).
-        if let Some(object) = self.objects.get_mut(&object_id) {
-            object.deselect();
-        }
-        self.admit_local_drawable_deselected(object_id);
-        for player in self.players.values_mut() {
-            let before = player.selected_objects.len();
-            player.selected_objects.retain(|&id| id != object_id);
-            if player.selected_objects.len() != before {
-                self.capture_deselections = self.capture_deselections.saturating_add(1);
+        // Compatibility entrypoint for callers that still identify owners by faction.
+        self.on_capture_object_owned(object_id, old_team, new_team, old_team != new_team);
+        if old_team != new_team {
+            // Object::defect owns this phase; retain it only for unmigrated callers.
+            self.defect_all_parked_units(object_id);
+            if let Some(object) = self.objects.get_mut(&object_id) {
+                object.set_private_captured(true);
+                object.deselect();
+            }
+            self.admit_local_drawable_deselected(object_id);
+            for player in self.players.values_mut() {
+                let before = player.selected_objects.len();
+                player.selected_objects.retain(|&id| id != object_id);
+                if player.selected_objects.len() != before {
+                    self.capture_deselections = self.capture_deselections.saturating_add(1);
+                }
             }
         }
+    }
 
-        // aiIdle residual — stop orders on the captured object.
-        if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.stop_moving();
-            obj.set_status_moving(false);
-            obj.set_status_attacking(false);
-            // C++ Object::setCaptured(true) residual (sticky private status).
-            obj.set_private_captured(true);
-            // C++ clearScriptStatus(OBJECT_STATUS_SCRIPT_UNSELLABLE) residual.
-            obj.set_script_unsellable(false);
+    /// Receiving Object::onCapture callback after the exact team transition.
+    /// `owner_changed` compares player identity, independently of faction.
+    pub(in crate::game_logic) fn on_capture_object_owned(
+        &mut self,
+        object_id: ObjectId,
+        old_team: Team,
+        new_team: Team,
+        owner_changed: bool,
+    ) {
+        let Some(object) = self.objects.get(&object_id) else {
+            return;
+        };
+        let captured_owner_player_id = self.player_owner_for_host_object(object);
+
+        // Object.cpp:4514: aiIdle precedes score credit and module callbacks.
+        if owner_changed {
+            if let Some(object) = self.objects.get_mut(&object_id) {
+                object.stop_moving();
+                object.set_status_moving(false);
+                object.set_status_attacking(false);
+                object.set_ai_state(AIState::Idle);
+            }
+            self.clear_target_decision_aware(object_id);
         }
-        self.clear_target_decision_aware(object_id);
-        // Capture must clear host AI/orders immediately (observable residual).
-        // Under AI_DECISION_AUTHORITY also log for GameWorld last-write channel.
-        if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.set_ai_state(AIState::Idle);
-        }
-        {}
-        // C++ ScoreKeeper::addObjectCaptured residual for new owner.
-        if let Some(p) =
+        if let Some(player) =
             captured_owner_player_id.and_then(|player_id| self.get_player_mut(player_id))
         {
-            p.record_object_captured();
+            player.record_object_captured();
         }
+
+        // Module callbacks run even for different teams controlled by one player.
+        self.on_capture_tunnel_network_residual(object_id, old_team, new_team);
+        self.on_capture_kick_passengers_owned(object_id, new_team, owner_changed);
+        self.capture_authored_radar_provider(object_id);
 
         // C++ Player::becomingTeamMember → awardInitialCaptureBonus always
         // resets depositOnFrame. Recapture must re-arm the 12s clock even
@@ -395,21 +387,22 @@ impl GameLogic {
             self.capture_tech_model_updates = self.capture_tech_model_updates.saturating_add(1);
         }
 
+        // Object.cpp:4531-4538 follows all behavior callbacks.
+        if let Some(object) = self.objects.get_mut(&object_id) {
+            object.handle_partition_cell_maintenance();
+            object.set_script_unsellable(false);
+        }
+
         // Skirmish AI sells captured faction structures (C++ isSkirmishAIPlayer residual).
-        let new_owner_is_ai = self
-            .players
-            .values()
-            .filter(|p| p.team == new_team && p.is_alive)
-            .any(|p| {
-                // C++ Player::isSkirmishAIPlayer residual: registered AI difficulty.
-                self.ai_manager.ai_difficulty(p.id).is_some()
-            });
+        let new_owner_is_ai = captured_owner_player_id
+            .and_then(|player_id| self.players.get(&player_id))
+            .is_some_and(|player| self.ai_manager.ai_difficulty(player.id).is_some());
         let is_faction = self
             .objects
             .get(&object_id)
             .map(|o| o.is_faction_structure())
             .unwrap_or(false);
-        if new_owner_is_ai && is_faction {
+        if owner_changed && new_owner_is_ai && is_faction {
             // C++ TheBuildAssistant->sellObject(this)
             if self.start_sell_object(object_id) {
                 self.capture_ai_auto_sells = self.capture_ai_auto_sells.saturating_add(1);
@@ -430,9 +423,37 @@ impl GameLogic {
         old_team: Team,
         new_team: Team,
     ) {
-        if old_team == new_team {
-            return;
-        }
+        self.on_capture_kick_passengers_owned(container_id, new_team, old_team != new_team);
+    }
+
+    /// Module capture handling uses concrete owner identity, not faction equality.
+    pub(in crate::game_logic) fn on_capture_kick_passengers_owned(
+        &mut self,
+        container_id: ObjectId,
+        new_team: Team,
+        owner_changed: bool,
+    ) {
+        self.capture_passengers_owned(container_id, new_team, owner_changed, false);
+    }
+
+    /// Object::defect's post-voice removeAllContained(TRUE) phase, independent
+    /// of whether the owners differ. The earlier onCapture already transferred
+    /// any portable rider, so do not invoke that rider's capture callbacks again.
+    pub(in crate::game_logic) fn on_defect_kick_passengers_owned(
+        &mut self,
+        container_id: ObjectId,
+        new_team: Team,
+    ) {
+        self.capture_passengers_owned(container_id, new_team, true, true);
+    }
+
+    fn capture_passengers_owned(
+        &mut self,
+        container_id: ObjectId,
+        new_team: Team,
+        owner_changed: bool,
+        immediate: bool,
+    ) {
         let Some(container) = self.objects.get(&container_id) else {
             return;
         };
@@ -447,7 +468,15 @@ impl GameLogic {
         }
 
         // C++ OverlordContain/HelixContain::onCapture: setTeam portable rider.
-        let portable_id = self.on_capture_overlord_helix_portable_addon(container_id, new_team);
+        let portable_id = if immediate {
+            container.overlord_portable_occupant
+        } else {
+            self.on_capture_overlord_helix_portable_addon(container_id, new_team)
+        };
+
+        if !owner_changed {
+            return;
+        }
 
         let Some(container) = self.objects.get(&container_id) else {
             return;
@@ -469,7 +498,8 @@ impl GameLogic {
         let is_overlord_helix = container.is_overlord_style_container()
             || container.is_helix_transport
             || portable_id.is_some();
-        let walk_exit = !is_overlord_helix
+        let walk_exit = !immediate
+            && !is_overlord_helix
             && !unmanned
             && !is_garrison
             && (uses_exit_busy || can_contain || {

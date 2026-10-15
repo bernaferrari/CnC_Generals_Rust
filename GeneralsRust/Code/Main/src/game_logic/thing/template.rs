@@ -120,6 +120,9 @@ pub struct ThingTemplate {
     /// C++ `SupplyTruckAIUpdateModuleData::m_suppliesDepletedVoice`.
     #[serde(default)]
     pub supplies_depleted_voice: String,
+    /// Effective VoiceDefect content admitted by this session, not a global factory lookup.
+    #[serde(skip)]
+    pub voice_defect: Option<String>,
 
     /// `RailedTransportContain::Slots`, when that exact contain module is
     /// present.  A railed dock with no contain module never gains synthetic
@@ -647,6 +650,7 @@ impl ThingTemplate {
             dock_delete_when_empty: false,
             supply_truck_metadata: None,
             supplies_depleted_voice: String::new(),
+            voice_defect: None,
             railed_transport_slots: None,
             railed_path_prefix_name: String::new(),
 

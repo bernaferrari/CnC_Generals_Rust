@@ -27,6 +27,7 @@ mod resources_income;
 mod selection_owner;
 mod spawn_templates;
 mod support_states;
+mod team_transfer;
 mod unit_ai_runtime;
 mod weapon_upgrades;
 

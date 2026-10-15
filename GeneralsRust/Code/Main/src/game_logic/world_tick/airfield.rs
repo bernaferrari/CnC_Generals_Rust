@@ -1163,48 +1163,66 @@ impl GameLogic {
 
     /// C++ `ParkingPlaceBehavior::defectAllParkedUnits`.
     pub(in super::super) fn defect_all_parked_units(&mut self, airfield_id: ObjectId) {
-        use crate::game_logic::host_defection_helper::DEFAULT_DEFECTION_PROTECTION_FRAMES;
-        let Some(spaces) = self.airfield_parking_spaces.get(&airfield_id).cloned() else {
-            return;
-        };
-        let Some((new_team, new_owner)) = self
+        let Some(owner) = self
             .objects
             .get(&airfield_id)
-            .map(|airfield| (airfield.team, airfield.owner_player_id))
+            .and_then(|object| object.owner_player_id)
         else {
             return;
         };
-        let now = self.frame;
+        let Some(destination) = self.host_default_team_id(owner) else {
+            return;
+        };
+        self.defect_parked_units_owned(
+            airfield_id,
+            destination,
+            crate::game_logic::host_defection_helper::DEFAULT_DEFECTION_PROTECTION_FRAMES,
+        );
+    }
+
+    /// ParkingPlaceBehavior.cpp:575–610: preserve the caller's exact Team and
+    /// detection duration for each occupied parking slot.
+    pub(in crate::game_logic) fn defect_parked_units_owned(
+        &mut self,
+        airfield_id: ObjectId,
+        destination: u32,
+        frames: u32,
+    ) {
+        let Some(spaces) = self.airfield_parking_spaces.get(&airfield_id).cloned() else {
+            return;
+        };
+        let new_owner = {
+            let factory = self.team_factory.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(team) = factory.find_team_by_id(destination) else {
+                return;
+            };
+            let owner = team
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .get_controlling_player_id();
+            owner
+        };
         let mut release = Vec::new();
         for space in &spaces {
             let Some(jet_id) = space.object_id else {
                 continue;
             };
+            if jet_id == airfield_id {
+                continue;
+            }
             let Some(jet) = self.objects.get(&jet_id) else {
                 continue;
             };
-            if !jet.is_alive() {
+            if jet.status.effectively_dead {
                 continue;
             }
             let takeoff_or_landing = self.jet_holds_airfield_runway(airfield_id, jet_id);
             if Self::jet_is_above_terrain(jet) && !takeoff_or_landing {
-                let owner_differs = jet.team != new_team || jet.owner_player_id != new_owner;
-                if owner_differs {
+                if jet.owner_player_id != new_owner {
                     release.push(jet_id);
                 }
-                continue;
-            }
-            if jet.team == new_team && jet.owner_player_id == new_owner {
-                continue;
-            }
-            if let Some(jet) = self.objects.get_mut(&jet_id) {
-                jet.defect(
-                    new_team,
-                    now,
-                    DEFAULT_DEFECTION_PROTECTION_FRAMES,
-                    &mut self.ownership_events,
-                );
-                jet.owner_player_id = new_owner;
+            } else {
+                self.defect_host_object(jet_id, destination, frames);
             }
         }
         for jet_id in release {

@@ -142,6 +142,12 @@ fn starts_paused_module_and_capture_flag_do_not_double_pause() {
 fn defector_special_power_defects_enemy() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "USA", true));
+    logic.add_player(crate::game_logic::Player::new(2, Team::GLA, "GLA", false));
+    logic
+        .get_player_mut(0)
+        .unwrap()
+        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
     let mut template = ThingTemplate::new("AmericaCommandCenter");
     template.set_health(1000.0);
     template.add_kind_of(KindOf::Structure);

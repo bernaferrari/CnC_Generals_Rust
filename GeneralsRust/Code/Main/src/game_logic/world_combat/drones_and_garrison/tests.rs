@@ -1684,12 +1684,12 @@ fn defector_rejects_structure_contained_and_unfinished() {
 #[test]
 fn defector_idles_and_kicks_cargo() {
     let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(2, Team::GLA, "GLA", false));
     logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    logic
-        .players
-        .insert(2, Player::new(2, Team::GLA, "GLA", false));
+        .get_player_mut(0)
+        .unwrap()
+        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
     let mut cc = ThingTemplate::new("AmericaCommandCenter");
     cc.add_kind_of(KindOf::Structure).set_health(1000.0);
     logic.templates.insert("AmericaCommandCenter".into(), cc);

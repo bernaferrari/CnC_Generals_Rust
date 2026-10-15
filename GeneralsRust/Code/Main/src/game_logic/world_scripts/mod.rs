@@ -22,3 +22,6 @@ mod unit_commands;
 
 #[cfg(test)]
 mod authored_refund_tests;
+
+#[cfg(test)]
+mod capture_callback_owner_tests;

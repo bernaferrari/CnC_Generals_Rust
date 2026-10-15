@@ -183,6 +183,10 @@ impl GameLogic {
         texture_hint: Option<&str>,
     ) -> ThingTemplate {
         let mut template = ThingTemplate::new(template_name);
+        template.voice_defect = definition
+            .attributes.iter().find_map(|(key, value)| key.eq_ignore_ascii_case("VoiceDefect").then_some(value.as_str()))
+            .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("None"))
+            .map(str::to_owned);
         match crate::game_logic::native_lifecycle_definition::parse_native_lifecycle_definitions(
             &definition.behavior_modules,
         ) {

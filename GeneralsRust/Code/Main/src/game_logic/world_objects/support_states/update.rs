@@ -1587,7 +1587,11 @@ impl GameLogic {
 
                     if did_capture {
                         // C++ Object::onCapture residual (kick/idle/AI-sell/deselect).
-                        self.on_capture_object_residual(capture_target_id, target_team, team);
+                        // Exact-player transfer already ran the receiving onCapture.
+                        // Unmigrated faction-only admission still needs its adapter.
+                        if owner_player_id.is_none() {
+                            self.on_capture_object_residual(capture_target_id, target_team, team);
+                        }
                         // C++ getAcademyStats()->recordBuildingCapture() residual.
                         let player = match owner_player_id {
                             Some(player_id) => self.get_player_mut(player_id),

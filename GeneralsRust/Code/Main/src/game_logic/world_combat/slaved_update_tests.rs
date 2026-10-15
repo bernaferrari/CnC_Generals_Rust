@@ -253,11 +253,7 @@ fn captured_master_transfers_actual_slave_owner_before_repair_observation() {
     let (mut game, master, drone) = world();
     let (peer, _, peer_drone) = world();
     game.add_player(Player::new(1, Team::China, "captor", false));
-    game.objects.get_mut(&master).unwrap().set_team_and_owner(
-        Team::China,
-        Some(1),
-        &mut game.ownership_events,
-    );
+    assert!(game.transfer_object_to_player(master, 1));
     game.update_owned_slaved_object(drone);
     let slave = game.host_object(drone).unwrap();
     assert_eq!(slave.team, Team::China);
@@ -524,4 +520,113 @@ End
 
     assert!(template.slaved_update_metadata.is_some());
     game.templates.insert(name.into(), template);
+}
+
+fn named_master_team(game: &mut GameLogic, master: crate::game_logic::ObjectId) -> u32 {
+    let identity = {
+        let mut factory = game.team_factory.lock().unwrap();
+        factory
+            .init_team_owned(
+                "SlaveMasterTeam".into(),
+                "owner".into(),
+                false,
+                None,
+                Some(0),
+            )
+            .unwrap();
+        let team = factory.create_inactive_team("SlaveMasterTeam").unwrap();
+        let identity = team.read().unwrap().get_id();
+        identity
+    };
+    assert!(game.set_host_object_team(master, identity));
+    identity
+}
+
+#[test]
+fn same_player_hostile_team_slave_defects_to_exact_master_instance_before_repair() {
+    let (mut game, master, drone) = world();
+    let (peer, _, peer_drone) = world();
+    let old = game.host_object(drone).unwrap().team_instance_id.unwrap();
+    let destination = named_master_team(&mut game, master);
+    // A newer same-name sibling cannot become the destination by name lookup.
+    game.team_factory
+        .lock()
+        .unwrap()
+        .create_inactive_team("SlaveMasterTeam")
+        .unwrap();
+    game.team_factory
+        .lock()
+        .unwrap()
+        .find_team_by_id(destination)
+        .unwrap()
+        .write()
+        .unwrap()
+        .set_override_team_relationship(old, gamelogic::common::Relationship::Enemies);
+    game.host_object_mut(drone).unwrap().set_ai_attitude_i8(2);
+    game.update_owned_slaved_object(drone);
+    let slave = game.host_object(drone).unwrap();
+    assert_eq!(slave.team_instance_id, Some(destination));
+    assert_eq!(slave.team_instance_name, "SlaveMasterTeam");
+    assert_eq!(slave.owner_player_id, Some(0));
+    assert_eq!(slave.ai_attitude, 0);
+    assert!(
+        !slave.is_undetected_defector(),
+        "CPP defect(masterTeam, 0) grants no cover"
+    );
+    assert_eq!(slave.slaved_update.as_ref().unwrap().master, Some(master));
+    let factory = game.team_factory.lock().unwrap();
+    assert!(
+        !factory
+            .find_team_by_id(old)
+            .unwrap()
+            .read()
+            .unwrap()
+            .has_member(drone.0)
+    );
+    assert_eq!(
+        factory
+            .find_team_by_id(destination)
+            .unwrap()
+            .read()
+            .unwrap()
+            .get_members(),
+        &[drone.0, master.0]
+    );
+    assert_eq!(
+        peer.host_object(peer_drone).unwrap().team_instance_id,
+        Some(old)
+    );
+}
+
+#[test]
+fn slave_defect_uses_original_contained_sold_and_construction_status_gates() {
+    for gate in 0..3 {
+        let (mut game, master, drone) = world();
+        let old = game.host_object(drone).unwrap().team_instance_id.unwrap();
+        let destination = named_master_team(&mut game, master);
+        game.team_factory
+            .lock()
+            .unwrap()
+            .find_team_by_id(destination)
+            .unwrap()
+            .write()
+            .unwrap()
+            .set_override_team_relationship(old, gamelogic::common::Relationship::Enemies);
+        let object = game.host_object_mut(drone).unwrap();
+        match gate {
+            0 => object.set_contained_by(Some(master)),
+            1 => object.status.sold = true,
+            _ => object.status.under_construction = true,
+        }
+        game.update_owned_slaved_object(drone);
+        assert_eq!(game.host_object(drone).unwrap().team_instance_id, Some(old));
+        assert!(game.host_object(drone).unwrap().defection_helper.is_none());
+    }
+    let (mut game, master, drone) = world();
+    let destination = named_master_team(&mut game, master);
+    game.host_object_mut(drone).unwrap().construction_percent = 0.2;
+    assert!(
+        game.defect_host_object(drone, destination, 0),
+        "CPP gates the status bit, not a progress epsilon"
+    );
 }

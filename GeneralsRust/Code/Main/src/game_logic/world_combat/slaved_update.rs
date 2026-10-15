@@ -124,8 +124,7 @@ impl GameLogic {
             return;
         };
         let mpos = master.get_position();
-        let master_owner = self.player_owner_for_host_object(master);
-        let master_team = master.team;
+        let master_identity = master.team_instance_id;
         let master_layer = master.pathfind_layer;
         let hp_percent = if data.repair_rate > 0.0 {
             (master.health.current / master.health.maximum * 100.0) as i32
@@ -138,24 +137,15 @@ impl GameLogic {
                 .map(|o| (target, o.get_position()))
         });
         let destination = master.movement.path.last().copied();
-        let drone_owner = self
+        let drone_identity = self
             .objects
             .get(&id)
-            .and_then(|o| self.player_owner_for_host_object(o));
-        let allied = match (master_owner, drone_owner) {
-            (Some(master), Some(drone)) => {
-                self.player_relationship(master, drone) == gamelogic::common::Relationship::Allies
-            }
-            _ => self.objects.get(&id).is_some_and(|o| o.team == master_team),
-        };
-        if !allied {
-            if let Some(drone) = self.objects.get_mut(&id) {
-                drone.set_team_and_owner_with_factory(
-                    master_team,
-                    master_owner,
-                    &self.team_factory,
-                    &mut self.ownership_events,
-                );
+            .and_then(|drone| drone.team_instance_id);
+        if let (Some(master_team), Some(drone_team)) = (master_identity, drone_identity) {
+            if self.host_team_relationship(master_team, drone_team)
+                != Some(gamelogic::common::Relationship::Allies)
+            {
+                self.defect_host_object(id, master_team, 0);
             }
         }
         if let Some(drone) = self.objects.get_mut(&id) {

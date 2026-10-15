@@ -6,7 +6,7 @@
 //!
 //! Residual playability slice:
 //! - `start_defection_timer(frames, with_fx)` residual
-//! - Default max detection window **10s** (300 frames @ 30 FPS)
+//! - Flash acceleration denominator **10s** (300 frames @ 30 FPS), not a duration cap
 //! - Blow cover on effectively-dead or IS_FIRING_WEAPON
 //! - Flash phase residual accelerates near end
 //! - Presentation: defector_flash + undetected_defector flags
@@ -55,14 +55,14 @@ impl Default for HostDefectionHelperData {
 }
 
 impl HostDefectionHelperData {
-    /// C++ startDefectionTimer residual.
+    /// C++ startDefectionTimer uses the requested duration without clamping.
+    /// Its unsigned deadline wraps, and update compares it as an absolute frame.
     pub fn start_defection_timer(&mut self, now: u32, num_frames: u32, with_fx: bool) {
         if !self.undetected_defector {
             return;
         }
-        let frames = num_frames.max(1).min(DEFECTION_DETECTION_TIME_MAX);
         self.detection_start = now;
-        self.detection_end = now.saturating_add(frames);
+        self.detection_end = now.wrapping_add(num_frames);
         self.flash_phase = 0.0;
         self.do_defector_fx = with_fx;
         self.flash_this_frame = false;
@@ -70,17 +70,10 @@ impl HostDefectionHelperData {
         self.pending_audio.clear();
     }
 
-    /// Mark as undetected defector (call before start_defection_timer).
+    /// C++ friend_setUndetectedDefector changes only the private status bit.
+    /// Timer fields remain intact for Xfer, even after cover is blown.
     pub fn set_undetected_defector(&mut self, on: bool) {
         self.undetected_defector = on;
-        if !on {
-            self.do_defector_fx = false;
-            self.flash_this_frame = false;
-            self.final_white_flash = false;
-            self.detection_end = 0;
-            self.detection_start = 0;
-            self.flash_phase = 0.0;
-        }
     }
 
     pub fn is_undetected_defector(&self) -> bool {
@@ -101,26 +94,21 @@ impl HostDefectionHelperData {
         if !self.undetected_defector {
             return;
         }
-        if effectively_dead || is_firing {
-            self.blow_cover();
-            return;
-        }
-        if self.detection_end == 0 {
-            return;
-        }
         if now >= self.detection_end {
             self.undetected_defector = false;
             if self.do_defector_fx {
                 self.final_white_flash = true;
                 self.pending_audio.push("DefectorTimerDing".into());
             }
-            self.do_defector_fx = false;
-            self.detection_end = 0;
+            return;
+        }
+        if effectively_dead || is_firing {
+            self.blow_cover();
             return;
         }
         if self.do_defector_fx {
             let last_phase = (self.flash_phase as i32) & 1;
-            let time_left = self.detection_end.saturating_sub(now) as f32;
+            let time_left = (self.detection_end - now) as f32;
             let max_t = DEFECTION_DETECTION_TIME_MAX as f32;
             self.flash_phase += 0.5 * (1.0 - (time_left / max_t));
             let this_phase = (self.flash_phase as i32) & 1;
@@ -143,7 +131,7 @@ pub fn defect_team_residual(
     protection_frames: u32,
     with_fx: bool,
 ) {
-    data.set_undetected_defector(true);
+    data.set_undetected_defector(protection_frames > 0);
     data.start_defection_timer(now, protection_frames, with_fx);
 }
 

@@ -416,10 +416,12 @@ impl GameLogic {
             })
             .unwrap_or((None, None));
 
-        let Some(object) = self.objects.get_mut(&object_id) else {
+        let Some(destination) = self.host_default_team_id(player_id) else {
             return false;
         };
-        object.set_team_and_owner(team, Some(player_id), &mut self.ownership_events);
+        if !self.set_host_object_team(object_id, destination) {
+            return false;
+        }
 
         if let Some(bonus) = retained_overcharge_bonus {
             if let Some(old_player_id) = old_owner_player_id {
