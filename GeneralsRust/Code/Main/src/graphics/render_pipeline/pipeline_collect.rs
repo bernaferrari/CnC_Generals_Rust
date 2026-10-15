@@ -176,6 +176,12 @@ impl RenderPipeline {
         // Share the immutable frame: copying its object roster and shroud bytes
         // here adds allocations on every draw without changing any render input.
         let presentation = self.presentation_frame.clone();
+        // Consume detached restore data once against the frame actually drawn,
+        // after any number of startup/load presentation handoffs.
+        if let Some(frame) = presentation.as_deref() {
+            self.prepare_pending_client_drawable_restore_for_frame(frame);
+        }
+
         let visual_plans: Vec<crate::presentation_frame::FrozenWeaponVisualDispatchPlan> =
             presentation
                 .as_ref()

@@ -100,7 +100,7 @@ fn team_delete_living_uses_effectively_dead_state_instead_of_health() {
 #[test]
 fn named_kill_topple_callback_reads_only_the_supplied_interpreter() {
     let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content("Object AuthoredToppleTarget\n KindOf = STRUCTURE\n Body = ActiveBody ModuleTag_Body\n MaxHealth = 100\n End\n Behavior = StructureToppleUpdate ModuleTag_Fall\n End\nEnd\n", "owned-lifecycle.ini").unwrap();
+    parser.parse_ini_content("Object AuthoredToppleTarget\n KindOf = STRUCTURE\n Body = ActiveBody ModuleTag_Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = StructureToppleUpdate ModuleTag_Fall\n End\nEnd\n", "owned-lifecycle.ini").unwrap();
     let template = GameLogic::build_template_from_object_definition(
         "AuthoredToppleTarget",
         parser.get_definition("AuthoredToppleTarget").unwrap(),

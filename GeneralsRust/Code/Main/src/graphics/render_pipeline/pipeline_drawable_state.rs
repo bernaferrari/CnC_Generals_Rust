@@ -15,6 +15,46 @@ type ClientDrawableAnimationMode = crate::save_load::snapshot::ClientDrawableAni
 type ClientDrawableAnimationSnapshot = crate::save_load::snapshot::ClientDrawableAnimationSnapshot;
 type ClientDrawableRecoilSnapshot = crate::save_load::snapshot::ClientDrawableRecoilSnapshot;
 
+/// Borrowed admission seam used only at actual collection, not frame setup.
+fn prepare_client_drawable_restore_for_collection(
+    pending: &mut Option<ClientDrawableWorldSnapshot>,
+    imports: &mut HashMap<(u32, u32), ClientDrawableStateSnapshot>,
+    frame: &crate::presentation_frame::PresentationFrame,
+) {
+    let Some(snapshot) = pending.take() else {
+        return;
+    };
+
+    let mut identities = HashMap::new();
+    for unit in frame.unit_render_inputs() {
+        for draw_model in unit.draw_models {
+            let key = (unit.id.0, draw_model.module_index);
+            if let Some(identity) =
+                frozen_visual_identity_for_draw_model(unit.template_name.as_str(), &draw_model)
+            {
+                identities.insert(key, identity);
+            }
+        }
+    }
+
+    let mut seen = HashSet::new();
+    for drawable in snapshot.drawables {
+        let key = (drawable.object_id, drawable.draw_module_index);
+        if !drawable.has_stable_source_identity()
+            || !drawable.has_finite_visual_values()
+            || !seen.insert(key)
+        {
+            continue;
+        }
+        let Some(identity) = identities.get(&key) else {
+            continue;
+        };
+        if visual_identity_matches_snapshot(identity, &drawable) {
+            imports.insert(key, drawable);
+        }
+    }
+}
+
 fn client_animation_mode(
     mode: &crate::assets::AuthoredDrawAnimationMode,
 ) -> Option<ClientDrawableAnimationMode> {
@@ -561,38 +601,11 @@ impl RenderPipeline {
         &mut self,
         frame: &crate::presentation_frame::PresentationFrame,
     ) {
-        let Some(snapshot) = self.pending_client_drawable_restore.take() else {
-            return;
-        };
-
-        let mut identities = HashMap::new();
-        for unit in frame.unit_render_inputs() {
-            for draw_model in unit.draw_models {
-                let key = (unit.id.0, draw_model.module_index);
-                if let Some(identity) =
-                    frozen_visual_identity_for_draw_model(unit.template_name.as_str(), &draw_model)
-                {
-                    identities.insert(key, identity);
-                }
-            }
-        }
-
-        let mut seen = HashSet::new();
-        for drawable in snapshot.drawables {
-            let key = (drawable.object_id, drawable.draw_module_index);
-            if !drawable.has_stable_source_identity()
-                || !drawable.has_finite_visual_values()
-                || !seen.insert(key)
-            {
-                continue;
-            }
-            let Some(identity) = identities.get(&key) else {
-                continue;
-            };
-            if visual_identity_matches_snapshot(identity, &drawable) {
-                self.pending_client_drawable_imports.insert(key, drawable);
-            }
-        }
+        prepare_client_drawable_restore_for_collection(
+            &mut self.pending_client_drawable_restore,
+            &mut self.pending_client_drawable_imports,
+            frame,
+        );
     }
 
     /// C++ `isAnimationComplete` (W3DModelDraw.cpp:1931-1940) returns true
@@ -1100,3 +1113,7 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+#[path = "drawable_restore_admission_tests.rs"]
+mod drawable_restore_admission_tests;

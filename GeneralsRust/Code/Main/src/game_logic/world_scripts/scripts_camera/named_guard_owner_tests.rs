@@ -401,7 +401,8 @@ fn canonical_guard_command_movement_and_save_ignore_poisoned_shadow_and_same_id_
     copy.guard_radius = 999.0;
     let builder = crate::save_load::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&owner).unwrap();
-    let mut restored = GameLogic::new();
+    // Restore into the same authored map/player definitions, not a bare world.
+    let (mut restored, _, _) = world();
     restored.templates = owner.templates.clone();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)

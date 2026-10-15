@@ -4,7 +4,11 @@ use gamelogic::scripting::engine::ScriptEngine;
 use gamelogic::team::{TeamStateObservation, TeamStateStep};
 
 impl GameLogic {
-    fn observe_owned_team_state(&self, members: &[u32]) -> TeamStateObservation {
+    fn observe_owned_team_state(
+        &self,
+        members: &[u32],
+        needs_enemy_sighting: bool,
+    ) -> TeamStateObservation {
         let (min, max) = self.world_bounds();
         let off_map = |position: Vec3| {
             crate::game_logic::host_deliver_payload::is_off_map_residual(
@@ -34,7 +38,7 @@ impl GameLogic {
                     ) && object.unit_ai_runtime.guard_phase()
                         == Some(crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle));
             }
-            if !observation.enemy_sighted {
+            if needs_enemy_sighting && !observation.enemy_sighted {
                 let position = object.get_position();
                 let radius_sq = object.vision_range * object.vision_range;
                 observation.enemy_sighted =
@@ -96,12 +100,15 @@ impl GameLogic {
                         .condition_team_after(&name, Some(id));
                     let mut step = TeamStateStep::default();
                     while step != TeamStateStep::Done {
-                        let members = team
-                            .read()
-                            .unwrap_or_else(|error| error.into_inner())
-                            .get_members()
-                            .to_vec();
-                        let observation = self.observe_owned_team_state(&members);
+                        let (members, needs_enemy_sighting) = {
+                            let team = team.read().unwrap_or_else(|error| error.into_inner());
+                            (
+                                team.get_members().to_vec(),
+                                team.needs_enemy_sighting_observation(&step),
+                            )
+                        };
+                        let observation =
+                            self.observe_owned_team_state(&members, needs_enemy_sighting);
                         let script = team
                             .write()
                             .unwrap_or_else(|error| error.into_inner())
@@ -183,3 +190,7 @@ impl GameLogic {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "owned_team_observation_tests.rs"]
+mod owned_team_observation_tests;

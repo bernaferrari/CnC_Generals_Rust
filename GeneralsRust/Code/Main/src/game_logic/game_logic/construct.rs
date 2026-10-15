@@ -658,7 +658,7 @@ impl GameLogic {
             camera_tether_play: None,
             script_look_toward_object_id: None,
             script_look_toward_hold_seconds: 0.0,
-            script_default_camera_pitch: 1.0,
+            script_default_camera_pitch: 0.0,
             script_default_camera_angle: 0.0,
             script_default_camera_max_height: 1.0,
             script_camera_freeze_time_armed: false,
@@ -1354,7 +1354,7 @@ impl GameLogic {
         self.camera_tether_play = None;
         self.script_look_toward_object_id = None;
         self.script_look_toward_hold_seconds = 0.0;
-        self.script_default_camera_pitch = 1.0;
+        self.script_default_camera_pitch = 0.0;
         self.script_default_camera_angle = 0.0;
         self.script_default_camera_max_height = 1.0;
         self.script_camera_freeze_time_armed = false;

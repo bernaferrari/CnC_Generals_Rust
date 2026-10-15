@@ -1228,26 +1228,63 @@ impl CnCGameEngine {
         // deferred team actions, so the first post-load draw continues the
         // save-point stream.
         Self::host_restore_staged_logic_rng(&mut self.game_logic, logic_rng_seed_words);
+        self.invalidate_presentation_terrain_cache();
+        if let Some(shadow) = self.gameworld_shadow.as_mut() {
+            shadow.reset_for_world_boundary();
+            shadow.sync_from_host(&self.game_logic);
+        }
+        // Recreate map defaults from this newly committed map's INITIAL focus,
+        // never from a saved eye or destination. Both old snapshots are stale.
+        self.last_presentation_frame = None;
+        self.render_pipeline.set_presentation_frame(None);
+        self.ensure_presentation_env_seeded();
+        (
+            self.camera_target,
+            self.camera_position,
+            self.camera_zoom,
+            self.native_camera,
+        ) = Self::bootstrap_native_camera_for_loaded_map(
+            self.game_logic.isInShellGame(),
+            self.current_player_id,
+            Self::configured_startup_camera_defaults(),
+            self.last_presentation_frame.as_deref(),
+        );
+        self.camera_pitch_radians = 0.0;
+        self.camera_yaw_radians = 0.0;
+        if let Some(camera) = client_persist.camera() {
+            self.camera_position = glam::Vec3::from_array(camera.position);
+            self.camera_target = glam::Vec3::from_array(camera.target);
+            self.camera_zoom = camera.zoom;
+            // Native saves include raw View heading; recover pitch only against
+            // the fixed initial-map basis, including over-zenith poses.
+            self.camera_yaw_radians = camera.angle;
+            self.sync_orbit_from_camera_transform();
+            if let Some(terrain) = self.native_camera_terrain_height_around(self.camera_target) {
+                self.native_camera
+                    .admit_restored_pose_height(self.camera_zoom, terrain);
+            }
+        } else if let Some(camera) = client_persist.tactical_view_camera {
+            // Original View::xfer contains logical XYZ position and angle only.
+            // Keep the newly initialized map zoom/HAG and raw default pitch.
+            self.camera_target =
+                glam::Vec3::new(camera.position[0], camera.position[2], camera.position[1]);
+            self.camera_yaw_radians = camera.angle;
+            self.apply_camera_orbit_transform();
+        }
+        let (_, render_look) = self.native_camera.basis().pose(
+            self.camera_target,
+            self.camera_zoom,
+            self.camera_pitch_radians,
+            self.camera_yaw_radians,
+        );
+        self.view_matrix = glam::Mat4::look_at_rh(self.camera_position, render_look, glam::Vec3::Y);
         // Keep the client companion staged until the first complete frozen
-        // frame after the successful world replacement.  `set_presentation_frame`
-        // performs source-identity validation before collection and removes
+        // frame after the successful world replacement. Actual collection
+        // validates source identity against that receiving frame and removes
         // each candidate once, so a failed/missing W3D asset cannot replay a
         // stale timeline on a later frame.
         self.render_pipeline
             .queue_client_drawable_restore(client_drawables);
-        self.invalidate_presentation_terrain_cache();
-        if let Some(camera) = crate::save_load::snapshot::take_pending_camera() {
-            self.camera_position =
-                glam::Vec3::new(camera.position[0], camera.position[1], camera.position[2]);
-            self.camera_target =
-                glam::Vec3::new(camera.target[0], camera.target[1], camera.target[2]);
-            if camera.zoom.is_finite() && camera.zoom > 0.05 {
-                self.camera_zoom = camera.zoom;
-            }
-            self.view_matrix =
-                glam::Mat4::look_at_rh(self.camera_position, self.camera_target, glam::Vec3::Y);
-            self.sync_orbit_from_camera_transform();
-        }
         if let Some(groups) = crate::save_load::snapshot::take_pending_control_groups() {
             self.control_groups = groups
                 .into_iter()
@@ -1260,10 +1297,6 @@ impl CnCGameEngine {
                 .collect();
         } else {
             self.control_groups.clear();
-        }
-        if let Some(shadow) = self.gameworld_shadow.as_mut() {
-            shadow.reset_for_world_boundary();
-            shadow.sync_from_host(&self.game_logic);
         }
         Ok(())
     }
@@ -1289,21 +1322,12 @@ impl CnCGameEngine {
         // authority boundary as the logical snapshot.  The pipeline method
         // is renderer-local and immutable here; an empty/unresolved cache is
         // intentionally a valid fail-closed companion.
-        let offset = self.camera_position - self.camera_target;
-        crate::save_load::snapshot::set_pending_camera(crate::save_load::snapshot::CameraPersist {
-            angle: offset.x.atan2(offset.z),
-            position: [
-                self.camera_position.x,
-                self.camera_position.y,
-                self.camera_position.z,
-            ],
-            target: [
-                self.camera_target.x,
-                self.camera_target.y,
-                self.camera_target.z,
-            ],
+        let camera = crate::save_load::snapshot::CameraPersist {
+            angle: self.camera_yaw_radians,
+            position: self.camera_position.to_array(),
+            target: self.camera_target.to_array(),
             zoom: self.camera_zoom,
-        });
+        };
         crate::save_load::snapshot::set_pending_control_groups(
             self.control_groups
                 .iter()
@@ -1319,12 +1343,13 @@ impl CnCGameEngine {
         let save_path = self.save_file_manager.get_save_path(slot);
         let result = self
             .save_file_manager
-            .save_game_with_client_state(
+            .save_game_with_client_state_and_camera(
                 slot,
                 &self.game_logic,
                 client_drawables,
                 &mut self.game_client,
                 save_info,
+                camera,
             )
             .map_err(|e| format!("{e}"));
         // C++ GameState::saveGame (GameState.cpp:547-597): HUD
@@ -1489,6 +1514,13 @@ impl CnCGameEngine {
             &mut crate::game_logic::GameLogic,
         ) -> Result<(), String>,
     {
+        // Validate detached view data before map staging can touch shared services.
+        if let Some(camera) = snapshot.persist_v18.camera() {
+            camera.validate().map_err(|err| format!("{err}"))?;
+        }
+        if let Some(camera) = snapshot.persist_v18.tactical_view_camera {
+            camera.validate().map_err(|err| format!("{err}"))?;
+        }
         if let Some(bytes) = game_client_xfer_bytes.as_deref() {
             crate::save_load::snapshot::validate_game_client_xfer_bytes(bytes)
                 .map_err(|err| format!("{err}"))?;
@@ -3183,6 +3215,10 @@ mod staged_restore_tests {
                 let restore_and_create = |snapshot: &crate::save_load::WorldSnapshot| -> u32 {
                     let mut restored = GameLogic::new();
                     restored.templates = source.templates.clone();
+                    // This allocator fixture has no map loader: admit the same
+                    // receiving player/default-team definition as its source.
+                    // Strict saved roster validation must remain enabled.
+                    restored.add_player(Player::new(0, Team::USA, "USA", true));
                     builder
                         .restore_from_snapshot(snapshot, &mut restored)
                         .expect("restore");

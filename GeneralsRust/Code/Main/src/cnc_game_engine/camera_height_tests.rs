@@ -37,7 +37,8 @@ fn owner() -> CameraHeight {
     let mut owner = CameraHeight::new(1000., 45., 0.);
     owner.initialize_map(0., 1000., 45., 0.);
     owner.set_adjustment_enabled(true);
-    owner.set_height(400., false, 0., 0.);
+    owner.set_zoom_limited(false);
+    owner.set_height(400., 0., 0.);
     owner
 }
 
@@ -201,7 +202,8 @@ fn integration_does_not_invent_positive_speed_or_zoom_clamps() {
 #[test]
 fn source_adjustment_threshold_is_inclusive() {
     let mut height = owner();
-    height.set_height(0., false, 0., 0.);
+    height.set_zoom_limited(false);
+    height.set_height(0., 0., 0.);
     let mut zoom = 0.0001;
     let mut config = rules();
     config.adjust_speed = 1.;
@@ -300,16 +302,14 @@ fn native_pose_inverse_recovers_angles_without_recalibrating_map_basis() {
     for ini_yaw in [0., 25.] {
         let basis = CameraBasis::for_map(80., 400., 45., ini_yaw);
         let original = basis.offset;
-        for pitch in [-0.3, 0., 0.3] {
+        for pitch in [-0.3, 0., 0.3, 0.8, 1., 1.4] {
             for heading in [-2., 0., 2.] {
                 let position = Vec3::new(100., 800., 200.);
                 let (eye, look) = basis.pose(position, 0.9, pitch, heading);
-                let (restored_pitch, restored_heading) =
-                    basis.angles_from_pose(position, eye, 0.9).unwrap();
+                let restored_pitch = basis.pitch_from_pose(position, eye, 0.9, heading).unwrap();
                 assert!((restored_pitch - pitch).abs() < 0.00001);
-                assert!((restored_heading - heading).abs() < 0.00001);
                 let (restored_eye, restored_look) =
-                    basis.pose(position, 0.9, restored_pitch, restored_heading);
+                    basis.pose(position, 0.9, restored_pitch, heading);
                 vec_near(restored_eye, eye);
                 vec_near(restored_look, look);
                 assert_eq!(basis.offset, original);
@@ -321,12 +321,14 @@ fn native_pose_inverse_recovers_angles_without_recalibrating_map_basis() {
 #[test]
 fn map_default_set_and_capture_are_owned_and_construction_is_inert() {
     let mut first = owner();
-    first.set_height(275., false, 0., 0.);
+    first.set_zoom_limited(false);
+    first.set_height(275., 0., 0.);
     let first_pose = first.basis().pose(Vec3::new(10., 0., 20.), 0.8, 0., 0.);
     let mut peer = CameraHeight::new(600., 30., 15.);
     assert_eq!(peer.desired(), 0.);
     peer.initialize_map(-20., 600., 30., 15.);
-    peer.set_height(20., true, 50., 500.);
+    peer.set_zoom_limited(true);
+    peer.set_height(20., 50., 500.);
     assert_eq!(peer.desired(), 50.);
     assert_eq!(first.desired(), 275.);
     assert_eq!(
@@ -346,9 +348,11 @@ fn map_default_set_and_capture_are_owned_and_construction_is_inert() {
     );
     let mut restored = CameraHeight::new(1000., 45., 0.);
     restored.initialize_map(0., 1000., 45., 0.);
-    restored.set_height(first.desired(), false, 0., 0.);
+    restored.set_zoom_limited(false);
+    restored.set_height(first.desired(), 0., 0.);
     assert_eq!(restored.desired(), first.desired());
-    restored.set_height(2000., true, 50., 500.);
+    restored.set_zoom_limited(true);
+    restored.set_height(2000., 50., 500.);
     assert_eq!(restored.desired(), 500.);
     assert_eq!(first.desired(), 275.);
 }
@@ -357,7 +361,8 @@ fn map_default_set_and_capture_are_owned_and_construction_is_inert() {
 fn admitted_native_pose_keeps_restored_zoom_without_recalibrating_map_basis() {
     let mut restored = owner();
     let mut peer = owner();
-    peer.set_height(900., false, 0., 0.);
+    peer.set_zoom_limited(false);
+    peer.set_height(900., 0., 0.);
     let basis_before = restored.basis().offset;
     let mut zoom = 0.6;
     restored.admit_restored_pose_height(zoom, 100.);
@@ -366,4 +371,25 @@ fn admitted_native_pose_keeps_restored_zoom_without_recalibrating_map_basis() {
     assert_eq!(zoom, 0.6);
     assert_eq!(restored.basis().offset, basis_before);
     assert_eq!(peer.desired(), 900.);
+}
+
+#[test]
+fn zoom_limit_toggles_and_letterbox_transitions_belong_to_the_view() {
+    let mut a = CameraHeight::new(1000., 37.5, 0.);
+    let mut b = CameraHeight::new(1000., 37.5, 0.);
+    assert!(a.zoom_limited() && b.zoom_limited());
+    assert!(!a.toggle_zoom_limited());
+    a.set_height(20., 50., 500.);
+    b.set_height(20., 50., 500.);
+    assert_eq!((a.desired(), b.desired()), (20., 50.));
+    assert!(a.toggle_zoom_limited());
+    a.set_height(2000., 50., 500.);
+    assert_eq!(a.desired(), 500.);
+    // Enter/leave letterbox overrides this owner's limit, as Display does.
+    a.set_zoom_limited(false);
+    a.set_height(2000., 50., 500.);
+    assert_eq!(a.desired(), 2000.);
+    a.set_zoom_limited(true);
+    assert!(a.zoom_limited() && b.zoom_limited());
+    assert_eq!(b.desired(), 50.);
 }

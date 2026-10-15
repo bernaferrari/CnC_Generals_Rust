@@ -7,7 +7,7 @@
 //! Host residual only — network deferred.
 //!
 //! Sources:
-//! - `cnc_game_engine.rs` bootstrap_camera_for_loaded_map call sites
+//! - `cnc_game_engine.rs` bootstrap_native_camera_for_loaded_map call sites
 //! - `PresentationFrame::fow_shell_bypass`
 //!
 //! Fail-closed:
@@ -24,7 +24,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 
 pub const LIVE_PRESENTATION_CAMERA_SHELL_FLAG_METHOD_NAMES_WAVE540: &[&str] = &[
-    "bootstrap_camera_for_loaded_map",
+    "bootstrap_native_camera_for_loaded_map",
     "fow_shell_bypass",
     "in_shell_camera",
     "isInShellGame",
@@ -89,7 +89,7 @@ fn eng_source() -> &'static str {
 
 pub fn honesty_presentation_camera_shell_flag_method_names_residual_wave540() -> bool {
     let names = LIVE_PRESENTATION_CAMERA_SHELL_FLAG_METHOD_NAMES_WAVE540;
-    let ok = residual_name_index(names, "bootstrap_camera_for_loaded_map").is_some()
+    let ok = residual_name_index(names, "bootstrap_native_camera_for_loaded_map").is_some()
         && residual_name_index(names, "fow_shell_bypass").is_some()
         && residual_name_index(names, "in_shell_camera").is_some()
         && residual_name_index(names, "isInShellGame").is_some()
@@ -100,14 +100,16 @@ pub fn honesty_presentation_camera_shell_flag_method_names_residual_wave540() ->
 
 pub fn honesty_presentation_camera_shell_flag_source_markers_residual_wave540() -> bool {
     let eng = eng_source();
-    let bootstrap_n = eng.matches("bootstrap_camera_for_loaded_map").count();
+    let bootstrap_n = eng
+        .matches("bootstrap_native_camera_for_loaded_map")
+        .count();
     let shell_flag_n = eng.matches("in_shell_camera").count();
     // Wave 552: camera shell flag centralized via shell_bypass_from_presentation.
     let ok = eng.contains("Wave 540")
         && eng.contains("prefer presentation fow_shell_bypass")
         && eng.contains("in_shell_camera")
         && eng.contains("fow_shell_bypass")
-        && eng.contains("bootstrap_camera_for_loaded_map")
+        && eng.contains("bootstrap_native_camera_for_loaded_map")
         && shell_flag_n >= 2
         && bootstrap_n >= 2
         && (eng.contains("unwrap_or_else(|| self.game_logic.isInShellGame())")
@@ -143,7 +145,7 @@ pub fn simulate_presentation_camera_shell_flag_collect_source() -> bool {
 pub fn simulate_presentation_camera_shell_flag_dispatch_source() -> bool {
     let eng = eng_source();
     let ok = eng.contains("in_shell_camera")
-        && eng.contains("bootstrap_camera_for_loaded_map")
+        && eng.contains("bootstrap_native_camera_for_loaded_map")
         && eng.matches("in_shell_camera").count() >= 2;
     residual_action_store(ResidualPresentationCameraShellFlagAction::DispatchSource);
     ok

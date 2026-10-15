@@ -1497,6 +1497,17 @@ impl CnCGameEngine {
                     self.toggle_camera_tracking_drawable_hotkey();
                     true
                 }
+                "DEMO_TOGGLE_ZOOM_LOCK" => {
+                    // CommandXlat.cpp4867: toggle the driving View, not a
+                    // process-global TacticalView selected by another session.
+                    let limited = self.native_camera.toggle_zoom_limited();
+                    self.game_hud_mut().push_info_message(if limited {
+                        "Camera Zoom Limit: ON"
+                    } else {
+                        "Camera Zoom Limit: OFF"
+                    });
+                    true
+                }
                 "CAMERA_RESET" => {
                     self.reset_camera_view_hotkey();
                     true

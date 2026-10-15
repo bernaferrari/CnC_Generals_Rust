@@ -96,7 +96,8 @@ fn scoring_owner_encoded_save_and_failed_candidate_preserve_actual_kill_gates() 
     assert!(!saved.is_scoring_enabled);
     let bytes = bincode_legacy::serialize(&saved).unwrap();
     let saved = decode_bincode_world_snapshot(&bytes).unwrap();
-    let mut restored = GameLogic::new();
+    // Map/player admission creates the canonical default-team prototypes.
+    let (mut restored, _, _) = world();
     restored.templates = live.templates.clone();
     builder
         .restore_from_snapshot(&saved, &mut restored)

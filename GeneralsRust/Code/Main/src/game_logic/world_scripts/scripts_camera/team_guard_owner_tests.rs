@@ -250,7 +250,13 @@ fn team_guard_reentry_exits_hunt_and_clears_previous_goal_immediately() {
 #[test]
 fn team_guard_snapshot_continues_without_reissuing_the_team_command() {
     let (mut source, id, _) = world();
-    team(&source, "GuardRoster", &[id], false, true);
+    let roster = team(&source, "GuardRoster", &[id], false, true);
+    // Real map/team admission transfers one object out of its default team;
+    // manually adding it to a second roster leaves an invalid duplicate save.
+    let object = source.host_object_mut(id).unwrap();
+    object.team_instance_name = "GuardRoster".into();
+    object.team_instance_id = Some(roster);
+    source.activate_leftover_team_for_host_object(id);
     assert_eq!(execute(&mut source, "GuardRoster"), 1);
     let builder = crate::save_load::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&source).unwrap();

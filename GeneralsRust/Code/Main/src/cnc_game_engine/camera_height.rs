@@ -32,6 +32,10 @@ impl CameraBasis {
         Self::from_height(ground, ground + height, pitch, yaw)
     }
 
+    pub(super) fn ground_level(&self) -> f32 {
+        self.ground_level
+    }
+
     /// Normal (non-FOV) zoom path from buildCameraTransform. Pitch and heading
     /// are independent View deltas, not absolute spherical-orbit angles.
     pub(super) fn pose(&self, position: Vec3, zoom: f32, pitch: f32, heading: f32) -> (Vec3, Vec3) {
@@ -49,18 +53,19 @@ impl CameraBasis {
         )
     }
 
-    /// Native v18 stores an eye, look-at and zoom rather than source View angles.
-    /// Recover only angles; a saved, shaken or slaved eye never changes the map
-    /// basis. This does not add fields to the original View Xfer or native save.
-    pub(super) fn angles_from_pose(
+    /// Recover native saved pitch against the fixed map basis and saved raw
+    /// heading. Known heading preserves the side of the zenith, including
+    /// unclamped scripted defaults; an eye can never recalibrate the basis.
+    pub(super) fn pitch_from_pose(
         &self,
         position: Vec3,
         eye: Vec3,
         zoom: f32,
-    ) -> Option<(f32, f32)> {
+        heading: f32,
+    ) -> Option<f32> {
         let start = self.offset * zoom;
         let factor = (1.0_f64 - f64::from(self.ground_level / start.z)) as f32;
-        if !factor.is_finite() || factor == 0.0 || !eye.is_finite() {
+        if !factor.is_finite() || factor == 0.0 || !eye.is_finite() || !heading.is_finite() {
             return None;
         }
         let final_offset = Vec3::new(
@@ -68,14 +73,13 @@ impl CameraBasis {
             eye.z - position.z,
             eye.y - self.ground_level,
         ) / factor;
-        let radius = (start.y * start.y + start.z * start.z).sqrt();
-        if !radius.is_finite() || radius == 0.0 {
+        let unheaded = rotate_source_axis(final_offset, Vec3::Z, -heading);
+        if !unheaded.is_finite() || (start.y == 0.0 && start.z == 0.0) {
             return None;
         }
-        let pitch = start.y.atan2(start.z) + (final_offset.z / radius).clamp(-1.0, 1.0).acos();
-        let rotated = rotate_source_axis(start, Vec3::X, pitch);
-        let heading = final_offset.y.atan2(final_offset.x) - rotated.y.atan2(rotated.x);
-        Some((clamp_pitch(pitch), normalize_angle(heading)))
+        Some(normalize_angle(
+            unheaded.z.atan2(unheaded.y) - start.z.atan2(start.y),
+        ))
     }
 }
 
@@ -121,6 +125,7 @@ pub(super) struct CameraHeight {
     basis: CameraBasis,
     desired: f32,
     adjustment_enabled: bool,
+    zoom_limited: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -148,6 +153,7 @@ impl CameraHeight {
             basis: CameraBasis::from_height(10.0, height, pitch, yaw),
             desired: 0.0,
             adjustment_enabled: false,
+            zoom_limited: true,
         }
     }
     pub(super) fn initialize_map(&mut self, ground: f32, height: f32, pitch: f32, yaw: f32) {
@@ -162,9 +168,19 @@ impl CameraHeight {
     pub(super) fn desired(&self) -> f32 {
         self.desired
     }
-    pub(super) fn set_height(&mut self, goal: f32, limited: bool, min: f32, max: f32) {
+    pub(super) fn zoom_limited(&self) -> bool {
+        self.zoom_limited
+    }
+    pub(super) fn set_zoom_limited(&mut self, limited: bool) {
+        self.zoom_limited = limited;
+    }
+    pub(super) fn toggle_zoom_limited(&mut self) -> bool {
+        self.zoom_limited = !self.zoom_limited;
+        self.zoom_limited
+    }
+    pub(super) fn set_height(&mut self, goal: f32, min: f32, max: f32) {
         self.desired = goal;
-        if limited {
+        if self.zoom_limited {
             if self.desired < min {
                 self.desired = min;
             }

@@ -1,5 +1,5 @@
 //! Wave 473 residual peels: camera bootstrap/heights are presentation-only.
-//! - `bootstrap_camera_for_loaded_map` drops Option<&GameLogic>
+//! - `bootstrap_native_camera_for_loaded_map` drops Option<&GameLogic>
 //! - `sample_startup_camera_heights` drops Option<&GameLogic>
 //! - call sites pass presentation freeze only (no startup_camera_live_logic)
 //! Never flips shell `playable_claim`.
@@ -8,7 +8,7 @@
 //! Architecture residual - camera free helpers no longer dual-read live sim.
 //!
 //! Sources (cnc_game_engine.rs):
-//! - fn bootstrap_camera_for_loaded_map(... presentation ...)
+//! - fn bootstrap_native_camera_for_loaded_map(... presentation ...)
 //! - fn sample_startup_camera_heights(... presentation ...)
 //! - no game_logic param on either helper
 //!
@@ -24,7 +24,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 
 pub const CAMERA_BOOTSTRAP_PRESENTATION_ONLY_METHOD_NAMES_WAVE473: &[&str] = &[
-    "bootstrap_camera_for_loaded_map",
+    "bootstrap_native_camera_for_loaded_map",
     "sample_startup_camera_heights",
     "startup_camera_presentation",
     "world_bounds_vec3",
@@ -119,7 +119,7 @@ pub fn honesty_camera_bootstrap_presentation_only_method_names_residual_wave473(
     CAMERA_BOOTSTRAP_PRESENTATION_ONLY_METHOD_NAMES_WAVE473.len() == 6
         && residual_name_index(
             CAMERA_BOOTSTRAP_PRESENTATION_ONLY_METHOD_NAMES_WAVE473,
-            "bootstrap_camera_for_loaded_map",
+            "bootstrap_native_camera_for_loaded_map",
         ) == Some(0)
         && residual_name_index(
             CAMERA_BOOTSTRAP_PRESENTATION_ONLY_METHOD_NAMES_WAVE473,
@@ -158,13 +158,15 @@ pub fn honesty_camera_bootstrap_presentation_only_nav_commands_residual_wave473(
 
 pub fn simulate_camera_bootstrap_presentation_only_source() -> bool {
     let src = cnc_source();
-    let Some(boot) = function_body(src, "fn bootstrap_camera_for_loaded_map(") else {
+    let Some(boot) = function_body(src, "fn bootstrap_native_camera_for_loaded_map(") else {
         return false;
     };
     let ok = boot.contains("Wave 473: presentation freeze only")
         && boot.contains("presentation: Option")
         && !boot.contains("game_logic")
         && boot.contains("world_bounds_vec3()")
+        && boot.contains("native_camera.initialize_map(")
+        && boot.contains("native_camera.set_adjustment_enabled(true)")
         && !src.contains("startup_camera_live_logic");
     residual_action_store(ResidualCameraBootstrapPresentationOnlyAction::BootstrapSource);
     ok
@@ -176,7 +178,9 @@ pub fn simulate_camera_sample_heights_presentation_only_source() -> bool {
         return false;
     };
     let ok = sample.contains("Wave 473: presentation height grid only")
-        && sample.contains("sample_height")
+        && sample.contains("sample_camera_terrain_height(x, z)")
+        && sample.contains("super::camera_height::height_around(terrain_target, sample)")
+        && !sample.contains("world_env.sample_height(")
         && !sample.contains("game_logic")
         && src.contains("fn ensure_presentation_env_for_hints");
     residual_action_store(ResidualCameraBootstrapPresentationOnlyAction::SampleSource);
@@ -225,7 +229,7 @@ mod tests {
         assert!(simulate_camera_sample_heights_presentation_only_source());
         let src = cnc_source();
         assert!(!src.contains("startup_camera_live_logic"));
-        let boot = function_body(src, "fn bootstrap_camera_for_loaded_map(").unwrap();
+        let boot = function_body(src, "fn bootstrap_native_camera_for_loaded_map(").unwrap();
         assert!(!boot.contains("game_logic"));
         let sample = function_body(src, "fn sample_startup_camera_heights(").unwrap();
         assert!(!sample.contains("game_logic"));

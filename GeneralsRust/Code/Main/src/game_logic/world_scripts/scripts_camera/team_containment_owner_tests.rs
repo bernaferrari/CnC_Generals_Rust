@@ -7,7 +7,7 @@ use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptA
 use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver, ScriptOwnerQuery};
 fn template(owner: &mut GameLogic, name: &str, module: &str) {
     let mut parser = crate::assets::IniParser::new();
-    parser.parse_ini_content(&format!("Object {name}\n KindOf = VEHICLE\n Body = ActiveBody Health\n MaxHealth = 100\n End\n Behavior = {module} Cargo\n Slots = 2\n AllowInsideKindOf = INFANTRY\n CaveIndex = 0\n End\nEnd"),"OwnedTeamContain.ini").unwrap();
+    parser.parse_ini_content(&format!("Object {name}\n KindOf = VEHICLE\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = {module} Cargo\n Slots = 2\n AllowInsideKindOf = INFANTRY\n CaveIndex = 0\n End\nEnd"),"OwnedTeamContain.ini").unwrap();
     owner.templates.insert(
         name.into(),
         GameLogic::build_template_from_object_definition(

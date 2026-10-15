@@ -124,17 +124,6 @@ pub(super) struct LookAtHostModes {
     letterbox_os_cursor_hidden: bool,
 }
 
-fn live_camera_zoom_limited() -> bool {
-    #[cfg(feature = "game_client")]
-    {
-        game_client::display::view::with_tactical_view_ref(|view| view.is_zoom_limited())
-    }
-    #[cfg(not(feature = "game_client"))]
-    {
-        true
-    }
-}
-
 pub fn height_after_zoom_steps(
     current_hag: f32,
     steps: f32,

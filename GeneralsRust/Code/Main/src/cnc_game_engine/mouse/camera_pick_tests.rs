@@ -248,8 +248,8 @@ fn reset_camera_pose_restores_fx_pitch_to_one() {
         "reset must cancel an in-flight CAMERA_PITCH lerp"
     );
     assert!(
-        body.contains("live_home_pitch_radians")
-            && body.contains("self.ui_script_default_camera_pitch()"),
+        body.contains("self.camera_pitch_radians = self.ui_script_default_camera_pitch()")
+            && !body.contains("clamp_pitch("),
         "CAMERA_RESET/MMB must restore scripted m_defaultPitchAngle"
     );
 }
@@ -267,12 +267,18 @@ fn camera_set_default_scales_wheel_clamp_and_home_pitch() {
         "scale 0 floors to min like C++ setDefaultView"
     );
 
-    let home_default = live_home_pitch_radians(37.5, 1.0);
-    assert!((home_default - 37.5_f32.to_radians()).abs() < 1.0e-5);
-    let home_script_zero = live_home_pitch_radians(37.5, 0.0);
-    assert!((home_script_zero - 37.5_f32.to_radians()).abs() < 1.0e-5);
-    let home_scripted = live_home_pitch_radians(37.5, 0.8);
-    assert!((home_scripted - (37.5_f32.to_radians() + 0.8)).abs() < 1.0e-5);
+    // View.cpp:163 assigns the raw default directly. Script value1 is a
+    // legitimate View pitch, independent of the FXPitch identity value1.
+    let basis = super::super::camera_height::CameraBasis::for_map(0.0, 100.0, 45.0, 0.0);
+    let (default_eye, _) = basis.pose(Vec3::ZERO, 1.0, 0.0, 0.0);
+    let (script_eye, _) = basis.pose(Vec3::ZERO, 1.0, 1.0, 0.0);
+    assert!((default_eye.y - 100.0).abs() < 0.0001);
+    assert!((script_eye - default_eye).length() > 1.0);
+    // Replay/bookmark setLocation calls setPitch, unlike raw Home assignment.
+    let clamped = super::super::camera_height::clamp_pitch(1.0);
+    assert_eq!(clamped, std::f32::consts::PI / 5.0);
+    let (location_eye, _) = basis.pose(Vec3::ZERO, 1.0, clamped, 0.0);
+    assert!((script_eye - location_eye).length() > 1.0);
 
     let src = MOUSE_SOURCE;
     let zoom = src
@@ -1149,4 +1155,12 @@ fn replay_hover_feeds_has_mouse_moved_recently_gate() {
             && body.contains("lookat_has_mouse_moved_recently"),
         "live host owns both playback and LookAt 1s window"
     );
+}
+
+#[test]
+fn script_default_view_pitch_starts_and_resets_to_zero() {
+    let mut logic = crate::game_logic::GameLogic::new();
+    assert_eq!(logic.script_default_camera_pitch(), 0.0);
+    logic.reset();
+    assert_eq!(logic.script_default_camera_pitch(), 0.0);
 }

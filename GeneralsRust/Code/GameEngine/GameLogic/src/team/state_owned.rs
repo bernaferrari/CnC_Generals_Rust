@@ -27,6 +27,11 @@ pub struct TeamStateObservation {
 }
 
 impl Team {
+    /// C++ Team::updateState observes enemies only in its enabled sighting phase.
+    pub fn needs_enemy_sighting_observation(&self, step: &TeamStateStep) -> bool {
+        *step == TeamStateStep::Sighted && self.check_enemy_sighted
+    }
+
     /// Advances one original phase, returning at most its immediate runScript.
     /// The caller releases both team and factory guards before executing it,
     /// then validates the same team identity and samples the next phase anew.
@@ -122,6 +127,33 @@ mod tests {
         let mut team = Team::new("OwnedPhaseTeam".into(), 9771);
         team.set_active();
         team
+    }
+
+    #[test]
+    fn owned_enemy_observation_requires_exact_phase_and_receiving_flag() {
+        let mut team = active_team();
+        for enabled in [false, true] {
+            team.check_enemy_sighted = enabled;
+            for step in [
+                TeamStateStep::Start,
+                TeamStateStep::AfterCreate,
+                TeamStateStep::Sighted,
+                TeamStateStep::Destroyed,
+                TeamStateStep::AfterDestroyed,
+                TeamStateStep::Idle,
+                TeamStateStep::AfterIdle(false),
+                TeamStateStep::AfterIdle(true),
+                TeamStateStep::Done,
+            ] {
+                assert_eq!(
+                    team.needs_enemy_sighting_observation(&step),
+                    enabled && step == TeamStateStep::Sighted
+                );
+            }
+        }
+        let peer = active_team();
+        assert!(!peer.needs_enemy_sighting_observation(&TeamStateStep::Sighted));
+        assert!(team.needs_enemy_sighting_observation(&TeamStateStep::Sighted));
     }
 
     #[test]

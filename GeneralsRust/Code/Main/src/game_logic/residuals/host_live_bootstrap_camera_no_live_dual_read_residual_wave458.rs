@@ -6,7 +6,7 @@
 //! Architecture residual - startup camera prefers presentation freeze exclusively.
 //!
 //! Sources (cnc_game_engine.rs):
-//! - bootstrap_camera_for_loaded_map(game_logic: Option<&GameLogic>, is_shell_game, ...)
+//! - bootstrap_native_camera_for_loaded_map(game_logic: Option<&GameLogic>, is_shell_game, ...)
 //! - call sites set startup_camera_live_logic = None when presentation installed
 //! - prefer render_pipeline.presentation_frame() over last_presentation_frame alone
 //!
@@ -22,7 +22,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 
 pub const BOOTSTRAP_CAMERA_NO_LIVE_DUAL_READ_METHOD_NAMES_WAVE458: &[&str] = &[
-    "bootstrap_camera_for_loaded_map",
+    "bootstrap_native_camera_for_loaded_map",
     "sample_startup_camera_heights",
     "select_startup_camera_focus",
     "presentation_frame",
@@ -98,7 +98,7 @@ pub fn honesty_bootstrap_camera_no_live_dual_read_method_names_residual_wave458(
     BOOTSTRAP_CAMERA_NO_LIVE_DUAL_READ_METHOD_NAMES_WAVE458.len() == 6
         && residual_name_index(
             BOOTSTRAP_CAMERA_NO_LIVE_DUAL_READ_METHOD_NAMES_WAVE458,
-            "bootstrap_camera_for_loaded_map",
+            "bootstrap_native_camera_for_loaded_map",
         ) == Some(0)
         && residual_name_index(
             BOOTSTRAP_CAMERA_NO_LIVE_DUAL_READ_METHOD_NAMES_WAVE458,
@@ -158,7 +158,7 @@ fn function_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
 
 pub fn simulate_bootstrap_camera_no_live_dual_read_source() -> bool {
     let src = cnc_source();
-    let Some(body) = function_body(src, "fn bootstrap_camera_for_loaded_map(") else {
+    let Some(body) = function_body(src, "fn bootstrap_native_camera_for_loaded_map(") else {
         return false;
     };
     // Wave 473 supersedes Option live dual-read: presentation-only bootstrap.
@@ -167,6 +167,9 @@ pub fn simulate_bootstrap_camera_no_live_dual_read_source() -> bool {
         && body.contains("is_shell_game: bool")
         && body.contains("local_team_base_position")
         && body.contains("world_bounds_vec3()")
+        && body.contains("super::camera_height::CameraHeight")
+        && body.contains("native_camera.initialize_map(")
+        && body.contains("(camera_target, camera_position, zoom, native_camera)")
         && !body.contains("game_logic: &GameLogic")
         && !body.contains("no game_logic param (Wave 473)");
     residual_action_store(ResidualBootstrapCameraNoLiveDualReadAction::BootstrapSource);
@@ -178,14 +181,16 @@ pub fn simulate_bootstrap_camera_no_live_dual_read_callsites() -> bool {
     // Wave 473: presentation freeze at callsites, no live_logic arg.
     let ok = src.matches("startup_camera_presentation").count() >= 2
         && !src.contains("startup_camera_live_logic")
-        && src.contains("Self::bootstrap_camera_for_loaded_map(")
+        && src.contains("Self::bootstrap_native_camera_for_loaded_map(")
+        && src.matches("self.native_camera,").count() >= 3
         && (src.contains("Wave 458: prefer pipeline presentation freeze")
             || src.contains("startup_camera_presentation"))
         && !src.contains(
-            "Self::bootstrap_camera_for_loaded_map(\n                    &self.game_logic,",
+            "Self::bootstrap_native_camera_for_loaded_map(\n                    &self.game_logic,",
         )
-        && !src
-            .contains("Self::bootstrap_camera_for_loaded_map(\n                &self.game_logic,");
+        && !src.contains(
+            "Self::bootstrap_native_camera_for_loaded_map(\n                &self.game_logic,",
+        );
     residual_action_store(ResidualBootstrapCameraNoLiveDualReadAction::CallSites);
     ok
 }

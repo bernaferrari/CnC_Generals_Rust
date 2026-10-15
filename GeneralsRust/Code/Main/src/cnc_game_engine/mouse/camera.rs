@@ -274,7 +274,8 @@ impl CnCGameEngine {
                     let clamped = self.clamp_to_world_bounds(pose.pos);
                     self.camera_target = clamped;
                     self.camera_yaw_radians = pose.yaw;
-                    self.camera_pitch_radians = pose.pitch;
+                    self.camera_pitch_radians =
+                        super::super::camera_height::clamp_pitch(pose.pitch);
                     self.camera_zoom = clamp_w3d_zoom(pose.zoom);
                     self.camera_yaw_target = None;
                     self.camera_pitch_target = None;
@@ -477,13 +478,8 @@ impl CnCGameEngine {
             data.max_camera_height,
             self.ui_script_default_camera_max_height(),
         );
-        let zoom_limited = live_camera_zoom_limited();
-        self.native_camera.set_height(
-            self.native_camera.desired() + steps * 10.0,
-            zoom_limited,
-            min_h,
-            max_h,
-        );
+        self.native_camera
+            .set_height(self.native_camera.desired() + steps * 10.0, min_h, max_h);
         // C++ setHeightAboveGround cancels scripted rotate/pitch/zoom/path/lock.
         self.cancel_scripted_camera_from_player_set();
         // C++ setHeightAboveGround invalidates m_cameraConstraint (recalc from map).
@@ -1225,8 +1221,7 @@ impl CnCGameEngine {
     pub(in crate::cnc_game_engine) fn reset_camera_pose_in_place(&mut self) {
         // C++ setAngleAndPitchToDefault: m_pitchAngle = m_defaultPitchAngle.
         self.camera_yaw_radians = 0.0;
-        self.camera_pitch_radians =
-            super::super::camera_height::clamp_pitch(self.ui_script_default_camera_pitch());
+        self.camera_pitch_radians = self.ui_script_default_camera_pitch();
         self.camera_yaw_target = None;
         self.camera_pitch_target = None;
         self.camera_zoom_target = None;
@@ -1281,7 +1276,7 @@ impl CnCGameEngine {
             let clamped = self.clamp_to_world_bounds(loc.pos);
             self.camera_target = clamped;
             self.camera_yaw_radians = loc.yaw;
-            self.camera_pitch_radians = loc.pitch;
+            self.camera_pitch_radians = super::super::camera_height::clamp_pitch(loc.pitch);
             self.camera_zoom = clamp_w3d_zoom(loc.zoom);
             self.camera_yaw_target = None;
             self.camera_pitch_target = None;

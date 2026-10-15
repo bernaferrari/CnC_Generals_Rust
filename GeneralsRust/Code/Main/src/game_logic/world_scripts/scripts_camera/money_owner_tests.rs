@@ -132,7 +132,8 @@ fn money_withdraw_deposit_boundaries_and_actual_snapshot_keep_the_owner_balance(
     );
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&owner).unwrap();
-    let mut restored = GameLogic::new();
+    // Production restores after map/player admission, including default teams.
+    let mut restored = world(0);
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();

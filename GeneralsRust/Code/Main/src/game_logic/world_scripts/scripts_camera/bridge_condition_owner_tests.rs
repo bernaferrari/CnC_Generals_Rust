@@ -159,6 +159,8 @@ fn bridge_query_history_does_not_leak_through_reset_or_detached_restore() {
             let builder = SnapshotBuilder::new();
             let snapshot = builder.create_world_snapshot(&running).unwrap();
             let mut candidate = GameLogic::new();
+            // Match the map's player/default-team definitions before restore.
+            candidate.add_player(Player::new(1, Team::USA, "BridgeOwner", false));
             candidate.templates = running.templates.clone();
             builder
                 .restore_from_snapshot(&snapshot, &mut candidate)

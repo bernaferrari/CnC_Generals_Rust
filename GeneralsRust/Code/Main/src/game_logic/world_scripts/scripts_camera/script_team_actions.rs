@@ -2147,6 +2147,7 @@ Object WaypointFixtureAircraft
   KindOf = VEHICLE AIRCRAFT
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
+    InitialHealth = 100
   End
   Behavior = AIUpdate ModuleTag_AI
   End
@@ -2156,6 +2157,7 @@ Object WaypointFixtureInfantry
   KindOf = INFANTRY
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
+    InitialHealth = 100
   End
   Behavior = AIUpdate ModuleTag_AI
   End

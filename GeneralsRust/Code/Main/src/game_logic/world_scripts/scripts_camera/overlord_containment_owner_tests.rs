@@ -227,6 +227,7 @@ Object PhysicalBunkerInfantry
   Locomotor = SET_NORMAL BasicHumanLocomotor
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
+    InitialHealth = 100
   End
   Behavior = AIUpdateInterface ModuleTag_AI
   End
@@ -238,6 +239,7 @@ Object ChinaTankOverlordBattleBunker
   KindOf = VEHICLE CAN_ATTACK
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
+    InitialHealth = 100
   End
   Behavior = TransportContain ModuleTag_Contain
     Slots = 5

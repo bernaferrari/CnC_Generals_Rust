@@ -935,13 +935,13 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn bootstrap_camera_for_loaded_map(
+    pub(super) fn bootstrap_native_camera_for_loaded_map(
         // Wave 473: presentation freeze only — no live GameLogic dual-read.
         is_shell_game: bool,
         current_player_id: u32,
         defaults: StartupCameraDefaults,
         presentation: Option<&crate::presentation_frame::PresentationFrame>,
-    ) -> (Vec3, Vec3, f32) {
+    ) -> (Vec3, Vec3, f32, super::camera_height::CameraHeight) {
         const DEFAULT_VIEW_WIDTH: f32 = 640.0;
         const DEFAULT_VIEW_HEIGHT: f32 = 480.0;
         let _ = (DEFAULT_VIEW_WIDTH, DEFAULT_VIEW_HEIGHT); // retained for C++ parity docs
@@ -995,23 +995,28 @@ impl CnCGameEngine {
         // Wave 473: sample heights from presentation freeze only.
         let (camera_anchor_ground_height, terrain_height_max) =
             Self::sample_startup_camera_heights(terrain_target, world_center.y, presentation);
-        let basis = super::camera_height::CameraBasis::for_map(
+        let mut native_camera = super::camera_height::CameraHeight::new(
+            defaults.camera_height,
+            defaults.pitch_degrees,
+            defaults.yaw_degrees,
+        );
+        native_camera.initialize_map(
             camera_anchor_ground_height,
             defaults.camera_height,
             defaults.pitch_degrees,
             defaults.yaw_degrees,
         );
-
-        // Match W3DView::setZoomToDefault exactly: desired zoom is the visible terrain max
-        // around the look-at point plus max camera height, divided by the base offset height.
-        let zoom = Self::compute_default_camera_zoom_from_heights(
-            camera_anchor_ground_height,
-            terrain_height_max,
-            defaults,
-            1.0,
-        );
-
-        let (camera_position, camera_target) = basis.pose(terrain_target, zoom, 0.0, 0.0);
+        // GameLogic start: initHeightForMap, default View angles, default zoom,
+        // then enable adjustment. The fixed basis is never derived from the eye.
+        let zoom =
+            native_camera.set_zoom_to_default(terrain_height_max, defaults.max_camera_height);
+        native_camera.set_adjustment_enabled(true);
+        native_camera
+            .set_zoom_limited(!presentation.is_some_and(|frame| frame.cinematic_letterbox));
+        let (camera_position, _) = native_camera.basis().pose(terrain_target, zoom, 0.0, 0.0);
+        // View::m_pos is logical ground position (lookAt forces source Z=0).
+        // The ground-level render look point belongs only to basis.pose.
+        let camera_target = terrain_target;
         info!(
             "Startup camera bootstrap: raw_initial={:?} requested_focus_2d={:?} target={:?} position={:?} ground_height={:.2} terrain_height_max={:.2} zoom={:.2}",
             metadata_initial_camera,
@@ -1023,7 +1028,23 @@ impl CnCGameEngine {
             zoom,
         );
 
-        (camera_target, camera_position, zoom)
+        (camera_target, camera_position, zoom, native_camera)
+    }
+
+    /// Pose-only convenience for fixtures; production retains the map owner.
+    pub(super) fn bootstrap_camera_for_loaded_map(
+        is_shell_game: bool,
+        current_player_id: u32,
+        defaults: StartupCameraDefaults,
+        presentation: Option<&crate::presentation_frame::PresentationFrame>,
+    ) -> (Vec3, Vec3, f32) {
+        let (target, eye, zoom, _) = Self::bootstrap_native_camera_for_loaded_map(
+            is_shell_game,
+            current_player_id,
+            defaults,
+            presentation,
+        );
+        (target, eye, zoom)
     }
 
     pub(super) fn cpp_initial_camera_ground_focus(position: [f32; 3]) -> Vec2 {
@@ -1078,17 +1099,14 @@ impl CnCGameEngine {
         max_height_scale: f32,
     ) -> f32 {
         let defaults = Self::configured_startup_camera_defaults();
-        // Wave 241: no live dual-read when presentation freeze is installed.
-        let (ground_height, terrain_height_max) = Self::sample_startup_camera_heights(
-            target,
-            target.y,
-            self.last_presentation_frame.as_deref(),
-        );
-        Self::compute_default_camera_zoom_from_heights(
-            ground_height,
+        let terrain_height_max = self
+            .native_camera_terrain_height_around(target)
+            .unwrap_or(target.y);
+        // ResetCamera asks for a destination zoom, without changing the map
+        // basis or desired HAG. Script max-height is a View multiplier.
+        self.native_camera.default_zoom(
             terrain_height_max,
-            defaults,
-            max_height_scale,
+            defaults.max_camera_height * max_height_scale,
         )
     }
 
@@ -2062,16 +2080,25 @@ impl CnCGameEngine {
                 .or(self.last_presentation_frame.as_deref());
             // Wave 540/552: prefer presentation fow_shell_bypass when freeze present.
             let in_shell_camera = self.shell_bypass_from_presentation(startup_camera_presentation);
-            (self.camera_target, self.camera_position, self.camera_zoom) =
-                Self::bootstrap_camera_for_loaded_map(
-                    in_shell_camera,
-                    self.current_player_id,
-                    startup_camera_defaults,
-                    startup_camera_presentation,
-                );
-            self.sync_orbit_from_camera_transform();
+            (
+                self.camera_target,
+                self.camera_position,
+                self.camera_zoom,
+                self.native_camera,
+            ) = Self::bootstrap_native_camera_for_loaded_map(
+                in_shell_camera,
+                self.current_player_id,
+                startup_camera_defaults,
+                startup_camera_presentation,
+            );
+            self.camera_pitch_radians = 0.0;
+            self.camera_yaw_radians = 0.0;
+            let (_, render_look) =
+                self.native_camera
+                    .basis()
+                    .pose(self.camera_target, self.camera_zoom, 0.0, 0.0);
             self.view_matrix =
-                glam::Mat4::look_at_rh(self.camera_position, self.camera_target, glam::Vec3::Y);
+                glam::Mat4::look_at_rh(self.camera_position, render_look, glam::Vec3::Y);
             let terrain_warm_started = Instant::now();
             if let Err(err) = self
                 .render_pipeline

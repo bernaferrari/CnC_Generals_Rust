@@ -58,17 +58,21 @@ fn constrain_camera_target_to_map(
         world_max.z - inset,
         scripted_widen,
     );
-    position.x = if lo_x <= hi_x {
-        position.x.clamp(lo_x, hi_x)
-    } else {
-        (world_min.x + world_max.x) * 0.5
-    };
-    position.z = if lo_z <= hi_z {
-        position.z.clamp(lo_z, hi_z)
-    } else {
-        (world_min.z + world_max.z) * 0.5
-    };
+    // W3DView::setCameraTransform: max(lo) then min(hi), even when an
+    // oversized viewport makes the constraint endpoints inverted.
+    position.x = position.x.max(lo_x).min(hi_x);
+    position.z = position.z.max(lo_z).min(hi_z);
     position
+}
+
+fn native_camera_constraint_inset(
+    camera: &super::camera_height::CameraHeight,
+    view: Mat4,
+    projection: Mat4,
+    viewport: (f32, f32),
+) -> f32 {
+    // C++ calcCameraConstraints uses m_groundLevel, not View::m_pos.z.
+    w3d_camera_constraint_offset(view, projection, viewport, camera.basis().ground_level())
 }
 
 fn shaker_hash_signed(seed: u32, elapsed_bits: u32, axis: u32, pass: u32) -> f32 {
@@ -1365,17 +1369,12 @@ impl CnCGameEngine {
         }
     }
 
-    /// View::setPitch stores a delta from the immutable INI camera basis.
-    fn clamp_orbit_pitch_radians(pitch: f32) -> f32 {
-        super::camera_height::clamp_pitch(pitch)
-    }
-
     /// The same source pose feeds rendering and transform-shaker observation.
     pub(super) fn native_camera_base_pose(&self) -> (Vec3, Vec3) {
         let (eye, look) = self.native_camera.basis().pose(
             self.camera_target,
             self.camera_zoom,
-            Self::clamp_orbit_pitch_radians(self.camera_pitch_radians),
+            self.camera_pitch_radians,
             self.camera_yaw_radians,
         );
         self.camera_fx_adjusted_eye_and_look(eye + self.camera_shake_offset, look)
@@ -1385,7 +1384,6 @@ impl CnCGameEngine {
         if self.camera_slave_mode.is_some() {
             return;
         }
-        self.camera_pitch_radians = Self::clamp_orbit_pitch_radians(self.camera_pitch_radians);
         let (source, look) = self.native_camera_base_pose();
         self.camera_position = source;
         let shake = self.camera_shake_rotation;
@@ -1441,13 +1439,13 @@ impl CnCGameEngine {
     pub(super) fn sync_orbit_from_camera_transform(&mut self) {
         // Native v18 supplies a completed eye, not an unzoomed basis. Recover
         // angles against this map's existing basis; never absorb zoom/shake.
-        if let Some((pitch, yaw)) = self.native_camera.basis().angles_from_pose(
+        if let Some(pitch) = self.native_camera.basis().pitch_from_pose(
             self.camera_target,
             self.camera_position,
             self.camera_zoom,
+            self.camera_yaw_radians,
         ) {
             self.camera_pitch_radians = pitch;
-            self.camera_yaw_radians = yaw;
         }
 
         self.camera_pitch_target = None;
@@ -1821,9 +1819,9 @@ impl CnCGameEngine {
             ));
         }
         let look = self.clamp_to_world_bounds(look);
-        // View::setPosition retains the requested logical position. The map
-        // basis determines the actual render look height independently.
-        self.camera_target = look;
+        // W3DView::lookAt clears unused position Z after elevated-target ray
+        // projection. The map basis independently determines render look height.
+        self.camera_target = Vec3::new(look.x, 0.0, look.z);
         self.apply_camera_orbit_transform();
     }
 
@@ -2082,11 +2080,11 @@ impl CnCGameEngine {
         // W3DView::calcCameraConstraints casts through the tactical view,
         // whose height excludes the control bar. Keep this viewport paired
         // with the tactical projection matrix used for the pick rays.
-        let inset = w3d_camera_constraint_offset(
+        let inset = native_camera_constraint_inset(
+            &self.native_camera,
             self.view_matrix,
             self.projection_matrix,
             self.tactical_viewport_size(),
-            position.y,
         );
         constrain_camera_target_to_map(
             position,
@@ -3075,3 +3073,7 @@ End
         }
     }
 }
+
+#[cfg(test)]
+#[path = "camera_constraint_tests.rs"]
+mod camera_constraint_tests;

@@ -63,6 +63,58 @@ fn camera_owned_save_manager_interleaved_archives_preserve_full_native_pose() {
         assert_eq!(decoded.persist_v18.camera(), Some(expected));
         assert_eq!(decoded.persist_v18.tactical_view_camera, None);
     }
+    // Invalid detached input is rejected before snapshot/client capture or any
+    // archive write. It cannot change either previously accepted camera.
+    for invalid in [
+        CameraPersist {
+            angle: f32::NAN,
+            ..camera_a
+        },
+        CameraPersist {
+            position: [f32::INFINITY, 0.0, 0.0],
+            ..camera_a
+        },
+        CameraPersist {
+            target: [0.0, f32::NAN, 0.0],
+            ..camera_a
+        },
+        CameraPersist {
+            zoom: 0.0,
+            ..camera_a
+        },
+    ] {
+        assert!(
+            saves
+                .save_game_with_client_state_and_camera(
+                    "invalid_camera",
+                    &a,
+                    ClientDrawableWorldSnapshot::default(),
+                    &mut client_a,
+                    &info,
+                    invalid,
+                )
+                .is_err()
+        );
+        assert!(!saves.get_save_path("invalid_camera").exists());
+        assert_eq!(
+            saves
+                .load_game_snapshot("camera_a")
+                .unwrap()
+                .0
+                .persist_v18
+                .camera(),
+            Some(camera_a)
+        );
+        assert_eq!(
+            saves
+                .load_game_snapshot("camera_b")
+                .unwrap()
+                .0
+                .persist_v18
+                .camera(),
+            Some(camera_b)
+        );
+    }
     // Reading a peer's source chunk is a pure parse, never a pending camera write.
     let archive_b = std::fs::read(saves.get_save_path("camera_b")).unwrap();
     let blocks = walk_named_chunks(&archive_b).unwrap();

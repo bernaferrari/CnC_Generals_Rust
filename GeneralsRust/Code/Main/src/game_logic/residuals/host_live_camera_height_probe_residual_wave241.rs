@@ -7,7 +7,7 @@
 //!
 //! Sources:
 //! - `cnc_game_engine.rs` sample_startup_camera_heights /
-//!   bootstrap_camera_for_loaded_map / compute_default_camera_zoom_for_target
+//!   bootstrap_native_camera_for_loaded_map / compute_default_camera_zoom_for_target
 //!
 //! Fail-closed:
 //! - Shell `playable_claim` stays false; network deferred
@@ -21,7 +21,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const LIVE_CAMERA_HEIGHT_PROBE_METHOD_NAMES_WAVE241: &[&str] = &[
     "sample_startup_camera_heights",
     "presentation-only heights (Wave 473)",
-    "bootstrap_camera_for_loaded_map",
+    "bootstrap_native_camera_for_loaded_map",
     "compute_default_camera_zoom_for_target",
     "playable_claim = false",
 ];
@@ -104,7 +104,9 @@ pub fn honesty_camera_height_probe_source() -> bool {
         return false;
     };
     if !(sample.contains("presentation")
-        && sample.contains("sample_height")
+        && sample.contains("sample_camera_terrain_height(x, z)")
+        && sample.contains("super::camera_height::height_around(terrain_target, sample)")
+        && !sample.contains("world_env.sample_height(")
         && (sample.contains("Wave 241") || sample.contains("Wave 473"))
         && !sample.contains("game_logic: Option<&GameLogic>")
         && !sample.contains("if let Some(gl) = game_logic")
@@ -113,7 +115,7 @@ pub fn honesty_camera_height_probe_source() -> bool {
         return false;
     }
     // Wave 473: bootstrap is presentation-only (no live_logic gate).
-    let Some(boot) = fn_body(eng, "fn bootstrap_camera_for_loaded_map(") else {
+    let Some(boot) = fn_body(eng, "fn bootstrap_native_camera_for_loaded_map(") else {
         return false;
     };
     boot.contains("presentation")

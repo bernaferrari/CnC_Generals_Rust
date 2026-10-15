@@ -161,15 +161,9 @@ impl RenderPipeline {
         // than reusing an object ID from an earlier frame.
         self.presentation_direct_shroud_states.clear();
         self.presentation_direct_shroud_host_epoch = None;
-        // A queued v4 Drawable payload is meaningful only against the next
-        // full frozen presentation topology.  Do the source-only identity
-        // pass here, before normal collection.  This deliberately performs
-        // no asset/archive I/O; collection consumes each resulting candidate
-        // once alongside its ordinary model resolution.
+        // Frame setup may run repeatedly during load/UI seeding. Keep the
+        // detached Drawable payload until actual collection admits this frame.
         self.pending_client_drawable_imports.clear();
-        if let Some(frame) = frame.as_ref() {
-            self.prepare_pending_client_drawable_restore_for_frame(frame);
-        }
         self.presentation_frame = frame;
     }
 

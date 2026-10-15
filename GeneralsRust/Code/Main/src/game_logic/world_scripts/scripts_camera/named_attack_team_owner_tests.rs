@@ -6,7 +6,7 @@ use gamelogic::scripting::core::ScriptActionType;
 fn roster(owner: &GameLogic, name: &str, members: &[ObjectId]) -> u32 {
     let mut factory = owner.team_factory.lock().unwrap();
     factory
-        .init_team(name.into(), "".into(), false, None)
+        .init_team_owned(name.into(), "".into(), false, None, None)
         .unwrap();
     let team = factory.create_team(name).unwrap();
     let mut team = team.write().unwrap();
@@ -150,7 +150,17 @@ fn team_stop_disband_stops_then_recruits_and_merges_actual_owned_rosters() {
     let (foreign, peer, _) = world();
     let source_id = roster(&owner, "StopDisbandSource", &[unit]);
     let default_name = owner.default_host_team_instance_name(Some(1), Team::USA);
-    let default_id = roster(&owner, &default_name, &[]);
+    // Object creation already admits the controller's default team. Reuse its
+    // exact identity rather than creating a competing same-name instance.
+    let default_id = owner
+        .team_factory
+        .lock()
+        .unwrap()
+        .find_team(&default_name)
+        .expect("created unit has an owned default team")
+        .read()
+        .unwrap()
+        .get_id();
     {
         let factory = owner.team_factory.lock().unwrap();
         factory

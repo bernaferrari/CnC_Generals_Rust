@@ -879,7 +879,7 @@ impl CnCGameEngine {
         } else {
             // Wave 901: cold residual fail-closed camera defaults.
             self.host_match_script_camera_max_height = Some(1.0);
-            self.host_match_script_camera_pitch = Some(1.0);
+            self.host_match_script_camera_pitch = Some(0.0);
         }
         // Wave 861/901: skirmish host is never multiplayer (no dual-read).
         self.host_match_in_multiplayer = Some(false);
@@ -2517,6 +2517,12 @@ impl CnCGameEngine {
             let was_letterbox = self.game_client.letterbox_overlay_enabled();
             self.game_client
                 .apply_presentation_cinematic_letterbox(pres.cinematic_letterbox);
+            if was_letterbox != pres.cinematic_letterbox {
+                // Display::enableLetterBox changes View's zoom limit only on
+                // the transition; a manual toggle survives ordinary frames.
+                self.native_camera
+                    .set_zoom_limited(!pres.cinematic_letterbox);
+            }
             // C++ ScriptActions::doLetterBoxMode HideControlBar(TRUE)/ShowControlBar(FALSE).
             if pres.cinematic_letterbox {
                 let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);

@@ -1582,8 +1582,8 @@ impl CnCGameEngine {
         if let Some(v) = self.host_match_script_camera_max_height {
             return v;
         }
-        // Wave 898: fail-closed boot default (C++ residual 1.0).
-        1.0
+        // C++ View constructor/reset: m_defaultPitchAngle starts at zero.
+        0.0
     }
 
     /// Wave 609: via `host_ui_script_default_camera_pitch`.
@@ -1601,8 +1601,8 @@ impl CnCGameEngine {
         if let Some(v) = self.host_match_script_camera_pitch {
             return v;
         }
-        // Wave 898: fail-closed boot default (C++ residual 1.0).
-        1.0
+        // C++ View constructor/reset: m_defaultPitchAngle starts at zero.
+        0.0
     }
 
     /// Wave 609: via `host_ui_selection_seed_id`.
