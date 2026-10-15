@@ -1170,7 +1170,8 @@ impl SubsystemInterface for ParticleSystemManager {
         self.particle_count = 0;
         self.field_particle_count = 0;
         self.system_count = 0;
-        self.last_logic_frame_update = 0;
+        // C++ reset differs from construction: frame zero must run once.
+        self.last_logic_frame_update = u32::MAX;
         self.particle_generation_count = 0;
         Ok(())
     }
@@ -2145,3 +2146,7 @@ mod slave_factory;
 
 #[path = "particle_manager/emission.rs"]
 mod emission;
+
+#[cfg(test)]
+#[path = "particle_manager/reset_clock_tests.rs"]
+mod reset_clock_tests;
