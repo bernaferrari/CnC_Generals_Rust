@@ -6,8 +6,8 @@ use game_client_rust::effects::fxlist_integration::{FXContext, FXNugget, Particl
 use game_client_rust::effects::particle_manager::{
     GameClientRandomVariable, ParticlePriorityType, ParticleSystemManager,
 };
-use glam::{Mat3, Vec3};
 use game_client_rust::effects::particle_presets;
+use glam::{Mat3, Vec3};
 
 #[test]
 fn fxlist_particle_nugget_trait_apply_spawns_and_honors_delay_and_orient() {
@@ -94,6 +94,21 @@ fn fxlist_light_pulse_nugget_creates_display_pulse() {
     assert_eq!(pulses[0].pos, [1.0, 2.0, 3.0]);
 }
 
+/// The actual receiving GameLOD owner, including its per-particle skip state.
+fn particle_lod(
+    minimum: game_engine::common::ini::ParticlePriorityType,
+    skip_minimum: game_engine::common::ini::ParticlePriorityType,
+) -> game_engine::common::ini::GameLODManager {
+    use game_engine::common::ini::{DynamicGameLODLevel, GameLODManager};
+    let mut lod = GameLODManager::new();
+    let config = &mut lod.dynamic_game_lod_info[DynamicGameLODLevel::Low.to_index().unwrap()];
+    config.min_dynamic_particle_priority = minimum;
+    config.min_dynamic_particle_skip_priority = skip_minimum;
+    config.dynamic_particle_skip_mask = 0;
+    assert!(lod.set_dynamic_lod_level(DynamicGameLODLevel::Low));
+    lod
+}
+
 #[test]
 fn particle_manager_create_respects_lod_priority_floor() {
     let mut manager = ParticleSystemManager::new();
@@ -101,13 +116,9 @@ fn particle_manager_create_respects_lod_priority_floor() {
     assert_eq!(preset.info().priority, ParticlePriorityType::Constant);
     manager.register_template(preset);
 
-    manager.set_lod_params(
-        2500,
-        500,
-        ParticlePriorityType::Critical,
-        ParticlePriorityType::AlwaysRender,
-        0,
-    );
+    manager.set_fallback_particle_limits(2500, 500);
+    use game_engine::common::ini::ParticlePriorityType as LodPriority;
+    let mut lod = particle_lod(LodPriority::Critical, LodPriority::AlwaysRender);
 
     let fire = manager.find_template("Fire").expect("Fire template");
     // C++ createParticleSystem always instantiates; LOD skips createParticle.
@@ -120,25 +131,19 @@ fn particle_manager_create_respects_lod_priority_floor() {
         let system = manager.find_particle_system_mut(id).expect("active");
         system.trigger();
     }
-    manager.update(0, 1);
+    manager.update_with_lod(0, 1, &mut lod);
     assert_eq!(
         manager.find_particle_system(id).unwrap().particle_count(),
         0,
         "Constant < Critical must skip individual particles"
     );
 
-    manager.set_lod_params(
-        2500,
-        500,
-        ParticlePriorityType::WeaponExplosion,
-        ParticlePriorityType::Critical,
-        0,
-    );
+    lod = particle_lod(LodPriority::WeaponExplosion, LodPriority::Critical);
     {
         let system = manager.find_particle_system_mut(id).expect("active");
         system.trigger();
     }
-    manager.update(0, 2);
+    manager.update_with_lod(0, 2, &mut lod);
     assert!(
         manager.find_particle_system(id).unwrap().particle_count() > 0,
         "Fire particles spawn when LOD floor is WeaponExplosion"
@@ -153,13 +158,7 @@ fn finite_lifetime_last_burst_survives_same_tick_create_particle_commit() {
     use std::sync::Arc;
 
     let mut manager = ParticleSystemManager::new();
-    manager.set_lod_params(
-        2500,
-        500,
-        ParticlePriorityType::WeaponExplosion,
-        ParticlePriorityType::Critical,
-        0,
-    );
+    manager.set_fallback_particle_limits(2500, 500);
 
     let mut template = ParticleSystemTemplate::new("FiniteBurst".to_string());
     {
@@ -171,6 +170,13 @@ fn finite_lifetime_last_burst_survives_same_tick_create_particle_commit() {
         info.burst_delay = GameClientRandomVariable::new(0.0, 0.0);
         info.initial_delay = GameClientRandomVariable::new(0.0, 0.0);
         info.is_one_shot = false;
+        // C++ removes alpha-zero particles during the same update. This
+        // lifetime fixture authors visible particles so it observes retirement.
+        for key in &mut info.alpha_keys[..2] {
+            key.min_value = 1.0;
+            key.max_value = 1.0;
+        }
+        info.alpha_keys[1].frame = 100;
     }
     let template = Arc::new(template);
     manager.register_template(template.clone());
@@ -207,13 +213,7 @@ fn particle_gpu_mesh_bake_matches_live_particle_positions() {
     let mut manager = ParticleSystemManager::new();
     let preset = particle_presets::get_preset_by_name("Fire").expect("Fire preset");
     manager.register_template(preset);
-    manager.set_lod_params(
-        2500,
-        500,
-        ParticlePriorityType::WeaponExplosion,
-        ParticlePriorityType::Critical,
-        0,
-    );
+    manager.set_fallback_particle_limits(2500, 500);
     let fire = manager.find_template("Fire").expect("Fire template");
     let id = manager.create_particle_system(&fire, false).unwrap();
     {

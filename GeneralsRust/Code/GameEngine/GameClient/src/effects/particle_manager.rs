@@ -343,9 +343,6 @@ pub struct ParticleSystemManager {
     // LOD/Performance settings (matches C++ GameLODManager particle settings)
     max_particle_count: usize,
     max_field_particle_count: usize,
-    min_dynamic_particle_priority: ParticlePriorityType,
-    min_dynamic_particle_skip_priority: ParticlePriorityType,
-    particle_skip_mask: u32,
     preloaded_texture_assets: Vec<String>,
 }
 
@@ -378,9 +375,6 @@ impl ParticleSystemManager {
 
             max_particle_count: 2500,
             max_field_particle_count: 30,
-            min_dynamic_particle_priority: ParticlePriorityType::WeaponExplosion,
-            min_dynamic_particle_skip_priority: ParticlePriorityType::Critical,
-            particle_skip_mask: 0,
             preloaded_texture_assets: Vec::new(),
         }
     }
@@ -685,6 +679,26 @@ impl ParticleSystemManager {
     /// * `local_player_index` - Player index for visibility checks
     /// * `current_frame` - Current game frame for timing
     pub fn update(&mut self, local_player_index: i32, current_frame: u32) {
+        self.update_with_particle_lod(local_player_index, current_frame, &mut AmbientParticleLod);
+    }
+
+    /// Use this operation's explicitly owned LOD state, including its skip counter.
+    /// Other application services (FX enablement and capacity limits) are unchanged.
+    pub fn update_with_lod(
+        &mut self,
+        local_player_index: i32,
+        current_frame: u32,
+        lod: &mut game_engine::common::ini::GameLODManager,
+    ) {
+        self.update_with_particle_lod(local_player_index, current_frame, lod);
+    }
+
+    fn update_with_particle_lod(
+        &mut self,
+        local_player_index: i32,
+        current_frame: u32,
+        lod: &mut dyn ParticleLod,
+    ) {
         // Prevent double-updates in same frame (C++ lines 2273-2275)
         if self.last_logic_frame_update == current_frame {
             return;
@@ -769,11 +783,12 @@ impl ParticleSystemManager {
                         .get(&id)
                         .expect("current particle system remains admitted for budget")
                         .particle_count();
-                    if !self.can_create_particle_for_system(
+                    if !self.can_create_particle_for_system_with_lod(
                         priority,
                         ground_aligned,
                         system_count,
                         false,
+                        lod,
                     ) {
                         continue;
                     }
@@ -808,7 +823,7 @@ impl ParticleSystemManager {
                             }
                         }
                     }
-                    self.admit_slave_for_master(id, priority, current_frame);
+                    self.admit_slave_for_master(id, priority, current_frame, lod);
                 }
                 self.active_systems
                     .get_mut(&id)
@@ -867,39 +882,9 @@ impl ParticleSystemManager {
             .unwrap_or(self.max_field_particle_count)
     }
 
-    fn live_lod_priority(
-        priority: game_engine::common::ini::ParticlePriorityType,
-    ) -> ParticlePriorityType {
-        ParticlePriorityType::from_index(priority as usize)
-            .unwrap_or(ParticlePriorityType::WeaponExplosion)
-    }
-
-    /// Check if a particle with given priority should be skipped based on LOD (C++ GameLODManager::isParticleSkipped)
+    /// Compatibility boundary; explicit receivers use `update_with_lod`.
     pub fn should_skip_particle(&mut self, priority: ParticlePriorityType) -> bool {
-        // ALWAYS_RENDER particles are never skipped (C++ line 1695)
-        if priority == ParticlePriorityType::AlwaysRender {
-            return false;
-        }
-
-        let (min_priority, min_skip_priority) = {
-            let lod = game_engine::common::ini::get_game_lod_manager();
-            (
-                Self::live_lod_priority(lod.get_min_dynamic_particle_priority()),
-                Self::live_lod_priority(lod.get_min_dynamic_particle_skip_priority()),
-            )
-        };
-
-        // Check if below minimum priority for current FPS (C++ lines 1680-1682)
-        if priority < min_priority {
-            return true;
-        }
-
-        // Check skip mask for frame-skipping (C++ lines 1681-1682)
-        if priority < min_skip_priority && game_engine::common::ini::is_particle_skipped() {
-            return true;
-        }
-
-        false
+        AmbientParticleLod.should_skip(priority)
     }
 
     /// Remove oldest particles to make room for new ones (C++ ParticleSys.cpp lines 3177-3199)
@@ -938,7 +923,7 @@ impl ParticleSystemManager {
         removed
     }
 
-    /// C++ `ParticleSystem::createParticle` gates including field-particle cap.
+    /// Compatibility entrypoint using the application's current LOD service.
     pub fn can_create_particle_for_system(
         &mut self,
         priority: ParticlePriorityType,
@@ -946,84 +931,28 @@ impl ParticleSystemManager {
         system_particle_count: usize,
         force_create: bool,
     ) -> bool {
-        if self.next_particle_ordinal.checked_add(1).is_none() {
-            return false;
-        }
-        if force_create {
-            return true;
-        }
-        let use_fx = game_engine::common::ini::ini_game_data::get_global_data()
-            .map(|data| data.read().use_fx)
-            .unwrap_or(true);
-        if !use_fx {
-            return false;
-        }
-        if !self.can_create_particle(priority) {
-            return false;
-        }
-        if system_particle_count > 0
-            && priority == ParticlePriorityType::AreaEffect
-            && is_ground_aligned
-            && self.field_particle_count > self.live_max_field_particle_count()
-        {
-            return false;
-        }
-        true
+        self.can_create_particle_for_system_with_lod(
+            priority,
+            is_ground_aligned,
+            system_particle_count,
+            force_create,
+            &mut AmbientParticleLod,
+        )
     }
 
-    /// Check if we can create a particle with given priority (matches C++ createParticle logic)
+    /// Compatibility entrypoint using the application's current LOD service.
     pub fn can_create_particle(&mut self, priority: ParticlePriorityType) -> bool {
-        // Check LOD skip (C++ lines 1680-1683)
-        if self.should_skip_particle(priority) {
-            return false;
-        }
-
-        // ALWAYS_RENDER bypasses all limits (C++ lines 1694-1696)
-        if priority == ParticlePriorityType::AlwaysRender {
-            return true;
-        }
-
-        let max_particle_count = self.live_max_particle_count();
-
-        // Check if particles are disabled entirely
-        if max_particle_count == 0 {
-            return false;
-        }
-
-        // Check particle count limit (C++ ParticleSys.cpp:1699-1708).
-        // C++ culls only when the count strictly EXCEEDS the cap, evicts the
-        // excess, and then still rejects the NEW particle:
-        // removeOldestParticles (ParticleSys.cpp:3177-3201) does
-        // `while (count-- && ...)` on an UnsignedInt, so its post-decrement
-        // wraps to 0xFFFFFFFF on loop exit and the function returns
-        // requested + 1 — never equal to the requested count. The
-        // `!= numInExcess` check therefore always fails, and the steady-state
-        // population hovers between max and max+1 as each new particle that
-        // pushes the count over the cap is itself rejected after the eviction.
-        if self.particle_count > max_particle_count {
-            let num_in_excess = self.particle_count - max_particle_count;
-            self.remove_oldest_particles(num_in_excess, priority);
-            // C++ removeOldestParticles returns requested+1 (see above), so
-            // `!= numInExcess` holds and the new particle is never created.
-            return false;
-        }
-
-        true
+        self.can_create_particle_with_lod(priority, &mut AmbientParticleLod)
     }
-    /// Set LOD parameters (typically from GameLODManager)
-    pub fn set_lod_params(
+
+    /// Standalone capacity fallbacks; live application limits remain primary.
+    pub fn set_fallback_particle_limits(
         &mut self,
         max_particles: usize,
         max_field_particles: usize,
-        min_priority: ParticlePriorityType,
-        min_skip_priority: ParticlePriorityType,
-        skip_mask: u32,
     ) {
         self.max_particle_count = max_particles;
         self.max_field_particle_count = max_field_particles;
-        self.min_dynamic_particle_priority = min_priority;
-        self.min_dynamic_particle_skip_priority = min_skip_priority;
-        self.particle_skip_mask = skip_mask;
     }
 
     /// Get all active particle systems
@@ -1146,9 +1075,6 @@ impl SubsystemInterface for ParticleSystemManager {
         // Reset LOD settings to defaults
         self.max_particle_count = 2500;
         self.max_field_particle_count = 30;
-        self.min_dynamic_particle_priority = ParticlePriorityType::WeaponExplosion;
-        self.min_dynamic_particle_skip_priority = ParticlePriorityType::Critical;
-        self.particle_skip_mask = 0;
 
         // C++ Reference: INI ini; ini.load("Data\\INI\\ParticleSystem.ini", INI_LOAD_OVERWRITE, NULL);
         // Parse into this GameClient manager, rather than merely opening the
@@ -1791,13 +1717,7 @@ mod tests {
     #[test]
     fn can_create_particle_preserves_exact_cap_and_rejects_after_excess_eviction() {
         let mut manager = ParticleSystemManager::new();
-        manager.set_lod_params(
-            2,
-            2,
-            ParticlePriorityType::WeaponExplosion,
-            ParticlePriorityType::Critical,
-            0,
-        );
+        manager.set_fallback_particle_limits(2, 2);
 
         let mut template = ParticleSystemTemplate::new("Dust".to_string());
         template.info_mut().priority = ParticlePriorityType::DustTrail;
@@ -2148,3 +2068,7 @@ mod destroy_traversal_tests;
 
 #[path = "particle_manager/admission.rs"]
 mod admission;
+
+#[path = "particle_manager/lod.rs"]
+mod lod;
+use lod::{AmbientParticleLod, ParticleLod};

@@ -89,6 +89,7 @@ impl ParticleSystemManager {
         master_id: ParticleSystemId,
         priority: ParticlePriorityType,
         current_frame: u32,
+        lod: &mut dyn ParticleLod,
     ) {
         let Some(slave_id) = self
             .active_systems
@@ -129,7 +130,13 @@ impl ParticleSystemManager {
             offset,
         );
         // C++ passes the MASTER priority to slave createParticle (2009).
-        if !self.can_create_particle_for_system(priority, ground_aligned, count, false) {
+        if !self.can_create_particle_for_system_with_lod(
+            priority,
+            ground_aligned,
+            count,
+            false,
+            lod,
+        ) {
             return;
         }
         if let Some(slave) = self.active_systems.get_mut(&slave_id) {
