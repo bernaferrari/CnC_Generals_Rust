@@ -794,6 +794,16 @@ impl PresentationWorldEnv {
         self.height_samples.get(idx).copied()
     }
 
+    /// Original camera query against this immutable full-resolution map.
+    /// Missing terrain remains absent; no coarse-grid or target-height fallback.
+    pub fn sample_camera_terrain_height(&self, world_x: f32, world_z: f32) -> Option<f32> {
+        super::camera_terrain::sample_camera_height(
+            self.runtime_heightmap.as_ref()?,
+            world_x,
+            world_z,
+        )
+    }
+
     /// Sample the frozen full-resolution terrain using the same world-to-heightmap
     /// mapping as Main's authoritative `TerrainData`.
     ///

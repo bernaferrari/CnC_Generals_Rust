@@ -43,6 +43,7 @@ mod spectre;
 mod types;
 mod unit_render;
 mod weapon_visual_dispatch;
+mod camera_terrain;
 mod world_env;
 
 #[cfg(test)]
