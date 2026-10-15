@@ -82,7 +82,7 @@ pub fn honesty_host_demoralized_allow_off_residual_residual_pack_wave987() -> bo
     let d = drawable_source();
     let et = enum_table_source();
     let dem = match d.find("fn draw_demoralized") {
-        Some(i) => &d[i..d.len().min(i + 900)],
+        Some(i) => crate::game_logic::residuals::source_window::at(d, i, 900),
         None => "",
     };
     let ok = d.contains("Wave 987")

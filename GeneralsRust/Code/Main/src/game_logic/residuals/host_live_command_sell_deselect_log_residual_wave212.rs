@@ -86,7 +86,7 @@ pub fn honesty_start_sell_uses_deselect_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 2000)];
+    let body = crate::game_logic::residuals::source_window::at(src, i, 2000);
     body.contains("deselect()")
         && body.contains("set_status_sold(true)")
         && !body.contains("status.selected = false")
@@ -99,7 +99,7 @@ pub fn honesty_execute_sell_starts_sell_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &ce[i..ce.len().min(i + 1200)];
+    let body = crate::game_logic::residuals::source_window::at(ce, i, 1200);
     body.contains("start_sell_object")
 }
 

@@ -85,15 +85,15 @@ pub fn honesty_host_drawable_icon_pip_residual_residual_pack_wave972() -> bool {
     let drawable = drawable_source();
     let client = client_source();
     let ammo = match drawable.find("fn draw_ammo") {
-        Some(i) => &drawable[i..drawable.len().min(i + 700)],
+        Some(i) => crate::game_logic::residuals::source_window::at(drawable, i, 700),
         None => "",
     };
     let cont = match drawable.find("fn draw_contained") {
-        Some(i) => &drawable[i..drawable.len().min(i + 700)],
+        Some(i) => crate::game_logic::residuals::source_window::at(drawable, i, 700),
         None => "",
     };
     let dis = match drawable.find("fn draw_disabled") {
-        Some(i) => &drawable[i..drawable.len().min(i + 500)],
+        Some(i) => crate::game_logic::residuals::source_window::at(drawable, i, 500),
         None => "",
     };
     let ok = drawable.contains("Wave 972")

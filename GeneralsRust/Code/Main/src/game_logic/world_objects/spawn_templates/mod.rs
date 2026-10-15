@@ -300,3 +300,6 @@ mod vision;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod client_module_admission_tests;

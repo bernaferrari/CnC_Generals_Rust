@@ -98,11 +98,11 @@ pub fn honesty_presentation_env_only_source() -> bool {
     let hm = g
         .find("fn apply_heightmap_hint(render_pipeline: &mut RenderPipeline)")
         .unwrap();
-    let hm_body = &g[hm..g.len().min(hm + 900)];
+    let hm_body = crate::game_logic::residuals::source_window::at(g, hm, 900);
     let sky = g
         .find("fn apply_skybox_hint(render_pipeline: &mut RenderPipeline)")
         .unwrap();
-    let sky_body = &g[sky..g.len().min(sky + 700)];
+    let sky_body = crate::game_logic::residuals::source_window::at(g, sky, 700);
     hm_body.contains("presentation_frame()")
         && hm_body.contains("world_env.heightmap_hint")
         && sky_body.contains("presentation_frame()")

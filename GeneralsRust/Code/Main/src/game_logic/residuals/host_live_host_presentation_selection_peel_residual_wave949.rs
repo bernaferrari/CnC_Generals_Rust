@@ -94,7 +94,7 @@ fn fn_window<'a>(src: &'a str, marker: &str) -> &'a str {
         }
         p += 1;
     }
-    &src[i..src.len().min(i + 8_000)]
+    crate::game_logic::residuals::source_window::at(src, i, 8_000)
 }
 
 pub fn honesty_host_presentation_selection_peel_method_names_residual_wave949() -> bool {

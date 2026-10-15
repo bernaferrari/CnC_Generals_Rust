@@ -85,11 +85,11 @@ pub fn honesty_host_mouseover_hint_catalog_residual_pack_wave968() -> bool {
     let ui = ui_source();
     let client = client_source();
     let mo = match ui.find("fn create_mouseover_hint") {
-        Some(i) => &ui[i..ui.len().min(i + 600)],
+        Some(i) => crate::game_logic::residuals::source_window::at(ui, i, 600),
         None => "",
     };
     let ctx = match ui.find("fn command_hint_source_context") {
-        Some(i) => &ui[i..ui.len().min(i + 900)],
+        Some(i) => crate::game_logic::residuals::source_window::at(ui, i, 900),
         None => "",
     };
     let ok = ui.contains("Wave 968")

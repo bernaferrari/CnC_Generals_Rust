@@ -80,7 +80,7 @@ pub fn honesty_host_find_game_object_presentation_residual_residual_pack_wave100
     let gl = gl_source();
     let gc = gc_source();
     let find = match gc.find("pub fn find_game_object") {
-        Some(i) => &gc[i..gc.len().min(i + 900)],
+        Some(i) => crate::game_logic::residuals::source_window::at(gc, i, 900),
         None => "",
     };
     let ok = find.contains("Wave 269/1002")

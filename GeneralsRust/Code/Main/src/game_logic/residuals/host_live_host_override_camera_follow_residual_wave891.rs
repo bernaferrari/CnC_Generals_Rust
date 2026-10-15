@@ -78,14 +78,16 @@ pub fn honesty_host_override_camera_follow_residual_pack_wave891() -> bool {
         RESIDUAL_OK.store(false, Ordering::SeqCst);
         return false;
     };
-    let ow = super::harness::last_rust_fn_body(cnc, "host_override_world_size")
-        .unwrap_or(&cnc[ow_at..cnc.len().min(ow_at + 2000)]);
+    let ow = super::harness::last_rust_fn_body(cnc, "host_override_world_size").unwrap_or(
+        crate::game_logic::residuals::source_window::at(cnc, ow_at, 2000),
+    );
     let Some(cf_at) = cnc.find("fn host_set_camera_follow_object") else {
         RESIDUAL_OK.store(false, Ordering::SeqCst);
         return false;
     };
-    let cf = super::harness::last_rust_fn_body(cnc, "host_set_camera_follow_object")
-        .unwrap_or(&cnc[cf_at..cnc.len().min(cf_at + 2000)]);
+    let cf = super::harness::last_rust_fn_body(cnc, "host_set_camera_follow_object").unwrap_or(
+        crate::game_logic::residuals::source_window::at(cnc, cf_at, 2000),
+    );
     let ok = ow.contains("host_match_world_bounds = Some((min, max))")
         && ow.contains("half_w")
         && ow.contains("half_h")

@@ -84,7 +84,7 @@ pub fn honesty_host_force_attack_selected_enemy_usable_residual_pack_wave1103() 
             return false;
         }
     };
-    let fa = &cs[fa_i..fa_i.saturating_add(1400)];
+    let fa = crate::game_logic::residuals::source_window::at(cs, fa_i, 1400);
     let sel_i = match pf.find("fn count_selected_friendlies") {
         Some(i) => i,
         None => {
@@ -93,7 +93,7 @@ pub fn honesty_host_force_attack_selected_enemy_usable_residual_pack_wave1103() 
             return false;
         }
     };
-    let sel = &pf[sel_i..sel_i.saturating_add(900)];
+    let sel = crate::game_logic::residuals::source_window::at(pf, sel_i, 900);
     let en_i = match pf.find("fn is_enemy_attackable") {
         Some(i) => i,
         None => {
@@ -102,7 +102,7 @@ pub fn honesty_host_force_attack_selected_enemy_usable_residual_pack_wave1103() 
             return false;
         }
     };
-    let en = &pf[en_i..en_i.saturating_add(900)];
+    let en = crate::game_logic::residuals::source_window::at(pf, en_i, 900);
     let ok = fa.contains("Wave 1103: force-attack object residual fail-closed")
         && fa.contains("h.sold || !h.is_alive")
         && fa.contains("ForceAttackGround")

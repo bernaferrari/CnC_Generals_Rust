@@ -446,35 +446,8 @@ impl GameClient {
         host_epoch: u64,
         object_id: ObjectID,
     ) -> Option<PresentationDirectDrawableState> {
-        // Epoch zero belongs only to the legacy convenience ensure helper.
-        // Main's direct host pipeline starts at one and is the only route that
-        // may expose a renderable direct binding key.
-        if host_epoch == 0 {
-            return None;
-        }
-        let drawable_id = self.drawables.drawable_object_map.get(&object_id)?;
-        let binding = self
-            .drawables
-            .presentation_direct_drawable_bindings
-            .get(drawable_id)?;
-        let binding_key = binding.binding_key;
-        if binding_key.host_epoch != host_epoch
-            || binding_key.object_id != object_id
-            || binding_key.drawable_id != *drawable_id
-        {
-            return None;
-        }
-        let drawable = self.drawables.drawable_map.get(drawable_id)?;
-        if drawable.get_object_id() != Some(object_id) {
-            return None;
-        }
-        let scene_effectively_hidden = drawable.scene_effectively_hidden()?;
-        let fully_obscured = drawable.fully_obscured_by_shroud()?;
-        Some(PresentationDirectDrawableState {
-            binding_key,
-            scene_effectively_hidden,
-            fully_obscured,
-        })
+        self.drawables
+            .presentation_direct_drawable_state(host_epoch, object_id)
     }
 
     /// Compatibility reader for callers that do not yet retain a host epoch.
@@ -483,15 +456,7 @@ impl GameClient {
     /// [`Self::presentation_direct_drawable_state`] and retain its full key.
     #[must_use]
     pub fn presentation_direct_fully_obscured(&self, object_id: ObjectID) -> Option<bool> {
-        let drawable_id = self.drawables.drawable_object_map.get(&object_id)?;
-        let host_epoch = self
-            .drawables
-            .presentation_direct_drawable_bindings
-            .get(drawable_id)?
-            .binding_key
-            .host_epoch;
-        self.presentation_direct_drawable_state(host_epoch, object_id)
-            .map(|state| state.fully_obscured)
+        self.drawables.presentation_direct_fully_obscured(object_id)
     }
 
     /// Apply a frozen direct visual pose only when its full runtime binding

@@ -90,7 +90,7 @@ pub fn honesty_host_dual_tick_queue_destroy_peels_residual_pack_wave916() -> boo
     let dual_idx = cnc.find("Wave 916: AuthorityOnly");
     let dual_raw = if dual_idx.is_some() {
         let i = dual_idx.unwrap();
-        &cnc[i..cnc.len().min(i + 900)]
+        crate::game_logic::residuals::source_window::at(cnc, i, 900)
     } else {
         ""
     };

@@ -405,6 +405,8 @@ impl GameLogic {
         template: &mut ThingTemplate,
         definition: &crate::assets::ObjectDefinition,
     ) {
+        template.client_module_declarations =
+            Some(definition.client_modules.clone().into_boxed_slice());
         template.default_draw_without_fog_memory = definition
             .draw_modules
             .iter()

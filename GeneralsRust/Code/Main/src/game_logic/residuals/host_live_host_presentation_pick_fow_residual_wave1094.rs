@@ -83,7 +83,7 @@ pub fn honesty_host_presentation_pick_fow_residual_pack_wave1094() -> bool {
             return false;
         }
     };
-    let world = &uc[world_i..world_i.saturating_add(1600)];
+    let world = crate::game_logic::residuals::source_window::at(uc, world_i, 1600);
     let screen_i = match uc.find("fn pick_object_at_screen_pos_from_presentation") {
         Some(i) => i,
         None => {
@@ -92,7 +92,7 @@ pub fn honesty_host_presentation_pick_fow_residual_pack_wave1094() -> bool {
             return false;
         }
     };
-    let screen = &uc[screen_i..screen_i.saturating_add(1200)];
+    let screen = crate::game_logic::residuals::source_window::at(uc, screen_i, 1200);
     let find_i = match cnc.find("fn find_object_at_position") {
         Some(i) => i,
         None => {
@@ -101,7 +101,7 @@ pub fn honesty_host_presentation_pick_fow_residual_pack_wave1094() -> bool {
             return false;
         }
     };
-    let find = &cnc[find_i..find_i.saturating_add(900)];
+    let find = crate::game_logic::residuals::source_window::at(cnc, find_i, 900);
     // Re-pinned 2026-09-07: find_object_at_position now delegates to
     // host_find_object_at_position, which owns the presentation pick call.
     let host_i = match cnc.find("fn host_find_object_at_position") {
@@ -112,7 +112,7 @@ pub fn honesty_host_presentation_pick_fow_residual_pack_wave1094() -> bool {
             return false;
         }
     };
-    let host = &cnc[host_i..host_i.saturating_add(1200)];
+    let host = crate::game_logic::residuals::source_window::at(cnc, host_i, 1200);
     let ok = world.contains("Wave 1094: non-local FOW residual fail-closed")
         && world.contains("visibility_alpha < 0.95")
         && world.contains("is_local")

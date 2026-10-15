@@ -30,6 +30,13 @@ pub struct ObjectDefinition {
     /// ConditionState table which C++ W3DModelDraw selects at runtime.
     pub draw_modules: Vec<DrawModuleDefinition>,
 
+    /// Full ordered native Draw/ClientUpdate module-data declarations.
+    pub client_modules: Vec<ClientModuleDeclaration>,
+    /// Ordered edits retained so ChildObject/default inheritance can replay
+    /// removals and wrapper policies against its actual receiving parent.
+    pub client_module_operations: Vec<ClientModuleOperation>,
+    pub client_module_parse_context: ClientModuleParseContext,
+
     /// Source-authored behavior modules in declaration order.  Unlike the
     /// legacy raw attribute map, repeated fields stay associated with their
     /// owning module.
@@ -242,6 +249,9 @@ impl ObjectDefinition {
             textures: HashMap::new(),
             draw_module: None,
             draw_modules: Vec::new(),
+            client_modules: Vec::new(),
+            client_module_operations: Vec::new(),
+            client_module_parse_context: ClientModuleParseContext::default(),
             behavior_modules: Vec::new(),
             armor_type: None,
             hit_points: None,
@@ -479,6 +489,13 @@ impl ObjectDefinition {
             }
             return;
         }
+        let parent = self.client_modules.clone();
+        let previous_operations = self.client_module_operations.len();
+        self.capture_client_module_operations(properties, None, true);
+        let all_operations = std::mem::take(&mut self.client_module_operations);
+        self.client_module_operations = all_operations[previous_operations..].to_vec();
+        self.resolve_client_modules(&parent, self.client_module_parse_context);
+        self.client_module_operations = all_operations;
         let mut replace_weapon_sets = true;
         let mut replace_armor_sets = true;
         self.apply_captured_create_override_fields(

@@ -80,7 +80,7 @@ pub fn honesty_host_force_attack_fow_cmdset_usable_residual_pack_wave1105() -> b
             return false;
         }
     };
-    let fa = &pf[fa_i..fa_i.saturating_add(1400)];
+    let fa = crate::game_logic::residuals::source_window::at(pf, fa_i, 1400);
     let cs_i = match pf.find("fn selected_command_set_name") {
         Some(i) => i,
         None => {
@@ -89,7 +89,7 @@ pub fn honesty_host_force_attack_fow_cmdset_usable_residual_pack_wave1105() -> b
             return false;
         }
     };
-    let cs = &pf[cs_i..cs_i.saturating_add(2200)];
+    let cs = crate::game_logic::residuals::source_window::at(pf, cs_i, 2200);
     let ok = fa.contains("Wave 1105: fail-closed on non-local FOW unless Clear")
         && fa.contains("visibility_alpha >= 0.95")
         && fa.contains("presentation_is_attackable")

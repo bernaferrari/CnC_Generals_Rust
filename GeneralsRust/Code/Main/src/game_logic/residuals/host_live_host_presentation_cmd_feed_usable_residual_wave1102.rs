@@ -114,7 +114,7 @@ pub fn honesty_host_presentation_cmd_feed_usable_residual_pack_wave1102() -> boo
             ok = false;
             break;
         };
-        let w = &pf[i..i.saturating_add(1400)];
+        let w = crate::game_logic::residuals::source_window::at(pf, i, 1400);
         if !w.contains(wave) || !w.contains(needle) {
             ok = false;
             break;

@@ -82,7 +82,7 @@ pub fn honesty_host_hover_shroud_selected_kind_unusable_residual_pack_wave1090()
             return false;
         }
     };
-    let sh = &ui[sh_i..sh_i.saturating_add(1200)];
+    let sh = crate::game_logic::residuals::source_window::at(ui, sh_i, 1200);
     let any_i = match ui.find("fn is_any_selected_kind_of") {
         Some(i) => i,
         None => {
@@ -91,7 +91,7 @@ pub fn honesty_host_hover_shroud_selected_kind_unusable_residual_pack_wave1090()
             return false;
         }
     };
-    let any = &ui[any_i..any_i.saturating_add(900)];
+    let any = crate::game_logic::residuals::source_window::at(ui, any_i, 900);
     let all_i = match ui.find("fn is_all_selected_kind_of") {
         Some(i) => i,
         None => {
@@ -100,7 +100,7 @@ pub fn honesty_host_hover_shroud_selected_kind_unusable_residual_pack_wave1090()
             return false;
         }
     };
-    let all = &ui[all_i..all_i.saturating_add(1200)];
+    let all = crate::game_logic::residuals::source_window::at(ui, all_i, 1200);
     let ok = sh.contains("Wave 1090: command-hint shroud residual fail-closed on unusable")
         && sh.contains("entry.destroyed || entry.sold || entry.masked || entry.unselectable")
         && any.contains("Wave 1090: selected-kind residual ignores unusable entries")

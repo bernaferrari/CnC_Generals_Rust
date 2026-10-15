@@ -103,7 +103,7 @@ pub fn honesty_rmb_presentation_no_dual_read_source_markers_residual_wave541() -
     let det_i = cs.find("fn determine_context_command");
     let ok = match det_i {
         Some(i) => {
-            let window = &cs[i..cs.len().min(i + 3500)];
+            let window = crate::game_logic::residuals::source_window::at(cs, i, 3500);
             window.contains("Wave 541")
                 && window.contains("classify_right_click_target_from_presentation")
                 && window.contains("target presentation freeze is authoritative")

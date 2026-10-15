@@ -113,7 +113,10 @@ pub fn honesty_hotkey_move_attack_selection_presentation_only_source() -> bool {
         // Notes may sit slightly before or after the status/message anchor.
         let lo = i.saturating_sub(1600);
         let hi = (i + 400).min(eng.len());
-        if !eng[lo..hi].contains(note) && !eng[lo..hi].contains("ui_selected_ids") {
+        if !crate::game_logic::residuals::source_window::range(eng, lo, hi).contains(note)
+            && !crate::game_logic::residuals::source_window::range(eng, lo, hi)
+                .contains("ui_selected_ids")
+        {
             return false;
         }
     }

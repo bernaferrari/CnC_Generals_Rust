@@ -86,7 +86,7 @@ pub fn honesty_host_presentation_is_attackable_status_residual_pack_wave1093() -
             return false;
         }
     };
-    let window = &uc[i..i.saturating_add(700)];
+    let window = crate::game_logic::residuals::source_window::at(uc, i, 700);
     let pick_i = match uc.find("fn pick_object_id_at_world_from_presentation") {
         Some(i) => i,
         None => {
@@ -95,7 +95,7 @@ pub fn honesty_host_presentation_is_attackable_status_residual_pack_wave1093() -
             return false;
         }
     };
-    let pick = &uc[pick_i..pick_i.saturating_add(1800)];
+    let pick = crate::game_logic::residuals::source_window::at(uc, pick_i, 1800);
     let ii_i = match ii.find("fn presentation_is_attackable") {
         Some(i) => i,
         None => {
@@ -104,7 +104,7 @@ pub fn honesty_host_presentation_is_attackable_status_residual_pack_wave1093() -
             return false;
         }
     };
-    let ii_w = &ii[ii_i..ii_i.saturating_add(500)];
+    let ii_w = crate::game_logic::residuals::source_window::at(ii, ii_i, 500);
     let iss_i = match iss.find("fn presentation_is_attackable") {
         Some(i) => i,
         None => {
@@ -113,7 +113,7 @@ pub fn honesty_host_presentation_is_attackable_status_residual_pack_wave1093() -
             return false;
         }
     };
-    let iss_w = &iss[iss_i..iss_i.saturating_add(500)];
+    let iss_w = crate::game_logic::residuals::source_window::at(iss, iss_i, 500);
     let ok = (window.contains("Wave 1093: presentation attackable residual fail-closed")
             || window.contains("!o.unattackable"))
         && window.contains("!o.sold")

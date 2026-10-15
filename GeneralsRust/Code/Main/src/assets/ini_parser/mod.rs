@@ -15,6 +15,7 @@ use anyhow::Result;
 use log::{debug, trace};
 use std::collections::HashMap;
 
+mod client_module_declarations;
 mod objects;
 mod parser;
 mod types;

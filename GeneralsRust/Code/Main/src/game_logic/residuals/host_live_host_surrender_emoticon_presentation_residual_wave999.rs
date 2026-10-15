@@ -89,7 +89,7 @@ pub fn honesty_host_surrender_emoticon_presentation_residual_residual_pack_wave9
     let ent = entity_source();
     let sh = shadow_source();
     let gw = match pf.find("fn renderable_from_gameworld_entity") {
-        Some(i) => &pf[i..pf.len().min(i + 10000)],
+        Some(i) => crate::game_logic::residuals::source_window::at(pf, i, 10000),
         None => "",
     };
     let ok = ent.contains("pub is_surrendered: bool")

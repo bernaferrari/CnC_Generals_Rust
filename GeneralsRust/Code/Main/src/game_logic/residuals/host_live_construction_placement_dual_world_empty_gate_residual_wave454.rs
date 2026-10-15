@@ -98,7 +98,7 @@ pub fn honesty_construction_placement_dual_world_empty_gate_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &g[i..g.len().min(i + 12000)];
+    let body = crate::game_logic::residuals::source_window::at(g, i, 12000);
     let skip_ok = body.contains("if !dual_world_registry_unavailable()")
         && body.contains("for object_id in nearby");
     // Terrain check still present before skip

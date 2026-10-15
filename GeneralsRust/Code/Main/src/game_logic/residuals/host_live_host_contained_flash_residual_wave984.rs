@@ -84,7 +84,7 @@ pub fn honesty_host_contained_flash_residual_residual_pack_wave984() -> bool {
     let d = drawable_source();
     let client = client_source();
     let flash = match d.find("fn flash_contained_objects") {
-        Some(i) => &d[i..d.len().min(i + 900)],
+        Some(i) => crate::game_logic::residuals::source_window::at(d, i, 900),
         None => "",
     };
     let shell = match client.find("fn update_presentation_shell") {

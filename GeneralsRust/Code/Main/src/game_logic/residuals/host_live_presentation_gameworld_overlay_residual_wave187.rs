@@ -89,7 +89,7 @@ pub fn honesty_overlay_gameworld_shadow_api_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 2500)];
+    let body = crate::game_logic::residuals::source_window::at(src, i, 2500);
     body.contains("entity_for_host")
         && body.contains("health_current")
         && body.contains("position")

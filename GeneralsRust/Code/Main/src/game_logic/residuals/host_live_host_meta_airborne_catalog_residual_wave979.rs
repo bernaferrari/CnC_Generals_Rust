@@ -90,11 +90,11 @@ pub fn honesty_host_meta_airborne_catalog_residual_pack_wave979() -> bool {
     let residual = residual_mod_source();
     let ui = ui_source();
     let plane = match meta.find("fn next_plane_camera_lock_object_id") {
-        Some(i) => &meta[i..meta.len().min(i + 1800)],
+        Some(i) => crate::game_logic::residuals::source_window::at(meta, i, 1800),
         None => "",
     };
     let kill = match meta.find("fn kill_all_enemy_objects_for_local_player") {
-        Some(i) => &meta[i..meta.len().min(i + 1200)],
+        Some(i) => crate::game_logic::residuals::source_window::at(meta, i, 1200),
         None => "",
     };
     let ok = meta.contains("Wave 979")

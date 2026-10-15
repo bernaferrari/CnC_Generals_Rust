@@ -216,6 +216,7 @@ impl WW3DAssetManager {
         mut parent: ObjectDefinition,
         child: ObjectDefinition,
     ) -> ObjectDefinition {
+        let initial_context = parent.client_module_parse_context;
         parent.name = child.name.clone();
         parent.parent_name = child.parent_name.clone();
 
@@ -238,6 +239,8 @@ impl WW3DAssetManager {
         if !child.draw_modules.is_empty() {
             parent.draw_modules = child.draw_modules;
         }
+        let inherited_client_modules = std::mem::take(&mut parent.client_modules);
+        parent.client_module_operations = child.client_module_operations.clone();
         // Behavior module tags are the C++ INI override identity.  A child
         // with the same tag replaces that one parent module in place; a new
         // tag appends in source order.  Merging only raw field names would
@@ -326,6 +329,7 @@ impl WW3DAssetManager {
             parent.attributes.insert(key, value);
         }
 
+        parent.resolve_client_modules(&inherited_client_modules, initial_context);
         parent
     }
 
@@ -348,6 +352,7 @@ impl WW3DAssetManager {
         default: ObjectDefinition,
         mut child: ObjectDefinition,
     ) -> ObjectDefinition {
+        child.resolve_client_modules(&default.client_modules, default.client_module_parse_context);
         child.attributes = Self::overlay_ini_attributes(default.attributes, child.attributes);
 
         if child.weapon_sets.is_empty() {
@@ -1065,5 +1070,199 @@ mod body_inheritance_tests {
         assert_eq!(owner.health.current, 90.0);
         assert_eq!(owner.health.maximum, 260.0);
         assert_eq!(owner.initial_health, 90.0);
+    }
+}
+
+#[cfg(test)]
+mod client_module_inheritance_tests {
+    use super::*;
+
+    #[test]
+    fn effective_client_modules_retain_parent_data_and_child_replacement_bodies() {
+        let mut parser = IniParser::new();
+        parser.parse_ini_content("Object ParentClient\nDraw = W3DModelDraw OldDraw\nDefaultConditionState\nModel = Parent\nEnd\nEnd\nClientUpdate = SwayClientUpdate SharedUpdate\nMaxAngle = 4\nEnd\nInheritableModule\nClientUpdate = SwayClientUpdate RetainedUpdate\nMaxAngle = 2\nEnd\nEnd\nEnd\nChildObject ChildClient ParentClient\nDraw = W3DModelDraw NewDraw\nDefaultConditionState\nModel = Child\nEnd\nEnd\nReplaceModule SharedUpdate\nClientUpdate = SwayClientUpdate ReplacedUpdate\nMaxAngle = 9\nEnd\nEnd\nEnd", "inherit-client.ini").unwrap();
+        let parent = parser.get_definition("ParentClient").unwrap().clone();
+        let child = parser.get_definition("ChildClient").unwrap().clone();
+        let effective = WW3DAssetManager::merge_definition_inheritance(parent.clone(), child);
+        assert_eq!(
+            effective
+                .client_modules
+                .iter()
+                .map(|m| m.module_tag.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["RetainedUpdate", "NewDraw", "ReplacedUpdate"]
+        );
+        assert!(effective.client_modules[2].body.contains("MaxAngle = 9"));
+        assert!(effective.client_modules[0].body.contains("MaxAngle = 2"));
+        assert!(effective.client_modules[1].body.contains("Model = Child"));
+        assert!(parent.client_modules[0].body.contains("Model = Parent"));
+        assert!(parent.client_modules[1].body.contains("MaxAngle = 4"));
+    }
+    fn resolve(parent: &str, child: &str) -> ObjectDefinition {
+        let mut parser = IniParser::new();
+        parser.parse_ini_content(&format!("Object ParentClient\n{parent}\nEnd\nChildObject ChildClient ParentClient\n{child}\nEnd"), "client-policy.ini").unwrap();
+        WW3DAssetManager::merge_definition_inheritance(
+            parser.get_definition("ParentClient").unwrap().clone(),
+            parser.get_definition("ChildClient").unwrap().clone(),
+        )
+    }
+
+    #[test]
+    fn copied_client_policy_observes_kindof_at_declaration_not_final_value() {
+        let parent = "KindOf = VEHICLE\nOverrideableByLikeKind\nDraw = W3DTruckDraw Kept\nDust = D\nEnd\nEnd";
+        let before = resolve(parent, "KindOf = STRUCTURE\nDraw = W3DModelDraw New\nEnd");
+        let after = resolve(parent, "Draw = W3DModelDraw New\nEnd\nKindOf = STRUCTURE");
+        assert_eq!(
+            before
+                .client_modules
+                .iter()
+                .map(|m| m.module_tag.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["New"]
+        );
+        assert_eq!(
+            after
+                .client_modules
+                .iter()
+                .map(|m| m.module_tag.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["Kept", "New"]
+        );
+    }
+
+    #[test]
+    fn copied_client_policy_observes_trainability_and_preserves_inheritable_order() {
+        let parent = "IsTrainable = No\nInheritableModule\nClientUpdate = SwayClientUpdate ModuleTag_DefaultAutoHealBehavior\nMaxAngle = 3\nEnd\nEnd\nInheritableModule\nClientUpdate = SwayClientUpdate AlwaysKept\nMaxAngle = 4\nEnd\nEnd";
+        let before = resolve(
+            parent,
+            "IsTrainable = Yes\nClientUpdate = SwayClientUpdate New\nMaxAngle = 5\nEnd",
+        );
+        let after = resolve(
+            parent,
+            "ClientUpdate = SwayClientUpdate New\nMaxAngle = 5\nEnd\nIsTrainable = Yes",
+        );
+        assert_eq!(
+            before
+                .client_modules
+                .iter()
+                .map(|m| m.module_tag.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["ModuleTag_DefaultAutoHealBehavior", "AlwaysKept", "New"]
+        );
+        assert_eq!(
+            after
+                .client_modules
+                .iter()
+                .map(|m| m.module_tag.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["AlwaysKept", "New"]
+        );
+    }
+    #[test]
+    fn default_client_modules_use_copied_policy_and_incremental_kindof_context() {
+        let mut parser = IniParser::new();
+        parser.parse_ini_content("Object DefaultThingTemplate\nKindOf = VEHICLE\nOverrideableByLikeKind\nDraw = W3DTruckDraw Kept\nEnd\nEnd\nClientUpdate = SwayClientUpdate DefaultUpdate\nMaxAngle = 2\nEnd\nEnd\nObject PlainClient\nKindOf = +STRUCTURE\nDraw = W3DModelDraw New\nEnd\nEnd", "default-client.ini").unwrap();
+        let effective = WW3DAssetManager::merge_default_thing_template(
+            parser
+                .get_definition("DefaultThingTemplate")
+                .unwrap()
+                .clone(),
+            parser.get_definition("PlainClient").unwrap().clone(),
+        );
+        assert_eq!(
+            effective
+                .client_modules
+                .iter()
+                .map(|m| m.module_tag.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["DefaultUpdate", "New"]
+        );
+    }
+    #[test]
+    fn copied_client_clearing_depends_on_load_type_not_add_wrapper() {
+        let parent = "ClientUpdate = SwayClientUpdate Copied\nMaxAngle = 2\nEnd";
+        let normal = resolve(
+            parent,
+            "AddModule\nClientUpdate = SwayClientUpdate Added\nMaxAngle = 3\nEnd\nEnd",
+        );
+        assert_eq!(
+            normal
+                .client_modules
+                .iter()
+                .map(|m| m.module_tag.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["Added"]
+        );
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(&format!("Object ParentClient\n{parent}\nEnd"), "parent.ini")
+            .unwrap();
+        parser.parse_ini_content_with_overrides("ChildObject ChildClient ParentClient\nAddModule\nClientUpdate = SwayClientUpdate Added\nMaxAngle = 3\nEnd\nEnd\nEnd", "override.ini", true).unwrap();
+        let overridden = WW3DAssetManager::merge_definition_inheritance(
+            parser.get_definition("ParentClient").unwrap().clone(),
+            parser.get_definition("ChildClient").unwrap().clone(),
+        );
+        assert_eq!(
+            overridden
+                .client_modules
+                .iter()
+                .map(|m| m.module_tag.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["Copied", "Added"]
+        );
+    }
+    #[test]
+    fn grandchild_client_policy_inherits_resolved_incremental_kindof_mask() {
+        let mut parser = IniParser::new();
+        parser.parse_ini_content("Object ParentClient\nKindOf = VEHICLE\nOverrideableByLikeKind\nDraw = W3DTruckDraw Kept\nEnd\nEnd\nEnd\nChildObject ChildClient ParentClient\nKindOf = +STRUCTURE\nEnd\nChildObject GrandchildClient ChildClient\nKindOf = -STRUCTURE\nDraw = W3DModelDraw New\nEnd\nEnd", "grandchild-client.ini").unwrap();
+        let child = WW3DAssetManager::merge_definition_inheritance(
+            parser.get_definition("ParentClient").unwrap().clone(),
+            parser.get_definition("ChildClient").unwrap().clone(),
+        );
+        let grandchild = WW3DAssetManager::merge_definition_inheritance(
+            child,
+            parser.get_definition("GrandchildClient").unwrap().clone(),
+        );
+        assert_eq!(
+            grandchild
+                .client_modules
+                .iter()
+                .map(|m| m.module_tag.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["Kept", "New"]
+        );
+        let names = grandchild
+            .client_module_parse_context
+            .kind_of
+            .to_string_list();
+        assert!(names.iter().any(|name| name == "VEHICLE"));
+        assert!(!names.iter().any(|name| name == "STRUCTURE"));
+    }
+
+    #[test]
+    fn nested_wrapper_client_context_survives_child_and_create_override_replay() {
+        use game_engine::common::thing::thing_template::ObjectIniFields;
+        let mut parser = IniParser::new();
+        parser.parse_ini_content("Object ParentClient\nAddModule\nKindOf = VEHICLE\nIsTrainable = Yes\nEnd\nOverrideableByLikeKind\nDraw = W3DTruckDraw Kept\nEnd\nEnd\nInheritableModule\nClientUpdate = SwayClientUpdate ModuleTag_DefaultAutoHealBehavior\nEnd\nEnd\nEnd\nChildObject ChildClient ParentClient\nDraw = W3DModelDraw New\nEnd\nClientUpdate = SwayClientUpdate Added\nEnd\nEnd", "nested-client-context.ini").unwrap();
+        let mut child = WW3DAssetManager::merge_definition_inheritance(
+            parser.get_definition("ParentClient").unwrap().clone(),
+            parser.get_definition("ChildClient").unwrap().clone(),
+        );
+        assert_eq!(
+            child
+                .client_modules
+                .iter()
+                .map(|m| m.module_tag.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            ["Kept", "ModuleTag_DefaultAutoHealBehavior", "New", "Added"]
+        );
+        assert!(child.client_module_parse_context.trainable);
+        let (properties, _) =
+            ObjectIniFields::capture_body(&["AddModule", "KindOf = +STRUCTURE", "End", "End"], 0);
+        child.apply_create_override_properties(&properties);
+        let names = child.client_module_parse_context.kind_of.to_string_list();
+        assert!(names.iter().any(|name| name == "VEHICLE"));
+        assert!(names.iter().any(|name| name == "STRUCTURE"));
+        assert!(child.client_module_parse_context.trainable);
     }
 }

@@ -788,3 +788,49 @@ impl BehaviorModuleDefinition {
         self.attributes.insert(key, value);
     }
 }
+
+/// Complete authored client module input, before native module-data decoding.
+/// Body lines retain repeated fields and nested End markers in authored order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientModuleDeclaration {
+    pub kind: ClientModuleKind,
+    pub class_name: String,
+    pub module_tag: Option<String>,
+    pub body: String,
+    pub inheritable: bool,
+    pub overrideable_by_like_kind: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClientModuleOperation {
+    Add {
+        declaration: ClientModuleDeclaration,
+        clear_copied: bool,
+    },
+    Remove(String),
+    KindOf(String),
+    Trainable(bool),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientModuleKind {
+    Draw,
+    ClientUpdate,
+}
+
+/// Effective scalar parse state at the end of ordered client declarations.
+/// Retaining the mask avoids reinterpreting a last raw `+FLAG` as a fresh set.
+#[derive(Debug, Clone, Copy)]
+pub struct ClientModuleParseContext {
+    pub kind_of: game_engine::common::system::kind_of::KindOfMask,
+    pub trainable: bool,
+}
+
+impl Default for ClientModuleParseContext {
+    fn default() -> Self {
+        Self {
+            kind_of: game_engine::common::system::kind_of::KindOfMask::empty(),
+            trainable: false,
+        }
+    }
+}

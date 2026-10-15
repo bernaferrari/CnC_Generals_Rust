@@ -79,7 +79,7 @@ pub fn honesty_host_hover_cmd_hint_unusable_fow_residual_pack_wave1087() -> bool
             return false;
         }
     };
-    let window = &ui[fn_i..fn_i.saturating_add(1800)];
+    let window = crate::game_logic::residuals::source_window::at(ui, fn_i, 1800);
     let ok = window.contains("Wave 1087: command-hint hover residual fail-closed on unusable")
         && window.contains("entry.destroyed || entry.sold || entry.unselectable || entry.masked")
         && window.contains("entry.effectively_stealthed && !local")

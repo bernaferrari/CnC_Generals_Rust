@@ -85,7 +85,7 @@ pub fn honesty_control_group_assign_presentation_only_source() -> bool {
     let Some(i) = eng.find("control_group_assign_fail_no_selection") else {
         return false;
     };
-    let window = &eng[i.saturating_sub(500)..i];
+    let window = crate::game_logic::residuals::source_window::range(eng, i.saturating_sub(500), i);
     window.contains("Wave 216")
         && window.contains("ui_selected_ids")
         && !window.contains("get_player(self.current_player_id)")
@@ -97,7 +97,7 @@ pub fn honesty_control_group_recall_presentation_only_source() -> bool {
     let Some(i) = eng.find("control_group_recall_fail_empty") else {
         return false;
     };
-    let window = &eng[i.saturating_sub(700)..i];
+    let window = crate::game_logic::residuals::source_window::range(eng, i.saturating_sub(700), i);
     window.contains("Wave 216")
         && window.contains("ui_object_alive")
         && !window.contains("get_object(*id)")

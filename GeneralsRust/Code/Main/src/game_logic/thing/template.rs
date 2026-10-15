@@ -39,6 +39,10 @@ pub struct ThingTemplate {
     /// C++ PartitionData::attachToObject excludes authored W3DDefaultDraw.
     #[serde(default)]
     pub(crate) default_draw_without_fog_memory: bool,
+    /// Effective immutable client module data; rebound from receiving content.
+    /// Not serialized into the historical positional template wire format.
+    #[serde(skip)]
+    pub(crate) client_module_declarations: Option<Box<[crate::assets::ClientModuleDeclaration]>>,
     pub max_health: f32,
     /// Rebound from receiving content or validated saved module identity.
     /// Preserve the historical positional ThingTemplate serialization.
@@ -622,6 +626,7 @@ impl ThingTemplate {
             kind_of: HashSet::new(),
             default_draw_without_fog_memory: false,
             max_health: 100.0,
+            client_module_declarations: None,
             body_kind: None,
             native_lifecycle_definitions: None,
             native_lifecycle_error: None,

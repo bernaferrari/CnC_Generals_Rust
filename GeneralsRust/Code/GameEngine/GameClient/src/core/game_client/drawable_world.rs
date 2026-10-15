@@ -1,7 +1,8 @@
 //! Actual CPU Drawable lifetimes and their receiving-client identity.
 //!
-//! This owner groups the existing storage; GameClient still drives every
-//! creation, update, destruction, and Xfer operation in its original order.
+//! Object associations, inverse lookup, and validated runtime binding reads
+//! operate on this owner. GameClient still coordinates creation, updates,
+//! destruction callbacks, and Xfer in their original order.
 //! Construction allocates inert containers and never publishes client state.
 
 use super::*;
@@ -46,5 +47,127 @@ impl DrawableWorld {
         let generation = self.next_presentation_direct_binding_generation.max(1);
         self.next_presentation_direct_binding_generation = generation.wrapping_add(1).max(1);
         generation
+    }
+
+    pub(super) fn bind_drawable_to_object(
+        &mut self,
+        drawable_id: DrawableId,
+        object_id: ObjectID,
+    ) -> GameClientResult<()> {
+        // C++ binds an actual live Drawable receiver. Reject an unresolved Rust
+        // handle before changing another Drawable's association or runtime key.
+        if !self.drawable_map.contains_key(&drawable_id) {
+            return Err(GameClientError::DrawableNotFound(drawable_id));
+        }
+        let old_object_id = self
+            .drawable_map
+            .get(&drawable_id)
+            .and_then(|drawable| drawable.get_object_id());
+
+        // C++ `Drawable::friend_bindToObject` does not reset its volatile
+        // shroud state when it is rebound to the same Object.  Retain the
+        // direct binding only for that fully validated no-op association;
+        // any owner change, displacement, or broken inverse map is a new
+        // visual lifetime and must receive a fresh key on the next host sync.
+        let retains_same_direct_binding = old_object_id == Some(object_id)
+            && self.drawable_object_map.get(&object_id).copied() == Some(drawable_id)
+            && self
+                .presentation_direct_drawable_bindings
+                .get(&drawable_id)
+                .is_some_and(|binding| {
+                    binding.binding_key.object_id == object_id
+                        && binding.binding_key.drawable_id == drawable_id
+                });
+        if !retains_same_direct_binding {
+            self.presentation_direct_drawable_bindings
+                .remove(&drawable_id);
+        }
+
+        if let Some(old_object_id) = old_object_id {
+            if old_object_id != object_id
+                && self.drawable_object_map.get(&old_object_id).copied() == Some(drawable_id)
+            {
+                self.drawable_object_map.remove(&old_object_id);
+            }
+        }
+
+        if let Some(previous_drawable_id) = self.drawable_object_map.get(&object_id).copied() {
+            if previous_drawable_id != drawable_id {
+                if let Some(previous_drawable) = self.drawable_map.get_mut(&previous_drawable_id) {
+                    previous_drawable.set_object_id(None);
+                }
+                self.presentation_direct_drawable_bindings
+                    .remove(&previous_drawable_id);
+            }
+        }
+
+        if let Some(drawable) = self.drawable_map.get_mut(&drawable_id) {
+            drawable.set_object_id(Some(object_id));
+            self.drawable_object_map.insert(object_id, drawable_id);
+            Ok(())
+        } else {
+            Err(GameClientError::DrawableNotFound(drawable_id))
+        }
+    }
+
+    pub(super) fn find_drawable_by_id(&self, id: DrawableId) -> Option<&dyn Drawable> {
+        self.drawable_map.get(&id).map(|d| d.as_ref())
+    }
+
+    pub(super) fn find_drawable_by_id_mut(
+        &mut self,
+        id: DrawableId,
+    ) -> Option<&mut Box<dyn Drawable>> {
+        self.drawable_map.get_mut(&id)
+    }
+
+    pub(super) fn get_drawable_for_object(&self, object_id: ObjectID) -> Option<DrawableId> {
+        self.drawable_object_map.get(&object_id).copied()
+    }
+
+    pub(super) fn presentation_direct_drawable_state(
+        &self,
+        host_epoch: u64,
+        object_id: ObjectID,
+    ) -> Option<PresentationDirectDrawableState> {
+        // Epoch zero belongs only to the legacy convenience ensure helper.
+        // Main's direct host pipeline starts at one and is the only route that
+        // may expose a renderable direct binding key.
+        if host_epoch == 0 {
+            return None;
+        }
+        let drawable_id = self.drawable_object_map.get(&object_id)?;
+        let binding = self
+            .presentation_direct_drawable_bindings
+            .get(drawable_id)?;
+        let binding_key = binding.binding_key;
+        if binding_key.host_epoch != host_epoch
+            || binding_key.object_id != object_id
+            || binding_key.drawable_id != *drawable_id
+        {
+            return None;
+        }
+        let drawable = self.drawable_map.get(drawable_id)?;
+        if drawable.get_object_id() != Some(object_id) {
+            return None;
+        }
+        let scene_effectively_hidden = drawable.scene_effectively_hidden()?;
+        let fully_obscured = drawable.fully_obscured_by_shroud()?;
+        Some(PresentationDirectDrawableState {
+            binding_key,
+            scene_effectively_hidden,
+            fully_obscured,
+        })
+    }
+
+    pub(super) fn presentation_direct_fully_obscured(&self, object_id: ObjectID) -> Option<bool> {
+        let drawable_id = self.drawable_object_map.get(&object_id)?;
+        let host_epoch = self
+            .presentation_direct_drawable_bindings
+            .get(drawable_id)?
+            .binding_key
+            .host_epoch;
+        self.presentation_direct_drawable_state(host_epoch, object_id)
+            .map(|state| state.fully_obscured)
     }
 }

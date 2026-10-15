@@ -93,7 +93,7 @@ pub fn honesty_host_selection_hud_disabled_fow_residual_pack_wave1113() -> bool 
             return false;
         }
     };
-    let window = &ui[fn_i..fn_i.saturating_add(2200)];
+    let window = crate::game_logic::residuals::source_window::at(ui, fn_i, 2200);
     let ok = window
         .contains("Wave 1113: disabled + non-local FOW selection HUD residual via catalog")
         && window.contains("entry.disabled")

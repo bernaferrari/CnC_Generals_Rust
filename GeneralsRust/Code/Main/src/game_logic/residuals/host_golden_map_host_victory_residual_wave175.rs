@@ -99,7 +99,7 @@ pub fn honesty_map_host_playable_formula_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 900)];
+    let body = crate::game_logic::residuals::source_window::at(src, i, 900);
     body.contains("map_loaded")
         && body.contains("outcome.fought")
         && body.contains("outcome.map_combat_ok")
@@ -115,7 +115,7 @@ pub fn honesty_synthetic_combat_false_on_map_victory_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 400)];
+    let body = crate::game_logic::residuals::source_window::at(src, i, 400);
     body.contains("map_loaded")
         && body.contains("outcome.map_combat_ok")
         && body.contains("outcome.same_world_production_ok")

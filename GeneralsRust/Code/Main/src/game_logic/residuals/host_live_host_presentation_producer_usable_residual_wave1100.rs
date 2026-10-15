@@ -82,7 +82,7 @@ pub fn honesty_host_presentation_producer_usable_residual_pack_wave1100() -> boo
             return false;
         }
     };
-    let a = &pf[a_i..a_i.saturating_add(1600)];
+    let a = crate::game_logic::residuals::source_window::at(pf, a_i, 1600);
     let b_i = match pf.find("fn unit_producer_structures") {
         Some(i) => i,
         None => {
@@ -91,7 +91,7 @@ pub fn honesty_host_presentation_producer_usable_residual_pack_wave1100() -> boo
             return false;
         }
     };
-    let b = &pf[b_i..b_i.saturating_add(1200)];
+    let b = crate::game_logic::residuals::source_window::at(pf, b_i, 1200);
     let ok = a.contains("Wave 1100: fail-closed on sold/UC/disabled producers")
         && a.contains("!o.sold")
         && a.contains("!o.under_construction")

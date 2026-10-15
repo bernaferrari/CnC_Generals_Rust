@@ -77,7 +77,7 @@ fn window_ok(src: &str) -> bool {
         Some(i) => i,
         None => return false,
     };
-    let w = &src[i..i.saturating_add(1400)];
+    let w = crate::game_logic::residuals::source_window::at(src, i, 1400);
     w.contains("Wave 1096: sold/masked + non-local FOW Clear-only")
         && (w.contains("o.destroyed || o.sold || o.masked")
             || (w.contains("o.destroyed") && w.contains("o.sold") && w.contains("o.masked")))

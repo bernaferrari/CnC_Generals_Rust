@@ -80,7 +80,7 @@ fn fn_window<'a>(src: &'a str, marker: &str) -> &'a str {
         }
         p += 1;
     }
-    &src[i..src.len().min(i + 4_000)]
+    crate::game_logic::residuals::source_window::at(src, i, 4_000)
 }
 
 fn non_comment(window: &str) -> String {

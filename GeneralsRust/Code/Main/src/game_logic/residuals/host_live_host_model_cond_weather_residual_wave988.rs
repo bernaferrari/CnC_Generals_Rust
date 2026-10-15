@@ -84,11 +84,11 @@ pub fn honesty_host_model_cond_weather_residual_residual_pack_wave988() -> bool 
     let meta = meta_source();
     let client = client_source();
     let refresh = match meta.find("fn refresh_drawable_model_conditions") {
-        Some(i) => &meta[i..meta.len().min(i + 900)],
+        Some(i) => crate::game_logic::residuals::source_window::at(meta, i, 900),
         None => "",
     };
     let shell = match client.find("fn update_presentation_shell") {
-        Some(i) => &client[i..client.len().min(i + 4000)],
+        Some(i) => crate::game_logic::residuals::source_window::at(client, i, 4000),
         None => "",
     };
     let ok = meta.contains("Wave 988")

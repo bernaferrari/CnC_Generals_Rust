@@ -503,12 +503,12 @@ impl GameClient {
 
     /// Finds a drawable by its ID
     pub fn find_drawable_by_id(&self, id: DrawableId) -> Option<&dyn Drawable> {
-        self.drawables.drawable_map.get(&id).map(|d| d.as_ref())
+        self.drawables.find_drawable_by_id(id)
     }
 
     /// Finds a mutable drawable by its ID
     pub fn find_drawable_by_id_mut(&mut self, id: DrawableId) -> Option<&mut Box<dyn Drawable>> {
-        self.drawables.drawable_map.get_mut(&id)
+        self.drawables.find_drawable_by_id_mut(id)
     }
 
     /// Destroys a drawable and removes it from all systems
@@ -563,74 +563,12 @@ impl GameClient {
         drawable_id: DrawableId,
         object_id: ObjectID,
     ) -> GameClientResult<()> {
-        let old_object_id = self
-            .drawables
-            .drawable_map
-            .get(&drawable_id)
-            .and_then(|drawable| drawable.get_object_id());
-
-        // C++ `Drawable::friend_bindToObject` does not reset its volatile
-        // shroud state when it is rebound to the same Object.  Retain the
-        // direct binding only for that fully validated no-op association;
-        // any owner change, displacement, or broken inverse map is a new
-        // visual lifetime and must receive a fresh key on the next host sync.
-        let retains_same_direct_binding = old_object_id == Some(object_id)
-            && self.drawables.drawable_object_map.get(&object_id).copied() == Some(drawable_id)
-            && self
-                .drawables
-                .presentation_direct_drawable_bindings
-                .get(&drawable_id)
-                .is_some_and(|binding| {
-                    binding.binding_key.object_id == object_id
-                        && binding.binding_key.drawable_id == drawable_id
-                });
-        if !retains_same_direct_binding {
-            self.drawables
-                .presentation_direct_drawable_bindings
-                .remove(&drawable_id);
-        }
-
-        if let Some(old_object_id) = old_object_id {
-            if old_object_id != object_id
-                && self
-                    .drawables
-                    .drawable_object_map
-                    .get(&old_object_id)
-                    .copied()
-                    == Some(drawable_id)
-            {
-                self.drawables.drawable_object_map.remove(&old_object_id);
-            }
-        }
-
-        if let Some(previous_drawable_id) =
-            self.drawables.drawable_object_map.get(&object_id).copied()
-        {
-            if previous_drawable_id != drawable_id {
-                if let Some(previous_drawable) =
-                    self.drawables.drawable_map.get_mut(&previous_drawable_id)
-                {
-                    previous_drawable.set_object_id(None);
-                }
-                self.drawables
-                    .presentation_direct_drawable_bindings
-                    .remove(&previous_drawable_id);
-            }
-        }
-
-        if let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) {
-            drawable.set_object_id(Some(object_id));
-            self.drawables
-                .drawable_object_map
-                .insert(object_id, drawable_id);
-            Ok(())
-        } else {
-            Err(GameClientError::DrawableNotFound(drawable_id))
-        }
+        self.drawables
+            .bind_drawable_to_object(drawable_id, object_id)
     }
 
     pub fn get_drawable_for_object(&self, object_id: ObjectID) -> Option<DrawableId> {
-        self.drawables.drawable_object_map.get(&object_id).copied()
+        self.drawables.get_drawable_for_object(object_id)
     }
 
     /// Iterates over drawables in a given region

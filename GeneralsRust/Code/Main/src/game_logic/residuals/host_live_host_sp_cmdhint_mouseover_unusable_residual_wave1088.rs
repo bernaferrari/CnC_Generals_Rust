@@ -85,7 +85,7 @@ pub fn honesty_host_sp_cmdhint_mouseover_unusable_residual_pack_wave1088() -> bo
             return false;
         }
     };
-    let sp = &ui[sp_i..sp_i.saturating_add(1200)];
+    let sp = crate::game_logic::residuals::source_window::at(ui, sp_i, 1200);
     let hint_i = match ui.find("fn command_hint_source_context") {
         Some(i) => i,
         None => {
@@ -94,7 +94,7 @@ pub fn honesty_host_sp_cmdhint_mouseover_unusable_residual_pack_wave1088() -> bo
             return false;
         }
     };
-    let hint = &ui[hint_i..hint_i.saturating_add(1200)];
+    let hint = crate::game_logic::residuals::source_window::at(ui, hint_i, 1200);
     let mo_i = match ui.find("fn mouseover_drawable_id_for_lookup") {
         Some(i) => i,
         None => {
@@ -103,7 +103,7 @@ pub fn honesty_host_sp_cmdhint_mouseover_unusable_residual_pack_wave1088() -> bo
             return false;
         }
     };
-    let mo = &ui[mo_i..mo_i.saturating_add(1400)];
+    let mo = crate::game_logic::residuals::source_window::at(ui, mo_i, 1400);
     let ok = (sp.contains("Wave 1088: SP override-destination source residual fail-closed")
             || sp.contains("Wave 1088/1091: SP override-destination source residual fail-closed"))
         && sp.contains("!u.destroyed")

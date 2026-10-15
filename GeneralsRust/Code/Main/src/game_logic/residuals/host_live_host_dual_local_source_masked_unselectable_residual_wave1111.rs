@@ -83,7 +83,7 @@ pub fn honesty_host_dual_local_source_masked_unselectable_residual_pack_wave1111
             return false;
         }
     };
-    let src = &tr[src_i..src_i.saturating_add(1600)];
+    let src = crate::game_logic::residuals::source_window::at(tr, src_i, 1600);
     let atk_i = match tr.find("fn selection_attack_result") {
         Some(i) => i,
         None => {
@@ -94,7 +94,7 @@ pub fn honesty_host_dual_local_source_masked_unselectable_residual_pack_wave1111
             return false;
         }
     };
-    let atk = &tr[atk_i..atk_i.saturating_add(2200)];
+    let atk = crate::game_logic::residuals::source_window::at(tr, atk_i, 2200);
     let ok = src.contains("Wave 1111: also fail-closed on masked/unselectable local sources")
         && src.contains("!e.masked")
         && src.contains("!e.unselectable")

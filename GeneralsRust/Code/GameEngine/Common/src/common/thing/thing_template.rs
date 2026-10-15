@@ -658,6 +658,31 @@ fn kindof_mask_from(flags: crate::common::system::kind_of::KindOfMask) -> u128 {
     flags.bits()
 }
 
+/// Pure C++ copied-module retention policy shared by effective content readers.
+/// Call only after the caller has matched the incoming interface mask.
+pub struct CopiedModulePolicy<'a> {
+    pub name: &'a str,
+    pub tag: &'a str,
+    pub inheritable: bool,
+    pub overrideable_by_like_kind: bool,
+}
+
+impl CopiedModulePolicy<'_> {
+    pub fn survives_override(
+        &self,
+        new_name: &str,
+        is_trainable: bool,
+        disallowed: bool,
+        candidate: bool,
+    ) -> bool {
+        if self.inheritable {
+            self.tag != "ModuleTag_DefaultAutoHealBehavior" || is_trainable
+        } else {
+            self.overrideable_by_like_kind && self.name != new_name && !disallowed && candidate
+        }
+    }
+}
+
 impl ModuleInfo {
     pub fn new() -> Self {
         Self { info: Vec::new() }
@@ -772,26 +797,14 @@ impl ModuleInfo {
         while i < self.info.len() {
             let nugget = &self.info[i];
             if (nugget.interface_mask & interface_mask) != 0 && nugget.copied_from_default {
-                if nugget.inheritable {
-                    // Special case: don't inherit DefaultAutoHealBehavior if template
-                    // is not trainable (module would be entirely useless).
-                    if nugget.module_tag == "ModuleTag_DefaultAutoHealBehavior" && !is_trainable {
-                        self.info.remove(i);
-                        removed_any = true;
-                        continue;
-                    }
-                    // Keep this inherited module, skip to next.
-                } else if nugget.overrideable_by_like_kind {
-                    // Remove if: name matches new (INI author specified same class),
-                    // or disallowed kind, or not a candidate kind.
-                    if nugget.name == *new_name || disallowed || !candidate {
-                        self.info.remove(i);
-                        removed_any = true;
-                        continue;
-                    }
-                    // No match — preserve the default module instance.
-                } else {
-                    // Non-inheritable, non-overrideable — always remove.
+                let policy = CopiedModulePolicy {
+                    name: nugget.name.as_str(),
+                    tag: nugget.module_tag.as_str(),
+                    inheritable: nugget.inheritable,
+                    overrideable_by_like_kind: nugget.overrideable_by_like_kind,
+                };
+                if !policy.survives_override(new_name.as_str(), is_trainable, disallowed, candidate)
+                {
                     self.info.remove(i);
                     removed_any = true;
                     continue;

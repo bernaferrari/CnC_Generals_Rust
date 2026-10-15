@@ -55,7 +55,10 @@ fn gl_source() -> &'static str {
 
 fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {
     super::harness::last_rust_fn_body(src, marker.trim_start_matches("fn ").trim())
-        .or_else(|| src.rfind(marker).map(|i| &src[i..src.len().min(i + len)]))
+        .or_else(|| {
+            src.rfind(marker)
+                .map(|i| crate::game_logic::residuals::source_window::at(src, i, len))
+        })
         .unwrap_or("")
 }
 

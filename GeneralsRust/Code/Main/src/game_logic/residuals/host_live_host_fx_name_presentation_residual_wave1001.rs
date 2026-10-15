@@ -85,7 +85,7 @@ pub fn honesty_host_fx_name_presentation_residual_residual_pack_wave1001() -> bo
     let ent = entity_source();
     let sh = shadow_source();
     let gw = match pf.find("fn renderable_from_gameworld_entity") {
-        Some(i) => &pf[i..pf.len().min(i + 12000)],
+        Some(i) => crate::game_logic::residuals::source_window::at(pf, i, 12000),
         None => "",
     };
     let ok = ent.contains("pub damage_fx_name: Option<String>")

@@ -86,11 +86,11 @@ pub fn honesty_host_production_pause_presentation_residual_residual_pack_wave986
     let hud = hud_source();
     let cb = control_bar_source();
     let sync = match cb.find("pub fn sync_selection_display_from_presentation") {
-        Some(i) => &cb[i..cb.len().min(i + 2500)],
+        Some(i) => crate::game_logic::residuals::source_window::at(cb, i, 2500),
         None => "",
     };
     let udi = match pf.find("fn unit_display_info_from_renderable") {
-        Some(i) => &pf[i..pf.len().min(i + 2500)],
+        Some(i) => crate::game_logic::residuals::source_window::at(pf, i, 2500),
         None => "",
     };
     let ok = pf.contains("pub production_paused: bool")

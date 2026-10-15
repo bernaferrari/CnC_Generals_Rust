@@ -17,6 +17,13 @@ pub struct ObjectIniField<'a> {
 }
 
 impl<'a> ObjectIniFields<'a> {
+    /// Capture one Object body without installing a factory or publishing content.
+    /// `start` is the first line after its Object header; the returned index is
+    /// immediately after the closing End. The same grammar drives Common loads.
+    pub fn capture_body(lines: &[&str], start: usize) -> (HashMap<String, String>, usize) {
+        super::super::thing_factory::parse_object_block_properties(lines, start)
+    }
+
     pub fn new(properties: &'a HashMap<String, String>) -> Self {
         Self { properties }
     }

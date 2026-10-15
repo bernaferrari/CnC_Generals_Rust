@@ -105,6 +105,12 @@ impl IniParser {
                     .unwrap_or_else(|| ("UnnamedObject".to_string(), None));
                 let mut object = ObjectDefinition::new(class_name);
                 object.parent_name = parent_name;
+                let (properties, _) =
+                    game_engine::common::thing::thing_template::ObjectIniFields::capture_body(
+                        &lines,
+                        index + 1,
+                    );
+                object.capture_client_modules(&properties, create_overrides);
                 current_object = Some(object);
                 active_draw_module = None;
                 active_condition_state = None;

@@ -81,7 +81,7 @@ pub fn honesty_host_ignored_gui_object_presentation_residual_residual_pack_wave1
     let gl = gl_source();
     let ui = ui_source();
     let body = match ui.find("fn ignored_gui_slaver_id_for_object") {
-        Some(i) => &ui[i..ui.len().min(i + 1200)],
+        Some(i) => crate::game_logic::residuals::source_window::at(ui, i, 1200),
         None => "",
     };
     let ok = body.contains("Wave 273/1000/1007")

@@ -80,11 +80,11 @@ pub fn honesty_host_select_matching_catalog_residual_pack_wave967() -> bool {
     let gl = gl_source();
     let ui = ui_source();
     let region = match ui.find("fn select_matching_across_region") {
-        Some(i) => &ui[i..ui.len().min(i + 800)],
+        Some(i) => crate::game_logic::residuals::source_window::at(ui, i, 800),
         None => "",
     };
     let map = match ui.find("fn select_matching_across_map") {
-        Some(i) => &ui[i..ui.len().min(i + 800)],
+        Some(i) => crate::game_logic::residuals::source_window::at(ui, i, 800),
         None => "",
     };
     let ok = ui.contains("Wave 967")

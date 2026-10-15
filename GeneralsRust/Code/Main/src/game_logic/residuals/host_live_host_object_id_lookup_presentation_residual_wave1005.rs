@@ -83,7 +83,7 @@ pub fn honesty_host_object_id_lookup_presentation_residual_residual_pack_wave100
     let me = me_source();
     let tr = tr_source();
     let body = match me.find("fn report_object_id_lookup_performance") {
-        Some(i) => &me[i..me.len().min(i + 900)],
+        Some(i) => crate::game_logic::residuals::source_window::at(me, i, 900),
         None => "",
     };
     let ok = tr.contains("pub fn translator_catalog_len")

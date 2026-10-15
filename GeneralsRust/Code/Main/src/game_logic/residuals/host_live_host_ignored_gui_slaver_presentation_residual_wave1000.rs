@@ -80,7 +80,7 @@ pub fn honesty_host_ignored_gui_slaver_presentation_residual_residual_pack_wave1
     let gl = gl_source();
     let ui = ui_source();
     let lookup = match ui.find("fn mouseover_drawable_id_for_lookup") {
-        Some(i) => &ui[i..ui.len().min(i + 1200)],
+        Some(i) => crate::game_logic::residuals::source_window::at(ui, i, 1200),
         None => "",
     };
     let ok = ui.contains("fn ignored_gui_slaver_id_from_presentation")

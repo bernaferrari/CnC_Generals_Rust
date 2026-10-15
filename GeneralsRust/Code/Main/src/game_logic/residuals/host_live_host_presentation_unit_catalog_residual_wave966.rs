@@ -85,7 +85,7 @@ pub fn honesty_host_presentation_unit_catalog_residual_pack_wave966() -> bool {
     let ui = ui_source();
     let client = client_source();
     let sim = match ui.find("fn select_similar_units") {
-        Some(i) => &ui[i..ui.len().min(i + 2500)],
+        Some(i) => crate::game_logic::residuals::source_window::at(ui, i, 2500),
         None => "",
     };
     let ok = ui.contains("Wave 966")

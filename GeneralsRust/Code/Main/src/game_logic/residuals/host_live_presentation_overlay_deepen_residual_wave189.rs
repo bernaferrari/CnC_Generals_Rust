@@ -89,7 +89,7 @@ pub fn honesty_overlay_deepen_fields_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 4500)];
+    let body = crate::game_logic::residuals::source_window::at(src, i, 4500);
     body.contains("ent.velocity")
         && body.contains("move_max_speed")
         && body.contains("ent.selected")

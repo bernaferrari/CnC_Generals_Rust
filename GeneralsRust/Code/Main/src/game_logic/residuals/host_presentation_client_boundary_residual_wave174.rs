@@ -90,7 +90,7 @@ pub fn honesty_execute_presentation_only_source() -> bool {
         None => return false,
     };
     // Signature window through opening brace body start.
-    let window = &src[i..src.len().min(i + 700)];
+    let window = crate::game_logic::residuals::source_window::at(src, i, 700);
     window.contains("presentation_frame")
         && !window.contains("game_logic: Option<&GameLogic>")
         && !window.contains("game_logic: &GameLogic")
@@ -109,9 +109,11 @@ pub fn honesty_game_client_os_input_disconnected_source() -> bool {
 /// Source residual: host GameLogic owns objects by ObjectId HashMap.
 pub fn honesty_host_objectid_store_source() -> bool {
     let src = super::GAME_LOGIC_HOST_SRC;
+    let store = include_str!("../game_logic/host_object_store.rs");
     src.contains("pub objects: HostObjectStore")
-        && src.contains("struct HostObjectStore")
-        && src.contains("HashMap<ObjectId, Object>")
+        && store.contains("struct HostObjectStore")
+        && store.contains("map: HashMap<ObjectId, Object>")
+        && store.contains("registration_order: Vec<ObjectId>")
         && src.contains("next_object_id: ObjectId")
 }
 

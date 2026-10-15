@@ -80,11 +80,11 @@ pub fn honesty_host_command_hint_catalog_residual_pack_wave969() -> bool {
     let gl = gl_source();
     let ui = ui_source();
     let hint = match ui.find("fn create_command_hint") {
-        Some(i) => &ui[i..ui.len().min(i + 3500)],
+        Some(i) => crate::game_logic::residuals::source_window::at(ui, i, 3500),
         None => "",
     };
     let hover = match ui.find("fn hover_target_command_context") {
-        Some(i) => &ui[i..ui.len().min(i + 1200)],
+        Some(i) => crate::game_logic::residuals::source_window::at(ui, i, 1200),
         None => "",
     };
     let ok = ui.contains("Wave 969")

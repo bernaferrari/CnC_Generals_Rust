@@ -92,7 +92,7 @@ pub fn honesty_host_control_group_select_legality_residual_pack_wave1095() -> bo
             }
         }
     };
-    let asg = &uc[asg_i..asg_i.saturating_add(1600)];
+    let asg = crate::game_logic::residuals::source_window::at(uc, asg_i, 1600);
     let single_i = match uc.find("fn select_single_object") {
         Some(i) => i,
         None => {
@@ -101,7 +101,7 @@ pub fn honesty_host_control_group_select_legality_residual_pack_wave1095() -> bo
             return false;
         }
     };
-    let single = &uc[single_i..single_i.saturating_add(1400)];
+    let single = crate::game_logic::residuals::source_window::at(uc, single_i, 1400);
     let add_i = match uc.find("fn add_to_selection") {
         Some(i) => i,
         None => {
@@ -110,7 +110,7 @@ pub fn honesty_host_control_group_select_legality_residual_pack_wave1095() -> bo
             return false;
         }
     };
-    let add = &uc[add_i..add_i.saturating_add(1400)];
+    let add = crate::game_logic::residuals::source_window::at(uc, add_i, 1400);
     let ok = asg.contains("Wave 1095: assign residual fail-closed on full selectable")
         && asg.contains("presentation_is_selectable(o)")
         && single.contains("Wave 1095: when a presentation freeze is installed")

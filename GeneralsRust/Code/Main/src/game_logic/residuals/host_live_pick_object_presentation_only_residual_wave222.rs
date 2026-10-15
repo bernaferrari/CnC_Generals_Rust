@@ -100,7 +100,7 @@ pub fn honesty_pick_object_presentation_only_source() -> bool {
     let Some(host_i) = eng.find("fn host_find_object_at_position(") else {
         return false;
     };
-    let host = &eng[host_i..host_i.saturating_add(1200)];
+    let host = crate::game_logic::residuals::source_window::at(eng, host_i, 1200);
     body.contains("Wave 222")
         && body.contains("self.host_find_object_at_position(position, command_context)")
         && host.contains("pick_object_id_at_world_from_presentation")

@@ -222,3 +222,173 @@ fn actual_drawable_owner_can_move_across_threads_without_shared_mutation() {
         Vector3::new(8.0, 9.0, 10.0)
     );
 }
+
+#[test]
+fn receiving_owner_binding_displacement_does_not_touch_same_id_peer() {
+    let mut first = GameClient::new().unwrap();
+    let mut peer = GameClient::new().unwrap();
+    for client in [&mut first, &mut peer] {
+        assert_eq!(
+            client.sync_presentation_drawables([
+                presentation_drawable_sync_for_test(41, 7, "First", true, false, [0.0; 3], 0.0),
+                presentation_drawable_sync_for_test(42, 7, "Second", true, false, [1.0; 3], 0.0),
+            ]),
+            (2, 0, 0)
+        );
+    }
+    let first_key = first
+        .drawables
+        .presentation_direct_drawable_state(7, 41)
+        .unwrap()
+        .binding_key;
+    let second_key = first
+        .drawables
+        .presentation_direct_drawable_state(7, 42)
+        .unwrap()
+        .binding_key;
+    let peer_key = peer
+        .drawables
+        .presentation_direct_drawable_state(7, 41)
+        .unwrap()
+        .binding_key;
+    // Rebinding the identical live association preserves its runtime lifetime.
+    first
+        .drawables
+        .bind_drawable_to_object(first_key.drawable_id, 41)
+        .unwrap();
+    assert_eq!(
+        first
+            .drawables
+            .presentation_direct_drawable_state(7, 41)
+            .unwrap()
+            .binding_key,
+        first_key
+    );
+    // Moving onto another resident Object detaches the displaced Drawable and
+    // invalidates both runtime keys before the next explicit host sync.
+    first
+        .drawables
+        .bind_drawable_to_object(first_key.drawable_id, 42)
+        .unwrap();
+    assert!(
+        first
+            .drawables
+            .presentation_direct_drawable_state(7, 41)
+            .is_none()
+    );
+    assert!(
+        first
+            .drawables
+            .presentation_direct_drawable_state(7, 42)
+            .is_none()
+    );
+    assert_eq!(first.drawables.get_drawable_for_object(41), None);
+    assert_eq!(
+        first.drawables.get_drawable_for_object(42),
+        Some(first_key.drawable_id)
+    );
+    assert_eq!(
+        first
+            .drawables
+            .find_drawable_by_id(second_key.drawable_id)
+            .unwrap()
+            .get_object_id(),
+        None
+    );
+    assert_eq!(
+        peer.drawables
+            .presentation_direct_drawable_state(7, 41)
+            .unwrap()
+            .binding_key,
+        peer_key
+    );
+    assert!(
+        peer.drawables
+            .presentation_direct_drawable_state(0, 41)
+            .is_none()
+    );
+    assert!(
+        peer.drawables
+            .presentation_direct_drawable_state(8, 41)
+            .is_none()
+    );
+    assert_eq!(
+        peer.drawables.get_drawable_for_object(42),
+        Some(second_key.drawable_id)
+    );
+}
+
+#[test]
+fn rejected_missing_drawable_bind_preserves_receiving_lifetime_and_peer() {
+    let mut client = GameClient::new().unwrap();
+    let mut peer = GameClient::new().unwrap();
+    for world in [&mut client, &mut peer] {
+        world.sync_presentation_drawables([presentation_drawable_sync_for_test(
+            51,
+            12,
+            "LiveBinding",
+            true,
+            false,
+            [3.0, 4.0, 5.0],
+            0.5,
+        )]);
+        let key = world
+            .presentation_direct_drawable_state(12, 51)
+            .unwrap()
+            .binding_key;
+        assert_eq!(
+            world.apply_frozen_direct_shroud_statuses(
+                90,
+                [FrozenDirectShroudStatus {
+                    binding_key: key,
+                    raw_status: ObjectShroudStatus::Fogged,
+                    effectively_dead: false,
+                }]
+            ),
+            1
+        );
+    }
+    let before = client.presentation_direct_drawable_state(12, 51).unwrap();
+    let peer_before = peer.presentation_direct_drawable_state(12, 51).unwrap();
+    assert!(before.fully_obscured);
+    let live_id = before.binding_key.drawable_id;
+    let allocation = basic_address(&client, live_id);
+    let retired_id = client
+        .register_drawable(Box::new(BasicDrawable::new(DrawableId::INVALID)))
+        .unwrap();
+    client.destroy_drawable(retired_id).unwrap();
+    let next_id = client.drawables.next_drawable_id;
+    let next_generation = client.drawables.next_presentation_direct_binding_generation;
+    for missing_id in [DrawableId(u32::MAX), retired_id] {
+        for target in [51, 999] {
+            assert!(matches!(
+                client.bind_drawable_to_object(missing_id, target),
+                Err(GameClientError::DrawableNotFound(id)) if id == missing_id
+            ));
+            assert_eq!(
+                client.presentation_direct_drawable_state(12, 51),
+                Some(before)
+            );
+            assert_eq!(client.get_drawable_for_object(51), Some(live_id));
+            assert_eq!(client.get_drawable_for_object(999), None);
+            assert_eq!(
+                client.find_drawable_by_id(live_id).unwrap().get_object_id(),
+                Some(51)
+            );
+            assert_eq!(basic_address(&client, live_id), allocation);
+            assert_eq!(client.drawables.next_drawable_id, next_id);
+            assert_eq!(
+                client.drawables.next_presentation_direct_binding_generation,
+                next_generation
+            );
+            assert_eq!(
+                peer.presentation_direct_drawable_state(12, 51),
+                Some(peer_before)
+            );
+            assert_eq!(
+                peer.get_drawable_for_object(51),
+                Some(peer_before.binding_key.drawable_id)
+            );
+        }
+    }
+}

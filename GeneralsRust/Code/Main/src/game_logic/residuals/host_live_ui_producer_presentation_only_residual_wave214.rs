@@ -89,7 +89,8 @@ pub fn honesty_force_completed_presentation_only_source() -> bool {
     };
     // Include preceding Wave 214 comment.
     let start = eng[..i].rfind("Wave 214").unwrap_or(i);
-    let body = &eng[start..eng.len().min(i + 1600)];
+    let body =
+        crate::game_logic::residuals::source_window::range(eng, start, i.saturating_add(1600));
     body.contains("presentation freeze only")
         && body.contains("last_presentation_frame")
         && body.contains("can_produce")
@@ -104,7 +105,11 @@ pub fn honesty_no_live_classify_closure_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let window = &eng[i.saturating_sub(400)..eng.len().min(i + 2000)];
+    let window = crate::game_logic::residuals::source_window::range(
+        eng,
+        i.saturating_sub(400),
+        i.saturating_add(2000),
+    );
     !window.contains("let classify_live") && window.contains("presentation freeze only")
 }
 

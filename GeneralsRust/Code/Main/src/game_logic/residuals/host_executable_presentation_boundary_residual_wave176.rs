@@ -95,7 +95,11 @@ pub fn honesty_executable_vertical_presentation_gate_source() -> bool {
     let Some(i) = i else {
         return false;
     };
-    let body = &src[i.saturating_sub(200)..src.len().min(i + 1600)];
+    let body = crate::game_logic::residuals::source_window::range(
+        src,
+        i.saturating_sub(200),
+        i.saturating_add(1600),
+    );
     body.contains("presentation_boundary_ok")
         && body.contains("presentation_frame_ok")
         && body.contains("presentation_live_fallback_ok")
@@ -110,7 +114,7 @@ pub fn honesty_execute_presentation_only_source_wave176() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let window = &src[i..src.len().min(i + 700)];
+    let window = crate::game_logic::residuals::source_window::at(src, i, 700);
     window.contains("presentation_frame")
         && !window.contains("game_logic: Option<&GameLogic>")
         && !window.contains("game_logic: &GameLogic")

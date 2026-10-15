@@ -91,19 +91,19 @@ pub fn honesty_host_meta_drawable_template_residual_pack_wave976() -> bool {
     let client = client_source();
     let residual = residual_mod_source();
     let kill = match meta.find("fn kill_local_player_selection") {
-        Some(i) => &meta[i..meta.len().min(i + 500)],
+        Some(i) => crate::game_logic::residuals::source_window::at(meta, i, 500),
         None => "",
     };
     let vet = match meta.find("fn adjust_local_selection_veterancy") {
-        Some(i) => &meta[i..meta.len().min(i + 400)],
+        Some(i) => crate::game_logic::residuals::source_window::at(meta, i, 400),
         None => "",
     };
     let resolve = match client.find("fn resolve_drawable_template_name") {
-        Some(i) => &client[i..client.len().min(i + 900)],
+        Some(i) => crate::game_logic::residuals::source_window::at(client, i, 900),
         None => "",
     };
     let register = match client.find("fn register_drawable_with_template") {
-        Some(i) => &client[i..client.len().min(i + 500)],
+        Some(i) => crate::game_logic::residuals::source_window::at(client, i, 500),
         None => "",
     };
     let ok = meta.contains("Wave 976")

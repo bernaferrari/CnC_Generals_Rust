@@ -121,7 +121,7 @@ pub fn honesty_ui_command_selection_presentation_only_source() -> bool {
         let Some(j) = eng.find("CommandType::ViewLastRadarEvent") else {
             return false;
         };
-        let win = &eng[j.saturating_sub(500)..j];
+        let win = crate::game_logic::residuals::source_window::range(eng, j.saturating_sub(500), j);
         return win.contains("Wave 219") && win.contains("ui_selected_ids");
     };
     let body = eng_fn_body(eng, "fn issue_named_command_from_ui").unwrap_or("");

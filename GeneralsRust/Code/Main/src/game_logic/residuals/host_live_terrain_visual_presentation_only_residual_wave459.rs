@@ -178,8 +178,8 @@ pub fn simulate_terrain_visual_presentation_only_callsites() -> bool {
     while let Some(rel) = src[from..].find("Self::sync_render_terrain_visual(") {
         let i = from + rel;
         let lo = i.saturating_sub(400);
-        let prior = &src[lo..i];
-        let call_win = &src[i..src.len().min(i + 220)];
+        let prior = crate::game_logic::residuals::source_window::range(src, lo, i);
+        let call_win = crate::game_logic::residuals::source_window::at(src, i, 220);
         if prior.contains("ensure_presentation_env_for_hints")
             || prior.contains("ensure_presentation_env_seeded")
                 && !call_win.contains("&self.game_logic")

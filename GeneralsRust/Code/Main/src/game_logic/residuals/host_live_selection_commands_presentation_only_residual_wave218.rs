@@ -119,7 +119,10 @@ pub fn honesty_selection_commands_presentation_only_source() -> bool {
         };
         let lo = i.saturating_sub(900);
         let hi = (i + 200).min(eng.len());
-        if !eng[lo..hi].contains(note) && !eng[lo..hi].contains("ui_selected_ids") {
+        if !crate::game_logic::residuals::source_window::range(eng, lo, hi).contains(note)
+            && !crate::game_logic::residuals::source_window::range(eng, lo, hi)
+                .contains("ui_selected_ids")
+        {
             return false;
         }
         let _ = note;
@@ -128,7 +131,7 @@ pub fn honesty_selection_commands_presentation_only_source() -> bool {
     let Some(i) = eng.find("force_attack_fail_no_selection") else {
         return false;
     };
-    let win = &eng[i.saturating_sub(500)..i];
+    let win = crate::game_logic::residuals::source_window::range(eng, i.saturating_sub(500), i);
     win.contains("ui_selected_ids") && !win.contains("get_player(self.current_player_id)")
 }
 

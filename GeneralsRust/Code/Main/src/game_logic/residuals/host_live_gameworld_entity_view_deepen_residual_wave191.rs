@@ -90,7 +90,7 @@ pub fn honesty_enriched_entity_view_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 700)];
+    let body = crate::game_logic::residuals::source_window::at(src, i, 700);
     body.contains("max_health")
         && body.contains("team_ordinal")
         && body.contains("selected")
@@ -107,7 +107,7 @@ pub fn honesty_view_from_live_entities_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 2000)];
+    let body = crate::game_logic::residuals::source_window::at(src, i, 2000);
     body.contains(".entities()")
         && body.contains("e.velocity")
         && body.contains("e.selected")

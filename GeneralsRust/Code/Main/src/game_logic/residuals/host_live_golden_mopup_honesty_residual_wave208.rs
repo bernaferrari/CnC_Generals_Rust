@@ -86,7 +86,7 @@ pub fn honesty_golden_mopup_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &gs[i..gs.len().min(i + 2000)];
+    let body = crate::game_logic::residuals::source_window::at(gs, i, 2000);
     let has_destroy = body.contains("destroy_object");
     let has_filter = body.contains("is_map_victory_mopup_residue");
     // Code call form only — comments may mention objects.remove.
@@ -101,7 +101,7 @@ pub fn honesty_mopup_filter_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &gs[i..gs.len().min(i + 500)];
+    let body = crate::game_logic::residuals::source_window::at(gs, i, 500);
     body.contains("Team::USA") && body.contains("Team::Neutral") && !body.contains("take_damage")
 }
 
