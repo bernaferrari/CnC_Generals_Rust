@@ -139,13 +139,11 @@ fn immediate_slave_emission_uses_master_priority_at_actual_field_cap() {
     particle_info.lifetime = 100;
     particle_info.alpha_keys[0].value = 1.0;
     manager
-        .find_particle_system_mut(slave)
-        .unwrap()
-        .push_particle(crate::effects::particle_system::Particle::new(
-            &particle_info,
-            0,
-            0,
-        ));
+        .admit_particle(
+            slave,
+            crate::effects::particle_system::Particle::new(&particle_info, 0, 0),
+        )
+        .unwrap();
     manager.field_particle_count = usize::MAX;
     manager.update(0, 1);
     assert_eq!(
@@ -176,9 +174,11 @@ fn rejected_master_particle_does_not_generate_or_admit_slave() {
     seed.lifetime = 100;
     seed.alpha_keys[0].value = 1.0;
     manager
-        .find_particle_system_mut(master)
-        .unwrap()
-        .push_particle(crate::effects::particle_system::Particle::new(&seed, 0, 0));
+        .admit_particle(
+            master,
+            crate::effects::particle_system::Particle::new(&seed, 0, 0),
+        )
+        .unwrap();
     manager.field_particle_count = usize::MAX;
     manager.update(0, 1);
     assert_eq!(
@@ -483,15 +483,13 @@ fn expired_parent_particles_release_actual_budget_before_later_emitter() {
     seed.alpha_keys[0].value = 1.0;
     for personality in 0..=cap {
         manager
-            .find_particle_system_mut(parent_id)
-            .unwrap()
-            .push_particle(crate::effects::particle_system::Particle::new(
-                &seed,
-                personality as u32,
-                0,
-            ));
+            .admit_particle(
+                parent_id,
+                crate::effects::particle_system::Particle::new(&seed, personality as u32, 0),
+            )
+            .unwrap();
     }
-    manager.particle_count = cap + 1;
+    assert_eq!(manager.particle_count(), cap + 1);
     manager.update(0, 1);
     assert_eq!(
         manager

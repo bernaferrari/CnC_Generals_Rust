@@ -12,14 +12,19 @@ pub(super) fn local_particle_bytes(name: &str, position: Vec3) -> Vec<u8> {
     let id = manager.create_particle_system(&template, true).unwrap();
     let system = manager.find_particle_system_mut(id).unwrap();
     system.set_position(position);
-    system.push_particle(Particle::new(
-        &ParticleInfo {
-            lifetime: 21,
-            ..Default::default()
-        },
-        17,
-        0,
-    ));
+    manager
+        .admit_particle(
+            id,
+            Particle::new(
+                &ParticleInfo {
+                    lifetime: 21,
+                    ..Default::default()
+                },
+                17,
+                0,
+            ),
+        )
+        .unwrap();
     manager.capture_xfer_bytes().unwrap()
 }
 

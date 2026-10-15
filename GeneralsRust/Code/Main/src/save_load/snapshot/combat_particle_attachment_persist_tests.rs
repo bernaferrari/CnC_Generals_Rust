@@ -105,17 +105,24 @@ fn combat_particle_attachment_native_and_serde_round_trip_preserve_exact_descrip
             0
         );
         assert_eq!(manager.active_system_count(), 1);
-        let actual = manager.find_particle_system_mut(client_id).unwrap();
         for frame in 1..expected.lifetime.unwrap() {
-            actual.finish_frame_integrate(frame);
+            manager.integrate_particle_system(client_id, frame).unwrap();
         }
         assert!(
-            !actual.should_remove(),
+            !manager
+                .find_particle_system(client_id)
+                .unwrap()
+                .should_remove(),
             "explicit attachment lifetime has not elapsed"
         );
-        actual.finish_frame_integrate(expected.lifetime.unwrap());
+        manager
+            .integrate_particle_system(client_id, expected.lifetime.unwrap())
+            .unwrap();
         assert!(
-            actual.should_remove(),
+            manager
+                .find_particle_system(client_id)
+                .unwrap()
+                .should_remove(),
             "saved explicit lifetime overrides the thousand-frame template"
         );
     }

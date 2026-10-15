@@ -328,6 +328,7 @@ pub struct ParticleSystemManager {
     /// explicitly and use the map only for ID lookup.
     active_system_order: Vec<ParticleSystemId>,
     next_system_id: ParticleSystemId,
+    next_particle_ordinal: u64,
 
     // Statistics
     particle_count: usize,
@@ -345,7 +346,6 @@ pub struct ParticleSystemManager {
     min_dynamic_particle_priority: ParticlePriorityType,
     min_dynamic_particle_skip_priority: ParticlePriorityType,
     particle_skip_mask: u32,
-    particle_generation_count: u32,
     preloaded_texture_assets: Vec<String>,
 }
 
@@ -366,6 +366,7 @@ impl ParticleSystemManager {
             active_systems: HashMap::new(),
             active_system_order: Vec::new(),
             next_system_id: 1,
+            next_particle_ordinal: 1,
 
             particle_count: 0,
             field_particle_count: 0,
@@ -380,7 +381,6 @@ impl ParticleSystemManager {
             min_dynamic_particle_priority: ParticlePriorityType::WeaponExplosion,
             min_dynamic_particle_skip_priority: ParticlePriorityType::Critical,
             particle_skip_mask: 0,
-            particle_generation_count: 0,
             preloaded_texture_assets: Vec::new(),
         }
     }
@@ -789,11 +789,9 @@ impl ParticleSystemManager {
                     );
                     let position = particle.position;
                     // C++ createParticle admits the parent before attached ctors.
-                    self.active_systems
-                        .get_mut(&id)
-                        .expect("current particle system remains admitted for parent insertion")
-                        .push_particle(particle);
-                    self.particle_count += 1;
+                    let admission = self
+                        .admit_particle(id, particle)
+                        .expect("particle admission identity available");
                     if !attached_name.is_empty() {
                         if let Some(tmpl) = self.find_template(&attached_name) {
                             if let Ok(att_id) = self.create_particle_system(&tmpl, true) {
@@ -804,7 +802,7 @@ impl ParticleSystemManager {
                                 let parent = self.active_systems.get_mut(&id)
                                     .expect("attached constructor cannot remove its parent system")
                                     .particles_mut().iter_mut()
-                                    .find(|particle| particle.personality == personality)
+                                    .find(|particle| particle.admission_ordinal == Some(admission))
                                     .expect("attached constructor cannot remove the admitted parent particle");
                                 parent.controlled_system = Some(att_id);
                             }
@@ -818,7 +816,8 @@ impl ParticleSystemManager {
                     .finish_emission_burst(cursor);
             }
 
-            self.integrate_particle_system(id, current_frame);
+            self.integrate_particle_system(id, current_frame)
+                .expect("current system remains admitted through integration");
             self.refresh_controlled_particle_origins(id);
             if self
                 .active_systems
@@ -834,11 +833,13 @@ impl ParticleSystemManager {
 
         // Update statistics. Field cap is last-frame on-screen count
         // (C++ W3DParticleSys.cpp:124/205), not worldwide living particles.
-        self.particle_count = self
-            .active_systems
-            .values()
-            .map(|s| s.particle_count())
-            .sum();
+        debug_assert_eq!(
+            self.particle_count,
+            self.active_systems
+                .values()
+                .map(|system| system.particle_count())
+                .sum::<usize>()
+        );
     }
 
     /// Check if a particle with given priority should be skipped based on LOD (C++ GameLODManager::isParticleSkipped)
@@ -902,43 +903,38 @@ impl ParticleSystemManager {
     }
 
     /// Remove oldest particles to make room for new ones (C++ ParticleSys.cpp lines 3177-3199)
-    /// Iterates from lowest priority to priority_cap, removing the oldest particle from each qualifying system.
+    /// Actual removal count is the Rust API result; budget admission separately
+    /// preserves the original unsigned-loop return/rejection behavior.
     pub fn remove_oldest_particles(
         &mut self,
         count: usize,
         priority_cap: ParticlePriorityType,
     ) -> usize {
         let mut removed = 0;
-
-        // Remove from lowest priority up to (but not including) priority_cap
-        for priority_index in 1..priority_cap as usize {
-            if removed >= count {
+        while removed < count {
+            let candidate =
+                self.active_systems
+                    .iter()
+                    .flat_map(|(&id, system)| {
+                        let priority = system.priority();
+                        system.particles().iter().enumerate().filter_map(
+                            move |(index, particle)| {
+                                (priority as usize >= 1 && priority < priority_cap).then(|| {
+                                    let ordinal = particle
+                                        .admission_ordinal
+                                        .expect("receiver particle has admission identity");
+                                    ((priority as usize, ordinal), id, index)
+                                })
+                            },
+                        )
+                    })
+                    .min_by_key(|(key, _, _)| *key);
+            let Some((_, id, index)) = candidate else {
                 break;
-            }
-            let Some(priority) = ParticlePriorityType::from_index(priority_index) else {
-                continue;
             };
-            let mut system_ids = self
-                .active_systems
-                .iter()
-                .filter_map(|(id, system)| (system.priority() == priority).then_some(*id))
-                .collect::<Vec<_>>();
-            system_ids.sort_unstable();
-
-            for system_id in system_ids {
-                if removed >= count {
-                    break;
-                }
-                let Some(system) = self.active_systems.get_mut(&system_id) else {
-                    continue;
-                };
-                let to_remove = count - removed;
-                removed += system.remove_oldest_particles(to_remove);
-            }
+            self.remove_admitted_particle(id, index);
+            removed += 1;
         }
-
-        self.particle_count = self.particle_count.saturating_sub(removed);
-        self.field_particle_count = self.field_particle_count.saturating_sub(removed);
         removed
     }
 
@@ -950,6 +946,9 @@ impl ParticleSystemManager {
         system_particle_count: usize,
         force_create: bool,
     ) -> bool {
+        if self.next_particle_ordinal.checked_add(1).is_none() {
+            return false;
+        }
         if force_create {
             return true;
         }
@@ -1142,6 +1141,7 @@ impl SubsystemInterface for ParticleSystemManager {
         self.active_systems.clear();
         self.active_system_order.clear();
         self.next_system_id = 1;
+        self.next_particle_ordinal = 1;
 
         // Reset LOD settings to defaults
         self.max_particle_count = 2500;
@@ -1149,7 +1149,6 @@ impl SubsystemInterface for ParticleSystemManager {
         self.min_dynamic_particle_priority = ParticlePriorityType::WeaponExplosion;
         self.min_dynamic_particle_skip_priority = ParticlePriorityType::Critical;
         self.particle_skip_mask = 0;
-        self.particle_generation_count = 0;
 
         // C++ Reference: INI ini; ini.load("Data\\INI\\ParticleSystem.ini", INI_LOAD_OVERWRITE, NULL);
         // Parse into this GameClient manager, rather than merely opening the
@@ -1168,12 +1167,12 @@ impl SubsystemInterface for ParticleSystemManager {
         self.active_systems.clear();
         self.active_system_order.clear();
         self.next_system_id = 1;
+        self.next_particle_ordinal = 1;
         self.particle_count = 0;
         self.field_particle_count = 0;
         self.system_count = 0;
         // C++ reset differs from construction: frame zero must run once.
         self.last_logic_frame_update = u32::MAX;
-        self.particle_generation_count = 0;
         Ok(())
     }
 
@@ -1770,19 +1769,16 @@ mod tests {
                 frame,
                 frame,
             );
-            manager
-                .find_particle_system_mut(system_id)
-                .expect("active system")
-                .push_particle(particle);
+            manager.admit_particle(system_id, particle).unwrap();
         }
-        manager.particle_count = 5;
+        assert_eq!(manager.particle_count(), 5);
         manager.field_particle_count = 5;
 
         let removed = manager.remove_oldest_particles(3, ParticlePriorityType::Buildup);
 
         assert_eq!(removed, 3);
         assert_eq!(manager.particle_count(), 2);
-        assert_eq!(manager.field_particle_count(), 2);
+        assert_eq!(manager.field_particle_count(), 5);
         assert_eq!(
             manager
                 .find_particle_system(system_id)
@@ -1816,12 +1812,9 @@ mod tests {
                 frame,
                 frame,
             );
-            manager
-                .find_particle_system_mut(system_id)
-                .expect("active system")
-                .push_particle(particle);
+            manager.admit_particle(system_id, particle).unwrap();
         }
-        manager.particle_count = 2;
+        assert_eq!(manager.particle_count(), 2);
         manager.field_particle_count = 2;
 
         // C++ ParticleSys.cpp:1699-1708 admits at the cap. Only an
@@ -1838,14 +1831,16 @@ mod tests {
         );
 
         manager
-            .find_particle_system_mut(system_id)
-            .unwrap()
-            .push_particle(crate::effects::particle_system::Particle::new(
-                &crate::effects::particle_system::ParticleInfo::default(),
-                2,
-                2,
-            ));
-        manager.particle_count = 3;
+            .admit_particle(
+                system_id,
+                crate::effects::particle_system::Particle::new(
+                    &crate::effects::particle_system::ParticleInfo::default(),
+                    2,
+                    2,
+                ),
+            )
+            .unwrap();
+        assert_eq!(manager.particle_count(), 3);
         manager.field_particle_count = 3;
         // The C++ unsigned post-decrement in removeOldestParticles reports
         // requested + 1, so this incoming particle is rejected after eviction.
@@ -1960,11 +1955,8 @@ mod tests {
         // Keep the leftover visible until its finite lifetime expires.
         info.alpha_keys[0].value = 1.0;
         let particle = crate::effects::particle_system::Particle::new(&info, 0, 0);
-        manager
-            .find_particle_system_mut(system_id)
-            .expect("active")
-            .push_particle(particle);
-        manager.particle_count = 1;
+        manager.admit_particle(system_id, particle).unwrap();
+        assert_eq!(manager.particle_count(), 1);
 
         manager.destroy_particle_system(system_id);
 
@@ -2050,7 +2042,6 @@ mod tests {
         let template = manager.new_template("CullBox".to_string());
         let system_id = manager.create_particle_system(&template, false).unwrap();
         {
-            let system = manager.find_particle_system_mut(system_id).expect("system");
             let mut near = crate::effects::particle_system::Particle::new(
                 &crate::effects::particle_system::ParticleInfo::default(),
                 0,
@@ -2059,7 +2050,7 @@ mod tests {
             near.lifetime_left = 10;
             near.position = Vec3::new(0.0, 0.0, 0.0);
             near.size = 1.0;
-            system.push_particle(near);
+            manager.admit_particle(system_id, near).unwrap();
             let mut far = crate::effects::particle_system::Particle::new(
                 &crate::effects::particle_system::ParticleInfo::default(),
                 0,
@@ -2068,7 +2059,7 @@ mod tests {
             far.lifetime_left = 10;
             far.position = Vec3::new(1000.0, 0.0, 0.0);
             far.size = 1.0;
-            system.push_particle(far);
+            manager.admit_particle(system_id, far).unwrap();
         }
         manager.cull_particles_to_visible_box([0.0, 0.0, 0.0], [10.0, 10.0, 10.0], 512);
         let system = manager.find_particle_system(system_id).unwrap();
@@ -2088,7 +2079,6 @@ mod tests {
         }
         let system_id = manager.create_particle_system(&template, false).unwrap();
         {
-            let system = manager.find_particle_system_mut(system_id).expect("system");
             let mut near = crate::effects::particle_system::Particle::new(
                 &crate::effects::particle_system::ParticleInfo::default(),
                 0,
@@ -2097,7 +2087,7 @@ mod tests {
             near.lifetime_left = 10;
             near.position = Vec3::new(0.0, 0.0, 0.0);
             near.size = 1.0;
-            system.push_particle(near);
+            manager.admit_particle(system_id, near).unwrap();
             let mut far = crate::effects::particle_system::Particle::new(
                 &crate::effects::particle_system::ParticleInfo::default(),
                 0,
@@ -2106,7 +2096,7 @@ mod tests {
             far.lifetime_left = 10;
             far.position = Vec3::new(1000.0, 0.0, 0.0);
             far.size = 1.0;
-            system.push_particle(far);
+            manager.admit_particle(system_id, far).unwrap();
         }
         manager.cull_particles_to_visible_box([0.0, 0.0, 0.0], [10.0, 10.0, 10.0], 512);
         assert_eq!(
@@ -2155,3 +2145,6 @@ mod reset_clock_tests;
 #[cfg(test)]
 #[path = "particle_manager/destroy_traversal_tests.rs"]
 mod destroy_traversal_tests;
+
+#[path = "particle_manager/admission.rs"]
+mod admission;

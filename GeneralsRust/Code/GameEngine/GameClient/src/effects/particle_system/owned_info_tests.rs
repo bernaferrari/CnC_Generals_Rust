@@ -18,9 +18,8 @@ fn owned_particle_info_load_drives_actual_field_cull() {
             ..Default::default()
         };
         source
-            .find_particle_system_mut(id)
-            .unwrap()
-            .push_particle(Particle::new(&info, index as u32, 0));
+            .admit_particle(id, Particle::new(&info, index as u32, 0))
+            .unwrap();
     }
     let bytes = source.capture_xfer_bytes().unwrap();
 

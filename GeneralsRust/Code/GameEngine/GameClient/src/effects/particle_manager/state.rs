@@ -30,6 +30,7 @@ struct LoadedSystems {
     next_id: ParticleSystemId,
     systems: HashMap<ParticleSystemId, Box<ParticleSystem>>,
     order: Vec<ParticleSystemId>,
+    next_particle_ordinal: u64,
 }
 
 impl ParticleSystemManager {
@@ -99,6 +100,7 @@ impl ParticleSystemManager {
                 next_id,
                 systems: HashMap::new(),
                 order: Vec::new(),
+                next_particle_ordinal: 1,
             };
             for _ in 0..count {
                 let mut name = String::new();
@@ -126,6 +128,13 @@ impl ParticleSystemManager {
                 }
                 Snapshotable::load_post_process(&mut *system)?;
                 loaded.next_id = loaded.next_id.max(id.saturating_add(1));
+                for particle in system.particles_mut() {
+                    let ordinal = loaded.next_particle_ordinal;
+                    loaded.next_particle_ordinal = ordinal
+                        .checked_add(1)
+                        .ok_or("particle admission ordinal exhausted")?;
+                    particle.admission_ordinal = Some(ordinal);
+                }
                 loaded.systems.insert(id, system);
                 loaded.order.push(id);
             }
@@ -135,12 +144,12 @@ impl ParticleSystemManager {
         let particle_count = loaded.systems.values().map(|s| s.particle_count()).sum();
         self.renew_system_namespace();
         self.next_system_id = loaded.next_id;
+        self.next_particle_ordinal = loaded.next_particle_ordinal;
         self.active_systems = loaded.systems;
         self.active_system_order = loaded.order;
         self.system_count = self.active_systems.len();
         self.particle_count = particle_count;
-        self.field_particle_count = particle_count;
-        self.on_screen_particle_count = 0;
+
         Ok(())
     }
 }

@@ -2479,9 +2479,12 @@ mod tests {
                         &mut |lo, _| lo,
                     )
                     .unwrap();
-                let system = manager.find_particle_system_mut(id).unwrap();
-                system.push_particle(live_particle(x, 0.0, 0.0, 2.0, 0.75));
-                system.push_particle(live_particle(1000.0, 0.0, 0.0, 2.0, 0.75));
+                manager
+                    .admit_particle(id, live_particle(x, 0.0, 0.0, 2.0, 0.75))
+                    .unwrap();
+                manager
+                    .admit_particle(id, live_particle(1000.0, 0.0, 0.0, 2.0, 0.75))
+                    .unwrap();
             }
             manager.cull_particles_to_visible_box([0.0; 3], [10.0; 3], 512);
             manager

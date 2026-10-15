@@ -71,6 +71,8 @@ impl Default for ParticleInfo {
 /// Individual particle (matches C++ Particle)
 #[derive(Debug)]
 pub struct Particle {
+    // Receiver-local admission metadata; never part of the native payload.
+    pub(super) admission_ordinal: Option<u64>,
     // Basic properties from ParticleInfo
     pub velocity: Vec3,
     pub position: Vec3,
@@ -129,6 +131,7 @@ impl Particle {
     pub fn new(info: &ParticleInfo, personality: u32, create_timestamp: u32) -> Self {
         let mut particle = Self {
             // Copy from info
+            admission_ordinal: None,
             velocity: info.velocity,
             position: info.position,
             emitter_position: info.emitter_position,
@@ -835,13 +838,10 @@ impl Snapshotable for ParticleSystem {
             }
         }
 
-        self.particle_count = self.particles.len();
         Ok(())
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        self.particle_count = self.particles.len();
-
         for particle in &mut self.particles {
             particle.load_post_process()?;
         }
@@ -1225,7 +1225,6 @@ pub struct ParticleSystem {
 
     // Particle storage
     particles: VecDeque<Particle>,
-    particle_count: usize,
     personality_counter: u32,
 
     // Attachment
@@ -1261,7 +1260,6 @@ pub struct ParticleSystem {
 
     // Control particle
     control_particle_pos: Option<Vec3>,
-    dead_controlled_systems: Vec<ParticleSystemId>,
 
     // State flags
     is_local_identity: bool,
@@ -1326,7 +1324,6 @@ impl ParticleSystem {
             system_id,
 
             particles: VecDeque::new(),
-            particle_count: 0,
             personality_counter: 0,
 
             attached_drawable_id: DrawableId::INVALID,
@@ -1355,7 +1352,6 @@ impl ParticleSystem {
             master_system: None,
 
             control_particle_pos: None,
-            dead_controlled_systems: Vec::new(),
 
             is_local_identity: true,
             is_identity: true,
@@ -1389,8 +1385,8 @@ impl ParticleSystem {
     }
 
     /// Get mutable access to particles  
-    pub fn particles_mut(&mut self) -> &mut VecDeque<Particle> {
-        &mut self.particles
+    pub(crate) fn particles_mut(&mut self) -> &mut [Particle] {
+        self.particles.make_contiguous()
     }
 
     /// Update the particle system (matches C++ ParticleSystem::update)
@@ -1399,7 +1395,7 @@ impl ParticleSystem {
     /// * `local_player_index` - Player index for visibility checks
     /// * `current_frame` - Current game frame for timing
     /// C++ update order: delay (return) → wind/transform → emit → particle update → lifetime.
-    pub fn update(&mut self, local_player_index: i32, current_frame: u32) -> bool {
+    pub(crate) fn update(&mut self, local_player_index: i32, current_frame: u32) -> bool {
         match self.begin_frame_emit(local_player_index, current_frame) {
             FrameEmitPhase::Dead => false,
             FrameEmitPhase::Delayed => true,
@@ -1456,14 +1452,6 @@ impl ParticleSystem {
         }
 
         FrameEmitPhase::Emitted
-    }
-
-    /// C++ particle loop + lifetime tick after createParticle.
-    pub fn finish_frame_integrate(&mut self, current_frame: u32) {
-        self.update_particles(current_frame);
-        if !self.is_forever && self.system_lifetime_left > 0 {
-            self.system_lifetime_left -= 1;
-        }
     }
 
     /// C++ update return false: destroyed with no particles, or finite lifetime
@@ -1669,10 +1657,6 @@ impl ParticleSystem {
     /// C++ detachControlParticle: remove only the receiving live pose binding.
     pub(super) fn clear_control_particle_position(&mut self) {
         self.control_particle_pos = None;
-    }
-
-    pub fn take_dead_controlled_systems(&mut self) -> Vec<ParticleSystemId> {
-        std::mem::take(&mut self.dead_controlled_systems)
     }
 
     pub fn attached_system_name(&self) -> &str {
@@ -1939,7 +1923,7 @@ impl ParticleSystem {
 
     /// Get particle count
     pub fn particle_count(&self) -> usize {
-        self.particle_count
+        self.particles.len()
     }
 
     /// Get system priority for C++-style particle budget culling.
@@ -1953,69 +1937,40 @@ impl ParticleSystem {
     }
 
     /// Push a pre-created particle into the system (used by manager for slave emission)
-    pub fn push_particle(&mut self, particle: Particle) {
-        self.personality_counter += 1;
-        self.particle_count += 1;
+    #[cfg(test)]
+    pub(crate) fn push_particle(&mut self, particle: Particle) {
+        self.push_particle_inner(particle);
+    }
+
+    pub(super) fn push_admitted_particle(&mut self, mut particle: Particle, ordinal: u64) {
+        particle.admission_ordinal = Some(ordinal);
+        self.push_particle_inner(particle);
+    }
+
+    fn push_particle_inner(&mut self, particle: Particle) {
+        self.personality_counter = self.personality_counter.wrapping_add(1);
         self.particles.push_back(particle);
     }
 
     /// Remove oldest particles from the front of this system's queue.
-    pub fn remove_oldest_particles(&mut self, count: usize) -> usize {
-        let remove_count = count.min(self.particle_count).min(self.particles.len());
+    #[cfg(test)]
+    pub(crate) fn remove_oldest_particles(&mut self, count: usize) -> usize {
+        let remove_count = count.min(self.particles.len());
         for _ in 0..remove_count {
             self.particles.pop_front();
         }
-        self.particle_count -= remove_count;
         remove_count
+    }
+
+    pub(super) fn remove_admitted_particle(&mut self, index: usize) -> Particle {
+        self.particles
+            .remove(index)
+            .expect("admitted eviction particle exists")
     }
 
     /// Get wind angle
     pub fn wind_angle(&self) -> f32 {
         self.info.wind_angle
-    }
-
-    /// Update particles (matches C++ ParticleSystem::update particle loop)
-    fn update_particles(&mut self, current_frame: u32) {
-        let mut i = 0;
-
-        // Cache values from template
-        let gravity = self.info().gravity;
-        let drift_velocity = self.info().drift_velocity;
-        let wind_angle = self.wind_angle();
-        let wind_motion = self.info().wind_motion;
-        let shader_type = self.info().shader_type;
-        // C++ doWindMotion: local translation + attached parent pos (unrotated add).
-        let system_pos = Vec3::from(self.position + self.local_translation);
-
-        while i < self.particles.len() {
-            let mut remove_particle = false;
-
-            {
-                let particle = &mut self.particles[i];
-
-                // Apply gravity as force (C++ update loop lines 2144-2149)
-                // Note: C++ uses positive gravity for downward force (z decreases)
-                if gravity != 0.0 {
-                    particle.apply_force(Vec3::new(0.0, 0.0, gravity));
-                }
-
-                // C++ Particle::update: accel→vel, pos+=vel+drift, THEN doWindMotion.
-                if !particle.update(drift_velocity, current_frame, shader_type) {
-                    remove_particle = true;
-                } else if wind_motion != WindMotion::NotUsed {
-                    particle.do_wind_motion(wind_angle, system_pos);
-                }
-            }
-            if remove_particle {
-                if let Some(controlled) = self.particles[i].controlled_system {
-                    self.dead_controlled_systems.push(controlled);
-                }
-                self.particles.remove(i);
-                self.particle_count = self.particle_count.saturating_sub(1);
-            } else {
-                i += 1;
-            }
-        }
     }
 
     pub(crate) fn begin_emission_burst(&mut self) -> Option<EmissionCursor> {
@@ -3005,3 +2960,7 @@ mod emission_cursor_tests;
 #[cfg(test)]
 #[path = "particle_system/color_scale_tests.rs"]
 mod color_scale_tests;
+
+#[path = "particle_system/integration.rs"]
+mod integration;
+pub(super) use integration::ParticleIntegrationStep;

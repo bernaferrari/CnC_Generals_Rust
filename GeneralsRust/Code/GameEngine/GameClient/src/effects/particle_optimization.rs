@@ -288,41 +288,10 @@ impl ParticleOptimizer {
         manager: &mut ParticleSystemManager,
         priority_cap: ParticlePriorityType,
     ) -> usize {
-        let mut removed_count = 0;
-        let current_count = manager.particle_count();
-
-        if current_count <= self.performance_budget.max_total_particles {
-            return 0; // Under budget
-        }
-
-        let target_removal = current_count - self.performance_budget.max_total_particles;
-        let mut systems_by_age: Vec<(ParticleSystemId, u32)> = Vec::new();
-
-        // Collect systems sorted by age (oldest first) that are below priority cap
-        for system in manager.all_particle_systems() {
-            let info = system.info();
-            if info.priority <= priority_cap {
-                systems_by_age.push((system.system_id(), system.start_timestamp()));
-            }
-        }
-
-        // Sort by age (oldest first)
-        systems_by_age.sort_by_key(|&(_, timestamp)| timestamp);
-
-        // Remove particles from oldest systems first
-        for (system_id, _) in systems_by_age {
-            if removed_count >= target_removal {
-                break;
-            }
-
-            if let Some(system) = manager.find_particle_system_mut(system_id) {
-                let particles_to_remove = (system.particle_count() / 2).max(1);
-                let actually_removed = system.remove_oldest_particles(particles_to_remove);
-                removed_count += actually_removed;
-            }
-        }
-
-        removed_count
+        let target = manager
+            .particle_count()
+            .saturating_sub(self.performance_budget.max_total_particles);
+        manager.remove_oldest_particles(target, priority_cap)
     }
 
     /// Adjust quality based on performance trends
@@ -432,7 +401,6 @@ pub trait ParticleSystemOptimization {
     fn set_burst_count_multiplier(&mut self, multiplier: f32);
     fn set_burst_delay_multiplier(&mut self, multiplier: f32);
     fn set_size_multiplier(&mut self, multiplier: f32);
-    fn remove_oldest_particles(&mut self, count: usize) -> usize;
     fn start_timestamp(&self) -> u32;
 }
 
@@ -449,17 +417,6 @@ impl ParticleSystemOptimization for ParticleSystem {
 
     fn set_size_multiplier(&mut self, multiplier: f32) {
         self.size_coeff = multiplier;
-    }
-
-    fn remove_oldest_particles(&mut self, count: usize) -> usize {
-        let mut removed = 0;
-        while removed < count && !self.particles().is_empty() {
-            // Remove from front (oldest particles)
-            self.particles_mut().pop_front();
-            self.particle_count = self.particle_count.saturating_sub(1);
-            removed += 1;
-        }
-        removed
     }
 
     fn start_timestamp(&self) -> u32 {

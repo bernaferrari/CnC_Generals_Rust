@@ -18,7 +18,9 @@ fn populated() -> ParticleSystemManager {
             lifetime: 24,
             ..Default::default()
         };
-        system.push_particle(Particle::new(&info, id, 0));
+        manager
+            .admit_particle(id, Particle::new(&info, id, 0))
+            .unwrap();
     }
     manager
 }

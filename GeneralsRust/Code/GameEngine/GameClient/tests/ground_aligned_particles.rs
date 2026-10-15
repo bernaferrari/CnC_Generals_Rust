@@ -5,23 +5,31 @@
 
 use std::sync::Arc;
 
-use game_client_rust::effects::particle_manager::{ParticleSystemTemplate, ParticleType};
+use game_client_rust::effects::particle_manager::{
+    ParticleSystemManager, ParticleSystemTemplate, ParticleType,
+};
 use game_client_rust::effects::particle_renderer::{
     bake_particle_system_gpu_mesh, expand_particle_world_corners,
 };
+use game_client_rust::effects::particle_system::{Particle, ParticleInfo};
 use glam::Vec3;
-use game_client_rust::effects::particle_system::{Particle, ParticleInfo, ParticleSystem};
 
 #[test]
 fn collect_system_particles_emits_world_xz_quads_when_ground_aligned() {
     let mut template = ParticleSystemTemplate::new("ground".to_string());
     template.info_mut().particle_type = ParticleType::Particle;
     template.info_mut().is_ground_aligned = true;
-    let mut system = ParticleSystem::new(Arc::new(template), 1, false);
+    let mut manager = ParticleSystemManager::new();
+    let id = manager
+        .create_particle_system(&Arc::new(template), false)
+        .unwrap();
     let mut info = ParticleInfo::default();
     info.position = Vec3::new(10.0, 5.0, 20.0);
     info.size = 4.0;
-    system.push_particle(Particle::new(&info, 0, 0));
+    manager
+        .admit_particle(id, Particle::new(&info, 0, 0))
+        .unwrap();
+    let system = manager.find_particle_system(id).unwrap();
 
     let vertices = bake_particle_system_gpu_mesh(&system);
     assert_eq!(vertices.len(), 1);

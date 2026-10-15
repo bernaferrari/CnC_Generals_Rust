@@ -198,11 +198,10 @@ fn particle_destroy_traversal_retains_particles_until_original_update_cleanup() 
     info.alpha_keys[0].value = 1.0;
     for id in &ids {
         manager
-            .find_particle_system_mut(*id)
-            .unwrap()
-            .push_particle(Particle::new(&info, 0, 0));
+            .admit_particle(*id, Particle::new(&info, 0, 0))
+            .unwrap();
     }
-    manager.particle_count = 3;
+    assert_eq!(manager.particle_count(), 3);
     let order = manager.active_system_ids_in_order();
     manager.destroy_particle_system(ids[0]);
     assert_eq!(manager.active_system_ids_in_order(), order);

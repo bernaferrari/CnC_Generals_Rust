@@ -138,13 +138,12 @@ fn receiving_particle_backfill_failure_retries_once_and_keeps_attached_descripto
     assert!(actual.local_transform().abs_diff_eq(expected, 0.00001));
     assert_eq!(registry.backfill_client_systems(&mut particles), 0);
     assert_eq!(particles.active_system_count(), 1);
-    let actual = particles.find_particle_system_mut(id).unwrap();
-    assert!(!actual.should_remove());
+    assert!(!particles.find_particle_system(id).unwrap().should_remove());
     for frame in 1..=3 {
-        actual.finish_frame_integrate(frame);
+        particles.integrate_particle_system(id, frame).unwrap();
     }
     assert!(
-        actual.should_remove(),
+        particles.find_particle_system(id).unwrap().should_remove(),
         "receiving actual system retains the explicit three-frame override"
     );
 }
@@ -276,9 +275,8 @@ fn receiving_particle_retirement_keeps_existing_particles_until_normal_fade() {
     let mut info = ParticleInfo::default();
     info.lifetime = 3;
     particles
-        .find_particle_system_mut(id)
-        .unwrap()
-        .push_particle(Particle::new(&info, 0, 0));
+        .admit_particle(id, Particle::new(&info, 0, 0))
+        .unwrap();
     registry.deactivate_with_client_manager(1, &mut particles);
     let actual = particles.find_particle_system(id).unwrap();
     assert!(actual.is_destroyed());
@@ -573,9 +571,8 @@ fn receiving_particle_native_companion_adopts_exact_loaded_namespace_and_omissio
     let mut particle = ParticleInfo::default();
     particle.lifetime = 20;
     source
-        .find_particle_system_mut(ids[0])
-        .unwrap()
-        .push_particle(Particle::new(&particle, 0, 0));
+        .admit_particle(ids[0], Particle::new(&particle, 0, 0))
+        .unwrap();
     source.destroy_particle_system(ids[1]);
     source
         .find_particle_system_mut(ids[2])

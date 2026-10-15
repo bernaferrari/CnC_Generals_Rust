@@ -2,23 +2,39 @@
 use super::*;
 
 impl ParticleSystemManager {
-    /// Particle destruction updates the manager budget before later emitters.
-    pub(super) fn integrate_particle_system(&mut self, id: ParticleSystemId, frame: u32) {
-        let system = self
+    /// Integrate this receiver's system at its original particle-update phase.
+    /// Each removal releases its local borrow, performs controlled-emitter
+    /// destruction, and decrements the global budget before the next particle.
+    pub fn integrate_particle_system(
+        &mut self,
+        id: ParticleSystemId,
+        frame: u32,
+    ) -> Result<(), ParticleSystemError> {
+        use crate::effects::particle_system::ParticleIntegrationStep;
+        let mut cursor = self
             .active_systems
-            .get_mut(&id)
-            .expect("integrating particle system remains admitted");
-        let before = system.particle_count();
-        system.finish_frame_integrate(frame);
-        let removed = before - system.particle_count();
-        let dead = system.take_dead_controlled_systems();
-        self.particle_count = self.particle_count.saturating_sub(removed);
-        for id in dead {
-            if let Some(child) = self.active_systems.get_mut(&id) {
-                child.clear_control_particle_position();
+            .get(&id)
+            .ok_or(ParticleSystemError::InvalidSystemId(id))?
+            .begin_particle_integration(frame);
+        loop {
+            let step = self
+                .active_systems
+                .get_mut(&id)
+                .expect("integrating system remains admitted")
+                .step_particle_integration(&mut cursor);
+            match step {
+                ParticleIntegrationStep::Alive => {}
+                ParticleIntegrationStep::Removed(particle) => {
+                    self.finish_removed_particle(particle)
+                }
+                ParticleIntegrationStep::Complete => break,
             }
-            self.destroy_particle_system(id);
         }
+        self.active_systems
+            .get_mut(&id)
+            .expect("integrated system remains admitted")
+            .finish_system_lifetime();
+        Ok(())
     }
 
     /// C++ destructor detaches links; explicit destroy's cascade is separate.
@@ -122,8 +138,8 @@ impl ParticleSystemManager {
                 slave.personality_counter(),
                 current_frame,
             );
-            slave.push_particle(particle);
-            self.particle_count += 1;
+            self.admit_particle(slave_id, particle)
+                .expect("particle admission identity available");
         }
     }
 }
