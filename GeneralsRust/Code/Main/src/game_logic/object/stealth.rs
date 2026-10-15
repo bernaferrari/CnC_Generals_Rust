@@ -494,14 +494,11 @@ impl Object {
 
     /// C++ `StealthDetectorUpdate.cpp:284-290` — every detector scan (not only first-spot).
     pub fn apply_detected_heat_vision_second_pass(&mut self) {
-        if self.is_kind_of(KindOf::Mine)
-            || self.is_kind_of(KindOf::DemoTrap)
-            || self.mine_data.is_some()
-        {
-            self.camo_heat_vision_opacity = 0.0;
-            return;
+        // C++ StealthDetectorUpdate.cpp:284-290 excludes exactly KINDOF_MINE.
+        // An excluded scan leaves an existing material residual untouched.
+        if !self.is_kind_of(KindOf::Mine) {
+            self.camo_heat_vision_opacity = 1.0;
         }
-        self.camo_heat_vision_opacity = 1.0;
     }
 
     /// C++ `Drawable::draw` (`Drawable.cpp:2615-2622`) heat-vision overlay fade.
@@ -1662,5 +1659,33 @@ mod stealth_grant_tests {
             color = owner.sample(9002, frame, false, true, false, false);
         }
         assert!((color[2] - 0.8).abs() < 0.03);
+    }
+}
+
+#[cfg(test)]
+mod detector_material_tests {
+    use super::*;
+    use crate::game_logic::{ObjectId, Team, ThingTemplate};
+
+    #[test]
+    fn detector_material_excludes_only_mines_and_preserves_their_residual() {
+        let mut object = Object::new(
+            ThingTemplate::new("DetectorMaterial"),
+            ObjectId(77),
+            Team::USA,
+        );
+        object.thing.template.kind_of.insert(KindOf::DemoTrap);
+        object.apply_detected_heat_vision_second_pass();
+        assert_eq!(
+            object.camo_heat_vision_opacity, 1.0,
+            "demo traps without MINE are eligible"
+        );
+        object.thing.template.kind_of.insert(KindOf::Mine);
+        object.camo_heat_vision_opacity = 0.375;
+        object.apply_detected_heat_vision_second_pass();
+        assert_eq!(
+            object.camo_heat_vision_opacity, 0.375,
+            "excluded scans are inert"
+        );
     }
 }
