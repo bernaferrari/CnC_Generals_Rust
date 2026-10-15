@@ -1512,17 +1512,6 @@ impl CnCGameEngine {
     pub(super) fn apply_script_camera_pitch_request(&mut self, request: CameraPitchRequest) {
         // C++ pitchCamera lerps m_FXPitch (W3DView.cpp:2520-2531 / 3049-3068).
         let target = Self::script_pitch_is_fx_pitch(request.pitch);
-        if request.duration_seconds <= 0.0 {
-            self.camera_fx_pitch = target;
-            self.camera_pitch_target = None;
-            self.camera_pitch_start = target;
-            self.camera_pitch_duration = 0.0;
-            self.camera_pitch_elapsed = 0.0;
-            self.camera_pitch_ease_in = 0.0;
-            self.camera_pitch_ease_out = 0.0;
-            self.apply_camera_orbit_transform();
-            return;
-        }
 
         self.camera_pitch_start = self.camera_fx_pitch;
         self.camera_pitch_target = Some(target);
@@ -1534,17 +1523,6 @@ impl CnCGameEngine {
 
     pub(super) fn apply_script_camera_rotate_request(&mut self, request: CameraRotateRequest) {
         let target_yaw = self.camera_yaw_radians + request.rotations * TAU;
-        if request.duration_seconds <= 0.0 {
-            self.camera_yaw_radians = target_yaw;
-            self.camera_yaw_target = None;
-            self.camera_yaw_start = self.camera_yaw_radians;
-            self.camera_yaw_duration = 0.0;
-            self.camera_yaw_elapsed = 0.0;
-            self.camera_yaw_ease_in = 0.0;
-            self.camera_yaw_ease_out = 0.0;
-            self.apply_camera_orbit_transform();
-            return;
-        }
 
         self.camera_yaw_start = self.camera_yaw_radians;
         self.camera_yaw_target = Some(target_yaw);
@@ -1738,23 +1716,19 @@ impl CnCGameEngine {
         ));
     }
 
-    pub(super) fn update_script_camera_shake(&mut self, dt: f32) -> bool {
+    pub(super) fn update_script_camera_shake(&mut self) -> bool {
         let previous_offset = self.camera_shake_offset;
         let previous_rot = self.camera_shake_rotation;
         let mut offset = Vec3::ZERO;
         let mut rotation = Vec3::ZERO;
 
-        if self.screen_shake_intensity > 0.01 {
-            offset.x += self.screen_shake_intensity * self.screen_shake_angle_cos;
-            offset.z += self.screen_shake_intensity * self.screen_shake_angle_sin;
-            self.screen_shake_intensity *= 0.75;
-            self.screen_shake_angle_cos = -self.screen_shake_angle_cos;
-            self.screen_shake_angle_sin = -self.screen_shake_angle_sin;
-        } else {
-            self.screen_shake_intensity = 0.0;
-            self.screen_shake_angle_cos = 0.0;
-            self.screen_shake_angle_sin = 0.0;
-        }
+        offset += super::camera_view_effects::step_view_impulse(
+            &mut self.screen_shake_intensity,
+            &mut self.screen_shake_angle_cos,
+            &mut self.screen_shake_angle_sin,
+            true,
+        )
+        .expect("called by the admitted full-view phase");
 
         // C++ W3DView::update: CameraShakerSystem.Timestep(1/30) once per present.
         // Do not use visual_dt — at 60 fps that halves the envelope/omega sweep.
@@ -1822,18 +1796,10 @@ impl CnCGameEngine {
         }
         let target_yaw = self.camera_yaw_radians + delta;
 
-        if request.duration_seconds <= 0.0 {
-            self.camera_yaw_radians = target_yaw;
-            self.camera_yaw_target = None;
-            self.camera_yaw_start = self.camera_yaw_radians;
-            self.camera_yaw_duration = 0.0;
-            self.camera_yaw_elapsed = 0.0;
-            self.camera_yaw_ease_in = 0.0;
-            self.camera_yaw_ease_out = 0.0;
-            self.apply_camera_orbit_transform();
-            return;
-        }
-        if self.camera_yaw_target.is_some() && self.camera_yaw_duration > 0.0 {
+        if request.duration_seconds > 0.0
+            && self.camera_yaw_target.is_some()
+            && self.camera_yaw_duration > 0.0
+        {
             self.camera_yaw_target = Some(target_yaw);
             self.camera_yaw_duration = request.duration_seconds.max(self.camera_yaw_duration);
             return;
@@ -2689,55 +2655,149 @@ End
     fn script_camera_shakers_rotate_not_translate() {
         let src = include_str!("start_game.rs");
         let start = src
-            .find("fn update_script_camera_shake")
-            .expect("update_script_camera_shake");
-        let body = &src[start..start + 1800];
+            .find("fn update_script_camera_shake(")
+            .expect("full-view shake operation");
+        let end = src[start..]
+            .find("pub(super) fn normalize_signed_angle")
+            .map(|offset| start + offset)
+            .expect("next camera operation");
+        let body = &src[start..end];
         assert!(
             body.contains("script_camera_shaker_rotations")
                 && body.contains("camera_shake_rotation")
-                && body.contains("SHAKE_AXIS_PITCH"),
-            "C++ CameraShakerSystem Compute_Rotations must drive axis-capped rotation"
+                && body.contains("SHAKE_AXIS_PITCH")
         );
+        assert!(!body.contains("offset.x += phase_a.sin() * magnitude"));
         assert!(
-            !body.contains("offset.x += phase_a.sin() * magnitude"),
-            "script shakers must not translate the look-at"
+            body.contains("step_view_impulse(") && !body.contains("tick_impulse_shake"),
+            "the admitted view owns its borrowed impulse spring rather than another decay at intake"
         );
-        assert!(
-            body.contains("impulse_shake_offset") && !body.contains("tick_impulse_shake"),
-            "live host must apply leftover ViewShake offset after the presentation-shell tick, not decay it a second time"
-        );
+        let mut shaker = ScriptCameraShaker::new(Vec3::ZERO, 500., 2., 15.);
+        shaker.elapsed_seconds = 0.25;
+        shaker.phi = Vec3::splat(std::f32::consts::FRAC_PI_2);
+        shaker.omega = Vec3::splat(SHAKE_MIN_OMEGA);
+        let rotation = script_camera_shaker_rotations(&shaker, Vec3::new(0., 50., 0.));
+        assert!(rotation.is_finite() && rotation.length_squared() > 0.);
     }
 
     #[test]
     fn script_camera_shaker_steps_one_thirtieth_per_present() {
         let src = include_str!("start_game.rs");
         let start = src
-            .find("fn update_script_camera_shake")
-            .expect("update_script_camera_shake");
-        let body = &src[start..start + 900];
+            .find("fn update_script_camera_shake(")
+            .expect("full-view shake operation");
+        let end = src[start..]
+            .find("pub(super) fn normalize_signed_angle")
+            .map(|offset| start + offset)
+            .expect("next camera operation");
+        let body = &src[start..end];
+        assert!(body.contains("const SCRIPT_CAMERA_SHAKER_STEP: f32 = 1.0 / 30.0;"));
+        assert!(body.contains("shaker.elapsed_seconds += SCRIPT_CAMERA_SHAKER_STEP"));
+        assert!(!body.contains("elapsed_seconds += dt"));
+        let view = include_str!("camera_view_effects.rs");
         assert!(
-            body.contains("1.0 / 30.0"),
-            "C++ CameraShakerSystem.Timestep is 1/30 per present"
+            view.contains("if decision.update_views")
+                && view.contains("self.update_script_camera_shake()")
         );
-        assert!(
-            !body.contains("elapsed_seconds += dt"),
-            "script shaker must not advance by visual_dt"
+        let (mut intensity, mut cosine, mut sine) = (4., 1., 0.);
+        assert_eq!(
+            super::super::camera_view_effects::step_view_impulse(
+                &mut intensity,
+                &mut cosine,
+                &mut sine,
+                false
+            ),
+            None
         );
+        assert_eq!(intensity, 4.);
+        assert_eq!(
+            super::super::camera_view_effects::step_view_impulse(
+                &mut intensity,
+                &mut cosine,
+                &mut sine,
+                true
+            ),
+            Some(Vec3::new(4., 0., 0.))
+        );
+        assert_eq!(intensity, 3.);
     }
 
     #[test]
     fn script_camera_pitch_writes_fx_pitch_not_orbit() {
+        use crate::cnc_game_engine::camera_motion::{
+            AxisKind, AxisMotion, MotionAdmission, step_axis,
+        };
         let src = include_str!("start_game.rs");
         assert!(
             src.contains("camera_fx_adjusted_eye_and_look")
                 && src.contains("script_pitch_is_fx_pitch")
-                && src.contains("self.camera_fx_pitch = target"),
-            "CAMERA_PITCH must lerp FXPitch, not orbit radians"
+        );
+        let request_start = src
+            .find("pub(super) fn apply_script_camera_pitch_request(")
+            .unwrap();
+        let request_end = src[request_start..]
+            .find("pub(super) fn apply_script_camera_rotate_request(")
+            .map(|offset| request_start + offset)
+            .unwrap();
+        let request = &src[request_start..request_end];
+        assert!(
+            request.contains("self.camera_pitch_start = self.camera_fx_pitch")
+                && request.contains("self.camera_pitch_target = Some(target)")
         );
         assert!(
-            !src.contains("let _ = pitch;"),
-            "script pitch must not discard the authored FXPitch"
+            !request.contains("self.camera_fx_pitch = target")
+                && !request.contains("duration <= 0"),
+            "request intake retains a target even for zero-duration movement"
         );
+        let view = include_str!("camera_view_effects.rs");
+        assert!(
+            view.contains("value: &mut self.camera_fx_pitch")
+                && !view.contains("value: &mut self.camera_pitch_radians")
+        );
+        let (mut fx_pitch, mut target, mut elapsed) =
+            (1., Some(CnCGameEngine::script_pitch_is_fx_pitch(2.)), 0.);
+        let rejected = step_axis(
+            AxisMotion {
+                value: &mut fx_pitch,
+                target: &mut target,
+                elapsed_seconds: &mut elapsed,
+                start: 1.,
+                duration_seconds: 0.,
+                ease_in_seconds: 0.,
+                ease_out_seconds: 0.,
+            },
+            AxisKind::ZoomPitch,
+            MotionAdmission {
+                update_views: false,
+                fast_camera_only: false,
+                paused: false,
+                debug_frozen: false,
+                disable_camera_movement: false,
+            },
+        );
+        assert!(rejected.was_active && !rejected.changed);
+        assert_eq!((fx_pitch, target, elapsed), (1., Some(2.), 0.));
+        let admitted = step_axis(
+            AxisMotion {
+                value: &mut fx_pitch,
+                target: &mut target,
+                elapsed_seconds: &mut elapsed,
+                start: 1.,
+                duration_seconds: 0.,
+                ease_in_seconds: 0.,
+                ease_out_seconds: 0.,
+            },
+            AxisKind::ZoomPitch,
+            MotionAdmission {
+                update_views: true,
+                fast_camera_only: false,
+                paused: false,
+                debug_frozen: false,
+                disable_camera_movement: false,
+            },
+        );
+        assert!(admitted.was_active && admitted.completed && admitted.changed);
+        assert_eq!((fx_pitch, target, elapsed), (2., None, 0.033));
         assert!(
             src.contains("tactical_view_height_frac")
                 && src.contains("rebuild_tactical_projection"),
@@ -2830,21 +2890,39 @@ End
 
     #[test]
     fn scripted_zoom_pitch_yaw_pause_with_game() {
-        let src = super::ENGINE_SRC;
-        assert!(
-            src.contains("scripted_camera_motion_dt")
-                && src.contains("GameState::Paused")
-                && src.contains("self.game_paused"),
-            "scripted zoom/pitch/yaw must freeze while paused"
-        );
-        assert!(
-            src.contains("self.update_script_camera_shake(dt)"),
-            "shake must keep ticking with visual dt under time-freeze"
-        );
-        assert!(
-            !src.contains("shake_dt = if self.presentation_or_boot_time_frozen()"),
-            "C++ CameraShaker Timestep has no script time-freeze gate"
-        );
+        use crate::cnc_game_engine::camera_motion::{
+            AxisKind, AxisMotion, MotionAdmission, step_axis,
+        };
+        let view = include_str!("camera_view_effects.rs");
+        assert!(view.contains("paused: self.game_paused") && view.contains("GameState::Paused"));
+        assert!(view.contains("self.update_script_camera_shake()"));
+        assert!(!view.contains("shake_dt = if self.presentation_or_boot_time_frozen()"));
+        for paused in [true, false] {
+            let (mut value, mut target, mut elapsed) = (0., Some(1.), 0.);
+            let step = step_axis(
+                AxisMotion {
+                    value: &mut value,
+                    target: &mut target,
+                    elapsed_seconds: &mut elapsed,
+                    start: 0.,
+                    duration_seconds: 1.,
+                    ease_in_seconds: 0.,
+                    ease_out_seconds: 0.,
+                },
+                AxisKind::ZoomPitch,
+                MotionAdmission {
+                    update_views: true,
+                    fast_camera_only: false,
+                    paused,
+                    debug_frozen: false,
+                    disable_camera_movement: false,
+                },
+            );
+            assert!(step.was_active);
+            assert_eq!(step.changed, !paused);
+            assert_eq!(elapsed, if paused { 0. } else { 0.033 });
+            assert_eq!(value, if paused { 0. } else { 1. / 30. });
+        }
     }
 
     #[test]

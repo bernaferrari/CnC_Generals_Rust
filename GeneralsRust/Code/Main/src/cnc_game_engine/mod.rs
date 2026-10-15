@@ -96,6 +96,8 @@ thread_local! {
 mod audio;
 mod boot;
 mod camera_drain;
+mod camera_motion;
+mod camera_view_effects;
 #[cfg(feature = "game_client")]
 mod control_bar_bridge;
 mod dispatch;
@@ -191,6 +193,9 @@ pub const ENGINE_SRC: &str = concat!(
     include_str!("audio.rs"),
     include_str!("boot.rs"),
     include_str!("camera_drain.rs"),
+    include_str!("camera_motion.rs"),
+    include_str!("camera_view_effects.rs"),
+    include_str!("native_display.rs"),
     include_str!("dispatch.rs"),
     include_str!("host.rs"),
     include_str!("host_authority.rs"),

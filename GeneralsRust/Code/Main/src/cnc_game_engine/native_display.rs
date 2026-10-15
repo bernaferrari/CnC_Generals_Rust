@@ -19,6 +19,7 @@ pub(super) struct NativeDisplayState {
     clock: VisualClock,
     completed: Option<DisplayAdmission>,
     guardband: [f32; 2],
+    camera_scroll_amount: f32,
     epoch: u64,
     #[cfg(feature = "game_client")]
     pending: Option<PendingShell>,
@@ -30,11 +31,18 @@ impl NativeDisplayState {
             clock: VisualClock::new(),
             completed: None,
             guardband: [0.; 2],
+            camera_scroll_amount: 0.,
             epoch: 1,
             #[cfg(feature = "game_client")]
             pending: None,
             failed_shell: None,
         }
+    }
+    pub(super) fn record_camera_scroll(&mut self, amount: f32) {
+        self.camera_scroll_amount = amount;
+    }
+    pub(super) fn take_camera_scroll(&mut self) -> f32 {
+        std::mem::take(&mut self.camera_scroll_amount)
     }
     pub(super) fn admit(&mut self, input: DisplayInputs) -> DisplayAdmission {
         let decision = self.clock.admit(input);
@@ -54,6 +62,7 @@ impl NativeDisplayState {
         // W3DView::reset clears guardband, while W3DDisplay's static clock lives on.
         self.epoch = epoch;
         self.guardband = [0.; 2];
+        self.camera_scroll_amount = 0.;
         self.completed = None;
         self.failed_shell = None;
     }
@@ -123,9 +132,16 @@ impl NativeDisplayState {
 mod view;
 
 impl CnCGameEngine {
+    pub(super) fn native_view_is_paused(&self) -> bool {
+        self.game_logic.is_paused()
+            || self.game_paused
+            || matches!(self.current_state, GameState::Paused)
+    }
+
     /// Invoked once after update and before the optional GPU scheduling decision.
     pub(super) fn complete_native_display_step(&mut self) -> Result<(), String> {
         self.native_display.completed = None;
+        let camera_scroll = self.native_display.take_camera_scroll();
         self.native_display.check_shell_before_display()?;
         #[cfg(feature = "game_client")]
         if self
@@ -159,9 +175,7 @@ impl CnCGameEngine {
                 )
                 .map_err(|error| error.to_string());
         }
-        let frozen = self.presentation_or_boot_time_frozen()
-            || self.game_paused
-            || matches!(self.current_state, GameState::Paused);
+        let frozen = self.presentation_or_boot_time_frozen() || self.native_view_is_paused();
         let tivo = game_engine::common::global_data::read_safe()
             .map_err(|error| format!("display configuration unavailable: {error}"))?
             .tivo_fast_mode;
@@ -185,14 +199,13 @@ impl CnCGameEngine {
             device_ready,
             tivo_replay: tivo
                 && self.presentation_or_boot_in_replay_game()
-                && !self.game_paused
-                && !matches!(self.current_state, GameState::Paused),
+                && !self.native_view_is_paused(),
             replay_frame: self.game_logic.frame,
         });
         if decision.sync {
             WW3D::sync(decision.sync_time_ms);
         }
-        let result = self.finish_native_display_after_admission(decision);
+        let result = self.finish_native_display_after_admission(decision, camera_scroll);
         if result.is_err() {
             self.native_display.suppress_failed_gpu();
             #[cfg(feature = "game_client")]
@@ -208,10 +221,12 @@ impl CnCGameEngine {
     fn finish_native_display_after_admission(
         &mut self,
         decision: DisplayAdmission,
+        camera_scroll: f32,
     ) -> Result<(), String> {
-        // Script camera requests and movement already ran in the owning update.
-        // Commit matrices without advancing those effects for a second time.
-        if decision.update_views || decision.fast_camera_only {
+        // Command intake has finished. Only this admitted view operation may
+        // advance scripted camera axes, follow, shake and terrain-height ease.
+        self.advance_native_camera_view(decision, camera_scroll);
+        if decision.update_views && !self.script_time_fast() {
             self.finalize_native_view_camera();
         }
         #[cfg(feature = "game_client")]
@@ -288,18 +303,29 @@ impl CnCGameEngine {
 
     /// Shared final camera commitment. Rendering consumes these exact matrices.
     fn finalize_native_view_camera(&mut self) {
-        if matches!(
-            self.current_state,
-            GameState::InGame | GameState::Paused | GameState::Menu
-        ) {
-            self.apply_camera_orbit_transform();
-        }
         self.host_ensure_presentation_frame_for_render();
-        if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+        if self.camera_slave_mode.is_none()
+            && matches!(self.current_state, GameState::InGame | GameState::Paused)
+        {
             let target = self.camera_target;
             if target.x * target.x + target.z * target.z < 80. * 80. {
                 self.snap_camera_to_local_units_if_needed();
             }
+        }
+        // Source setCameraTransform applies a slave's final pose last. The
+        // retained slave resolver has its own tracked identity/bone gap.
+        let slave_pose = self.apply_host_slave_camera();
+        let positional_slave = self
+            .camera_slave_mode
+            .as_ref()
+            .is_some_and(|mode| mode.bone_name.is_empty());
+        if (!slave_pose || positional_slave)
+            && matches!(
+                self.current_state,
+                GameState::InGame | GameState::Paused | GameState::Menu
+            )
+        {
+            self.apply_camera_orbit_transform();
         }
         let (width, height) = super::types::render_surface_extent(&self.window);
         self.render_pipeline.set_tactical_3d_viewport(

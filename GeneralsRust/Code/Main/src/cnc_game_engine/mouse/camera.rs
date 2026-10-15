@@ -388,99 +388,9 @@ impl CnCGameEngine {
             camera_changed = true;
         }
 
-        if self.apply_host_slave_camera() {
-            camera_changed = true;
-        }
-        if self.apply_airborne_follow_yaw() {
-            camera_changed = true;
-        }
-
-        // C++ ScreenMotionBlurFilter lookAt at blur peak (after zoom-in).
-        #[cfg(feature = "game_client")]
-        if let Some(pos) = game_client::display::view::take_motion_blur_zoom_look_at() {
-            // Leftover View is Z-up; live host is Y-up.
-            self.host_set_camera_follow_object(None);
-            self.host_player_look_at(Vec3::new(pos.x, pos.z, pos.y));
-            camera_changed = true;
-        }
-
-        // C++ W3DView::update gates updateCameraMovements on !isGamePaused()
-        // (isTimeFrozenScript is deliberately not gated). Shake still ticks.
-        let scripted_camera_motion_dt =
-            if matches!(self.current_state, GameState::Paused) || self.game_paused {
-                0.0
-            } else {
-                dt
-            };
-
-        if let Some(target) = self.camera_zoom_target {
-            if self.camera_zoom_duration <= 0.0 {
-                self.camera_zoom = target;
-                self.camera_zoom_target = None;
-            } else {
-                self.camera_zoom_elapsed += scripted_camera_motion_dt;
-                let t = (self.camera_zoom_elapsed / self.camera_zoom_duration).clamp(0.0, 1.0);
-                let eased = Self::parabolic_ease(
-                    t,
-                    self.camera_zoom_ease_in / self.camera_zoom_duration,
-                    self.camera_zoom_ease_out / self.camera_zoom_duration,
-                );
-                self.camera_zoom =
-                    self.camera_zoom_start + (target - self.camera_zoom_start) * eased;
-                if t >= 1.0 {
-                    self.camera_zoom_target = None;
-                }
-            }
-        }
-
-        if let Some(target) = self.camera_pitch_target {
-            if self.camera_pitch_duration <= 0.0 {
-                self.camera_fx_pitch = target;
-                self.camera_pitch_target = None;
-                camera_changed = true;
-            } else {
-                self.camera_pitch_elapsed += scripted_camera_motion_dt;
-                let t = (self.camera_pitch_elapsed / self.camera_pitch_duration).clamp(0.0, 1.0);
-                let eased = Self::parabolic_ease(
-                    t,
-                    self.camera_pitch_ease_in / self.camera_pitch_duration,
-                    self.camera_pitch_ease_out / self.camera_pitch_duration,
-                );
-                self.camera_fx_pitch =
-                    self.camera_pitch_start + (target - self.camera_pitch_start) * eased;
-                camera_changed = true;
-                if t >= 1.0 {
-                    self.camera_pitch_target = None;
-                }
-            }
-        }
-
-        if let Some(target) = self.camera_yaw_target {
-            if self.camera_yaw_duration <= 0.0 {
-                self.camera_yaw_radians = target;
-                self.camera_yaw_target = None;
-                camera_changed = true;
-            } else {
-                self.camera_yaw_elapsed += scripted_camera_motion_dt;
-                let t = (self.camera_yaw_elapsed / self.camera_yaw_duration).clamp(0.0, 1.0);
-                let eased = Self::parabolic_ease(
-                    t,
-                    self.camera_yaw_ease_in / self.camera_yaw_duration,
-                    self.camera_yaw_ease_out / self.camera_yaw_duration,
-                );
-                self.camera_yaw_radians =
-                    self.camera_yaw_start + (target - self.camera_yaw_start) * eased;
-                camera_changed = true;
-                if t >= 1.0 {
-                    self.camera_yaw_target = None;
-                }
-            }
-        }
-
-        // C++ impulse shake + CameraShakerSystem::Timestep have no freeze/pause gate.
-        if self.update_script_camera_shake(dt) {
-            camera_changed = true;
-        }
+        // Input is accepted each Client update; view effects wait for the
+        // driving display's admission. This value belongs to this operation.
+        self.native_display.record_camera_scroll(scroll_amount);
 
         // Numpad/Middle rotation and scripted/wheel zoom all modify the same
         // W3D camera transform.  Previously only pan/shake paths set this
@@ -489,17 +399,6 @@ impl CnCGameEngine {
             || (self.camera_pitch_radians - initial_pitch).abs() > f32::EPSILON
             || (self.camera_fx_pitch - initial_fx_pitch).abs() > f32::EPSILON
             || (self.camera_yaw_radians - initial_yaw).abs() > f32::EPSILON;
-
-        // Several C++ camera entry points (minimap, selection hotkeys, and
-        // scripted camera requests) update the target or zoom outside this
-        // input routine.  Rebuild their W3D pose on the next frame as well;
-        // otherwise the simulation state and the view/ray used for orders
-        // disagree until the player happens to pan.
-        camera_changed |= self.camera_transform_needs_rebuild();
-
-        // C++ W3DView.cpp:1308-1339 — after pan/scroll, ease orbit height
-        // toward terrain + height-above-ground at CameraAdjustSpeed (0.3 INI).
-        camera_changed |= self.ease_camera_height_above_ground(scroll_amount);
 
         if camera_changed {
             self.apply_camera_orbit_transform();
@@ -596,16 +495,17 @@ impl CnCGameEngine {
     /// C++ `W3DView::update` height follow (W3DView.cpp:1308-1339).
     /// Sample presentation height under the look-at, then ease the orbit so
     /// camera Y approaches terrain + the current height-above-ground.
-    fn ease_camera_height_above_ground(&mut self, scroll_amount: f32) -> bool {
+    pub(in crate::cnc_game_engine) fn ease_camera_height_above_ground(
+        &mut self,
+        scroll_amount: f32,
+        did_scripted_movement: bool,
+    ) -> bool {
         // C++: `!TheGameLogic->isGamePaused()` and `m_okToAdjustHeight`.
-        if !matches!(self.current_state, GameState::InGame) {
+        if !matches!(self.current_state, GameState::InGame) || self.native_view_is_paused() {
             return false;
         }
         // Do not fight scripted zoom/pitch/yaw eases (C++ `didScriptedMovement`).
-        if self.camera_zoom_target.is_some()
-            || self.camera_pitch_target.is_some()
-            || self.camera_yaw_target.is_some()
-        {
+        if did_scripted_movement {
             return false;
         }
 
@@ -1099,7 +999,7 @@ impl CnCGameEngine {
     }
 
     /// C++ `W3DView::cameraEnableSlaveMode` + bone matrix slam.
-    fn apply_host_slave_camera(&mut self) -> bool {
+    pub(in crate::cnc_game_engine) fn apply_host_slave_camera(&mut self) -> bool {
         let Some(mode) = self.camera_slave_mode.clone() else {
             return false;
         };
@@ -1153,7 +1053,7 @@ impl CnCGameEngine {
     }
 
     /// C++ `W3DView.cpp:1224-1247` LOCK_FOLLOW airborne yaw ease.
-    fn apply_airborne_follow_yaw(&mut self) -> bool {
+    pub(in crate::cnc_game_engine) fn apply_airborne_follow_yaw(&mut self) -> bool {
         if self.look_at_player_broke_camera_lock() {
             return false;
         }

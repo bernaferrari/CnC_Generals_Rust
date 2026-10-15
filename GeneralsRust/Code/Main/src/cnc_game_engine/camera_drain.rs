@@ -207,19 +207,6 @@ impl CnCGameEngine {
         // Rebuild the live frustum so Default bar is the retail 80% rect.
         self.rebuild_tactical_projection();
 
-        // Wave 216: presentation-frozen follow only (no live camera_follow dual-read residual).
-        // hq-1kgx8: player scroll breaks LOCK_FOLLOW; skip until the lock is released.
-        if self.look_at_player_broke_camera_lock() {
-            if pres.camera_follow_position.is_none() {
-                self.look_at_clear_player_broke_camera_lock();
-            }
-        } else if let Some(follow) = pres.camera_follow_position {
-            let target = Vec3::new(follow[0], follow[1], follow[2]);
-            self.apply_camera_follow_or_tether(target, pres.camera_tether_play);
-        } else {
-            self.camera_follow_factor = -1.0;
-        }
-
         if pres.camera_zoom_reset {
             // C++ W3DView::resetCamera: zoom/pitch/heading animate over script duration.
             let duration = pres.camera_zoom_reset_duration.max(0.0);
@@ -229,22 +216,13 @@ impl CnCGameEngine {
                     self.camera_target,
                     self.ui_script_default_camera_max_height(),
                 );
-                if duration <= 0.0 {
-                    self.camera_zoom = zoom;
-                    self.camera_zoom_target = None;
-                    self.camera_zoom_start = self.camera_zoom;
-                    self.camera_zoom_duration = 0.0;
-                    self.camera_zoom_elapsed = 0.0;
-                    self.camera_zoom_ease_in = 0.0;
-                    self.camera_zoom_ease_out = 0.0;
-                } else {
-                    self.camera_zoom_start = self.camera_zoom;
-                    self.camera_zoom_target = Some(zoom);
-                    self.camera_zoom_duration = duration;
-                    self.camera_zoom_elapsed = 0.0;
-                    self.camera_zoom_ease_in = ease_in;
-                    self.camera_zoom_ease_out = ease_out;
-                }
+                self.camera_zoom_start = self.camera_zoom;
+                self.camera_zoom_target = Some(zoom);
+                self.camera_zoom_duration = duration;
+                self.camera_zoom_elapsed = 0.0;
+                self.camera_zoom_ease_in = ease_in;
+                self.camera_zoom_ease_out = ease_out;
+
                 self.apply_script_camera_pitch_request(CameraPitchRequest {
                     // C++ pitchCamera(1.0, milliseconds, easeIn, easeOut)
                     pitch: 1.0,
@@ -256,45 +234,24 @@ impl CnCGameEngine {
             // C++ m_mcwpInfo.cameraAngle[2] = 0.0 — animate heading to default.
             if !player_cancel.cancels_rotate() {
                 let target_yaw = 0.0;
-                if duration <= 0.0 {
-                    self.camera_yaw_radians = target_yaw;
-                    self.camera_yaw_target = None;
-                    self.camera_yaw_start = self.camera_yaw_radians;
-                    self.camera_yaw_duration = 0.0;
-                    self.camera_yaw_elapsed = 0.0;
-                    self.camera_yaw_ease_in = 0.0;
-                    self.camera_yaw_ease_out = 0.0;
-                    self.apply_camera_orbit_transform();
-                } else {
-                    self.camera_yaw_start = self.camera_yaw_radians;
-                    self.camera_yaw_target = Some(target_yaw);
-                    self.camera_yaw_duration = duration;
-                    self.camera_yaw_elapsed = 0.0;
-                    self.camera_yaw_ease_in = ease_in;
-                    self.camera_yaw_ease_out = ease_out;
-                }
+                self.camera_yaw_start = self.camera_yaw_radians;
+                self.camera_yaw_target = Some(target_yaw);
+                self.camera_yaw_duration = duration;
+                self.camera_yaw_elapsed = 0.0;
+                self.camera_yaw_ease_in = ease_in;
+                self.camera_yaw_ease_out = ease_out;
             }
         }
 
         if let Some((zoom, duration_seconds)) = pres.camera_zoom {
             if !player_cancel.cancels_set() {
                 let (ease_in, ease_out) = pres.camera_zoom_ease;
-                if duration_seconds <= 0.0 {
-                    self.camera_zoom = zoom;
-                    self.camera_zoom_target = None;
-                    self.camera_zoom_start = self.camera_zoom;
-                    self.camera_zoom_duration = 0.0;
-                    self.camera_zoom_elapsed = 0.0;
-                    self.camera_zoom_ease_in = 0.0;
-                    self.camera_zoom_ease_out = 0.0;
-                } else {
-                    self.camera_zoom_start = self.camera_zoom;
-                    self.camera_zoom_target = Some(zoom);
-                    self.camera_zoom_duration = duration_seconds;
-                    self.camera_zoom_elapsed = 0.0;
-                    self.camera_zoom_ease_in = ease_in;
-                    self.camera_zoom_ease_out = ease_out;
-                }
+                self.camera_zoom_start = self.camera_zoom;
+                self.camera_zoom_target = Some(zoom);
+                self.camera_zoom_duration = duration_seconds;
+                self.camera_zoom_elapsed = 0.0;
+                self.camera_zoom_ease_in = ease_in;
+                self.camera_zoom_ease_out = ease_out;
             }
         }
 
@@ -360,7 +317,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn apply_camera_follow_or_tether(&mut self, target: Vec3, tether_play: Option<f32>) {
+    pub(super) fn apply_camera_follow_or_tether(&mut self, target: Vec3, tether_play: Option<f32>) {
         if self.camera_follow_factor < 0.0 {
             self.camera_follow_factor = 0.05;
         } else {
