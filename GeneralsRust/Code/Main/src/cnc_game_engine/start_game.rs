@@ -1821,10 +1821,9 @@ impl CnCGameEngine {
             ));
         }
         let look = self.clamp_to_world_bounds(look);
-        let ground_height = self.sample_presentation_height_under(look);
-        self.camera_target.x = look.x;
-        self.camera_target.y = ground_height;
-        self.camera_target.z = look.z;
+        // View::setPosition retains the requested logical position. The map
+        // basis determines the actual render look height independently.
+        self.camera_target = look;
         self.apply_camera_orbit_transform();
     }
 

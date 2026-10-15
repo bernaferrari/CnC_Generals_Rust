@@ -173,6 +173,12 @@ impl CameraHeight {
             }
         }
     }
+    /// Native full-pose saves predate an explicit HAG goal. Admit their visible
+    /// height against this map basis, so restoring a pose does not ease toward
+    /// an unrelated startup goal. Original View-only loads keep source defaults.
+    pub(super) fn admit_restored_pose_height(&mut self, zoom: f32, terrain: f32) {
+        self.desired = self.basis.offset.z * zoom - terrain;
+    }
     pub(super) fn default_zoom(&self, terrain: f32, max_height: f32) -> f32 {
         (terrain + max_height) / self.basis.offset.z
     }

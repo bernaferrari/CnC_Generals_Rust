@@ -388,13 +388,13 @@ impl CnCGameEngine {
         );
         let camera_pitch_radians = 0.0;
         let camera_yaw_radians = 0.0;
-        let (camera_position, camera_target) = native_camera.basis().pose(
+        let (camera_position, camera_look) = native_camera.basis().pose(
             camera_target,
             camera_zoom,
             camera_pitch_radians,
             camera_yaw_radians,
         );
-        let view_matrix = Mat4::look_at_rh(camera_position, camera_target, Vec3::Y);
+        let view_matrix = Mat4::look_at_rh(camera_position, camera_look, Vec3::Y);
 
         let pending_shell_model_prewarm = if start_in_menu {
             // C++ shell startup does not run this extra Rust-only synchronous prewarm loop.

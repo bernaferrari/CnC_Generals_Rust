@@ -352,3 +352,18 @@ fn map_default_set_and_capture_are_owned_and_construction_is_inert() {
     assert_eq!(restored.desired(), 500.);
     assert_eq!(first.desired(), 275.);
 }
+
+#[test]
+fn admitted_native_pose_keeps_restored_zoom_without_recalibrating_map_basis() {
+    let mut restored = owner();
+    let mut peer = owner();
+    peer.set_height(900., false, 0., 0.);
+    let basis_before = restored.basis().offset;
+    let mut zoom = 0.6;
+    restored.admit_restored_pose_height(zoom, 100.);
+    assert_eq!(restored.desired(), 500.);
+    assert!(!restored.advance(&mut zoom, step()));
+    assert_eq!(zoom, 0.6);
+    assert_eq!(restored.basis().offset, basis_before);
+    assert_eq!(peer.desired(), 900.);
+}

@@ -894,6 +894,9 @@ impl SaveFileManager {
         save_info: &SaveGameInfo,
         camera: Option<crate::save_load::snapshot::CameraPersist>,
     ) -> SaveLoadResult<()> {
+        if let Some(camera) = camera {
+            camera.validate()?;
+        }
         let save_path = self.get_save_path(filename);
         let temp_path = self.get_temp_path(&format!("{}_temp", filename));
 

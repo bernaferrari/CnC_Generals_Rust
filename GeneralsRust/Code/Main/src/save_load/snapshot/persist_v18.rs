@@ -304,6 +304,23 @@ pub struct TacticalViewPersist {
 }
 
 impl CameraPersist {
+    pub(crate) fn validate(&self) -> SaveLoadResult<()> {
+        if !self.angle.is_finite()
+            || !self.zoom.is_finite()
+            || self.zoom <= 0.0
+            || self
+                .position
+                .iter()
+                .chain(&self.target)
+                .any(|v| !v.is_finite())
+        {
+            return Err(SaveLoadError::Corrupted(
+                "nonfinite or invalid native camera pose".into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Attach this driving view's immutable save value to one detached record.
     pub(crate) fn write_to(self, persist: &mut WorldPersistV18) {
         persist.camera_valid = true;
@@ -311,6 +328,17 @@ impl CameraPersist {
         persist.camera_position = self.position;
         persist.camera_target = self.target;
         persist.camera_zoom = self.zoom;
+    }
+}
+
+impl TacticalViewPersist {
+    pub(crate) fn validate(&self) -> SaveLoadResult<()> {
+        if !self.angle.is_finite() || self.position.iter().any(|v| !v.is_finite()) {
+            return Err(SaveLoadError::Corrupted(
+                "nonfinite TacticalView position or angle".into(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -2276,3 +2304,7 @@ mod tests {
         assert_eq!(tail.completed_video[0], "Intro");
     }
 }
+
+#[cfg(test)]
+#[path = "camera_ownership_tests.rs"]
+mod camera_ownership_tests;
