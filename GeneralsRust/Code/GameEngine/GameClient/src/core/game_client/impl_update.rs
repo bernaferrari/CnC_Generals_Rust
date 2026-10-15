@@ -334,7 +334,14 @@ impl GameClient {
     ) -> GameClientResult<Vec<DrawableId>> {
         let host_bindings = &self.drawables.presentation_direct_drawable_bindings;
         let mut expired = Vec::new();
-        for (&id, drawable) in &mut self.drawables.drawable_map {
+        // C++ walks the constructor-prepended Drawable list. Lookup storage
+        // must not choose the order of ClientUpdate or expiration callbacks.
+        for &id in &self.drawables.native_drawable_order {
+            let drawable = self
+                .drawables
+                .drawable_map
+                .get_mut(&id)
+                .expect("native Drawable roster references a live update receiver");
             drawable.set_current_frame(frame);
             if let Some(basic) = drawable.as_any_mut().downcast_mut::<BasicDrawable>() {
                 basic

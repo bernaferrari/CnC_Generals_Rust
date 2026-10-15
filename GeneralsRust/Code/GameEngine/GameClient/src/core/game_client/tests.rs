@@ -223,8 +223,7 @@ mod tests {
         drawable.set_position(position);
         client
             .drawables
-            .drawable_map
-            .insert(drawable_id, Box::new(drawable));
+            .admit_native_drawable(drawable_id, Box::new(drawable));
     }
 
     #[test]
@@ -1865,8 +1864,7 @@ mod tests {
         skipped.set_status(skipped_status);
         client
             .drawables
-            .drawable_map
-            .insert(DrawableId(4), Box::new(skipped));
+            .admit_native_drawable(DrawableId(4), Box::new(skipped));
 
         let saveable = client.collect_saveable_drawables_sorted().unwrap();
         let ids: Vec<u32> = saveable.iter().map(|(id, _)| id.0).collect();

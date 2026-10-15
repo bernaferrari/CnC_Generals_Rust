@@ -148,9 +148,13 @@ fn same_id_actual_laser_destructor_retires_only_its_receiving_particle_manager()
         .unwrap();
     // Match-load-style exact identity installation. No process counter/registry
     // publication participates in the actual runtime or destructor assertions.
-    let mut peer_drawable = peer.drawables.drawable_map.remove(&peer_id).unwrap();
+    let (mut peer_drawable, roster_position) = peer
+        .drawables
+        .take_native_drawable_for_load(peer_id)
+        .unwrap();
     peer_drawable.set_id(id);
-    peer.drawables.drawable_map.insert(id, peer_drawable);
+    peer.drawables
+        .restore_native_drawable_after_load(id, peer_drawable, roster_position);
     peer.with_owned_laser(id, |module| {
         module.bind_owned_drawable(id.0);
         Ok(())

@@ -133,3 +133,65 @@ fn receiving_client_update_local_manager_kernel_preserves_native_life_semantics(
     assert_eq!(lives(&mut peer, peer_id), [2, 2]);
     assert_eq!(lives(&mut first, id), [2, 2]);
 }
+
+#[test]
+fn native_client_update_and_expiration_follow_cpp_creation_roster() {
+    use crate::effects::particle_manager::ParticleSystemManager;
+    let mut client = GameClient::new().unwrap();
+    let mut peer = GameClient::new().unwrap();
+    let mut admitted = Vec::new();
+    let template = template();
+    // A real factory roster with enough nodes to expose hash-table visitation,
+    // rather than relying on the incidental order of a two-element table.
+    for _ in 0..64 {
+        let id = client.create_drawable_from_template(&template).unwrap();
+        assert_eq!(peer.create_drawable_from_template(&template).unwrap(), id);
+        let drawable = client
+            .find_drawable_by_id_mut(id)
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<BasicDrawable>()
+            .unwrap();
+        drawable.set_expiration_frame(30);
+        drawable.color_flash(Vector3::new(1., 0., 0.), 4);
+        admitted.push(id);
+    }
+    let expected: Vec<_> = admitted.iter().rev().copied().collect();
+    assert_eq!(client.drawables.native_drawable_order, expected);
+    let mut particles = ParticleSystemManager::new();
+    let expired = client
+        .tick_mapped_drawables_with_particles(30, 0., Some(&mut particles), None)
+        .unwrap();
+    assert_eq!(
+        expired, expected,
+        "CPP GameClient.cpp walks the prepended roster; lookup buckets cannot reorder retirement"
+    );
+    for id in admitted {
+        assert_eq!(
+            lives(&mut client, id),
+            [1, 1],
+            "installed CU modules run before expiration"
+        );
+        assert_eq!(
+            lives(&mut peer, id),
+            [0, 0],
+            "an equal-ID peer is not advanced"
+        );
+        assert_eq!(
+            client.find_drawable_by_id(id).unwrap().get_tint_color(),
+            Vector3::zero(),
+            "expiration returns before flashing, as in Drawable.cpp1210"
+        );
+    }
+    // The receiving phase reports actual retirement requests; the outer owner
+    // still releases its application service loans before running destruction.
+    // Immediate per-node destruction is a separate lifecycle obligation.
+    for id in expired {
+        client.destroy_drawable(id).unwrap();
+    }
+    assert!(client.drawables.native_drawable_order.is_empty());
+    assert!(client.drawables.drawable_map.is_empty());
+    assert_eq!(peer.drawables.native_drawable_order, expected);
+    client.try_invalidate_presentation_drawable_world().unwrap();
+    peer.try_invalidate_presentation_drawable_world().unwrap();
+}
