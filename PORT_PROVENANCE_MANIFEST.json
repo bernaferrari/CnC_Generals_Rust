@@ -8524,6 +8524,13 @@
             "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/terrain_decal_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/tests.rs"
           },
           {
@@ -43060,6 +43067,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/snapshot.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/terrain_decal_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -159775,7 +159789,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "83b9e3789eb7a54b8afbf2b0cd0caaa6e58e904ac08cda9dd1f7c06ab5069197",
+  "input_digest": "a7c6fb36cf3ac27568bdc0c4703ee0453af8a5fa3b60de9c4bcee67aa257c432",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -166286,11 +166300,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1192,
+        "end_line": 1201,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/basic_core.rs",
-      "sha256": "b4c424a24ac165f910a77a96859b81069c193a9676df667bd16a3ce3353781de",
+      "sha256": "23a6504666b980a49f2df57b9431d837b56056492abf8915d42b5ac2bc7c6d04",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -166550,157 +166564,162 @@
         },
         {
           "kind": "fn",
-          "line": 776,
+          "line": 778,
+          "name": "first_terrain_decal_draw_index"
+        },
+        {
+          "kind": "fn",
+          "line": 783,
           "name": "set_terrain_decal_size"
         },
         {
           "kind": "fn",
-          "line": 785,
+          "line": 793,
           "name": "set_terrain_decal"
         },
         {
           "kind": "fn",
-          "line": 795,
+          "line": 804,
           "name": "set_terrain_decal_fade_target"
         },
         {
           "kind": "fn",
-          "line": 804,
+          "line": 813,
           "name": "fade_out"
         },
         {
           "kind": "fn",
-          "line": 813,
+          "line": 822,
           "name": "fade_in"
         },
         {
           "kind": "fn",
-          "line": 821,
+          "line": 830,
           "name": "get_explicit_opacity"
         },
         {
           "kind": "fn",
-          "line": 826,
+          "line": 835,
           "name": "get_effective_opacity"
         },
         {
           "kind": "fn",
-          "line": 831,
+          "line": 840,
           "name": "capture_xfer_visuals"
         },
         {
           "kind": "fn",
-          "line": 870,
+          "line": 879,
           "name": "apply_xfer_visuals"
         },
         {
           "kind": "fn",
-          "line": 910,
+          "line": 919,
           "name": "fading_mode"
         },
         {
           "kind": "fn",
-          "line": 914,
+          "line": 923,
           "name": "time_to_fade"
         },
         {
           "kind": "fn",
-          "line": 918,
+          "line": 927,
           "name": "time_elapsed_fade"
         },
         {
           "kind": "fn",
-          "line": 922,
+          "line": 931,
           "name": "is_fading"
         },
         {
           "kind": "fn",
-          "line": 929,
+          "line": 938,
           "name": "update_fade"
         },
         {
           "kind": "fn",
-          "line": 945,
+          "line": 954,
           "name": "set_second_material_pass_opacity"
         },
         {
           "kind": "fn",
-          "line": 949,
+          "line": 958,
           "name": "set_effective_opacity"
         },
         {
           "kind": "fn",
-          "line": 963,
+          "line": 972,
           "name": "imitate_stealth_look"
         },
         {
           "kind": "fn",
-          "line": 973,
+          "line": 982,
           "name": "color_flash"
         },
         {
           "kind": "fn",
-          "line": 978,
+          "line": 987,
           "name": "color_flash_envelope"
         },
         {
           "kind": "fn",
-          "line": 995,
+          "line": 1004,
           "name": "color_tint"
         },
         {
           "kind": "fn",
-          "line": 1010,
+          "line": 1019,
           "name": "set_hidden_by_stealth"
         },
         {
           "kind": "fn",
-          "line": 1020,
+          "line": 1029,
           "name": "set_presentation_hotkey_group"
         },
         {
           "kind": "fn",
-          "line": 1025,
+          "line": 1034,
           "name": "set_presentation_sold"
         },
         {
           "kind": "fn",
-          "line": 1032,
+          "line": 1041,
           "name": "is_object_kind_of"
         },
         {
           "kind": "fn",
-          "line": 1053,
+          "line": 1062,
           "name": "object_stealth_visuals"
         },
         {
           "kind": "fn",
-          "line": 1073,
+          "line": 1082,
           "name": "apply_stealth_look"
         },
         {
           "kind": "fn",
-          "line": 1138,
+          "line": 1147,
           "name": "set_indicator_color"
         },
         {
           "kind": "fn",
-          "line": 1146,
+          "line": 1155,
           "name": "get_indicator_color"
         },
         {
           "kind": "fn",
-          "line": 1154,
+          "line": 1163,
           "name": "friend_bind_to_object"
         },
         {
           "kind": "fn",
-          "line": 1165,
+          "line": 1174,
           "name": "changed_team"
         },
         {
           "kind": "fn",
-          "line": 1171,
+          "line": 1180,
           "name": "bound_object_indicator_color"
         }
       ]
@@ -168182,41 +168201,41 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 344,
+        "end_line": 346,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/mod.rs",
-      "sha256": "6fea322e7ef43d8d1df557feb3261b49e3ddcbe9075e7f245568d6347e21f00e",
+      "sha256": "103aaf4a83e73d6503c845d45a89c44789b0398331d9e20380cdc93b69acb38e",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "fn",
-          "line": 71,
+          "line": 73,
           "name": "dual_world_registry_unavailable"
         },
         {
           "kind": "struct",
-          "line": 77,
+          "line": 79,
           "name": "BasicDrawable"
         },
         {
           "kind": "fn",
-          "line": 215,
+          "line": 217,
           "name": "as_any"
         },
         {
           "kind": "fn",
-          "line": 218,
+          "line": 220,
           "name": "as_any_mut"
         },
         {
           "kind": "fn",
-          "line": 225,
+          "line": 227,
           "name": "new"
         },
         {
           "kind": "const",
-          "line": 325,
+          "line": 327,
           "name": "DRAWABLE_SRC"
         }
       ]
@@ -168248,11 +168267,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 222,
+        "end_line": 220,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/native_client_update.rs",
-      "sha256": "44494c360ae8896c3e5b6a0294ac722640be34723aa2c3c71f725815c3028c58",
+      "sha256": "212714b33a40d8e09508c32f83052f264e90cd980fb597d9958ae089f7447af8",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -168445,11 +168464,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 712,
+        "end_line": 714,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/snapshot.rs",
-      "sha256": "bcd122442a8fd9be1405874ee91d94238ccd8704a2bbe118316f0d4ef473909b",
+      "sha256": "d4fc4853e4f38006dc842957526b13e7134bb13800301bbe09ea968a2eb54fe6",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -168474,8 +168493,126 @@
         },
         {
           "kind": "fn",
-          "line": 679,
+          "line": 681,
           "name": "load_post_process"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 420,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/terrain_decal_tests.rs",
+      "sha256": "55b28918698343812a353778b074a9c1871784b98f7a7e19b4571d35b4dca40d",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "struct",
+          "line": 19,
+          "name": "Events"
+        },
+        {
+          "kind": "fn",
+          "line": 26,
+          "name": "push"
+        },
+        {
+          "kind": "struct",
+          "line": 36,
+          "name": "DrawProbe"
+        },
+        {
+          "kind": "fn",
+          "line": 41,
+          "name": "replace_model_condition_state"
+        },
+        {
+          "kind": "fn",
+          "line": 44,
+          "name": "set_terrain_decal"
+        },
+        {
+          "kind": "fn",
+          "line": 55,
+          "name": "set_terrain_decal_size"
+        },
+        {
+          "kind": "fn",
+          "line": 58,
+          "name": "set_terrain_decal_opacity"
+        },
+        {
+          "kind": "fn",
+          "line": 65,
+          "name": "receiver"
+        },
+        {
+          "kind": "fn",
+          "line": 79,
+          "name": "basic"
+        },
+        {
+          "kind": "fn",
+          "line": 87,
+          "name": "probes"
+        },
+        {
+          "kind": "fn",
+          "line": 97,
+          "name": "step"
+        },
+        {
+          "kind": "fn",
+          "line": 104,
+          "name": "payload"
+        },
+        {
+          "kind": "fn",
+          "line": 111,
+          "name": "fade"
+        },
+        {
+          "kind": "fn",
+          "line": 121,
+          "name": "receiving_decal_setter_flushes_before_first_draw_and_equal_type_is_inert"
+        },
+        {
+          "kind": "fn",
+          "line": 150,
+          "name": "receiving_decal_size_flushes_and_routes_to_first_actual_draw"
+        },
+        {
+          "kind": "fn",
+          "line": 172,
+          "name": "receiving_no_draw_decal_fade_is_frozen_including_actual_cu_only"
+        },
+        {
+          "kind": "fn",
+          "line": 241,
+          "name": "receiving_first_draw_decal_fade_preserves_callbacks_crossings_and_expiry_phase"
+        },
+        {
+          "kind": "struct",
+          "line": 304,
+          "name": "ObservedReader"
+        },
+        {
+          "kind": "fn",
+          "line": 310,
+          "name": "read"
+        },
+        {
+          "kind": "fn",
+          "line": 319,
+          "name": "native_decal_load_calls_setter_at_enum_position_then_continues"
+        },
+        {
+          "kind": "fn",
+          "line": 392,
+          "name": "decal_target_exact_float_changes_preserve_cpp_rate_rule"
         }
       ]
     },

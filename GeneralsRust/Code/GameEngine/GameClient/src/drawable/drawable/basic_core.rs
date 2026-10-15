@@ -774,10 +774,18 @@ impl BasicDrawable {
         self.tint_status.has(status)
     }
 
+    // Native storage combines the original Draw and ClientUpdate arrays.
+    pub(super) fn first_terrain_decal_draw_index(&self) -> Option<usize> {
+        self.draw_modules
+            .iter()
+            .position(|module| module.drawable_module_type_index() == 0)
+    }
+
     pub fn set_terrain_decal_size(&mut self, x: f32, y: f32) {
         self.terrain_decal_size = Vector3::new(x, y, 0.0);
-        if let Some(dm) = self.draw_modules.first_mut() {
-            dm.set_terrain_decal_size(x, y);
+        self.flush_dirty_model_condition();
+        if let Some(index) = self.first_terrain_decal_draw_index() {
+            self.draw_modules[index].set_terrain_decal_size(x, y);
         }
     }
 
@@ -788,13 +796,14 @@ impl BasicDrawable {
             return;
         }
         self.terrain_decal_type = decal_type;
-        if let Some(dm) = self.draw_modules.first_mut() {
-            dm.set_terrain_decal(decal_type);
+        self.flush_dirty_model_condition();
+        if let Some(index) = self.first_terrain_decal_draw_index() {
+            self.draw_modules[index].set_terrain_decal(decal_type);
         }
     }
 
     pub fn set_terrain_decal_fade_target(&mut self, target: f32, rate: f32) {
-        if (self.decal_opacity_fade_target - target).abs() > f32::EPSILON {
+        if self.decal_opacity_fade_target != target {
             self.decal_opacity_fade_target = target;
             self.decal_opacity_fade_rate = rate;
         }

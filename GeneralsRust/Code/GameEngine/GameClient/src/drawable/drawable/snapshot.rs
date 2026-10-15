@@ -299,7 +299,9 @@ impl Snapshotable for BasicDrawable {
         let mut decal_type = terrain_decal_to_u32(self.terrain_decal_type);
         xfer.xfer_unsigned_int(&mut decal_type)
             .map_err(|e| format!("{:?}", e))?;
-        self.terrain_decal_type = terrain_decal_from_u32(decal_type);
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.set_terrain_decal(terrain_decal_from_u32(decal_type));
+        }
 
         // --- explicit opacity (C++ line 4992) ---
         let mut explicit_opacity = self.explicit_opacity;

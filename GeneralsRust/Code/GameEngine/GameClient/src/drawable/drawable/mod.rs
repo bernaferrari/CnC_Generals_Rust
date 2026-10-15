@@ -38,6 +38,8 @@ mod xfer;
 #[cfg(test)]
 mod logic_clock_tests;
 #[cfg(test)]
+mod terrain_decal_tests;
+#[cfg(test)]
 mod tests;
 
 pub(crate) use types::{DEFAULT_STEALTH_FRIENDLY_OPACITY, xfer_vector3};

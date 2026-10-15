@@ -141,23 +141,21 @@ impl BasicDrawable {
         if self.terrain_decal_type != TerrainDecalType::None {
             // C++ updateDrawable requests Draw modules only in the decal branch.
             self.flush_dirty_model_condition();
-            if self.decal_opacity_fade_rate != 0.0 {
-                if let Some(dm) = self.draw_modules.first_mut() {
-                    dm.set_terrain_decal_opacity(self.decal_opacity);
-                }
-                if let Some(handle) = &self.terrain_decal_handle {
-                    handle.set_opacity((self.decal_opacity.clamp(0.0, 1.0) * 255.0) as i32);
-                }
-                self.decal_opacity += self.decal_opacity_fade_rate;
-                if self.decal_opacity_fade_rate < 0.0 && self.decal_opacity <= 0.0 {
-                    self.decal_opacity_fade_rate = 0.0;
-                    self.decal_opacity = 0.0;
-                    self.set_terrain_decal(TerrainDecalType::None);
-                } else if self.decal_opacity_fade_rate > 0.0 && self.decal_opacity >= 1.0 {
-                    self.decal_opacity = 1.0;
-                    self.decal_opacity_fade_rate = 0.0;
-                    if let Some(dm) = self.draw_modules.first_mut() {
-                        dm.set_terrain_decal_opacity(self.decal_opacity);
+            if let Some(index) = self.first_terrain_decal_draw_index() {
+                if self.decal_opacity_fade_rate != 0.0 {
+                    self.draw_modules[index].set_terrain_decal_opacity(self.decal_opacity);
+                    if let Some(handle) = &self.terrain_decal_handle {
+                        handle.set_opacity((self.decal_opacity.clamp(0.0, 1.0) * 255.0) as i32);
+                    }
+                    self.decal_opacity += self.decal_opacity_fade_rate;
+                    if self.decal_opacity_fade_rate < 0.0 && self.decal_opacity <= 0.0 {
+                        self.decal_opacity_fade_rate = 0.0;
+                        self.decal_opacity = 0.0;
+                        self.set_terrain_decal(TerrainDecalType::None);
+                    } else if self.decal_opacity_fade_rate > 0.0 && self.decal_opacity >= 1.0 {
+                        self.decal_opacity = 1.0;
+                        self.decal_opacity_fade_rate = 0.0;
+                        self.draw_modules[index].set_terrain_decal_opacity(self.decal_opacity);
                     }
                 }
             }
