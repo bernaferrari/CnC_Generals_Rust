@@ -1,7 +1,6 @@
 // Receiving GameClient LaserUpdate operations. The update remains installed
 // throughout callbacks; only final owner pose/destruction follows its loan.
 use game_engine::common::random_value::RandomState;
-use gamelogic::object::draw::w3d_laser_draw::LaserDrawInput;
 use gamelogic::object::update::laser_update::{
     LaserDrawableObservation, LaserExecution, LaserObjectObservation, LaserUpdateModule,
     LaserUpdateModuleData,
@@ -145,23 +144,9 @@ impl GameClient {
             .ok_or_else(|| {
                 GameClientError::InvalidOperation("laser requires actual BasicDrawable".into())
             })?;
-        for slot in basic.get_draw_modules_mut() {
-            if let Some(module) = slot
-                .logic_module_mut()
-                .and_then(|module| module.as_any_mut().downcast_mut::<LaserUpdateModule>())
-            {
-                if !module.uses_owned_services() {
-                    return Err(GameClientError::InvalidOperation(
-                        "classic LaserUpdate cannot receive native owned particle/client services"
-                            .into(),
-                    ));
-                }
-                return operation(module).map_err(GameClientError::InvalidOperation);
-            }
-        }
-        Err(GameClientError::InvalidOperation(
-            "actual LaserUpdate module unavailable".into(),
-        ))
+        basic
+            .with_native_laser(operation)
+            .map_err(GameClientError::InvalidOperation)
     }
 
     fn laser_observations(
@@ -250,13 +235,7 @@ impl GameClient {
                 .set_position(native_position);
         }
         if phase.destroy {
-            let mut phase = phase;
-            self.with_owned_laser(id, |module| {
-                module
-                    .update_mut()
-                    .retire_particles_with_services(&mut phase)
-            })?;
-            self.destroy_drawable(id)?;
+            self.destroy_drawable_with_particles(id, Some(phase.services.particles))?;
         }
         Ok(())
     }
@@ -342,84 +321,22 @@ impl GameClient {
             .ok_or_else(|| {
                 GameClientError::InvalidOperation("laser requires actual BasicDrawable".into())
             })?;
-        let modules = basic.get_draw_modules_mut();
-        let update_index = modules
-            .iter_mut()
-            .position(|slot| {
-                slot.logic_module_mut()
-                    .is_some_and(|module| module.as_any().is::<LaserUpdateModule>())
-            })
-            .ok_or_else(|| {
-                GameClientError::InvalidOperation("actual LaserUpdate unavailable".into())
-            })?;
-        let update = modules[update_index]
-            .logic_module_mut()
-            .unwrap()
-            .as_any_mut()
-            .downcast_mut::<LaserUpdateModule>()
-            .unwrap();
-        if !update.uses_owned_services() {
-            return Err(GameClientError::InvalidOperation(
-                "classic LaserUpdate cannot receive native owned draw services".into(),
-            ));
-        }
-        let mut output = Vec::new();
-        for index in 0..modules.len() {
-            let Some(draw) = modules[index]
-                .logic_module_mut()
-                .and_then(|module| module.as_any_mut().downcast_mut::<W3DLaserDraw>())
-            else {
-                continue;
-            };
-            let self_dirty = draw.is_self_dirty();
-            let aspect = if draw.texture_name().is_empty() {
-                1.0
-            } else {
-                texture_aspect(draw.texture_name()).map_err(GameClientError::InvalidOperation)?
-            };
-            let update = modules[update_index]
-                .logic_module_mut()
-                .unwrap()
-                .as_any_mut()
-                .downcast_mut::<LaserUpdateModule>()
-                .unwrap();
-            let input = LaserDrawInput::consume(update, self_dirty);
-            let draw = modules[index]
-                .logic_module_mut()
-                .unwrap()
-                .as_any_mut()
-                .downcast_mut::<W3DLaserDraw>()
-                .unwrap();
-            if let Some(input) = input {
-                draw.geometry_with_services(input, aspect, terrain_height);
-            }
-            output.extend(draw.current_geometry());
-        }
-        Ok(output)
+        basic
+            .draw_native_laser_geometry(texture_aspect, terrain_height)
+            .map_err(GameClientError::InvalidOperation)
     }
 }
 
 impl GameClient {
-    /// Actual LaserUpdate destructor releases receiving particle systems before
-    /// its Drawable is removed; no global manager can receive a peer's IDs.
+    /// Use the same UI/unlink/module destruction phase as native expiration.
+    /// No global manager can receive a peer's IDs.
     pub fn destroy_owned_laser(
         &mut self,
         id: DrawableId,
         services: &mut ClientLaserServices<'_>,
     ) -> GameClientResult<()> {
-        let mut phase = ClientLaserPhase {
-            services,
-            observations: HashMap::new(),
-            owner: id.0,
-            final_position: None,
-            destroy: false,
-        };
-        self.with_owned_laser(id, |module| {
-            module
-                .update_mut()
-                .retire_particles_with_services(&mut phase)
-        })?;
-        self.destroy_drawable(id)
+        self.with_owned_laser(id, |_| Ok(()))?;
+        self.destroy_drawable_with_particles(id, Some(services.particles))
     }
 }
 

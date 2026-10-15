@@ -29,32 +29,13 @@ impl GameClient {
         let Some(basic) = drawable.as_any_mut().downcast_mut::<BasicDrawable>() else {
             return 0;
         };
-        let mut count = 0;
-        for slot in basic.get_draw_modules_mut() {
-            if slot
-                .logic_module_mut()
-                .and_then(|module| module.as_any_mut().downcast_mut::<LaserUpdateModule>())
-                .is_some_and(|module| module.uses_owned_services())
-            {
-                count += 1;
-            }
-        }
-        count
+        basic.native_owned_laser_count()
     }
 
     fn bind_owned_laser_module(drawable: &mut dyn Drawable, id: DrawableId) {
         let Some(basic) = drawable.as_any_mut().downcast_mut::<BasicDrawable>() else {
             return;
         };
-        for slot in basic.get_draw_modules_mut() {
-            if let Some(module) = slot
-                .logic_module_mut()
-                .and_then(|module| module.as_any_mut().downcast_mut::<LaserUpdateModule>())
-            {
-                if module.uses_owned_services() {
-                    module.bind_owned_drawable(id.0);
-                }
-            }
-        }
+        basic.bind_native_owned_lasers(id.0);
     }
 }

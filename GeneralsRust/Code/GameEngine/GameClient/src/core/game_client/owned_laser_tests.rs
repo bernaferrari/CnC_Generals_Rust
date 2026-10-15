@@ -637,3 +637,7 @@ fn supplied_native_reset_marks_real_laser_particles_and_preserves_other_drawable
     services.particles.update(0, 18);
     assert_eq!(services.particles.active_system_count(), 0);
 }
+
+mod inert_access_tests {
+    include!("owned_laser_inert_access_tests.rs");
+}

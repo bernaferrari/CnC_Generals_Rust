@@ -8496,6 +8496,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/native_laser.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/native_state_particles.rs"
           },
           {
@@ -10107,6 +10114,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_laser_factory.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_laser_inert_access_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -43017,6 +43031,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/native_laser.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/native_state_particles.rs"
           },
           {
@@ -49151,6 +49172,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_laser_factory.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_laser_inert_access_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -159733,7 +159761,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "6d28483d131499612723a70e2ccc6977e55b4bddc79548cbe3820988970e4213",
+  "input_digest": "3a0b0fe371e8933747cdefe8341d6ca8188b3b478b5ec8cb68b7269b5751e933",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -165745,11 +165773,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 547,
+        "end_line": 464,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_laser.rs",
-      "sha256": "c77e73215ccfe01d4de39495b54bc0fc80ecce896cb56465c740a9665ad8d126",
+      "sha256": "13f3382b857973d8813242acbf9f5cf376169b9473c052c90a095c378a11e6c4",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -165757,11 +165785,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 61,
+        "end_line": 42,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_laser_factory.rs",
-      "sha256": "c9432e39fb057526ed82d33e43229597e18fc6634eec072e7ba9c3c117861c4e",
+      "sha256": "778a41b2bd6c8b12576310a76768521fbf1d12665f2ae380b36f59463de6338f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -165769,11 +165797,23 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 640,
+        "end_line": 374,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_laser_inert_access_tests.rs",
+      "sha256": "c945157e33b3c2355f90cfff66074d7d1c43cd69444bd62f349029fcec314b90",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 644,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_laser_tests.rs",
-      "sha256": "51ebd74e89e8f5169b5936a1de02d0fa7351cee7b533777713a2047ca961e981",
+      "sha256": "7471bf3ab172e2f3a78f0c698352d51be4c06177a0b986b8d5c3de905e6c41e1",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168116,41 +168156,41 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 343,
+        "end_line": 344,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/mod.rs",
-      "sha256": "9fe7dfbeb3189585a68f79cf476e817393d533c4ab6d0bfe174cdf091f2f0f43",
+      "sha256": "6fea322e7ef43d8d1df557feb3261b49e3ddcbe9075e7f245568d6347e21f00e",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "fn",
-          "line": 70,
+          "line": 71,
           "name": "dual_world_registry_unavailable"
         },
         {
           "kind": "struct",
-          "line": 76,
+          "line": 77,
           "name": "BasicDrawable"
         },
         {
           "kind": "fn",
-          "line": 214,
+          "line": 215,
           "name": "as_any"
         },
         {
           "kind": "fn",
-          "line": 217,
+          "line": 218,
           "name": "as_any_mut"
         },
         {
           "kind": "fn",
-          "line": 224,
+          "line": 225,
           "name": "new"
         },
         {
           "kind": "const",
-          "line": 324,
+          "line": 325,
           "name": "DRAWABLE_SRC"
         }
       ]
@@ -168159,21 +168199,21 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 42,
+        "end_line": 34,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/native_client_retirement.rs",
-      "sha256": "09aa0b3dc3347cf0109a349915257047dde774f1b49495f7eca5fee359984eee",
+      "sha256": "0aad1ac883394b3c6e32655349ee1d01b20530076a4d0938925d607f26cc0d9d",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "fn",
-          "line": 7,
+          "line": 6,
           "name": "native_client_particle_retirement_required"
         },
         {
           "kind": "fn",
-          "line": 24,
+          "line": 21,
           "name": "retire_native_client_particles"
         }
       ]
@@ -168233,6 +168273,44 @@
           "kind": "fn",
           "line": 137,
           "name": "update_after_client_modules"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 106,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/native_laser.rs",
+      "sha256": "d1661f0bf6f1147ae5eaa5ceba6b4d03a1756a39256732550e4b7fdc0c881e0f",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "fn",
+          "line": 8,
+          "name": "native_laser_updates"
+        },
+        {
+          "kind": "fn",
+          "line": 15,
+          "name": "native_owned_laser_count"
+        },
+        {
+          "kind": "fn",
+          "line": 21,
+          "name": "bind_native_owned_lasers"
+        },
+        {
+          "kind": "fn",
+          "line": 29,
+          "name": "with_native_laser"
+        },
+        {
+          "kind": "fn",
+          "line": 45,
+          "name": "draw_native_laser_geometry"
         }
       ]
     },

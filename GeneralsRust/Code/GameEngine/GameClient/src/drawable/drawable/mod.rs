@@ -27,6 +27,7 @@ mod icons;
 mod leftover;
 mod native_client_retirement;
 mod native_client_update;
+mod native_laser;
 mod native_state_particles;
 mod selection_flash;
 mod snapshot;

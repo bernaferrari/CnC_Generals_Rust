@@ -21196,6 +21196,11 @@
             {
               "cargo_reachable": true,
               "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_laser_inert_access_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_laser_tests.rs"
             },
             {
@@ -189720,7 +189725,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "6d28483d131499612723a70e2ccc6977e55b4bddc79548cbe3820988970e4213",
+  "provenance_input_digest": "3a0b0fe371e8933747cdefe8341d6ca8188b3b478b5ec8cb68b7269b5751e933",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,
