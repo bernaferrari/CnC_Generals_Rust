@@ -52,8 +52,7 @@ impl ParticleRenderFrame {
     }
 
     fn collect_system_particles(&mut self, system: &ParticleSystem, camera_position: [f32; 3]) {
-        let template = system.template();
-        let info = template.info();
+        let info = system.info();
         if matches!(
             info.particle_type,
             ParticleType::Invalid | ParticleType::Drawable
@@ -116,5 +115,73 @@ impl ParticleRenderFrame {
                 vertices: batch.vertices,
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod owned_info_tests {
+    use super::*;
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
+    use game_engine::common::system::{Snapshotable, Xfer};
+    use std::io::Cursor;
+
+    #[test]
+    fn owned_particle_info_load_drives_emission_and_prepared_vertices() {
+        let mut authored = ParticleSystemTemplate::new("OwnedInfo".into());
+        authored.info_mut().particle_type = ParticleType::Particle;
+        authored.info_mut().shader_type = ParticleShaderType::Alpha;
+        authored.info_mut().particle_type_name = "SavedTexture".into();
+        authored.info_mut().alpha_keys[0].min_value = 1.0;
+        authored.info_mut().alpha_keys[0].max_value = 1.0;
+        authored.info_mut().color_keys[0].color = [1.0, 0.5, 0.25];
+        authored.info_mut().color_keys[1].color = [1.0, 0.5, 0.25];
+        authored.info_mut().color_keys[1].frame = 10;
+        let authored = Arc::new(authored);
+        let mut saved =
+            ParticleSystem::new_with_random(authored.clone(), 7, false, &mut |lo, _| lo);
+        saved.set_lifetime_range(99.0, 99.0);
+        saved.tint_all_colors([0.25, 0.5, 1.0]);
+        let mut bytes = Vec::new();
+        let mut save = XferSave::new(Cursor::new(&mut bytes), 1);
+        save.open("owned_info").unwrap();
+        saved.xfer(&mut save).unwrap();
+        save.close().unwrap();
+        drop(save);
+
+        let receiving = Arc::new(ParticleSystemTemplate::new("OwnedInfo".into()));
+        let sibling = ParticleSystem::new_with_random(receiving.clone(), 8, false, &mut |lo, _| lo);
+        let mut loaded =
+            ParticleSystem::new_with_random(receiving.clone(), 0, false, &mut |lo, _| lo);
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("owned_info").unwrap();
+        loaded.xfer(&mut load).unwrap();
+        load.close().unwrap();
+        assert!(Arc::ptr_eq(loaded.template(), &receiving));
+        assert!(Arc::ptr_eq(sibling.template(), &receiving));
+        assert_eq!(receiving.info().particle_type_name, "");
+        assert_eq!(sibling.info().particle_type_name, "");
+        let emitted = loaded.generate_particle_info(0, 1).unwrap();
+        assert_eq!(emitted.lifetime, 99);
+        assert_eq!(emitted.color_keys[1].color, [0.25, 0.25, 0.25]);
+        assert_eq!(emitted.alpha_keys[0].value, 1.0);
+        loaded.push_particle(Particle::new(&emitted, 1, 0));
+        let mut frame = ParticleRenderFrame {
+            uniforms: ParticleUniforms::default(),
+            batches: Vec::new(),
+            particles_rendered: 0,
+            preparation_time: std::time::Duration::ZERO,
+            heat_smudges: Vec::new(),
+        };
+        // Exercise the actual CPU collector without unrelated global SMUD
+        // reset/collection: this is an ordinary sprite system.
+        frame.collect_system_particles(&loaded, [0.0; 3]);
+        assert_eq!(frame.particles_rendered, 1);
+        assert_eq!(frame.batches.len(), 1);
+        assert_eq!(frame.batches[0].shader_type, ParticleShaderType::Alpha);
+        assert_eq!(frame.batches[0].texture_name, "SavedTexture");
+        assert_eq!(frame.batches[0].vertices.len(), 1);
+        assert_eq!(frame.batches[0].vertices[0].color, [1.0, 0.5, 0.25, 1.0]);
+        assert!(Arc::ptr_eq(saved.template(), &authored));
     }
 }

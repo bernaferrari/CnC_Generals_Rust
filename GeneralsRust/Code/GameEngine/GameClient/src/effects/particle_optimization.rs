@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use super::particle_manager::*;
 use super::particle_system::*;
-use glam::{Vec3};
+use glam::Vec3;
 
 /// Particle LOD settings based on distance and performance
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -221,8 +221,7 @@ impl ParticleOptimizer {
         system: &ParticleSystem,
         current_particle_count: usize,
     ) -> bool {
-        let template = system.template();
-        let info = template.info();
+        let info = system.info();
 
         // Never cull ALWAYS_RENDER priority
         if info.priority == ParticlePriorityType::AlwaysRender {
@@ -301,7 +300,7 @@ impl ParticleOptimizer {
 
         // Collect systems sorted by age (oldest first) that are below priority cap
         for system in manager.all_particle_systems() {
-            let info = system.template().info();
+            let info = system.info();
             if info.priority <= priority_cap {
                 systems_by_age.push((system.system_id(), system.start_timestamp()));
             }

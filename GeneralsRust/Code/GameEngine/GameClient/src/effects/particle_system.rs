@@ -751,18 +751,10 @@ impl Snapshotable for ParticleSystem {
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| e.to_string())?;
 
-        let mut system_info = self.template.info().clone();
-        system_info.wind_angle = self.wind_angle;
-        system_info.wind_angle_change = self.wind_angle_change;
-        system_info.wind_motion_moving_to_end_angle = self.wind_motion_moving_to_end_angle;
+        let mut system_info = self.info().clone();
         system_info.xfer(xfer)?;
         if xfer.get_xfer_mode() == XferMode::Load {
-            self.wind_angle = system_info.wind_angle;
-            self.wind_angle_change = system_info.wind_angle_change;
-            self.wind_motion_moving_to_end_angle = system_info.wind_motion_moving_to_end_angle;
-            Arc::make_mut(&mut self.template)
-                .info_mut()
-                .clone_from(&system_info);
+            self.info.clone_from(&system_info);
         }
 
         xfer.xfer_unsigned_int(&mut self.system_id)
@@ -1244,7 +1236,9 @@ pub enum FrameEmitPhase {
 
 /// Particle system (matches C++ ParticleSystem)
 pub struct ParticleSystem {
+    // C++ m_template identity is separate from owned ParticleSystemInfo.
     template: Arc<ParticleSystemTemplate>,
+    info: ParticleSystemInfo,
     system_id: ParticleSystemId,
 
     // Particle storage
@@ -1298,17 +1292,6 @@ pub struct ParticleSystem {
     is_saveable: bool,
     skip_parent_transform: bool,
 
-    // Wind motion state
-    wind_angle: f32,
-    wind_angle_change: f32,
-    wind_motion_moving_to_end_angle: bool,
-    wind_motion_start_angle: f32,
-    wind_motion_start_angle_min: f32,
-    wind_motion_start_angle_max: f32,
-    wind_motion_end_angle: f32,
-    wind_motion_end_angle_min: f32,
-    wind_motion_end_angle_max: f32,
-
     // Shroud/visibility state (C++ ParticleSystem::m_isShrouded)
     is_shrouded: bool,
 
@@ -1359,6 +1342,7 @@ impl ParticleSystem {
 
         let mut system = Self {
             template: template.clone(),
+            info: info.clone(),
             system_id,
 
             particles: VecDeque::new(),
@@ -1402,16 +1386,6 @@ impl ParticleSystem {
             is_first_pos: true,
             is_saveable: true,
             skip_parent_transform: false,
-
-            wind_angle: info.wind_angle,
-            wind_angle_change: info.wind_angle_change,
-            wind_motion_moving_to_end_angle: info.wind_motion_moving_to_end_angle,
-            wind_motion_start_angle: info.wind_motion_start_angle_min,
-            wind_motion_start_angle_min: info.wind_motion_start_angle_min,
-            wind_motion_start_angle_max: info.wind_motion_start_angle_max,
-            wind_motion_end_angle: info.wind_motion_end_angle_min,
-            wind_motion_end_angle_min: info.wind_motion_end_angle_min,
-            wind_motion_end_angle_max: info.wind_motion_end_angle_max,
 
             is_shrouded: false,
             parent_transform: None,
@@ -1540,7 +1514,7 @@ impl ParticleSystem {
         if let Some(kind) = self.emission_volume_type_override {
             return kind;
         }
-        self.template.info().emission_volume_type
+        self.info().emission_volume_type
     }
 
     /// Set emission volume to a sphere with the given radius (instance override).
@@ -1588,12 +1562,12 @@ impl ParticleSystem {
 
     /// Get shader type
     pub fn shader_type(&self) -> ParticleShaderType {
-        self.template.info().shader_type
+        self.info().shader_type
     }
 
     /// Get drift velocity
     pub fn drift_velocity(&self) -> Vec3 {
-        self.template.info().drift_velocity
+        self.info().drift_velocity
     }
 
     /// Get attached drawable
@@ -1622,12 +1596,12 @@ impl ParticleSystem {
 
     /// Get particle type name
     pub fn particle_type_name(&self) -> &str {
-        &self.template.info().particle_type_name
+        &self.info().particle_type_name
     }
 
     /// Get slave position offset
     pub fn slave_position_offset(&self) -> Vec3 {
-        self.template.info().slave_pos_offset
+        self.info().slave_pos_offset
     }
 
     /// Set system lifetime
@@ -1719,11 +1693,11 @@ impl ParticleSystem {
     }
 
     pub fn attached_system_name(&self) -> &str {
-        &self.template.info().attached_system_name
+        &self.info().attached_system_name
     }
 
     pub fn is_emit_above_ground_only(&self) -> bool {
-        self.template.info().is_emit_above_ground_only
+        self.info().is_emit_above_ground_only
     }
 
     pub fn update_particle_scale(&mut self) {
@@ -1877,12 +1851,12 @@ impl ParticleSystem {
 
     /// Should billboard
     pub fn should_billboard(&self) -> bool {
-        !self.template.info().is_ground_aligned
+        !self.info().is_ground_aligned
     }
 
     /// C++ `ParticleSystemInfo::isUsingSmudge`.
     pub fn is_using_smudge(&self) -> bool {
-        self.template.info().particle_type == ParticleType::Smudge
+        self.info().particle_type == ParticleType::Smudge
     }
 
     /// Get start frame
@@ -1907,8 +1881,7 @@ impl ParticleSystem {
 
     /// Set lifetime range (C++ ParticleSystem::setLifetimeRange → m_lifetime.setRange).
     pub fn set_lifetime_range(&mut self, min: f32, max: f32) {
-        Arc::make_mut(&mut self.template).info_mut().lifetime =
-            GameClientRandomVariable::new(min, max);
+        self.info.lifetime = GameClientRandomVariable::new(min, max);
     }
 
     /// Rotate local transform X (matches C++ ParticleSystem::rotateLocalTransformX)
@@ -1991,7 +1964,7 @@ impl ParticleSystem {
 
     /// Get system priority for C++-style particle budget culling.
     pub fn priority(&self) -> ParticlePriorityType {
-        self.template.info().priority
+        self.info().priority
     }
 
     /// Get personality counter (for creating particles externally, e.g., slave emissions)
@@ -2018,7 +1991,7 @@ impl ParticleSystem {
 
     /// Get wind angle
     pub fn wind_angle(&self) -> f32 {
-        self.wind_angle
+        self.info.wind_angle
     }
 
     /// Update particles (matches C++ ParticleSystem::update particle loop)
@@ -2026,11 +1999,11 @@ impl ParticleSystem {
         let mut i = 0;
 
         // Cache values from template
-        let gravity = self.template.info().gravity;
-        let drift_velocity = self.template.info().drift_velocity;
+        let gravity = self.info().gravity;
+        let drift_velocity = self.info().drift_velocity;
         let wind_angle = self.wind_angle();
-        let wind_motion = self.template.info().wind_motion;
-        let shader_type = self.template.info().shader_type;
+        let wind_motion = self.info().wind_motion;
+        let shader_type = self.info().shader_type;
         // C++ doWindMotion: local translation + attached parent pos (unrotated add).
         let system_pos = Vec3::from(self.position + self.local_translation);
 
@@ -2084,7 +2057,7 @@ impl ParticleSystem {
         }
 
         // Time to emit particles (C++ lines 1992-2034)
-        let info = self.template.info();
+        let info = &self.info;
         let burst_count = (info.burst_count.sample() * self.count_coeff) as u32;
 
         for i in 0..burst_count {
@@ -2114,7 +2087,7 @@ impl ParticleSystem {
         particle_num: u32,
         particle_count: u32,
     ) -> Option<ParticleInfo> {
-        let info = self.template.info();
+        let info = &self.info;
 
         let mut particle_info = ParticleInfo::default();
 
@@ -2190,7 +2163,7 @@ impl ParticleSystem {
 
     /// Compute particle position based on emission volume (matches C++ ParticleSystem::computeParticlePosition)
     fn compute_particle_position(&self) -> Vec3 {
-        let info = self.template.info();
+        let info = &self.info;
 
         let emission_volume = self.effective_emission_volume();
         let local_pos = match emission_volume {
@@ -2273,12 +2246,12 @@ impl ParticleSystem {
 
     fn effective_emission_volume(&self) -> EmissionVolume {
         self.emission_volume_override
-            .unwrap_or(self.template.info().emission_volume)
+            .unwrap_or(self.info().emission_volume)
     }
 
     /// Compute particle velocity based on emission properties (matches C++ ParticleSystem::computeParticleVelocity)
     fn compute_particle_velocity(&self, position: &Vec3) -> Vec3 {
-        let info = self.template.info();
+        let info = &self.info;
 
         match info.emission_velocity {
             EmissionVelocity::Ortho { x, y, z } => Vec3::new(x.sample(), y.sample(), z.sample()),
@@ -2380,76 +2353,75 @@ impl ParticleSystem {
 
     /// Initialize wind motion (C++ ParticleSystem ctor lines 1114-1125)
     fn initialize_wind_motion_with_random(&mut self, random: &mut dyn FnMut(f32, f32) -> f32) {
-        let info = self.template.info();
+        let info = &mut self.info;
 
         // C++ ParticleSys.cpp:1123-1125 — three client-stream draws. The client
         // residual returns `hi` for empty ranges, so no min/max clamping needed.
-        self.wind_motion_start_angle = random(
+        info.wind_motion_start_angle = random(
             info.wind_motion_start_angle_min,
             info.wind_motion_start_angle_max,
         );
-        self.wind_motion_end_angle = random(
+        info.wind_motion_end_angle = random(
             info.wind_motion_end_angle_min,
             info.wind_motion_end_angle_max,
         );
-        self.wind_angle = random(self.wind_motion_start_angle, self.wind_motion_end_angle);
-        self.wind_motion_moving_to_end_angle = info.wind_motion_moving_to_end_angle;
+        info.wind_angle = random(info.wind_motion_start_angle, info.wind_motion_end_angle);
     }
 
     /// Update wind motion (matches C++ ParticleSys.cpp lines 2085-2180)
     fn update_wind_motion(&mut self) {
-        let info = self.template.info();
+        let info = &mut self.info;
 
         match info.wind_motion {
             WindMotion::Invalid | WindMotion::NotUsed => {
                 // No wind motion.
             }
             WindMotion::PingPong => {
-                let start_angle = self.wind_motion_start_angle;
-                let end_angle = self.wind_motion_end_angle;
+                let start_angle = info.wind_motion_start_angle;
+                let end_angle = info.wind_motion_end_angle;
 
                 let total_span = end_angle - start_angle;
                 let half_span = total_span / 2.0;
-                let diff_from_center = (half_span - self.wind_angle + start_angle).abs();
+                let diff_from_center = (half_span - info.wind_angle + start_angle).abs();
 
                 const MINIMUM_CHANGE: f32 = 0.005;
-                let mut change = (1.0 - (diff_from_center / half_span)) * self.wind_angle_change;
+                let mut change = (1.0 - (diff_from_center / half_span)) * info.wind_angle_change;
                 if change < MINIMUM_CHANGE {
                     change = MINIMUM_CHANGE;
                 }
 
-                if self.wind_motion_moving_to_end_angle {
-                    self.wind_angle += change;
-                    if self.wind_angle >= end_angle {
-                        self.wind_motion_moving_to_end_angle = false;
+                if info.wind_motion_moving_to_end_angle {
+                    info.wind_angle += change;
+                    if info.wind_angle >= end_angle {
+                        info.wind_motion_moving_to_end_angle = false;
                         // C++ ParticleSys.cpp:2137-2146.
-                        self.wind_angle_change = get_game_client_random_value_real(
+                        info.wind_angle_change = get_game_client_random_value_real(
                             info.wind_angle_change_min,
                             info.wind_angle_change_max,
                         );
-                        self.wind_motion_start_angle = get_game_client_random_value_real(
+                        info.wind_motion_start_angle = get_game_client_random_value_real(
                             info.wind_motion_start_angle_min,
                             info.wind_motion_start_angle_max,
                         );
-                        self.wind_motion_end_angle = get_game_client_random_value_real(
+                        info.wind_motion_end_angle = get_game_client_random_value_real(
                             info.wind_motion_end_angle_min,
                             info.wind_motion_end_angle_max,
                         );
                     }
                 } else {
-                    self.wind_angle -= change;
-                    if self.wind_angle <= start_angle {
-                        self.wind_motion_moving_to_end_angle = true;
+                    info.wind_angle -= change;
+                    if info.wind_angle <= start_angle {
+                        info.wind_motion_moving_to_end_angle = true;
                         // C++ ParticleSys.cpp:2165-2174.
-                        self.wind_angle_change = get_game_client_random_value_real(
+                        info.wind_angle_change = get_game_client_random_value_real(
                             info.wind_angle_change_min,
                             info.wind_angle_change_max,
                         );
-                        self.wind_motion_start_angle = get_game_client_random_value_real(
+                        info.wind_motion_start_angle = get_game_client_random_value_real(
                             info.wind_motion_start_angle_min,
                             info.wind_motion_start_angle_max,
                         );
-                        self.wind_motion_end_angle = get_game_client_random_value_real(
+                        info.wind_motion_end_angle = get_game_client_random_value_real(
                             info.wind_motion_end_angle_min,
                             info.wind_motion_end_angle_max,
                         );
@@ -2457,18 +2429,18 @@ impl ParticleSystem {
                 }
             }
             WindMotion::Circular => {
-                if self.wind_angle_change == 0.0 {
+                if info.wind_angle_change == 0.0 {
                     // C++ ParticleSys.cpp:2189-2190.
-                    self.wind_angle_change = get_game_client_random_value_real(
+                    info.wind_angle_change = get_game_client_random_value_real(
                         info.wind_angle_change_min,
                         info.wind_angle_change_max,
                     );
                 }
-                self.wind_angle += self.wind_angle_change;
-                if self.wind_angle > std::f32::consts::TAU {
-                    self.wind_angle -= std::f32::consts::TAU;
-                } else if self.wind_angle < 0.0 {
-                    self.wind_angle += std::f32::consts::TAU;
+                info.wind_angle += info.wind_angle_change;
+                if info.wind_angle > std::f32::consts::TAU {
+                    info.wind_angle -= std::f32::consts::TAU;
+                } else if info.wind_angle < 0.0 {
+                    info.wind_angle += std::f32::consts::TAU;
                 }
             }
         }
@@ -2479,16 +2451,19 @@ impl ParticleSystem {
         self.system_id
     }
 
-    /// Get template
+    /// Immutable admitted authored definition; runtime changes live in info().
     pub fn template(&self) -> &Arc<ParticleSystemTemplate> {
         &self.template
     }
 
-    /// Tint all color keys on this system's private template copy.
+    /// Canonical owned runtime parameters: tint, lifetime and loaded state.
+    pub fn info(&self) -> &ParticleSystemInfo {
+        &self.info
+    }
+
+    /// Tint this system's owned color keys, preserving its authored identity.
     pub fn tint_all_colors(&mut self, tint_color: [f32; 3]) {
-        Arc::make_mut(&mut self.template)
-            .info_mut()
-            .tint_all_colors(tint_color);
+        self.info.tint_all_colors(tint_color);
     }
 }
 
@@ -2619,40 +2594,6 @@ mod tests {
         let system = ParticleSystem::new(Arc::new(template), 1, false);
         let info = system.generate_particle_info(0, 1).unwrap();
         assert_eq!(info.position, Vec3::new(5.0, 0.0, 0.0));
-    }
-
-    #[test]
-    fn particle_system_tint_all_colors_keeps_template_source_unchanged() {
-        let mut template = ParticleSystemTemplate::new("TintSource".to_string());
-        template.info_mut().color_keys[0] = RGBColorKeyframe {
-            color: [1.0, 0.5, 0.25],
-            frame: 0,
-        };
-        template.info_mut().color_keys[1] = RGBColorKeyframe {
-            color: [1.0, 0.5, 0.25],
-            frame: 10,
-        };
-        let template = Arc::new(template);
-        let mut system = ParticleSystem::new(template.clone(), 1, false);
-        let sibling = ParticleSystem::new(template.clone(), 2, false);
-
-        system.tint_all_colors([0.25, 0.5, 1.0]);
-
-        // C++ ParticleSystemInfo::tintAllColors starts at key 1; the initial
-        // color stays authored. ParticleSystem owns a copy of template keys.
-        assert_eq!(
-            system.template().info().color_keys[0].color,
-            [1.0, 0.5, 0.25]
-        );
-        assert_eq!(
-            system.template().info().color_keys[1].color,
-            [0.25, 0.25, 0.25]
-        );
-        assert_eq!(system.template().info().color_keys[1].frame, 10);
-        for source in [&template, sibling.template()] {
-            assert_eq!(source.info().color_keys[0].color, [1.0, 0.5, 0.25]);
-            assert_eq!(source.info().color_keys[1].color, [1.0, 0.5, 0.25]);
-        }
     }
 
     #[test]
@@ -2826,9 +2767,12 @@ mod tests {
         saved.transform = Mat3::from_cols_array(&[9.0, 6.0, 3.0, 8.0, 5.0, 2.0, 7.0, 4.0, 1.0]);
         saved.is_local_identity = false;
         saved.is_identity = false;
-        saved.wind_angle = 0.33;
-        saved.wind_angle_change = 0.44;
-        saved.wind_motion_moving_to_end_angle = true;
+        // Snapshot fixture is a live C++ ParticleSystemInfo, not authored ranges.
+        saved.info.wind_motion_start_angle = 0.03;
+        saved.info.wind_motion_end_angle = 0.06;
+        saved.info.wind_angle = 0.33;
+        saved.info.wind_angle_change = 0.44;
+        saved.info.wind_motion_moving_to_end_angle = true;
 
         let mut bytes = Vec::new();
         {
@@ -2849,7 +2793,7 @@ mod tests {
         loaded.xfer(&mut load).unwrap();
         load.close().unwrap();
 
-        let loaded_info = loaded.template.info();
+        let loaded_info = loaded.info();
         assert!(loaded_info.is_one_shot);
         assert_eq!(loaded_info.shader_type, ParticleShaderType::Multiply);
         assert_eq!(loaded_info.particle_type, ParticleType::Drawable);
@@ -2892,9 +2836,11 @@ mod tests {
         assert!(loaded_info.is_emit_above_ground_only);
         assert!(loaded_info.is_particle_up_towards_emitter);
         assert_eq!(loaded_info.wind_motion, WindMotion::PingPong);
-        assert_eq!(loaded.wind_angle, 0.33);
-        assert_eq!(loaded.wind_angle_change, 0.44);
-        assert!(loaded.wind_motion_moving_to_end_angle);
+        assert_eq!(loaded_info.wind_motion_start_angle, 0.03);
+        assert_eq!(loaded_info.wind_motion_end_angle, 0.06);
+        assert_eq!(loaded_info.wind_angle, 0.33);
+        assert_eq!(loaded_info.wind_angle_change, 0.44);
+        assert!(loaded_info.wind_motion_moving_to_end_angle);
         assert_eq!(loaded.system_id, 42);
         assert_eq!(loaded.local_transform, saved.local_transform);
         assert_eq!(loaded.transform, saved.transform);
@@ -3081,3 +3027,7 @@ mod tests {
         assert_eq!(system.attached_object_id(), 0);
     }
 }
+
+#[cfg(test)]
+#[path = "particle_system/owned_info_tests.rs"]
+mod owned_info_tests;

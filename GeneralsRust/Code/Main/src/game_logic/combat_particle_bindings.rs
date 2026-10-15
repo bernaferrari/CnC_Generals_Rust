@@ -333,9 +333,9 @@ impl CombatParticleRegistry {
                                     entry.template_name
                                 )
                             })?;
-                        // Resolve aliases through admitted definitions. Loading restores
-                        // per-system info into a private template copy, so Arc identity
-                        // is not stable; its canonical definition name is preserved.
+                        // Resolve aliases through this manager's admitted definitions.
+                        // Restored runtime parameters are independent of the immutable
+                        // authored template; this row names its canonical definition.
                         if expected.name() != system.template().name() {
                             return Err(format!(
                                 "loaded particle system {id} does not match host template {}",

@@ -285,7 +285,7 @@ impl ParticleBatch {
         system: &ParticleSystem,
         camera_position: [f32; 3],
     ) {
-        let info = system.template().info();
+        let info = system.info();
         let layer_count = info
             .volume_particle_depth
             .max(OPTIMUM_VOLUME_PARTICLE_DEPTH)
@@ -383,7 +383,7 @@ pub fn bake_particle_gpu_vertex(particle: &Particle, system: &ParticleSystem) ->
 }
 
 pub fn bake_particle_system_gpu_mesh(system: &ParticleSystem) -> Vec<ParticleVertex> {
-    let info = system.template().info();
+    let info = system.info();
     let mut vertices = Vec::new();
     if matches!(
         info.particle_type,
@@ -427,8 +427,7 @@ pub fn particle_type_name_is_smud(name: &str) -> bool {
 /// authored SMUDGE systems still use ParticleName `"SMUDGE RESERVED"`.
 #[must_use]
 pub fn system_is_heat_smudge(system: &ParticleSystem) -> bool {
-    system.is_using_smudge()
-        || particle_type_name_is_smud(&system.template().info().particle_type_name)
+    system.is_using_smudge() || particle_type_name_is_smud(&system.info().particle_type_name)
 }
 
 /// C++ `doParticles` start: `setSmudgeCountLastFrame(0)` then one `addSmudgeSet`.

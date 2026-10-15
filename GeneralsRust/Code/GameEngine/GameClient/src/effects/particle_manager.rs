@@ -744,7 +744,7 @@ impl ParticleSystemManager {
                 (
                     system.take_pending_emissions(),
                     system.priority(),
-                    system.template().info().is_ground_aligned,
+                    system.info().is_ground_aligned,
                     system.is_emit_above_ground_only(),
                     system.attached_system_name().to_string(),
                 )
@@ -878,7 +878,7 @@ impl ParticleSystemManager {
                     };
                     (
                         slave.priority(),
-                        slave.template().info().is_ground_aligned,
+                        slave.info().is_ground_aligned,
                         slave.particle_count(),
                     )
                 };
@@ -1148,7 +1148,7 @@ impl ParticleSystemManager {
         let mut field_count = 0usize;
         self.for_each_particle_system_mut(|system| {
             let is_field_system = system.priority() == ParticlePriorityType::AreaEffect
-                && system.template().info().is_ground_aligned;
+                && system.info().is_ground_aligned;
             let mut kept = 0usize;
             for particle in system.particles_mut() {
                 if !particle.is_lifetime_active() {
