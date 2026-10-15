@@ -3,6 +3,7 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
     use super::super::*;
     use glam::Vec3;
     let mut u = UnitRenderInput {
+        receiving_draw_models: None,
         id: ObjectId(1),
         template_name: "T".into(),
         model_key: "M".into(),
@@ -200,6 +201,7 @@ fn topple_world_matrix_falls_along_crush_direction() {
 
 fn unit_render_input_fixture() -> UnitRenderInput {
     UnitRenderInput {
+        receiving_draw_models: None,
         id: ObjectId(1),
         template_name: "T".into(),
         model_key: "M".into(),

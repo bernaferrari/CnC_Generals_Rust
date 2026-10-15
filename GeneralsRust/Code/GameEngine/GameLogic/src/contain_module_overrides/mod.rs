@@ -407,6 +407,7 @@ mod factory_gaps;
 mod install;
 mod leftover;
 mod production;
+mod strict_module_data;
 mod template_locomotor;
 mod update_modules;
 
@@ -456,6 +457,7 @@ pub const CONTAIN_OVERRIDES_SRC: &str = concat!(
     include_str!("install.rs"),
     include_str!("leftover.rs"),
     include_str!("production.rs"),
+    include_str!("strict_module_data.rs"),
     include_str!("template_locomotor.rs"),
     include_str!("update_modules.rs"),
 );

@@ -385,11 +385,20 @@ impl PresentationFrame {
                 }
                 input
             };
-        let apply_visual_template =
-            |input: &mut UnitRenderInput, visual_template_name: &str, visual_mesh_scale: f32| {
-                if !visual_template_name.trim().is_empty()
-                    && visual_template_name != input.template_name
-                {
+        let apply_visual_template = |input: &mut UnitRenderInput,
+                                     visual_template_name: &str,
+                                     visual_mesh_scale: f32,
+                                     receiving: &Option<
+            std::sync::Arc<crate::game_logic::thing::ReceivingDrawModels>,
+        >| {
+            if !visual_template_name.trim().is_empty()
+                && (visual_template_name != input.template_name || receiving.is_some())
+            {
+                if let Some(models) = receiving {
+                    input.template_name = visual_template_name.to_owned();
+                    input.receiving_draw_models = Some(models.clone());
+                    input.resolve_draw_models_for_frozen_conditions();
+                } else {
                     let fallback_model_key =
                         crate::assets::mesh_asset_resolve::model_key_from_presentation(
                             Some(visual_template_name),
@@ -407,10 +416,11 @@ impl PresentationFrame {
                         fallback_draw_models.as_slice(),
                     );
                 }
-                if visual_mesh_scale.is_finite() && visual_mesh_scale > 0.0 {
-                    input.mesh_scale = visual_mesh_scale;
-                }
-            };
+            }
+            if visual_mesh_scale.is_finite() && visual_mesh_scale > 0.0 {
+                input.mesh_scale = visual_mesh_scale;
+            }
+        };
 
         // C++ StealthUpdate::changeVisualDisguise destroys/recreates the
         // Drawable with `m_disguiseAsTemplate` before it decides only the
@@ -418,7 +428,14 @@ impl PresentationFrame {
         // carry the original gameplay template, so make the frozen direct
         // visual identity authoritative for every matching resident row—not
         // merely for an absent/deferred-death fallback row.
-        let direct_visual_templates: std::collections::HashMap<ObjectId, (&str, f32)> = self
+        let direct_visual_templates: std::collections::HashMap<
+            ObjectId,
+            (
+                &str,
+                f32,
+                &Option<std::sync::Arc<crate::game_logic::thing::ReceivingDrawModels>>,
+            ),
+        > = self
             .direct_host_drawables
             .iter()
             .filter(|direct| direct.resident && !direct.visual_template_name.trim().is_empty())
@@ -428,6 +445,7 @@ impl PresentationFrame {
                     (
                         direct.visual_template_name.as_str(),
                         direct.visual_mesh_scale,
+                        &direct.receiving_visual_draw_models,
                     ),
                 )
             })
@@ -439,10 +457,15 @@ impl PresentationFrame {
             .filter(|object| mesh_allowed(object, false))
             .map(|object| {
                 let mut input = make_input(object);
-                if let Some((visual_template_name, visual_mesh_scale)) =
+                if let Some((visual_template_name, visual_mesh_scale, receiving)) =
                     direct_visual_templates.get(&object.id)
                 {
-                    apply_visual_template(&mut input, visual_template_name, *visual_mesh_scale);
+                    apply_visual_template(
+                        &mut input,
+                        visual_template_name,
+                        *visual_mesh_scale,
+                        receiving,
+                    );
                 }
                 input
             })
@@ -476,6 +499,7 @@ impl PresentationFrame {
                 &mut input,
                 &direct.visual_template_name,
                 direct.visual_mesh_scale,
+                &direct.receiving_visual_draw_models,
             );
             ordinary_input_ids.insert(input.id);
             inputs.push(input);

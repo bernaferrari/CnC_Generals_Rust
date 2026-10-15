@@ -115,6 +115,15 @@ impl<T: Clone + Send + Sync + std::fmt::Debug + 'static> CrateCollideDataAdapter
     }
 }
 
+/// Keep strict admission data in the same adapter consumed by the real
+/// registered crate module constructors. No module instance is constructed.
+pub(super) fn adapted_crate_data<T>(data: T) -> Box<dyn ModuleData>
+where
+    T: Clone + Send + Sync + std::fmt::Debug + 'static,
+{
+    Box::new(CrateCollideDataAdapter::new(data))
+}
+
 impl<T: Clone + Send + Sync + std::fmt::Debug + 'static> ModuleData for CrateCollideDataAdapter<T> {
     fn as_any(&self) -> &dyn Any {
         self

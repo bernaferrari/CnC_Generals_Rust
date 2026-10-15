@@ -201,6 +201,10 @@ impl GameLogic {
             Err(error) => template.native_lifecycle_error = Some(error),
         }
         Self::apply_authored_ghost_draw_metadata(&mut template, definition);
+        // This constructor consumes a complete definition, including an
+        // intentional absence of Draw data; no template-name mesh is implied.
+        template
+            .set_authored_draw_models(definition.model_name.as_deref(), &definition.draw_modules);
         template.radar_upgrade_rules = Some(
             definition
                 .behavior_modules

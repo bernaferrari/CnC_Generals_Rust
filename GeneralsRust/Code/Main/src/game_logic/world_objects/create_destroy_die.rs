@@ -87,7 +87,10 @@ fn authored_spawn_point_bone_name(template_name: &str) -> String {
 /// `Get_Z_Rotation`. World Z is left 0 and snapped at exit time.
 fn collect_world_spawn_point_bones(parent: &Object) -> Vec<(Vec3, f32)> {
     let prefix = authored_spawn_point_bone_name(&parent.template_name);
-    let model = parent.thing().template.get_model_name();
+    let model = &parent
+        .thing()
+        .template
+        .model_name_for_conditions(parent.model_condition_bits);
     let scale = parent.thing().template.asset_scale;
     let origin = parent.get_position();
     let yaw = parent.get_orientation();

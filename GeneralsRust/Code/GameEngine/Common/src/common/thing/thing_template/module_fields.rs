@@ -32,6 +32,23 @@ fn is_reskin_property(key: &str) -> bool {
         .unwrap_or(false)
 }
 
+pub(super) fn validate_receiving_reskin_fields(
+    properties: &HashMap<String, String>,
+) -> Result<(), String> {
+    for field in ObjectIniFields::new(properties).declarations() {
+        if !CPP_RESKIN_FIELDS
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(field.name()))
+        {
+            return Err(format!(
+                "Field '{}' is not permitted in ObjectReskin",
+                field.name()
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn collect_module_body(
     properties: &HashMap<String, String>,
     header_key: &str,
@@ -151,6 +168,7 @@ impl ThingTemplate {
         properties: &HashMap<String, String>,
         load_type: crate::common::ini::INILoadType,
         module_factory: &mut Option<&mut ModuleFactory>,
+        strict: bool,
     ) -> Result<(), String> {
         let mut tokens = value.split_whitespace();
         let module_name = tokens
@@ -168,12 +186,30 @@ impl ThingTemplate {
             other => return Err(format!("Unknown module field '{}'", other)),
         };
 
-        let interface_mask = lookup_module_interface_mask_with_factory(
-            module_name,
-            module_type,
-            fallback_mask,
-            module_factory.as_deref(),
-        );
+        let interface_mask = if strict {
+            let factory = module_factory
+                .as_deref()
+                .ok_or("Strict module admission requires an explicit factory")?;
+            if !factory.has_module_data_proc(module_name, module_type) {
+                return Err(format!(
+                    "Module data constructor '{module_name}' ({module_type:?}) not registered"
+                ));
+            }
+            let mask = factory.find_module_interface_mask(module_name, module_type);
+            if mask == ModuleInterfaceType::NONE {
+                return Err(format!(
+                    "Module '{module_name}' ({module_type:?}) has no registered interface mask"
+                ));
+            }
+            mask
+        } else {
+            lookup_module_interface_mask_with_factory(
+                module_name,
+                module_type,
+                fallback_mask,
+                module_factory.as_deref(),
+            )
+        };
         // ThingTemplate.cpp:512-533 validates the field before clearing
         // inherited modules or invoking the registered data constructor.
         let is_body = interface_mask.0 & ModuleInterfaceType::BODY.0 != 0;
@@ -232,22 +268,72 @@ impl ThingTemplate {
         }
 
         let (raw_body, fields) = collect_module_body(properties, property_key);
-        let data = module_data_from_body(
-            module_name,
-            module_type,
-            module_tag,
-            &raw_body,
-            fields,
-            module_factory.as_deref_mut(),
-        );
+        let data = if strict {
+            let factory = module_factory
+                .as_deref_mut()
+                .ok_or("Strict module admission requires an explicit factory")?;
+            let synthetic = format!("{}\nEnd\n", raw_body.trim_end());
+            let mut ini = INI::new();
+            let mut data = None;
+            let mut error = None;
+            ini.with_inline_source(&synthetic, |ini| {
+                match factory.new_module_data_from_ini_strict(
+                    Some(ini),
+                    module_name,
+                    module_type,
+                    module_tag,
+                ) {
+                    Ok(created) => data = Some(created),
+                    Err(message) => error = Some(message),
+                }
+                Ok(())
+            })
+            .map_err(|error| error.to_string())?;
+            if let Some(error) = error {
+                return Err(error);
+            }
+            data.ok_or_else(|| format!("Module constructor '{module_name}' produced no data"))?
+        } else {
+            module_data_from_body(
+                module_name,
+                module_type,
+                module_tag,
+                &raw_body,
+                fields,
+                module_factory.as_deref_mut(),
+            )
+        };
+        if data.is_ai_module_data() {
+            let target_info = match module_type {
+                ModuleType::Behavior => &mut self.behavior_module_info,
+                ModuleType::Draw => &mut self.draw_module_info,
+                ModuleType::ClientUpdate => &mut self.client_update_module_info,
+            };
+            target_info.clear_ai_module_info();
+        }
+        if strict {
+            let tag = AsciiString::from(module_tag);
+            if self
+                .behavior_module_info
+                .get_nugget_with_tag(&tag)
+                .is_some()
+                || self.draw_module_info.get_nugget_with_tag(&tag).is_some()
+                || self
+                    .client_update_module_info
+                    .get_nugget_with_tag(&tag)
+                    .is_some()
+            {
+                return Err(format!(
+                    "Duplicate module tag '{module_tag}' on '{}'",
+                    self.get_name()
+                ));
+            }
+        }
         let target_info = match module_type {
             ModuleType::Behavior => &mut self.behavior_module_info,
             ModuleType::Draw => &mut self.draw_module_info,
             ModuleType::ClientUpdate => &mut self.client_update_module_info,
         };
-        if data.is_ai_module_data() {
-            target_info.clear_ai_module_info();
-        }
         let inheritable = self.module_parsing_mode == ModuleParseMode::Inheritable;
         let overrideable = self.module_parsing_mode == ModuleParseMode::OverrideableByLikeKind;
         target_info.add_module_info(
@@ -270,6 +356,7 @@ impl ThingTemplate {
         properties: &HashMap<String, String>,
         load_type: crate::common::ini::INILoadType,
         module_factory: &mut Option<&mut ModuleFactory>,
+        strict: bool,
     ) -> Result<(), String> {
         if is_module_object_field(field) {
             if load_type == crate::common::ini::INILoadType::CreateOverrides
@@ -286,6 +373,7 @@ impl ThingTemplate {
                 properties,
                 load_type,
                 module_factory,
+                strict,
             )
         } else {
             self.load_module_operation(
@@ -295,6 +383,7 @@ impl ThingTemplate {
                 properties,
                 load_type,
                 module_factory,
+                strict,
             )
         }
     }
@@ -316,14 +405,16 @@ impl ThingTemplate {
         load_type: crate::common::ini::INILoadType,
         prefix: &str,
         module_factory: &mut Option<&mut ModuleFactory>,
+        strict: bool,
     ) -> Result<(), String> {
         let nested = ObjectIniFields::new(properties).nested_properties(prefix);
         // C++ wrappers recurse into the entire Object field table, not just
         // module declarations. Unknown Object fields must remain errors.
-        self.parse_object_fields_for_load_with_factory(
+        self.parse_object_fields_with_policy(
             &nested,
             load_type,
             module_factory.as_deref_mut(),
+            strict,
         )
     }
 
@@ -335,6 +426,7 @@ impl ThingTemplate {
         properties: &HashMap<String, String>,
         load_type: crate::common::ini::INILoadType,
         module_factory: &mut Option<&mut ModuleFactory>,
+        strict: bool,
     ) -> Result<(), String> {
         // ThingTemplate.cpp:715-816 permits wrappers only in NORMAL mode.
         if self.module_parsing_mode != ModuleParseMode::Normal {
@@ -360,7 +452,13 @@ impl ThingTemplate {
                 self.module_being_replaced_name = name;
                 self.module_being_replaced_tag = tag;
             }
-            self.load_modules_from_override_prefix(properties, load_type, key, module_factory)
+            self.load_modules_from_override_prefix(
+                properties,
+                load_type,
+                key,
+                module_factory,
+                strict,
+            )
         })();
         self.module_being_replaced_name.clear();
         self.module_being_replaced_tag.clear();

@@ -293,7 +293,7 @@ fn parse_subdual_damage_heal_amount(
     Ok(())
 }
 
-const ACTIVE_BODY_FIELDS: &[FieldParse<ActiveBodyModuleData>] = &[
+pub(super) const ACTIVE_BODY_FIELDS: &[FieldParse<ActiveBodyModuleData>] = &[
     FieldParse {
         token: "MaxHealth",
         parse: parse_max_health,

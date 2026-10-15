@@ -19,8 +19,8 @@ use crate::helpers::{
     TheAudio, TheGameLogic, ThePartitionManager, TheTerrainLogic, get_game_logic_random_value_real,
 };
 use crate::modules::{
-    ExitInterface,
-    AIUpdateInterfaceExt, ContainModuleInterface, ContainWant, PhysicsBehaviorExt, UpdateSleepTime,
+    AIUpdateInterfaceExt, ContainModuleInterface, ContainWant, ExitInterface, PhysicsBehaviorExt,
+    UpdateSleepTime,
 };
 use crate::object::Object;
 use crate::object::contain::OpenContain;
@@ -69,8 +69,12 @@ impl Default for ParachuteContainModuleData {
 
 impl ParachuteContainModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        self.base.parse_from_ini(ini)?;
-        ini.init_from_ini_with_fields_allow_unknown(self, PARACHUTE_CONTAIN_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            super::open_contain::OPEN_CONTAIN_FIELDS,
+            PARACHUTE_CONTAIN_FIELDS,
+        )
     }
 
     pub fn parse_from_config(&mut self, config: &str) -> Result<(), INIError> {

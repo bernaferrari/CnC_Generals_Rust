@@ -1,0 +1,97 @@
+//! Strict production module-data registrations.
+use super::*;
+
+pub(super) fn register(factory: &mut impl DataParserRegistrar) {
+    register_parsed!(
+        factory,
+        Behavior,
+        "DefaultProductionExitUpdate",
+        DefaultProductionExitModuleData,
+        default
+    );
+    register_parsed!(
+        factory,
+        Behavior,
+        "QueueProductionExitUpdate",
+        QueueProductionExitModuleData,
+        default
+    );
+    register_parsed!(
+        factory,
+        Behavior,
+        "SpawnPointProductionExitUpdate",
+        SpawnPointProductionExitModuleData,
+        default
+    );
+    register_parsed!(
+        factory,
+        Behavior,
+        "SupplyCenterProductionExitUpdate",
+        SupplyCenterProductionExitModuleData,
+        default
+    );
+    register_parsed!(
+        factory,
+        Behavior,
+        "FlightDeckBehavior",
+        FlightDeckBehaviorModuleData,
+        default
+    );
+    register_parsed!(
+        factory,
+        Behavior,
+        "ProductionUpdate",
+        ProductionUpdateModuleData,
+        default
+    );
+    register_parsed!(
+        factory,
+        Behavior,
+        "RepairDockUpdate",
+        RepairDockUpdateData,
+        default
+    );
+    register_parsed!(
+        factory,
+        Behavior,
+        "RailedTransportDockUpdate",
+        RailedTransportDockUpdateData,
+        default
+    );
+    register_parsed!(
+        factory,
+        Behavior,
+        "SupplyCenterDockUpdate",
+        SupplyCenterDockUpdateData,
+        default
+    );
+    register_parsed!(
+        factory,
+        Behavior,
+        "SupplyWarehouseDockUpdate",
+        SupplyWarehouseDockUpdateData,
+        default
+    );
+    register_parsed!(
+        factory,
+        Behavior,
+        "SupplyWarehouseCripplingBehavior",
+        SupplyWarehouseCripplingBehaviorModuleData,
+        default
+    );
+}
+
+#[cfg(test)]
+pub(super) const NAMES: &[&str] = &[
+    "DefaultProductionExitUpdate",
+    "QueueProductionExitUpdate",
+    "SpawnPointProductionExitUpdate",
+    "SupplyCenterProductionExitUpdate",
+    "FlightDeckBehavior",
+    "ProductionUpdate",
+    "RepairDockUpdate",
+    "RailedTransportDockUpdate",
+    "SupplyCenterDockUpdate",
+    "SupplyWarehouseDockUpdate",
+    "SupplyWarehouseCripplingBehavior",
+];

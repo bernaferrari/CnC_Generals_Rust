@@ -299,13 +299,11 @@ impl GameLogic {
                 && crate::game_logic::host_move_ambient_audio::definition_has_sound_ambient(
                     &definition,
                 );
-            // The generic host template cannot represent an object whose only
-            // identity is a behavior/draw module — except SoundAmbient-only map
-            // objects, which are seeded so Drawable startAmbientSound can play.
-            // Those carry no draw/behavior payload, so the map-object skip list
-            // (CINE_/Amb_/Scorch/…) must not silence them in the seed path;
-            // should_spawn_fallback keeps the full list.
-            if model_name.is_none() && !is_audio_only {
+            // C++ ThingFactory::newObject does not require render art. An
+            // actual parsed Object may contain only behavior/client modules.
+            // Uncaptured convenience rows retain their old admission contract;
+            // they are not evidence of an authored model-less Object.
+            if model_name.is_none() && !is_audio_only && definition.source_declarations.is_none() {
                 continue;
             }
             if Self::should_skip_map_object_template(name) && !is_audio_only {
@@ -407,6 +405,15 @@ impl GameLogic {
     ) {
         template.client_module_declarations =
             Some(definition.client_modules.clone().into_boxed_slice());
+        if definition.source_declarations.is_some()
+            || definition.model_name.is_some()
+            || !definition.draw_modules.is_empty()
+        {
+            template.set_authored_draw_models(
+                definition.model_name.as_deref(),
+                &definition.draw_modules,
+            );
+        }
         template.default_draw_without_fog_memory = definition
             .draw_modules
             .iter()

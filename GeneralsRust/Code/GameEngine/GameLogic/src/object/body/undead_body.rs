@@ -64,8 +64,12 @@ const UNDEAD_BODY_FIELDS: &[FieldParse<UndeadBodyModuleData>] = &[FieldParse {
 
 impl UndeadBodyModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        self.base.parse_from_ini(ini)?;
-        ini.init_from_ini_with_fields(self, UNDEAD_BODY_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            super::active_body::ACTIVE_BODY_FIELDS,
+            UNDEAD_BODY_FIELDS,
+        )
     }
 }
 

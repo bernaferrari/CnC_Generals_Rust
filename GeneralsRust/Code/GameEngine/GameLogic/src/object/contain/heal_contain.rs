@@ -43,8 +43,12 @@ impl Default for HealContainModuleData {
 
 impl HealContainModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        self.base.parse_from_ini(ini)?;
-        ini.init_from_ini_with_fields_allow_unknown(self, HEAL_CONTAIN_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            super::open_contain::OPEN_CONTAIN_FIELDS,
+            HEAL_CONTAIN_FIELDS,
+        )
     }
 
     pub fn parse_from_config(&mut self, config: &str) -> Result<(), INIError> {
@@ -145,8 +149,7 @@ impl HealContain {
 
             if done_healing {
                 // Reserve door for exit
-                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(patient_id)
-                {
+                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(patient_id) {
                     if let Ok(object) = obj.try_read() {
                         if let Ok(exit_door) = self
                             .base
@@ -192,7 +195,8 @@ impl HealContain {
 
         let mut done_healing = false;
 
-        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        let obj = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .ok_or("HealContain patient not found")?;
 
         // Setup healing damage info structure
@@ -328,7 +332,7 @@ impl ContainModuleInterface for HealContain {
 
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
             return self.base.is_valid_container_for(&*obj_guard, true);
-            });
+        });
         false
     }
 
@@ -440,8 +444,7 @@ impl ContainModuleInterface for HealContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-        else {
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
             return Ok(());
         };
         let valid = other

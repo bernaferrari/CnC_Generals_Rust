@@ -89,7 +89,10 @@ fn special_ability_attach_bone_world(caster: &Object, bone_name: &str) -> glam::
     if bone_name.is_empty() {
         return origin;
     }
-    let model = caster.thing().template.get_model_name();
+    let model = &caster
+        .thing()
+        .template
+        .model_name_for_conditions(caster.model_condition_bits);
     if model.is_empty() {
         return origin;
     }

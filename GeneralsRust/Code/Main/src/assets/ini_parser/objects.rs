@@ -10,6 +10,10 @@ pub struct ObjectDefinition {
     /// Optional parent object for ChildObject/ObjectReskin inheritance.
     pub parent_name: Option<String>,
 
+    /// Full ordered grammar lineage for strict receiving module admission.
+    /// None is an uncaptured programmatic row, never proof of validation.
+    pub(crate) source_declarations: Option<Vec<CapturedObjectSource>>,
+
     /// Object type (e.g., "Infantry", "Vehicle", "Building", "Aircraft")
     pub object_type: String,
 
@@ -243,6 +247,7 @@ impl ObjectDefinition {
         Self {
             name,
             parent_name: None,
+            source_declarations: None,
             object_type: String::new(),
             display_name: String::new(),
             model_name: None,
@@ -343,10 +348,18 @@ impl ObjectDefinition {
         &self,
         condition_bits: u128,
     ) -> Option<Vec<AuthoredDrawModel>> {
+        Self::select_draw_models_from_modules(&self.draw_modules, condition_bits)
+    }
+
+    /// Select from immutable module data admitted by the receiving template.
+    pub(crate) fn select_draw_models_from_modules(
+        modules: &[DrawModuleDefinition],
+        condition_bits: u128,
+    ) -> Option<Vec<AuthoredDrawModel>> {
         let mut found_selectable_module = false;
         let mut selected = Vec::new();
 
-        for (module_index, module) in self.draw_modules.iter().enumerate() {
+        for (module_index, module) in modules.iter().enumerate() {
             if !module.has_selectable_condition_states() {
                 continue;
             }
@@ -473,6 +486,7 @@ impl ObjectDefinition {
 
     /// Apply the actual Common capture lane in C++ authored order.
     pub fn apply_create_override_properties(&mut self, properties: &HashMap<String, String>) {
+        self.capture_object_override(properties);
         let fields = game_engine::common::thing::thing_template::ObjectIniFields::new(properties);
         if !fields.has_captured_declarations() {
             // Preserve the public legacy flattened-map adapter. Actual Common

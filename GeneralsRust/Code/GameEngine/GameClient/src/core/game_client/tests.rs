@@ -142,8 +142,9 @@ mod tests {
         let mut offset = 6 + 8 + 8 + 4 + 1 + 1 + 8;
         // Replay name
         offset = read_utf16_z_end(bytes, offset);
-        // Timestamp
-        offset += 8;
+        // Recorder.cpp:558-560 writes SYSTEMTIME: eight little-endian WORDs,
+        // not the earlier scalar time_t fields. This includes midnight's zero hour.
+        offset += 16;
         let version_string_start = offset;
         let version_string_end = read_utf16_z_end(bytes, offset);
         let version_time_start = version_string_end;
@@ -159,6 +160,18 @@ mod tests {
             exe_crc_offset,
             ini_crc_offset,
         )
+    }
+
+    fn replay_utf16_field(bytes: &[u8], start: usize, end: usize) -> String {
+        let units: Vec<_> = bytes[start..end - 2]
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        String::from_utf16(&units).expect("valid authored replay UTF-16 field")
+    }
+
+    mod replay_header_offsets_tests {
+        include!("replay_header_offsets_tests.rs");
     }
 
     fn mutate_utf16_first_code_unit(bytes: &mut [u8], start: usize, end: usize, field_name: &str) {
@@ -2373,13 +2386,33 @@ mod tests {
         let (
             version_string_start,
             version_string_end,
-            _version_time_start,
+            version_time_start,
             version_number_offset,
             exe_crc_offset,
             ini_crc_offset,
         ) = replay_version_offsets(
             &std::fs::read(&base_path).expect("base replay should be readable for offset parsing"),
         );
+        let base_bytes = std::fs::read(&base_path).expect("recorded header bytes");
+        let version = game_engine::common::version::get_version();
+        assert_eq!(
+            replay_utf16_field(&base_bytes, version_string_start, version_string_end),
+            version.get_unicode_version(),
+            "fixture must mutate the actual version field, not SYSTEMTIME"
+        );
+        assert_eq!(
+            replay_utf16_field(&base_bytes, version_time_start, version_number_offset),
+            version.get_unicode_build_time()
+        );
+        assert_eq!(
+            u32::from_le_bytes(
+                base_bytes[version_number_offset..version_number_offset + 4]
+                    .try_into()
+                    .unwrap()
+            ),
+            version.get_version_number()
+        );
+        drop(version);
 
         // Baseline: exact match must report no mismatch.
         assert!(

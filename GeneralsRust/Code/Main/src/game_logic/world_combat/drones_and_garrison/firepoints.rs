@@ -51,14 +51,20 @@ pub(super) fn load_prefix_bones_world(
 ) -> Vec<glam::Vec3> {
     load_prefix_bones_for_model(
         container,
-        container.thing().template.get_model_name(),
+        &container
+            .thing()
+            .template
+            .model_name_for_conditions(container.model_condition_bits),
         prefix,
         max,
     )
 }
 
 pub(super) fn named_bone_world(container: &Object, name: &str) -> Option<glam::Vec3> {
-    let model = container.thing().template.get_model_name();
+    let model = &container
+        .thing()
+        .template
+        .model_name_for_conditions(container.model_condition_bits);
     let scale = container.thing().template.asset_scale;
     let pos = container.get_position();
     let yaw = container.get_orientation();
@@ -93,7 +99,24 @@ pub(super) fn garrison_points_for_condition<'a>(
 pub(super) fn load_garrison_condition_bone_sets(
     container: &Object,
 ) -> (Vec<glam::Vec3>, Vec<glam::Vec3>, Vec<glam::Vec3>) {
-    let base = container.thing().template.get_model_name();
+    let template = &container.thing().template;
+    if template.authored_draw_models_for_conditions(0).is_some() {
+        use crate::game_logic::host_enum_table_residual::{MC_BIT_DAMAGED, MC_BIT_REALLYDAMAGED};
+        let points = |bits| {
+            load_prefix_bones_for_model(
+                container,
+                &template.model_name_for_conditions(bits),
+                "FIREPOINT",
+                MAX_GARRISON_FIRE_POINTS,
+            )
+        };
+        return (
+            points(0),
+            points(1u128 << MC_BIT_DAMAGED),
+            points(1u128 << MC_BIT_REALLYDAMAGED),
+        );
+    }
+    let base = template.get_model_name();
     let pristine =
         load_prefix_bones_for_model(container, base, "FIREPOINT", MAX_GARRISON_FIRE_POINTS);
     let dmg_key = crate::assets::mesh_asset_resolve::model_key_with_body_damage(base, 1, false);

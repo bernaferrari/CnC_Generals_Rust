@@ -111,6 +111,13 @@ impl IniParser {
                         index + 1,
                     );
                 object.capture_client_modules(&properties, create_overrides);
+                object.capture_object_source(
+                    properties,
+                    trimmed,
+                    filename,
+                    index + 1,
+                    create_overrides,
+                );
                 current_object = Some(object);
                 active_draw_module = None;
                 active_condition_state = None;

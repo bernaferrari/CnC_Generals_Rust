@@ -31,6 +31,30 @@ impl BodyKind {
 }
 
 /// Thing Template - shared configuration data for Things
+/// Immutable receiving Draw data copied from effective content. This runtime
+/// identity is rebound after load and never extends historical save records.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ReceivingDrawModels {
+    base_model: Option<String>,
+    modules: Box<[crate::assets::DrawModuleDefinition]>,
+}
+
+impl ReceivingDrawModels {
+    pub(crate) fn select(&self, bits: u128) -> Vec<crate::assets::AuthoredDrawModel> {
+        crate::assets::ObjectDefinition::select_draw_models_from_modules(&self.modules, bits)
+            .unwrap_or_else(|| {
+                self.base_model
+                    .as_ref()
+                    .map(|name| crate::assets::AuthoredDrawModel {
+                        model_key: name.clone(),
+                        ..Default::default()
+                    })
+                    .into_iter()
+                    .collect()
+            })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThingTemplate {
     pub name: String,
@@ -99,6 +123,10 @@ pub struct ThingTemplate {
     #[serde(default)]
     pub threat_value: u16,
     pub model_name: Option<String>,
+    /// Receiving effective content has resolved model presence, including an
+    /// authored absence. Rebound on admission; never extends positional saves.
+    #[serde(skip)]
+    authored_draw_modules: Option<std::sync::Arc<ReceivingDrawModels>>,
     pub texture_name: Option<String>,
     /// C++ `ThingTemplate::m_assetScale` from Object INI `Scale`.
     #[serde(default = "default_asset_scale")]
@@ -647,6 +675,7 @@ impl ThingTemplate {
             refund_value: 0,
             threat_value: 0,
             model_name: None,
+            authored_draw_modules: None,
             texture_name: None,
             asset_scale: default_asset_scale(),
             dock_kind: DockKind::None,
@@ -1475,14 +1504,79 @@ impl ThingTemplate {
         self
     }
 
-    /// Get the model name for this template, or fall back to template name
+    /// Admit exact effective Draw state from this session's content. An empty
+    /// table is an authored absence, not permission to guess from the name.
+    pub(crate) fn set_authored_draw_models(
+        &mut self,
+        model: Option<&str>,
+        modules: &[crate::assets::DrawModuleDefinition],
+    ) {
+        let independent_model = model
+            .map(str::trim)
+            .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("none"))
+            .map(str::to_owned);
+        // The compatibility model_name row can come from any nested Model
+        // field. Exact pristine Draw selection must take precedence, including
+        // Model=None; only a definition without selectable Draw state may use
+        // the independently authored base model.
+        self.model_name =
+            match crate::assets::ObjectDefinition::select_draw_models_from_modules(modules, 0) {
+                Some(models) => models.into_iter().next().map(|model| model.model_key),
+                None => independent_model,
+            };
+        self.authored_draw_modules = Some(std::sync::Arc::new(ReceivingDrawModels {
+            base_model: self.model_name.clone(),
+            modules: modules.to_vec().into_boxed_slice(),
+        }));
+    }
+
+    pub(crate) fn has_authored_no_model(&self) -> bool {
+        self.authored_draw_modules.is_some() && self.model_name.is_none()
+    }
+
+    /// `None` retains the historical curated fallback. `Some(empty)` is a
+    /// resolved suppression for this condition bank, not a missing catalogue.
+    pub(crate) fn authored_draw_models_for_conditions(
+        &self,
+        bits: u128,
+    ) -> Option<Vec<crate::assets::AuthoredDrawModel>> {
+        self.authored_draw_modules
+            .as_deref()
+            .map(|models| models.select(bits))
+    }
+
+    pub(crate) fn receiving_draw_models(&self) -> Option<std::sync::Arc<ReceivingDrawModels>> {
+        self.authored_draw_modules.clone()
+    }
+
+    /// First actual model in original Draw-module order for this Object's
+    /// current condition bank. An authored empty selection never guesses.
+    pub(crate) fn model_name_for_conditions(&self, bits: u128) -> String {
+        match self.authored_draw_models_for_conditions(bits) {
+            Some(models) => models
+                .into_iter()
+                .next()
+                .map(|model| model.model_key)
+                .unwrap_or_default(),
+            None => self.get_model_name().to_owned(),
+        }
+    }
+
+    /// Only unresolved curated templates may use their name as a model guess.
     pub fn get_model_name(&self) -> &str {
-        self.model_name.as_deref().unwrap_or(&self.name)
+        if self.has_authored_no_model() {
+            ""
+        } else {
+            self.model_name.as_deref().unwrap_or(&self.name)
+        }
     }
 
     /// Get the W3D model filename (with .w3d extension if needed)
     pub fn get_w3d_filename(&self) -> String {
         let model_name = self.get_model_name();
+        if model_name.is_empty() {
+            return String::new();
+        }
         if model_name.to_lowercase().ends_with(".w3d") {
             model_name.to_string()
         } else {
@@ -1523,4 +1617,112 @@ mod weapon_install_clock_tests {
 
 fn default_template_min_fall_height() -> Option<f32> {
     Some(40.0)
+}
+
+#[cfg(test)]
+mod authored_model_identity_tests {
+    use super::*;
+
+    #[test]
+    fn authored_model_less_identity_suppresses_alias_but_keeps_curated_peer() {
+        let mut authored = ThingTemplate::new("USA_Ranger");
+        let peer = authored.clone();
+        authored.set_authored_draw_models(None, &[]);
+        assert_eq!(authored.get_model_name(), "");
+        assert_eq!(authored.get_w3d_filename(), "");
+        assert!(crate::assets::model_key_from_template(&authored).is_empty());
+        assert_eq!(
+            authored.authored_draw_models_for_conditions(0),
+            Some(Vec::new())
+        );
+        assert_eq!(peer.get_model_name(), "USA_Ranger");
+        assert!(peer.authored_draw_models_for_conditions(0).is_none());
+        for absent in ["", "None", " NONE "] {
+            authored.set_authored_draw_models(Some(absent), &[]);
+            assert!(authored.get_model_name().is_empty());
+        }
+    }
+
+    #[test]
+    fn authored_model_identity_selects_none_and_named_condition_states_per_receiver() {
+        let mut parser = crate::assets::IniParser::new();
+        parser.parse_ini_content("Object StateVisual\n Draw = W3DModelDraw ModuleTag_Draw\n DefaultConditionState\n Model = None\n End\n ConditionState = DAMAGED\n Model = DamagedActual\n End\n End\nEnd\n", "owned_model.ini").unwrap();
+        let def = parser.get_definition("StateVisual").unwrap();
+        let mut first = ThingTemplate::new("StateVisual");
+        first.set_authored_draw_models(def.model_name.as_deref(), &def.draw_modules);
+        // A later nested Model row is deliberately a misleading compatibility
+        // hint: it must not replace the exact pristine Model=None decision.
+        first.set_authored_draw_models(Some("DamagedActual"), &def.draw_modules);
+        assert!(first.has_authored_no_model());
+        assert!(first.get_model_name().is_empty());
+        assert!(crate::assets::model_key_from_template(&first).is_empty());
+        let bits = 1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_DAMAGED;
+        assert!(
+            first
+                .authored_draw_models_for_conditions(0)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            first.authored_draw_models_for_conditions(bits).unwrap()[0].model_key,
+            "DamagedActual"
+        );
+        let mut peer_parser = crate::assets::IniParser::new();
+        peer_parser.parse_ini_content("Object StateVisual\n Draw = W3DModelDraw ModuleTag_Draw\n DefaultConditionState\n Model = PristinePeer\n End\n ConditionState = DAMAGED\n Model = None\n End\n End\nEnd\n", "peer_model.ini").unwrap();
+        let peer_def = peer_parser.get_definition("StateVisual").unwrap();
+        let mut peer = ThingTemplate::new("StateVisual");
+        peer.set_authored_draw_models(peer_def.model_name.as_deref(), &peer_def.draw_modules);
+        assert_eq!(peer.get_model_name(), "PristinePeer");
+        assert!(!peer.has_authored_no_model());
+        assert_eq!(
+            peer.authored_draw_models_for_conditions(0).unwrap()[0].model_key,
+            "PristinePeer"
+        );
+        assert!(
+            peer.authored_draw_models_for_conditions(bits)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            first.authored_draw_models_for_conditions(bits).unwrap()[0].model_key,
+            "DamagedActual"
+        );
+        let mut first_object = crate::game_logic::Object::new(
+            first.clone(),
+            crate::game_logic::ObjectId(42),
+            crate::game_logic::Team::USA,
+        );
+        let peer_object = crate::game_logic::Object::new(
+            peer.clone(),
+            crate::game_logic::ObjectId(42),
+            crate::game_logic::Team::USA,
+        );
+        first_object.model_condition_bits = bits;
+        assert_eq!(
+            first_object
+                .get_template()
+                .model_name_for_conditions(first_object.model_condition_bits),
+            "DamagedActual"
+        );
+        assert_eq!(
+            peer_object
+                .get_template()
+                .model_name_for_conditions(peer_object.model_condition_bits),
+            "PristinePeer"
+        );
+        first_object.model_condition_bits = 0;
+        assert!(
+            first_object
+                .get_template()
+                .model_name_for_conditions(first_object.model_condition_bits)
+                .is_empty()
+        );
+        // Immutable receiving metadata adds no bytes to positional template saves.
+        let mut wire_peer = first.clone();
+        wire_peer.authored_draw_modules = None;
+        assert_eq!(
+            bincode::serde::encode_to_vec(&first, bincode::config::legacy()).unwrap(),
+            bincode::serde::encode_to_vec(&wire_peer, bincode::config::legacy()).unwrap()
+        );
+    }
 }

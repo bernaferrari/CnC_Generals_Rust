@@ -14,8 +14,12 @@ use crate::common::ini::INI;
 use crate::common::ini::ini_mapped_image::{Image, get_mapped_image_collection};
 
 mod module_fields;
+mod receiving_candidate;
 #[cfg(test)]
 use module_fields::lookup_module_interface_mask;
+pub use receiving_candidate::{
+    ReceivingTemplateCandidate, ReceivingTemplateKind, ReceivingTemplateSummary,
+};
 
 use crate::common::system::Snapshotable;
 use crate::common::thing::module::{BaseModuleData, CapturedModuleData};
@@ -2988,30 +2992,51 @@ impl ThingTemplate {
         &mut self,
         properties: &HashMap<String, String>,
         load_type: crate::common::ini::INILoadType,
-        mut module_factory: Option<&mut ModuleFactory>,
+        module_factory: Option<&mut ModuleFactory>,
     ) -> Result<(), String> {
-        // Compatibility for explicit flattened HashMaps without captured
-        // block headers. Actual loaders always record the header and ordinal.
-        if !has_object_field(properties, "WeaponSet") {
-            self.load_weapon_sets_from_properties(properties, None)?;
-        }
-        if !has_object_field(properties, "ArmorSet") {
-            self.load_armor_sets_from_properties(properties, None)?;
-        }
-        if !has_object_field(properties, "UnitSpecificSounds") {
-            self.load_per_unit_sounds_from_properties(properties, "UnitSpecificSounds");
-        }
-        if !has_object_field(properties, "UnitSpecificFX") {
-            self.load_per_unit_fx_from_properties(properties, "UnitSpecificFX");
-        }
-        if !has_object_field(properties, "Prerequisites") {
-            self.load_prerequisites_from_properties(properties, "Prerequisites", load_type);
+        self.parse_object_fields_with_policy(properties, load_type, module_factory, false)
+    }
+
+    fn parse_object_fields_with_policy(
+        &mut self,
+        properties: &HashMap<String, String>,
+        load_type: crate::common::ini::INILoadType,
+        mut module_factory: Option<&mut ModuleFactory>,
+        strict: bool,
+    ) -> Result<(), String> {
+        if !strict {
+            // Compatibility for explicit flattened HashMaps without captured
+            // block headers. Actual loaders always record the header and ordinal.
+            if !has_object_field(properties, "WeaponSet") {
+                self.load_weapon_sets_from_properties(properties, None)?;
+            }
+            if !has_object_field(properties, "ArmorSet") {
+                self.load_armor_sets_from_properties(properties, None)?;
+            }
+            if !has_object_field(properties, "UnitSpecificSounds") {
+                self.load_per_unit_sounds_from_properties(properties, "UnitSpecificSounds");
+            }
+            if !has_object_field(properties, "UnitSpecificFX") {
+                self.load_per_unit_fx_from_properties(properties, "UnitSpecificFX");
+            }
+            if !has_object_field(properties, "Prerequisites") {
+                self.load_prerequisites_from_properties(properties, "Prerequisites", load_type);
+            }
         }
 
         for field in ObjectIniFields::new(properties).declarations() {
             let key = field.key();
             let value = field.value();
-            let base_key = field.name();
+            let authored_key = field.name();
+            let base_key = if strict {
+                CPP_OBJECT_FIELDS
+                    .iter()
+                    .copied()
+                    .find(|name| name.eq_ignore_ascii_case(authored_key))
+                    .unwrap_or(authored_key)
+            } else {
+                authored_key
+            };
             let trimmed = value.trim();
             if is_module_object_field(base_key) || is_module_operation_field(base_key) {
                 self.load_module_field(
@@ -3021,8 +3046,21 @@ impl ThingTemplate {
                     properties,
                     load_type,
                     &mut module_factory,
+                    strict,
                 )?;
                 continue;
+            }
+            // Strict receiving validation covers module grammar and its
+            // declaration-time context only. Scalar/content domains retain
+            // their existing explicit admission paths; do not reach their
+            // ambient definition/translation adapters here.
+            if strict {
+                if !is_cpp_object_field(base_key, true) {
+                    return Err(format!("Unknown Object field '{base_key}'"));
+                }
+                if !matches!(base_key, "KindOf" | "IsTrainable") {
+                    continue;
+                }
             }
             match base_key {
                 "WeaponSet" => {
@@ -3158,6 +3196,11 @@ impl ThingTemplate {
                     parse_int_list_into(trimmed, &mut self.experience_required);
                 }
                 "IsTrainable" => {
+                    if strict {
+                        self.is_trainable = parse_bool_simple(trimmed)
+                            .map_err(|_| format!("Invalid IsTrainable boolean: {trimmed}"))?;
+                        continue;
+                    }
                     if let Ok(v) = parse_bool_simple(trimmed) {
                         self.is_trainable = v;
                     }

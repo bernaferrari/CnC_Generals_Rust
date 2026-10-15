@@ -200,7 +200,7 @@ const GRANT_STEALTH_BEHAVIOR_FIELDS: &[FieldParse<GrantStealthBehaviorModuleData
 
 impl GrantStealthBehaviorModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields_allow_unknown(self, GRANT_STEALTH_BEHAVIOR_FIELDS)
+        ini.init_from_ini_with_fields(self, GRANT_STEALTH_BEHAVIOR_FIELDS)
     }
 }
 

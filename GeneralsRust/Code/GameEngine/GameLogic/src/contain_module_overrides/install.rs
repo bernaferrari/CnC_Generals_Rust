@@ -1351,7 +1351,9 @@ pub fn register_native_module_overrides(
     register_module_overrides(factory)?;
     super::register_inert_auto_heal(factory)?;
     super::register_owned_death_constructors(factory)?;
-    super::register_inert_active_body(factory)
+    super::register_inert_active_body(factory)?;
+    super::strict_module_data::register_native_data_parsers(factory);
+    Ok(())
 }
 
 /// Compatibility startup initializes the current factory owner every time.

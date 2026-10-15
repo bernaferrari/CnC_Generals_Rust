@@ -20,6 +20,7 @@ pub use template_metadata::{
 
 mod template;
 pub(crate) use template::BodyKind;
+pub(crate) use template::ReceivingDrawModels;
 pub use template::ThingTemplate;
 mod build_prerequisites;
 pub(crate) use build_prerequisites::PrerequisiteDefinitions;

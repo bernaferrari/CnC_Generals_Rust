@@ -425,7 +425,12 @@ impl CnCGameEngine {
         obj: &Object,
         _render_pass: &mut wgpu::RenderPass<'a>,
     ) {
-        let model_name = obj.get_template().get_model_name();
+        let model_name = &obj
+            .get_template()
+            .model_name_for_conditions(obj.model_condition_bits);
+        if model_name.is_empty() {
+            return;
+        }
 
         log::trace!(
             "Render object {} template '{}' model '{}' (cached={})",
@@ -435,10 +440,11 @@ impl CnCGameEngine {
             self.graphics_system.get_model(model_name).is_some()
         );
 
-        let w3d_model = self
-            .graphics_system
-            .get_model(model_name)
-            .or_else(|| self.graphics_system.get_model(&obj.template_name));
+        let w3d_model = self.graphics_system.get_model(model_name).or_else(|| {
+            (!obj.get_template().has_authored_no_model())
+                .then(|| self.graphics_system.get_model(&obj.template_name))
+                .flatten()
+        });
 
         if let Some(w3d_model) = w3d_model {
             let total_vertices: usize = w3d_model

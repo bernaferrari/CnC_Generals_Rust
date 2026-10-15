@@ -594,11 +594,16 @@ impl PresentationFrame {
                     model_key: base_model_key.clone(),
                     ..Default::default()
                 });
-            let draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
-                &obj.template_name,
-                fallback_draw_models.as_slice(),
-                model_condition_bits,
-            );
+            let draw_models = obj
+                .get_template()
+                .authored_draw_models_for_conditions(model_condition_bits)
+                .unwrap_or_else(|| {
+                    crate::assets::resolve_presentation_draw_models_for_conditions(
+                        &obj.template_name,
+                        fallback_draw_models.as_slice(),
+                        model_condition_bits,
+                    )
+                });
             let model_key = draw_models.first().map(|model| model.model_key.clone());
             // Wave 75: freeze mesh scale residual (common combat = 1.0; CINE/weapon peels).
             let mesh_scale = {
@@ -672,6 +677,7 @@ impl PresentationFrame {
                 obj.team
             };
             let renderable = RenderableObject {
+                receiving_draw_models: obj.get_template().receiving_draw_models(),
                 status_tint: [0.0; 3],
                 draw_playback_identity: Some(logic.live_draw_playback_identity(obj)),
                 id: obj.id,
@@ -1269,6 +1275,15 @@ impl PresentationFrame {
             };
             direct_host_drawables.push(PresentationDirectHostDrawable {
                 object: renderable.clone(),
+                receiving_visual_draw_models: logic
+                    .templates
+                    .get(&visual_template_name)
+                    .and_then(|template| template.receiving_draw_models())
+                    .or_else(|| {
+                        (visual_template_name == obj.get_template().name)
+                            .then(|| obj.get_template().receiving_draw_models())
+                            .flatten()
+                    }),
                 visual_template_name,
                 visual_mesh_scale,
                 // Direct Object lifetime is host roster presence.  Do not

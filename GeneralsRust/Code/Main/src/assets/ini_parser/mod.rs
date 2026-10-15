@@ -15,6 +15,7 @@ use anyhow::Result;
 use log::{debug, trace};
 use std::collections::HashMap;
 
+mod captured_object_source;
 mod client_module_declarations;
 mod objects;
 mod parser;
@@ -29,3 +30,5 @@ mod override_field_order_tests;
 pub use objects::*;
 pub use parser::*;
 pub use types::*;
+
+pub(crate) use captured_object_source::{CapturedObjectKind, CapturedObjectSource};

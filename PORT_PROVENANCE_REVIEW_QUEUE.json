@@ -18627,6 +18627,7 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_factory.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/module_fields.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/receiving_candidate.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template_snapshot.rs"
           ],
           "candidate_destinations": [
@@ -18724,6 +18725,16 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/module_fields.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/receiving_candidate.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/receiving_candidate_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -18939,6 +18950,7 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/object_ini_fields.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/module_fields.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/receiving_candidate.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template_snapshot.rs"
           ],
           "candidate_destinations": [
@@ -18976,6 +18988,16 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/module_fields.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/receiving_candidate.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template/receiving_candidate_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -21164,6 +21186,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/presentation_specialized_draw.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/replay_header_offsets_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -189606,7 +189633,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "f2a3a18ff0b384a5321caaa6f4303ed08b3081b14e6547d0be91be90b05c21d1",
+  "provenance_input_digest": "f011dc2631e457433d2fda3a3569978649b1a19e1fab4f6b669c61ea369b6a87",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

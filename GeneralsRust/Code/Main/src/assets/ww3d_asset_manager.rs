@@ -216,7 +216,9 @@ impl WW3DAssetManager {
         mut parent: ObjectDefinition,
         child: ObjectDefinition,
     ) -> ObjectDefinition {
+        let source_declarations = ObjectDefinition::inherited_source_declarations(&parent, &child);
         let initial_context = parent.client_module_parse_context;
+        parent.source_declarations = source_declarations;
         parent.name = child.name.clone();
         parent.parent_name = child.parent_name.clone();
 
@@ -352,6 +354,8 @@ impl WW3DAssetManager {
         default: ObjectDefinition,
         mut child: ObjectDefinition,
     ) -> ObjectDefinition {
+        child.source_declarations =
+            ObjectDefinition::inherited_source_declarations(&default, &child);
         child.resolve_client_modules(&default.client_modules, default.client_module_parse_context);
         child.attributes = Self::overlay_ini_attributes(default.attributes, child.attributes);
 
@@ -1264,5 +1268,191 @@ mod client_module_inheritance_tests {
         assert!(names.iter().any(|name| name == "VEHICLE"));
         assert!(names.iter().any(|name| name == "STRUCTURE"));
         assert!(child.client_module_parse_context.trainable);
+    }
+}
+
+#[cfg(test)]
+mod captured_source_lineage_tests {
+    use super::*;
+
+    #[test]
+    fn resolved_source_keeps_default_parent_child_and_override_as_separate_operations() {
+        let mut parser = IniParser::new();
+        parser.parse_ini_content("Object DefaultThingTemplate\nBody = InactiveBody DefaultBody\nEnd\nEnd\nObject Parent\nDraw = W3DModelDraw ParentDraw\nEnd\nEnd\nChildObject Child Parent\nClientUpdate = SwayClientUpdate ChildUpdate\nEnd\nEnd", "lineage.ini").unwrap();
+        let default = parser
+            .get_definition("DefaultThingTemplate")
+            .unwrap()
+            .clone();
+        let parent = WW3DAssetManager::merge_default_thing_template(
+            default,
+            parser.get_definition("Parent").unwrap().clone(),
+        );
+        let child = WW3DAssetManager::merge_definition_inheritance(
+            parent,
+            parser.get_definition("Child").unwrap().clone(),
+        );
+        let history = child.source_declarations.as_ref().unwrap();
+        assert_eq!(
+            history
+                .iter()
+                .map(|source| source.name.as_str())
+                .collect::<Vec<_>>(),
+            ["DefaultThingTemplate", "Parent", "Child"]
+        );
+        assert_eq!(
+            history[2].kind,
+            crate::assets::ini_parser::CapturedObjectKind::ChildObject
+        );
+        assert_eq!(
+            parser
+                .get_definition("Child")
+                .unwrap()
+                .source_declarations
+                .as_ref()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+}
+
+#[cfg(test)]
+mod strict_receiving_source_tests {
+    use super::*;
+    use game_engine::common::thing::module_factory::ModuleFactory;
+    use game_engine::common::thing::thing_template::ObjectIniFields;
+
+    fn catalog() -> ModuleFactory {
+        let mut factory = ModuleFactory::new();
+        gamelogic::contain_module_overrides::register_native_module_overrides(&mut factory)
+            .unwrap();
+        factory
+    }
+
+    fn parse(name: &str, body: &str) -> ObjectDefinition {
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(
+                &format!("Object {name}\n{body}\nEnd"),
+                "strict-receiving.ini",
+            )
+            .unwrap();
+        parser.get_definition(name).unwrap().clone()
+    }
+
+    #[test]
+    fn strict_receiving_source_uses_actual_typed_catalog_and_leaves_same_name_worlds_untouched() {
+        let valid = parse(
+            "Receiving",
+            "Body = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\nClientUpdate = SwayClientUpdate ClientTag\nEnd",
+        );
+        let factory = catalog();
+        let candidate = valid.validate_receiving_module_source(&factory).unwrap();
+        let summary = candidate.summary();
+        assert_eq!(summary.name, "Receiving");
+        assert_eq!(summary.behavior.len(), 1);
+        assert_eq!(summary.client_update.len(), 1);
+        let mut world = crate::game_logic::GameLogic::new();
+        world.templates.insert(
+            "Receiving".into(),
+            crate::game_logic::GameLogic::build_template_from_object_definition(
+                "Receiving",
+                &valid,
+                None,
+            ),
+        );
+        let id = world
+            .create_object("Receiving", crate::game_logic::Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        let previous = world.host_object(id).unwrap().clone();
+        let peer_definition = parse(
+            "Receiving",
+            "Body = ActiveBody PeerBody\nMaxHealth = 90\nInitialHealth = 70\nEnd\nClientUpdate = SwayClientUpdate PeerTag\nEnd",
+        );
+        let mut peer = crate::game_logic::GameLogic::new();
+        peer.templates.insert(
+            "Receiving".into(),
+            crate::game_logic::GameLogic::build_template_from_object_definition(
+                "Receiving",
+                &peer_definition,
+                None,
+            ),
+        );
+        let peer_id = peer
+            .create_object("Receiving", crate::game_logic::Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        assert_eq!(id, peer_id);
+        for malformed in [
+            "Body = ActiveBody Shared\nMaxHealth = 40\nEnd\nDraw = W3DModelDraw Shared\nEnd",
+            "ClientUpdate = SwayClientUpdate ClientTag\nUnknownField = 7\nEnd",
+            "Draw = MissingNativeClass DrawTag\nEnd",
+        ] {
+            let bad = parse("Receiving", malformed);
+            assert!(bad.validate_receiving_module_source(&factory).is_err());
+            assert_eq!(world.host_objects().len(), 1);
+            assert_eq!(
+                world.host_object(id).unwrap().health.current,
+                previous.health.current
+            );
+            assert_eq!(
+                world.host_object(id).unwrap().visual_object_generation,
+                previous.visual_object_generation
+            );
+        }
+        assert_eq!(peer.host_object(peer_id).unwrap().health.current, 70.0);
+        assert_eq!(peer.host_object(peer_id).unwrap().health.maximum, 90.0);
+        assert_eq!(
+            valid
+                .validate_receiving_module_source(&factory)
+                .unwrap()
+                .summary()
+                .client_update
+                .len(),
+            1
+        );
+        assert!(
+            parse("Receiving", "ClientUpdate = SwayClientUpdate PeerTag\nEnd")
+                .validate_receiving_module_source(&catalog())
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn strict_receiving_source_replays_parent_then_exact_override_and_rejects_reskin_grammar() {
+        let mut parser = IniParser::new();
+        parser.parse_ini_content("Object Parent\nBody = ActiveBody BodyTag\nMaxHealth = 40\nEnd\nClientUpdate = SwayClientUpdate Original\nEnd\nEnd\nChildObject Child Parent\nAddModule\nDraw = W3DDefaultDraw DrawTag\nEnd\nEnd\nEnd\nObjectReskin Bad Parent\nClientUpdate = SwayClientUpdate Forbidden\nEnd\nEnd", "strict-lineage.ini").unwrap();
+        let parent = parser.get_definition("Parent").unwrap().clone();
+        let mut child = WW3DAssetManager::merge_definition_inheritance(
+            parent.clone(),
+            parser.get_definition("Child").unwrap().clone(),
+        );
+        let lines = [
+            "RemoveModule Original",
+            "AddModule",
+            "ClientUpdate = SwayClientUpdate Replacement",
+            "End",
+            "End",
+            "End",
+        ];
+        let (properties, _) = ObjectIniFields::capture_body(&lines, 0);
+        child.apply_create_override_properties(&properties);
+        let summary = child
+            .validate_receiving_module_source(&catalog())
+            .unwrap()
+            .summary();
+        assert_eq!(summary.name, "Child");
+        assert_eq!(summary.draw.len(), 1);
+        assert_eq!(summary.client_update.len(), 1);
+        assert_eq!(summary.client_update[0].module_tag.as_str(), "Replacement");
+        let bad = WW3DAssetManager::merge_definition_inheritance(
+            parent,
+            parser.get_definition("Bad").unwrap().clone(),
+        );
+        assert!(bad.validate_receiving_module_source(&catalog()).is_err());
+        assert!(
+            ObjectDefinition::new("Uncaptured".into())
+                .validate_receiving_module_source(&catalog())
+                .is_err()
+        );
     }
 }

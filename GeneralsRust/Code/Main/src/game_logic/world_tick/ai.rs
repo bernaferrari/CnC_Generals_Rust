@@ -321,7 +321,9 @@ impl GameLogic {
                         (
                             o.get_position(),
                             o.get_orientation(),
-                            o.thing().template.get_model_name().to_string(),
+                            o.thing()
+                                .template
+                                .model_name_for_conditions(o.model_condition_bits),
                             o.thing().template.asset_scale,
                         )
                     })
@@ -433,7 +435,9 @@ impl GameLogic {
                     (
                         o.get_position(),
                         o.get_orientation(),
-                        o.thing().template.get_model_name().to_string(),
+                        o.thing()
+                            .template
+                            .model_name_for_conditions(o.model_condition_bits),
                         o.thing().template.asset_scale,
                         o.drawable_hidden,
                     )

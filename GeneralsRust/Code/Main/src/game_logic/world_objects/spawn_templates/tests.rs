@@ -1777,7 +1777,7 @@ End
     }
 
     #[test]
-    fn exact_retail_catalogue_seed_preserves_data_and_never_overwrites_curated_templates() {
+    fn exact_retail_catalogue_seed_preserves_curated_health_and_admits_authored_art() {
         let mut logic = GameLogic::new();
         let mut curated = ThingTemplate::new("AmericaTankCrusader");
         curated.set_health(777.0).set_model("CuratedExactModel");
@@ -1832,10 +1832,7 @@ End
             .get("AmericaTankCrusader")
             .expect("curated template retained");
         assert_eq!(curated_after.max_health, 777.0);
-        assert_eq!(
-            curated_after.model_name.as_deref(),
-            Some("CuratedExactModel")
-        );
+        assert_eq!(curated_after.model_name.as_deref(), Some("AVCrusader"));
         assert!((curated_after.asset_scale - 0.9).abs() < f32::EPSILON);
 
         let added = logic

@@ -775,6 +775,9 @@ pub fn honesty_projectile_object_model_key_residual_ok() -> bool {
 }
 
 pub fn model_key_from_template(template: &ThingTemplate) -> String {
+    if template.has_authored_no_model() {
+        return String::new();
+    }
     if let Some(model) = template
         .model_name
         .as_deref()

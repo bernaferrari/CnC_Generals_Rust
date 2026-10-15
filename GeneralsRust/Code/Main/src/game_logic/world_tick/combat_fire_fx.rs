@@ -142,7 +142,9 @@ impl GameLogic {
             };
             (
                 obj.body_damage_state.ordinal(),
-                obj.thing().template.get_model_name().to_string(),
+                obj.thing()
+                    .template
+                    .model_name_for_conditions(obj.model_condition_bits),
                 obj.thing().template.asset_scale,
                 obj.get_orientation(),
             )
@@ -163,7 +165,10 @@ impl GameLogic {
             obj.model_condition_bits,
         );
         let pos = obj.get_position();
-        let model = obj.thing().template.get_model_name().to_string();
+        let model = obj
+            .thing()
+            .template
+            .model_name_for_conditions(obj.model_condition_bits);
         let scale = obj.thing().template.asset_scale;
         let yaw = obj.get_orientation();
         let frame = self.frame;
@@ -184,7 +189,9 @@ impl GameLogic {
                     *id,
                     obj.get_position(),
                     obj.template_name.clone(),
-                    obj.thing().template.get_model_name().to_string(),
+                    obj.thing()
+                        .template
+                        .model_name_for_conditions(obj.model_condition_bits),
                     obj.thing().template.asset_scale,
                     obj.get_orientation(),
                     obj.model_condition_bits,

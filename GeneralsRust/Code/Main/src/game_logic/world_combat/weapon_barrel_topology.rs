@@ -84,7 +84,12 @@ impl GameLogic {
             return None;
         }
         let object = self.objects.get(&source)?;
-        if object.template_name.trim().is_empty() {
+        if object.template_name.trim().is_empty()
+            || object
+                .get_template()
+                .authored_draw_models_for_conditions(object.model_condition_bits)
+                .is_some_and(|models| models.is_empty())
+        {
             return None;
         }
 
@@ -127,7 +132,10 @@ impl GameLogic {
         // numbered FireFX record reuses the previous numbered FX pivot when
         // its own pivot is missing (retail multi-flash exception); the
         // unadorned base is the single-barrel name.
-        let model_name = object.thing().template.get_model_name();
+        let model_name = &object
+            .thing()
+            .template
+            .model_name_for_conditions(object.model_condition_bits);
         let scale = object.thing().template.asset_scale;
         let mut pose = None;
         for index in (1..=u32::from(fired_barrel) + 1).rev() {

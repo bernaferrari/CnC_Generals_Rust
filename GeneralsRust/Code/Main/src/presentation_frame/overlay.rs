@@ -212,21 +212,27 @@ impl PresentationFrame {
             // condition bank.  Do not carry an older pristine `model_key`
             // over a damaged/construction state, and do not synthesize a
             // suffix after the source state resolver has chosen a model.
-            let fallback_model_key = crate::assets::mesh_asset_resolve::model_key_from_presentation(
-                (!ent.model_key.is_empty()).then_some(ent.model_key.as_str()),
-                &ent.template.name,
-            );
-            let fallback_draw_models =
-                (!fallback_model_key.trim().is_empty()).then(|| crate::assets::AuthoredDrawModel {
-                    module_index: 0,
-                    model_key: fallback_model_key.clone(),
-                    ..Default::default()
+            let draw_models = if let Some(models) = obj.receiving_draw_models.as_deref() {
+                models.select(ent.model_condition_bits)
+            } else {
+                let fallback_model_key =
+                    crate::assets::mesh_asset_resolve::model_key_from_presentation(
+                        (!ent.model_key.is_empty()).then_some(ent.model_key.as_str()),
+                        &ent.template.name,
+                    );
+                let fallback_draw_models = (!fallback_model_key.trim().is_empty()).then(|| {
+                    crate::assets::AuthoredDrawModel {
+                        module_index: 0,
+                        model_key: fallback_model_key,
+                        ..Default::default()
+                    }
                 });
-            let draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
-                &ent.template.name,
-                fallback_draw_models.as_slice(),
-                ent.model_condition_bits,
-            );
+                crate::assets::resolve_presentation_draw_models_for_conditions(
+                    &ent.template.name,
+                    fallback_draw_models.as_slice(),
+                    ent.model_condition_bits,
+                )
+            };
             let model_key = draw_models.first().map(|model| model.model_key.clone());
             if obj.model_key != model_key {
                 obj.model_key = model_key;
@@ -1422,6 +1428,7 @@ impl PresentationFrame {
         );
         let model_key = draw_models.first().map(|model| model.model_key.clone());
         RenderableObject {
+            receiving_draw_models: None,
             status_tint: [0.0; 3],
             draw_playback_identity: None,
             id: host_id,

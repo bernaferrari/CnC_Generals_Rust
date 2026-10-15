@@ -561,7 +561,10 @@ impl GameLogic {
         let Some(dock) = self.objects.get(&dock_id) else {
             return Vec::new();
         };
-        let model = dock.thing().template.get_model_name();
+        let model = &dock
+            .thing()
+            .template
+            .model_name_for_conditions(dock.model_condition_bits);
         let scale = dock.thing().template.asset_scale;
         let pos = dock.get_position();
         let yaw = dock.get_orientation();

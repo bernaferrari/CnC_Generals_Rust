@@ -303,3 +303,6 @@ mod tests;
 
 #[cfg(test)]
 mod client_module_admission_tests;
+
+#[cfg(test)]
+mod model_less_template_tests;

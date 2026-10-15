@@ -827,7 +827,10 @@ impl Object {
             self.id.0,
             self.get_position(),
             self.get_orientation(),
-            self.thing.template.get_model_name(),
+            &self
+                .thing
+                .template
+                .model_name_for_conditions(self.model_condition_bits),
             self.thing.template.asset_scale,
             source,
         );

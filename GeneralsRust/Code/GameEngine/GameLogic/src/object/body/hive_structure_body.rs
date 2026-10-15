@@ -120,8 +120,12 @@ const HIVE_STRUCTURE_BODY_FIELDS: &[FieldParse<HiveStructureBodyModuleData>] = &
 
 impl HiveStructureBodyModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        self.base.parse_from_ini(ini)?;
-        ini.init_from_ini_with_fields(self, HIVE_STRUCTURE_BODY_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base.base,
+            super::active_body::ACTIVE_BODY_FIELDS,
+            HIVE_STRUCTURE_BODY_FIELDS,
+        )
     }
 }
 

@@ -397,7 +397,10 @@ impl GameLogic {
             let object = self.objects.get(&id).unwrap();
             let pose = object.get_position();
             let bone = gamelogic::object::draw::lookup_pristine_bone_translation(
-                object.thing().template.get_model_name(),
+                &object
+                    .thing()
+                    .template
+                    .model_name_for_conditions(object.model_condition_bits),
                 object.thing().template.asset_scale,
                 &data.welding_bone,
             );

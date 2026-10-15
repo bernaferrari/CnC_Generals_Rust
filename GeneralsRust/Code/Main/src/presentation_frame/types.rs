@@ -373,6 +373,11 @@ fn default_terrain_decal_none() -> u8 {
 /// One renderable object as seen after a completed logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderableObject {
+    /// Actual receiving condition table, retained through diagnostic overlays.
+    /// Runtime-only content is rebound by building a frame from its session.
+    #[serde(skip)]
+    pub(crate) receiving_draw_models:
+        Option<std::sync::Arc<crate::game_logic::thing::ReceivingDrawModels>>,
     /// Ephemeral client sample; durable envelope bytes remain in DrawableXferPersist.
     #[serde(skip)]
     pub(crate) status_tint: [f32; 3],
@@ -1088,6 +1093,8 @@ pub struct PresentationDirectHostDrawable {
     /// `disguise_as_template`; otherwise this is the immutable ThingTemplate
     /// name, never the mutable Object `template_name` bookkeeping field.
     pub visual_template_name: String,
+    pub(crate) receiving_visual_draw_models:
+        Option<std::sync::Arc<crate::game_logic::thing::ReceivingDrawModels>>,
     /// Authored instance scale of `visual_template_name`.  C++ destroys and
     /// recreates the Drawable when a disguise visual is committed, so the
     /// replacement template's `ThingTemplate::asset_scale` must replace both

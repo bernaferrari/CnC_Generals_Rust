@@ -22,6 +22,8 @@ use serde::{Deserialize, Serialize};
 
 mod alive;
 mod apply;
+#[cfg(test)]
+mod authored_model_owner_tests;
 mod build;
 mod events;
 mod floating_text;

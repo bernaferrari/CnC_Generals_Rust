@@ -351,10 +351,12 @@ fn module_maps<T>() -> ModuleMap<T> {
     std::array::from_fn(|_| HashMap::new())
 }
 
+#[derive(Clone)]
 pub struct ModuleFactory {
     module_template_map: ModuleMap<ModuleTemplate>,
     module_overrides: ModuleMap<ModuleOverride>,
     module_data_list: Vec<Arc<dyn ModuleData>>,
+    fallible_data_constructors: ModuleMap<FallibleModuleDataProc>,
     descriptor_catalog: ModuleMap<TemplateModuleDescriptor>,
     descriptor_order: [Vec<String>; ModuleType::NUM_MODULE_TYPES],
 }
@@ -365,6 +367,8 @@ pub type NewModuleProc =
 
 /// Function pointer type for creating new module data
 pub type NewModuleDataProc = fn(ini: Option<&mut INI>) -> Box<dyn ModuleData>;
+/// Receiving-content admission must preserve the constructor's parse result.
+pub type FallibleModuleDataProc = fn(ini: Option<&mut INI>) -> Result<Box<dyn ModuleData>, String>;
 
 // Stub module creation removed; missing modules must be implemented.
 
@@ -547,6 +551,7 @@ impl ModuleFactory {
             module_template_map: module_maps(),
             module_overrides: module_maps(),
             module_data_list: Vec::new(),
+            fallible_data_constructors: module_maps(),
             descriptor_catalog: module_maps(),
             descriptor_order: std::array::from_fn(|_| Vec::new()),
         };
@@ -581,6 +586,43 @@ impl ModuleFactory {
             format!("Module '{name}' ({module_type:?}) initialization failed: {error}")
         })?;
         Ok(module)
+    }
+
+    /// Install validation on this catalog only; no ambient registration.
+    pub fn register_fallible_data_constructor(
+        &mut self,
+        name: &str,
+        module_type: ModuleType,
+        constructor: FallibleModuleDataProc,
+    ) {
+        self.fallible_data_constructors[module_type as usize].insert(name.to_owned(), constructor);
+    }
+
+    /// Strict admission never substitutes captured/default data for a failed
+    /// or unavailable typed parser. Legacy infallible constructors need an
+    /// explicit fallible adapter before they can certify receiving content.
+    pub(crate) fn new_module_data_from_ini_strict(
+        &mut self,
+        ini: Option<&mut INI>,
+        name: &str,
+        module_type: ModuleType,
+        module_tag: &str,
+    ) -> Result<Arc<dyn ModuleData>, String> {
+        let constructor = self.fallible_data_constructors[module_type as usize]
+            .get(name)
+            .copied()
+            .ok_or_else(|| {
+                format!("Module '{name}' ({module_type:?}) has no fallible data constructor")
+            })?;
+        let mut data = constructor(ini)?;
+        // Validation preserves exact tag strings in ModuleInfo. Numeric tag
+        // identity is admitted only by the receiving runtime's key owner;
+        // detached validation must never allocate from the ambient registry.
+        let _ = module_tag;
+        data.set_module_tag_name_key(crate::common::name_key_generator::NAMEKEY_INVALID);
+        let data: Arc<dyn ModuleData> = Arc::from(data);
+        self.module_data_list.push(data.clone());
+        Ok(data)
     }
 
     /// Create module data from INI

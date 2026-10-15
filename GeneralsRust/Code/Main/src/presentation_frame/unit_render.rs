@@ -110,6 +110,8 @@ fn authored_supply_crate_subobject_visibility(
 /// (see OWNERSHIP residual notes — fail-closed vs full material/animation parity).
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnitRenderInput {
+    pub(crate) receiving_draw_models:
+        Option<std::sync::Arc<crate::game_logic::thing::ReceivingDrawModels>>,
     pub id: ObjectId,
     pub template_name: String,
     /// Primary model retained for backwards-compatible callers. The WGPU mesh
@@ -359,6 +361,7 @@ impl UnitRenderInput {
             .map(|model| model.model_key.clone())
             .unwrap_or_default();
         Self {
+            receiving_draw_models: ro.receiving_draw_models.clone(),
             id: ro.id,
             template_name: ro.template_name.clone(),
             model_key,
@@ -515,11 +518,18 @@ impl UnitRenderInput {
     /// the renderer.
     pub(crate) fn resolve_draw_models_for_frozen_conditions(&mut self) {
         let fallback_draw_models = self.draw_models.clone();
-        let dest = crate::assets::resolve_presentation_draw_models_for_conditions(
-            &self.template_name,
-            &fallback_draw_models,
-            self.model_condition_bits_with_combat_flags(),
-        );
+        let bits = self.model_condition_bits_with_combat_flags();
+        let dest = self
+            .receiving_draw_models
+            .as_deref()
+            .map(|models| models.select(bits))
+            .unwrap_or_else(|| {
+                crate::assets::resolve_presentation_draw_models_for_conditions(
+                    &self.template_name,
+                    &fallback_draw_models,
+                    bits,
+                )
+            });
         self.draw_models = dest;
         self.model_key = self
             .draw_models
@@ -538,6 +548,9 @@ impl UnitRenderInput {
             fallback_draw_models,
             self.model_condition_bits_with_combat_flags(),
         );
+        // This explicit different visual identity is not the original
+        // Object's table. Its receiving catalogue is a separate migration.
+        self.receiving_draw_models = None;
         self.template_name = template_name.to_owned();
         self.draw_models = dest;
         self.model_key = self
