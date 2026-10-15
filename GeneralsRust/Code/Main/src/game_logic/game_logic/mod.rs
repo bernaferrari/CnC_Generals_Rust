@@ -13,6 +13,7 @@ pub(self) use prelude::*;
 
 mod ambient_sound_retries;
 mod authority;
+mod camera_continuation;
 mod construct;
 mod crate_tick;
 mod host;
@@ -21,6 +22,7 @@ mod player;
 #[path = "../score_academy.rs"]
 mod score_academy;
 mod script_camera;
+pub(crate) use camera_continuation::LogicCameraContinuation;
 
 pub(self) use ambient_sound_retries::AmbientSoundRetries;
 pub(self) use authority::DestructionEvent;

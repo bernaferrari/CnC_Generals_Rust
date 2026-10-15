@@ -91,6 +91,7 @@ impl SnapshotBuilder {
                 let mut bytes = super::super::lifecycle_tail::encode_lifecycle_tail(
                     &super::super::lifecycle_tail::capture_lifecycle_tail(game_logic)?,
                 );
+                super::super::camera_continuation::append(&mut bytes, game_logic)?;
                 super::super::combat_projectile_persist::append(&mut bytes, game_logic)?;
                 super::super::body_kind_persist::append(&mut bytes, game_logic)?;
                 super::super::native_lifecycle_persist::append(&mut bytes, game_logic)?;
@@ -296,6 +297,8 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        let camera_continuation =
+            super::super::camera_continuation::decode(&snapshot.lifecycle_tail)?;
         if !game_logic.combat_particles().can_clear() {
             return Err(SaveLoadError::Corrupted(
                 "snapshot replacement requires the actual live receiving particle manager".into(),
@@ -693,6 +696,9 @@ impl SnapshotBuilder {
         // CPP TurretAI::loadPostProcess361–365 derives the initial team
         // from the loaded target rather than saving a stale team surrogate.
         game_logic.resolve_owned_turret_targets_after_load()?;
+        if let Some(camera) = camera_continuation {
+            game_logic.admit_camera_continuation(camera.logic);
+        }
         log::info!("World restoration complete");
         Ok(())
     }

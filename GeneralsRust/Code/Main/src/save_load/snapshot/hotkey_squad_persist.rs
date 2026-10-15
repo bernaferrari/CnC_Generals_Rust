@@ -36,6 +36,8 @@ struct PlayerHotkeySquadPersist {
 #[derive(Debug, Clone, Default)]
 pub struct ClientSaveState {
     pub camera: Option<super::CameraPersist>,
+    /// Versioned native camera state captured from the same driving engine.
+    pub camera_continuation: Option<Vec<u8>>,
     pub control_groups: Option<ControlGroupSave>,
 }
 

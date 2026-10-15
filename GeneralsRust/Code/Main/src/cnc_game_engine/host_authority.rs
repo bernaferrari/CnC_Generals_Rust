@@ -16,6 +16,7 @@ struct StagedRestoreWorld {
     /// Decoded client state stays detached until the candidate world commits.
     game_client_xfer_bytes: Option<Vec<u8>>,
     client_persist: crate::save_load::snapshot::WorldPersistV18,
+    camera_continuation: Option<NativeCameraContinuation>,
     /// Detached groups decoded before candidate admission; no pending slot.
     control_groups: Option<std::collections::HashMap<i32, std::collections::HashMap<u8, Vec<u32>>>>,
     /// Driving-instance Rust RNG state capsule captured at save time.
@@ -1178,6 +1179,7 @@ impl CnCGameEngine {
             client_drawables,
             game_client_xfer_bytes,
             client_persist,
+            camera_continuation,
             mut control_groups,
             logic_rng_seed_words,
         } = staged;
@@ -1254,7 +1256,10 @@ impl CnCGameEngine {
         );
         self.camera_pitch_radians = 0.0;
         self.camera_yaw_radians = 0.0;
-        if let Some(camera) = client_persist.camera() {
+        let has_camera_continuation = camera_continuation.is_some();
+        if let Some(camera) = camera_continuation {
+            self.admit_camera_continuation(camera);
+        } else if let Some(camera) = client_persist.camera() {
             self.camera_position = glam::Vec3::from_array(camera.position);
             self.camera_target = glam::Vec3::from_array(camera.target);
             self.camera_zoom = camera.zoom;
@@ -1274,13 +1279,16 @@ impl CnCGameEngine {
             self.camera_yaw_radians = camera.angle;
             self.apply_camera_orbit_transform();
         }
-        let (_, render_look) = self.native_camera.basis().pose(
-            self.camera_target,
-            self.camera_zoom,
-            self.camera_pitch_radians,
-            self.camera_yaw_radians,
-        );
-        self.view_matrix = glam::Mat4::look_at_rh(self.camera_position, render_look, glam::Vec3::Y);
+        if !has_camera_continuation {
+            let (_, render_look) = self.native_camera.basis().pose(
+                self.camera_target,
+                self.camera_zoom,
+                self.camera_pitch_radians,
+                self.camera_yaw_radians,
+            );
+            self.view_matrix =
+                glam::Mat4::look_at_rh(self.camera_position, render_look, glam::Vec3::Y);
+        }
         // Keep the client companion staged until the first complete frozen
         // frame after the successful world replacement. Actual collection
         // validates source identity against that receiving frame and removes
@@ -1336,6 +1344,7 @@ impl CnCGameEngine {
         };
         let client_save = crate::save_load::snapshot::ClientSaveState {
             camera: Some(camera),
+            camera_continuation: Some(self.capture_camera_continuation()?),
             control_groups: Some(crate::save_load::snapshot::ControlGroupSave {
                 player_index: self.current_player_id as i32,
                 groups: self
@@ -1525,6 +1534,10 @@ impl CnCGameEngine {
             &mut crate::game_logic::GameLogic,
         ) -> Result<(), String>,
     {
+        // Decode all camera owner state before map staging can touch shared services.
+        let camera_continuation =
+            crate::save_load::snapshot::read_native_camera_continuation(&snapshot.lifecycle_tail)
+                .map_err(|err| format!("{err}"))?;
         // Validate detached view data before map staging can touch shared services.
         if let Some(camera) = snapshot.persist_v18.camera() {
             camera.validate().map_err(|err| format!("{err}"))?;
@@ -1623,6 +1636,7 @@ impl CnCGameEngine {
             client_drawables: snapshot.client_drawables.clone(),
             game_client_xfer_bytes,
             client_persist: snapshot.persist_v18.clone(),
+            camera_continuation,
             control_groups,
             logic_rng_seed_words: snapshot.logic_rng_seed_words,
         })

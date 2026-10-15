@@ -61,6 +61,10 @@
 mod ai;
 mod battle_plan_persist;
 mod builder;
+mod camera_continuation;
+pub(crate) use camera_continuation::{
+    read_native_camera_continuation, write_native_camera_continuation,
+};
 
 mod ability_hijack_persist;
 mod booby_trap_persist;

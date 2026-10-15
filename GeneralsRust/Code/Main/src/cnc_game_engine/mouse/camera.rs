@@ -1090,7 +1090,7 @@ impl CnCGameEngine {
     /// C++ `LookAtXlat.cpp:50-76` `setScrolling` / `stopScrolling`.
     ///
     /// Every exclusive scroll type (KEY / RMB / SCREENEDGE) mouse-locks the
-    /// tactical view and sets InGameUI scrolling so WindowXlat keeps hover,
+    /// receiving tactical input so WindowXlat keeps hover,
     /// RMB, and MMB off HUD gadgets. Idempotent: RMB start/stop may already
     /// have applied the same flags.
     fn set_lookat_scroll_mouse_lock(&mut self, locked: bool) {
@@ -1100,13 +1100,6 @@ impl CnCGameEngine {
         if locked {
             self.look_at_modes.prev_cursor = self.last_context_cursor;
             self.look_at_modes.mouse_locked = true;
-            #[cfg(feature = "game_client")]
-            {
-                game_client::helpers::TheInGameUI::set_scrolling(true);
-                game_client::display::view::with_tactical_view(|view| {
-                    view.set_mouse_lock(true);
-                });
-            }
             // C++ InGameUI.cpp:2797 setMouseCursor(SCROLL).
             self.last_context_cursor = Some("Scroll");
             self.window.set_cursor(winit::window::CursorIcon::AllScroll);
@@ -1116,13 +1109,6 @@ impl CnCGameEngine {
                 modes.mouse_locked = false;
                 // C++ LookAtXlat.cpp:70 TheMouse->setCursor(prevCursor).
                 let _prev = modes.prev_cursor.take();
-            }
-            #[cfg(feature = "game_client")]
-            {
-                game_client::helpers::TheInGameUI::set_scrolling(false);
-                game_client::display::view::with_tactical_view(|view| {
-                    view.set_mouse_lock(false);
-                });
             }
             self.last_context_cursor = None;
             self.sync_context_mouse_cursor();

@@ -16,7 +16,7 @@ pub(super) struct DisplayInputs {
     pub replay_frame: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(super) struct DisplayAdmission {
     pub sync_time_ms: u32,
     pub sync: bool,
@@ -27,6 +27,14 @@ pub(super) struct DisplayAdmission {
     /// GPU attempt eligibility; Begin_Render/device acquisition remains fallible.
     pub draw_gpu: bool,
     pub fast_camera_only: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(super) struct VisualClockContinuation {
+    sync_ms: u32,
+    previous_sync_ms: u32,
+    last_client_frame: u32,
+    time_multiplier_counter: i32,
 }
 
 pub(super) struct VisualClock {
@@ -44,6 +52,35 @@ impl VisualClock {
             last_client_frame: u32::MAX,
             time_multiplier_counter: 1,
         }
+    }
+
+    pub(super) fn capture_continuation(&self) -> VisualClockContinuation {
+        VisualClockContinuation {
+            sync_ms: self.sync_ms,
+            previous_sync_ms: self.previous_sync_ms,
+            last_client_frame: self.last_client_frame,
+            time_multiplier_counter: self.time_multiplier_counter,
+        }
+    }
+
+    pub(super) fn validate_continuation(state: &VisualClockContinuation) -> Result<(), String> {
+        if state.time_multiplier_counter < 1 {
+            return Err("invalid camera display multiplier counter".into());
+        }
+        Ok(())
+    }
+
+    pub(super) fn admit_continuation(
+        &mut self,
+        state: VisualClockContinuation,
+        saved_client_frame: u32,
+        restored_client_frame: u32,
+    ) {
+        self.sync_ms = state.sync_ms;
+        self.previous_sync_ms = state.previous_sync_ms;
+        self.last_client_frame = restored_client_frame
+            .wrapping_add(state.last_client_frame.wrapping_sub(saved_client_frame));
+        self.time_multiplier_counter = state.time_multiplier_counter;
     }
 
     pub(super) fn admit(&mut self, input: DisplayInputs) -> DisplayAdmission {
@@ -102,6 +139,33 @@ mod tests {
             device_ready: true,
             tivo_replay: false,
             replay_frame: frame,
+        }
+    }
+
+    #[test]
+    fn continuation_preserves_repeat_fast_and_multiplier_history_after_frame_rebase() {
+        let mut original = VisualClock::new();
+        let mut first = input(u32::MAX - 1);
+        first.multiplier = 4;
+        original.admit(first);
+        let state = original.capture_continuation();
+        VisualClock::validate_continuation(&state).unwrap();
+        let mut restored = VisualClock::new();
+        restored.admit_continuation(state, first.client_frame, 100);
+        for (offset, fast, ready) in [
+            (0, false, true),
+            (1, true, true),
+            (2, false, false),
+            (3, false, true),
+            (4, false, true),
+        ] {
+            let mut a = input(first.client_frame.wrapping_add(offset));
+            a.multiplier = 4;
+            a.time_fast = fast;
+            a.device_ready = ready;
+            let mut b = a;
+            b.client_frame = 100_u32.wrapping_add(offset);
+            assert_eq!(original.admit(a), restored.admit(b));
         }
     }
 

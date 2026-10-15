@@ -1013,14 +1013,40 @@ fn key_and_screenedge_scroll_mouse_lock_like_cpp() {
     let helper = src
         .find("fn set_lookat_scroll_mouse_lock")
         .expect("set_lookat_scroll_mouse_lock");
-    let helper_body = &src[helper..src.len().min(helper + 1400)];
+    let helper_body = src[helper..]
+        .split_once("pub(in crate::cnc_game_engine) fn start_rmb_lookat_scroll")
+        .expect("end of scroll lock owner helper")
+        .0;
     assert!(
-        helper_body.contains("modes.mouse_locked = true")
-            && helper_body.contains("TheInGameUI::set_scrolling(true)")
-            && helper_body.contains("view.set_mouse_lock(true)")
-            && helper_body.contains("set_scrolling(false)")
-            && helper_body.contains("view.set_mouse_lock(false)"),
-        "shared setScrolling path must lock/unlock mouse + InGameUI"
+        helper_body.contains("self.look_at_modes.mouse_locked = true")
+            && helper_body.contains("modes.mouse_locked = false")
+            && helper_body.contains("Some(\"Scroll\")")
+            && !helper_body.contains("TheInGameUI::set_scrolling")
+            && !helper_body.contains("with_tactical_view"),
+        "setScrolling must change receiving owner and cursor without a global mirror"
+    );
+    let dispatch = include_str!("ui_dispatch.rs");
+    let facts = dispatch
+        .split_once("fn native_window_mouse_facts(")
+        .unwrap()
+        .1
+        .split_once("pub(in crate::cnc_game_engine) fn dispatch_os_mouse_to_window_manager")
+        .unwrap()
+        .0;
+    assert!(
+        facts.contains("self.look_at_modes.look_at_host_mouse_locked()")
+            && facts.contains("self.look_at_modes.look_at_host_is_scrolling()")
+    );
+    assert_eq!(
+        dispatch.matches("self.native_window_mouse_facts()").count(),
+        3,
+        "button, position and wheel must dispatch with the receiving facts"
+    );
+    assert_eq!(
+        dispatch
+            .matches("game_client::gui::dispatch_os_mouse_to_window_manager_with_facts(")
+            .count(),
+        3
     );
     let cam = src
         .find("fn update_camera(&mut self, dt: f32)")

@@ -31,20 +31,20 @@ pub struct ScriptSoundEvent {
     pub position: Option<Vec3>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraFollowRequest {
     pub object_id: u32,
     pub snap_to_unit: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraTetherRequest {
     pub object_id: u32,
     pub snap_to_unit: bool,
     pub play: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraResetRequest {
     pub position: Vec3,
     pub duration_seconds: f32,
@@ -52,7 +52,7 @@ pub struct CameraResetRequest {
     pub ease_out_seconds: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraZoomRequest {
     pub zoom: f32,
     pub duration_seconds: f32,
@@ -60,7 +60,7 @@ pub struct CameraZoomRequest {
     pub ease_out_seconds: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraPitchRequest {
     pub pitch: f32,
     pub duration_seconds: f32,
@@ -68,7 +68,7 @@ pub struct CameraPitchRequest {
     pub ease_out_seconds: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraRotateRequest {
     pub rotations: f32,
     pub duration_seconds: f32,
@@ -76,41 +76,41 @@ pub struct CameraRotateRequest {
     pub ease_out_seconds: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraModFinalZoomRequest {
     pub zoom: f32,
     pub ease_in: f32,
     pub ease_out: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraModFinalPitchRequest {
     pub pitch: f32,
     pub ease_in: f32,
     pub ease_out: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraModFinalSpeedMultiplierRequest {
     pub multiplier: i32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraModRollingAverageRequest {
     pub frames: i32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VisualSpeedMultiplierRequest {
     pub multiplier: i32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SetFpsLimitRequest {
     pub fps: i32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraSetupRequest {
     pub position: Vec3,
     pub zoom: f32,
@@ -118,7 +118,7 @@ pub struct CameraSetupRequest {
     pub look_toward: Vec3,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraLookTowardObjectRequest {
     pub object_id: u32,
     pub duration_seconds: f32,
@@ -127,7 +127,7 @@ pub struct CameraLookTowardObjectRequest {
     pub ease_out_seconds: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraLookTowardWaypointRequest {
     pub position: Vec3,
     pub duration_seconds: f32,
@@ -136,35 +136,35 @@ pub struct CameraLookTowardWaypointRequest {
     pub reverse_rotation: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraModLookTowardRequest {
     pub position: Vec3,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraModFinalLookTowardRequest {
     pub position: Vec3,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraSetDefaultRequest {
     pub pitch: f32,
     pub angle: f32,
     pub max_height: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraSlaveModeRequest {
     pub thing_template_name: String,
     pub bone_name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ScreenShakeRequest {
     pub intensity: i32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraAddShakerRequest {
     pub position: Vec3,
     pub amplitude: f32,
@@ -172,7 +172,7 @@ pub struct CameraAddShakerRequest {
     pub radius: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraPathRequest {
     pub waypoint: String,
     pub seconds: f32,
@@ -181,7 +181,7 @@ pub struct CameraPathRequest {
     pub ease_out_seconds: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CameraMoveToRequest {
     pub position: Vec3,
     pub seconds: f32,
@@ -205,19 +205,19 @@ pub struct ScriptPopupMessageRequest {
     pub popup_generation: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ViewGuardbandRequest {
     pub x_bias: f32,
     pub y_bias: f32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CameraBwModeRequest {
     pub enabled: bool,
     pub frames: i32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum CameraMotionBlurRequest {
     Basic { zoom_in: bool, saturate: bool },
     Jump { position: Vec3, saturate: bool },

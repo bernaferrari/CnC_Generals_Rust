@@ -562,8 +562,8 @@ impl GameLogic {
     /// drop the in-flight scripted path so player input is not overwritten.
     pub fn cancel_scripted_camera_from_player_set(&mut self) {
         self.clear_in_flight_scripted_camera_move();
-        // Residual peeks these every frame (drain is a no-op). If they stay set,
-        // live scripted zoom/pitch/rotate re-arm after the one-frame skip.
+        // Cancel requests that have not yet reached presentation admission,
+        // as well as the already installed motion below.
         self.pending_camera_rotate = None;
         self.pending_camera_zoom = None;
         self.pending_camera_pitch = None;

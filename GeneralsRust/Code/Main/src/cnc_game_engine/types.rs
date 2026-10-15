@@ -602,7 +602,7 @@ pub mod parity_test_support {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ScriptCameraShaker {
     pub(crate) epicenter: Vec3,
     pub(crate) radius: f32,
@@ -877,7 +877,7 @@ impl PendingMapCommand {
 /// swap.  In particular, an armed map/build command stays on LMB in both
 /// mouse layouts, while classic (non-alternate) LMB context commands wait long
 /// enough to yield to a selection-box drag.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) enum LeftMouseReleaseBehavior {
     #[default]
     Selection,

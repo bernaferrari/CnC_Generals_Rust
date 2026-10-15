@@ -147,7 +147,47 @@ pub(super) struct HeightStep {
     pub rules: HeightRules,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(super) struct CameraHeightContinuation {
+    offset: Vec3,
+    ground: f32,
+    desired: f32,
+    enabled: bool,
+    limited: bool,
+}
+
+impl CameraHeightContinuation {
+    pub(super) fn validate(&self) -> Result<(), String> {
+        if !self.offset.is_finite()
+            || self.offset.z == 0.0
+            || !self.ground.is_finite()
+            || !self.desired.is_finite()
+        {
+            return Err("invalid fixed camera basis or height".into());
+        }
+        Ok(())
+    }
+}
+
 impl CameraHeight {
+    pub(super) fn capture_continuation(&self) -> CameraHeightContinuation {
+        CameraHeightContinuation {
+            offset: self.basis.offset,
+            ground: self.basis.ground_level,
+            desired: self.desired,
+            enabled: self.adjustment_enabled,
+            limited: self.zoom_limited,
+        }
+    }
+    pub(super) fn admit_continuation(&mut self, state: CameraHeightContinuation) {
+        self.basis = CameraBasis {
+            offset: state.offset,
+            ground_level: state.ground,
+        };
+        self.desired = state.desired;
+        self.adjustment_enabled = state.enabled;
+        self.zoom_limited = state.limited;
+    }
     pub(super) fn new(height: f32, pitch: f32, yaw: f32) -> Self {
         Self {
             basis: CameraBasis::from_height(10.0, height, pitch, yaw),

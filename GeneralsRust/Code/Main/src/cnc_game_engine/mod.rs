@@ -184,9 +184,9 @@ fn startup_worker_owns(generation: u64) -> bool {
 #[cfg(test)]
 mod architecture_honesty_tests;
 #[cfg(test)]
-mod source_scan_tests;
-#[cfg(test)]
 mod camera_startup_tests;
+#[cfg(test)]
+mod source_scan_tests;
 #[cfg(test)]
 mod tests;
 
@@ -240,3 +240,6 @@ pub const ENGINE_SRC: &str = concat!(
     include_str!("runtime_host/shell_core.rs"),
     include_str!("runtime_host/skirmish.rs"),
 );
+
+mod camera_continuation;
+pub(crate) use camera_continuation::NativeCameraContinuation;

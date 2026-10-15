@@ -1210,3 +1210,135 @@ impl MissionScriptHooks {
         q.oversize_terrain_requests.drain(..).collect()
     }
 }
+
+/// Camera notifications not yet admitted by the owning logic operation.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct CameraHookContinuation {
+    pub(crate) camera_moves: Vec<Vec3>,
+    pub(crate) camera_follows: Vec<CameraFollowRequest>,
+    pub(crate) camera_tethers: Vec<CameraTetherRequest>,
+    pub(crate) camera_path_moves: Vec<CameraPathRequest>,
+    pub(crate) camera_move_to: Vec<CameraMoveToRequest>,
+    pub(crate) camera_move_to_selection_requests: Vec<()>,
+    pub(crate) camera_move_home_requests: Vec<()>,
+    pub(crate) camera_resets: Vec<CameraResetRequest>,
+    pub(crate) camera_zoom_requests: Vec<CameraZoomRequest>,
+    pub(crate) camera_pitch_requests: Vec<CameraPitchRequest>,
+    pub(crate) camera_rotate_requests: Vec<CameraRotateRequest>,
+    pub(crate) camera_mod_final_zoom_requests: Vec<CameraModFinalZoomRequest>,
+    pub(crate) camera_mod_final_pitch_requests: Vec<CameraModFinalPitchRequest>,
+    pub(crate) camera_mod_freeze_time_requests: Vec<()>,
+    pub(crate) camera_mod_freeze_angle_requests: Vec<()>,
+    pub(crate) camera_mod_final_speed_multiplier_requests:
+        Vec<CameraModFinalSpeedMultiplierRequest>,
+    pub(crate) camera_mod_rolling_average_requests: Vec<CameraModRollingAverageRequest>,
+    pub(crate) visual_speed_multiplier_requests: Vec<VisualSpeedMultiplierRequest>,
+    pub(crate) script_freeze_time_requests: Vec<bool>,
+    pub(crate) set_fps_limit_requests: Vec<SetFpsLimitRequest>,
+    pub(crate) camera_setup_requests: Vec<CameraSetupRequest>,
+    pub(crate) camera_look_toward_object_requests: Vec<CameraLookTowardObjectRequest>,
+    pub(crate) camera_look_toward_waypoint_requests: Vec<CameraLookTowardWaypointRequest>,
+    pub(crate) camera_mod_look_toward_requests: Vec<CameraModLookTowardRequest>,
+    pub(crate) camera_mod_final_look_toward_requests: Vec<CameraModFinalLookTowardRequest>,
+    pub(crate) camera_set_default_requests: Vec<CameraSetDefaultRequest>,
+    pub(crate) camera_slave_mode_enable_requests: Vec<CameraSlaveModeRequest>,
+    pub(crate) camera_slave_mode_disable_requests: Vec<()>,
+    pub(crate) screen_shake_requests: Vec<ScreenShakeRequest>,
+    pub(crate) camera_add_shaker_requests: Vec<CameraAddShakerRequest>,
+    pub(crate) view_guardband_requests: Vec<ViewGuardbandRequest>,
+    pub(crate) camera_bw_mode_requests: Vec<CameraBwModeRequest>,
+    pub(crate) skybox_enabled_updates: Vec<bool>,
+    pub(crate) camera_motion_blur_requests: Vec<CameraMotionBlurRequest>,
+    pub(crate) letterbox_events: Vec<bool>,
+    pub(crate) movement_finished: bool,
+}
+impl MissionScriptHooks {
+    pub(crate) fn capture_camera_continuation(&self) -> Result<CameraHookContinuation, String> {
+        let q = self.notifications.lock().map_err(|e| e.to_string())?;
+        Ok(CameraHookContinuation {
+            camera_moves: q.camera_moves.clone(),
+            camera_follows: q.camera_follows.clone(),
+            camera_tethers: q.camera_tethers.clone(),
+            camera_path_moves: q.camera_path_moves.clone(),
+            camera_move_to: q.camera_move_to.clone(),
+            camera_move_to_selection_requests: q.camera_move_to_selection_requests.clone(),
+            camera_move_home_requests: q.camera_move_home_requests.clone(),
+            camera_resets: q.camera_resets.clone(),
+            camera_zoom_requests: q.camera_zoom_requests.clone(),
+            camera_pitch_requests: q.camera_pitch_requests.clone(),
+            camera_rotate_requests: q.camera_rotate_requests.clone(),
+            camera_mod_final_zoom_requests: q.camera_mod_final_zoom_requests.clone(),
+            camera_mod_final_pitch_requests: q.camera_mod_final_pitch_requests.clone(),
+            camera_mod_freeze_time_requests: q.camera_mod_freeze_time_requests.clone(),
+            camera_mod_freeze_angle_requests: q.camera_mod_freeze_angle_requests.clone(),
+            camera_mod_final_speed_multiplier_requests: q
+                .camera_mod_final_speed_multiplier_requests
+                .clone(),
+            camera_mod_rolling_average_requests: q.camera_mod_rolling_average_requests.clone(),
+            visual_speed_multiplier_requests: q.visual_speed_multiplier_requests.clone(),
+            script_freeze_time_requests: q.script_freeze_time_requests.clone(),
+            set_fps_limit_requests: q.set_fps_limit_requests.clone(),
+            camera_setup_requests: q.camera_setup_requests.clone(),
+            camera_look_toward_object_requests: q.camera_look_toward_object_requests.clone(),
+            camera_look_toward_waypoint_requests: q.camera_look_toward_waypoint_requests.clone(),
+            camera_mod_look_toward_requests: q.camera_mod_look_toward_requests.clone(),
+            camera_mod_final_look_toward_requests: q.camera_mod_final_look_toward_requests.clone(),
+            camera_set_default_requests: q.camera_set_default_requests.clone(),
+            camera_slave_mode_enable_requests: q.camera_slave_mode_enable_requests.clone(),
+            camera_slave_mode_disable_requests: q.camera_slave_mode_disable_requests.clone(),
+            screen_shake_requests: q.screen_shake_requests.clone(),
+            camera_add_shaker_requests: q.camera_add_shaker_requests.clone(),
+            view_guardband_requests: q.view_guardband_requests.clone(),
+            camera_bw_mode_requests: q.camera_bw_mode_requests.clone(),
+            skybox_enabled_updates: q.skybox_enabled_updates.clone(),
+            camera_motion_blur_requests: q.camera_motion_blur_requests.clone(),
+            letterbox_events: q.letterbox_events.clone(),
+            movement_finished: self.camera_movement_finished.load(Ordering::SeqCst),
+        })
+    }
+    pub(crate) fn admit_camera_continuation(&self, state: CameraHookContinuation) {
+        // Candidate hooks are fresh and capture rejects poisoned source hooks.
+        let mut q = self
+            .notifications
+            .lock()
+            .expect("healthy candidate camera notification owner");
+        q.camera_moves = state.camera_moves;
+        q.camera_follows = state.camera_follows;
+        q.camera_tethers = state.camera_tethers;
+        q.camera_path_moves = state.camera_path_moves;
+        q.camera_move_to = state.camera_move_to;
+        q.camera_move_to_selection_requests = state.camera_move_to_selection_requests;
+        q.camera_move_home_requests = state.camera_move_home_requests;
+        q.camera_resets = state.camera_resets;
+        q.camera_zoom_requests = state.camera_zoom_requests;
+        q.camera_pitch_requests = state.camera_pitch_requests;
+        q.camera_rotate_requests = state.camera_rotate_requests;
+        q.camera_mod_final_zoom_requests = state.camera_mod_final_zoom_requests;
+        q.camera_mod_final_pitch_requests = state.camera_mod_final_pitch_requests;
+        q.camera_mod_freeze_time_requests = state.camera_mod_freeze_time_requests;
+        q.camera_mod_freeze_angle_requests = state.camera_mod_freeze_angle_requests;
+        q.camera_mod_final_speed_multiplier_requests =
+            state.camera_mod_final_speed_multiplier_requests;
+        q.camera_mod_rolling_average_requests = state.camera_mod_rolling_average_requests;
+        q.visual_speed_multiplier_requests = state.visual_speed_multiplier_requests;
+        q.script_freeze_time_requests = state.script_freeze_time_requests;
+        q.set_fps_limit_requests = state.set_fps_limit_requests;
+        q.camera_setup_requests = state.camera_setup_requests;
+        q.camera_look_toward_object_requests = state.camera_look_toward_object_requests;
+        q.camera_look_toward_waypoint_requests = state.camera_look_toward_waypoint_requests;
+        q.camera_mod_look_toward_requests = state.camera_mod_look_toward_requests;
+        q.camera_mod_final_look_toward_requests = state.camera_mod_final_look_toward_requests;
+        q.camera_set_default_requests = state.camera_set_default_requests;
+        q.camera_slave_mode_enable_requests = state.camera_slave_mode_enable_requests;
+        q.camera_slave_mode_disable_requests = state.camera_slave_mode_disable_requests;
+        q.screen_shake_requests = state.screen_shake_requests;
+        q.camera_add_shaker_requests = state.camera_add_shaker_requests;
+        q.view_guardband_requests = state.view_guardband_requests;
+        q.camera_bw_mode_requests = state.camera_bw_mode_requests;
+        q.skybox_enabled_updates = state.skybox_enabled_updates;
+        q.camera_motion_blur_requests = state.camera_motion_blur_requests;
+        q.letterbox_events = state.letterbox_events;
+        self.camera_movement_finished
+            .store(state.movement_finished, Ordering::SeqCst);
+    }
+}

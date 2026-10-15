@@ -1,3 +1,4 @@
+pub(crate) mod camera_codec;
 pub mod campaign;
 pub mod compression;
 pub mod game_state;

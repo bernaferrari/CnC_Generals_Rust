@@ -883,6 +883,7 @@ impl SaveFileManager {
             save_info,
             crate::save_load::snapshot::ClientSaveState {
                 camera: Some(camera),
+                camera_continuation: None,
                 control_groups: None,
             },
         )
@@ -923,6 +924,18 @@ impl SaveFileManager {
         if let Some(groups) = &state.control_groups {
             groups.validate()?;
         }
+        let native_camera = state
+            .camera_continuation
+            .as_deref()
+            .map(crate::cnc_game_engine::CnCGameEngine::decode_camera_continuation)
+            .transpose()
+            .map_err(SaveLoadError::Corrupted)?;
+        // Full native continuation is canonical when supplied. Derive the
+        // historical View/v18 pose from that same owner, never a second input.
+        let camera = native_camera
+            .as_ref()
+            .map(|camera| camera.camera_persist())
+            .or(state.camera);
         let save_path = self.get_save_path(filename);
         let temp_path = self.get_temp_path(&format!("{}_temp", filename));
 
@@ -934,13 +947,19 @@ impl SaveFileManager {
             snapshot_builder.create_world_snapshot(game_logic)?
         };
         world_snapshot.client_drawables = client_drawables;
-        if let Some(camera) = state.camera {
+        if let Some(camera) = camera {
             camera.write_to(&mut world_snapshot.persist_v18);
         }
         if let Some(groups) = &state.control_groups {
             crate::save_load::snapshot::write_control_groups(
                 &mut world_snapshot.lifecycle_tail,
                 groups,
+            )?;
+        }
+        if let Some(bytes) = state.camera_continuation.as_deref() {
+            crate::save_load::snapshot::write_native_camera_continuation(
+                &mut world_snapshot.lifecycle_tail,
+                bytes,
             )?;
         }
         // C++ GameState writes the logic chunk before GameClient::xfer.

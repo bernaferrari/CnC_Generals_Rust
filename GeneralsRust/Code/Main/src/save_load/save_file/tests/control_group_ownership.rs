@@ -38,6 +38,7 @@ fn owned_control_groups_actual_archives_keep_empty_and_peer_groups_detached() {
                 &info,
                 ClientSaveState {
                     camera: Some(camera),
+                    camera_continuation: None,
                     control_groups: Some(ControlGroupSave {
                         player_index: 0,
                         groups,
@@ -87,6 +88,7 @@ fn owned_control_groups_actual_archives_keep_empty_and_peer_groups_detached() {
                 &info,
                 ClientSaveState {
                     camera: None,
+                    camera_continuation: None,
                     control_groups: Some(ControlGroupSave {
                         player_index: 0,
                         groups: HashMap::from([(10, vec![42])]),
@@ -136,6 +138,7 @@ fn owned_control_groups_new_record_preserves_terminal_player_team_capsule() {
                     &fixture_save_info(),
                     ClientSaveState {
                         camera: None,
+                        camera_continuation: None,
                         control_groups: Some(ControlGroupSave {
                             player_index: 0,
                             groups: HashMap::from([(3, vec![42, 43])]),

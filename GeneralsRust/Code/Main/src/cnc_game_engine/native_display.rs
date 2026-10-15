@@ -15,6 +15,16 @@ struct PendingShell {
     client_frame: u32,
 }
 
+/// Durable numeric admission history; transient Client tokens/epochs never cross worlds.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(super) struct NativeDisplayContinuation {
+    clock: super::display_clock::VisualClockContinuation,
+    saved_client_frame: u32,
+    completed: Option<DisplayAdmission>,
+    guardband: [f32; 2],
+    camera_scroll_amount: f32,
+}
+
 pub(super) struct NativeDisplayState {
     clock: VisualClock,
     completed: Option<DisplayAdmission>,
@@ -38,6 +48,58 @@ impl NativeDisplayState {
             failed_shell: None,
         }
     }
+    pub(super) fn capture_continuation(
+        &self,
+        saved_client_frame: u32,
+    ) -> Result<NativeDisplayContinuation, String> {
+        #[cfg(feature = "game_client")]
+        if self.pending.is_some() {
+            return Err("camera save boundary has an unfinished Client shell".into());
+        }
+        if self.failed_shell.is_some() {
+            return Err("camera save boundary has a failed Client shell".into());
+        }
+        let state = NativeDisplayContinuation {
+            clock: self.clock.capture_continuation(),
+            saved_client_frame,
+            completed: self.completed,
+            guardband: self.guardband,
+            camera_scroll_amount: self.camera_scroll_amount,
+        };
+        Self::validate_continuation(&state)?;
+        Ok(state)
+    }
+
+    pub(super) fn validate_continuation(state: &NativeDisplayContinuation) -> Result<(), String> {
+        VisualClock::validate_continuation(&state.clock)?;
+        if state.guardband.iter().any(|value| !value.is_finite())
+            || !state.camera_scroll_amount.is_finite()
+            || state.camera_scroll_amount < 0.0
+        {
+            return Err("invalid camera display continuation values".into());
+        }
+        Ok(())
+    }
+
+    /// Called only after validation and world replacement. Keep the receiving
+    /// world's new epoch; saved PreparedPresentationShell identities are absent.
+    pub(super) fn admit_continuation(
+        &mut self,
+        state: NativeDisplayContinuation,
+        restored_client_frame: u32,
+    ) {
+        self.clock
+            .admit_continuation(state.clock, state.saved_client_frame, restored_client_frame);
+        self.completed = state.completed;
+        self.guardband = state.guardband;
+        self.camera_scroll_amount = state.camera_scroll_amount;
+        self.failed_shell = None;
+        #[cfg(feature = "game_client")]
+        {
+            self.pending = None;
+        }
+    }
+
     pub(super) fn record_camera_scroll(&mut self, amount: f32) {
         self.camera_scroll_amount = amount;
     }
@@ -340,3 +402,49 @@ impl CnCGameEngine {
 #[cfg(all(test, feature = "game_client"))]
 #[path = "native_display_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod continuation_tests {
+    use super::*;
+    #[test]
+    fn display_continuation_retains_new_world_identity_without_advancing() {
+        let mut source = NativeDisplayState::new();
+        source.guardband = [-3., 5.];
+        source.record_camera_scroll(7.);
+        source.admit(DisplayInputs {
+            client_frame: 9,
+            frozen: false,
+            time_fast: false,
+            multiplier: 1,
+            device_ready: true,
+            tivo_replay: false,
+            replay_frame: 9,
+        });
+        let state = source.capture_continuation(9).unwrap();
+        let mut restored = NativeDisplayState::new();
+        restored.reset_world(72);
+        restored.admit_continuation(state, 100);
+        assert_eq!(restored.epoch, 72);
+        assert_eq!(restored.guardband, [-3., 5.]);
+        assert_eq!(restored.take_camera_scroll(), 7.);
+        let repeat = restored.admit(DisplayInputs {
+            client_frame: 100,
+            frozen: false,
+            time_fast: false,
+            multiplier: 1,
+            device_ready: true,
+            tivo_replay: false,
+            replay_frame: 9,
+        });
+        assert_eq!(repeat.sync_time_ms, 33);
+        assert_eq!(repeat.frame_time_ms, 0);
+        assert!(!repeat.draw_drawables);
+    }
+    #[test]
+    fn display_continuation_rejects_invalid_values_before_admission() {
+        let owner = NativeDisplayState::new();
+        let mut state = owner.capture_continuation(0).unwrap();
+        state.guardband[0] = f32::NAN;
+        assert!(NativeDisplayState::validate_continuation(&state).is_err());
+    }
+}

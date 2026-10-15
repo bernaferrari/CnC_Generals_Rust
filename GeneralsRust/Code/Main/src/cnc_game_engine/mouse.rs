@@ -38,7 +38,7 @@ const DRAG_TOLERANCE_PX: f32 = 5.0;
 const PLACEMENT_DRAG_THRESHOLD_DIST: f32 = 5.0;
 
 /// C++ `View.h` `ViewLocation`: pos + angle + pitch + zoom.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct CameraViewLocation {
     pos: Vec3,
     yaw: f32,
@@ -47,7 +47,7 @@ struct CameraViewLocation {
 }
 
 /// C++ `LookAtXlat.h` `ScrollType`: one active pan source at a time.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 enum LookAtScrollType {
     #[default]
     None,
@@ -66,7 +66,7 @@ impl LookAtScrollType {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(super) enum ScriptedCameraPlayerCancel {
     #[default]
     None,
@@ -122,6 +122,82 @@ pub(super) struct LookAtHostModes {
     wheel_stopped_scroll: bool,
     /// Live OS cursor hidden because it sits under cinematic letterbox bars.
     letterbox_os_cursor_hidden: bool,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub(super) struct LookAtContinuation {
+    prev_cursor: Option<String>,
+    mouse_locked: bool,
+    mmb_original_anchor: Option<(f32, f32)>,
+    mmb_press_frame: u32,
+    views: [Option<CameraViewLocation>; 8],
+    scroll_type: LookAtScrollType,
+    last_mouse_move_frame: u32,
+    last_mouse_pixel: (f32, f32),
+    camera_follow_lock_broken: bool,
+    scripted_camera_player_cancel: ScriptedCameraPlayerCancel,
+    wheel_stopped_scroll: bool,
+    letterbox_os_cursor_hidden: bool,
+}
+
+impl LookAtHostModes {
+    pub(super) fn capture_continuation(&self) -> LookAtContinuation {
+        LookAtContinuation {
+            prev_cursor: self.prev_cursor.map(str::to_owned),
+            mouse_locked: self.mouse_locked,
+            mmb_original_anchor: self.mmb_original_anchor,
+            mmb_press_frame: self.mmb_press_frame,
+            views: self.views,
+            scroll_type: self.scroll_type,
+            last_mouse_move_frame: self.last_mouse_move_frame,
+            last_mouse_pixel: self.last_mouse_pixel,
+            camera_follow_lock_broken: self.camera_follow_lock_broken,
+            scripted_camera_player_cancel: self.scripted_camera_player_cancel,
+            wheel_stopped_scroll: self.wheel_stopped_scroll,
+            letterbox_os_cursor_hidden: self.letterbox_os_cursor_hidden,
+        }
+    }
+    pub(super) fn admit_continuation(&mut self, state: LookAtContinuation) {
+        self.prev_cursor = state
+            .prev_cursor
+            .as_deref()
+            .and_then(super::camera_continuation::cursor_name);
+        self.mouse_locked = state.mouse_locked;
+        self.mmb_original_anchor = state.mmb_original_anchor;
+        self.mmb_press_frame = state.mmb_press_frame;
+        self.views = state.views;
+        self.scroll_type = state.scroll_type;
+        self.last_mouse_move_frame = state.last_mouse_move_frame;
+        self.last_mouse_pixel = state.last_mouse_pixel;
+        self.camera_follow_lock_broken = state.camera_follow_lock_broken;
+        self.scripted_camera_player_cancel = state.scripted_camera_player_cancel;
+        self.wheel_stopped_scroll = state.wheel_stopped_scroll;
+        self.letterbox_os_cursor_hidden = state.letterbox_os_cursor_hidden;
+    }
+}
+impl LookAtContinuation {
+    pub(super) fn validate(&self) -> Result<(), String> {
+        if self
+            .prev_cursor
+            .as_deref()
+            .is_some_and(|name| super::camera_continuation::cursor_name(name).is_none())
+            || !self.last_mouse_pixel.0.is_finite()
+            || !self.last_mouse_pixel.1.is_finite()
+            || self
+                .mmb_original_anchor
+                .is_some_and(|(x, y)| !x.is_finite() || !y.is_finite())
+            || self.views.iter().flatten().any(|view| {
+                !view.pos.is_finite()
+                    || !view.yaw.is_finite()
+                    || !view.pitch.is_finite()
+                    || !view.zoom.is_finite()
+                    || view.zoom <= 0.0
+            })
+        {
+            return Err("invalid LookAt continuation".into());
+        }
+        Ok(())
+    }
 }
 
 pub fn height_after_zoom_steps(
@@ -976,3 +1052,32 @@ const MOUSE_SOURCE: &str = concat!(
 #[cfg(test)]
 #[path = "mouse/look_at_modes_tests.rs"]
 mod look_at_modes_tests;
+
+impl CnCGameEngine {
+    /// Reapply derived OS state directly to this receiving window. Do not replay
+    /// a scroll transition or publish another world's UI/View singleton.
+    pub(super) fn reconcile_camera_cursor_after_restore(&mut self) {
+        // Modal/shell policy belongs to the receiving UI. Invalidate only the
+        // presentation cache so its next world-cursor observation can reapply.
+        if self.shell_menu_active || self.quit_menu_host_active || self.popup_host_pause_owned {
+            self.last_context_cursor = None;
+            self.look_at_modes.letterbox_os_cursor_hidden = false;
+            return;
+        }
+        self.window
+            .set_cursor_visible(!self.look_at_modes.letterbox_os_cursor_hidden);
+        let icon = if self.look_at_modes.mouse_locked {
+            winit::window::CursorIcon::AllScroll
+        } else {
+            self.last_context_cursor
+                .and_then(super::camera_continuation::cursor_presentation)
+                .map(|(_, icon)| icon)
+                .unwrap_or(winit::window::CursorIcon::Default)
+        };
+        self.window.set_cursor(icon);
+    }
+}
+
+#[cfg(test)]
+#[path = "mouse/look_at_continuation_tests.rs"]
+mod look_at_continuation_tests;

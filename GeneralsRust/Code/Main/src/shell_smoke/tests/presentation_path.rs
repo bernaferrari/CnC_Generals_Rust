@@ -450,9 +450,29 @@ fn presentation_camera_follow_residual() {
         gl.contains("fn peek_camera_follow_target_position")
             && pf.contains("camera_follow_position")
             && pf.contains("peek_camera_follow_target_position")
-            && eng.contains("pres.camera_follow_position")
-            && eng.contains("presentation-frozen follow only"),
+            && eng.contains("pres.camera_follow_position"),
         "camera follow must prefer presentation freeze over live dual-read"
+    );
+    let view = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/cnc_game_engine/camera_view_effects.rs"
+    ));
+    let follow = view
+        .split_once("pub(super) fn advance_native_camera_view(")
+        .expect("admitted camera view")
+        .1
+        .split_once("let admission = MotionAdmission")
+        .expect("scalar movement boundary")
+        .0;
+    assert!(
+        follow.contains("last_presentation_frame")
+            && follow.contains("frame.camera_follow_position")
+            && follow.contains("frame.camera_tether_play")
+            && follow.contains("apply_camera_follow_or_tether")
+    );
+    assert!(
+        !follow.contains("self.game_logic"),
+        "follow may not rediscover a live logic owner"
     );
 }
 

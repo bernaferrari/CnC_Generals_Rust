@@ -159,7 +159,8 @@ pub use game_window_transitions::GameWindowTransitionsHandler;
 
 pub use window_manager::{
     CaptureFlags, ModalWindow, ReentryFallback, TabDirection, WindowLayout, WindowLayoutInfo,
-    WindowManager, dispatch_os_key_to_window_manager, dispatch_os_mouse_to_window_manager,
+    WindowManager, WindowMouseFacts, dispatch_os_key_to_window_manager,
+    dispatch_os_mouse_to_window_manager, dispatch_os_mouse_to_window_manager_with_facts,
     hide_window_rc, queue_create_layout, queue_set_focus, queue_window_manager_op,
     queue_window_manager_op_deferred, with_window_manager, with_window_manager_ref,
 };
@@ -284,13 +285,6 @@ pub use callbacks::{
     get_control_bar_system,
     get_diplomacy_system,
     get_ingame_ui_system,
-    with_credits_menu,
-    with_lan_lobby_menu,
-    with_main_menu,
-    with_map_select_menu,
-    with_menu_manager,
-    with_options_menu,
-    with_single_player_menu,
     get_message_box_system,
     hide_control_bar,
     hide_diplomacy,
@@ -319,6 +313,13 @@ pub use callbacks::{
     toggle_diplomacy,
     toggle_in_game_chat,
     toggle_quit_menu,
+    with_credits_menu,
+    with_lan_lobby_menu,
+    with_main_menu,
+    with_map_select_menu,
+    with_menu_manager,
+    with_options_menu,
+    with_single_player_menu,
 };
 
 // Re-export in-game UI types

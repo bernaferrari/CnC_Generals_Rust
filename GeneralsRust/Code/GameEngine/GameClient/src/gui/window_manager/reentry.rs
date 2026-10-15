@@ -257,22 +257,75 @@ fn window_manager_reentry_fallback<R: ReentryFallback>() -> R {
 /// Mouse-lock + scrolling LMB pass-through is the unused WindowXlat helper
 /// (`WindowXlat.cpp:147-167` / `os_mouse_blocked_by_mouse_lock`): locked
 /// view skips WM except LMB down/up while `TheInGameUI` is scrolling.
+/// Immutable facts from the input owner for this operation. No active-view
+/// selection occurs when Main dispatches its native WindowEvent stream.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WindowMouseFacts {
+    pub mouse_locked: bool,
+    pub scrolling: bool,
+}
+
 pub fn dispatch_os_mouse_to_window_manager(
     msg: WindowMessage,
     x: i32,
     y: i32,
 ) -> WindowInputReturnCode {
-    if crate::message_stream::window_xlat::os_mouse_blocked_by_mouse_lock(msg) {
+    let mouse_locked = crate::display::view::with_tactical_view_ref(|view| view.is_mouse_locked());
+    let facts = WindowMouseFacts {
+        mouse_locked,
+        scrolling: mouse_locked && crate::helpers::TheInGameUI::is_scrolling(),
+    };
+    dispatch_os_mouse_to_window_manager_with_facts(msg, x, y, facts)
+}
+
+/// Native receiving route. The manager callback/re-entry and shell policy are
+/// the same as ordinary Core dispatch; only camera fact discovery differs.
+pub fn dispatch_os_mouse_to_window_manager_with_facts(
+    msg: WindowMessage,
+    x: i32,
+    y: i32,
+    facts: WindowMouseFacts,
+) -> WindowInputReturnCode {
+    dispatch_mouse_with_facts(
+        msg,
+        x,
+        y,
+        facts,
+        |msg, x, y, data| {
+            with_window_manager(|manager| manager.process_mouse_event(msg, x, y, data))
+        },
+        || crate::gui::shell::get_shell().is_shell_active(),
+    )
+}
+
+fn dispatch_mouse_with_facts(
+    msg: WindowMessage,
+    x: i32,
+    y: i32,
+    facts: WindowMouseFacts,
+    dispatch: impl FnOnce(WindowMessage, i32, i32, WindowMsgData) -> WindowInputReturnCode,
+    shell_active: impl FnOnce() -> bool,
+) -> WindowInputReturnCode {
+    if facts.mouse_locked
+        && crate::message_stream::window_xlat::should_skip_os_window_manager_while_mouse_locked(
+            msg,
+            facts.scrolling,
+        )
+    {
         return WindowInputReturnCode::NotUsed;
     }
     let data = (((y as u32) << 16) | ((x as u32) & 0xFFFF)) as WindowMsgData;
-    let rc = with_window_manager(|manager| manager.process_mouse_event(msg, x, y, data));
-    if crate::gui::shell::get_shell().is_shell_active() {
+    let rc = dispatch(msg, x, y, data);
+    if shell_active() {
         WindowInputReturnCode::Used
     } else {
         rc
     }
 }
+
+#[cfg(test)]
+#[path = "mouse_facts_tests.rs"]
+mod mouse_facts_tests;
 
 /// OS key → focused window `GWM_CHAR` (C++ `WindowXlat` RAW_KEY_DOWN/UP).
 ///

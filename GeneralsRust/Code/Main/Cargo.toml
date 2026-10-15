@@ -76,7 +76,7 @@ game_engine_device = { path = "../GameEngine/GameEngineDevice", optional = true 
 game_network = { path = "../GameEngine/GameNetwork", optional = true }
 
 # Graphics and window management
-winit = {workspace = true}
+winit = { workspace = true, features = ["serde"] }
 wgpu = {workspace = true, features = ["webgpu", "webgl"]}
 raw-window-handle = {workspace = true}
 

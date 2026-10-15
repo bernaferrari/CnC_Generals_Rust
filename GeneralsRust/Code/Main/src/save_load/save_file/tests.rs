@@ -1,5 +1,6 @@
 //! Actual current named-chunk save routes.
 
+mod camera_continuation;
 mod camera_ownership;
 mod control_group_ownership;
 mod historical_player_cash;

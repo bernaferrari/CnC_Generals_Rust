@@ -20,7 +20,7 @@ impl Default for RuntimeWeatherState {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub(super) struct ParabolicEase {
     pub(super) in_t: f32,
     pub(super) out_t: f32,
@@ -57,7 +57,7 @@ impl ParabolicEase {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct ScriptCameraMoveTo {
     pub(super) start: Vec3,
     pub(super) target: Vec3,
@@ -210,7 +210,7 @@ impl ScriptCameraMoveTo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct ScriptCameraPathMove {
     pub(super) points: Vec<Vec3>,
     pub(super) segment_length: Vec<f32>,

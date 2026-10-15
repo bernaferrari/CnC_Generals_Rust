@@ -336,6 +336,14 @@ impl CnCGameEngine {
         })
     }
 
+    #[cfg(feature = "game_client")]
+    fn native_window_mouse_facts(&self) -> game_client::gui::WindowMouseFacts {
+        game_client::gui::WindowMouseFacts {
+            mouse_locked: self.look_at_modes.look_at_host_mouse_locked(),
+            scrolling: self.look_at_modes.look_at_host_is_scrolling(),
+        }
+    }
+
     pub(in crate::cnc_game_engine) fn dispatch_os_mouse_to_window_manager(
         &self,
         button: MouseButton,
@@ -370,8 +378,12 @@ impl CnCGameEngine {
                 MouseInputOrigin::Injected => HostControlBarInputProvenance::InjectedOrUnknown,
             };
             with_host_control_bar_input_provenance(provenance, || {
-                game_client::gui::dispatch_os_mouse_to_window_manager(msg, x, y)
-                    == WindowInputReturnCode::Used
+                game_client::gui::dispatch_os_mouse_to_window_manager_with_facts(
+                    msg,
+                    x,
+                    y,
+                    self.native_window_mouse_facts(),
+                ) == WindowInputReturnCode::Used
             })
         }
         #[cfg(not(feature = "game_client"))]
@@ -385,8 +397,12 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             use game_client::gui::game_window::{WindowInputReturnCode, WindowMessage};
-            game_client::gui::dispatch_os_mouse_to_window_manager(WindowMessage::MousePos, x, y)
-                == WindowInputReturnCode::Used
+            game_client::gui::dispatch_os_mouse_to_window_manager_with_facts(
+                WindowMessage::MousePos,
+                x,
+                y,
+                self.native_window_mouse_facts(),
+            ) == WindowInputReturnCode::Used
         }
         #[cfg(not(feature = "game_client"))]
         {
@@ -407,8 +423,12 @@ impl CnCGameEngine {
             let Some(msg) = window_message_for_mouse_wheel(delta) else {
                 return false;
             };
-            game_client::gui::dispatch_os_mouse_to_window_manager(msg, x, y)
-                == WindowInputReturnCode::Used
+            game_client::gui::dispatch_os_mouse_to_window_manager_with_facts(
+                msg,
+                x,
+                y,
+                self.native_window_mouse_facts(),
+            ) == WindowInputReturnCode::Used
         }
         #[cfg(not(feature = "game_client"))]
         {

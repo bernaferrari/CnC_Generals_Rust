@@ -121,6 +121,7 @@ pub mod weapon_bootstrap;
 pub use buildings::*;
 pub use combat::*;
 pub use combat_particles::{CombatParticleKind, CombatParticleRegistry, CombatParticleSystemEntry};
+pub(crate) use game_logic::LogicCameraContinuation;
 pub use game_logic::*;
 pub use locomotor_bootstrap::honesty_locomotor_residual_expand_wave92;
 pub use locomotor_bootstrap::honesty_locomotor_residual_expand_wave103;

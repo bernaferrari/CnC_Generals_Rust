@@ -95,7 +95,7 @@ impl CnCGameEngine {
         // Wave 572: freeze vs boot split via helpers.
         if let Some(pres) = self.last_presentation_frame.clone() {
             self.apply_presentation_camera_residual(&pres);
-            // Drain live queues so peeked presentation fields are not re-applied next frame.
+            // Legacy compatibility hook; exact requests were acknowledged above.
             self.drain_live_camera_request_queues();
             return;
         }
@@ -190,24 +190,23 @@ impl CnCGameEngine {
         &mut self,
         pres: &crate::presentation_frame::PresentationFrame,
     ) {
+        let admitted = self.game_logic.acknowledge_frozen_camera_requests(pres);
         let player_cancel = self.look_at_modes.take_scripted_camera_player_cancel();
-        if let Some(focus) = pres.camera_focus {
+        if admitted.focus
+            && let Some(focus) = pres.camera_focus
+        {
             if !player_cancel.cancels_move() {
                 self.center_camera_on(Vec3::new(focus[0], focus[1], focus[2]));
             }
-            // C++ W3DView::moveCameraTo applies once per script action. The
-            // presentation freeze only peeks the pending request; take it
-            // after applying so a stale script focus cannot re-center the
-            // camera every presentation frame (player pans would fight a
-            // permanent snap-back).
-            self.game_logic.take_camera_focus_request();
+            // The exact canonical request was acknowledged before side effects;
+            // do not drain a newer request produced during those effects.
         }
 
         // C++ ControlBar setDefault/setLow writes TheTacticalView->setHeight.
         // Rebuild the live frustum so Default bar is the retail 80% rect.
         self.rebuild_tactical_projection();
 
-        if pres.camera_zoom_reset {
+        if admitted.reset {
             // C++ W3DView::resetCamera: zoom/pitch/heading animate over script duration.
             let duration = pres.camera_zoom_reset_duration.max(0.0);
             let (ease_in, ease_out) = pres.camera_zoom_reset_ease;
@@ -243,7 +242,9 @@ impl CnCGameEngine {
             }
         }
 
-        if let Some((zoom, duration_seconds)) = pres.camera_zoom {
+        if admitted.zoom
+            && let Some((zoom, duration_seconds)) = pres.camera_zoom
+        {
             if !player_cancel.cancels_set() {
                 let (ease_in, ease_out) = pres.camera_zoom_ease;
                 self.camera_zoom_start = self.camera_zoom;
@@ -255,7 +256,9 @@ impl CnCGameEngine {
             }
         }
 
-        if let Some((pitch, duration_seconds)) = pres.camera_pitch {
+        if admitted.pitch
+            && let Some((pitch, duration_seconds)) = pres.camera_pitch
+        {
             if !player_cancel.cancels_set() {
                 let (ease_in, ease_out) = pres.camera_pitch_ease;
                 self.apply_script_camera_pitch_request(CameraPitchRequest {
@@ -267,7 +270,9 @@ impl CnCGameEngine {
             }
         }
 
-        if let Some((rotations, duration_seconds)) = pres.camera_rotate {
+        if admitted.rotate
+            && let Some((rotations, duration_seconds)) = pres.camera_rotate
+        {
             if !player_cancel.cancels_rotate() {
                 let (ease_in, ease_out) = pres.camera_rotate_ease;
                 self.apply_script_camera_rotate_request(CameraRotateRequest {
@@ -279,7 +284,9 @@ impl CnCGameEngine {
             }
         }
 
-        if let Some(look) = pres.camera_look_toward {
+        if admitted.look
+            && let Some(look) = pres.camera_look_toward
+        {
             if !player_cancel.cancels_rotate() {
                 let (ease_in, ease_out) = pres.camera_look_toward_ease;
                 self.apply_camera_look_toward_request(CameraLookTowardWaypointRequest {
@@ -292,22 +299,26 @@ impl CnCGameEngine {
             }
         }
 
-        if let Some((thing_template_name, bone_name)) = pres.camera_slave_enable.clone() {
+        if admitted.slave_enable
+            && let Some((thing_template_name, bone_name)) = pres.camera_slave_enable.clone()
+        {
             self.camera_slave_mode = Some(CameraSlaveModeRequest {
                 thing_template_name,
                 bone_name,
             });
         }
 
-        if pres.camera_slave_disable {
+        if admitted.slave_disable {
             self.camera_slave_mode = None;
         }
 
-        for intensity in &pres.screen_shakes {
+        for intensity in pres.screen_shakes.iter().take(admitted.screen_shakes) {
             self.enqueue_script_screen_shake(*intensity);
         }
 
-        for &(position, amplitude, duration_seconds, radius) in &pres.camera_shakers {
+        for &(position, amplitude, duration_seconds, radius) in
+            pres.camera_shakers.iter().take(admitted.shakers)
+        {
             self.enqueue_script_camera_shaker(CameraAddShakerRequest {
                 position: Vec3::new(position[0], position[1], position[2]),
                 amplitude,
@@ -353,7 +364,8 @@ impl CnCGameEngine {
         self.center_camera_on(next);
     }
 
-    /// Consume live camera request queues without applying (presentation already applied).
+    /// Compatibility hook retained for historical source mapping. Request admission
+    /// now occurs atomically inside apply_presentation_camera_residual.
     /// Wave 596: via `host_drain_live_camera_request_queues`.
     pub(super) fn drain_live_camera_request_queues(&mut self) {
         // Wave 596: thin wrapper — takes live behind host_drain helper.
@@ -362,9 +374,8 @@ impl CnCGameEngine {
 
     /// Wave 596: host camera request queue drain residual.
     ///
-    /// When presentation already applied camera residuals, drop live host camera
-    /// request queues so the next frame does not double-apply. All takes stay
-    /// behind this single host dual-read surface.
+    /// Exact matching requests have already been acknowledged before their
+    /// effects. This compatibility hook must not discard newer queued values.
     pub(super) fn host_drain_live_camera_request_queues(&mut self) {
         // Wave 596/865/899: presentation owns camera residual; boot path no longer
         // dual-reads take_* queues (fail-closed no-op). Live queues are not drained
@@ -2999,10 +3010,21 @@ mod superweapon_countdown_tests {
     #[test]
     fn look_toward_drain_forwards_frozen_reverse_rotation() {
         let src = include_str!("camera_drain.rs");
-        let start = src
-            .find("if let Some(look) = pres.camera_look_toward")
-            .expect("look-toward drain");
-        let body = &src[start..src.len().min(start + 700)];
+        let receiving = src
+            .split_once("pub(super) fn apply_presentation_camera_residual(")
+            .expect("receiving camera method")
+            .1
+            .split_once("pub(super) fn apply_camera_follow_or_tether(")
+            .expect("next camera method")
+            .0;
+        assert!(receiving.contains("admitted.look"));
+        let body = receiving
+            .split_once("self.apply_camera_look_toward_request(")
+            .expect("look-toward application")
+            .1
+            .split_once("if admitted.slave_enable")
+            .expect("end of look-toward application")
+            .0;
         assert!(
             body.contains("reverse_rotation: pres.camera_look_toward_reverse_rotation"),
             "LOOK_TOWARD_WAYPOINT reverseRotation must survive presentation drain"

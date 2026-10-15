@@ -350,13 +350,27 @@ mod tests {
             .find("pub fn dispatch_os_key_to_window_manager")
             .unwrap_or(body.len());
         let body = &body[..end];
+        assert!(body.contains("dispatch_os_mouse_to_window_manager_with_facts"));
+        assert!(body.contains("let mouse_locked = crate::display::view::with_tactical_view_ref"));
+        let native = body
+            .split_once("pub fn dispatch_os_mouse_to_window_manager_with_facts(")
+            .unwrap()
+            .1
+            .split_once("fn dispatch_mouse_with_facts(")
+            .unwrap()
+            .0;
+        assert!(native.contains("dispatch_mouse_with_facts("));
+        assert!(native.contains("manager.process_mouse_event(msg, x, y, data)"));
+        assert!(!native.contains("with_tactical_view"));
+        let gate = body.split_once("fn dispatch_mouse_with_facts(").unwrap().1;
+        assert!(gate.contains("facts.mouse_locked") && gate.contains("facts.scrolling"));
         assert!(
-            body.contains("os_mouse_blocked_by_mouse_lock"),
-            "live OS path must consume WindowXlat mouse-lock pass-through rather than leave it unused"
-        );
-        assert!(
-            body.find("os_mouse_blocked_by_mouse_lock") < body.find("process_mouse_event"),
-            "lock gate must run before winProcessMouseEvent"
+            gate.find("should_skip_os_window_manager_while_mouse_locked")
+                .expect("source lock gate")
+                < gate
+                    .find("let rc = dispatch(")
+                    .expect("actual callback dispatch"),
+            "receiving lock gate must precede callback dispatch"
         );
     }
 }

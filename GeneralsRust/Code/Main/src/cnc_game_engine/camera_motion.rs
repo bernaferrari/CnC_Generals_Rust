@@ -24,7 +24,8 @@ pub(super) enum AxisKind {
 
 /// These references point to the existing engine fields. The canonical counter
 /// is an integer, matching source curFrame; requests initialize it to zero.
-/// Camera movement timers are absent from native/persist-v18 save payloads.
+/// Positional persist-v18 omits these timers; the versioned CAMC camera
+/// companion retains them without changing that historical layout.
 pub(super) struct AxisMotion<'a> {
     pub value: &'a mut f32,
     pub target: &'a mut Option<f32>,
