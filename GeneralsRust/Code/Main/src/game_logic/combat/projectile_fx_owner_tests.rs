@@ -29,6 +29,9 @@ fn missile(id: ObjectId, delay: u32) -> Projectile {
         ignition_fx: "FX_ReceivingProjectile".into(),
         ..Default::default()
     }));
+    // Production binds the authored flight after selecting its module. This
+    // enters C++ LAUNCH; Projectile::new's unbound runtime is already armed.
+    p.bind_authored_flight(p.position, p.target_position, p.speed);
     p
 }
 #[cfg(feature = "game_client")]

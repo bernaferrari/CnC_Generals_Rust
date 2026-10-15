@@ -312,6 +312,12 @@ impl Object {
         let direct_healing = context.is_healing_entry()
             && matches!(damage_type, crate::game_logic::combat::DamageType::Healing);
         if !direct_healing && self.indestructible {
+            // UndeadBody.cpp:58-72 selects second life before calling
+            // ActiveBody. Its subclass continuation still runs when the
+            // indestructible ActiveBody returns without accepting damage.
+            if self.battle_bus_should_intercept_lethal(damage_type, damage) {
+                self.start_battle_bus_second_life_with_body_fx(frame, context.source(), body_fx);
+            }
             return DamageApplication::Complete(false);
         }
         // CPP ActiveBody337 rejects every damage request on a dead body.

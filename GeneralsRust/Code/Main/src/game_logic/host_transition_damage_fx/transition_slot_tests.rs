@@ -296,3 +296,57 @@ fn native_transition_creates_and_retires_sparse_attachments_inline_without_repla
         },
     );
 }
+
+#[cfg(feature = "game_client")]
+#[test]
+fn native_transition_world_location_uses_canonical_yaw_and_full_affine_transform() {
+    use crate::game_logic::{Object, ObjectId, Team, ThingTemplate};
+    let mut object = Object::new(
+        ThingTemplate::new("AffineTransitionOwner"),
+        ObjectId(9939),
+        Team::USA,
+    );
+    let mut location = HostTransitionLoc {
+        loc: [1., 0., 0.],
+        ..Default::default()
+    };
+    object.set_transform_matrix(glam::Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2));
+    let yaw_world = host_world(&object, Some(&location));
+    assert!(
+        (yaw_world - glam::Vec3::NEG_Z).length() < 1.0e-6,
+        "positive Main Y rotation sends local X toward negative world Z"
+    );
+
+    let transform = glam::Mat4::from_scale_rotation_translation(
+        glam::Vec3::new(2., 3., 4.),
+        glam::Quat::from_euler(glam::EulerRot::YXZ, 0.7, 0.4, -0.3),
+        glam::Vec3::new(10., 20., 30.),
+    );
+    object.set_transform_matrix(transform);
+    // INI/source XYZ is Z-up: local [2,3,4] becomes Main [2,4,3].
+    location.loc = [2., 3., 4.];
+    let expected = transform.transform_point3(glam::Vec3::new(2., 4., 3.));
+    assert!(
+        (host_world(&object, Some(&location)) - expected).length() < 1.0e-5,
+        "FX and OCL share the actual owner's full affine conversion"
+    );
+    assert_eq!(host_world(&object, None), transform.w_axis.truncate());
+}
+
+#[test]
+fn state_reentry_cannot_overwrite_a_failed_retirement_receipt() {
+    let mut ids = vec![0, 77];
+    let mut attempts = Vec::new();
+    assert!(!prepare_transition_slot(&mut ids, 1, |id| {
+        attempts.push(id);
+        false
+    }));
+    assert_eq!(ids, vec![0, 77]);
+    assert_eq!(attempts, vec![77]);
+    assert!(prepare_transition_slot(&mut ids, 1, |id| id == 77));
+    assert_eq!(ids, vec![0, 0]);
+    assert!(prepare_transition_slot(&mut ids, 3, |_| panic!(
+        "empty slot"
+    )));
+    assert_eq!(ids, vec![0, 0, 0, 0]);
+}

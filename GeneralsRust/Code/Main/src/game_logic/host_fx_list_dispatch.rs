@@ -749,9 +749,12 @@ mod tests {
         let helper = combat
             .find("fn play_garrison_hit_kill_fx(")
             .expect("garrison doFXObj helper");
-        let helper_body = &combat[helper..helper + 700];
+        let helper_body = combat[helper..]
+            .split_once("/// Projectile step")
+            .unwrap()
+            .0;
         assert!(
-            helper_body.contains("dispatch_fx_list_at_object(fx_name, building_id.0, None)"),
+            helper_body.contains("fx(fx_name, ProjectileFxObject::Object(building))"),
             "GarrisonHitKillFX must doFXObj the building, not a pos form"
         );
         assert!(
@@ -761,6 +764,15 @@ mod tests {
         assert!(
             !helper_body.contains("ProjectileImpactFx"),
             "GarrisonHitKillFX must not queue detonation impact FX"
+        );
+        let native = include_str!("world_objects/damage_application.rs");
+        let route = native
+            .split_once("fn update_owned_projectile_impacts(")
+            .unwrap()
+            .1;
+        assert!(route.contains("Self::observe_host_fx_object("));
+        assert!(
+            route.contains("Self::dispatch_fx_list_at_object_with_view(name, &pose, None, view)")
         );
         // The two collision branches moved with the actual flight step;
         // resolution owns only the shared doFXObj helper.

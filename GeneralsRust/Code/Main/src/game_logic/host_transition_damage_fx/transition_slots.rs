@@ -27,6 +27,22 @@ fn retire_old_transition_ids(ids: &mut [u32], mut retire: impl FnMut(u32) -> boo
     }
 }
 
+/// Re-entry must never overwrite a receipt whose owner could not retire it.
+fn prepare_transition_slot(
+    ids: &mut Vec<u32>,
+    slot: usize,
+    mut retire: impl FnMut(u32) -> bool,
+) -> bool {
+    ids.resize(ids.len().max(slot + 1), 0);
+    if ids[slot] != 0 {
+        if !retire(ids[slot]) {
+            return false;
+        }
+        ids[slot] = 0;
+    }
+    true
+}
+
 fn named(name: &str) -> bool {
     !name.trim().is_empty() && !name.eq_ignore_ascii_case("none")
 }
@@ -93,13 +109,9 @@ fn host_world(object: &crate::game_logic::Object, loc: Option<&HostTransitionLoc
     let local = loc
         .map(|loc| host_local(object, &loc.as_particle()))
         .unwrap_or_default();
-    let (sin, cos) = object.get_orientation().sin_cos();
-    object.get_position()
-        + glam::Vec3::new(
-            local.x * cos - local.z * sin,
-            local.y,
-            local.x * sin + local.z * cos,
-        )
+    // Thing::convertBonePosToWorldPos applies the canonical transform,
+    // including pitch/roll/scale; rebuilding yaw also reverses Main's Y rotation.
+    object.get_transform_matrix().transform_point3(local)
 }
 
 #[cfg(feature = "game_client")]
@@ -145,6 +157,21 @@ impl crate::game_logic::GameLogic {
                 play_authored_transition_ocl_with_source(name, object.id.0, position, source);
             }
             TransitionSlotEffect::Particle { slot, definition } => {
+                let Some(ids) = object
+                    .transition_damage_fx
+                    .as_mut()
+                    .and_then(|config| config.attached_ids.get_mut(event.new_state as usize))
+                else {
+                    return;
+                };
+                if !prepare_transition_slot(ids, slot, |id| particles.try_deactivate(id)) {
+                    log::warn!(
+                        "retained transition particle in slot {} for object {}",
+                        slot,
+                        object.id.0
+                    );
+                    return;
+                }
                 let local = host_local(object, definition);
                 if let Some(id) = particles.attach_named_to_object_local(
                     object.id,

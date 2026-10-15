@@ -195,8 +195,14 @@ fn native_second_life_start_uses_receiving_view_for_normal_and_indestructible_bo
                             .battle_bus_body
                             .as_ref()
                             .unwrap()
-                            .is_in_first_death
+                            .is_in_first_death,
+                        "UndeadBody continuation must run after ActiveBody, indestructible={indestructible}"
                     );
+                    assert_eq!(
+                        world.objects[&id].health.current,
+                        crate::game_logic::host_battle_bus::BATTLE_BUS_SECOND_LIFE_MAX_HEALTH
+                    );
+                    assert!(world.objects[&id].armor_set_second_life);
                 }
                 assert_eq!(peer.session_view.impulse.intensity, 0.);
                 assert_eq!(owner.session_view.impulse.intensity, expected_impulse());

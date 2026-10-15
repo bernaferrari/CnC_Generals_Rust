@@ -479,7 +479,15 @@ mod tests {
                 .contains("obj.tick_missile_launcher_building_with_fx(self.frame, &mut dispatch)")
         );
         let dispatch = include_str!("object/fx.rs");
-        let positional = &dispatch[dispatch.find("} else {").unwrap()..];
+        let phase = dispatch
+            .split_once("fn dispatch_object_phase_fx_with_view(")
+            .unwrap()
+            .1;
+        let phase = phase
+            .split_once("impl crate::game_logic::GameLogic")
+            .unwrap()
+            .0;
+        let positional = phase.split_once("} else {").unwrap().1;
         assert!(positional.contains("Self::dispatch_fx_list_at_position_with_view("));
         assert!(positional.contains("object.get_position()"));
         assert!(!positional.contains("dispatch_fx_list_at_object_with_view"));
