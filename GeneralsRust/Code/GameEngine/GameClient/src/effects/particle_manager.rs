@@ -592,25 +592,7 @@ impl ParticleSystemManager {
         create_slaves: bool,
         random: &mut dyn FnMut(f32, f32) -> f32,
     ) -> Result<ParticleSystemId, ParticleSystemError> {
-        if system_id == INVALID_PARTICLE_SYSTEM_ID {
-            return Err(ParticleSystemError::InvalidSystemId(system_id));
-        }
-        if self.active_systems.contains_key(&system_id) {
-            return Err(ParticleSystemError::InitializationFailed(format!(
-                "duplicate particle system ID {system_id}"
-            )));
-        }
-
-        // C++ ParticleSystemManager::createParticleSystem always instantiates the
-        // system. LOD / budget gates run later in createParticle per particle.
-        let system =
-            ParticleSystem::new_with_random(template.clone(), system_id, create_slaves, random);
-        self.active_systems.insert(system_id, Box::new(system));
-        self.active_system_order.push(system_id);
-        self.system_count = self.active_systems.len();
-        self.next_system_id = self.next_system_id.max(system_id.saturating_add(1));
-
-        Ok(system_id)
+        self.create_authored_system_chain(template, system_id, create_slaves, random)
     }
 
     pub fn create_particle_system_with_random(
@@ -2230,3 +2212,6 @@ mod tests {
 #[cfg(test)]
 #[path = "particle_draw_owner_tests.rs"]
 mod particle_draw_owner_tests;
+
+#[path = "particle_manager/slave_factory.rs"]
+mod slave_factory;
