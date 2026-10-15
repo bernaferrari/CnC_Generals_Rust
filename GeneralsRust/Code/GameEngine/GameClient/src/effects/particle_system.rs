@@ -854,28 +854,14 @@ impl Snapshotable for ParticleSystem {
     }
 }
 
-/// Merge master and slave particle systems to produce a combined ParticleInfo
-/// for the slave particle (matches C++ ParticleSystem::mergeRelatedParticleSystems).
-///
-/// This is a standalone function because the manager needs to call it with
-/// immutable references to two systems, then create particles on the slave.
-///
-/// # Arguments
-/// * `master` - The master particle system
-/// * `slave` - The slave particle system
-/// * `slave_needs_full_promotion` - If true, slave system's burst/velocity/volume
-///   params get promoted from master (C++ line 2317)
-pub(crate) fn merge_related_particle_systems(
-    master: &ParticleSystem,
-    slave: &ParticleSystem,
-    slave_needs_full_promotion: bool,
+/// Combine freshly generated owned observations for the ordinary slave path.
+/// The manager generates master then slave under separate mutable borrows;
+/// C++ mergeRelatedParticleSystems(..., false) supplies these exact fields.
+pub(crate) fn merge_related_particle_infos(
+    mut merge_info: ParticleInfo,
+    slave_info: ParticleInfo,
+    offset: Vec3,
 ) -> ParticleInfo {
-    // Generate fresh particle info from master (C++ line 2286)
-    let mut merge_info = master.generate_particle_info(1, 1).unwrap_or_default();
-
-    // Generate fresh particle info from slave (C++ line 2289)
-    let slave_info = slave.generate_particle_info(1, 1).unwrap_or_default();
-
     // Override unique attributes of slave particle (C++ lines 2292-2309)
     merge_info.lifetime = slave_info.lifetime;
 
@@ -895,15 +881,9 @@ pub(crate) fn merge_related_particle_systems(
     merge_info.color_scale = slave_info.color_scale;
 
     // Offset slave's position relative to master's (C++ lines 2311-2315)
-    let offset = slave.slave_position_offset();
     merge_info.position.x += offset.x;
     merge_info.position.y += offset.y;
     merge_info.position.z += offset.z;
-
-    // Full promotion: copy burst/velocity/volume from master to slave system
-    // (C++ lines 2317-2345). This requires &mut access to the slave, which
-    // the manager handles separately after this function returns.
-    let _ = slave_needs_full_promotion; // Handled by the manager if needed
 
     merge_info
 }
@@ -1234,6 +1214,12 @@ pub enum FrameEmitPhase {
     Emitted,
 }
 
+/// One synchronous emission loop; no references into the registry survive a step.
+pub(crate) struct EmissionCursor {
+    count: u32,
+    next: u32,
+}
+
 /// Particle system (matches C++ ParticleSystem)
 pub struct ParticleSystem {
     // C++ m_template identity is separate from owned ParticleSystemInfo.
@@ -1304,12 +1290,6 @@ pub struct ParticleSystem {
     // Emission overrides
     emission_volume_override: Option<EmissionVolume>,
     emission_volume_type_override: Option<EmissionVolumeType>,
-
-    // Slave emission buffer: during emit_particles, if a slave system is present,
-    // the emitted particle count is recorded here so the manager can create
-    // corresponding slave particles in a separate pass (avoids double-&mut borrow).
-    // Matches C++ ParticleSystem::update lines 2004-2009.
-    slave_emission_count: u32,
 
     /// Burst infos waiting for C++ `createParticle` LOD/budget gates (manager applies).
     pending_emission_infos: Vec<ParticleInfo>,
@@ -1394,7 +1374,6 @@ impl ParticleSystem {
             emission_volume_override: None,
             emission_volume_type_override: None,
 
-            slave_emission_count: 0,
             pending_emission_infos: Vec::new(),
         };
 
@@ -1431,17 +1410,30 @@ impl ParticleSystem {
         }
     }
 
-    /// Delay / wind / transform / emit. Manager commits pending, then integrate.
+    /// Compatibility observer; production commits each cursor step immediately.
     pub fn begin_frame_emit(
         &mut self,
         local_player_index: i32,
         current_frame: u32,
     ) -> FrameEmitPhase {
-        if self.is_destroyed && self.particles.is_empty() && self.pending_emission_infos.is_empty()
-        {
-            return FrameEmitPhase::Dead;
+        let phase = self.prepare_frame_emit(local_player_index, current_frame);
+        if matches!(phase, FrameEmitPhase::Emitted) {
+            if let Some(mut cursor) = self.begin_emission_burst() {
+                while let Some(info) = self.next_emission(&mut cursor) {
+                    self.pending_emission_infos.push(info);
+                }
+                self.finish_emission_burst(cursor);
+            }
         }
+        phase
+    }
 
+    /// Delay, wind and transform phase before the first per-particle admission.
+    pub(crate) fn prepare_frame_emit(
+        &mut self,
+        local_player_index: i32,
+        current_frame: u32,
+    ) -> FrameEmitPhase {
         // C++ ParticleSys.cpp: initial delay also delays lifetime (early return).
         if self.delay_left > 0 {
             self.delay_left -= 1;
@@ -1451,21 +1443,18 @@ impl ParticleSystem {
             return FrameEmitPhase::Delayed;
         }
 
-        self.resolve_attached_parent(local_player_index);
-        // C++ ParticleSys.cpp:1966 skips emit when destroyed, but still runs
-        // the particle update loop (2028-2053) so leftover particles fade.
+        // C++1846 advances wind before attachment resolution, even if an
+        // empty destroyed system retires at the end of this preparation.
         self.update_wind_motion();
+        self.resolve_attached_parent(local_player_index);
         self.update_transform_from_parent();
         self.apply_control_particle_origin();
 
-        if !self.is_destroyed
-            && (self.is_forever || self.system_lifetime_left > 0)
-            && !self.is_shrouded
-            && !self.is_stopped
-            && self.master_system.is_none()
+        if self.is_destroyed && self.particles.is_empty() && self.pending_emission_infos.is_empty()
         {
-            self.emit_particles(current_frame);
+            return FrameEmitPhase::Dead;
         }
+
         FrameEmitPhase::Emitted
     }
 
@@ -1647,20 +1636,9 @@ impl ParticleSystem {
         self.master_system
     }
 
-    /// Drain the count of slave particles emitted in the last update pass.
-    /// The manager calls this after updating each system to create slave particles.
-    pub fn drain_slave_emission_count(&mut self) -> u32 {
-        std::mem::take(&mut self.slave_emission_count)
-    }
-
-    /// Burst `ParticleInfo`s generated this frame; manager runs C++ `createParticle` gates.
+    /// Drain the compatibility observer emission records.
     pub fn take_pending_emissions(&mut self) -> Vec<ParticleInfo> {
         std::mem::take(&mut self.pending_emission_infos)
-    }
-
-    /// Record one successful master particle that should spawn a slave merge.
-    pub fn record_slave_emission(&mut self) {
-        self.slave_emission_count += 1;
     }
 
     /// Set skip parent transform
@@ -1686,6 +1664,11 @@ impl ParticleSystem {
     /// C++ `ParticleSystem::setControlParticle` — follow this world position.
     pub fn set_control_particle_position(&mut self, pos: Vec3) {
         self.control_particle_pos = Some(pos);
+    }
+
+    /// C++ detachControlParticle: remove only the receiving live pose binding.
+    pub(super) fn clear_control_particle_position(&mut self) {
+        self.control_particle_pos = None;
     }
 
     pub fn take_dead_controlled_systems(&mut self) -> Vec<ParticleSystemId> {
@@ -1929,8 +1912,6 @@ impl ParticleSystem {
     /// Start the particle system (matches C++ ParticleSystem::start)
     pub fn start(&mut self) {
         self.is_stopped = false;
-        self.is_destroyed = false;
-        self.start_timestamp = 0;
     }
 
     /// Stop the particle system (matches C++ ParticleSystem::stop)
@@ -1942,7 +1923,6 @@ impl ParticleSystem {
     /// In C++, this cascades to slave via m_slaveSystem->destroy().
     /// In Rust, the manager handles cascading via slave_system ID.
     pub fn destroy(&mut self) {
-        self.is_stopped = true;
         self.is_destroyed = true;
     }
 
@@ -2038,52 +2018,45 @@ impl ParticleSystem {
         }
     }
 
-    /// Emit particles (matches C++ ParticleSystem::update emission logic)
-    fn emit_particles(&mut self, current_frame: u32) {
-        // Check initial delay (C++ lines 1980-1989)
-        if self.delay_left > 0 {
-            self.delay_left -= 1;
-            // When delay finishes, set start timestamp (C++ line 1988)
-            if self.delay_left == 0 {
-                self.start_timestamp = current_frame;
-            }
-            return;
+    pub(crate) fn begin_emission_burst(&mut self) -> Option<EmissionCursor> {
+        if self.is_destroyed
+            || (!self.is_forever && self.system_lifetime_left == 0)
+            || self.is_shrouded
+            || self.is_stopped
+            || self.master_system.is_some()
+        {
+            return None;
         }
-
-        // Check burst delay (C++ lines 1972 / 2015-2020)
         if self.burst_delay_left > 0 {
             self.burst_delay_left -= 1;
-            return;
+            return None;
         }
+        Some(EmissionCursor {
+            // C++ REAL_TO_INT first, then the compound count coefficient cast.
+            count: (((self.info.burst_count.sample() as i32) as f32 * self.count_coeff) as i32)
+                .max(0) as u32,
+            next: 0,
+        })
+    }
 
-        // Time to emit particles (C++ lines 1992-2034)
-        let info = &self.info;
-        let burst_count = (info.burst_count.sample() * self.count_coeff) as u32;
-
-        for i in 0..burst_count {
-            if let Some(particle_info) = self.generate_particle_info(i, burst_count) {
-                self.pending_emission_infos.push(particle_info);
-            }
-            // C++ generateParticleInfo advances StartSizeRate per particle.
-            self.accumulated_size_bonus += info.start_size_rate.sample();
-            const MAX_SIZE_BONUS: f32 = 50.0;
-            if self.accumulated_size_bonus > MAX_SIZE_BONUS {
-                self.accumulated_size_bonus = MAX_SIZE_BONUS;
-            }
+    pub(crate) fn next_emission(&mut self, cursor: &mut EmissionCursor) -> Option<ParticleInfo> {
+        if cursor.next == cursor.count {
+            return None;
         }
+        let index = cursor.next;
+        cursor.next += 1;
+        self.generate_particle_info(index, cursor.count)
+    }
 
-        // Reset burst delay after the first immediate burst (C++ m_burstDelayLeft starts at 0)
-        self.burst_delay_left = (info.burst_delay.sample() * self.delay_coeff) as u32;
-        // C++ generateParticleInfo seeds m_lastPos on first non-identity generate.
-        self.is_first_pos = false;
-
-        // C++ never reads m_isOneShot at runtime — emission continues until SystemLifetime.
+    pub(crate) fn finish_emission_burst(&mut self, _cursor: EmissionCursor) {
+        let delay = self.info.burst_delay.sample() as u32;
+        self.burst_delay_left = (delay as f32 * self.delay_coeff) as u32;
     }
 
     /// Generate particle info (matches C++ ParticleSystem::generateParticleInfo)
     /// pub(crate) so the manager can call it for slave merge processing.
     pub(crate) fn generate_particle_info(
-        &self,
+        &mut self,
         particle_num: u32,
         particle_count: u32,
     ) -> Option<ParticleInfo> {
@@ -2102,11 +2075,11 @@ impl ParticleSystem {
         particle_info.velocity *= vel_scale;
 
         if !self.is_identity {
-            let last = if self.is_first_pos {
-                self.position
-            } else {
-                self.last_position
-            };
+            if self.is_first_pos {
+                self.last_position = self.position;
+                self.is_first_pos = false;
+            }
+            let last = self.last_position;
             let denom = particle_count.max(1) as f32;
             let spread = 1.0 - (particle_num as f32 / denom);
             let adjustment = (self.position - last) * spread;
@@ -2114,24 +2087,17 @@ impl ParticleSystem {
             particle_info.position = Vec3::from(world) - adjustment;
             particle_info.velocity = self.transform * particle_info.velocity;
         }
-        // Lifetime
-        particle_info.lifetime = info.lifetime.sample() as u32;
-
-        // C++ parity: ParticleSys.cpp lines 1782-1783
-        // C++: m_size = m_startSize*m_sizeCoeff*TheGlobalData->m_particleScale
-        // C++: m_sizeRate = m_sizeRate*m_sizeCoeff*TheGlobalData->m_particleScale
-        particle_info.size = info.start_size.sample() * self.size_coeff * self.particle_scale;
-        particle_info.size += self.accumulated_size_bonus;
-        particle_info.size_rate = info.size_rate.sample() * self.size_coeff * self.particle_scale;
-        particle_info.size_rate_damping = info.size_rate_damping.sample();
-
-        // Angles
+        particle_info.vel_damping = info.vel_damping.sample();
+        particle_info.angular_damping = info.angular_damping.sample();
         particle_info.angle_z = info.angle_z.sample();
         particle_info.angular_rate_z = info.angular_rate_z.sample();
-        particle_info.angular_damping = info.angular_damping.sample();
-
-        // Damping
-        particle_info.vel_damping = info.vel_damping.sample();
+        particle_info.lifetime = info.lifetime.sample() as u32;
+        particle_info.size = info.start_size.sample() * self.size_coeff * self.particle_scale;
+        particle_info.size_rate = info.size_rate.sample() * self.size_coeff * self.particle_scale;
+        particle_info.size_rate_damping = info.size_rate_damping.sample();
+        particle_info.size += self.accumulated_size_bonus;
+        self.accumulated_size_bonus += info.start_size_rate.sample();
+        self.accumulated_size_bonus = self.accumulated_size_bonus.min(50.0);
 
         // Copy keyframes (sample random alpha keyframes into fixed runtime values).
         for (dst, src) in particle_info
@@ -2591,7 +2557,7 @@ mod tests {
                 end: Vec3::new(5.0, 0.0, 0.0),
             };
         }
-        let system = ParticleSystem::new(Arc::new(template), 1, false);
+        let mut system = ParticleSystem::new(Arc::new(template), 1, false);
         let info = system.generate_particle_info(0, 1).unwrap();
         assert_eq!(info.position, Vec3::new(5.0, 0.0, 0.0));
     }
@@ -2686,7 +2652,7 @@ mod tests {
     #[test]
     fn test_particle_system_creation() {
         let template = Arc::new(ParticleSystemTemplate::new("TestSystem".to_string()));
-        let system = ParticleSystem::new(template, 1, false);
+        let mut system = ParticleSystem::new(template, 1, false);
 
         assert_eq!(system.system_id(), 1);
         assert_eq!(system.particle_count(), 0);
@@ -2859,7 +2825,7 @@ mod tests {
                 speed: GameClientRandomVariable::new(1.0, 2.0),
             };
         }
-        let system = ParticleSystem::new(Arc::new(template), 1, false);
+        let mut system = ParticleSystem::new(Arc::new(template), 1, false);
 
         game_engine::common::random_value::init_random_with_seed(90210);
         let pos_a = system.compute_particle_position();
@@ -2963,7 +2929,7 @@ mod tests {
     fn system_lifetime_zero_is_forever() {
         let mut template = ParticleSystemTemplate::new("Forever".to_string());
         template.info_mut().system_lifetime = 0;
-        let system = ParticleSystem::new(Arc::new(template), 1, false);
+        let mut system = ParticleSystem::new(Arc::new(template), 1, false);
         assert!(system.is_system_forever());
         assert!(system.system_lifetime_left == 0 || system.is_system_forever());
     }
@@ -3031,3 +2997,7 @@ mod tests {
 #[cfg(test)]
 #[path = "particle_system/owned_info_tests.rs"]
 mod owned_info_tests;
+
+#[cfg(test)]
+#[path = "particle_system/emission_cursor_tests.rs"]
+mod emission_cursor_tests;

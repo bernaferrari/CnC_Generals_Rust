@@ -692,215 +692,142 @@ impl ParticleSystemManager {
         self.local_player_index = local_player_index;
 
         // C++ per system: emit/createParticle then update those particles same frame.
-        let emit_ids = self.active_system_ids_in_order();
-        for id in emit_ids {
+        let mut next_system = 0;
+        while next_system < self.active_system_order.len() {
+            let id = self.active_system_order[next_system];
             let phase = {
-                let Some(system) = self.active_systems.get_mut(&id) else {
-                    continue;
-                };
-                system.begin_frame_emit(local_player_index, current_frame)
+                let system = self
+                    .active_systems
+                    .get_mut(&id)
+                    .expect("particle admission order references a registered system");
+                system.prepare_frame_emit(local_player_index, current_frame)
             };
+            // Attachment resolution and direct module destruction can mark the
+            // current system without borrowing its descendants. Apply the
+            // canonical destroy cascade before natural retirement detaches them.
+            let destroyed_slave = {
+                let system = self
+                    .active_systems
+                    .get(&id)
+                    .expect("prepared particle system remains admitted");
+                system
+                    .is_destroyed()
+                    .then(|| system.slave_system_id())
+                    .flatten()
+            };
+            if let Some(slave_id) = destroyed_slave {
+                self.destroy_particle_system(slave_id);
+            }
             match phase {
                 crate::effects::particle_system::FrameEmitPhase::Dead => {
-                    // C++ ParticleSys.cpp:2028-2053 still ages leftover particles
-                    // after destroy; only empty destroyed systems return false.
-                    if let Some(system) = self.active_systems.get_mut(&id) {
-                        if system.particle_count() > 0 {
-                            system.finish_frame_integrate(current_frame);
-                            let dead = system.take_dead_controlled_systems();
-                            for dead_id in dead {
-                                self.destroy_particle_system(dead_id);
-                            }
-                        }
-                    }
+                    self.retire_particle_system(id);
                     continue;
                 }
-                crate::effects::particle_system::FrameEmitPhase::Delayed => continue,
+                crate::effects::particle_system::FrameEmitPhase::Delayed => {
+                    next_system += 1;
+                    continue;
+                }
                 crate::effects::particle_system::FrameEmitPhase::Emitted => {}
             }
 
-            let (infos, priority, ground_aligned, emit_above_ground, attached_name) = {
-                let Some(system) = self.active_systems.get_mut(&id) else {
-                    continue;
-                };
+            let (cursor, priority, ground_aligned, emit_above_ground, attached_name) = {
+                let system = self
+                    .active_systems
+                    .get_mut(&id)
+                    .expect("current particle system remains admitted before burst setup");
                 (
-                    system.take_pending_emissions(),
+                    system.begin_emission_burst(),
                     system.priority(),
                     system.info().is_ground_aligned,
                     system.is_emit_above_ground_only(),
                     system.attached_system_name().to_string(),
                 )
             };
-            for info in infos {
-                if emit_above_ground {
-                    let ground = gamelogic::helpers::TheTerrainLogic::get()
-                        .map(|terrain| {
-                            terrain.get_ground_height(info.position.x, info.position.y, None)
-                        })
-                        .unwrap_or(0.0);
-                    if info.position.z < ground {
+            if let Some(mut cursor) = cursor {
+                loop {
+                    let info = self
+                        .active_systems
+                        .get_mut(&id)
+                        .expect("current particle system remains admitted during burst")
+                        .next_emission(&mut cursor);
+                    let Some(info) = info else {
+                        break;
+                    };
+                    if emit_above_ground {
+                        let ground = gamelogic::helpers::TheTerrainLogic::get()
+                            .map(|terrain| {
+                                terrain.get_ground_height(info.position.x, info.position.y, None)
+                            })
+                            .unwrap_or(0.0);
+                        if info.position.z < ground {
+                            continue;
+                        }
+                    }
+                    let system_count = self
+                        .active_systems
+                        .get(&id)
+                        .expect("current particle system remains admitted for budget")
+                        .particle_count();
+                    if !self.can_create_particle_for_system(
+                        priority,
+                        ground_aligned,
+                        system_count,
+                        false,
+                    ) {
                         continue;
                     }
-                }
-                let system_count = self
-                    .active_systems
-                    .get(&id)
-                    .map(|s| s.particle_count())
-                    .unwrap_or(0);
-                if !self.can_create_particle_for_system(
-                    priority,
-                    ground_aligned,
-                    system_count,
-                    false,
-                ) {
-                    continue;
-                }
-                let personality = self
-                    .active_systems
-                    .get(&id)
-                    .map(|s| s.personality_counter())
-                    .unwrap_or(0);
-                let mut particle = crate::effects::particle_system::Particle::new(
-                    &info,
-                    personality,
-                    current_frame,
-                );
-                if !attached_name.is_empty() {
-                    if let Some(tmpl) = self.find_template(&attached_name) {
-                        if let Ok(att_id) = self.create_particle_system(&tmpl, true) {
-                            particle.controlled_system = Some(att_id);
-                            if let Some(att) = self.active_systems.get_mut(&att_id) {
-                                att.set_control_particle_position(particle.position);
+                    let personality = self
+                        .active_systems
+                        .get(&id)
+                        .expect("current particle system remains admitted for creation")
+                        .personality_counter();
+                    let particle = crate::effects::particle_system::Particle::new(
+                        &info,
+                        personality,
+                        current_frame,
+                    );
+                    let position = particle.position;
+                    // C++ createParticle admits the parent before attached ctors.
+                    self.active_systems
+                        .get_mut(&id)
+                        .expect("current particle system remains admitted for parent insertion")
+                        .push_particle(particle);
+                    self.particle_count += 1;
+                    if !attached_name.is_empty() {
+                        if let Some(tmpl) = self.find_template(&attached_name) {
+                            if let Ok(att_id) = self.create_particle_system(&tmpl, true) {
+                                self.active_systems
+                                    .get_mut(&att_id)
+                                    .expect("successful attached constructor admits its system")
+                                    .set_control_particle_position(position);
+                                let parent = self.active_systems.get_mut(&id)
+                                    .expect("attached constructor cannot remove its parent system")
+                                    .particles_mut().iter_mut()
+                                    .find(|particle| particle.personality == personality)
+                                    .expect("attached constructor cannot remove the admitted parent particle");
+                                parent.controlled_system = Some(att_id);
                             }
                         }
                     }
+                    self.admit_slave_for_master(id, priority, current_frame);
                 }
-                if let Some(system) = self.active_systems.get_mut(&id) {
-                    system.push_particle(particle);
-                    if system.slave_system_id().is_some() {
-                        system.record_slave_emission();
-                    }
-                }
-                self.particle_count += 1;
-            }
-
-            if let Some(system) = self.active_systems.get_mut(&id) {
-                system.finish_frame_integrate(current_frame);
-                let dead = system.take_dead_controlled_systems();
-                for dead_id in dead {
-                    self.destroy_particle_system(dead_id);
-                }
-            }
-        }
-
-        // Reposition systems controlled by a live particle (C++ ParticleSys.cpp:1948-1959).
-        let control_pairs: Vec<(ParticleSystemId, Vec3)> = self
-            .active_system_ids_in_order()
-            .into_iter()
-            .flat_map(|sys_id| {
                 self.active_systems
-                    .get(&sys_id)
-                    .into_iter()
-                    .flat_map(|system| {
-                        system.particles().iter().filter_map(|particle| {
-                            particle
-                                .controlled_system
-                                .map(|att_id| (att_id, particle.position))
-                        })
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        for (att_id, pos) in control_pairs {
-            if let Some(att) = self.active_systems.get_mut(&att_id) {
-                att.set_control_particle_position(pos);
+                    .get_mut(&id)
+                    .expect("current particle system remains admitted through burst completion")
+                    .finish_emission_burst(cursor);
             }
-        }
 
-        // Process slave particle emissions (C++ ParticleSys.cpp lines 2004-2009)
-        let slave_work: Vec<(ParticleSystemId, ParticleSystemId, u32)> = self
-            .active_system_ids_in_order()
-            .into_iter()
-            .filter_map(|master_id| {
-                let system = self.active_systems.get_mut(&master_id)?;
-                let count = system.drain_slave_emission_count();
-                (count != 0)
-                    .then(|| {
-                        system
-                            .slave_system_id()
-                            .map(|slave_id| (master_id, slave_id, count))
-                    })
-                    .flatten()
-            })
-            .collect();
-
-        for (master_id, slave_id, count) in slave_work {
-            let merged_infos: Vec<crate::effects::particle_system::ParticleInfo> = {
-                let master = match self.active_systems.get(&master_id) {
-                    Some(m) => m.as_ref(),
-                    None => continue,
-                };
-                let slave = match self.active_systems.get(&slave_id) {
-                    Some(s) => s.as_ref(),
-                    None => continue,
-                };
-                (0..count)
-                    .map(|_| {
-                        crate::effects::particle_system::merge_related_particle_systems(
-                            master, slave, false,
-                        )
-                    })
-                    .collect()
-            };
-
-            for info in merged_infos {
-                let (priority, ground_aligned, system_count) = {
-                    let Some(slave) = self.active_systems.get(&slave_id) else {
-                        break;
-                    };
-                    (
-                        slave.priority(),
-                        slave.info().is_ground_aligned,
-                        slave.particle_count(),
-                    )
-                };
-                if !self.can_create_particle_for_system(
-                    priority,
-                    ground_aligned,
-                    system_count,
-                    false,
-                ) {
-                    continue;
-                }
-                if let Some(slave_system) = self.active_systems.get_mut(&slave_id) {
-                    let particle = crate::effects::particle_system::Particle::new(
-                        &info,
-                        slave_system.personality_counter(),
-                        current_frame,
-                    );
-                    slave_system.push_particle(particle);
-                    self.particle_count += 1;
-                }
-            }
-        }
-
-        let systems_to_remove: Vec<ParticleSystemId> = self
-            .active_system_ids_in_order()
-            .into_iter()
-            .filter(|id| {
-                self.active_systems
-                    .get(id)
-                    .is_some_and(|system| system.should_remove())
-            })
-            .collect();
-        for id in systems_to_remove {
-            if let Some(system) = self.active_systems.get(&id) {
-                let slave_id = system.slave_system_id();
-                self.remove_active_system(id);
-                self.system_count = self.system_count.saturating_sub(1);
-                if let Some(slave_id) = slave_id {
-                    self.destroy_particle_system(slave_id);
-                }
+            self.integrate_particle_system(id, current_frame);
+            self.refresh_controlled_particle_origins(id);
+            if self
+                .active_systems
+                .get(&id)
+                .expect("current particle system remains admitted")
+                .should_remove()
+            {
+                self.retire_particle_system(id);
+            } else {
+                next_system += 1;
             }
         }
 
@@ -2215,3 +2142,6 @@ mod particle_draw_owner_tests;
 
 #[path = "particle_manager/slave_factory.rs"]
 mod slave_factory;
+
+#[path = "particle_manager/emission.rs"]
+mod emission;
