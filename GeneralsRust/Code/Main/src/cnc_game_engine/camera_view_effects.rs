@@ -99,12 +99,7 @@ impl CnCGameEngine {
     /// Source setCameraTransform: after height adjustment, before slave pose.
     fn update_camera_transform_shakers(&mut self) {
         step_transform_shakers(&mut self.script_camera_shakers, true);
-        let eye = self
-            .camera_fx_adjusted_eye_and_look(
-                self.camera_target + self.camera_orbit_offset() + self.camera_shake_offset,
-                self.camera_target,
-            )
-            .0;
+        let eye = self.native_camera_base_pose().0;
         let mut rotation = Vec3::ZERO;
         for shaker in &self.script_camera_shakers {
             rotation += script_camera_shaker_rotations(shaker, eye);

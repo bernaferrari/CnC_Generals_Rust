@@ -113,7 +113,6 @@ pub(super) struct LookAtHostModes {
     last_mouse_move_frame: u32,
     last_mouse_pixel: (f32, f32),
     /// C++ `View::m_heightAboveGround` desired HAG (wheel/key zoom).
-    desired_height_above_ground: Option<f32>,
     /// Player scroll cleared camera lock (C++ `setScrolling` + `setCameraLock`).
     camera_follow_lock_broken: bool,
     /// Player setAngle/setZoom/lookAt this frame; residual must not re-apply.
@@ -160,23 +159,6 @@ pub fn live_view_height_clamp(min_h: f32, max_h: f32, script_max_height_scale: f
         1.0
     };
     (min_h, (max_h * scale).max(min_h))
-}
-
-/// C++ `setAngleAndPitchToDefault`: orbit GameData CameraPitch plus extra
-/// `m_defaultPitchAngle`. Live residual `1.0` is the FXPitch-style fail-closed
-/// (not extra View pitch); script `0.0` is the authored default.
-pub fn live_home_pitch_radians(orbit_pitch_degrees: f32, script_default_pitch: f32) -> f32 {
-    let orbit_deg = if orbit_pitch_degrees.abs() < 0.1 {
-        LOOKAT_DEFAULT_PITCH_DEG
-    } else {
-        orbit_pitch_degrees
-    };
-    let extra = if script_default_pitch.is_finite() && (script_default_pitch - 1.0).abs() > 1.0e-4 {
-        script_default_pitch
-    } else {
-        0.0
-    };
-    orbit_deg.to_radians() + extra
 }
 
 impl LookAtHostModes {

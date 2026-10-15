@@ -540,12 +540,10 @@ fn apply_persist_chunks(
     if let Some(payload) = tactical_view {
         if payload.len() > 1 {
             if let Ok(camera) = persist_v18::parse_tactical_view_block(payload) {
-                snapshot.persist_v18.camera_valid = true;
-                snapshot.persist_v18.camera_angle = camera.angle;
-                snapshot.persist_v18.camera_position = camera.position;
-                snapshot.persist_v18.camera_target = camera.target;
-                snapshot.persist_v18.camera_zoom = camera.zoom;
-                persist_v18::set_pending_camera(camera);
+                // Original View xfer is not the native full eye/zoom record.
+                // Keep both decoded values detached; the receiving host selects
+                // its complete native record when present.
+                snapshot.persist_v18.tactical_view_camera = Some(camera);
             }
         }
     }
@@ -844,6 +842,7 @@ impl SaveFileManager {
             client_drawables,
             None,
             save_info,
+            None,
         )
     }
 
@@ -862,6 +861,27 @@ impl SaveFileManager {
             client_drawables,
             Some(client),
             save_info,
+            None,
+        )
+    }
+
+    /// Save a view captured by the same engine that owns this world/client.
+    pub fn save_game_with_client_state_and_camera(
+        &mut self,
+        filename: &str,
+        game_logic: &GameLogic,
+        client_drawables: ClientDrawableWorldSnapshot,
+        client: &mut game_client::core::game_client::GameClient,
+        save_info: &SaveGameInfo,
+        camera: crate::save_load::snapshot::CameraPersist,
+    ) -> SaveLoadResult<()> {
+        self.save_game_with_client_state_impl(
+            filename,
+            game_logic,
+            client_drawables,
+            Some(client),
+            save_info,
+            Some(camera),
         )
     }
 
@@ -872,6 +892,7 @@ impl SaveFileManager {
         client_drawables: ClientDrawableWorldSnapshot,
         mut client: Option<&mut game_client::core::game_client::GameClient>,
         save_info: &SaveGameInfo,
+        camera: Option<crate::save_load::snapshot::CameraPersist>,
     ) -> SaveLoadResult<()> {
         let save_path = self.get_save_path(filename);
         let temp_path = self.get_temp_path(&format!("{}_temp", filename));
@@ -884,6 +905,9 @@ impl SaveFileManager {
             snapshot_builder.create_world_snapshot(game_logic)?
         };
         world_snapshot.client_drawables = client_drawables;
+        if let Some(camera) = camera {
+            camera.write_to(&mut world_snapshot.persist_v18);
+        }
         // C++ GameState writes the logic chunk before GameClient::xfer.
         let client_xfer_bytes = if let Some(client) = client {
             capture_game_client_xfer_bytes(client)?

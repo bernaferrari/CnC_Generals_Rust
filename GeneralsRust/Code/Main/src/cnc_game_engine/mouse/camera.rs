@@ -279,7 +279,6 @@ impl CnCGameEngine {
                     self.camera_yaw_target = None;
                     self.camera_pitch_target = None;
                     self.camera_zoom_target = None;
-                    self.look_at_modes.desired_height_above_ground = None;
                     if !self
                         .look_at_modes
                         .lookat_has_mouse_moved_recently(self.frame_counter)
@@ -478,20 +477,13 @@ impl CnCGameEngine {
             data.max_camera_height,
             self.ui_script_default_camera_max_height(),
         );
-        let pitch = self
-            .camera_pitch_radians
-            .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians());
-        let basis = self.camera_orbit_distance.max(1.0) * pitch.sin();
-        if basis <= f32::EPSILON {
-            return;
-        }
-        let current_hag = self
-            .look_at_modes
-            .desired_height_above_ground
-            .unwrap_or(self.camera_zoom * basis);
         let zoom_limited = live_camera_zoom_limited();
-        let new_hag = height_after_zoom_steps(current_hag, steps, min_h, max_h, zoom_limited);
-        self.look_at_modes.desired_height_above_ground = Some(new_hag);
+        self.native_camera.set_height(
+            self.native_camera.desired() + steps * 10.0,
+            zoom_limited,
+            min_h,
+            max_h,
+        );
         // C++ setHeightAboveGround cancels scripted rotate/pitch/zoom/path/lock.
         self.cancel_scripted_camera_from_player_set();
         // C++ setHeightAboveGround invalidates m_cameraConstraint (recalc from map).
@@ -499,91 +491,54 @@ impl CnCGameEngine {
         // C++ View::zoomIn/Out only changes HAG; W3DView eases zoom at CameraAdjustSpeed.
     }
 
-    /// C++ `W3DView::update` height follow (W3DView.cpp:1308-1339).
-    /// Sample presentation height under the look-at, then ease the orbit so
-    /// camera Y approaches terrain + the current height-above-ground.
+    pub(in crate::cnc_game_engine) fn native_camera_terrain_height_around(
+        &self,
+        target: Vec3,
+    ) -> Option<f32> {
+        let presentation = self.last_presentation_frame.as_deref()?;
+        super::super::camera_height::height_around(target, |x, z| {
+            presentation.world_env.sample_camera_terrain_height(x, z)
+        })
+    }
+
+    /// Source W3DView::update: max-five terrain and the map's unrotated
+    /// offset Z determine zoom. View position is never a second height owner.
     pub(in crate::cnc_game_engine) fn ease_camera_height_above_ground(
         &mut self,
         scroll_amount: f32,
         did_scripted_movement: bool,
     ) -> bool {
-        // C++: `!TheGameLogic->isGamePaused()` and `m_okToAdjustHeight`.
-        if !matches!(self.current_state, GameState::InGame) || self.native_view_is_paused() {
+        let Some(terrain) = self.native_camera_terrain_height_around(self.camera_target) else {
             return false;
-        }
-        // Do not fight scripted zoom/pitch/yaw eases (C++ `didScriptedMovement`).
-        if did_scripted_movement {
-            return false;
-        }
-
-        let terrain = self.sample_presentation_height_under(self.camera_target);
-        let (adjust_speed, min_height, max_height, enforce_max, scroll_cutoff) = {
-            let global_data = game_engine::common::global_data::read();
-            let (min_height, max_height) = live_view_height_clamp(
-                global_data.min_camera_height,
-                global_data.max_camera_height,
+        };
+        let (rules, use_camera_in_replay) = {
+            let data = game_engine::common::global_data::read();
+            let (min, max) = live_view_height_clamp(
+                data.min_camera_height,
+                data.max_camera_height,
                 self.ui_script_default_camera_max_height(),
             );
             (
-                global_data.camera_adjust_speed,
-                min_height,
-                max_height,
-                global_data.enforce_max_camera_height,
-                global_data.scroll_amount_cutoff,
+                super::super::camera_height::HeightRules {
+                    min,
+                    max,
+                    enforce_max: data.enforce_max_camera_height,
+                    adjust_speed: data.camera_adjust_speed,
+                    scroll_cutoff: data.scroll_amount_cutoff,
+                },
+                data.use_camera_in_replay,
             )
         };
-        if !adjust_speed.is_finite() || adjust_speed <= 0.0 {
-            return false;
-        }
-
-        let height_above_ground = self.camera_orbit_offset().y;
-        let current_height_above_ground = self.camera_target.y + height_above_ground - terrain;
-        let too_low = min_height.is_finite() && current_height_above_ground < min_height;
-        let too_high =
-            enforce_max && max_height.is_finite() && current_height_above_ground > max_height;
-        // C++: while scrolling, only adjust if slow or too close/far.
-        if scroll_amount >= scroll_cutoff && !too_low && !too_high {
-            return false;
-        }
-
-        let mut changed = false;
-
-        // Ease look-at onto sampled terrain so orbit Y = terrain + HAG.
-        let y_adj = (terrain - self.camera_target.y) * adjust_speed;
-        if y_adj.abs() >= 0.0001 {
-            self.camera_target.y += y_adj;
-            changed = true;
-        }
-
-        // C++ W3DView.cpp:1334-1343 eases m_zoom toward (terrain+HAG)/offset.z.
-        let mut desired_hag = self
-            .look_at_modes
-            .desired_height_above_ground
-            .unwrap_or(height_above_ground);
-        if min_height.is_finite() && desired_hag < min_height {
-            desired_hag = min_height;
-        }
-        if enforce_max && max_height.is_finite() && desired_hag > max_height {
-            desired_hag = max_height;
-        }
-        if (desired_hag - height_above_ground).abs() >= 0.0001 {
-            let pitch = self
-                .camera_pitch_radians
-                .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians());
-            let basis = self.camera_orbit_distance.max(1.0) * pitch.sin();
-            if basis > f32::EPSILON {
-                let desired_zoom = desired_hag / basis;
-                let zoom_adj = (desired_zoom - self.camera_zoom) * adjust_speed;
-                if zoom_adj.abs() >= 0.0001 {
-                    let min_zoom = min_height / basis;
-                    let max_zoom = max_height / basis;
-                    self.camera_zoom = (self.camera_zoom + zoom_adj).clamp(min_zoom, max_zoom);
-                    changed = true;
-                }
-            }
-        }
-
-        changed
+        let step = super::super::camera_height::HeightStep {
+            terrain,
+            paused: self.native_view_is_paused(),
+            scrolling: self.look_at_modes.look_at_host_is_scrolling(),
+            scroll_amount,
+            scripted: did_scripted_movement,
+            replay_camera: self.presentation_or_boot_in_replay_game() && use_camera_in_replay,
+            rules,
+        };
+        self.native_camera.advance(&mut self.camera_zoom, step)
     }
 
     /// C++ InGameUI context cursor residual mapped onto winit CursorIcon.
@@ -1268,22 +1223,24 @@ impl CnCGameEngine {
     /// C++ `InGameUI::resetCamera` + `W3DView::resetCamera`: keep look-at,
     /// restore default angle/pitch/zoom. Does not retarget the command center.
     pub(in crate::cnc_game_engine) fn reset_camera_pose_in_place(&mut self) {
-        let defaults = Self::configured_startup_camera_defaults();
         // C++ setAngleAndPitchToDefault: m_pitchAngle = m_defaultPitchAngle.
-        self.camera_yaw_radians = defaults.yaw_degrees.to_radians();
-        self.camera_pitch_radians = live_home_pitch_radians(
-            defaults.pitch_degrees,
-            self.ui_script_default_camera_pitch(),
-        );
+        self.camera_yaw_radians = 0.0;
+        self.camera_pitch_radians =
+            super::super::camera_height::clamp_pitch(self.ui_script_default_camera_pitch());
         self.camera_yaw_target = None;
         self.camera_pitch_target = None;
         self.camera_zoom_target = None;
         // C++ W3DView::setAngleAndPitchToDefault / resetCamera: m_FXPitch = 1.0.
         self.camera_fx_pitch = 1.0;
-        self.camera_zoom = self.compute_default_camera_zoom_for_target(
-            self.camera_target,
-            self.ui_script_default_camera_max_height(),
-        );
+        if let Some(terrain) = self.native_camera_terrain_height_around(self.camera_target) {
+            let data = game_engine::common::global_data::read();
+            let (_, max_height) = live_view_height_clamp(
+                data.min_camera_height,
+                data.max_camera_height,
+                self.ui_script_default_camera_max_height(),
+            );
+            self.camera_zoom = self.native_camera.set_zoom_to_default(terrain, max_height);
+        }
         // C++ resetCamera/setZoom invalidates m_cameraConstraint.
         self.scripted_camera_constraint_widen = None;
         self.apply_camera_orbit_transform();
@@ -1329,7 +1286,6 @@ impl CnCGameEngine {
             self.camera_yaw_target = None;
             self.camera_pitch_target = None;
             self.camera_zoom_target = None;
-            self.look_at_modes.desired_height_above_ground = None;
             self.apply_camera_orbit_transform();
             if matches!(self.current_state, GameState::InGame | GameState::Paused) {
                 self.update_mouse_world_position();

@@ -304,7 +304,6 @@ impl CnCGameEngine {
         )?;
 
         let camera_target = Vec3::ZERO;
-        let camera_position = Vec3::new(0.0, 310.0, -403.99988);
         let camera_zoom = 1.0;
         let aspect = size.width as f32 / size.height as f32;
         let projection_matrix = perspective_rh_from_horizontal_fov(
@@ -381,12 +380,20 @@ impl CnCGameEngine {
             )
         };
 
-        let camera_offset = camera_position - camera_target;
-        let camera_orbit_distance = camera_offset.length().max(1.0);
-        let camera_pitch_radians = camera_offset
-            .y
-            .atan2(Vec2::new(camera_offset.x, camera_offset.z).length());
-        let camera_yaw_radians = camera_offset.x.atan2(camera_offset.z);
+        let defaults = Self::configured_startup_camera_defaults();
+        let native_camera = super::camera_height::CameraHeight::new(
+            defaults.camera_height,
+            defaults.pitch_degrees,
+            defaults.yaw_degrees,
+        );
+        let camera_pitch_radians = 0.0;
+        let camera_yaw_radians = 0.0;
+        let (camera_position, camera_target) = native_camera.basis().pose(
+            camera_target,
+            camera_zoom,
+            camera_pitch_radians,
+            camera_yaw_radians,
+        );
         let view_matrix = Mat4::look_at_rh(camera_position, camera_target, Vec3::Y);
 
         let pending_shell_model_prewarm = if start_in_menu {
@@ -544,7 +551,7 @@ impl CnCGameEngine {
             camera_zoom_frame: 0,
             camera_zoom_ease_in: 0.0,
             camera_zoom_ease_out: 0.0,
-            camera_orbit_distance,
+            native_camera,
             camera_pitch_radians,
             camera_pitch_target: None,
             camera_pitch_start: camera_pitch_radians,

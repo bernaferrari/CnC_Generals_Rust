@@ -15,7 +15,6 @@ use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
 use gamelogic::helpers::TheGameLogic;
 use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Seek, Write};
-use std::sync::Mutex;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct NamedTimerPersist {
@@ -229,6 +228,10 @@ pub struct WorldPersistV18 {
     pub radar_events: Vec<RadarEventPersist>,
     pub radar_next_event: i32,
     pub radar_last_event: i32,
+    /// Original View::xfer load value, detached from native full-pose saves.
+    /// This admission metadata is never added to the native save wire.
+    #[serde(skip)]
+    pub tactical_view_camera: Option<TacticalViewPersist>,
     pub camera_valid: bool,
     pub camera_angle: f32,
     pub camera_position: [f32; 3],
@@ -273,6 +276,7 @@ impl Default for WorldPersistV18 {
             radar_events: Vec::new(),
             radar_next_event: 0,
             radar_last_event: -1,
+            tactical_view_camera: None,
             camera_valid: false,
             camera_angle: 0.0,
             camera_position: [0.0; 3],
@@ -284,7 +288,7 @@ impl Default for WorldPersistV18 {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CameraPersist {
     pub angle: f32,
     pub position: [f32; 3],
@@ -292,20 +296,33 @@ pub struct CameraPersist {
     pub zoom: f32,
 }
 
-static PENDING_CAMERA: Mutex<Option<CameraPersist>> = Mutex::new(None);
+/// C++ View::xfer v1 saves only raw View angle and logical XYZ position.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TacticalViewPersist {
+    pub angle: f32,
+    pub position: [f32; 3],
+}
 
-pub fn set_pending_camera(camera: CameraPersist) {
-    if let Ok(mut slot) = PENDING_CAMERA.lock() {
-        *slot = Some(camera);
+impl CameraPersist {
+    /// Attach this driving view's immutable save value to one detached record.
+    pub(crate) fn write_to(self, persist: &mut WorldPersistV18) {
+        persist.camera_valid = true;
+        persist.camera_angle = self.angle;
+        persist.camera_position = self.position;
+        persist.camera_target = self.target;
+        persist.camera_zoom = self.zoom;
     }
 }
 
-pub fn take_pending_camera() -> Option<CameraPersist> {
-    PENDING_CAMERA.lock().ok().and_then(|mut slot| slot.take())
-}
-
-pub fn peek_pending_camera() -> Option<CameraPersist> {
-    PENDING_CAMERA.lock().ok().and_then(|slot| *slot)
+impl WorldPersistV18 {
+    pub(crate) fn camera(&self) -> Option<CameraPersist> {
+        self.camera_valid.then_some(CameraPersist {
+            angle: self.camera_angle,
+            position: self.camera_position,
+            target: self.camera_target,
+            zoom: self.camera_zoom,
+        })
+    }
 }
 
 fn radar_event_type_from_u8(value: u8) -> RadarEventType {
@@ -532,14 +549,6 @@ fn capture_persist_v18_impl(
         persist.radar_events = events.iter().map(persist_radar_event).collect();
         persist.radar_next_event = next as i32;
         persist.radar_last_event = last.map(|idx| idx as i32).unwrap_or(-1);
-    }
-
-    if let Some(camera) = peek_pending_camera() {
-        persist.camera_valid = true;
-        persist.camera_angle = camera.angle;
-        persist.camera_position = camera.position;
-        persist.camera_target = camera.target;
-        persist.camera_zoom = camera.zoom;
     }
 
     let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
@@ -881,15 +890,6 @@ pub fn restore_persist_v18(
         );
     }
 
-    if persist.camera_valid {
-        set_pending_camera(CameraPersist {
-            angle: persist.camera_angle,
-            position: persist.camera_position,
-            target: persist.camera_target,
-            zoom: persist.camera_zoom,
-        });
-    }
-
     for entry in &persist.drawable_xfer {
         let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) else {
             continue;
@@ -1118,9 +1118,9 @@ pub fn write_tactical_view_block<W: Write + Seek>(
     let mut version = 1u8;
     map_xfer(xfer.xfer_version(&mut version, 1))?;
     let mut angle = persist.camera_angle;
-    let mut x = persist.camera_position[0];
-    let mut y = persist.camera_position[1];
-    let mut z = persist.camera_position[2];
+    let mut x = persist.camera_target[0];
+    let mut y = persist.camera_target[2];
+    let mut z = persist.camera_target[1];
     map_xfer(xfer.xfer_real(&mut angle))?;
     map_xfer(xfer.xfer_real(&mut x))?;
     map_xfer(xfer.xfer_real(&mut y))?;
@@ -1128,7 +1128,7 @@ pub fn write_tactical_view_block<W: Write + Seek>(
     Ok(())
 }
 
-pub fn parse_tactical_view_block(payload: &[u8]) -> SaveLoadResult<CameraPersist> {
+pub fn parse_tactical_view_block(payload: &[u8]) -> SaveLoadResult<TacticalViewPersist> {
     let mut xfer = CommonXferLoad::new(Cursor::new(payload), 1);
     let mut version = 0u8;
     map_xfer(xfer.xfer_version(&mut version, 1))?;
@@ -1140,11 +1140,9 @@ pub fn parse_tactical_view_block(payload: &[u8]) -> SaveLoadResult<CameraPersist
     map_xfer(xfer.xfer_real(&mut x))?;
     map_xfer(xfer.xfer_real(&mut y))?;
     map_xfer(xfer.xfer_real(&mut z))?;
-    Ok(CameraPersist {
+    Ok(TacticalViewPersist {
         angle,
         position: [x, y, z],
-        target: [x, 0.0, z],
-        zoom: 1.0,
     })
 }
 
@@ -2093,7 +2091,8 @@ mod tests {
     fn tactical_view_chunk_round_trips_angle_and_position() {
         let mut persist = WorldPersistV18::default();
         persist.camera_angle = 0.5;
-        persist.camera_position = [10.0, 20.0, 30.0];
+        persist.camera_position = [1000.0, 2000.0, 3000.0];
+        persist.camera_target = [10.0, 30.0, 20.0];
         let mut cursor = Cursor::new(Vec::new());
         {
             let mut xfer = CommonXferSave::new(&mut cursor, 1);

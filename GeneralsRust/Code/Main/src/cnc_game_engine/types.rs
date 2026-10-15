@@ -1262,7 +1262,7 @@ pub struct CnCGameEngine {
     pub(crate) camera_zoom_frame: u32,
     pub(crate) camera_zoom_ease_in: f32,
     pub(crate) camera_zoom_ease_out: f32,
-    pub(crate) camera_orbit_distance: f32,
+    pub(in crate::cnc_game_engine) native_camera: super::camera_height::CameraHeight,
     pub(crate) camera_pitch_radians: f32,
     pub(crate) camera_pitch_target: Option<f32>,
     pub(crate) camera_pitch_start: f32,

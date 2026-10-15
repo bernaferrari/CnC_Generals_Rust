@@ -860,15 +860,19 @@ impl CnCGameEngine {
             .or(self.last_presentation_frame.as_deref());
         // Wave 540/552: prefer presentation fow_shell_bypass when freeze present.
         let in_shell_camera = self.shell_bypass_from_presentation(startup_camera_presentation);
-        (self.camera_target, self.camera_position, self.camera_zoom) =
-            Self::bootstrap_camera_for_loaded_map(
-                in_shell_camera,
-                self.current_player_id,
-                startup_camera_defaults,
-                startup_camera_presentation,
-            );
-        self.sync_orbit_from_camera_transform();
-        self.snap_camera_to_local_units_if_needed();
+        (
+            self.camera_target,
+            self.camera_position,
+            self.camera_zoom,
+            self.native_camera,
+        ) = Self::bootstrap_native_camera_for_loaded_map(
+            in_shell_camera,
+            self.current_player_id,
+            startup_camera_defaults,
+            startup_camera_presentation,
+        );
+        self.camera_pitch_radians = 0.0;
+        self.camera_yaw_radians = 0.0;
         // W3DView::setCameraTransform calculates camera constraints when
         // lookAt/setZoomToDefault builds the initial pose. The match camera
         // must apply that same viewport inset before its first player scroll.
@@ -1003,23 +1007,10 @@ impl CnCGameEngine {
         // If already aimed near the local base, keep bootstrap (C++ InitialCamera).
         // Boot camera sits at the origin; never treat that as "already on the base".
         if dist_sq < 250.0 * 250.0 && !(looking_at_boot_origin && focus_is_real_base) {
-            // Still force a sane orbit so frustum is not degenerate after shell→match.
-            if self.camera_orbit_distance < 40.0 || self.camera_orbit_distance > 800.0 {
-                self.camera_orbit_distance = 280.0;
-                self.camera_pitch_radians = 35.0_f32.to_radians();
-                self.camera_yaw_radians = 0.0;
-                self.apply_camera_orbit_transform();
-            }
             return;
         }
-
-        self.camera_target = Vec3::new(focus.x, focus.y, focus.z);
-        // Retail-ish elevated look: fixed orbit, not a one-off look_at that
-        // update_camera immediately overwrites with a broken pitch/distance.
-        self.camera_orbit_distance = 320.0;
-        self.camera_pitch_radians = 38.0_f32.to_radians();
-        self.camera_yaw_radians = 0.35; // slight yaw so bases aren't edge-on
-        self.camera_zoom = 1.0;
+        // Focusing a location does not create a new map camera basis.
+        self.camera_target = Vec3::new(focus.x, 0.0, focus.z);
         self.apply_camera_orbit_transform();
     }
 
@@ -1374,25 +1365,20 @@ impl CnCGameEngine {
         }
     }
 
-    /// C++ user pitch model (View.cpp:148-158): `View::setPitch` stores a user
-    /// delta clamped ±PI/5, and `W3DView::buildCameraTransform`
-    /// (W3DView.cpp:307-321) rotates the GameData-`CameraPitch` base camera
-    /// offset by that delta, so the absolute orbit pitch is base plus the
-    /// clamped delta. The host stores the absolute pitch, so its distance from
-    /// the GameData base is the user delta and the ±PI/5 clamp bounds it; the
-    /// ±[5,85] render guards keep the orbit offset solvable.
+    /// View::setPitch stores a delta from the immutable INI camera basis.
     fn clamp_orbit_pitch_radians(pitch: f32) -> f32 {
-        let base_degrees = game_engine::common::global_data::read().camera_pitch;
-        let base_degrees = if base_degrees.is_finite() && base_degrees.abs() >= 0.1 {
-            base_degrees
-        } else {
-            LOOKAT_DEFAULT_PITCH_DEG
-        };
-        let base = base_degrees.to_radians();
-        let limit = std::f32::consts::PI / 5.0;
-        pitch
-            .clamp(base - limit, base + limit)
-            .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians())
+        super::camera_height::clamp_pitch(pitch)
+    }
+
+    /// The same source pose feeds rendering and transform-shaker observation.
+    pub(super) fn native_camera_base_pose(&self) -> (Vec3, Vec3) {
+        let (eye, look) = self.native_camera.basis().pose(
+            self.camera_target,
+            self.camera_zoom,
+            Self::clamp_orbit_pitch_radians(self.camera_pitch_radians),
+            self.camera_yaw_radians,
+        );
+        self.camera_fx_adjusted_eye_and_look(eye + self.camera_shake_offset, look)
     }
 
     pub(super) fn apply_camera_orbit_transform(&mut self) {
@@ -1400,12 +1386,7 @@ impl CnCGameEngine {
             return;
         }
         self.camera_pitch_radians = Self::clamp_orbit_pitch_radians(self.camera_pitch_radians);
-        self.camera_orbit_distance = self.camera_orbit_distance.max(1.0);
-        let offset = self.camera_orbit_offset();
-        let (source, look) = self.camera_fx_adjusted_eye_and_look(
-            self.camera_target + offset + self.camera_shake_offset,
-            self.camera_target,
-        );
+        let (source, look) = self.native_camera_base_pose();
         self.camera_position = source;
         let shake = self.camera_shake_rotation;
         if shake.length_squared() > 1.0e-8 {
@@ -1419,29 +1400,6 @@ impl CnCGameEngine {
         } else {
             self.view_matrix = Mat4::look_at_rh(source, look, Vec3::Y);
         }
-    }
-
-    /// C++ `W3DView::buildCameraTransform` offset in Main's X/Z-ground basis.
-    /// `camera_orbit_distance` is deliberately unzoomed; multiplying it here
-    /// makes wheel/key/script zoom affect the real WGPU camera exactly once.
-    pub(super) fn camera_orbit_offset(&self) -> Vec3 {
-        let zoom = if self.camera_zoom.is_finite() {
-            self.camera_zoom.max(0.05)
-        } else {
-            1.0
-        };
-        let distance = if self.camera_orbit_distance.is_finite() {
-            self.camera_orbit_distance.max(1.0) * zoom
-        } else {
-            zoom
-        };
-        let pitch = Self::clamp_orbit_pitch_radians(self.camera_pitch_radians);
-        let horizontal = distance * pitch.cos();
-        Vec3::new(
-            horizontal * self.camera_yaw_radians.sin(),
-            distance * pitch.sin(),
-            horizontal * self.camera_yaw_radians.cos(),
-        )
     }
 
     /// C++ `W3DView::buildCameraTransform` FXPitch (W3DView.cpp:362-381).
@@ -1474,29 +1432,23 @@ impl CnCGameEngine {
     /// selection hotkeys, script request drain).  They must not wait for an
     /// unrelated pan or screen shake before changing the displayed view.
     pub(super) fn camera_transform_needs_rebuild(&self) -> bool {
-        let expected = self
-            .camera_fx_adjusted_eye_and_look(
-                self.camera_target + self.camera_orbit_offset() + self.camera_shake_offset,
-                self.camera_target,
-            )
-            .0;
+        let expected = self.native_camera_base_pose().0;
         !expected.is_finite()
             || !self.camera_position.is_finite()
             || (self.camera_position - expected).length_squared() > 1.0e-6
     }
 
     pub(super) fn sync_orbit_from_camera_transform(&mut self) {
-        let offset = self.camera_position - self.camera_target;
-        // Inverse of `apply_camera_orbit_transform`: a supplied camera pose
-        // (startup/save/script) is already zoomed, while the stored orbit is
-        // the C++ camera-offset basis used by future `m_zoom` changes.
-        self.camera_orbit_distance = (offset.length() / self.camera_zoom.max(0.05)).max(1.0);
-        let horizontal = Vec2::new(offset.x, offset.z).length();
-        self.camera_pitch_radians = offset
-            .y
-            .atan2(horizontal.max(f32::EPSILON))
-            .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians());
-        self.camera_yaw_radians = offset.x.atan2(offset.z);
+        // Native v18 supplies a completed eye, not an unzoomed basis. Recover
+        // angles against this map's existing basis; never absorb zoom/shake.
+        if let Some((pitch, yaw)) = self.native_camera.basis().angles_from_pose(
+            self.camera_target,
+            self.camera_position,
+            self.camera_zoom,
+        ) {
+            self.camera_pitch_radians = pitch;
+            self.camera_yaw_radians = yaw;
+        }
 
         self.camera_pitch_target = None;
         self.camera_pitch_start = self.camera_pitch_radians;
@@ -2344,7 +2296,17 @@ impl CnCGameEngine {
         self.script_fps_limit = None;
         self.script_fps_limit_last_tick = None;
         self.camera_slave_mode = None;
-        self.sync_orbit_from_camera_transform();
+        let defaults = Self::configured_startup_camera_defaults();
+        self.native_camera = super::camera_height::CameraHeight::new(
+            defaults.camera_height,
+            defaults.pitch_degrees,
+            defaults.yaw_degrees,
+        );
+        self.camera_pitch_radians = 0.0;
+        self.camera_yaw_radians = 0.0;
+        self.camera_pitch_target = None;
+        self.camera_yaw_target = None;
+        self.apply_camera_orbit_transform();
         self.rebuild_tactical_projection();
     }
 

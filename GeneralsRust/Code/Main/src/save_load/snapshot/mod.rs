@@ -166,9 +166,7 @@ pub use particle_system_save::{
     CHUNK_PARTICLE_SYSTEM, capture_particle_system_xfer_bytes,
     restore_particle_system_from_xfer_bytes,
 };
-pub use persist_v18::{
-    CameraPersist, WorldPersistV18, peek_pending_camera, set_pending_camera, take_pending_camera,
-};
+pub use persist_v18::{CameraPersist, TacticalViewPersist, WorldPersistV18};
 pub use player::*;
 pub use player_team_chunks::{
     PlayerTeamChunks, apply_pending as apply_pending_player_team_chunks,
