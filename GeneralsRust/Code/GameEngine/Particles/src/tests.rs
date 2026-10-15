@@ -149,3 +149,35 @@ fn wind_uses_emitter_distance_and_position_not_acceleration() {
     apply_wind_motion(&mut edge, 0.0, Vec3::new(200.0, 0.0, 0.0), 0.5);
     assert_eq!(edge, Vec3::new(201.0, 0.0, 0.0));
 }
+
+#[test]
+fn cpp_random_wire_discriminants_and_release_sampling_branches() {
+    assert_eq!(GameClientRandomVariable::default().distribution_type, 0);
+    assert_eq!(GameClientRandomVariable::new(2.0, 8.0).distribution_type, 1);
+    let mut bounds = Vec::new();
+    for (kind, low, high, expected) in [
+        (0, 3.0, 3.0, 3.0),
+        (0, 2.0, 8.0, 5.0),
+        (1, 2.0, 8.0, 5.0),
+        (1, 3.0, 3.0, 3.0),
+        (1, 8.0, 2.0, 2.0),
+        (2, 2.0, 8.0, 0.0),
+        (3, 2.0, 8.0, 0.0),
+        (4, 2.0, 8.0, 0.0),
+        (5, 2.0, 8.0, 0.0),
+    ] {
+        let variable = GameClientRandomVariable {
+            min: low,
+            max: high,
+            distribution_type: kind,
+        };
+        assert_eq!(
+            variable.sample_with(|lo, hi| {
+                bounds.push((lo, hi));
+                5.0
+            }),
+            expected
+        );
+    }
+    assert_eq!(bounds, [(2.0, 8.0), (2.0, 8.0)]);
+}

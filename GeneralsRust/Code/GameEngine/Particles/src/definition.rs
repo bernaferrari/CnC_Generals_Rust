@@ -57,9 +57,8 @@ impl Default for RandomKeyframe {
 pub struct GameClientRandomVariable {
     pub min: f32,
     pub max: f32,
-    /// Existing adapter encoding: 0 means its supported uniform range. This
-    /// is not the C++ CONSTANT/UNIFORM enum representation; retain it until
-    /// the snapshot migration has its own compatibility evidence.
+    /// C++ DistributionType wire value: CONSTANT=0, UNIFORM=1; 2..5 are
+    /// declared distributions whose original release implementation returns zero.
     pub distribution_type: u32,
 }
 
@@ -78,17 +77,17 @@ impl GameClientRandomVariable {
         Self {
             min,
             max,
-            distribution_type: 0,
+            distribution_type: 1,
         }
     }
 
-    /// Sample through the caller's stream. The existing adapter's numeric
-    /// encoding uses 0 for supported uniform ranges; other encodings retain
-    /// the C++ release fallback of zero. Constant/empty ranges never draw.
+    /// Preserve C++ getValue's release branches and GetGameClientRandomValueReal's
+    /// empty-range behavior without consuming the caller's stream unnecessarily.
     pub fn sample_with(&self, mut draw: impl FnMut(f32, f32) -> f32) -> f32 {
         match self.distribution_type {
-            0 if self.max - self.min <= 0.0 => self.max,
-            0 => draw(self.min, self.max),
+            0 if self.min == self.max => self.min,
+            0 | 1 if self.max - self.min <= 0.0 => self.max,
+            0 | 1 => draw(self.min, self.max),
             _ => 0.0,
         }
     }

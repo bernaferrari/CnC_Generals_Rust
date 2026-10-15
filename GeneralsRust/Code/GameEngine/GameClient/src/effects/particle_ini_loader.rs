@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use super::particle_manager::*;
 use game_engine::common::ini::{INI, INIError, INILoadType};
-use glam::{Vec3};
+use glam::Vec3;
 
 /// Particle system INI field parser
 pub struct ParticleSystemINIParser {
@@ -631,10 +631,23 @@ impl ParticleSystemINIParser {
                 let val = self.parse_float(parts[0])?;
                 Ok(GameClientRandomVariable::new(val, val))
             }
-            2 => {
+            2 | 3 => {
                 let min = self.parse_float(parts[0])?;
                 let max = self.parse_float(parts[1])?;
-                Ok(GameClientRandomVariable::new(min, max))
+                let mut variable = GameClientRandomVariable::new(min, max);
+                if parts.len() == 3 {
+                    // INI.cpp parseGameClientRandomVariable / DistributionTypeNames.
+                    variable.distribution_type = match parts[2].to_ascii_uppercase().as_str() {
+                        "CONSTANT" => 0,
+                        "UNIFORM" => 1,
+                        "GAUSSIAN" => 2,
+                        "TRIANGULAR" => 3,
+                        "LOW_BIAS" => 4,
+                        "HIGH_BIAS" => 5,
+                        _ => return Err(INIError::InvalidValue),
+                    };
+                }
+                Ok(variable)
             }
             _ => Err(INIError::InvalidValue),
         }
@@ -653,7 +666,7 @@ impl ParticleSystemINIParser {
         Ok(RandomKeyframe {
             min_value,
             max_value,
-            distribution_type: 0,
+            distribution_type: 1,
             frame,
         })
     }
@@ -903,6 +916,46 @@ mod tests {
         let var = parser.parse_random_variable("1.0 5.0").unwrap();
         assert_eq!(var.min, 1.0);
         assert_eq!(var.max, 5.0);
+    }
+
+    #[test]
+    fn cpp_named_particle_distribution_encodings() {
+        let parser = ParticleSystemINIParser::default();
+        for (name, kind) in [
+            "CONSTANT",
+            "UNIFORM",
+            "GAUSSIAN",
+            "TRIANGULAR",
+            "LOW_BIAS",
+            "HIGH_BIAS",
+        ]
+        .into_iter()
+        .zip(0..6)
+        {
+            let value = parser
+                .parse_random_variable(&format!("2 8 {name}"))
+                .unwrap();
+            assert_eq!(
+                (value.min, value.max, value.distribution_type),
+                (2.0, 8.0, kind)
+            );
+        }
+        assert_eq!(
+            parser
+                .parse_random_variable("2 8")
+                .unwrap()
+                .distribution_type,
+            1
+        );
+        assert!(parser.parse_random_variable("2 8 UNKNOWN").is_err());
+        assert!(parser.parse_random_variable("2 8 UNIFORM EXTRA").is_err());
+        assert_eq!(
+            parser
+                .parse_random_keyframe("2 8 30")
+                .unwrap()
+                .distribution_type,
+            1
+        );
     }
 
     #[test]

@@ -840,14 +840,10 @@ impl Snapshotable for ParticleSystem {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        self.control_particle = None;
         self.particle_count = self.particles.len();
 
-        for (index, particle) in self.particles.iter_mut().enumerate() {
+        for particle in &mut self.particles {
             particle.load_post_process()?;
-            if particle.controlled_system.is_some() {
-                self.control_particle = Some(index);
-            }
         }
 
         Ok(())
@@ -1264,7 +1260,6 @@ pub struct ParticleSystem {
     master_system: Option<ParticleSystemId>,
 
     // Control particle
-    control_particle: Option<usize>, // Index into particles vector
     control_particle_pos: Option<Vec3>,
     dead_controlled_systems: Vec<ParticleSystemId>,
 
@@ -1318,11 +1313,16 @@ impl ParticleSystem {
         create_slaves: bool,
         random: &mut dyn FnMut(f32, f32) -> f32,
     ) -> Self {
-        let info = template.info();
+        let mut info = template.info().clone();
+        // C++ converts only owned runtime ColorScale and resets its distribution
+        // to UNIFORM; immutable authored definitions retain their source units.
+        info.color_scale = GameClientRandomVariable::new(
+            info.color_scale.min / 255.0,
+            info.color_scale.max / 255.0,
+        );
 
         let mut system = Self {
-            template: template.clone(),
-            info: info.clone(),
+            template,
             system_id,
 
             particles: VecDeque::new(),
@@ -1354,7 +1354,6 @@ impl ParticleSystem {
             slave_system: None,
             master_system: None,
 
-            control_particle: None,
             control_particle_pos: None,
             dead_controlled_systems: Vec::new(),
 
@@ -1375,6 +1374,7 @@ impl ParticleSystem {
             emission_volume_type_override: None,
 
             pending_emission_infos: Vec::new(),
+            info,
         };
 
         // Initialize wind motion
@@ -2115,8 +2115,8 @@ impl ParticleSystem {
         }
         particle_info.color_keys = info.color_keys;
 
-        // C++ ParticleSystem ctor re-ranges ColorScale to [min/255, max/255]
-        particle_info.color_scale = info.color_scale.sample() / 255.0;
+        // Runtime info, including native-loaded info, is already normalized.
+        particle_info.color_scale = info.color_scale.sample();
 
         // Wind randomness — C++ ParticleSys.cpp:1817 (client stream)
         particle_info.wind_randomness = get_game_client_random_value_real(0.7, 1.3);
@@ -3001,3 +3001,7 @@ mod owned_info_tests;
 #[cfg(test)]
 #[path = "particle_system/emission_cursor_tests.rs"]
 mod emission_cursor_tests;
+
+#[cfg(test)]
+#[path = "particle_system/color_scale_tests.rs"]
+mod color_scale_tests;
