@@ -96,7 +96,7 @@ fn scripted_and_replay_capture_current_height_after_old_goal_calculation() {
 fn adjustment_enabled_and_pause_guard_goal_as_well_as_zoom() {
     for paused in [false, true] {
         let mut height = owner();
-        height.set_adjustment_enabled(!paused);
+        height.set_adjustment_enabled(true);
         let mut zoom = 0.8;
         let blocked = if paused {
             HeightStep {

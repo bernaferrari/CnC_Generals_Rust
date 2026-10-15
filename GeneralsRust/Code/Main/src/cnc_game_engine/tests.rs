@@ -374,7 +374,7 @@ fn sample_startup_camera_heights_prefers_presentation_height_grid() {
     let body = &eng[idx..idx + 1200];
     assert!(
         body.contains("presentation")
-            && body.contains("sample_height")
+            && body.contains("sample_camera_terrain_height")
             && body.contains("world_env"),
         "camera height helper must sample presentation world_env height grid"
     );

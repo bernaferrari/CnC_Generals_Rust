@@ -13,6 +13,7 @@ fn bookmark() -> CameraViewLocation {
 #[test]
 fn construction_and_peer_operations_preserve_the_first_look_at_owner() {
     let mut first = LookAtHostModes::default();
+    first.desired_height_above_ground = Some(275.);
     first.views[3] = Some(bookmark());
     first.note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::LookAt);
     first.camera_follow_lock_broken = true;
@@ -22,6 +23,8 @@ fn construction_and_peer_operations_preserve_the_first_look_at_owner() {
     first.lookat_stamp_mouse_activity(40);
     first.wheel_stopped_scroll = true;
     let mut peer = LookAtHostModes::default();
+    assert_eq!(peer.desired_height_above_ground, None);
+    peer.desired_height_above_ground = Some(90.);
     assert!(peer.views.iter().all(Option::is_none));
     assert!(!peer.look_at_host_mouse_locked());
     assert!(!peer.camera_follow_lock_broken);
@@ -32,6 +35,7 @@ fn construction_and_peer_operations_preserve_the_first_look_at_owner() {
     peer.lookat_note_mouse_moved(50, (8., 9.));
     peer.note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::Set);
     peer.lookat_note_raw_key_activity();
+    assert_eq!(first.desired_height_above_ground, Some(275.));
     assert_eq!(first.views[3].unwrap().zoom, 0.75);
     assert_eq!(first.last_mouse_move_frame, 40);
     assert!(first.wheel_stopped_scroll);
@@ -86,6 +90,7 @@ fn reset_modes_clears_only_original_transient_modes() {
     let mut owner = LookAtHostModes::default();
     owner.mmb_original_anchor = Some((3., 4.));
     owner.mmb_press_frame = 41;
+    owner.desired_height_above_ground = Some(250.);
     owner.scroll_type = LookAtScrollType::Key;
     owner.views[0] = Some(bookmark());
     owner.note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::Set);
@@ -100,6 +105,7 @@ fn reset_modes_clears_only_original_transient_modes() {
     assert_eq!(owner.mmb_original_anchor, None);
     assert_eq!(owner.mmb_press_frame, 0);
     assert!(!owner.look_at_host_is_scrolling());
+    assert_eq!(owner.desired_height_above_ground, Some(250.));
     assert_eq!(owner.views[0].unwrap().pos, bookmark().pos);
     assert_eq!(
         (owner.last_mouse_move_frame, owner.last_mouse_pixel),
@@ -155,4 +161,34 @@ fn cancellation_priority_and_scroll_resolution_do_not_share_a_latch() {
         peer.take_scripted_camera_player_cancel(),
         ScriptedCameraPlayerCancel::LookAt
     ));
+}
+
+#[test]
+fn recent_mouse_rewind_persists_without_resurrecting_old_activity() {
+    let mut owner = LookAtHostModes::default();
+    let mut peer = LookAtHostModes::default();
+    owner.lookat_stamp_mouse_activity(100);
+    peer.lookat_stamp_mouse_activity(50);
+    assert!(owner.lookat_has_mouse_moved_recently(10));
+    assert_eq!(owner.last_mouse_move_frame, 0);
+    assert!(!owner.lookat_has_mouse_moved_recently(60));
+    assert!(!owner.lookat_has_mouse_moved_recently(100));
+    assert!(peer.lookat_has_mouse_moved_recently(60));
+    assert_eq!(peer.last_mouse_move_frame, 50);
+    owner.lookat_stamp_mouse_activity(101);
+    assert!(owner.lookat_has_mouse_moved_recently(131));
+    assert!(!owner.lookat_has_mouse_moved_recently(132));
+}
+
+#[test]
+fn recent_mouse_deadline_uses_original_unsigned_wrapping() {
+    let mut owner = LookAtHostModes::default();
+    owner.lookat_stamp_mouse_activity(u32::MAX - 10);
+    assert!(!owner.lookat_has_mouse_moved_recently(u32::MAX - 5));
+    assert_eq!(owner.last_mouse_move_frame, u32::MAX - 10);
+    // Once the clock wraps, the source branch persists the restart reset.
+    assert!(owner.lookat_has_mouse_moved_recently(0));
+    assert_eq!(owner.last_mouse_move_frame, 0);
+    assert!(owner.lookat_has_mouse_moved_recently(30));
+    assert!(!owner.lookat_has_mouse_moved_recently(31));
 }

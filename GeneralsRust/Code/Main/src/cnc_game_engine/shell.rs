@@ -995,23 +995,12 @@ impl CnCGameEngine {
         // Wave 473: sample heights from presentation freeze only.
         let (camera_anchor_ground_height, terrain_height_max) =
             Self::sample_startup_camera_heights(terrain_target, world_center.y, presentation);
-        let focus_target = Vec3::new(focus_2d.x, 0.0, focus_2d.y);
-        let (focus_ground_height, _) =
-            Self::sample_startup_camera_heights(focus_target, world_center.y, presentation);
-
-        // Keep the C++ zoom/offset sampling from the top-left anchor, but aim the modern
-        // Rust camera at the requested scene focus. This remains the closest visible match for the
-        // current renderer bridge.
-        let camera_target = Vec3::new(focus_2d.x, focus_ground_height, focus_2d.y);
-        let camera_offset_z = camera_anchor_ground_height + defaults.camera_height.max(0.0);
-        let pitch_radians = defaults.pitch_degrees.to_radians();
-        let yaw_radians = defaults.yaw_degrees.to_radians();
-        let camera_offset_y = if pitch_radians.tan().abs() > f32::EPSILON {
-            -(camera_offset_z / pitch_radians.tan())
-        } else {
-            0.0
-        };
-        let camera_offset_x = -(camera_offset_y * yaw_radians.tan());
+        let basis = super::camera_height::CameraBasis::for_map(
+            camera_anchor_ground_height,
+            defaults.camera_height,
+            defaults.pitch_degrees,
+            defaults.yaw_degrees,
+        );
 
         // Match W3DView::setZoomToDefault exactly: desired zoom is the visible terrain max
         // around the look-at point plus max camera height, divided by the base offset height.
@@ -1022,36 +1011,16 @@ impl CnCGameEngine {
             1.0,
         );
 
-        // Match W3DView::buildCameraTransform when angle/pitch defaults are zero:
-        // source = cameraOffset * zoom; source *= (1 - ground / source.z); then translate.
-        let source_z = camera_offset_z * zoom;
-        let factor = if source_z.abs() > f32::EPSILON {
-            1.0 - (camera_anchor_ground_height / source_z)
-        } else {
-            1.0
-        };
-        let source = Vec3::new(
-            camera_offset_x * zoom * factor,
-            camera_offset_z * zoom * factor,
-            camera_offset_y * zoom * factor,
-        );
-        let camera_position = camera_target + source;
-
+        let (camera_position, camera_target) = basis.pose(terrain_target, zoom, 0.0, 0.0);
         info!(
-            "Startup camera bootstrap: raw_initial={:?} requested_focus_2d={:?} target={:?} position={:?} ground_height={:.2} terrain_height_max={:.2} camera_offset=({:.2}, {:.2}, {:.2}) pitch_deg={:.2} yaw_deg={:.2} zoom={:.2} factor={:.3}",
+            "Startup camera bootstrap: raw_initial={:?} requested_focus_2d={:?} target={:?} position={:?} ground_height={:.2} terrain_height_max={:.2} zoom={:.2}",
             metadata_initial_camera,
             focus_2d,
             camera_target,
             camera_position,
             camera_anchor_ground_height,
             terrain_height_max,
-            camera_offset_x,
-            camera_offset_y,
-            camera_offset_z,
-            defaults.pitch_degrees,
-            defaults.yaw_degrees,
             zoom,
-            factor,
         );
 
         (camera_target, camera_position, zoom)
@@ -1067,48 +1036,22 @@ impl CnCGameEngine {
         fallback_ground_height: f32,
         presentation: Option<&crate::presentation_frame::PresentationFrame>,
     ) -> (f32, f32) {
-        const MAX_GROUND_LEVEL: f32 = 120.0;
-        const TERRAIN_SAMPLE_SIZE: f32 = 40.0;
-
-        // Prefer presentation-frozen height grid / bounds when a frame is installed.
-        let (world_min, world_max) = if let Some(pres) = presentation {
-            pres.world_env.world_bounds_vec3()
-        } else {
-            (Vec3::new(-500.0, 0.0, -500.0), Vec3::new(500.0, 0.0, 500.0))
+        // W3DView::initHeightForMap caps only the center used by the fixed
+        // camera basis. getHeightAroundPos retains all five raw terrain heights.
+        // BaseHeightMap owns coordinate clipping; playable bounds must not move
+        // an outlying sample onto a different cell before that query.
+        let sample = |x, z| {
+            presentation
+                .and_then(|pres| pres.world_env.sample_camera_terrain_height(x, z))
+                .or(Some(fallback_ground_height))
         };
-
-        let sample_one = |pos: Vec3| -> f32 {
-            let clamped = Vec3::new(
-                pos.x.clamp(world_min.x, world_max.x),
-                pos.y,
-                pos.z.clamp(world_min.z, world_max.z),
-            );
-            if let Some(pres) = presentation {
-                if let Some(h) = pres.world_env.sample_height(clamped.x, clamped.z) {
-                    return h.min(MAX_GROUND_LEVEL);
-                }
-            }
-            // Wave 473: fail-closed fallback when no presentation height sample.
-            fallback_ground_height.min(MAX_GROUND_LEVEL)
-        };
-
-        let mut ground_height = sample_one(terrain_target);
-        if ground_height > MAX_GROUND_LEVEL {
-            ground_height = MAX_GROUND_LEVEL;
-        }
-
-        let sample_positions = [
-            terrain_target,
-            terrain_target + Vec3::new(TERRAIN_SAMPLE_SIZE, 0.0, -TERRAIN_SAMPLE_SIZE),
-            terrain_target + Vec3::new(-TERRAIN_SAMPLE_SIZE, 0.0, -TERRAIN_SAMPLE_SIZE),
-            terrain_target + Vec3::new(TERRAIN_SAMPLE_SIZE, 0.0, TERRAIN_SAMPLE_SIZE),
-            terrain_target + Vec3::new(-TERRAIN_SAMPLE_SIZE, 0.0, TERRAIN_SAMPLE_SIZE),
-        ];
-        let terrain_height_max = sample_positions
-            .into_iter()
-            .map(sample_one)
-            .fold(ground_height, f32::max);
-        (ground_height, terrain_height_max)
+        let center = sample(terrain_target.x, terrain_target.z).unwrap();
+        let terrain_height_max =
+            super::camera_height::height_around(terrain_target, sample).unwrap();
+        (
+            if center > 120.0 { 120.0 } else { center },
+            terrain_height_max,
+        )
     }
 
     pub(super) fn compute_default_camera_zoom_from_heights(

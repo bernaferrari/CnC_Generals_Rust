@@ -215,10 +215,14 @@ impl LookAtHostModes {
         self.wheel_stopped_scroll = false;
     }
 
-    fn lookat_has_mouse_moved_recently(&self, frame: u32) -> bool {
-        let last = self.last_mouse_move_frame;
-        let last = if last > frame { 0 } else { last };
-        last + game_engine::common::game_common::LOGICFRAMES_PER_SECOND as u32 >= frame
+    fn lookat_has_mouse_moved_recently(&mut self, frame: u32) -> bool {
+        // C++ LookAtXlat.cpp:119-120 persists this reset for a restarted match.
+        if self.last_mouse_move_frame > frame {
+            self.last_mouse_move_frame = 0;
+        }
+        self.last_mouse_move_frame
+            .wrapping_add(game_engine::common::game_common::LOGICFRAMES_PER_SECOND as u32)
+            >= frame
     }
 
     /// Preserve resetModes' narrow lifetime: bookmarks, height goal, activity

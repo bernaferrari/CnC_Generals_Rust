@@ -96,6 +96,7 @@ thread_local! {
 mod audio;
 mod boot;
 mod camera_drain;
+mod camera_height;
 mod camera_motion;
 mod camera_view_effects;
 #[cfg(feature = "game_client")]
@@ -184,6 +185,8 @@ fn startup_worker_owns(generation: u64) -> bool {
 mod architecture_honesty_tests;
 #[cfg(test)]
 mod source_scan_tests;
+#[cfg(test)]
+mod camera_startup_tests;
 #[cfg(test)]
 mod tests;
 
