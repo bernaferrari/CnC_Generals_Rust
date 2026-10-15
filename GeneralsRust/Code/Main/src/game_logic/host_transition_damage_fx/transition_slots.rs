@@ -1,0 +1,238 @@
+//! CPP TransitionDamageFX.cpp:299–394: clear old systems, then FX/OCL/PSys per slot.
+use super::*;
+
+pub(super) enum TransitionSlotEffect<'a> {
+    Fx {
+        slot: usize,
+        name: &'a str,
+        loc: Option<&'a HostTransitionLoc>,
+    },
+    Ocl {
+        slot: usize,
+        name: &'a str,
+        loc: Option<&'a HostTransitionLoc>,
+    },
+    Particle {
+        slot: usize,
+        definition: &'a HostTransitionParticle,
+    },
+}
+
+/// Keep failed receipts in their original slot instead of orphaning a live resource.
+fn retire_old_transition_ids(ids: &mut [u32], mut retire: impl FnMut(u32) -> bool) {
+    for id in ids.iter_mut().filter(|id| **id != 0) {
+        if retire(*id) {
+            *id = 0;
+        }
+    }
+}
+
+fn named(name: &str) -> bool {
+    !name.trim().is_empty() && !name.eq_ignore_ascii_case("none")
+}
+
+/// Execute immediately; this iterator neither queues work nor flattens slot holes.
+pub(super) fn for_each_transition_slot(
+    event: &HostTransitionDamageFxEvent,
+    mut execute: impl FnMut(TransitionSlotEffect<'_>),
+) {
+    let fx_len = if event.extra_fx_names.is_empty() {
+        usize::from(event.fx_name.is_some())
+    } else {
+        event.extra_fx_names.len() + 1
+    };
+    let len = fx_len
+        .max(event.ocl_names.len())
+        .max(event.particles.len())
+        .min(MAX_TRANSITION_EFFECT_SLOTS);
+    for slot in 0..len {
+        let fx = if slot == 0 {
+            event.fx_name.as_deref()
+        } else {
+            event.extra_fx_names.get(slot - 1).map(String::as_str)
+        };
+        if let Some(name) = fx.filter(|name| named(name)) {
+            execute(TransitionSlotEffect::Fx {
+                slot,
+                name,
+                loc: event.fx_locs.get(slot),
+            });
+        }
+        if let Some(name) = event.ocl_names.get(slot).filter(|name| named(name)) {
+            execute(TransitionSlotEffect::Ocl {
+                slot,
+                name,
+                loc: event.ocl_locs.get(slot),
+            });
+        }
+        if let Some(definition) = event.particles.get(slot).filter(|p| named(&p.name)) {
+            execute(TransitionSlotEffect::Particle { slot, definition });
+        }
+    }
+}
+
+/// Read the actual host pose at each effect, rather than selecting a same-ID Core object.
+#[cfg(feature = "game_client")]
+fn host_local(
+    object: &crate::game_logic::Object,
+    definition: &HostTransitionParticle,
+) -> glam::Vec3 {
+    let model = object
+        .get_template()
+        .model_name_for_conditions(object.model_condition_bits);
+    leftover_to_host_local(leftover_local_effect_pos_live(
+        definition,
+        None,
+        &model,
+        object.get_template().asset_scale,
+    ))
+}
+
+#[cfg(feature = "game_client")]
+fn host_world(object: &crate::game_logic::Object, loc: Option<&HostTransitionLoc>) -> glam::Vec3 {
+    let local = loc
+        .map(|loc| host_local(object, &loc.as_particle()))
+        .unwrap_or_default();
+    let (sin, cos) = object.get_orientation().sin_cos();
+    object.get_position()
+        + glam::Vec3::new(
+            local.x * cos - local.z * sin,
+            local.y,
+            local.x * sin + local.z * cos,
+        )
+}
+
+#[cfg(feature = "game_client")]
+impl crate::game_logic::GameLogic {
+    pub(crate) fn execute_transition_damage_fx_with_view(
+        object: &mut crate::game_logic::Object,
+        mut event: HostTransitionDamageFxEvent,
+        source: Option<&HostDamageFxVictim>,
+        particles: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
+        frame: u32,
+        view: &mut game_client::fx_list::FxViewServices<'_>,
+    ) {
+        // C++ destroys all old-state systems BEFORE testing/playing the worse state.
+        if let Some(old) = event.clear_old_state.take() {
+            if let Some(ids) = object
+                .transition_damage_fx
+                .as_mut()
+                .and_then(|config| config.attached_ids.get_mut(old as usize))
+            {
+                retire_old_transition_ids(ids, |id| {
+                    let retired = particles.try_deactivate(id);
+                    if !retired {
+                        log::warn!(
+                            "could not retire transition particle {} for object {}",
+                            id,
+                            object.id.0
+                        );
+                    }
+                    retired
+                });
+            }
+        }
+        for_each_transition_slot(&event, |effect| match effect {
+            TransitionSlotEffect::Fx { name, loc, .. } => {
+                // TransitionDamageFX uses doFXPos with NO bone transform matrix.
+                let position = host_world(object, loc);
+                Self::dispatch_fx_list_at_position_with_view(
+                    name, position, None, 0.0, 0.0, None, view,
+                );
+            }
+            TransitionSlotEffect::Ocl { name, loc, .. } => {
+                let position = host_world(object, loc);
+                play_authored_transition_ocl_with_source(name, object.id.0, position, source);
+            }
+            TransitionSlotEffect::Particle { slot, definition } => {
+                let local = host_local(object, definition);
+                if let Some(id) = particles.attach_named_to_object_local(
+                    object.id,
+                    object.get_position(),
+                    object.get_orientation(),
+                    local,
+                    frame,
+                    &definition.name,
+                    crate::game_logic::combat_particles::CombatParticleKind::DeathSmoke,
+                    None,
+                ) {
+                    if let Some(ids) = object
+                        .transition_damage_fx
+                        .as_mut()
+                        .and_then(|config| config.attached_ids.get_mut(event.new_state as usize))
+                    {
+                        ids.resize(ids.len().max(slot + 1), 0);
+                        ids[slot] = id;
+                    }
+                }
+            }
+        });
+        // Only audio delivery remains queued; a later AI tick cannot replay FX,
+        // create particles twice, or retire the newly installed systems.
+        if event.audio_name.is_some() {
+            event.fx_name = None;
+            event.extra_fx_names.clear();
+            event.ocl_names.clear();
+            event.particles.clear();
+            object.pending_transition_damage_fx.push(event);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn sparse_slots_keep_fx_ocl_particle_interleaving_and_locations() {
+        let event = HostTransitionDamageFxEvent {
+            fx_name: None,
+            extra_fx_names: vec!["".into(), "FX_Third".into()],
+            ocl_names: vec!["OCL_First".into(), "None".into(), "OCL_Third".into()],
+            particles: vec![
+                HostTransitionParticle {
+                    name: "PS_First".into(),
+                    ..Default::default()
+                },
+                HostTransitionParticle::default(),
+                HostTransitionParticle {
+                    name: "PS_Third".into(),
+                    ..Default::default()
+                },
+            ],
+            fx_locs: vec![
+                HostTransitionLoc::default(),
+                HostTransitionLoc::default(),
+                HostTransitionLoc {
+                    loc: [3., 4., 5.],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let mut trace = Vec::new();
+        for_each_transition_slot(&event, |effect| match effect {
+            TransitionSlotEffect::Fx { slot, name, loc } => {
+                assert_eq!(loc.unwrap().loc, [3., 4., 5.]);
+                trace.push((slot, "fx", name.to_string()));
+            }
+            TransitionSlotEffect::Ocl { slot, name, .. } => trace.push((slot, "ocl", name.into())),
+            TransitionSlotEffect::Particle { slot, definition } => {
+                trace.push((slot, "particle", definition.name.clone()))
+            }
+        });
+        assert_eq!(
+            trace,
+            vec![
+                (0, "ocl", "OCL_First".into()),
+                (0, "particle", "PS_First".into()),
+                (2, "fx", "FX_Third".into()),
+                (2, "ocl", "OCL_Third".into()),
+                (2, "particle", "PS_Third".into())
+            ]
+        );
+    }
+}
+
+#[cfg(test)]
+#[path = "transition_slot_tests.rs"]
+mod owner_tests;

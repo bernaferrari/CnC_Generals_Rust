@@ -694,6 +694,48 @@ impl Object {
         }
     }
 
+    /// Native FXListDie runs every applicable module inline, including the
+    /// first object-oriented module (FXListDie.cpp:51-78). No replay name is
+    /// admitted to the end-of-frame presentation drain.
+    pub(in crate::game_logic) fn fire_fx_list_die_with_fx(
+        &mut self,
+        dispatch: &mut dyn FnMut(&str, &Object, bool) -> bool,
+    ) {
+        self.ensure_fx_list_die();
+        let upgrades: Vec<String> = self.applied_upgrades.iter().cloned().collect();
+        let Some(fx) = self.fx_list_die.as_mut() else {
+            return;
+        };
+        let hits = fx.collect_applicable_mux_hits(
+            &upgrades,
+            self.status.death_type,
+            crate::game_logic::host_fx_list_die::leftover_veterancy_from_host(
+                self.experience.level,
+            ),
+            self.object_status_bits,
+        );
+        for hit in hits {
+            if let Some(name) = hit.death_fx {
+                let played = dispatch(&name, self, hit.orient_to_object);
+                // Match the existing missing-client sound fallback without
+                // requeueing a successfully delivered authored FX list.
+                if !played {
+                    for sound in crate::game_logic::sound_names_for_fx_list(&name) {
+                        self.pending_transition_damage_fx.push(
+                            crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent {
+                                audio_name: Some(sound),
+                                ..Default::default()
+                            },
+                        );
+                    }
+                }
+            }
+            if self.pending_death_audio.is_none() {
+                self.pending_death_audio = hit.death_audio;
+            }
+        }
+    }
+
     pub fn ensure_crush_die(&mut self) {
         if self.crush_die.is_some() {
             return;
@@ -1056,6 +1098,23 @@ impl Object {
         topple_speed: f32,
         options: u32,
     ) -> bool {
+        self.apply_topple_with_fx(
+            dir_x,
+            dir_y,
+            topple_speed,
+            options,
+            &mut Self::standalone_object_fx,
+        )
+    }
+
+    pub(in crate::game_logic) fn apply_topple_with_fx(
+        &mut self,
+        dir_x: f32,
+        dir_y: f32,
+        topple_speed: f32,
+        options: u32,
+        dispatch: &mut dyn FnMut(&str, &Object, bool),
+    ) -> bool {
         if self.status.destroyed || !self.is_alive() {
             return false;
         }
@@ -1076,7 +1135,7 @@ impl Object {
             td.burned_at_topple = burned;
             td.apply_toppling_force(dir_x, dir_y, topple_speed, options)
         };
-        self.dispatch_pending_topple_fx_with(&mut Self::standalone_object_fx);
+        self.dispatch_pending_topple_fx_with(dispatch);
         if kill_now {
             self.internal_change_health(-self.health.current);
             self.status.destroyed = true;
@@ -1131,6 +1190,23 @@ impl Object {
         from_z: f32,
         speed: f32,
     ) -> bool {
+        self.try_topple_from_crusher_with_fx(
+            crusher_level,
+            from_x,
+            from_z,
+            speed,
+            &mut Self::standalone_object_fx,
+        )
+    }
+
+    pub(in crate::game_logic) fn try_topple_from_crusher_with_fx(
+        &mut self,
+        crusher_level: u8,
+        from_x: f32,
+        from_z: f32,
+        speed: f32,
+        dispatch: &mut dyn FnMut(&str, &Object, bool),
+    ) -> bool {
         if !crate::game_logic::host_topple::crusher_can_topple(crusher_level) {
             return false;
         }
@@ -1144,11 +1220,12 @@ impl Object {
         let pos = self.get_position();
         let dx = pos.x - from_x;
         let dz = pos.z - from_z;
-        self.apply_topple(
+        self.apply_topple_with_fx(
             dx,
             dz,
             speed.max(1.0),
             crate::game_logic::host_topple::TOPPLE_OPTIONS_NONE,
+            dispatch,
         )
     }
 }

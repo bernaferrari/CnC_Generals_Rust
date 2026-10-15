@@ -1,3 +1,33 @@
+/// Event-time object borrowed only for the synchronous FX invocation.
+pub(in crate::game_logic) enum ProjectileFxObject<'a> {
+    Projectile(&'a Projectile),
+    Object(&'a Object),
+}
+
+fn dispatch_projectile_fx_standalone(name: &str, object: ProjectileFxObject<'_>) {
+    let (id, position, yaw, owner) = match object {
+        ProjectileFxObject::Projectile(p) => (
+            p.id,
+            p.position,
+            p.missile_fx_yaw(),
+            p.source_owner_player_id,
+        ),
+        ProjectileFxObject::Object(o) => (
+            o.id,
+            o.get_position(),
+            o.get_orientation(),
+            o.owner_player_id,
+        ),
+    };
+    crate::game_logic::publish_host_fx_object(
+        id.0,
+        position,
+        yaw,
+        owner.map(|p| p as i32).unwrap_or(-1),
+    );
+    crate::game_logic::dispatch_fx_list_at_object(name, id.0, None);
+}
+
 // C++ ownership: Projectile, DumbProjectileBehavior, and MissileAIUpdate flight state.
 
 /// C++ Weapon::newProjectileFired binds the exact firing Weapon template.
@@ -243,7 +273,11 @@ impl Projectile {
     ///
     /// Returns `false` while still waiting `IgnitionDelay` (pose-hold, unarmed).
     /// On the ignition frame: leftover `FXList::doFXObj`, attach exhaust, arm.
-    fn try_enter_missile_ignition(&mut self, frame: u32) -> bool {
+    fn try_enter_missile_ignition(
+        &mut self,
+        frame: u32,
+        fx: &mut dyn FnMut(&str, ProjectileFxObject<'_>),
+    ) -> bool {
         let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile)) =
             &self.flight
         else {
@@ -256,7 +290,7 @@ impl Projectile {
             return false;
         }
         let ignition_fx = missile.ignition_fx.clone();
-        self.play_missile_ignition(&ignition_fx);
+        self.play_missile_ignition(&ignition_fx, fx);
         self.flight_runtime.missile_armed = true;
         self.flight_runtime.missile_phase =
             crate::game_logic::weapon_bootstrap::HostMissilePhase::Attack;
@@ -277,10 +311,14 @@ impl Projectile {
     }
 
     /// C++ `MissileAIUpdate::doIgnitionState` (MissileAIUpdate.cpp:462-466).
-    fn play_missile_ignition(&mut self, ignition_fx: &str) {
+    fn play_missile_ignition(
+        &mut self,
+        ignition_fx: &str,
+        fx: &mut dyn FnMut(&str, ProjectileFxObject<'_>),
+    ) {
         self.publish_missile_fx_pose();
         if !ignition_fx.is_empty() {
-            crate::game_logic::dispatch_fx_list_at_object(ignition_fx, self.id.0, None);
+            fx(ignition_fx, ProjectileFxObject::Projectile(self));
         }
         if !self.exhaust_name.is_empty() && self.leftover_exhaust_id == 0 {
             if let Some(mgr) = gamelogic::helpers::TheParticleSystemManager::get() {
@@ -413,13 +451,28 @@ impl Projectile {
         target_is_live: bool,
         terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
     ) -> ProjectileStep {
+        self.update_with_terrain_and_fx(
+            dt,
+            target_is_live,
+            terrain,
+            &mut dispatch_projectile_fx_standalone,
+        )
+    }
+
+    pub(in crate::game_logic) fn update_with_terrain_and_fx(
+        &mut self,
+        dt: f32,
+        target_is_live: bool,
+        terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+        fx: &mut dyn FnMut(&str, ProjectileFxObject<'_>),
+    ) -> ProjectileStep {
         if dt.is_finite() && dt > 0.0 {
             self.lifetime += dt;
         }
 
         // C++ runs LAUNCH/IGNITION before airborneTargetGone (doAttackState).
         let frame = self.elapsed_logic_frames();
-        if !self.try_enter_missile_ignition(frame) {
+        if !self.try_enter_missile_ignition(frame, fx) {
             return ProjectileStep::Alive;
         }
 

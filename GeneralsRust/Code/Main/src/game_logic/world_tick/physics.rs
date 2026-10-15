@@ -628,10 +628,37 @@ impl GameLogic {
         if !crate::game_logic::host_topple::crusher_can_topple(level) {
             return false;
         }
+        #[cfg(feature = "game_client")]
+        let fx_player = self.local_player_id();
         let (kill_now, handled, stump, pos, ori) = {
             let Some(prop) = self.objects.get_mut(&prop_id) else {
                 return false;
             };
+            #[cfg(feature = "game_client")]
+            let kill_now = Self::with_host_fx_view_parts(
+                &mut self.session_view,
+                fx_player,
+                self.world_services.shroud(),
+                |view| {
+                    prop.try_topple_from_crusher_with_fx(
+                        level,
+                        cpos.x,
+                        cpos.z,
+                        speed.max(1.0),
+                        &mut |name, object, at_object| {
+                            Self::dispatch_object_phase_fx_with_view(
+                                name,
+                                object,
+                                at_object,
+                                fx_player,
+                                self.world_services.shroud(),
+                                view,
+                            )
+                        },
+                    )
+                },
+            );
+            #[cfg(not(feature = "game_client"))]
             let kill_now = prop.try_topple_from_crusher(level, cpos.x, cpos.z, speed.max(1.0));
             let handled = prop
                 .topple_data

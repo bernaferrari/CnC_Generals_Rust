@@ -126,26 +126,87 @@ impl GameLogic {
                     .filter_map(|(id, player)| player.is_reserved_neutral().then_some(*id))
                     .min(),
             );
-        let players = &mut self.players;
-        let victim = self
-            .objects
-            .get_mut(&victim_id)
-            .expect("validated receiving victim");
-        let application = victim.begin_damage_with_context_and_player_effects(
-            amount,
-            source_id,
-            damage_type,
-            death_type,
-            fx_override,
-            frame,
-            &context,
-            &mut self.health_events,
-            Some(&mut self.ownership_events),
-            |effect| {
-                Self::apply_body_player_effect(players, frame, &source_players, effect);
-            },
-        );
-        application.finish_standalone(victim, None, &self.enable_repulsors)
+        #[cfg(feature = "game_client")]
+        {
+            let player = self.local_player_id();
+            let secondaries = [source_id, previous_source].map(|id| {
+                id.and_then(|id| self.objects.get(&id)).map(|object| {
+                    Self::observe_host_fx_object(object, player, self.world_services.shroud())
+                })
+            });
+            Self::with_host_fx_view_parts(
+                &mut self.session_view,
+                player,
+                self.world_services.shroud(),
+                |view| {
+                    let victim = self
+                        .objects
+                        .get_mut(&victim_id)
+                        .expect("validated receiving victim");
+                    let players = &mut self.players;
+                    let particles = &mut self.combat_particles;
+                    let shroud = self.world_services.shroud();
+                    let mut body_fx = |object: &mut Object,
+                                       effect: crate::game_logic::object::BodyStateFx,
+                                       source: Option<
+                        &crate::game_logic::host_transition_damage_fx::HostDamageFxVictim,
+                    >| {
+                        let secondary = secondaries
+                            .iter()
+                            .flatten()
+                            .find(|pose| Some(ObjectId(pose.id)) == object.last_damage_source);
+                        Self::execute_body_state_fx_with_view(
+                            object, effect, source, secondary, player, shroud, particles, frame,
+                            view,
+                        );
+                    };
+                    let application = victim.begin_damage_with_context_and_effects(
+                        amount,
+                        source_id,
+                        damage_type,
+                        death_type,
+                        fx_override,
+                        frame,
+                        &context,
+                        &mut self.health_events,
+                        Some(&mut self.ownership_events),
+                        |effect| {
+                            Self::apply_body_player_effect(players, frame, &source_players, effect)
+                        },
+                        &mut body_fx,
+                    );
+                    application.finish_standalone_with_body_fx(
+                        victim,
+                        None,
+                        &self.enable_repulsors,
+                        &mut body_fx,
+                    )
+                },
+            )
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let players = &mut self.players;
+            let victim = self
+                .objects
+                .get_mut(&victim_id)
+                .expect("validated receiving victim");
+            let application = victim.begin_damage_with_context_and_player_effects(
+                amount,
+                source_id,
+                damage_type,
+                death_type,
+                fx_override,
+                frame,
+                &context,
+                &mut self.health_events,
+                Some(&mut self.ownership_events),
+                |effect| {
+                    Self::apply_body_player_effect(players, frame, &source_players, effect);
+                },
+            );
+            application.finish_standalone(victim, None, &self.enable_repulsors)
+        }
     }
 
     /// CPP Object1930–1940: preserve the requested damage/death types and
@@ -293,25 +354,84 @@ impl GameLogic {
                     .filter_map(|(id, player)| player.is_reserved_neutral().then_some(*id))
                     .min(),
             );
-        let players = &mut self.players;
         let frame = self.frame;
-        let victim = self.objects.get_mut(&victim_id)?;
-        let before_hp = victim.health.current;
-        let mut application: DamageApplication = victim
-            .begin_damage_with_context_and_player_effects(
-                damage,
-                source_id,
-                damage_type,
-                death_type,
-                fx_override,
-                self.frame,
-                &context,
-                &mut self.health_events,
-                Some(&mut self.ownership_events),
-                |effect| {
-                    Self::apply_body_player_effect(players, frame, &source_players, effect);
-                },
-            );
+        let before_hp = self.objects.get(&victim_id)?.health.current;
+        #[cfg(feature = "game_client")]
+        let begin_player = self.local_player_id();
+        #[cfg(feature = "game_client")]
+        let begin_secondaries = [source_id, previous_source].map(|id| {
+            id.and_then(|id| self.objects.get(&id)).map(|object| {
+                Self::observe_host_fx_object(object, begin_player, self.world_services.shroud())
+            })
+        });
+        #[cfg(feature = "game_client")]
+        let mut application = Self::with_host_fx_view_parts(
+            &mut self.session_view,
+            begin_player,
+            self.world_services.shroud(),
+            |view| {
+                let victim = self
+                    .objects
+                    .get_mut(&victim_id)
+                    .expect("validated receiving victim");
+                let players = &mut self.players;
+                victim.begin_damage_with_context_and_effects(
+                    damage,
+                    source_id,
+                    damage_type,
+                    death_type,
+                    fx_override,
+                    frame,
+                    &context,
+                    &mut self.health_events,
+                    Some(&mut self.ownership_events),
+                    |effect| {
+                        Self::apply_body_player_effect(players, frame, &source_players, effect)
+                    },
+                    &mut |object, effect, source| {
+                        let secondary = begin_secondaries
+                            .iter()
+                            .flatten()
+                            .find(|pose| Some(ObjectId(pose.id)) == object.last_damage_source);
+                        Self::execute_body_state_fx_with_view(
+                            object,
+                            effect,
+                            source,
+                            secondary,
+                            begin_player,
+                            self.world_services.shroud(),
+                            &mut self.combat_particles,
+                            frame,
+                            view,
+                        );
+                    },
+                )
+            },
+        );
+        #[cfg(not(feature = "game_client"))]
+        let mut application: DamageApplication = {
+            let players = &mut self.players;
+            self.objects
+                .get_mut(&victim_id)?
+                .begin_damage_with_context_and_player_effects(
+                    damage,
+                    source_id,
+                    damage_type,
+                    death_type,
+                    fx_override,
+                    frame,
+                    &context,
+                    &mut self.health_events,
+                    Some(&mut self.ownership_events),
+                    |effect| {
+                        Self::apply_body_player_effect(players, frame, &source_players, effect)
+                    },
+                )
+        };
+        let victim = self
+            .objects
+            .get(&victim_id)
+            .expect("Body phase preserves receiving victim");
         let hp_lost = (before_hp - victim.health.current).max(0.0);
         let victim_position = victim.get_position();
         let victim_team = victim.team;
@@ -349,17 +469,29 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let callback_player = self.local_player_id();
         #[cfg(feature = "game_client")]
+        let callback_secondary = self.observe_fx_list_die_secondary(victim_id);
+        #[cfg(feature = "game_client")]
         Self::with_host_fx_view_parts(
             &mut self.session_view,
             callback_player,
             self.world_services.shroud(),
             |view| {
                 if let Some(victim) = self.objects.get_mut(&victim_id) {
-                    application.complete_body_state_callbacks_with_transition_fx(
+                    application.complete_body_state_callbacks_with_body_fx(
                         victim,
                         callback_source.as_ref(),
-                        &mut |object, event, source| {
-                            object.queue_transition_damage_fx_event_with_view(event, source, view);
+                        &mut |object, effect, source| {
+                            Self::execute_body_state_fx_with_view(
+                                object,
+                                effect,
+                                source,
+                                callback_secondary.as_ref(),
+                                callback_player,
+                                self.world_services.shroud(),
+                                &mut self.combat_particles,
+                                self.frame,
+                                view,
+                            );
                         },
                     );
                 }
@@ -428,11 +560,48 @@ impl GameLogic {
             after_damage_fx(self, victim_id);
         }
         let enable_repulsors = self.enable_repulsors;
-        let victim = self
-            .objects
-            .get_mut(&victim_id)
-            .expect("post-FX victim remains installed until destroy-list cleanup");
-        let destroyed = after_fx.finish(victim, source.as_ref(), enable_repulsors);
+        #[cfg(feature = "game_client")]
+        let finish_secondary = self.observe_fx_list_die_secondary(victim_id);
+        #[cfg(feature = "game_client")]
+        let finish_player = self.local_player_id();
+        #[cfg(feature = "game_client")]
+        let destroyed = Self::with_host_fx_view_parts(
+            &mut self.session_view,
+            finish_player,
+            self.world_services.shroud(),
+            |view| {
+                let victim = self
+                    .objects
+                    .get_mut(&victim_id)
+                    .expect("post-FX victim remains installed until destroy-list cleanup");
+                after_fx.finish_with_body_fx(
+                    victim,
+                    source.as_ref(),
+                    enable_repulsors,
+                    &mut |object, effect, source| {
+                        Self::execute_body_state_fx_with_view(
+                            object,
+                            effect,
+                            source,
+                            finish_secondary.as_ref(),
+                            finish_player,
+                            self.world_services.shroud(),
+                            &mut self.combat_particles,
+                            self.frame,
+                            view,
+                        )
+                    },
+                )
+            },
+        );
+        #[cfg(not(feature = "game_client"))]
+        let destroyed = {
+            let victim = self
+                .objects
+                .get_mut(&victim_id)
+                .expect("post-FX victim remains installed until destroy-list cleanup");
+            after_fx.finish(victim, source.as_ref(), enable_repulsors)
+        };
         self.admit_object_drawable_deselection(victim_id);
         self.admit_host_radar_disabled_edges(victim_id);
         Some(OwnedDamageResult {
@@ -524,11 +693,72 @@ impl GameLogic {
         dt: f32,
         historic_damage_limit: u32,
     ) -> Vec<ObjectId> {
+        #[cfg(feature = "game_client")]
+        let player = self.local_player_id();
         let terrain = crate::game_logic::game_logic::FlightTerrainView {
             grid: &self.pathfinding_system.grid,
             terrain: self.terrain.as_ref(),
             samples: self.pathfinding_height_samples.as_ref(),
         };
+        #[cfg(feature = "game_client")]
+        let (events, retired) = {
+            let shroud = self.world_services.shroud();
+            Self::with_host_fx_view_parts(&mut self.session_view, player, shroud, |view| {
+                self.combat_system.prepare_projectile_impact_with_fx(
+                    id,
+                    dt,
+                    &mut self.objects,
+                    Some(&mut self.countermeasures),
+                    self.frame,
+                    Some(&terrain),
+                    &mut self.ownership_events,
+                    historic_damage_limit,
+                    &mut |name, object| {
+                        let pose = match object {
+                            crate::game_logic::combat::ProjectileFxObject::Object(object) => {
+                                Self::observe_host_fx_object(object, player, shroud)
+                            }
+                            crate::game_logic::combat::ProjectileFxObject::Projectile(
+                                projectile,
+                            ) => {
+                                use gamelogic::common::types::ObjectShroudStatus;
+                                let is_shrouded = match (player, shroud.lock()) {
+                                    (Some(player), Ok(shroud)) => shroud
+                                        .get_host_object_shroud_status(player, projectile.id.0)
+                                        .is_some_and(|status| {
+                                            (status as u8) >= ObjectShroudStatus::Fogged as u8
+                                        }),
+                                    _ => true,
+                                };
+                                let pos = projectile.position;
+                                let position = gamelogic::common::types::Coord3D {
+                                    x: pos.x,
+                                    y: pos.z,
+                                    z: pos.y,
+                                };
+                                gamelogic::helpers::HostFxObjectPose {
+                                    id: projectile.id.0,
+                                    position,
+                                    transform: glam::Mat4::from_translation(glam::Vec3::new(
+                                        pos.x, pos.z, pos.y,
+                                    )) * glam::Mat4::from_rotation_z(
+                                        projectile.velocity.z.atan2(projectile.velocity.x),
+                                    ),
+                                    player_index: projectile
+                                        .source_owner_player_id
+                                        .map(|id| id as i32)
+                                        .unwrap_or(-1),
+                                    bounding_circle_radius: 0.0,
+                                    is_shrouded,
+                                }
+                            }
+                        };
+                        Self::dispatch_fx_list_at_object_with_view(name, &pose, None, view);
+                    },
+                )
+            })
+        };
+        #[cfg(not(feature = "game_client"))]
         let (events, retired) = self.combat_system.prepare_projectile_impact(
             id,
             dt,

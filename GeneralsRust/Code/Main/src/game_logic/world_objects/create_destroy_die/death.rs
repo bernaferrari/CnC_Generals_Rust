@@ -794,8 +794,8 @@ impl GameLogic {
             return false;
         }
         // Death FX / OCL peels without world removal.
+        self.fire_owned_fx_list_die(id);
         if let Some(obj) = self.objects.get_mut(&id) {
-            obj.fire_fx_list_die();
             obj.fire_create_object_die();
         }
         self.apply_pending_create_object_die(id);

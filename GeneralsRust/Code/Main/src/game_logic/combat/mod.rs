@@ -28,3 +28,6 @@ mod projectile_clock_owner_tests;
 
 #[cfg(test)]
 mod projectile_callback_owner_tests;
+
+#[cfg(test)]
+mod projectile_fx_owner_tests;

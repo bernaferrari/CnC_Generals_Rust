@@ -877,6 +877,8 @@ impl GameLogic {
                 );
             }
 
+            #[cfg(feature = "game_client")]
+            let fx_player = self.local_player_id();
             for hit in hits {
                 let Some((id, _, _, _, alive)) = objects.get(hit.target_index).copied() else {
                     continue;
@@ -899,6 +901,32 @@ impl GameLogic {
                         .map(|t| t.is_able_to_be_toppled())
                         .unwrap_or(false);
                     if neutron_blast_can_topple(has, able) {
+                        #[cfg(feature = "game_client")]
+                        Self::with_host_fx_view_parts(
+                            &mut self.session_view,
+                            fx_player,
+                            self.world_services.shroud(),
+                            |view| {
+                                obj.apply_topple_with_fx(
+                                    hit.topple_dx,
+                                    hit.topple_dz,
+                                    hit.topple_speed,
+                                    crate::game_logic::host_topple::TOPPLE_OPTIONS_NO_BOUNCE
+                                        | crate::game_logic::host_topple::TOPPLE_OPTIONS_NO_FX,
+                                    &mut |name, object, at_object| {
+                                        Self::dispatch_object_phase_fx_with_view(
+                                            name,
+                                            object,
+                                            at_object,
+                                            fx_player,
+                                            self.world_services.shroud(),
+                                            view,
+                                        )
+                                    },
+                                )
+                            },
+                        );
+                        #[cfg(not(feature = "game_client"))]
                         let _ = obj.apply_topple(
                             hit.topple_dx,
                             hit.topple_dz,

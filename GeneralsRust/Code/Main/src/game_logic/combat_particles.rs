@@ -1195,17 +1195,24 @@ impl CombatParticleRegistry {
     }
 
     pub fn deactivate(&mut self, id: u32) {
+        let _ = self.try_deactivate(id);
+    }
+
+    /// Keep the ownership receipt until its actual client resource retires.
+    /// Callers holding an attached ID must retain it when this returns false.
+    pub(crate) fn try_deactivate(&mut self, id: u32) -> bool {
         if let Some(binding) = self.client_bindings.get(&id) {
             if !retire_client_binding(binding) {
-                return;
+                return false;
             }
         }
         let Some(entry) = self.systems.get_mut(&id).filter(|entry| entry.active) else {
-            return;
+            return true;
         };
         entry.active = false;
         entry.client_system_id = None;
         self.client_bindings.remove(&id);
+        true
     }
 }
 

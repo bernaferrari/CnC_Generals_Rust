@@ -392,19 +392,13 @@ impl CombatSystem {
         objects: &HashMap<ObjectId, Object>,
         building_id: ObjectId,
         fx_name: &str,
+        fx: &mut dyn FnMut(&str, ProjectileFxObject<'_>),
     ) {
-        if fx_name.is_empty() {
-            return;
+        if !fx_name.is_empty() {
+            if let Some(building) = objects.get(&building_id) {
+                fx(fx_name, ProjectileFxObject::Object(building));
+            }
         }
-        if let Some(building) = objects.get(&building_id) {
-            crate::game_logic::publish_host_fx_object(
-                building_id.0,
-                building.get_position(),
-                building.get_orientation(),
-                building.owner_player_id.map(|p| p as i32).unwrap_or(-1),
-            );
-        }
-        let _ = crate::game_logic::dispatch_fx_list_at_object(fx_name, building_id.0, None);
     }
 
     /// Projectile step with optional America Countermeasures diversion residual.

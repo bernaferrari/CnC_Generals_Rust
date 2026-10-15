@@ -693,8 +693,24 @@ mod tests {
             "StartUndeath FX name missing: {start_win}"
         );
         assert!(
-            start_win.contains("dispatch_fx_list_at_object(&fx, self.id.0, None)"),
-            "C++ doFXObj StartUndeath missing: {start_win}"
+            start_win.contains("BodyStateFx::ObjectPhase") && start_win.contains("at_object: true"),
+            "C++ StartUndeath must retain the current object form: {start_win}"
+        );
+        assert!(start_win.contains("self.start_battle_bus_second_life_with_body_fx("));
+        let completion = include_str!("object/damage/application.rs");
+        assert!(completion.contains(
+            "victim.start_battle_bus_second_life_with_body_fx(self.frame, source, body_fx)"
+        ));
+        let native = include_str!("world_objects/damage_application.rs");
+        assert!(native.contains("after_fx.finish_with_body_fx("));
+        assert!(native.contains("Self::execute_body_state_fx_with_view("));
+        let effects = include_str!("object/fx.rs");
+        let phase = &effects[effects
+            .find("BodyStateFx::ObjectPhase { name, at_object }")
+            .unwrap_or_else(|| effects.find("BodyStateFx::ObjectPhase").unwrap())..];
+        assert!(phase.contains("Self::dispatch_object_phase_fx_with_view("));
+        assert!(
+            effects.contains("Self::dispatch_fx_list_at_object_with_view(name, &pose, None, view)")
         );
         let land = orders
             .find("pub fn tick_battle_bus_slow_death")

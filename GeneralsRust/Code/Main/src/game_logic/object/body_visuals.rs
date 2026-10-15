@@ -128,6 +128,19 @@ impl Object {
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         frame: u32,
     ) {
+        self.refresh_model_condition_bits_with_body_fx(
+            source,
+            frame,
+            &mut Object::standalone_body_fx,
+        );
+    }
+
+    pub(in crate::game_logic) fn refresh_model_condition_bits_with_body_fx(
+        &mut self,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        frame: u32,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) {
         if self.is_inactive_body() {
             self.status.effectively_dead = true;
             self.rebuild_model_condition_bits();
@@ -135,7 +148,7 @@ impl Object {
         }
         let (old_state, _) = self.recalculate_body_damage_state();
         self.status.effectively_dead = self.health.current <= 0.0;
-        self.react_to_body_damage_state_change(old_state, source, frame);
+        self.react_to_body_damage_state_change_with_body_fx(old_state, source, frame, body_fx);
     }
 
     /// Timed DamageModule callbacks observe the already committed Body. CPP
@@ -169,6 +182,24 @@ impl Object {
             Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         ),
     ) {
+        self.react_to_body_damage_state_change_with_body_fx(
+            old_state,
+            source,
+            frame,
+            &mut |object, effect, source| match effect {
+                BodyStateFx::Transition(event) => transition_fx(object, event, source),
+                effect => Object::standalone_body_fx(object, effect, source),
+            },
+        );
+    }
+
+    pub(super) fn react_to_body_damage_state_change_with_body_fx(
+        &mut self,
+        old_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        frame: u32,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) {
         use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
         let state = self.body_damage_state;
 
@@ -198,7 +229,7 @@ impl Object {
                     bfx.on_body_damage_state_change(&self.template_name, old_state, state, frame);
             }
         }
-        if show_health_visuals {
+        if old_state != state && show_health_visuals {
             self.ensure_transition_damage_fx();
             if let Some(cfg) = self.transition_damage_fx.as_ref() {
                 if let Some(ev) =
@@ -209,7 +240,7 @@ impl Object {
                         self.last_damage_info_type.map(|d| d.to_store()),
                     )
                 {
-                    transition_fx(self, ev, source);
+                    body_fx(self, BodyStateFx::Transition(ev), source);
                 }
             }
         }
@@ -219,7 +250,7 @@ impl Object {
             && matches!(state, HostBodyDamageType::Rubble)
             && !matches!(old_state, HostBodyDamageType::Rubble)
         {
-            self.fire_fx_list_die();
+            body_fx(self, BodyStateFx::FxListDie, source);
             self.fire_create_object_die();
             if !matches!(
                 self.status.death_type,

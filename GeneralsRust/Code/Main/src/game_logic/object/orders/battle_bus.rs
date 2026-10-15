@@ -37,6 +37,19 @@ impl Object {
         frame: u32,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
     ) {
+        self.start_battle_bus_second_life_with_body_fx(
+            frame,
+            source,
+            &mut Object::standalone_body_fx,
+        );
+    }
+
+    pub(in crate::game_logic) fn start_battle_bus_second_life_with_body_fx(
+        &mut self,
+        frame: u32,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) {
         use crate::game_logic::host_battle_bus::{
             BATTLE_BUS_MC_BIT_SECOND_LIFE, BATTLE_BUS_SECOND_LIFE_MAX_HEALTH,
             BATTLE_BUS_THROW_FORCE, HostBattleBusBodyData, battle_bus_start_undeath_fx_name,
@@ -56,7 +69,7 @@ impl Object {
         self.status.effectively_dead = false;
         // setMaxHealth(FULLY_HEAL) evaluates the Body immediately. Do this
         // before ordinary AI/pose setters can observe the restored health.
-        self.refresh_model_condition_bits_with_source(source, frame);
+        self.refresh_model_condition_bits_with_body_fx(source, frame, body_fx);
         // C++ applyShock throwForce.z (up). Host is Y-up, so +Y.
         // scrubVelocity2D then throw — do not stop_moving (that zeroes the hop).
         let _ = self.apply_shock_wave_impulse(glam::Vec3::new(0.0, BATTLE_BUS_THROW_FORCE, 0.0));
@@ -70,13 +83,14 @@ impl Object {
         let _ = BATTLE_BUS_MC_BIT_SECOND_LIFE; // set on land
         // Leftover `execute_fx_at_object_id` / C++ `FXList::doFXObj(m_fxStartUndeath, me)`.
         let fx = battle_bus_start_undeath_fx_name(&self.template_name);
-        crate::game_logic::publish_host_fx_object(
-            self.id.0,
-            self.get_position(),
-            self.get_orientation(),
-            self.owner_player_id.map(|p| p as i32).unwrap_or(-1),
+        body_fx(
+            self,
+            BodyStateFx::ObjectPhase {
+                name: fx,
+                at_object: true,
+            },
+            source,
         );
-        let _ = crate::game_logic::dispatch_fx_list_at_object(&fx, self.id.0, None);
     }
 
     /// Tick BattleBusSlowDeath first-death air time + empty hulk arming.

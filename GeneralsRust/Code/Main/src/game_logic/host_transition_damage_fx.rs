@@ -19,11 +19,17 @@
 use crate::game_logic::ObjectId;
 use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::cell::{Cell, RefCell};
+#[cfg(test)]
 use std::collections::HashMap;
 
 /// C++ BODYDAMAGETYPE_COUNT residual (Pristine/Damaged/ReallyDamaged/Rubble).
 pub const TRANSITION_DAMAGE_FX_SLOTS: usize = 4;
+const MAX_TRANSITION_EFFECT_SLOTS: usize = 12;
+#[path = "host_transition_damage_fx/transition_slots.rs"]
+mod transition_slots;
+use transition_slots::{TransitionSlotEffect, for_each_transition_slot};
 
 fn default_leftover_damage_type_flags() -> u64 {
     gamelogic::damage::DAMAGE_TYPE_FLAGS_ALL.bits()
@@ -335,7 +341,7 @@ pub fn on_body_damage_state_change_for_damage(
     new_state: HostBodyDamageType,
     last_damage: Option<gamelogic::damage::DamageType>,
 ) -> Option<HostTransitionDamageFxEvent> {
-    if !data.enabled || old_state == new_state {
+    if !data.enabled {
         return None;
     }
     let worse = is_condition_worse(new_state, old_state);
@@ -384,6 +390,7 @@ pub fn on_body_damage_state_change_for_damage(
         None
     } else {
         Some(fx_lists.remove(0))
+            .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("none"))
     };
     if !worse && fx.is_none() && audio.is_none() && particles.is_empty() {
         return Some(HostTransitionDamageFxEvent {
@@ -459,91 +466,103 @@ fn overlay_authored_transition_slots(data: &mut HostTransitionDamageFxData, name
         return;
     };
     for module in &definition.behavior_modules {
-        if !module.class_name.eq_ignore_ascii_case("TransitionDamageFX") {
-            continue;
+        if module.class_name.eq_ignore_ascii_case("TransitionDamageFX") {
+            overlay_authored_transition_module(data, module);
         }
-        for (state, prefix) in [
-            (HostBodyDamageType::Damaged, "DamagedParticleSystem"),
-            (
-                HostBodyDamageType::ReallyDamaged,
-                "ReallyDamagedParticleSystem",
-            ),
-            (HostBodyDamageType::Rubble, "RubbleParticleSystem"),
-        ] {
-            let idx = state.ordinal() as usize;
-            let mut parsed = Vec::new();
-            for slot in 1..=12 {
-                let key = format!("{prefix}{slot}");
-                if let Some(raw) = module.attribute(&key) {
-                    if let Some(p) = parse_transition_particle_attr(raw) {
-                        parsed.push(p);
-                    }
-                }
-            }
-            if !parsed.is_empty() {
-                data.particles_for_state[idx] = parsed;
-            }
-        }
-        for (state, prefix) in [
-            (HostBodyDamageType::Damaged, "DamagedFXList"),
-            (HostBodyDamageType::ReallyDamaged, "ReallyDamagedFXList"),
-            (HostBodyDamageType::Rubble, "RubbleFXList"),
-        ] {
-            let idx = state.ordinal() as usize;
-            let mut parsed = Vec::new();
-            let mut parsed_locs = Vec::new();
-            for slot in 1..=12 {
-                let key = format!("{prefix}{slot}");
-                if let Some(raw) = module.attribute(&key) {
-                    if let Some(name) = parse_transition_named_attr(raw, "fxlist") {
-                        parsed.push(name);
-                        parsed_locs.push(parse_transition_loc_attr(raw));
-                    }
-                }
-            }
-            if !parsed.is_empty() {
-                data.fx_lists_for_state[idx] = parsed.clone();
-                data.fx_locs_for_state[idx] = parsed_locs;
-                data.fx_for_state[idx] = parsed.into_iter().next();
-            }
-        }
-        for (state, prefix) in [
-            (HostBodyDamageType::Damaged, "DamagedOCL"),
-            (HostBodyDamageType::ReallyDamaged, "ReallyDamagedOCL"),
-            (HostBodyDamageType::Rubble, "RubbleOCL"),
-        ] {
-            let idx = state.ordinal() as usize;
-            let mut parsed = Vec::new();
-            let mut parsed_locs = Vec::new();
-            for slot in 1..=12 {
-                let key = format!("{prefix}{slot}");
-                if let Some(raw) = module.attribute(&key) {
-                    if let Some(name) = parse_transition_named_attr(raw, "ocl") {
-                        parsed.push(name);
-                        parsed_locs.push(parse_transition_loc_attr(raw));
-                    }
-                }
-            }
-            if !parsed.is_empty() {
-                data.ocl_for_state[idx] = parsed;
-                data.ocl_locs_for_state[idx] = parsed_locs;
-            }
-        }
+    }
+}
 
-        if let Some(raw) = module.attribute("DamageFXTypes") {
-            if let Some(bits) = parse_leftover_damage_type_flags(raw) {
-                data.damage_fx_types = bits;
+// Definition parsing is independent of the asset publication adapter above.
+fn overlay_authored_transition_module(
+    data: &mut HostTransitionDamageFxData,
+    module: &crate::assets::ini_parser::BehaviorModuleDefinition,
+) {
+    for (state, prefix) in [
+        (HostBodyDamageType::Damaged, "DamagedParticleSystem"),
+        (
+            HostBodyDamageType::ReallyDamaged,
+            "ReallyDamagedParticleSystem",
+        ),
+        (HostBodyDamageType::Rubble, "RubbleParticleSystem"),
+    ] {
+        let idx = state.ordinal() as usize;
+        let mut parsed = Vec::new();
+        for slot in 1..=MAX_TRANSITION_EFFECT_SLOTS {
+            let key = format!("{prefix}{slot}");
+            if let Some(raw) = module.attribute(&key) {
+                if let Some(p) = parse_transition_particle_attr(raw) {
+                    parsed.resize(slot, HostTransitionParticle::default());
+                    parsed[slot - 1] = p;
+                }
             }
         }
-        if let Some(raw) = module.attribute("DamageOCLTypes") {
-            if let Some(bits) = parse_leftover_damage_type_flags(raw) {
-                data.damage_ocl_types = bits;
+        if !parsed.is_empty() {
+            data.particles_for_state[idx] = parsed;
+        }
+    }
+    for (state, prefix) in [
+        (HostBodyDamageType::Damaged, "DamagedFXList"),
+        (HostBodyDamageType::ReallyDamaged, "ReallyDamagedFXList"),
+        (HostBodyDamageType::Rubble, "RubbleFXList"),
+    ] {
+        let idx = state.ordinal() as usize;
+        let mut parsed = Vec::new();
+        let mut parsed_locs = Vec::new();
+        for slot in 1..=MAX_TRANSITION_EFFECT_SLOTS {
+            let key = format!("{prefix}{slot}");
+            if let Some(raw) = module.attribute(&key) {
+                if let Some(name) = parse_transition_named_attr(raw, "fxlist") {
+                    parsed.resize(slot, String::new());
+                    parsed_locs.resize(slot, HostTransitionLoc::default());
+                    parsed[slot - 1] = name;
+                    parsed_locs[slot - 1] = parse_transition_loc_attr(raw);
+                }
             }
         }
-        if let Some(raw) = module.attribute("DamageParticleTypes") {
-            if let Some(bits) = parse_leftover_damage_type_flags(raw) {
-                data.damage_particle_types = bits;
+        if !parsed.is_empty() {
+            data.fx_lists_for_state[idx] = parsed.clone();
+            data.fx_locs_for_state[idx] = parsed_locs;
+            data.fx_for_state[idx] = parsed.into_iter().find(|name| !name.is_empty());
+        }
+    }
+    for (state, prefix) in [
+        (HostBodyDamageType::Damaged, "DamagedOCL"),
+        (HostBodyDamageType::ReallyDamaged, "ReallyDamagedOCL"),
+        (HostBodyDamageType::Rubble, "RubbleOCL"),
+    ] {
+        let idx = state.ordinal() as usize;
+        let mut parsed = Vec::new();
+        let mut parsed_locs = Vec::new();
+        for slot in 1..=MAX_TRANSITION_EFFECT_SLOTS {
+            let key = format!("{prefix}{slot}");
+            if let Some(raw) = module.attribute(&key) {
+                if let Some(name) = parse_transition_named_attr(raw, "ocl") {
+                    parsed.resize(slot, String::new());
+                    parsed_locs.resize(slot, HostTransitionLoc::default());
+                    parsed[slot - 1] = name;
+                    parsed_locs[slot - 1] = parse_transition_loc_attr(raw);
+                }
             }
+        }
+        if !parsed.is_empty() {
+            data.ocl_for_state[idx] = parsed;
+            data.ocl_locs_for_state[idx] = parsed_locs;
+        }
+    }
+
+    if let Some(raw) = module.attribute("DamageFXTypes") {
+        if let Some(bits) = parse_leftover_damage_type_flags(raw) {
+            data.damage_fx_types = bits;
+        }
+    }
+    if let Some(raw) = module.attribute("DamageOCLTypes") {
+        if let Some(bits) = parse_leftover_damage_type_flags(raw) {
+            data.damage_ocl_types = bits;
+        }
+    }
+    if let Some(raw) = module.attribute("DamageParticleTypes") {
+        if let Some(bits) = parse_leftover_damage_type_flags(raw) {
+            data.damage_particle_types = bits;
         }
     }
 }
@@ -693,33 +712,20 @@ fn play_transition_event_fx_ocl_with_dispatch(
     scale: f32,
     source: Option<&HostDamageFxVictim>,
 ) {
-    if let Some(fx) = ev.fx_name.as_deref() {
-        let (world, matrix) = leftover_named_slot_world_transform(
-            ev.fx_locs.first(),
-            owner,
-            host_pos,
-            yaw,
-            model,
-            scale,
-        );
-        dispatch_transition_fx_list(dispatch_fx, fx, world, matrix);
-    }
-    for (i, fx) in ev.extra_fx_names.iter().enumerate() {
-        let (world, matrix) = leftover_named_slot_world_transform(
-            ev.fx_locs.get(i + 1),
-            owner,
-            host_pos,
-            yaw,
-            model,
-            scale,
-        );
-        dispatch_transition_fx_list(dispatch_fx, fx, world, matrix);
-    }
-    for (i, ocl) in ev.ocl_names.iter().enumerate() {
-        let world =
-            leftover_named_slot_world_pos(ev.ocl_locs.get(i), owner, host_pos, yaw, model, scale);
-        play_authored_transition_ocl_with_source(ocl, owner, world, source);
-    }
+    for_each_transition_slot(ev, |effect| match effect {
+        TransitionSlotEffect::Fx { name, loc, .. } => {
+            let (world, matrix) =
+                leftover_named_slot_world_transform(loc, owner, host_pos, yaw, model, scale);
+            dispatch_transition_fx_list(dispatch_fx, name, world, matrix);
+        }
+        TransitionSlotEffect::Ocl { name, loc, .. } => {
+            let world = leftover_named_slot_world_pos(loc, owner, host_pos, yaw, model, scale);
+            play_authored_transition_ocl_with_source(name, owner, world, source);
+        }
+        // This standalone API has no receiving particle owner. Native body
+        // callbacks use execute_transition_damage_fx_with_view for all three.
+        TransitionSlotEffect::Particle { .. } => {}
+    });
 }
 
 /// Standalone compatibility entrypoint. Main Object callbacks use receiving services.
@@ -1089,6 +1095,7 @@ pub struct TemplateDamageAudio {
     pub voice_fear: Option<String>,
 }
 
+#[cfg(test)]
 thread_local! {
     static TEMPLATE_AUDIO_OVERRIDE: RefCell<HashMap<String, TemplateDamageAudio>> =
         RefCell::new(HashMap::new());
@@ -1106,6 +1113,7 @@ fn nonempty_event_name(event: &game_engine::common::audio::AudioEventRts) -> Opt
 }
 
 pub fn lookup_template_damage_audio(template_name: &str) -> TemplateDamageAudio {
+    #[cfg(test)]
     if let Some(over) = TEMPLATE_AUDIO_OVERRIDE.with(|m| m.borrow().get(template_name).cloned()) {
         return over;
     }
@@ -1127,12 +1135,14 @@ pub fn lookup_template_damage_audio(template_name: &str) -> TemplateDamageAudio 
     TemplateDamageAudio::default()
 }
 
+#[cfg(test)]
 pub fn set_test_template_audio(template_name: &str, audio: TemplateDamageAudio) {
     TEMPLATE_AUDIO_OVERRIDE.with(|m| {
         m.borrow_mut().insert(template_name.to_string(), audio);
     });
 }
 
+#[cfg(test)]
 pub fn clear_test_template_audio() {
     TEMPLATE_AUDIO_OVERRIDE.with(|m| m.borrow_mut().clear());
 }
@@ -1152,14 +1162,17 @@ pub fn voice_fear_should_play(
     prev_ratio > YELLOW_DAMAGE_PERCENT && cur_ratio < YELLOW_DAMAGE_PERCENT && roll_0_99 < 25
 }
 
+#[cfg(test)]
 pub fn set_test_voice_fear_roll(roll: Option<i32>) {
     VOICE_FEAR_ROLL.set(roll);
 }
 
 pub fn take_voice_fear_roll() -> i32 {
-    VOICE_FEAR_ROLL
-        .get()
-        .unwrap_or_else(|| game_engine::common::random_value::get_game_logic_random_value(0, 99))
+    #[cfg(test)]
+    if let Some(roll) = VOICE_FEAR_ROLL.get() {
+        return roll;
+    }
+    game_engine::common::random_value::get_game_logic_random_value(0, 99)
 }
 
 /// Best ArmorSet `DamageFX =` name for live flags (C++ `validateArmorAndDamageFX`).
@@ -1326,15 +1339,19 @@ pub fn dispatch_armor_damage_fx(
     };
     obj.last_damage_fx_done = Some(damage_type);
     obj.next_damage_fx_time = now.saturating_add(throttle);
-    DISPATCHED_ARMOR_DAMAGE_FX.with(|v| v.borrow_mut().push(dfx_name.clone()));
-    if let Some(list) = &list_name {
-        DISPATCHED_ARMOR_DAMAGE_FX.with(|v| v.borrow_mut().push(list.clone()));
-        // C++ ActiveBody::doDamageFX → DamageFX::doDamageFX once.
-        // `dfx.do_damage_fx` already runs leftover FXList::doFXObj.
+    // Test observations must not accumulate strings in ordinary matches.
+    #[cfg(test)]
+    {
+        DISPATCHED_ARMOR_DAMAGE_FX.with(|v| v.borrow_mut().push(dfx_name.clone()));
+        if let Some(list) = &list_name {
+            DISPATCHED_ARMOR_DAMAGE_FX.with(|v| v.borrow_mut().push(list.clone()));
+        }
     }
+    // dfx.do_damage_fx above already runs FXList::doFXObj exactly once.
     list_name.or(Some(dfx_name))
 }
 
+#[cfg(test)]
 pub fn take_dispatched_armor_damage_fx() -> Vec<String> {
     DISPATCHED_ARMOR_DAMAGE_FX.with(|v| std::mem::take(&mut *v.borrow_mut()))
 }

@@ -256,6 +256,25 @@ impl Object {
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         frame: u32,
     ) {
+        self.apply_flammable_visuals_with_body_fx(
+            aflame,
+            smoldering,
+            burned,
+            source,
+            frame,
+            &mut Object::standalone_body_fx,
+        );
+    }
+
+    fn apply_flammable_visuals_with_body_fx(
+        &mut self,
+        aflame: bool,
+        smoldering: bool,
+        burned: bool,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        frame: u32,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) {
         if aflame {
             let _ = self.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
         } else if burned {
@@ -274,7 +293,7 @@ impl Object {
                 fs.smoldering = true;
             }
         }
-        self.refresh_model_condition_bits_with_source(source, frame);
+        self.refresh_model_condition_bits_with_body_fx(source, frame, body_fx);
     }
 
     pub(super) fn apply_flammable_ignite_visuals_with_source(
@@ -283,6 +302,15 @@ impl Object {
         frame: u32,
     ) {
         self.apply_flammable_visuals_with_source(true, false, false, source, frame);
+    }
+
+    pub(super) fn apply_flammable_ignite_visuals_with_body_fx(
+        &mut self,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        frame: u32,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) {
+        self.apply_flammable_visuals_with_body_fx(true, false, false, source, frame, body_fx);
     }
 
     /// C++ tryToIgnite: AFLAME status, body setAflame, MODELCONDITION_AFLAME.

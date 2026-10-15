@@ -3268,6 +3268,7 @@ mod entity_lifecycle_residuals;
 mod entity_lifecycle_tags;
 mod entity_lifecycle_weapon_slots;
 mod fx;
+pub(in crate::game_logic) use fx::{BodyStateFx, BodyStateFxReceiver};
 mod install;
 mod jets;
 mod orders;

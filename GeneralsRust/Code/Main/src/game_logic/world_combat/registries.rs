@@ -1778,8 +1778,8 @@ impl GameLogic {
                 }
                 if let Some(o) = self.objects.get_mut(&id) {
                     o.fire_create_object_die();
-                    o.fire_fx_list_die();
                 }
+                self.fire_owned_fx_list_die(id);
                 self.apply_pending_create_object_die(id);
                 self.neutron_missile_update_reg.record_ground();
                 destroy.push(id);

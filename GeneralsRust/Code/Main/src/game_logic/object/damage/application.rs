@@ -115,6 +115,22 @@ impl DamageApplication {
             Option<&HostDamageFxVictim>,
         ),
     ) {
+        self.complete_body_state_callbacks_with_body_fx(
+            victim,
+            source,
+            &mut |object, effect, source| match effect {
+                BodyStateFx::Transition(event) => transition_fx(object, event, source),
+                effect => Object::standalone_body_fx(object, effect, source),
+            },
+        );
+    }
+
+    pub(in crate::game_logic) fn complete_body_state_callbacks_with_body_fx(
+        &mut self,
+        victim: &mut Object,
+        source: Option<&HostDamageFxVictim>,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) {
         let (victim_id, old_body_state, frame, fear) = match self {
             Self::Active(tail) => (tail.victim_id, tail.old_body_state.take(), tail.frame, true),
             Self::Healing(tail) => (
@@ -132,11 +148,11 @@ impl DamageApplication {
         let Some(old_body_state) = old_body_state else {
             return;
         };
-        victim.react_to_body_damage_state_change_with_transition_fx(
+        victim.react_to_body_damage_state_change_with_body_fx(
             old_body_state,
             source,
             frame,
-            transition_fx,
+            body_fx,
         );
         if fear {
             let id = victim.id;
@@ -206,11 +222,26 @@ impl DamageApplication {
         source: Option<&HostDamageFxVictim>,
         repulsor_policy: &bool,
     ) -> bool {
-        self.complete_body_state_callbacks(victim, source);
+        self.finish_standalone_with_body_fx(
+            victim,
+            source,
+            repulsor_policy,
+            &mut Object::standalone_body_fx,
+        )
+    }
+
+    pub(in crate::game_logic) fn finish_standalone_with_body_fx(
+        mut self,
+        victim: &mut Object,
+        source: Option<&HostDamageFxVictim>,
+        repulsor_policy: &bool,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) -> bool {
+        self.complete_body_state_callbacks_with_body_fx(victim, source, body_fx);
         let callbacks = self.bridge_callbacks();
         let lethal = self.killed();
         let after_fx = self.dispatch_damage_fx(victim, source);
-        let result = after_fx.finish(victim, source, *repulsor_policy);
+        let result = after_fx.finish_with_body_fx(victim, source, *repulsor_policy, body_fx);
         // Standalone adapters have no driving owner. Preserve their existing
         // deferred boundary while world callers consume callbacks directly.
         if let Some(callbacks) = callbacks {
@@ -247,11 +278,26 @@ impl DamageAfterFx {
         source: Option<&HostDamageFxVictim>,
         enable_repulsors: bool,
     ) -> bool {
+        self.finish_with_body_fx(
+            victim,
+            source,
+            enable_repulsors,
+            &mut Object::standalone_body_fx,
+        )
+    }
+
+    pub(in crate::game_logic) fn finish_with_body_fx(
+        self,
+        victim: &mut Object,
+        source: Option<&HostDamageFxVictim>,
+        enable_repulsors: bool,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) -> bool {
         match self.0 {
             DamageApplication::Complete(killed) => killed,
             DamageApplication::Healing(_) => false,
             DamageApplication::Active(tail) => {
-                tail.finish_after_damage_fx(victim, source, enable_repulsors)
+                tail.finish_after_damage_fx(victim, source, enable_repulsors, body_fx)
             }
         }
     }
@@ -263,6 +309,7 @@ impl ActiveDamageContinuation {
         victim: &mut Object,
         source: Option<&HostDamageFxVictim>,
         enable_repulsors: bool,
+        body_fx: &mut BodyStateFxReceiver<'_>,
     ) -> bool {
         assert_eq!(
             self.victim_id, victim.id,
@@ -275,7 +322,7 @@ impl ActiveDamageContinuation {
         }
         // C++ UndeadBody.cpp:68–72 completes ActiveBody before second life.
         if self.start_second_life {
-            victim.start_battle_bus_second_life_at_frame(self.frame, source);
+            victim.start_battle_bus_second_life_with_body_fx(self.frame, source, body_fx);
         }
 
         if victim.is_host_bridge_member() {

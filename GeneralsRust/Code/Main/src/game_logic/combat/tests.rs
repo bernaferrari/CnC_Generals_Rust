@@ -2972,14 +2972,41 @@ pub(in crate::game_logic) mod tests {
         let start = src
             .find("fn try_enter_missile_ignition")
             .expect("ignition helper");
-        // Window spans try_enter_missile_ignition plus its
-        // play_missile_ignition helper, where C++ MissileAIUpdate.cpp:462
-        // FXList::doFXObj(d->m_ignitionFX, getObject()) actually runs.
-        let body = &src[start..start + 2600];
-        assert!(
-            body.contains("dispatch_fx_list_at_object(ignition_fx, self.id.0, None)"),
-            "live MissileAI ignition must play authored IgnitionFX",
-        );
+        let end = src[start..]
+            .find("    fn missile_fx_yaw(")
+            .map(|offset| start + offset)
+            .expect("next ignition method boundary");
+        let body = &src[start..end];
         assert!(body.contains("missile.ignition_fx"));
+        assert!(body.contains("self.play_missile_ignition(&ignition_fx, fx)"));
+        let play_start = src
+            .find("    fn play_missile_ignition(")
+            .expect("ignition FX operation");
+        let play_end = src[play_start..]
+            .find("    pub fn live_exhaust_name(")
+            .map(|offset| play_start + offset)
+            .expect("next operation boundary");
+        let play = &src[play_start..play_end];
+        let invoke = play
+            .find("fx(ignition_fx, ProjectileFxObject::Projectile(self))")
+            .expect("synchronous authored object callback");
+        assert!(
+            invoke < play.find("create_attached_particle_system_id").unwrap(),
+            "CPP ignition FX precedes exhaust attachment"
+        );
+        let native = include_str!("../world_objects/damage_application.rs");
+        let native_start = native
+            .find("fn update_owned_projectile_impact(")
+            .expect("actual receiving owner caller");
+        let native_end = native[native_start..]
+            .find("    fn apply_owned_combat_damage(")
+            .map(|offset| native_start + offset)
+            .unwrap();
+        let native = &native[native_start..native_end];
+        assert!(native.contains("Self::with_host_fx_view_parts(&mut self.session_view"));
+        assert!(native.contains("prepare_projectile_impact_with_fx("));
+        assert!(
+            native.contains("Self::dispatch_fx_list_at_object_with_view(name, &pose, None, view)")
+        );
     }
 }

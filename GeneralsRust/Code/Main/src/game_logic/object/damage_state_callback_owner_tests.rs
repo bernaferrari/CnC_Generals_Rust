@@ -121,3 +121,43 @@ fn receiving_transition_callback_runs_inline_and_is_consumed_once() {
     );
     assert!(object.pending_transition_damage_fx.is_empty());
 }
+
+#[test]
+fn ordinary_damage_within_the_same_body_band_does_not_dispatch_state_effects() {
+    use crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxData;
+    let mut object = body();
+    object.internal_change_health(-40.0);
+    assert_eq!(object.body_damage_state, HostBodyDamageType::Damaged);
+    let mut transition = HostTransitionDamageFxData::default();
+    transition.enabled = true;
+    transition.attached_ids[HostBodyDamageType::Damaged.ordinal() as usize] = vec![77];
+    object.transition_damage_fx = Some(transition);
+    let mut application = object.begin_damage_with_context(
+        5.0,
+        None,
+        crate::game_logic::combat::DamageType::Unresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        None,
+        124,
+        &DamageHitContext::default(),
+        &mut crate::game_logic::HostHealthEvents::default(),
+        None,
+    );
+    let mut count = 0;
+    application.complete_body_state_callbacks_with_transition_fx(
+        &mut object,
+        None,
+        &mut |_, _, _| count += 1,
+    );
+    assert_eq!(object.health.current, 55.0);
+    assert_eq!(object.body_damage_state, HostBodyDamageType::Damaged);
+    assert_eq!(
+        count, 0,
+        "ActiveBody only emits the state callback when the damage band changes"
+    );
+    assert_eq!(
+        object.transition_damage_fx.as_ref().unwrap().attached_ids
+            [HostBodyDamageType::Damaged.ordinal() as usize],
+        [77]
+    );
+}

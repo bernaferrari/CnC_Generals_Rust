@@ -1955,8 +1955,8 @@ impl GameLogic {
                 obj.pending_death_fx =
                     Some(crate::game_logic::host_bridge_behavior::BRIDGE_DIE_FX_NAME.to_string());
             }
-            obj.fire_fx_list_die();
         }
+        self.fire_owned_fx_list_die(span_id);
     }
 
     fn play_bridge_die_ocl_at(&mut self, span_id: ObjectId) {

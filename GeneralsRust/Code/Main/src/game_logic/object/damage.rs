@@ -265,6 +265,35 @@ impl Object {
         ownership_events: Option<&mut crate::game_logic::host_owner_log::OwnershipEvents>,
         mut player_effects: impl FnMut(BodyPlayerEffect),
     ) -> DamageApplication {
+        self.begin_damage_with_context_and_effects(
+            damage,
+            source,
+            damage_type,
+            death_type,
+            fx_override,
+            frame,
+            context,
+            health_events,
+            ownership_events,
+            player_effects,
+            &mut Object::standalone_body_fx,
+        )
+    }
+
+    pub(in crate::game_logic) fn begin_damage_with_context_and_effects(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
+        frame: u32,
+        context: &DamageHitContext,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+        ownership_events: Option<&mut crate::game_logic::host_owner_log::OwnershipEvents>,
+        mut player_effects: impl FnMut(BodyPlayerEffect),
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) -> DamageApplication {
         // C++ InactiveBody::attemptDamage (InactiveBody.cpp:53-86): no HP except
         // DAMAGE_UNRESISTABLE (onDie once, never DamageFX).
         if self.is_inactive_body() {
@@ -458,7 +487,11 @@ impl Object {
                         self.status.effectively_dead = true;
                         self.status.destroyed = true;
                         self.status.death_type = death_type;
-                        self.refresh_model_condition_bits_with_source(context.source(), frame);
+                        self.refresh_model_condition_bits_with_body_fx(
+                            context.source(),
+                            frame,
+                            body_fx,
+                        );
                         self.set_ai_state(AIState::Idle);
                         self.target = None;
                         health_events.record_applied_damage(
@@ -648,7 +681,7 @@ impl Object {
             return DamageApplication::Complete(false);
         }
 
-        self.begin_damage_from_typed_death_with_host_hp_at_frame(
+        self.begin_damage_from_typed_death_with_effects(
             damage,
             source,
             damage_type,
@@ -659,6 +692,7 @@ impl Object {
             context,
             health_events,
             &mut player_effects,
+            body_fx,
         )
     }
 
@@ -674,6 +708,35 @@ impl Object {
         context: &DamageHitContext,
         health_events: &mut crate::game_logic::HostHealthEvents,
         player_effects: &mut dyn FnMut(BodyPlayerEffect),
+    ) -> DamageApplication {
+        self.begin_damage_from_typed_death_with_effects(
+            damage,
+            source,
+            damage_type,
+            death_type,
+            force_host_hp,
+            fx_override,
+            frame,
+            context,
+            health_events,
+            player_effects,
+            &mut Object::standalone_body_fx,
+        )
+    }
+
+    fn begin_damage_from_typed_death_with_effects(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        force_host_hp: bool,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
+        frame: u32,
+        context: &DamageHitContext,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+        player_effects: &mut dyn FnMut(BodyPlayerEffect),
+        body_fx: &mut BodyStateFxReceiver<'_>,
     ) -> DamageApplication {
         if self.status.destroyed {
             return DamageApplication::Complete(false);
@@ -755,7 +818,7 @@ impl Object {
         // subclass raw clamp, bail before armor / lastDamage / FX.
         if self.indestructible {
             if battle_bus_start_second {
-                self.start_battle_bus_second_life_at_frame(frame, context.source());
+                self.start_battle_bus_second_life_with_body_fx(frame, context.source(), body_fx);
             }
             return DamageApplication::Complete(false);
         }
@@ -871,7 +934,11 @@ impl Object {
         {
             if let Some(fs) = self.fire_spread.as_mut() {
                 if fs.apply_flame_damage(actual_damage, frame) {
-                    self.apply_flammable_ignite_visuals_with_source(context.source(), frame);
+                    self.apply_flammable_ignite_visuals_with_body_fx(
+                        context.source(),
+                        frame,
+                        body_fx,
+                    );
                 }
             }
         }
