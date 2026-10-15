@@ -3,6 +3,10 @@ use super::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+fn packed(x: i32, y: i32) -> WindowMsgData {
+    (((y as u32) << 16) | ((x as u32) & 0xFFFF)) as WindowMsgData
+}
+
 fn receiver() -> (
     WindowManager,
     Rc<RefCell<Vec<(WindowMessage, WindowMsgData)>>>,
@@ -54,14 +58,28 @@ fn receiving_managers_keep_scrolling_lmb_exception_and_peer_independence() {
         WindowInputReturnCode::Used
     );
     assert!(first_calls.borrow().is_empty());
-    assert_eq!(peer_calls.borrow().len(), 1);
+    let packed = ((23_u32 << 16) | 12) as WindowMsgData;
+    assert_eq!(
+        peer_calls.borrow().as_slice(),
+        &[
+            (WindowMessage::RightDown, packed),
+            (WindowMessage::MouseEntering, packed),
+        ]
+    );
     for msg in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
         assert_eq!(
             deliver(&mut first, scrolling, msg),
             WindowInputReturnCode::Used
         );
     }
-    assert_eq!(first_calls.borrow().len(), 2);
+    assert_eq!(
+        first_calls.borrow().as_slice(),
+        &[
+            (WindowMessage::LeftDown, packed),
+            (WindowMessage::MouseEntering, packed),
+            (WindowMessage::LeftUp, packed),
+        ]
+    );
     for (_, data) in first_calls.borrow().iter() {
         assert_eq!(*data, ((23_u32 << 16) | 12) as WindowMsgData);
     }
@@ -79,8 +97,24 @@ fn receiving_managers_keep_scrolling_lmb_exception_and_peer_independence() {
             WindowInputReturnCode::Used
         );
     }
-    assert_eq!(first_calls.borrow().len(), 2);
-    assert_eq!(peer_calls.borrow().len(), 4);
+    assert_eq!(
+        first_calls.borrow().as_slice(),
+        &[
+            (WindowMessage::LeftDown, packed),
+            (WindowMessage::MouseEntering, packed),
+            (WindowMessage::LeftUp, packed),
+        ]
+    );
+    assert_eq!(
+        peer_calls.borrow().as_slice(),
+        &[
+            (WindowMessage::RightDown, packed),
+            (WindowMessage::MouseEntering, packed),
+            (WindowMessage::MousePos, packed),
+            (WindowMessage::MiddleDown, packed),
+            (WindowMessage::WheelUp, packed),
+        ]
+    );
     assert_eq!(
         deliver(
             &mut first,
@@ -140,7 +174,16 @@ fn public_native_dispatch_ignores_stale_foreign_tactical_mouse_lock() {
             WindowInputReturnCode::Used
         );
     }
-    assert_eq!(calls.borrow().len(), 3);
+    let packed = ((23_u32 << 16) | 12) as WindowMsgData;
+    assert_eq!(
+        calls.borrow().as_slice(),
+        &[
+            (WindowMessage::RightDown, packed),
+            (WindowMessage::MouseEntering, packed),
+            (WindowMessage::MousePos, packed),
+            (WindowMessage::WheelUp, packed),
+        ]
+    );
     crate::display::view::with_tactical_view(|view| view.set_mouse_lock(false));
     assert_eq!(
         dispatch_os_mouse_to_window_manager_with_facts(
@@ -154,7 +197,16 @@ fn public_native_dispatch_ignores_stale_foreign_tactical_mouse_lock() {
         ),
         WindowInputReturnCode::NotUsed
     );
-    assert_eq!(calls.borrow().len(), 3);
+    let packed = ((23_u32 << 16) | 12) as WindowMsgData;
+    assert_eq!(
+        calls.borrow().as_slice(),
+        &[
+            (WindowMessage::RightDown, packed),
+            (WindowMessage::MouseEntering, packed),
+            (WindowMessage::MousePos, packed),
+            (WindowMessage::WheelUp, packed),
+        ]
+    );
 }
 
 #[test]
@@ -185,4 +237,36 @@ fn shell_override_occurs_after_dispatch_and_never_after_lock_rejection() {
         || panic!("blocked event queried shell"),
     );
     assert_eq!(result, WindowInputReturnCode::NotUsed);
+}
+
+#[test]
+fn hover_callbacks_keep_cpp_packed_screen_coordinates_and_order() {
+    let mut manager = WindowManager::new();
+    let first = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let second = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    for (name, window) in [("first", first), ("second", second)] {
+        let seen = Rc::clone(&seen);
+        window
+            .borrow_mut()
+            .set_input_callback(move |_, msg, data, _| {
+                seen.borrow_mut().push((name, msg, data));
+                WindowMsgHandled::Handled
+            });
+    }
+    manager.process_mouse_event(WindowMessage::MousePos, 10, 20, packed(10, 20));
+    manager.process_mouse_event(WindowMessage::MousePos, 210, 30, packed(210, 30));
+    manager.process_mouse_event(WindowMessage::MousePos, -4, 12, packed(-4, 12));
+    assert_eq!(
+        seen.borrow().as_slice(),
+        &[
+            ("first", WindowMessage::MousePos, packed(10, 20)),
+            ("first", WindowMessage::MouseEntering, packed(10, 20)),
+            ("second", WindowMessage::MousePos, packed(210, 30)),
+            ("first", WindowMessage::MouseLeaving, packed(210, 30)),
+            ("second", WindowMessage::MouseEntering, packed(210, 30)),
+            ("second", WindowMessage::MouseLeaving, packed(-4, 12)),
+        ],
+        "CPP hover callbacks must preserve packed event coordinates, not zero"
+    );
 }

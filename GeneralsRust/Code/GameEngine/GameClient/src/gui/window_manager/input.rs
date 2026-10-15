@@ -187,6 +187,9 @@ impl WindowManager {
             return;
         }
 
+        // C++ GameWindowManager.cpp:1228-1236 forwards the same packed
+        // screen coordinates as the raw event, including negative positions.
+        let packed = (((y as u32) << 16) | ((x as u32) & 0xFFFF)) as WindowMsgData;
         if let Some(prev) = previous {
             let should_send_leaving = capture_window
                 .map(|capture| Self::is_strict_descendant(capture, &prev))
@@ -194,9 +197,11 @@ impl WindowManager {
             if should_send_leaving {
                 let (px, py) = prev.borrow().get_screen_position();
                 let _ = prev.borrow_mut().set_cursor_position(x - px, y - py);
-                let _ =
-                    prev.borrow_mut()
-                        .send_routed_input_message(WindowMessage::MouseLeaving, 0, 0);
+                let _ = prev.borrow_mut().send_routed_input_message(
+                    WindowMessage::MouseLeaving,
+                    packed,
+                    0,
+                );
             }
         }
 
@@ -205,7 +210,7 @@ impl WindowManager {
             let _ = new_window.borrow_mut().set_cursor_position(x - wx, y - wy);
             let _ = new_window.borrow_mut().send_routed_input_message(
                 WindowMessage::MouseEntering,
-                0,
+                packed,
                 0,
             );
             self.current_mouse_region = Some(Rc::downgrade(new_window));
