@@ -10,18 +10,20 @@ impl Drawable {
     pub fn update(
         &mut self,
         delta_time: Real,
-        frame_number: u32,
+        client_frame: u32,
+        logic_frame: u32,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // C++ Drawable::updateDrawable always advances fade even when other
         // client work is skipped (frozen / lod frequency).
         self.update_fade();
 
         // Skip update if frozen or not time to update
-        if self.frozen || (frame_number - self.last_update_frame) < self.update_frequency {
+        if self.frozen || client_frame.wrapping_sub(self.last_update_frame) < self.update_frequency
+        {
             return Ok(());
         }
 
-        self.last_update_frame = frame_number;
+        self.last_update_frame = client_frame;
 
         // Update animations
         self.update_animation(delta_time)?;
@@ -64,13 +66,13 @@ impl Drawable {
         // C++ Drawable::updateDrawable destroys when `m_expirationDate` is reached
         // (after fade and decal, before the rest of the frame). Callers drop the
         // drawable write lock and then use TheGameClient::destroy_drawable.
-        if self.expiration_date != 0 && frame_number >= self.expiration_date {
+        if self.expiration_date != 0 && logic_frame >= self.expiration_date {
             return Ok(());
         }
 
         // CPP Drawable1218: only the admitted client update emits the pulse.
         // colorFlash changes the tint envelope, never the scripted countdown.
-        if self.flash_count > 0 && frame_number % 15 == 0 {
+        if self.flash_count > 0 && client_frame % 15 == 0 {
             self.color_flash(Some(self.flash_color), 4, 0, false);
             self.flash_count -= 1;
         }
@@ -88,7 +90,7 @@ impl Drawable {
         self.update_environmental_effects(delta_time)?;
 
         // Update attachments
-        self.update_attachments(delta_time)?;
+        self.update_attachments(delta_time, logic_frame)?;
 
         Ok(())
     }
@@ -700,6 +702,7 @@ impl Drawable {
     fn update_attachments(
         &mut self,
         delta_time: Real,
+        logic_frame: u32,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let attachment_keys: Vec<String> = self.attachments.keys().cloned().collect();
         let mut expired_attachments = Vec::new();
@@ -718,9 +721,13 @@ impl Drawable {
 
                     if let Ok(mut attached_drawable) = attachment.drawable.write() {
                         attached_drawable.set_transform(attachment_transform);
-                        attached_drawable.update(delta_time, self.last_update_frame)?;
+                        attached_drawable.update(
+                            delta_time,
+                            self.last_update_frame,
+                            logic_frame,
+                        )?;
                         let expiration = attached_drawable.expiration_date();
-                        if expiration != 0 && self.last_update_frame >= expiration {
+                        if expiration != 0 && logic_frame >= expiration {
                             expired_attachments
                                 .push((key.clone(), attached_drawable.get_drawable_id()));
                         }
@@ -761,3 +768,7 @@ impl Drawable {
 #[cfg(test)]
 #[path = "pristine_bone_aggregation_tests.rs"]
 mod pristine_bone_aggregation_tests;
+
+#[cfg(test)]
+#[path = "drawable_clock_tests.rs"]
+mod drawable_clock_tests;

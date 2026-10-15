@@ -147,8 +147,9 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
     /// Flash drawable with specified color and duration
     fn flash_color(&mut self, color: Vector3, duration_frames: u32);
 
-    /// Update drawable (called each frame)
-    fn update(&mut self, delta_time: f32);
+    /// Update with the receiving Logic frame for expiration. Presentation uses
+    /// the separately supplied Client frame from `set_current_frame`.
+    fn update(&mut self, delta_time: f32, logic_frame: u32);
 
     /// Render drawable to screen.
     /// Takes &mut self because rendering may toggle shadow state per-frame
@@ -212,11 +213,11 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
         Ok(())
     }
 
-    /// Set the frame index used by time-based drawable logic (default noop).
+    /// Set the receiving Client frame used by presentation flash and icons.
     fn set_current_frame(&mut self, _frame: u32) {}
 
-    /// Whether this drawable should be auto-destroyed at the current frame.
-    fn is_expired(&self, _current_frame: u32) -> bool {
+    /// Whether its nonzero deadline has reached the supplied Logic frame.
+    fn is_expired(&self, _logic_frame: u32) -> bool {
         false
     }
 

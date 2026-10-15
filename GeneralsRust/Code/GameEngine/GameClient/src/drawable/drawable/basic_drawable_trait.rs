@@ -227,7 +227,7 @@ impl Drawable for BasicDrawable {
         Ok(())
     }
 
-    fn update(&mut self, _delta_time: f32) {
+    fn update(&mut self, _delta_time: f32, logic_frame: u32) {
         // C++ Drawable::updateDrawable runs client updates before fade, decal,
         // flash, and tint so modules observe the pre-fade drawable.
         if let Some(object_id) = self.object_id {
@@ -244,7 +244,7 @@ impl Drawable for BasicDrawable {
             }
         }
 
-        self.update_after_client_modules();
+        self.update_after_client_modules(logic_frame);
     }
 
     fn render(&mut self, view_matrix: &Matrix4, projection_matrix: &Matrix4) {
@@ -609,9 +609,9 @@ impl Drawable for BasicDrawable {
         self.current_frame = frame;
     }
 
-    fn is_expired(&self, current_frame: u32) -> bool {
+    fn is_expired(&self, logic_frame: u32) -> bool {
         self.expiration_frame
-            .is_some_and(|frame| frame != 0 && current_frame >= frame)
+            .is_some_and(|frame| frame != 0 && logic_frame >= frame)
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {

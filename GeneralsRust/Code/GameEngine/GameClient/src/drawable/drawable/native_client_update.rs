@@ -135,7 +135,7 @@ impl BasicDrawable {
         Ok(())
     }
 
-    pub(crate) fn update_after_client_modules(&mut self) {
+    pub(crate) fn update_after_client_modules(&mut self, logic_frame: u32) {
         self.update_fade();
         self.flush_dirty_model_condition();
 
@@ -168,9 +168,9 @@ impl BasicDrawable {
         }
 
         // C++ Drawable.cpp:1209-1213 — `m_expirationDate != 0 && now >= m_expirationDate`
-        // returns before flash and tint. The client walk destroys the drawable
-        // after this update so the map is not mutated mid-iteration.
-        if self.is_expired(self.current_frame) {
+        // uses Logic time and returns before flash and tint. The caller owns
+        // retirement; the receiving Client clock below still drives flashing.
+        if self.is_expired(logic_frame) {
             return;
         }
 

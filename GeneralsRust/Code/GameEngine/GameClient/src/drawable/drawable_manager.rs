@@ -339,11 +339,12 @@ impl DrawableManager {
         self.frustum = Frustum::from_view_projection(&view_projection);
     }
 
-    /// Update all drawables
-    pub fn update(&mut self, delta_time: f32) {
+    /// Update all drawables using Logic time for expiry and the manager
+    /// Client counter for flash/icons.
+    pub fn update(&mut self, delta_time: f32, logic_frame: u32) {
         let start_time = std::time::Instant::now();
 
-        self.current_frame += 1;
+        self.current_frame = self.current_frame.wrapping_add(1);
 
         // Update all drawables and remove expired ones
         // Reference: C++ Drawable.cpp - drawables can expire for particles, effects, etc.
@@ -352,14 +353,14 @@ impl DrawableManager {
             .iter_mut()
             .filter_map(|(&id, entry)| {
                 entry.drawable.set_current_frame(self.current_frame);
-                entry.drawable.update(delta_time);
+                entry.drawable.update(delta_time, logic_frame);
                 entry.last_update_frame = self.current_frame;
 
                 // Check if drawable has expired
                 // Expiration is used for temporary effects (particles, explosions, etc.)
                 // that should be automatically removed after a certain time or frame count
                 // Reference: C++ Drawable.cpp - temp drawables expire automatically
-                if entry.drawable.is_expired(self.current_frame) {
+                if entry.drawable.is_expired(logic_frame) {
                     return Some(id);
                 }
 
@@ -1076,11 +1077,62 @@ mod tests {
             });
         }
 
-        manager.update(0.016); // ~60 FPS
+        manager.update(0.016, 0); // ~60 FPS
         manager.cull_and_sort();
 
         let stats = manager.get_stats();
         assert_eq!(stats.total_drawables, 10);
         assert!(stats.update_time_ms >= 0.0);
+    }
+}
+
+#[cfg(test)]
+mod logic_clock_tests {
+    use super::*;
+
+    fn expiring_model(manager: &mut DrawableManager, deadline: u32) -> DrawableId {
+        let id = manager.create_drawable(DrawableType::Model {
+            model_name: "logic_clock_fixture.w3d".into(),
+            position: Vector3::new(0.0, 0.0, 0.0),
+            scale: 1.0,
+            animation_state: "idle".into(),
+        });
+        manager
+            .get_drawable_mut(id)
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<BasicDrawable>()
+            .unwrap()
+            .set_expiration_frame(deadline);
+        id
+    }
+
+    #[test]
+    fn receiving_manager_uses_logic_for_expiry_and_keeps_client_progression() {
+        let mut manager = DrawableManager::new();
+        let id = expiring_model(&mut manager, 4);
+        manager.current_frame = 29;
+        manager.update(0.0, 3);
+        assert_eq!(manager.current_frame, 30);
+        assert!(manager.get_drawable(id).is_some());
+        manager.current_frame = 44;
+        manager.update(0.0, 4);
+        assert_eq!(manager.current_frame, 45);
+        assert!(manager.get_drawable(id).is_none());
+    }
+
+    #[test]
+    fn receiving_manager_client_wrap_does_not_replace_logic_deadline() {
+        let mut manager = DrawableManager::new();
+        let id = expiring_model(&mut manager, u32::MAX);
+        let permanent = expiring_model(&mut manager, 0);
+        manager.current_frame = u32::MAX;
+        manager.update(0.0, 0);
+        assert_eq!(manager.current_frame, 0);
+        assert!(manager.get_drawable(id).is_some());
+        manager.update(0.0, u32::MAX);
+        assert_eq!(manager.current_frame, 1);
+        assert!(manager.get_drawable(id).is_none());
+        assert!(manager.get_drawable(permanent).is_some());
     }
 }

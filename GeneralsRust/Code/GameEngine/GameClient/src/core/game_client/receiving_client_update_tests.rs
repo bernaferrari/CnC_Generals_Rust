@@ -50,12 +50,35 @@ fn receiving_client_update_uses_installed_modules_with_empty_core_registry() {
     assert_eq!(lives(&mut first, id), [0, 0]);
     assert_eq!(lives(&mut peer, peer_id), [0, 0]);
     first.set_frame(37);
-    first.update_drawables_local(0.0).unwrap();
+    first
+        .update_drawables_local(
+            0.0,
+            NativeParticleFrames {
+                logic_frame: 37,
+                client_frame: 37,
+            },
+        )
+        .unwrap();
     assert_eq!(lives(&mut first, id), [1, 1]);
     assert_eq!(lives(&mut peer, peer_id), [0, 0]);
     peer.set_frame(900);
-    peer.update_drawables_local(0.0).unwrap();
-    first.update_drawables_local(0.0).unwrap();
+    peer.update_drawables_local(
+        0.0,
+        NativeParticleFrames {
+            logic_frame: 900,
+            client_frame: 900,
+        },
+    )
+    .unwrap();
+    first
+        .update_drawables_local(
+            0.0,
+            NativeParticleFrames {
+                logic_frame: 37,
+                client_frame: 37,
+            },
+        )
+        .unwrap();
     assert_eq!(lives(&mut first, id), [2, 2]);
     assert_eq!(lives(&mut peer, peer_id), [1, 1]);
 }
@@ -72,20 +95,47 @@ fn receiving_client_update_local_manager_kernel_preserves_native_life_semantics(
     let peer_id = peer.create_drawable_from_template(&template).unwrap();
     let mut particles = ParticleSystemManager::new();
     let mut peer_particles = ParticleSystemManager::new();
+    first.set_frame(37);
     assert!(
         first
-            .tick_mapped_drawables_with_particles(37, 0.0, Some(&mut particles), None)
+            .tick_mapped_drawables_with_particles(
+                NativeParticleFrames {
+                    logic_frame: 37,
+                    client_frame: 37
+                },
+                0.0,
+                Some(&mut particles),
+                None
+            )
             .unwrap()
             .is_empty()
     );
+    peer.set_frame(900);
     assert!(
-        peer.tick_mapped_drawables_with_particles(900, 0.0, Some(&mut peer_particles), None)
-            .unwrap()
-            .is_empty()
+        peer.tick_mapped_drawables_with_particles(
+            NativeParticleFrames {
+                logic_frame: 900,
+                client_frame: 900
+            },
+            0.0,
+            Some(&mut peer_particles),
+            None
+        )
+        .unwrap()
+        .is_empty()
     );
+    first.set_frame(38);
     assert!(
         first
-            .tick_mapped_drawables_with_particles(38, 0.0, Some(&mut particles), None)
+            .tick_mapped_drawables_with_particles(
+                NativeParticleFrames {
+                    logic_frame: 38,
+                    client_frame: 38
+                },
+                0.0,
+                Some(&mut particles),
+                None
+            )
             .unwrap()
             .is_empty()
     );
@@ -125,10 +175,19 @@ fn receiving_client_update_local_manager_kernel_preserves_native_life_semantics(
         [1, 1],
         "native load does not overwrite receiving life"
     );
+    peer.set_frame(901);
     assert!(
-        peer.tick_mapped_drawables_with_particles(901, 0.0, Some(&mut peer_particles), None)
-            .unwrap()
-            .is_empty()
+        peer.tick_mapped_drawables_with_particles(
+            NativeParticleFrames {
+                logic_frame: 901,
+                client_frame: 901
+            },
+            0.0,
+            Some(&mut peer_particles),
+            None
+        )
+        .unwrap()
+        .is_empty()
     );
     assert_eq!(lives(&mut peer, peer_id), [2, 2]);
     assert_eq!(lives(&mut first, id), [2, 2]);
@@ -159,8 +218,17 @@ fn native_client_update_and_expiration_follow_cpp_creation_roster() {
     let expected: Vec<_> = admitted.iter().rev().copied().collect();
     assert_eq!(client.drawables.native_drawable_order, expected);
     let mut particles = ParticleSystemManager::new();
+    client.set_frame(30);
     let expired = client
-        .tick_mapped_drawables_with_particles(30, 0., Some(&mut particles), None)
+        .tick_mapped_drawables_with_particles(
+            NativeParticleFrames {
+                logic_frame: 30,
+                client_frame: 30,
+            },
+            0.,
+            Some(&mut particles),
+            None,
+        )
         .unwrap();
     assert_eq!(
         expired, expected,
@@ -194,4 +262,46 @@ fn native_client_update_and_expiration_follow_cpp_creation_roster() {
     assert_eq!(peer.drawables.native_drawable_order, expected);
     client.try_invalidate_presentation_drawable_world().unwrap();
     peer.try_invalidate_presentation_drawable_world().unwrap();
+}
+
+#[test]
+fn receiving_drawable_phase_rejects_foreign_client_frame_before_mutation() {
+    let mut client = GameClient::new().unwrap();
+    let id = client.create_drawable_from_template(&template()).unwrap();
+    client
+        .find_drawable_by_id_mut(id)
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<BasicDrawable>()
+        .unwrap()
+        .set_expiration_frame(4);
+    client.set_frame(30);
+    let foreign = NativeParticleFrames {
+        logic_frame: 4,
+        client_frame: 31,
+    };
+    let timing = FrameTiming {
+        frame_number: 31,
+        delta_time: std::time::Duration::ZERO,
+        total_time: std::time::Duration::ZERO,
+    };
+    for result in [
+        client.update_drawables_local(0., foreign),
+        client.update_for_rendering(&timing, foreign),
+        client.update_drawables(0., foreign),
+        client.update_presentation_shell_with_particle_frames(0., foreign),
+    ] {
+        let error = result.expect_err("foreign Client frame must be rejected");
+        assert!(
+            error.to_string().contains("Client frame"),
+            "wrong rejection: {error}"
+        );
+    }
+    assert_eq!(client.get_frame(), 30);
+    assert_eq!(lives(&mut client, id), [0, 0]);
+    let drawable = client.find_drawable_by_id(id).unwrap();
+    assert!(!drawable.is_expired(3));
+    assert!(drawable.is_expired(4));
+    assert_eq!(client.drawables.native_drawable_order, [id]);
+    client.try_invalidate_presentation_drawable_world().unwrap();
 }

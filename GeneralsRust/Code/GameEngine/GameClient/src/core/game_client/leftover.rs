@@ -1101,10 +1101,23 @@ impl GameClient {
     /// # let mut client = GameClient::new().unwrap();
     /// # let mut clock = FrameClock::new();
     /// let timing = clock.next_frame();
-    /// client.update_for_rendering(&timing)?;
+    /// let frames = game_client_rust::core::game_client::NativeParticleFrames {
+    ///     logic_frame: 0, // newly constructed session, before its first logic step
+    ///     client_frame: client.get_frame(),
+    /// };
+    /// client.update_for_rendering(&timing, frames)?;
     /// # Ok::<(), game_client_rust::core::GameClientError>(())
     /// ```
-    pub fn update_for_rendering(&mut self, timing: &FrameTiming) -> GameClientResult<()> {
+    pub fn update_for_rendering(
+        &mut self,
+        timing: &FrameTiming,
+        frames: NativeParticleFrames,
+    ) -> GameClientResult<()> {
+        if frames.client_frame != self.frame {
+            return Err(GameClientError::InvalidOperation(
+                "Drawable Client frame does not match receiving owner".into(),
+            ));
+        }
         let visual_delta = if self.should_freeze_visual_time() {
             0.0
         } else {
@@ -1114,7 +1127,7 @@ impl GameClient {
         // Host/presentation path: no dual-world OBJECT_REGISTRY. Main owns pose/shroud
         // via PresentationFrame apply_*; only local drawable modules tick here.
         if OBJECT_REGISTRY.is_empty() {
-            self.update_drawables_local(visual_delta)?;
+            self.update_drawables_local(visual_delta, frames)?;
             // Wave 1021: catalog shroud residual on presentation shell render path.
             self.update_drawable_visibility(self.local_player_id)?;
             self.submit_projectile_streams_to_bridge()?;
@@ -1124,7 +1137,7 @@ impl GameClient {
         // Dual-world residual: sync pose/visibility from registry-bound objects.
         self.sync_with_game_logic()?;
         self.update_drawable_visibility(self.local_player_id)?;
-        self.update_drawable_animations(visual_delta)?;
+        self.update_drawable_animations(visual_delta, frames)?;
         self.submit_projectile_streams_to_bridge()?;
 
         Ok(())
@@ -1142,10 +1155,14 @@ impl GameClient {
     ///
     /// * `Ok(())` - Animations updated
     /// * `Err(GameClientError)` - If update fails
-    fn update_drawable_animations(&mut self, delta_time: f32) -> GameClientResult<()> {
-        let frame = self.frame;
+    fn update_drawable_animations(
+        &mut self,
+        delta_time: f32,
+        frames: NativeParticleFrames,
+    ) -> GameClientResult<()> {
+        let frame = frames.client_frame;
 
-        self.tick_mapped_drawables(frame, delta_time);
+        self.tick_mapped_drawables(frames, delta_time)?;
 
         // Dual-world residual only — host drawables live solely in drawable_map above.
         let mut expired_logic_drawables = Vec::new();
@@ -1155,9 +1172,9 @@ impl GameClient {
             };
             if let Some(drawable) = obj.get_drawable() {
                 if let Ok(mut drawable_guard) = drawable.write() {
-                    let _ = drawable_guard.update(delta_time, frame);
+                    let _ = drawable_guard.update(delta_time, frame, frames.logic_frame);
                     let expiration = drawable_guard.expiration_date();
-                    if expiration != 0 && frame >= expiration {
+                    if expiration != 0 && frames.logic_frame >= expiration {
                         expired_logic_drawables.push(drawable_guard.get_drawable_id());
                     }
                 }

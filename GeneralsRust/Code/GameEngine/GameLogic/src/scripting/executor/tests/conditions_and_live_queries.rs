@@ -35,19 +35,19 @@ fn named_flash_sets_drawable_flash_count_for_presentation() {
         4,
         "an unrelated tint pulse cannot overwrite the script countdown"
     );
-    drawable.update(1.0 / 30.0, 14).unwrap();
+    drawable.update(1.0 / 30.0, 14, 14).unwrap();
     assert_eq!(
         drawable.get_flash_count(),
         4,
         "configuration does not pulse early"
     );
-    drawable.update(1.0 / 30.0, 15).unwrap();
+    drawable.update(1.0 / 30.0, 15, 15).unwrap();
     assert_eq!(
         drawable.get_flash_count(),
         3,
         "original Drawable update admits one pulse"
     );
-    drawable.update(1.0 / 30.0, 15).unwrap();
+    drawable.update(1.0 / 30.0, 15, 15).unwrap();
     assert_eq!(
         drawable.get_flash_count(),
         3,
@@ -73,8 +73,8 @@ fn named_flash_sets_drawable_flash_count_for_presentation() {
         &mut game_engine::common::system::xfer_load::XferLoad::new(std::io::Cursor::new(saved), 1),
     );
     assert_eq!(restored.get_flash_count(), 3);
-    drawable.update(1.0 / 30.0, 30).unwrap();
-    restored.update(1.0 / 30.0, 30).unwrap();
+    drawable.update(1.0 / 30.0, 30, 30).unwrap();
+    restored.update(1.0 / 30.0, 30, 30).unwrap();
     assert_eq!(drawable.get_flash_count(), 2);
     assert_eq!(restored.get_flash_count(), 2);
     peer.drawable = None;

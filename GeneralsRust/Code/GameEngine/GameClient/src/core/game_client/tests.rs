@@ -2544,7 +2544,13 @@ mod tests {
         for frame in 1..DRAWABLE_FRAMES_PER_FLASH {
             client.set_frame(frame);
             client
-                .update_drawables_local(SECONDS_PER_LOGICFRAME_REAL)
+                .update_drawables_local(
+                    SECONDS_PER_LOGICFRAME_REAL,
+                    NativeParticleFrames {
+                        logic_frame: 1,
+                        client_frame: frame,
+                    },
+                )
                 .expect("local drawable tick");
             let tint = client
                 .find_drawable_by_id(DrawableId(7))
@@ -2558,7 +2564,13 @@ mod tests {
 
         client.set_frame(DRAWABLE_FRAMES_PER_FLASH);
         client
-            .update_drawables_local(SECONDS_PER_LOGICFRAME_REAL)
+            .update_drawables_local(
+                SECONDS_PER_LOGICFRAME_REAL,
+                NativeParticleFrames {
+                    logic_frame: 1,
+                    client_frame: DRAWABLE_FRAMES_PER_FLASH,
+                },
+            )
             .expect("local drawable tick");
         let tint = client
             .find_drawable_by_id(DrawableId(7))
@@ -2591,22 +2603,34 @@ mod tests {
             basic.set_expiration_frame(4);
         }
 
-        client.set_frame(3);
+        client.set_frame(30);
         client
-            .update_drawables_local(0.0)
+            .update_drawables_local(
+                0.0,
+                NativeParticleFrames {
+                    logic_frame: 3,
+                    client_frame: 30,
+                },
+            )
             .expect("local drawable tick");
         assert!(
             client.find_drawable_by_id(DrawableId(90_002)).is_some(),
             "drawable must live until its expiration frame"
         );
 
-        client.set_frame(4);
+        client.set_frame(45);
         client
-            .update_drawables_local(0.0)
+            .update_drawables_local(
+                0.0,
+                NativeParticleFrames {
+                    logic_frame: 4,
+                    client_frame: 45,
+                },
+            )
             .expect("local drawable tick");
         assert!(
             client.find_drawable_by_id(DrawableId(90_002)).is_none(),
-            "expired drawable is destroyed on that client frame"
+            "expired drawable is destroyed on that Logic frame despite a different Client clock"
         );
     }
 }

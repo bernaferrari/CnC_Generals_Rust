@@ -1294,7 +1294,7 @@ fn game_client_update_for_rendering_host_path_without_registry() {
     let gc = game_client::core::game_client::GAME_CLIENT_SRC;
     assert!(
         gc.contains("Host/presentation path: no dual-world OBJECT_REGISTRY")
-            && gc.contains("update_drawables_local(visual_delta)"),
+            && gc.contains("update_drawables_local(visual_delta, frames)"),
         "update_for_rendering must local-tick drawables when OBJECT_REGISTRY is empty"
     );
     assert!(
@@ -1331,7 +1331,7 @@ fn game_client_update_host_path_skips_dual_present() {
     assert!(
         gc.contains("host_presentation_path")
             && gc.contains("No draw_display")
-            && gc.contains("update_drawables_local(visual_delta)"),
+            && gc.contains("update_drawables_local(visual_delta, frames)"),
         "GameClient::update must host-path skip dual Display present and registry shroud"
     );
     assert!(

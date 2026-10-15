@@ -211,6 +211,9 @@ mod client_clock_tests;
 mod receiving_client_update_tests;
 
 #[cfg(test)]
+mod receiving_expiration_clock_tests;
+
+#[cfg(test)]
 mod receiving_native_draw_tests;
 
 #[cfg(test)]

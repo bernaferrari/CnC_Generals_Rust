@@ -194,7 +194,13 @@ fn receiving_native_draw_admits_authored_emitter_before_next_client_bone_update(
             .set_position(Vector3::new(40., 50., 60.));
         client.set_frame(38);
         client
-            .update_drawables_local(0.)
+            .update_drawables_local(
+                0.,
+                NativeParticleFrames {
+                    logic_frame: 105,
+                    client_frame: 38,
+                },
+            )
             .map_err(|e| e.to_string())?;
         let moved = {
             let manager = get_particle_system_manager_mut().map_err(|e| e.to_string())?;
@@ -270,7 +276,15 @@ fn local_draw_phase(
     client.set_frame(frame);
     assert!(
         client
-            .tick_mapped_drawables_with_particles(frame, 0., Some(particles), Some(assets))
+            .tick_mapped_drawables_with_particles(
+                NativeParticleFrames {
+                    logic_frame,
+                    client_frame: frame
+                },
+                0.,
+                Some(particles),
+                Some(assets)
+            )
             .unwrap()
             .is_empty()
     );
@@ -340,11 +354,24 @@ fn receiving_native_draw_phase_and_retirement_use_equal_id_local_owners() {
     peer.find_drawable_by_id_mut(peer_id)
         .unwrap()
         .set_position(Vector3::new(100., 200., 300.));
+    first.set_frame(38);
     first
-        .tick_mapped_drawables_with_particles(38, 0., Some(&mut particles), Some(&assets))
+        .tick_mapped_drawables_with_particles(
+            NativeParticleFrames {
+                logic_frame: 105,
+                client_frame: 38,
+            },
+            0.,
+            Some(&mut particles),
+            Some(&assets),
+        )
         .unwrap();
+    peer.set_frame(38);
     peer.tick_mapped_drawables_with_particles(
-        38,
+        NativeParticleFrames {
+            logic_frame: 105,
+            client_frame: 38,
+        },
         0.,
         Some(&mut peer_particles),
         Some(&peer_assets),

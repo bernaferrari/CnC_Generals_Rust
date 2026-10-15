@@ -37,7 +37,7 @@
 //! });
 //!
 //! // Update and render
-//! manager.update(delta_time);
+//! manager.update(delta_time, logic_frame);
 //! manager.render(&view_matrix, &projection_matrix);
 //! ```
 

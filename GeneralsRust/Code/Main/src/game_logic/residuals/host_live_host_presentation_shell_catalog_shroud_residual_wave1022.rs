@@ -86,7 +86,7 @@ pub fn honesty_host_presentation_shell_catalog_shroud_residual_residual_pack_wav
         && (gc.contains("self.update_drawable_visibility(self.local_player_id)?")
             || gc.contains("self.update_drawable_visibility"))
         && gc.contains("host_presentation_path")
-        && gc.contains("update_drawables_local(visual_delta)?")
+        && gc.contains("update_drawables_local(visual_delta, particle_frames)?")
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostPresentationShellCatalogShroudResidualAction::SourceMarkers);

@@ -241,12 +241,12 @@ fn fade_in_reaches_full_opacity_after_requested_frames() {
     // then increments. Completes when elapsed > timeToFade, so fade_in(N)
     // needs N+1 ticks to reach full opacity. After N ticks opacity is (N-1)/N.
     for i in 0..10 {
-        drawable.update(0.0);
+        drawable.update(0.0, 0);
         assert_eq!(drawable.fading_mode(), FadingMode::FadingIn);
         assert_near(drawable.get_explicit_opacity(), i as f32 / 10.0);
     }
 
-    drawable.update(0.0);
+    drawable.update(0.0, 0);
     assert_near(drawable.get_explicit_opacity(), 1.0);
     assert_near(drawable.get_opacity(), 1.0);
     assert_eq!(drawable.fading_mode(), FadingMode::None);
@@ -261,11 +261,11 @@ fn fade_out_reaches_zero_opacity_after_requested_frames() {
     assert_eq!(drawable.fading_mode(), FadingMode::FadingOut);
 
     for i in 0..10 {
-        drawable.update(0.0);
+        drawable.update(0.0, 0);
         assert_near(drawable.get_explicit_opacity(), (10 - i) as f32 / 10.0);
     }
 
-    drawable.update(0.0);
+    drawable.update(0.0, 0);
     assert_near(drawable.get_explicit_opacity(), 0.0);
     assert_eq!(drawable.fading_mode(), FadingMode::None);
 }
@@ -281,7 +281,7 @@ fn expired_update_fades_then_skips_flash_and_tint() {
     drawable.set_current_frame(DRAWABLE_FRAMES_PER_FLASH);
     drawable.set_expiration_frame(DRAWABLE_FRAMES_PER_FLASH);
 
-    drawable.update(0.0);
+    drawable.update(0.0, DRAWABLE_FRAMES_PER_FLASH);
 
     assert_eq!(
         drawable.time_elapsed_fade(),
@@ -2154,7 +2154,7 @@ fn selection_flash_uses_saturated_white_and_survives_deselect() {
 fn color_tint_envelope_ticks_and_is_sampled_by_get_tint_color() {
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.color_flash_envelope(Some(Vector3::new(1.0, 0.0, 0.0)), 4, 1, 0);
-    drawable.update(0.0);
+    drawable.update(0.0, 0);
     let tint = drawable.get_tint_color();
     assert!(tint.x > 0.0);
     assert!(drawable.tint_color_effect().is_some());
@@ -2164,7 +2164,7 @@ fn color_tint_envelope_ticks_and_is_sampled_by_get_tint_color() {
 fn frenzy_status_plays_vehicle_frenzy_color_without_infantry_kind() {
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.set_tint_status(TintStatus::FRENZY);
-    drawable.update(0.0);
+    drawable.update(0.0, 0);
     let envelope = drawable.tint_envelope.as_ref().expect("frenzy envelope");
     assert_near(envelope.peak_color.x, FRENZY_COLOR.x);
     assert_near(envelope.peak_color.y, FRENZY_COLOR.y);
@@ -2249,7 +2249,7 @@ fn set_time_of_day_queues_ambient_restart() {
     drawable
         .set_time_of_day(crate::system::TimeOfDay::Night)
         .unwrap();
-    drawable.update(0.0);
+    drawable.update(0.0, 0);
     assert!(drawable.ambient_sound_is_active());
     assert!(
         drawable

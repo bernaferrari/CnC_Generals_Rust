@@ -22,6 +22,12 @@ impl GameClient {
         // GameLogic owns admission of the client frame (GameLogic.cpp:3593-3596).
         // Presenting or updating UI never advances simulation time.
         publish_live_game_client_frame(self);
+        // Classic Core entry only. Native Main supplies both owning clocks to
+        // update_presentation_shell_with_particle_frames without this lookup.
+        let frames = NativeParticleFrames {
+            logic_frame: TheGameLogic::get_frame(),
+            client_frame: self.frame,
+        };
 
         self.create_frame_tick_message()?;
         self.update_startup_movies()?;
@@ -60,7 +66,7 @@ impl GameClient {
         if host_presentation_path {
             // Shared THE_MOUSE/THE_KEYBOARD may still be polled for shell widgets;
             // Main remains command authority. Prefer local drawable modules only.
-            self.update_drawables_local(visual_delta)?;
+            self.update_drawables_local(visual_delta, frames)?;
             // Wave 1022: catalog shroud residual on presentation shell tick path.
             self.update_drawable_visibility(self.local_player_id)?;
             if self.should_skip_visual_updates_for_no_draw() {
@@ -71,14 +77,7 @@ impl GameClient {
             self.update_effects(visual_delta)?;
             apply_pending_script_display_state();
             self.update_display_only()?;
-            self.update_native_draw_particle_phase(
-                freeze_time,
-                NativeParticleFrames {
-                    logic_frame: TheGameLogic::get_frame(),
-                    client_frame: self.frame,
-                },
-                true,
-            )?;
+            self.update_native_draw_particle_phase(freeze_time, frames, true)?;
             // No draw_display — Main RenderPipeline is sole present path.
             self.draw_drawable_icon_ui();
             self.draw_presentation_selection_residual();
@@ -111,7 +110,7 @@ impl GameClient {
         self.update_audio()?;
 
         // C++ lines 660-700: shroud check per-drawable then updateDrawable()
-        self.update_drawables(visual_delta)?;
+        self.update_drawables(visual_delta, frames)?;
         if self.should_skip_visual_updates_for_no_draw() {
             self.rendered_object_count = 0;
             self.finish_frame_timing(current_time);
@@ -122,14 +121,7 @@ impl GameClient {
         self.update_effects(visual_delta)?;
         apply_pending_script_display_state();
         self.update_display_only()?;
-        self.update_native_draw_particle_phase(
-            freeze_time,
-            NativeParticleFrames {
-                logic_frame: TheGameLogic::get_frame(),
-                client_frame: self.frame,
-            },
-            false,
-        )?;
+        self.update_native_draw_particle_phase(freeze_time, frames, false)?;
 
         // W3DDisplay.cpp:1730-1835 — freeze/sync/updateViews/particles before DRAW GPU.
         crate::display::client_draw_schedule::run_dual_world_cpu_phases();
@@ -285,18 +277,30 @@ impl GameClient {
 
     /// Tick drawable client modules without GameLogic OBJECT_REGISTRY binding.
     /// Used when Main presentation snapshot owns unit visuals (default host path).
-    pub fn update_drawables_local(&mut self, delta_time: f32) -> GameClientResult<()> {
+    pub fn update_drawables_local(
+        &mut self,
+        delta_time: f32,
+        frames: NativeParticleFrames,
+    ) -> GameClientResult<()> {
+        if frames.client_frame != self.frame {
+            return Err(GameClientError::InvalidOperation(
+                "Drawable Client frame does not match receiving owner".into(),
+            ));
+        }
         // C++ Drawable.cpp:1219 — `TheGameClient->getFrame() % DRAWABLE_FRAMES_PER_FLASH`.
         // BasicDrawable::update consumes `flash_count` from `self.current_frame`;
         // leaving it at 0 makes `0 % 15 == 0` fire every tick.
-        let frame = self.frame;
-        self.tick_mapped_drawables(frame, delta_time)?;
+        self.tick_mapped_drawables(frames, delta_time)?;
         Ok(())
     }
 
     /// C++ `GameClient` drawable walk: stamp the client frame, `updateDrawable`,
     /// then `destroyDrawable` when the expiration date is reached this frame.
-    fn tick_mapped_drawables(&mut self, frame: u32, delta_time: f32) -> GameClientResult<()> {
+    fn tick_mapped_drawables(
+        &mut self,
+        frames: NativeParticleFrames,
+        delta_time: f32,
+    ) -> GameClientResult<()> {
         // This is the existing native manager boundary, borrowed once. Installed
         // CU/bone callbacks receive the receiver and never relock this parent.
         let expired = {
@@ -311,7 +315,7 @@ impl GameClient {
                 })?;
             let particles = guard.as_mut();
             self.tick_mapped_drawables_with_particles(
-                frame,
+                frames,
                 delta_time,
                 particles,
                 assets.as_ref().map(|bridge| bridge.asset_manager()),
@@ -327,7 +331,7 @@ impl GameClient {
 
     fn tick_mapped_drawables_with_particles(
         &mut self,
-        frame: u32,
+        frames: NativeParticleFrames,
         delta_time: f32,
         mut particles: Option<&mut crate::effects::particle_manager::ParticleSystemManager>,
         assets: Option<&ww3d_assets::AssetManager>,
@@ -342,7 +346,7 @@ impl GameClient {
                 .drawable_map
                 .get_mut(&id)
                 .expect("native Drawable roster references a live update receiver");
-            drawable.set_current_frame(frame);
+            drawable.set_current_frame(frames.client_frame);
             if let Some(basic) = drawable.as_any_mut().downcast_mut::<BasicDrawable>() {
                 basic
                     .update_native_client_modules(
@@ -351,11 +355,11 @@ impl GameClient {
                         assets,
                     )
                     .map_err(GameClientError::InvalidOperation)?;
-                basic.update_after_client_modules();
+                basic.update_after_client_modules(frames.logic_frame);
             } else {
-                drawable.update(delta_time);
+                drawable.update(delta_time, frames.logic_frame);
             }
-            if drawable.is_expired(frame) {
+            if drawable.is_expired(frames.logic_frame) {
                 expired.push(id);
             }
         }
@@ -1628,7 +1632,7 @@ impl GameClient {
 
         // Local drawable client modules only (no OBJECT_REGISTRY shroud bind).
         // Eva residual runs via update_post_draw_ui (no dual OS input ownership).
-        self.update_drawables_local(visual_delta)?;
+        self.update_drawables_local(visual_delta, particle_frames)?;
         if self.should_skip_visual_updates_for_no_draw() {
             self.rendered_object_count = 0;
             // Wave 876: Main owns frame pacing — no shell dual-sleep.
@@ -1680,11 +1684,20 @@ impl GameClient {
         }
     }
 
-    pub fn update_drawables(&mut self, delta_time: f32) -> GameClientResult<()> {
-        let frame = self.frame;
+    pub fn update_drawables(
+        &mut self,
+        delta_time: f32,
+        frames: NativeParticleFrames,
+    ) -> GameClientResult<()> {
+        if frames.client_frame != self.frame {
+            return Err(GameClientError::InvalidOperation(
+                "Drawable Client frame does not match receiving owner".into(),
+            ));
+        }
+        let frame = frames.client_frame;
         let local_player_index = self.local_player_id;
 
-        self.tick_mapped_drawables(frame, delta_time)?;
+        self.tick_mapped_drawables(frames, delta_time)?;
 
         // Host/presentation path: Wave 1020/1021 peels catalog shroud onto drawable_map
         // when dual-world registry is empty (PresentationFrame apply_* still primary).
@@ -1711,9 +1724,9 @@ impl GameClient {
             if let Some(drawable_arc) = obj.get_drawable() {
                 if let Ok(mut drawable_guard) = drawable_arc.write() {
                     drawable_guard.set_fully_obscured_by_shroud(fully_obscured);
-                    let _ = drawable_guard.update(delta_time, frame);
+                    let _ = drawable_guard.update(delta_time, frame, frames.logic_frame);
                     let expiration = drawable_guard.expiration_date();
-                    if expiration != 0 && frame >= expiration {
+                    if expiration != 0 && frames.logic_frame >= expiration {
                         expired_logic_drawables.push(drawable_guard.get_drawable_id());
                     }
                 }
