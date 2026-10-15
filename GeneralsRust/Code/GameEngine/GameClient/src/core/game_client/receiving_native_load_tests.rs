@@ -94,7 +94,12 @@ fn receiving_native_explicit_driver_always_advances_its_particle_owner() {
         .split("fn update_presentation_shell_with_particle_policy(")
         .next()
         .unwrap();
-    assert!(entry.contains("particle_frames, true)"));
+    assert!(
+        entry
+            .split_whitespace()
+            .collect::<String>()
+            .contains("particle_frames,true,&[])")
+    );
     assert!(!entry.contains("OBJECT_REGISTRY"));
     assert!(!include_str!("native_particle_draw.rs").contains("OBJECT_REGISTRY"));
     // Actual manager execution/dedup with explicit true is exercised by the

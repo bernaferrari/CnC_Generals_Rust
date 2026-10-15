@@ -1794,7 +1794,14 @@ impl CnCGameEngine {
             // silently skipping its C++ clear-frame boundary for one render.
             let presentation_time_frozen =
                 self.presentation_or_boot_time_frozen() || self.game_paused;
-            self.host_sync_presentation_direct_drawables(presentation_time_frozen);
+            match self.host_sync_presentation_direct_drawables(presentation_time_frozen) {
+                Ok(()) => {
+                    if let Err(error) = self.host_prepare_presentation_materials() {
+                        log::trace!("Initial Drawable material admission failed: {error}");
+                    }
+                }
+                Err(error) => log::trace!("Initial Drawable association failed: {error}"),
+            }
         }
         // Wave 844: stamp host sim residuals after match-start seed.
         self.host_refresh_match_sim_residuals_from_logic();
@@ -1871,9 +1878,12 @@ impl CnCGameEngine {
     /// status, and pose from one immutable presentation frame, so the first
     /// InGame W3D candidate can validate and write its clear-frame state.
     #[cfg(feature = "game_client")]
-    fn host_sync_presentation_direct_drawables(&mut self, presentation_time_frozen: bool) {
+    fn host_sync_presentation_direct_drawables(
+        &mut self,
+        presentation_time_frozen: bool,
+    ) -> Result<(), String> {
         let Some(pres) = self.last_presentation_frame.as_ref() else {
-            return;
+            return Ok(());
         };
         crate::game_logic::refresh_host_fx_object_poses_from_presentation(pres);
 
@@ -1991,7 +2001,10 @@ impl CnCGameEngine {
             })
             .collect::<Vec<_>>();
 
-        let (created, updated, pruned) = self.game_client.sync_presentation_drawables(sync_entries);
+        let (created, updated, pruned) = self
+            .game_client
+            .sync_presentation_drawables(sync_entries)
+            .map_err(|error| error.to_string())?;
         if created + updated + pruned > 0 {
             log::trace!(
                 "presentation drawable sync created={created} updated={updated} pruned={pruned}"
@@ -2076,6 +2089,22 @@ impl CnCGameEngine {
                 self.host_direct_visual_world_epoch,
             );
         }
+        Ok(())
+    }
+
+    /// Admit logic-origin material commands only after resolving this world's
+    /// current complete Drawable association. The pending command remains on
+    /// its host object until the receiving owner accepts the whole batch.
+    #[cfg(feature = "game_client")]
+    fn host_prepare_presentation_materials(
+        &mut self,
+    ) -> Result<Vec<game_client::core::game_client::NativeMaterialObservation>, String> {
+        super::presentation_materials::prepare(
+            &mut self.game_logic,
+            self.last_presentation_frame.as_deref(),
+            &mut self.game_client,
+            self.host_direct_visual_world_epoch,
+        )
     }
 
     /// Wave 590: boot/render residual — freeze a PresentationFrame if none installed.
@@ -2509,7 +2538,17 @@ impl CnCGameEngine {
         } else {
             self.snow_anim2d_dt_for_present()
         };
-        self.host_sync_presentation_direct_drawables(presentation_time_frozen);
+        if let Err(error) = self.host_sync_presentation_direct_drawables(presentation_time_frozen) {
+            log::trace!("Drawable association failed: {error}");
+            return;
+        }
+        let material_observations = match self.host_prepare_presentation_materials() {
+            Ok(observations) => observations,
+            Err(error) => {
+                log::trace!("Drawable material admission failed: {error}");
+                return;
+            }
+        };
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             // Presentation cinematic letterbox residual → client display.
             let was_letterbox = self.game_client.letterbox_overlay_enabled();
@@ -2774,12 +2813,13 @@ impl CnCGameEngine {
         // Boot/loading without freeze still uses the same shell tick (empty registry early-out).
         if let Err(e) = self
             .game_client
-            .update_presentation_shell_with_particle_frames(
+            .update_presentation_shell_with_material_frames(
                 visual_delta,
                 game_client::core::game_client::NativeParticleFrames {
                     logic_frame: self.game_logic.frame,
                     client_frame: self.game_client.get_frame(),
                 },
+                &material_observations,
             )
         {
             log::trace!("GameClient presentation shell update failed (non-fatal): {e}");

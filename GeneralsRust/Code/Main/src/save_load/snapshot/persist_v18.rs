@@ -556,7 +556,7 @@ fn capture_persist_v18_impl(
         let mut stealth_opacity = object.camo_friendly_opacity;
         let mut effective_stealth_opacity = object.camo_friendly_opacity;
         let mut instance_scale = object.drawable_instance_scale;
-        let mut heat_vision_opacity = object.camo_heat_vision_opacity;
+        let mut heat_vision_opacity = object.pending_second_material_pass().unwrap_or(0.0);
         let mut tint_status = object.drawable_tint_status;
         let mut prev_tint_status = object.drawable_prev_tint_status;
         let mut hidden = object.drawable_hidden;
@@ -623,6 +623,12 @@ fn capture_persist_v18_impl(
                     .collect();
             }
         }
+        // A direct logical write waiting for admission is newer than the
+        // receiving Drawable snapshot, including save-before-first-Draw.
+        if let Some(pending) = object.pending_second_material_pass() {
+            heat_vision_opacity = pending;
+        }
+
         let has_visuals = object.selection_flash_remaining != 0
             || object.terrain_decal_fade_rate != 0.0
             || object.terrain_decal_opacity != 0.0
@@ -911,7 +917,7 @@ pub fn restore_persist_v18(
         object.drawable_loco_accel_roll = entry.loco_accel_roll;
         object.drawable_loco_accel_roll_rate = entry.loco_accel_roll_rate;
         object.camo_friendly_opacity = entry.stealth_opacity;
-        object.camo_heat_vision_opacity = entry.heat_vision_opacity;
+        object.queue_second_material_pass(entry.heat_vision_opacity);
         if entry.hidden_by_stealth {
             object.camo_stealth_look = 5;
         }
@@ -1931,6 +1937,110 @@ mod tests {
         assert_eq!(
             capture_persist_v18(&candidate).drawable_xfer[0].tint_envelope,
             saved.drawable_xfer[0].tint_envelope
+        );
+    }
+
+    #[cfg(feature = "game_client")]
+    #[test]
+    fn pending_material_save_precedes_native_owner_and_restores_once() {
+        use crate::game_logic::{Team, ThingTemplate};
+        use game_client::core::game_client::{DrawableId, GameClient};
+        use game_client::drawable::BasicDrawable;
+        fn world() -> (GameLogic, ObjectId) {
+            let mut logic = GameLogic::new();
+            logic.templates.insert(
+                "PendingMaterial".into(),
+                ThingTemplate::new("PendingMaterial"),
+            );
+            let id = logic
+                .create_object("PendingMaterial", Team::USA, glam::Vec3::ZERO)
+                .unwrap();
+            (logic, id)
+        }
+        fn client(object_id: ObjectId, opacity: f32) -> GameClient {
+            let mut client = GameClient::new().unwrap();
+            let mut drawable = BasicDrawable::new(DrawableId(0));
+            drawable.set_second_material_pass_opacity(opacity);
+            let id = client.register_drawable(Box::new(drawable)).unwrap();
+            client.bind_drawable_to_object(id, object_id.0).unwrap();
+            client
+        }
+        let (mut playing, id) = world();
+        let live_client = client(id, 0.375);
+        assert_eq!(
+            capture_persist_v18_with_client(&playing, &live_client).drawable_xfer[0]
+                .heat_vision_opacity,
+            0.375
+        );
+        playing
+            .host_object_mut(id)
+            .unwrap()
+            .queue_second_material_pass(0.625);
+        let saved = capture_persist_v18_with_client(&playing, &live_client);
+        assert_eq!(
+            saved.drawable_xfer[0].heat_vision_opacity, 0.625,
+            "unadmitted direct write is newer than native residual"
+        );
+        assert_eq!(
+            playing
+                .host_object(id)
+                .unwrap()
+                .pending_second_material_pass(),
+            Some(0.625),
+            "capture must not acknowledge the command"
+        );
+        assert_eq!(
+            live_client
+                .capture_drawable_xfer_visuals(id.0)
+                .unwrap()
+                .heat_vision_opacity,
+            0.375,
+            "capture must not mutate native owner"
+        );
+        let bytes = serde_json::to_vec(&saved).unwrap();
+        let decoded: WorldPersistV18 = serde_json::from_slice(&bytes).unwrap();
+        let (mut candidate, candidate_id) = world();
+        assert_eq!(id, candidate_id);
+        restore_persist_v18(&decoded, &mut candidate).unwrap();
+        assert_eq!(
+            candidate
+                .host_object(id)
+                .unwrap()
+                .pending_second_material_pass(),
+            Some(0.625)
+        );
+        let mut restored_client = client(id, 0.0);
+        apply_drawable_xfer_to_client(&decoded, &candidate, &mut restored_client);
+        assert_eq!(
+            restored_client
+                .capture_drawable_xfer_visuals(id.0)
+                .unwrap()
+                .heat_vision_opacity,
+            0.625
+        );
+        candidate
+            .host_object_mut(id)
+            .unwrap()
+            .acknowledge_second_material_pass(0.625);
+        assert_eq!(
+            candidate
+                .host_object(id)
+                .unwrap()
+                .pending_second_material_pass(),
+            None
+        );
+        assert_eq!(
+            capture_persist_v18_with_client(&candidate, &restored_client).drawable_xfer[0]
+                .heat_vision_opacity,
+            0.625,
+            "acknowledged restore keeps canonical saved residual"
+        );
+        assert_eq!(
+            playing
+                .host_object(id)
+                .unwrap()
+                .pending_second_material_pass(),
+            Some(0.625)
         );
     }
 

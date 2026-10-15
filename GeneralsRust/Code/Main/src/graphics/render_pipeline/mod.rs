@@ -743,6 +743,8 @@ pub struct RenderPipeline {
     /// Frozen specialized module values bound to this exact immutable frame.
     #[cfg(feature = "game_client")]
     frozen_specialized_draw: Option<specialized_draw_inputs::FrozenSpecializedDrawFrame>,
+    #[cfg(feature = "game_client")]
+    frozen_material_draw: Option<material_draw_inputs::FrozenMaterialDrawFrame>,
     /// Immutable direct-host shroud visibility captured from GameClient for
     /// this presentation frame. It is replaced, never merged, at every Main
     /// render boundary so object IDs cannot carry across frame/world changes.
@@ -915,6 +917,8 @@ pub(super) enum RenderModelLoadResult {
 mod forward_materials;
 mod forward_render;
 mod hlod_aggregate_render;
+#[cfg(feature = "game_client")]
+mod material_draw_inputs;
 mod pipeline_collect;
 mod pipeline_debug;
 mod pipeline_drawable_state;

@@ -248,6 +248,7 @@ impl Drawable for BasicDrawable {
     }
 
     fn render(&mut self, view_matrix: &Matrix4, projection_matrix: &Matrix4) {
+        self.advance_core_material_draw();
         if !self.visible
             || self.hidden
             || self.hidden_by_stealth

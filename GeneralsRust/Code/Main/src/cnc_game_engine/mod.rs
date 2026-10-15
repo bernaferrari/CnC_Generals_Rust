@@ -110,6 +110,8 @@ mod minimap_bridge;
 mod mouse;
 pub(crate) mod object_ini_boot;
 mod options_bridge;
+#[cfg(feature = "game_client")]
+mod presentation_materials;
 mod presentation_terrain_cache;
 #[cfg(feature = "game_client")]
 mod quit_menu_bridge;

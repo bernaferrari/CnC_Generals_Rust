@@ -1372,7 +1372,7 @@ impl GameWorldShadow {
         e.stealth_breaks_on_damage = obj.stealth_breaks_on_damage;
         e.detection_expires_frame = obj.detection_expires_frame;
         e.camo_opacity_pulse_phase = obj.camo_opacity_pulse_phase;
-        e.camo_heat_vision_opacity = obj.camo_heat_vision_opacity;
+        e.camo_heat_vision_opacity = obj.pending_second_material_pass().unwrap_or(0.0);
         e.camo_net_sub_object_shown = obj.camo_net_sub_object_shown;
         e.camo_net_sub_object_observer_visible = obj.camo_net_sub_object_observer_visible;
         e.weapon_bonus_enthusiastic = obj.weapon_bonus_enthusiastic;

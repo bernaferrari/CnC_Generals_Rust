@@ -1731,6 +1731,11 @@ impl CnCGameEngine {
                 &self.game_client,
                 self.host_direct_visual_world_epoch,
             );
+            self.render_pipeline.capture_material_draw_inputs(
+                frame,
+                &self.game_client,
+                self.host_direct_visual_world_epoch,
+            );
         }
         {
             let (w, h) = super::types::render_surface_extent(&self.window);

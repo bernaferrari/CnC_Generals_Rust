@@ -219,6 +219,17 @@ impl RenderPipeline {
             bundle.apply_to_inputs(frame, &mut unit_inputs);
         }
 
+        #[cfg(feature = "game_client")]
+        if let (Some(bundle), Some(frame)) =
+            (self.frozen_material_draw.as_ref(), presentation.as_ref())
+        {
+            bundle.apply_to_inputs(
+                frame,
+                &self.presentation_direct_shroud_states,
+                &mut unit_inputs,
+            );
+        }
+
         trace!(
             "collect_render_items processing {} units (presentation_unit_pass={})",
             unit_inputs.len(),

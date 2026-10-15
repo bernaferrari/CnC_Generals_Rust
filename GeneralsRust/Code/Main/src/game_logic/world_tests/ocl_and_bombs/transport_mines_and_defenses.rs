@@ -2443,7 +2443,7 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         let t = game_logic.host_object_mut(tunnel_id).unwrap();
         t.set_status_stealthed(true);
         t.set_status_detected(true);
-        t.camo_heat_vision_opacity = 0.0;
+        t.queue_second_material_pass(0.0);
         t.camo_stealth_look = 0;
     }
     game_logic.update_stealth_and_detection();
@@ -2455,10 +2455,10 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
             HostCamoStealthLook::VisibleDetected,
             "enemy-detected residual StealthLook must be VISIBLE_DETECTED"
         );
-        assert!(
-            (t.camo_heat_vision_opacity - 1.0).abs() < 0.01,
-            "heat-vision second material pass residual opacity must be 1.0, got {}",
-            t.camo_heat_vision_opacity
+        assert_eq!(
+            t.pending_second_material_pass(),
+            Some(1.0),
+            "changed detected look queues its material side effect at logic time"
         );
         assert_eq!(
             camo_netting_stealth_look(true, true, false),

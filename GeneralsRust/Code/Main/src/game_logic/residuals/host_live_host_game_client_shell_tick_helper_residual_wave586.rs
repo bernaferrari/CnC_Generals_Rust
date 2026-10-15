@@ -151,7 +151,7 @@ pub fn honesty_host_game_client_shell_tick_helper_source_markers_residual_wave58
     let call_ok = eng.contains("self.host_tick_game_client_presentation_shell()");
     // Only the helper should invoke presentation shell on the production path.
     let shell_calls = eng
-        .matches("update_presentation_shell_with_particle_frames(")
+        .matches("update_presentation_shell_with_material_frames(")
         .count();
     let ok =
         body_ok && call_ok && docs_ok && shell_calls == 1 && !eng.contains("playable_claim = true");
@@ -188,7 +188,7 @@ pub fn simulate_host_game_client_shell_tick_helper_collect_source() -> bool {
 pub fn simulate_host_game_client_shell_tick_helper_dispatch_source() -> bool {
     let eng = eng_source();
     let ok = eng.contains("self.host_tick_game_client_presentation_shell()")
-        && eng.contains("update_presentation_shell_with_particle_frames(")
+        && eng.contains("update_presentation_shell_with_material_frames(")
         && eng.contains("logic_frame: self.game_logic.frame")
         && eng.contains("client_frame: self.game_client.get_frame()")
         && eng.contains("update_input()")

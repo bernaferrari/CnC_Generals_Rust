@@ -2087,7 +2087,7 @@ mod tests {
             let o = logic.host_object_mut(id).expect("kell obj");
             o.status.stealthed = true;
             o.status.detected = true;
-            o.camo_heat_vision_opacity = 1.0;
+            o.queue_second_material_pass(1.0);
             o.camo_stealth_look = HostCamoStealthLook::VisibleDetected as u8;
         }
         let input = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0)
@@ -2096,9 +2096,17 @@ mod tests {
             .find(|u| u.id == id)
             .expect("detected input");
         assert!(!input.shadows_enabled);
-        assert!(
-            (input.second_material_pass_opacity - 1.0).abs() < 1e-5,
-            "detected stealthed unit must use heat-vision second pass"
+        assert_eq!(
+            input.second_material_pass_opacity, 0.0,
+            "raw frozen inputs await canonical native material completion"
+        );
+        assert_eq!(
+            logic
+                .host_object(id)
+                .unwrap()
+                .pending_second_material_pass(),
+            Some(1.0),
+            "building render inputs must not consume the direct material command"
         );
     }
 

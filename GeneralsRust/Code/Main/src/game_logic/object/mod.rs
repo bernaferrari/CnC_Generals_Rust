@@ -2910,9 +2910,15 @@ pub struct Object {
     /// Fail-closed: not full W3D heat-vision second material pass GPU.
     #[serde(default)]
     pub camo_stealth_look: u8,
-    /// Heat-vision second material pass opacity residual (0 or 1 host residual).
-    #[serde(default)]
-    pub camo_heat_vision_opacity: f32,
+    /// Pending direct opacity write, admitted once by the receiving Drawable.
+    /// The historical JSON member remains a scalar for old saves.
+    #[serde(
+        default,
+        rename = "camo_heat_vision_opacity",
+        serialize_with = "material_commands::serialize_pending",
+        deserialize_with = "material_commands::deserialize_pending"
+    )]
+    pub(crate) pending_second_material_pass: Option<f32>,
     /// CamoNetting sub-object net mesh residual shown (Upgrade_GLACamoNetting applied).
     /// Fail-closed: not full W3D SubObjectsUpgrade / mesh GPU draw.
     #[serde(default)]
@@ -3272,6 +3278,7 @@ mod physics_motion;
 pub(in crate::game_logic) use physics_damage::{PhysicsDamageServices, PhysicsDamageSources};
 mod body_visuals;
 pub(crate) use body_visuals::MaxHealthChange;
+mod material_commands;
 mod pose;
 mod record;
 mod rtb;

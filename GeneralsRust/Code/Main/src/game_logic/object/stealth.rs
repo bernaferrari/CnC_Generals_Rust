@@ -497,27 +497,7 @@ impl Object {
         // C++ StealthDetectorUpdate.cpp:284-290 excludes exactly KINDOF_MINE.
         // An excluded scan leaves an existing material residual untouched.
         if !self.is_kind_of(KindOf::Mine) {
-            self.camo_heat_vision_opacity = 1.0;
-        }
-    }
-
-    /// C++ `Drawable::draw` (`Drawable.cpp:2615-2622`) heat-vision overlay fade.
-    ///
-    /// Called once per logic frame *before* detector pulse / `setStealthLook` so a
-    /// scan this frame still leaves residual 1.0 (C++ logic writes 1.0; draw fades
-    /// the next client tick). Frenzy tint skips fade.
-    pub fn fade_heat_vision_second_pass(&mut self) {
-        // C++ `TINT_STATUS_FRENZY` (`Drawable.h`).
-        const TINT_STATUS_FRENZY_BIT: u32 = 0x0000_0010;
-        if self.drawable_tint_status & TINT_STATUS_FRENZY_BIT != 0 {
-            return;
-        }
-        if !self.is_alive() {
-            self.camo_heat_vision_opacity = 0.0;
-        } else if self.camo_heat_vision_opacity > VERY_TRANSPARENT_MATERIAL_PASS_OPACITY {
-            self.camo_heat_vision_opacity *= MATERIAL_PASS_OPACITY_FADE_SCALAR;
-        } else {
-            self.camo_heat_vision_opacity = 0.0;
+            self.queue_second_material_pass(1.0);
         }
     }
 
@@ -933,7 +913,7 @@ pub const MATERIAL_PASS_OPACITY_FADE_SCALAR: f32 = 0.8;
 ///
 /// Detected stealth (enemy or friendly) is 1.0 except mines. Destalth HintDetectable
 /// (`IS_FIRING_WEAPON` / `IS_USING_ABILITY`) is 1.0 for the local owner.
-/// Per-frame drawn opacity is `camo_heat_vision_opacity` after `Drawable::draw`
+/// Per-frame drawn opacity belongs to the receiving Drawable after `Drawable::draw`
 /// multiplies by `MATERIAL_PASS_OPACITY_FADE_SCALAR` (0.8).
 pub fn stealth_second_material_pass_opacity(
     stealthed: bool,
@@ -1677,14 +1657,16 @@ mod detector_material_tests {
         object.thing.template.kind_of.insert(KindOf::DemoTrap);
         object.apply_detected_heat_vision_second_pass();
         assert_eq!(
-            object.camo_heat_vision_opacity, 1.0,
+            object.pending_second_material_pass(),
+            Some(1.0),
             "demo traps without MINE are eligible"
         );
         object.thing.template.kind_of.insert(KindOf::Mine);
-        object.camo_heat_vision_opacity = 0.375;
+        object.queue_second_material_pass(0.375);
         object.apply_detected_heat_vision_second_pass();
         assert_eq!(
-            object.camo_heat_vision_opacity, 0.375,
+            object.pending_second_material_pass(),
+            Some(0.375),
             "excluded scans are inert"
         );
     }

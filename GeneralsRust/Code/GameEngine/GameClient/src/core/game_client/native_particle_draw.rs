@@ -73,7 +73,33 @@ impl GameClient {
         frames: NativeParticleFrames,
         advance_particles: bool,
     ) -> GameClientResult<()> {
+        self.update_native_draw_particle_phase_with_materials(
+            frozen,
+            frames,
+            advance_particles,
+            &[],
+        )
+    }
+
+    fn update_native_draw_particle_phase_with_materials(
+        &mut self,
+        frozen: bool,
+        frames: NativeParticleFrames,
+        advance_particles: bool,
+        materials: &[NativeMaterialObservation],
+    ) -> GameClientResult<()> {
+        if frames.client_frame != self.frame {
+            return Err(GameClientError::InvalidOperation(
+                "native material Client clock mismatch".into(),
+            ));
+        }
         let draw_models = self.admit_native_draw_frame(frozen);
+        // Native Main owns this CPU Draw plus the particle update. The
+        // retained Core driver instead performs its actual Drawable::render
+        // during draw_display below; preparation must not advance it twice.
+        if draw_models && advance_particles {
+            self.advance_native_material_draw(materials)?;
+        }
         let public_bones: Vec<String> = game_engine::common::global_data::read()
             .standard_public_bones
             .iter()

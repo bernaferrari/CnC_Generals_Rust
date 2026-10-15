@@ -24,15 +24,15 @@ mod specialized_draw_owner {
         let id = 910_031;
         let mut first = GameClient::new().unwrap();
         let mut entry = tank_entry(id, [0.0; 3]);
-        first.sync_presentation_drawables([entry.clone()]);
+        first.sync_presentation_drawables([entry.clone()]).unwrap();
         entry.position = [10.0, 0.0, 0.0];
-        first.sync_presentation_drawables([entry.clone()]);
+        first.sync_presentation_drawables([entry.clone()]).unwrap();
         let expected = snapshot(&first, id).unwrap().tread_uv;
         assert!((expected - 0.95).abs() < 0.00001);
 
         let mut second = GameClient::new().unwrap();
         let other = tank_entry(id, [100.0, 0.0, 0.0]);
-        second.sync_presentation_drawables([other.clone()]);
+        second.sync_presentation_drawables([other.clone()]).unwrap();
         assert_eq!(snapshot(&first, id).unwrap().tread_uv, expected);
         assert_eq!(snapshot(&second, id).unwrap().tread_uv, 0.0);
         // Neither lookup order nor projection onto different tread leaves may tick state.
@@ -42,9 +42,9 @@ mod specialized_draw_owner {
             assert_eq!(right.tread_uv_for_mesh("A.TREADSL"), Some([0.0, 0.0]));
             assert_eq!(left.tread_uv_for_mesh("A.TREADSL"), Some([expected, 0.0]));
         }
-        second.sync_presentation_drawables([other]);
+        second.sync_presentation_drawables([other]).unwrap();
         assert_eq!(snapshot(&first, id).unwrap().tread_uv, expected);
-        first.sync_presentation_drawables([entry]);
+        first.sync_presentation_drawables([entry]).unwrap();
         assert_eq!(snapshot(&first, id).unwrap().tread_uv, expected);
     }
 
@@ -52,7 +52,9 @@ mod specialized_draw_owner {
     fn constructing_client_does_not_inherit_another_clients_snapshot() {
         let id = 910_032;
         let mut first = GameClient::new().unwrap();
-        first.sync_presentation_drawables([tank_entry(id, [0.0; 3])]);
+        first
+            .sync_presentation_drawables([tank_entry(id, [0.0; 3])])
+            .unwrap();
         assert!(snapshot(&first, id).is_some());
         let second = GameClient::new().unwrap();
         assert!(snapshot(&second, id).is_none());
@@ -63,16 +65,24 @@ mod specialized_draw_owner {
     fn destroy_and_recreate_same_id_has_no_predecessor_pose() {
         let id = 910_033;
         let mut client = GameClient::new().unwrap();
-        client.sync_presentation_drawables([tank_entry(id, [0.0; 3])]);
-        client.sync_presentation_drawables([tank_entry(id, [10.0, 0.0, 0.0])]);
+        client
+            .sync_presentation_drawables([tank_entry(id, [0.0; 3])])
+            .unwrap();
+        client
+            .sync_presentation_drawables([tank_entry(id, [10.0, 0.0, 0.0])])
+            .unwrap();
         assert!((snapshot(&client, id).unwrap().tread_uv - 0.95).abs() < 0.00001);
         let first_binding = client
             .presentation_direct_drawable_state(1, id)
             .unwrap()
             .binding_key;
-        client.sync_presentation_drawables(std::iter::empty::<PresentationDrawableSync>());
+        client
+            .sync_presentation_drawables(std::iter::empty::<PresentationDrawableSync>())
+            .unwrap();
         assert!(snapshot(&client, id).is_none());
-        client.sync_presentation_drawables([tank_entry(id, [100.0, 0.0, 0.0])]);
+        client
+            .sync_presentation_drawables([tank_entry(id, [100.0, 0.0, 0.0])])
+            .unwrap();
         let replacement = client
             .presentation_direct_drawable_state(1, id)
             .unwrap()
@@ -85,8 +95,12 @@ mod specialized_draw_owner {
     fn attached_module_draw_does_not_overwrite_advanced_tread_state() {
         let id = 910_034;
         let mut client = GameClient::new().unwrap();
-        client.sync_presentation_drawables([tank_entry(id, [0.0; 3])]);
-        client.sync_presentation_drawables([tank_entry(id, [10.0, 0.0, 0.0])]);
+        client
+            .sync_presentation_drawables([tank_entry(id, [0.0; 3])])
+            .unwrap();
+        client
+            .sync_presentation_drawables([tank_entry(id, [10.0, 0.0, 0.0])])
+            .unwrap();
         let expected = snapshot(&client, id).unwrap().tread_uv;
         let drawable_id = client
             .presentation_direct_drawable_state(1, id)
@@ -172,12 +186,12 @@ mod specialized_draw_projection {
             0.0,
         );
         entry.draw_module_names = Arc::new(vec!["W3DTankDraw".into()]);
-        client.sync_presentation_drawables([entry.clone()]);
+        client.sync_presentation_drawables([entry.clone()]).unwrap();
         let old = client.presentation_specialized_draw_snapshot(id).unwrap();
         let module_name_pointer = old.module_name.as_ptr();
         let model_name_pointer = old.model_name.as_ptr();
         entry.position = [10.0, 0.0, 0.0];
-        client.sync_presentation_drawables([entry]);
+        client.sync_presentation_drawables([entry]).unwrap();
         let current = client.presentation_specialized_draw_snapshot(id).unwrap();
         assert_eq!(current.module_name.as_ptr(), module_name_pointer);
         assert_eq!(current.model_name.as_ptr(), model_name_pointer);
@@ -198,7 +212,7 @@ fn specialized_draw_owner_snapshot_iterator_rejects_foreign_epoch() {
         0.0,
     );
     entry.draw_module_names = Arc::new(vec!["W3DTankDraw".into()]);
-    client.sync_presentation_drawables([entry]);
+    client.sync_presentation_drawables([entry]).unwrap();
     assert_eq!(client.presentation_specialized_draw_snapshots(1).count(), 0);
     let mut owned = client.presentation_specialized_draw_snapshots(2);
     let (id, snapshot) = owned.next().unwrap();

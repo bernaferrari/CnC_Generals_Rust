@@ -327,7 +327,7 @@ mod tests {
         );
         first.draw_module_names = std::sync::Arc::new(vec!["W3DTankDraw".to_string()]);
         assert_eq!(
-            client.sync_presentation_drawables([first.clone()]),
+            client.sync_presentation_drawables([first.clone()]).unwrap(),
             (1, 0, 0)
         );
         let drawable_id = client
@@ -349,7 +349,10 @@ mod tests {
         );
 
         first.position = [10.0, 0.0, 0.0];
-        assert_eq!(client.sync_presentation_drawables([first]), (0, 1, 0));
+        assert_eq!(
+            client.sync_presentation_drawables([first]).unwrap(),
+            (0, 1, 0)
+        );
         let snap = client
             .presentation_specialized_draw_snapshot(501)
             .expect("tank residual");
@@ -379,7 +382,10 @@ mod tests {
             0.0,
         );
         entry.draw_module_names = std::sync::Arc::new(vec!["W3DLaserDraw".to_string()]);
-        assert_eq!(client.sync_presentation_drawables([entry]), (1, 0, 0));
+        assert_eq!(
+            client.sync_presentation_drawables([entry]).unwrap(),
+            (1, 0, 0)
+        );
         let snap = client
             .presentation_specialized_draw_snapshot(777)
             .expect("laser residual");
@@ -405,12 +411,12 @@ mod tests {
         );
         entry.draw_module_names = std::sync::Arc::new(vec!["W3DDebrisDraw".to_string()]);
         assert_eq!(
-            client.sync_presentation_drawables([entry.clone()]),
+            client.sync_presentation_drawables([entry.clone()]).unwrap(),
             (1, 0, 0)
         );
         for frame in 0..40 {
             entry.position = [frame as f32 * 0.1, 0.0, 8.0];
-            let _ = client.sync_presentation_drawables([entry.clone()]);
+            let _ = client.sync_presentation_drawables([entry.clone()]).unwrap();
         }
         let snap = client
             .presentation_specialized_draw_snapshot(808)
@@ -935,7 +941,7 @@ mod tests {
         assert_eq!(client.get_drawable_for_object(99), Some(second_id));
     }
 
-    fn presentation_drawable_sync_for_test(
+    pub(super) fn presentation_drawable_sync_for_test(
         object_id: u32,
         host_epoch: u64,
         visual_template_name: &str,
@@ -1008,7 +1014,7 @@ mod tests {
         // `destroyed` is gameplay state, not direct visual residency.  An
         // active slow-death/rubble visual remains bound while resident.
         assert_eq!(
-            client.sync_presentation_drawables([first.clone()]),
+            client.sync_presentation_drawables([first.clone()]).unwrap(),
             (1, 0, 0)
         );
         let initial = client
@@ -1036,7 +1042,7 @@ mod tests {
         // Exact same resident visual keeps its full binding key and therefore
         // retains C++ volatile direct shroud history.
         assert_eq!(
-            client.sync_presentation_drawables([first.clone()]),
+            client.sync_presentation_drawables([first.clone()]).unwrap(),
             (0, 1, 0)
         );
         assert_eq!(
@@ -1063,7 +1069,7 @@ mod tests {
             "same-owner rebind must retain volatile shroud state"
         );
         assert_eq!(
-            client.sync_presentation_drawables([first.clone()]),
+            client.sync_presentation_drawables([first.clone()]).unwrap(),
             (0, 1, 0)
         );
 
@@ -1077,7 +1083,7 @@ mod tests {
             0.4,
         );
         assert_eq!(
-            client.sync_presentation_drawables([replacement]),
+            client.sync_presentation_drawables([replacement]).unwrap(),
             (1, 0, 0),
             "a visual disguise/template replacement recreates the Drawable"
         );
@@ -1131,7 +1137,10 @@ mod tests {
             [0.0, 0.0, 0.0],
             0.0,
         );
-        assert_eq!(client.sync_presentation_drawables([entry]), (1, 0, 0));
+        assert_eq!(
+            client.sync_presentation_drawables([entry]).unwrap(),
+            (1, 0, 0)
+        );
         let initial = client
             .presentation_direct_drawable_state(host_epoch, object_id)
             .expect("resident direct visual gets a binding key");
@@ -1227,7 +1236,10 @@ mod tests {
             [0.0, 0.0, 0.0],
             0.0,
         );
-        assert_eq!(client.sync_presentation_drawables([entry]), (1, 0, 0));
+        assert_eq!(
+            client.sync_presentation_drawables([entry]).unwrap(),
+            (1, 0, 0)
+        );
         let binding = client
             .presentation_direct_drawable_state(host_epoch, object_id)
             .expect("resident direct visual gets a binding key")
@@ -1296,7 +1308,10 @@ mod tests {
             [0.0, 0.0, 0.0],
             0.0,
         );
-        assert_eq!(client.sync_presentation_drawables([entry]), (1, 0, 0));
+        assert_eq!(
+            client.sync_presentation_drawables([entry]).unwrap(),
+            (1, 0, 0)
+        );
         let binding = client
             .presentation_direct_drawable_state(host_epoch, object_id)
             .expect("resident direct visual gets a binding key")
@@ -1365,7 +1380,7 @@ mod tests {
         entry.effectively_stealthed = true;
         entry.scene_hidden_by_stealth = false;
         assert_eq!(
-            client.sync_presentation_drawables([entry.clone()]),
+            client.sync_presentation_drawables([entry.clone()]).unwrap(),
             (1, 0, 0)
         );
         let binding = client
@@ -1394,7 +1409,10 @@ mod tests {
 
         // An undetected non-allied viewer gets C++ `StealthLook::Invisible`.
         entry.scene_hidden_by_stealth = true;
-        assert_eq!(client.sync_presentation_drawables([entry]), (0, 1, 0));
+        assert_eq!(
+            client.sync_presentation_drawables([entry]).unwrap(),
+            (0, 1, 0)
+        );
         assert!(
             client
                 .presentation_direct_drawable_state(host_epoch, object_id)
@@ -1432,7 +1450,10 @@ mod tests {
             [0.0, 0.0, 0.0],
             0.0,
         );
-        assert_eq!(client.sync_presentation_drawables([resident]), (1, 0, 0));
+        assert_eq!(
+            client.sync_presentation_drawables([resident]).unwrap(),
+            (1, 0, 0)
+        );
         let initial = client
             .presentation_direct_drawable_state(first_epoch, object_id)
             .expect("initial binding");
@@ -1447,7 +1468,10 @@ mod tests {
             [0.0, 0.0, 0.0],
             0.0,
         );
-        assert_eq!(client.sync_presentation_drawables([nonresident]), (0, 0, 1));
+        assert_eq!(
+            client.sync_presentation_drawables([nonresident]).unwrap(),
+            (0, 0, 1)
+        );
         assert_eq!(
             client.presentation_direct_drawable_state(first_epoch, object_id),
             None
@@ -1463,7 +1487,10 @@ mod tests {
             [0.0, 0.0, 0.0],
             0.0,
         );
-        assert_eq!(client.sync_presentation_drawables([replacement]), (1, 0, 0));
+        assert_eq!(
+            client.sync_presentation_drawables([replacement]).unwrap(),
+            (1, 0, 0)
+        );
         let replacement = client
             .presentation_direct_drawable_state(second_epoch, object_id)
             .expect("new host epoch binding");
@@ -1488,7 +1515,10 @@ mod tests {
             [0.0, 0.0, 0.0],
             0.0,
         );
-        assert_eq!(client.sync_presentation_drawables([after_reset]), (1, 0, 0));
+        assert_eq!(
+            client.sync_presentation_drawables([after_reset]).unwrap(),
+            (1, 0, 0)
+        );
         let after_reset = client
             .presentation_direct_drawable_state(third_epoch, object_id)
             .expect("world replacement must reconstruct a fresh visual binding");
@@ -1532,12 +1562,14 @@ mod tests {
         let first_yaw = 0.61;
 
         assert_eq!(
-            client.ensure_presentation_drawables([(
-                object_id,
-                "PresentationPoseParityTank".to_string(),
-                first_position,
-                first_yaw,
-            )]),
+            client
+                .ensure_presentation_drawables([(
+                    object_id,
+                    "PresentationPoseParityTank".to_string(),
+                    first_position,
+                    first_yaw,
+                )])
+                .unwrap(),
             1
         );
         // The legacy convenience helper deliberately uses epoch zero and may
@@ -2631,6 +2663,139 @@ mod tests {
         assert!(
             client.find_drawable_by_id(DrawableId(90_002)).is_none(),
             "expired drawable is destroyed on that Logic frame despite a different Client clock"
+        );
+    }
+    #[test]
+    fn presentation_material_replacement_copies_only_same_world_owner() {
+        let mut client = GameClient::new().unwrap();
+        let object_id = 701;
+        let first =
+            presentation_drawable_sync_for_test(object_id, 17, "VisualA", true, false, [0.; 3], 0.);
+        client.sync_presentation_drawables([first.clone()]).unwrap();
+        let old_key = client
+            .presentation_direct_drawable_state(17, object_id)
+            .unwrap()
+            .binding_key;
+        client
+            .apply_presentation_material_command(old_key, 0.73)
+            .unwrap();
+        let mut replacement = first.clone();
+        replacement.visual_template_name = "VisualB".into();
+        assert_eq!(
+            client
+                .sync_presentation_drawables([replacement.clone()])
+                .unwrap(),
+            (1, 0, 0)
+        );
+        let replacement_key = client
+            .presentation_direct_drawable_state(17, object_id)
+            .unwrap()
+            .binding_key;
+        assert_ne!(replacement_key, old_key);
+        assert_eq!(
+            client.capture_presentation_material_opacities(),
+            [(replacement_key, 0.73)]
+        );
+        assert!(
+            client
+                .apply_presentation_material_command(old_key, 0.12)
+                .is_err()
+        );
+        assert_eq!(
+            client.capture_presentation_material_opacities(),
+            [(replacement_key, 0.73)]
+        );
+        assert_eq!(
+            client
+                .sync_presentation_drawables([replacement.clone()])
+                .unwrap(),
+            (0, 1, 0)
+        );
+        assert_eq!(
+            client.capture_presentation_material_opacities(),
+            [(replacement_key, 0.73)]
+        );
+        replacement.host_epoch = 18;
+        client.sync_presentation_drawables([replacement]).unwrap();
+        let fresh_key = client
+            .presentation_direct_drawable_state(18, object_id)
+            .unwrap()
+            .binding_key;
+        assert_ne!(fresh_key, replacement_key);
+        assert_eq!(
+            client.capture_presentation_material_opacities(),
+            [(fresh_key, 0.)]
+        );
+        assert!(
+            client
+                .apply_presentation_material_command(replacement_key, 0.4)
+                .is_err()
+        );
+        assert_eq!(
+            client.capture_presentation_material_opacities(),
+            [(fresh_key, 0.)]
+        );
+    }
+
+    #[test]
+    fn presentation_sync_retains_installed_identity_when_retirement_fails() {
+        let mut client = GameClient::new().unwrap();
+        let object_id = 702;
+        let first =
+            presentation_drawable_sync_for_test(object_id, 19, "VisualA", true, false, [0.; 3], 0.);
+        client.sync_presentation_drawables([first.clone()]).unwrap();
+        let key = client
+            .presentation_direct_drawable_state(19, object_id)
+            .unwrap()
+            .binding_key;
+        client
+            .apply_presentation_material_command(key, 0.61)
+            .unwrap();
+        let ui = Arc::new(Mutex::new(
+            crate::core::subsystems::InGameUISubsystem::default(),
+        ));
+        let _ = std::panic::catch_unwind({
+            let ui = ui.clone();
+            move || {
+                let _loan = ui.lock().unwrap();
+                panic!("receiving sync teardown poison witness");
+            }
+        });
+        client.subsystem_manager.in_game_ui = Some(ui);
+        let mut replacement = first;
+        replacement.visual_template_name = "VisualB".into();
+        for result in [
+            client.sync_presentation_drawables([replacement.clone()]),
+            client.sync_presentation_drawables(std::iter::empty::<PresentationDrawableSync>()),
+        ] {
+            assert!(result.unwrap_err().to_string().contains("UI lock poisoned"));
+            assert_eq!(
+                client
+                    .presentation_direct_drawable_state(19, object_id)
+                    .unwrap()
+                    .binding_key,
+                key
+            );
+            assert_eq!(
+                client.get_drawable_for_object(object_id),
+                Some(key.drawable_id)
+            );
+            assert_eq!(client.drawables.native_drawable_order, [key.drawable_id]);
+            assert_eq!(
+                client.capture_presentation_material_opacities(),
+                [(key, 0.61)]
+            );
+        }
+        client.subsystem_manager.in_game_ui = None;
+        client.sync_presentation_drawables([replacement]).unwrap();
+        let replacement_key = client
+            .presentation_direct_drawable_state(19, object_id)
+            .unwrap()
+            .binding_key;
+        assert_ne!(replacement_key, key);
+        assert_eq!(
+            client.capture_presentation_material_opacities(),
+            [(replacement_key, 0.61)]
         );
     }
 }

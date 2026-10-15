@@ -72,7 +72,7 @@ fn match_seed_primes_direct_bindings_before_first_ingame_render() {
         .find("self.last_presentation_frame = Some(pres.into());")
         .expect("seed installs immutable frame first");
     let direct_sync = seed
-        .find("self.host_sync_presentation_direct_drawables(presentation_time_frozen);")
+        .find("self.host_sync_presentation_direct_drawables(presentation_time_frozen)")
         .expect("seed primes direct bindings");
     assert!(
         frame < direct_sync

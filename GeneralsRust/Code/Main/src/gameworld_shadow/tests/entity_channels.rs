@@ -380,7 +380,7 @@ fn stealth_delay_channel_via_set_stealth_delay() {
         o.stealth_breaks_on_damage = true;
         o.detection_expires_frame = 450;
         o.camo_opacity_pulse_phase = 1.25;
-        o.camo_heat_vision_opacity = 1.0;
+        o.queue_second_material_pass(1.0);
         o.camo_net_sub_object_shown = true;
         o.camo_net_sub_object_observer_visible = true;
     }

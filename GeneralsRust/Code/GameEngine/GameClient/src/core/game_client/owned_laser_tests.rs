@@ -325,7 +325,7 @@ fn actual_host_direct_drawable_is_converted_once_into_cpp_laser_coordinates() {
         [13.0, 47.0, 29.0],
         0.0,
     );
-    client.sync_presentation_drawables([source]);
+    client.sync_presentation_drawables([source]).unwrap();
     let source_id = client.get_drawable_for_object(77).unwrap();
     assert!(
         client

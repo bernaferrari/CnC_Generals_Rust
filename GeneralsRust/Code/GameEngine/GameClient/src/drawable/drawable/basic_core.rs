@@ -954,6 +954,7 @@ impl BasicDrawable {
 
     pub fn set_second_material_pass_opacity(&mut self, opacity: f32) {
         self.second_material_pass_opacity = opacity.clamp(0.0, 1.0);
+        self.overlay_data.second_material_pass_opacity = self.second_material_pass_opacity;
     }
 
     pub fn set_effective_opacity(&mut self, pulse_factor: f32, explicit_opacity: Option<f32>) {
@@ -1083,62 +1084,23 @@ impl BasicDrawable {
         if look == self.stealth_look {
             return;
         }
-
-        self.stealth_opacity = 1.0;
-        match look {
-            StealthLook::None => {
-                self.hidden_by_stealth = false;
-                self.second_material_pass_opacity = 0.0;
-            }
-            StealthLook::VisibleFriendly | StealthLook::VisibleFriendlyDetected => {
-                // C++ reads TheGlobalData->m_stealthFriendlyOpacity as default opacity.
-                let mut opacity: f32 = get_global_data()
-                    .map(|data| data.read().stealth_friendly_opacity)
-                    .unwrap_or(DEFAULT_STEALTH_FRIENDLY_OPACITY);
-
-                if let Some((is_disguised, friendly_opacity)) = self.object_stealth_visuals() {
-                    if is_disguised {
-                        self.hidden_by_stealth = false;
-                        self.stealth_look = look;
-                        self.update_hidden_status();
-                        return;
-                    }
-                    opacity = friendly_opacity;
-                }
-
-                self.stealth_opacity = opacity;
-                self.hidden_by_stealth = false;
-
-                // C++ sets second material pass for heat-vision on detected friendlies,
-                // but not on mines (evil hack per srj todo).
-                if look == StealthLook::VisibleFriendlyDetected
-                    && !self.is_object_kind_of(gamelogic::common::types::KindOf::Mine)
-                {
-                    self.second_material_pass_opacity = 1.0;
-                } else {
-                    self.second_material_pass_opacity = 0.0;
-                }
-            }
-            StealthLook::DisguisedEnemy => {
-                self.hidden_by_stealth = false;
-                self.second_material_pass_opacity = 0.0;
-            }
-            StealthLook::VisibleDetected => {
-                self.hidden_by_stealth = false;
-                // C++ disables heat-vision on mines (same hack as above).
-                if self.is_object_kind_of(gamelogic::common::types::KindOf::Mine) {
-                    self.second_material_pass_opacity = 0.0;
-                } else {
-                    self.second_material_pass_opacity = 1.0;
-                }
-            }
-            StealthLook::Invisible => {
-                self.hidden_by_stealth = true;
-                self.second_material_pass_opacity = 0.0;
-            }
-        }
-        self.stealth_look = look;
-        self.update_hidden_status();
+        let (is_disguised, friendly_opacity) = if matches!(
+            look,
+            StealthLook::VisibleFriendly | StealthLook::VisibleFriendlyDetected
+        ) {
+            let default_opacity = get_global_data()
+                .map(|data| data.read().stealth_friendly_opacity)
+                .unwrap_or(DEFAULT_STEALTH_FRIENDLY_OPACITY);
+            self.object_stealth_visuals()
+                .unwrap_or((false, default_opacity))
+        } else {
+            (false, DEFAULT_STEALTH_FRIENDLY_OPACITY)
+        };
+        let is_mine = matches!(
+            look,
+            StealthLook::VisibleDetected | StealthLook::VisibleFriendlyDetected
+        ) && self.is_object_kind_of(gamelogic::common::types::KindOf::Mine);
+        self.apply_stealth_look_observed(look, is_disguised, is_mine, friendly_opacity);
     }
 
     /// Propagate indicator color to all draw modules.

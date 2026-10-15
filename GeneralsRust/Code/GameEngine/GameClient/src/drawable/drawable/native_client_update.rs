@@ -173,25 +173,6 @@ impl BasicDrawable {
             return;
         }
 
-        if !self.test_tint_status(TintStatus::FRENZY) {
-            let effectively_dead = self.object_id.is_some_and(|obj_id| {
-                OBJECT_REGISTRY
-                    .get_object(obj_id)
-                    .and_then(|obj_arc| {
-                        obj_arc.read().ok().map(|guard| guard.is_effectively_dead())
-                    })
-                    .unwrap_or(false)
-            });
-            if effectively_dead {
-                self.second_material_pass_opacity = 0.0;
-            } else if self.second_material_pass_opacity > VERY_TRANSPARENT_MATERIAL_PASS_OPACITY {
-                self.second_material_pass_opacity *= MATERIAL_PASS_OPACITY_FADE_SCALAR;
-            } else {
-                self.second_material_pass_opacity = 0.0;
-            }
-        }
-        self.overlay_data.second_material_pass_opacity = self.second_material_pass_opacity;
-
         if self.flash_count > 0 && self.current_frame.is_multiple_of(DRAWABLE_FRAMES_PER_FLASH) {
             self.color_flash_envelope(Some(self.flash_color), DEF_DECAY_FRAMES, 0, 0);
             self.flash_count = self.flash_count.saturating_sub(1);

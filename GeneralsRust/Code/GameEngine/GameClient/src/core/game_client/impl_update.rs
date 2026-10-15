@@ -608,7 +608,7 @@ impl GameClient {
     ///
     /// Creates missing drawables bound to presentation object ids so pose/shroud
     /// residuals apply without populating the dual-world registry.
-    pub fn ensure_presentation_drawables<I>(&mut self, entries: I) -> usize
+    pub fn ensure_presentation_drawables<I>(&mut self, entries: I) -> GameClientResult<usize>
     where
         I: IntoIterator<Item = (u32, String, [f32; 3], f32)>,
     {
@@ -658,7 +658,7 @@ impl GameClient {
                 health_box_width: 0.0,
                 health_box_z_offset: 0.0,
             });
-        self.sync_presentation_drawables(sync).0
+        Ok(self.sync_presentation_drawables(sync)?.0)
     }
 
     /// Wave 963: presentation drawable sync residual (ensure + pose/model + prune).
@@ -668,7 +668,10 @@ impl GameClient {
     /// is diagnostic/render data and must not remove an active slow-death or
     /// rubble visual.  Returns `(created, updated, pruned)`. No
     /// OBJECT_REGISTRY dual-world populate.
-    pub fn sync_presentation_drawables<I>(&mut self, entries: I) -> (usize, usize, usize)
+    pub fn sync_presentation_drawables<I>(
+        &mut self,
+        entries: I,
+    ) -> GameClientResult<(usize, usize, usize)>
     where
         I: IntoIterator<Item = PresentationDrawableSync>,
     {
@@ -685,6 +688,7 @@ impl GameClient {
             let visual_template_name = Self::presentation_visual_template_name(&e).to_string();
             live_bindings.insert((e.host_epoch, e.object_id));
 
+            let mut inherited_material_opacity = None;
             if let Some(&drawable_id) = self.drawables.drawable_object_map.get(&e.object_id) {
                 let retains_binding = self
                     .drawables
@@ -721,10 +725,30 @@ impl GameClient {
                     continue;
                 }
 
-                // A mapped Drawable with a different host epoch, visual
-                // template, or missing direct record cannot retain volatile
-                // direct state.  Recreate it instead of silently rebinding.
-                let _ = self.destroy_drawable(drawable_id);
+                // C++ Drawable::imitateStealthLook copies the second pass
+                // across an ordinary visual replacement of the same Object.
+                // A different host epoch is a new world and inherits nothing.
+                let same_owner = self
+                    .drawables
+                    .presentation_direct_drawable_bindings
+                    .get(&drawable_id)
+                    .is_some_and(|binding| {
+                        binding.binding_key.host_epoch == e.host_epoch
+                            && binding.binding_key.object_id == e.object_id
+                            && binding.binding_key.drawable_id == drawable_id
+                    });
+                if same_owner {
+                    inherited_material_opacity = self
+                        .drawables
+                        .drawable_map
+                        .get(&drawable_id)
+                        .filter(|drawable| drawable.get_object_id() == Some(e.object_id))
+                        .and_then(|drawable| drawable.as_any().downcast_ref::<BasicDrawable>())
+                        .map(BasicDrawable::material_pass_opacity);
+                }
+                // Destruction must succeed before displacing any identity or
+                // creating its replacement; failure keeps the installed owner.
+                self.destroy_drawable(drawable_id)?;
                 if self
                     .drawables
                     .drawable_object_map
@@ -740,6 +764,9 @@ impl GameClient {
             }
 
             let mut drawable = BasicDrawable::new(DrawableId::INVALID);
+            if let Some(opacity) = inherited_material_opacity {
+                drawable.set_second_material_pass_opacity(opacity);
+            }
             if !visual_template_name.is_empty() {
                 drawable.set_template_name(Some(visual_template_name.clone()));
             }
@@ -797,7 +824,7 @@ impl GameClient {
             .collect();
         let mut pruned = 0usize;
         for (drawable_id, binding_key) in stale {
-            let _ = self.destroy_drawable(drawable_id);
+            self.destroy_drawable(drawable_id)?;
             if self
                 .drawables
                 .drawable_object_map
@@ -815,7 +842,7 @@ impl GameClient {
             pruned = pruned.saturating_add(1);
         }
 
-        (created, updated, pruned)
+        Ok((created, updated, pruned))
     }
 
     fn presentation_visual_template_name(e: &PresentationDrawableSync) -> &str {
@@ -1515,6 +1542,7 @@ impl GameClient {
             delta_time,
             frames,
             OBJECT_REGISTRY.is_empty(),
+            &[],
         )
     }
 
@@ -1523,7 +1551,23 @@ impl GameClient {
         delta_time: f32,
         particle_frames: NativeParticleFrames,
     ) -> GameClientResult<()> {
-        self.update_presentation_shell_with_particle_policy(delta_time, particle_frames, true)
+        self.update_presentation_shell_with_particle_policy(delta_time, particle_frames, true, &[])
+    }
+
+    /// Native Main passes operation-scoped facts from its driving world.
+    pub fn update_presentation_shell_with_material_frames(
+        &mut self,
+        delta_time: f32,
+        particle_frames: NativeParticleFrames,
+        materials: &[NativeMaterialObservation],
+    ) -> GameClientResult<()> {
+        self.validate_material_observations(materials)?;
+        self.update_presentation_shell_with_particle_policy(
+            delta_time,
+            particle_frames,
+            true,
+            materials,
+        )
     }
 
     fn update_presentation_shell_with_particle_policy(
@@ -1531,6 +1575,7 @@ impl GameClient {
         delta_time: f32,
         particle_frames: NativeParticleFrames,
         advance_particles: bool,
+        materials: &[NativeMaterialObservation],
     ) -> GameClientResult<()> {
         if particle_frames.client_frame != self.frame {
             return Err(GameClientError::InvalidOperation(
@@ -1653,7 +1698,12 @@ impl GameClient {
         // C++ line 726: display UPDATE (not DRAW). Main RenderPipeline remains sole
         // 3D present path; skip draw_display to avoid dual surface present.
         self.update_display_only()?;
-        self.update_native_draw_particle_phase(freeze_time, particle_frames, advance_particles)?;
+        self.update_native_draw_particle_phase_with_materials(
+            freeze_time,
+            particle_frames,
+            advance_particles,
+            materials,
+        )?;
         // C++ W3DView::drawablePostDraw icon UI residual (health/status icons).
         self.draw_drawable_icon_ui();
         // Wave 980: weapon/UI residual peels companion.

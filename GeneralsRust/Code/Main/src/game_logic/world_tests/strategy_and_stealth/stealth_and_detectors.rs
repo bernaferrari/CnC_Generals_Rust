@@ -2721,7 +2721,7 @@ fn detector_scan_queues_ir_ping_and_heat_vision() {
     let target = logic.host_object(burton).unwrap();
     assert!(target.status.detected);
     assert!(
-        (target.camo_heat_vision_opacity - 1.0).abs() < 0.01,
+        target.pending_second_material_pass() == Some(1.0),
         "first-spot must arm heat-vision second pass"
     );
     assert!(

@@ -25,6 +25,7 @@ mod drawable_trait;
 mod hidden_status;
 mod icons;
 mod leftover;
+mod material_pass;
 mod native_client_retirement;
 mod native_client_update;
 mod native_laser;
@@ -37,6 +38,8 @@ mod xfer;
 
 #[cfg(test)]
 mod logic_clock_tests;
+#[cfg(test)]
+mod material_phase_tests;
 #[cfg(test)]
 mod terrain_decal_tests;
 #[cfg(test)]

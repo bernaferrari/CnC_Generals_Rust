@@ -1271,7 +1271,7 @@ impl PresentationFrame {
                 drawable_fade_frames: obj.drawable_fade_frames,
                 gaining_subdual: obj.subdual_damage > 0.0,
                 drawable_explicit_opacity: obj.drawable_explicit_opacity,
-                camo_heat_vision_opacity: obj.camo_heat_vision_opacity,
+                camo_heat_vision_opacity: obj.pending_second_material_pass().unwrap_or(0.0),
             };
             direct_host_drawables.push(PresentationDirectHostDrawable {
                 object: renderable.clone(),

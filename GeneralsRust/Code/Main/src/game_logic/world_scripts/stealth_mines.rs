@@ -14,12 +14,6 @@ impl GameLogic {
     /// - Stealth Fighter + mines innate cloak; contained detectors do not scan
     pub fn update_stealth_and_detection(&mut self) {
         let frame = self.frame;
-        // C++ Drawable::draw fades m_secondMaterialPassOpacity * 0.8 every frame
-        // before the next detector pulse re-arms 1.0.
-        for obj in self.objects.values_mut() {
-            obj.fade_heat_vision_second_pass();
-        }
-
         // C++ StealthUpdate.cpp:725-780 cloak/destalth/detect SoundStealthOn/Off.
         let stealth_snap: Vec<(ObjectId, bool, bool)> = self
             .objects
@@ -433,13 +427,14 @@ impl GameLogic {
                 let hv = camo_netting_heat_vision_opacity(look);
                 let look_u8 = look.as_u8();
                 let look_changed = obj.camo_stealth_look != look_u8;
-                if look_changed && hv > 0.0 && obj.camo_heat_vision_opacity < 0.5 {
+                if look_changed && hv > 0.0 {
                     heat_vision = heat_vision.saturating_add(1);
                 }
                 if look_changed {
-                    obj.camo_heat_vision_opacity = hv;
-                } else if hv == 0.0 {
-                    obj.camo_heat_vision_opacity = 0.0;
+                    let disguised = obj.status.disguised
+                        || obj.disguise_as_template.is_some()
+                        || obj.disguise_pending_template.is_some();
+                    obj.queue_changed_stealth_material(look_u8, disguised);
                 }
                 obj.camo_stealth_look = look_u8;
 
@@ -1417,9 +1412,6 @@ impl GameLogic {
                     }
                     _ => false,
                 };
-            let is_mine = obj.is_kind_of(KindOf::Mine)
-                || obj.is_kind_of(KindOf::DemoTrap)
-                || obj.mine_data.is_some();
             let local_owner = self.is_object_locally_controlled(id);
             let hint = !obj.status.stealthed
                 && obj.innate_stealth
@@ -1444,38 +1436,22 @@ impl GameLogic {
                 can_disguise,
                 is_disguised,
             );
-            let hv = crate::game_logic::stealth_second_material_pass_opacity(
-                obj.status.stealthed,
-                obj.status.detected,
-                obj.status.disguised
-                    || crate::game_logic::host_bomb_truck_disguise::has_disguises_as_team_stealth_residual(
-                        &obj.template_name,
-                    ),
-                is_mine,
-                !obj.is_alive(),
-                hint,
-            );
             if let Some(obj) = self.objects.get_mut(&id) {
                 // Leftover StealthUpdate.cpp:666-670 pulse for every enabled
                 // non-mine, non-disguise-transition module (not just Camo Netting).
                 if !is_camo_netting_structure_template(&obj.template_name) {
                     obj.apply_stealth_update_pulse();
                 }
+                if hint {
+                    // StealthUpdate.cpp:748 precedes changed setStealthLook:810.
+                    obj.queue_second_material_pass(1.0);
+                }
                 let look_u8 = look.as_u8();
                 let look_changed = obj.camo_stealth_look != look_u8;
-                obj.camo_stealth_look = look_u8;
                 if look_changed {
-                    // C++ setStealthLook writes m_secondMaterialPassOpacity only on change.
-                    obj.camo_heat_vision_opacity = hv;
-                    // C++ setStealthLook(STEALTHLOOK_INVISIBLE) → updateHiddenStatus.
+                    obj.queue_changed_stealth_material(look_u8, is_disguised);
+                    obj.camo_stealth_look = look_u8;
                     obj.update_drawable_hidden_status();
-                } else if hint {
-                    // C++ hintDetectableWhileUnstealthed re-arms 1.0 each destalth update.
-                    obj.camo_heat_vision_opacity = hv;
-                } else if !obj.status.stealthed && !hint {
-                    obj.camo_heat_vision_opacity = hv;
-                } else if obj.status.stealthed && !obj.status.detected && !is_mine {
-                    obj.camo_heat_vision_opacity = 0.0;
                 }
             }
             self.admit_object_drawable_deselection(id);

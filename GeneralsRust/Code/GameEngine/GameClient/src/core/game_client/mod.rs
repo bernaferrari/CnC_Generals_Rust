@@ -173,6 +173,7 @@ include!("impl_init.rs");
 include!("impl_update.rs");
 include!("impl_draw.rs");
 include!("native_particle_draw.rs");
+include!("material_pass.rs");
 include!("leftover.rs");
 include!("owned_laser.rs");
 include!("owned_laser_factory.rs");
@@ -197,6 +198,7 @@ pub const GAME_CLIENT_SRC: &str = concat!(
     include_str!("impl_update.rs"),
     include_str!("impl_draw.rs"),
     include_str!("native_particle_draw.rs"),
+    include_str!("material_pass.rs"),
     include_str!("leftover.rs"),
     include_str!("template_modules.rs"),
 );
@@ -224,3 +226,6 @@ mod receiving_retirement_tests;
 
 #[cfg(test)]
 mod receiving_condition_phase_tests;
+
+#[cfg(test)]
+mod receiving_material_phase_tests;

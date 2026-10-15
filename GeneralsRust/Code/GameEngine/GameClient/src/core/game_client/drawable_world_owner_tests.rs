@@ -24,7 +24,10 @@ fn moving_owned_direct_drawables_preserves_actual_allocation_and_binding() {
     );
     entry.draw_module_names = Arc::new(vec!["W3DTankDraw".into()]);
     entry.model_condition_bits = 1 << game_engine::common::bit_flags::ModelConditionFlags::MOVING;
-    assert_eq!(source.sync_presentation_drawables([entry]), (1, 0, 0));
+    assert_eq!(
+        source.sync_presentation_drawables([entry]).unwrap(),
+        (1, 0, 0)
+    );
     let binding = source
         .presentation_direct_drawable_state(19, 42)
         .unwrap()
@@ -149,7 +152,10 @@ fn receiving_client_destroys_moved_drawable_and_its_owned_bookkeeping() {
     let mut receiver = GameClient::new().unwrap();
     let entry =
         presentation_drawable_sync_for_test(81, 33, "RetiredVisual", true, false, [0.0; 3], 0.0);
-    assert_eq!(source.sync_presentation_drawables([entry]), (1, 0, 0));
+    assert_eq!(
+        source.sync_presentation_drawables([entry]).unwrap(),
+        (1, 0, 0)
+    );
     let binding = source
         .presentation_direct_drawable_state(33, 81)
         .unwrap()
@@ -229,10 +235,14 @@ fn receiving_owner_binding_displacement_does_not_touch_same_id_peer() {
     let mut peer = GameClient::new().unwrap();
     for client in [&mut first, &mut peer] {
         assert_eq!(
-            client.sync_presentation_drawables([
-                presentation_drawable_sync_for_test(41, 7, "First", true, false, [0.0; 3], 0.0),
-                presentation_drawable_sync_for_test(42, 7, "Second", true, false, [1.0; 3], 0.0),
-            ]),
+            client
+                .sync_presentation_drawables([
+                    presentation_drawable_sync_for_test(41, 7, "First", true, false, [0.0; 3], 0.0),
+                    presentation_drawable_sync_for_test(
+                        42, 7, "Second", true, false, [1.0; 3], 0.0
+                    ),
+                ])
+                .unwrap(),
             (2, 0, 0)
         );
     }
@@ -323,15 +333,17 @@ fn rejected_missing_drawable_bind_preserves_receiving_lifetime_and_peer() {
     let mut client = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
     for world in [&mut client, &mut peer] {
-        world.sync_presentation_drawables([presentation_drawable_sync_for_test(
-            51,
-            12,
-            "LiveBinding",
-            true,
-            false,
-            [3.0, 4.0, 5.0],
-            0.5,
-        )]);
+        world
+            .sync_presentation_drawables([presentation_drawable_sync_for_test(
+                51,
+                12,
+                "LiveBinding",
+                true,
+                false,
+                [3.0, 4.0, 5.0],
+                0.5,
+            )])
+            .unwrap();
         let key = world
             .presentation_direct_drawable_state(12, 51)
             .unwrap()

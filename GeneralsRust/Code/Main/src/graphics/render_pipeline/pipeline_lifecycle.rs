@@ -96,6 +96,8 @@ impl RenderPipeline {
             presentation_frame: None,
             #[cfg(feature = "game_client")]
             frozen_specialized_draw: None,
+            #[cfg(feature = "game_client")]
+            frozen_material_draw: None,
             presentation_direct_shroud_states: HashMap::new(),
             presentation_direct_shroud_host_epoch: None,
             debug_last_laser_segments_packed: 0,
@@ -147,6 +149,12 @@ impl RenderPipeline {
             &mut self.frozen_specialized_draw,
             frame.as_ref(),
         );
+        #[cfg(feature = "game_client")]
+        {
+            // A material capture is completed for one explicit Draw handoff,
+            // even when the same immutable frame is presented again.
+            self.frozen_material_draw = None;
+        }
         // Direct-host shroud state is meaningful only for this exact frozen
         // topology. Main installs its replacement sidecar immediately after
         // this call; every other handoff intentionally stays empty rather
@@ -197,6 +205,20 @@ impl RenderPipeline {
             host_epoch,
             || client.presentation_specialized_draw_snapshots(host_epoch),
         );
+    }
+
+    /// Replace completed Drawable material values at every render handoff.
+    /// Reusing the frozen topology must never reuse an earlier Draw result.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn capture_material_draw_inputs(
+        &mut self,
+        frame: &Rc<crate::presentation_frame::PresentationFrame>,
+        client: &game_client::core::GameClient,
+        host_epoch: u64,
+    ) {
+        self.frozen_material_draw = Some(material_draw_inputs::FrozenMaterialDrawFrame::capture(
+            frame, client, host_epoch,
+        ));
     }
 
     /// C++ `W3DView::setHeight` — 3D viewport is the top `frac` of the window.
@@ -279,6 +301,7 @@ impl RenderPipeline {
         #[cfg(feature = "game_client")]
         {
             self.frozen_ghost_scene = None;
+            self.frozen_material_draw = None;
         }
         self.hlod_aggregate_prewarm_attempts.clear();
     }
@@ -365,6 +388,7 @@ impl RenderPipeline {
             #[cfg(feature = "game_client")]
             {
                 self.frozen_specialized_draw = None;
+                self.frozen_material_draw = None;
             }
         }
         // IDs-only path no longer used; clear frame when None.

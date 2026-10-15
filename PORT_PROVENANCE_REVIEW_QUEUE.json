@@ -21171,6 +21171,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/material_pass.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/message.rs"
             },
             {
@@ -21222,6 +21227,11 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/receiving_expiration_clock_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/receiving_material_phase_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -189730,7 +189740,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "a7c6fb36cf3ac27568bdc0c4703ee0453af8a5fa3b60de9c4bcee67aa257c432",
+  "provenance_input_digest": "cd7147cdef74f63f3aea3c17951ad92097e8d8e4a2919cce957a50ea6c93f4a6",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,
