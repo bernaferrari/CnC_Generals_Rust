@@ -33,10 +33,10 @@ fn owned_particle_info_load_drives_actual_field_cull() {
     assert!(receipt.belongs_to(&receiving));
     assert!(receipt.contains_system(id));
 
-    // W3DParticleSys.cpp:124/205 counts in-box AREA_EFFECT ground particles
-    // before the per-system batch cap: both near particles count, one draws.
+    // W3DParticleSys.cpp:205/224 counts only the accepted point group.
+    // A smaller explicit group budget here admits/counts just the first near particle.
     receiving.cull_particles_to_visible_box([0.0; 3], [10.0; 3], 1);
-    assert_eq!(receiving.field_particle_count(), 2);
+    assert_eq!(receiving.field_particle_count(), 1);
     let loaded = receiving.find_particle_system(id).unwrap();
     assert!(loaded.info().is_ground_aligned);
     assert_eq!(loaded.priority(), ParticlePriorityType::AreaEffect);

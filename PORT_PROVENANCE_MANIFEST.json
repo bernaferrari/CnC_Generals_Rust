@@ -8,6 +8,12 @@
     },
     {
       "behavior_verified": false,
+      "classification": "memory_safety_deviation",
+      "constraint": "ParticleSys.cpp Particle::isInvisible/computeColorRate/computeAlphaRate can read beyond fixed key arrays at an exhausted target cursor. Rust retains the legitimate MAX_KEYFRAMES exhausted cursor, stops key interpolation, and reports non-invisible for ADDITIVE/MULTIPLY when no in-bounds terminal color key exists. Negative or greater-than-MAX native alpha/color cursors are rejected before manager admission. In-bounds shader thresholds, key order, and native wire layout remain unchanged; this exception does not credit whole particle parity.",
+      "id": "particle_key_bounds_safety"
+    },
+    {
+      "behavior_verified": false,
       "classification": "allowed_platform_substitution",
       "constraint": "WGPU may replace DirectX rendering APIs, but observable rendering, resource lifetime, ordering, and state behavior still require evidence.",
       "id": "directx_to_wgpu"

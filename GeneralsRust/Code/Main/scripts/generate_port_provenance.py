@@ -103,6 +103,21 @@ ALLOWED_DEVIATIONS = (
         "behavior_verified": False,
     },
     {
+        "id": "particle_key_bounds_safety",
+        "classification": "memory_safety_deviation",
+        "constraint": (
+            "ParticleSys.cpp Particle::isInvisible/computeColorRate/computeAlphaRate can read "
+            "beyond fixed key arrays at an exhausted target cursor. Rust "
+            "retains the legitimate MAX_KEYFRAMES exhausted cursor, stops key "
+            "interpolation, and reports non-invisible for ADDITIVE/MULTIPLY when "
+            "no in-bounds terminal color key exists. Negative or greater-than-MAX "
+            "native alpha/color cursors are rejected before manager admission. "
+            "In-bounds shader thresholds, key order, and native wire layout remain "
+            "unchanged; this exception does not credit whole particle parity."
+        ),
+        "behavior_verified": False,
+    },
+    {
         "id": "directx_to_wgpu",
         "classification": "allowed_platform_substitution",
         "constraint": (

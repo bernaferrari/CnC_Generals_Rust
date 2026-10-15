@@ -422,12 +422,13 @@ pub fn particle_type_name_is_smud(name: &str) -> bool {
     name.as_bytes().get(..4) == Some(b"SMUD")
 }
 
-/// C++ `isUsingSmudge()` plus the SMUD* ParticleName hack.
-/// `doParticles` comments out `isUsingSmudge()` and checks the DWORD prefix;
-/// authored SMUDGE systems still use ParticleName `"SMUDGE RESERVED"`.
+/// C++ `doParticles` checks only the DWORD "SMUD" ParticleName prefix.
+/// Its `isUsingSmudge()` test is explicitly commented out. An authored
+/// SMUDGE normally uses "SMUDGE RESERVED", but a nonprefix native name
+/// must take the ordinary capped particle loop rather than the heat path.
 #[must_use]
 pub fn system_is_heat_smudge(system: &ParticleSystem) -> bool {
-    system.is_using_smudge() || particle_type_name_is_smud(&system.info().particle_type_name)
+    particle_type_name_is_smud(&system.info().particle_type_name)
 }
 
 /// C++ `doParticles` start: `setSmudgeCountLastFrame(0)` then one `addSmudgeSet`.
@@ -2389,28 +2390,14 @@ mod tests {
     }
 
     #[test]
-    fn smudge_type_feeds_even_without_smud_prefix() {
-        let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
-        begin_particle_heat_smudge_frame();
-
+    fn smudge_type_without_smud_prefix_does_not_take_heat_path() {
         let mut system = smudge_named_system("HeatHaze.tga", ParticleType::Smudge);
         system.push_particle(live_particle(4.0, 5.0, 6.0, 2.5, 0.55));
 
         assert!(system.is_using_smudge());
-        assert!(system_is_heat_smudge(&system));
+        assert!(!system_is_heat_smudge(&system));
         assert!(bake_particle_system_gpu_mesh(&system).is_empty());
-        assert_eq!(feed_system_heat_smudges(&system), 1);
-
-        let items = get_smudge_manager()
-            .lock()
-            .unwrap()
-            .collect_decal_render_items();
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].position, Vec3::new(4.0, 5.0, 6.0));
-        assert_eq!(items[0].size, 2.5);
-        assert!((items[0].color[3] - 0.55).abs() < f32::EPSILON);
-
-        begin_particle_heat_smudge_frame();
+        assert_eq!(feed_system_heat_smudges(&system), 0);
     }
 
     #[test]

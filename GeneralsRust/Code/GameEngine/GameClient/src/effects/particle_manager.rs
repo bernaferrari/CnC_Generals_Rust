@@ -977,15 +977,18 @@ impl ParticleSystemManager {
         extent: [f32; 3],
         max_per_system: usize,
     ) {
-        // Field-particle count basis (C++ W3DParticleSys.cpp:124/205): the
-        // renderer counts EVERY drawn AREA_EFFECT ground particle each frame.
-        // Count in-box particles before the per-system render-budget cap is
-        // applied, so the cap (MaxFieldParticleCount, default 30) fires on the
-        // true on-screen density rather than an undercount caused by the
-        // rendering budget limiting how many particles each system keeps.
+        // W3DParticleSys.cpp:137-224 skips Drawable/SMUD systems in its
+        // point-group path and counts only the first MAX_POINTS_PER_GROUP
+        // visible particles. Smudges use their own uncapped visible loop.
         let mut field_count = 0usize;
         self.for_each_particle_system_mut(|system| {
-            let is_field_system = system.priority() == ParticlePriorityType::AreaEffect
+            let is_smudge = super::particle_renderer::system_is_heat_smudge(system);
+            // C++ counts in this loop before shader/type GPU dispatch;
+            // even an unsupported non-Drawable type takes its ordinary cap.
+            let uses_point_group =
+                system.info().particle_type != ParticleType::Drawable && !is_smudge;
+            let is_field_system = uses_point_group
+                && system.priority() == ParticlePriorityType::AreaEffect
                 && system.info().is_ground_aligned;
             let mut kept = 0usize;
             for particle in system.particles_mut() {
@@ -997,14 +1000,14 @@ impl ParticleSystemManager {
                 let outside = (particle.position.x - center[0]).abs() > extent[0] + size
                     || (particle.position.y - center[1]).abs() > extent[1] + size
                     || (particle.position.z - center[2]).abs() > extent[2] + size;
-                if is_field_system && !outside {
-                    field_count += 1;
-                }
-                if outside || kept >= max_per_system {
+                if outside || (uses_point_group && kept >= max_per_system) {
                     particle.is_culled = true;
                 } else {
                     particle.is_culled = false;
                     kept += 1;
+                    if is_field_system {
+                        field_count += 1;
+                    }
                 }
             }
         });
@@ -2072,3 +2075,7 @@ mod admission;
 #[path = "particle_manager/lod.rs"]
 mod lod;
 use lod::{AmbientParticleLod, ParticleLod};
+
+#[cfg(test)]
+#[path = "particle_manager/field_count_tests.rs"]
+mod field_count_tests;

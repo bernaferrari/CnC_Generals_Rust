@@ -720,6 +720,17 @@ class ReviewedOwnershipSchemaTests(unittest.TestCase):
         self.assertIn("unreviewed_symbol_ownership", qux["blockers"])
         self.assertEqual("invalid", qux["mapping"]["symbol_validation"])
 
+    def test_particle_key_bounds_safety_deviation_is_narrow_and_not_behavior_credit(self) -> None:
+        policy = next(
+            entry for entry in provenance.ALLOWED_DEVIATIONS
+            if entry["id"] == "particle_key_bounds_safety"
+        )
+        self.assertEqual("memory_safety_deviation", policy["classification"])
+        self.assertFalse(policy["behavior_verified"])
+        self.assertIn("MAX_KEYFRAMES", policy["constraint"])
+        self.assertIn("before manager admission", policy["constraint"])
+        self.assertIn("particle_key_bounds_safety", provenance.ALLOWED_DEVIATION_IDS)
+
     def test_representation_safe_deviation_is_credited_only_when_known(self) -> None:
         temporary, fixture = self.build_fixture()
         self.addCleanup(temporary.cleanup)

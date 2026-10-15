@@ -222,14 +222,21 @@ impl Particle {
             let emitter_len =
                 (emitter_dir_x * emitter_dir_x + emitter_dir_y * emitter_dir_y).sqrt();
 
-            if emitter_len > 0.0 {
-                // C++ angleBetween((0,1), dir): signed acos from +Y.
-                // dir=(0,1) → 0 so angle_z = PI. atan2(x, y) measures from +Y.
-                let norm_x = emitter_dir_x / emitter_len;
-                let norm_y = emitter_dir_y / emitter_len;
-                let angle_to_emitter = norm_x.atan2(norm_y);
-                self.angle_z = angle_to_emitter + std::f32::consts::PI;
-            }
+            // ParticleSys.cpp:3390-3420: preserve angleBetween's exact
+            // orthogonality branch, signed acos, and zero-vector result.
+            let angle_to_emitter = if emitter_len == 0.0 {
+                0.0
+            } else if emitter_dir_y == 0.0 {
+                if emitter_dir_x > 0.0 {
+                    std::f32::consts::PI
+                } else {
+                    0.0
+                }
+            } else {
+                let theta = (emitter_dir_y / emitter_len).acos();
+                if emitter_dir_x > 0.0 { theta } else { -theta }
+            };
+            self.angle_z = angle_to_emitter + std::f32::consts::PI;
         }
 
         // Update size (C++ lines 351-353)
@@ -282,10 +289,24 @@ impl Particle {
         self.color[1] += self.color_scale;
         self.color[2] += self.color_scale;
 
-        // Clamp color components to [0,1] (C++ lines 430-444)
-        self.color[0] = self.color[0].clamp(0.0, 1.0);
-        self.color[1] = self.color[1].clamp(0.0, 1.0);
-        self.color[2] = self.color[2].clamp(0.0, 1.0);
+        // ParticleSys.cpp:430-444: the green lower-bound test reads RED
+        // after red's clamp; its upper-bound test reads GREEN. Negative
+        // green therefore survives for ordinary finite colors.
+        if self.color[0] < 0.0 {
+            self.color[0] = 0.0;
+        } else if self.color[0] > 1.0 {
+            self.color[0] = 1.0;
+        }
+        if self.color[0] < 0.0 {
+            self.color[1] = 0.0;
+        } else if self.color[1] > 1.0 {
+            self.color[1] = 1.0;
+        }
+        if self.color[2] < 0.0 {
+            self.color[2] = 0.0;
+        } else if self.color[2] > 1.0 {
+            self.color[2] = 1.0;
+        }
 
         // Clear acceleration for next frame (C++ line 447)
         self.acceleration = Vec3::ZERO;
@@ -351,6 +372,8 @@ impl Particle {
             ParticleShaderType::Additive => {
                 // If color is black, particle is invisible for additive blending (C++ lines 468-476)
                 // Check that we're not transitioning to another color
+                // particle_key_bounds_safety: C++ reads beyond its key
+                // array once exhausted; retain safe, non-invisible behavior.
                 if self.color_target_key < MAX_KEYFRAMES
                     && self.color_keys[self.color_target_key].frame == 0
                 {
@@ -370,6 +393,8 @@ impl Particle {
             ParticleShaderType::Multiply => {
                 // If color is white, particle is invisible for multiply (C++ lines 488-496)
                 // Check that we're not transitioning to another color
+                // particle_key_bounds_safety: C++ reads beyond its key
+                // array once exhausted; retain safe, non-invisible behavior.
                 if self.color_target_key < MAX_KEYFRAMES
                     && self.color_keys[self.color_target_key].frame == 0
                 {
@@ -692,7 +717,10 @@ impl Snapshotable for Particle {
         let mut alpha_target_key = self.alpha_target_key as i32;
         xfer.xfer_int(&mut alpha_target_key)
             .map_err(|e| e.to_string())?;
-        self.alpha_target_key = alpha_target_key.max(0) as usize;
+        if alpha_target_key < 0 || alpha_target_key as usize > MAX_KEYFRAMES {
+            return Err("invalid particle alpha target key".into());
+        }
+        self.alpha_target_key = alpha_target_key as usize;
 
         for component in &mut self.color {
             xfer.xfer_real(component).map_err(|e| e.to_string())?;
@@ -704,7 +732,10 @@ impl Snapshotable for Particle {
         let mut color_target_key = self.color_target_key as i32;
         xfer.xfer_int(&mut color_target_key)
             .map_err(|e| e.to_string())?;
-        self.color_target_key = color_target_key.max(0) as usize;
+        if color_target_key < 0 || color_target_key as usize > MAX_KEYFRAMES {
+            return Err("invalid particle color target key".into());
+        }
+        self.color_target_key = color_target_key as usize;
 
         let mut drawable_id = 0u32;
         xfer.xfer_drawable_id(&mut drawable_id)
@@ -732,8 +763,11 @@ impl Snapshotable for Particle {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        self.alpha_target_key = self.alpha_target_key.min(MAX_KEYFRAMES.saturating_sub(1));
-        self.color_target_key = self.color_target_key.min(MAX_KEYFRAMES.saturating_sub(1));
+        // MAX_KEYFRAMES is a legitimate exhausted cursor: update stops
+        // interpolation there. Never rewind it to the last authored key.
+        if self.alpha_target_key > MAX_KEYFRAMES || self.color_target_key > MAX_KEYFRAMES {
+            return Err("invalid particle target key".into());
+        }
         Ok(())
     }
 }
@@ -2643,3 +2677,7 @@ mod state;
 #[cfg(test)]
 #[path = "particle_system/native_load_tests.rs"]
 mod native_load_tests;
+
+#[cfg(test)]
+#[path = "particle_system/retail_quirk_tests.rs"]
+mod retail_quirk_tests;

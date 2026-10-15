@@ -201,3 +201,73 @@ fn native_load_receipt_covers_only_its_admitted_ids_and_live_namespace() {
         "reset invalidates the receipt before IDs are reused"
     );
 }
+
+fn exhausted_particle_keys() -> ParticleSystemManager {
+    let mut source = populated();
+    for id in source.active_system_ids_in_order() {
+        for particle in source.find_particle_system_mut(id).unwrap().particles_mut() {
+            particle.alpha_target_key = MAX_KEYFRAMES;
+            particle.color_target_key = MAX_KEYFRAMES;
+            particle.alpha = 1.0;
+            particle.alpha_rate = 0.0;
+            particle.color = [0.3, 0.4, 0.5];
+            particle.color_rate = [0.0; 3];
+            particle.color_scale = 0.0;
+        }
+    }
+    source
+}
+
+#[test]
+fn both_particle_decoders_preserve_exhausted_key_bytes_and_future_interpolation() {
+    let mut source = exhausted_particle_keys();
+    let payloads = saved_particle_payloads(&mut source);
+    let bytes = encode(&mut source);
+    for runtime in [false, true] {
+        let mut destination = populated();
+        decode(&mut destination, &bytes, runtime).unwrap();
+        assert_eq!(saved_particle_payloads(&mut destination), payloads);
+        for id in destination.active_system_ids_in_order() {
+            for particle in destination
+                .find_particle_system_mut(id)
+                .unwrap()
+                .particles_mut()
+            {
+                assert_eq!(particle.alpha_target_key, MAX_KEYFRAMES);
+                assert_eq!(particle.color_target_key, MAX_KEYFRAMES);
+                assert!(particle.update(Vec3::ZERO, 1, ParticleShaderType::Alpha));
+                assert_eq!(particle.alpha_target_key, MAX_KEYFRAMES);
+                assert_eq!(particle.color_target_key, MAX_KEYFRAMES);
+                assert_eq!(particle.alpha, 1.0);
+                assert_eq!(particle.color, [0.3, 0.4, 0.5]);
+                assert!(!particle.is_invisible(ParticleShaderType::Additive));
+            }
+        }
+    }
+}
+
+#[test]
+fn both_particle_decoders_reject_late_malformed_keys_without_admission() {
+    let mut source = exhausted_particle_keys();
+    let bytes = encode(&mut source);
+    let payload = saved_particle_payloads(&mut source).pop().unwrap();
+    let start = bytes
+        .windows(payload.len())
+        .rposition(|window| window == payload.as_slice())
+        .unwrap();
+    // ParticleSys.cpp:635-662: after alphaTargetKey are color12,
+    // colorRate12, colorTargetKey4, drawable4 and controlledSystem4.
+    // After colorTargetKey are only drawable4 and controlledSystem4.
+    for distance_from_end in [40, 12] {
+        for invalid in [-1i32, MAX_KEYFRAMES as i32 + 1, i32::MAX] {
+            let mut malformed = bytes.clone();
+            let offset = start + payload.len() - distance_from_end;
+            assert_eq!(
+                &malformed[offset..offset + 4],
+                &(MAX_KEYFRAMES as i32).to_le_bytes()
+            );
+            malformed[offset..offset + 4].copy_from_slice(&invalid.to_le_bytes());
+            assert_unchanged_on_error(&malformed);
+        }
+    }
+}
