@@ -1,6 +1,8 @@
 //! W3DView camera work belongs to an admitted CPU view, independently of GPU Draw.
 use super::camera_motion::{AxisKind, AxisMotion, MotionAdmission, step_axis};
 use super::display_clock::DisplayAdmission;
+use super::mouse::{SHAKE_AXIS_PITCH, SHAKE_AXIS_ROLL, SHAKE_AXIS_YAW};
+use super::start_game::script_camera_shaker_rotations;
 use super::*;
 
 impl CnCGameEngine {
@@ -89,7 +91,28 @@ impl CnCGameEngine {
             // shake, height adjustment, slave pose or matrix commitment.
             self.update_script_camera_shake();
             self.ease_camera_height_above_ground(scroll, did_scripted_movement);
+            if !self.script_time_fast() {
+                self.update_camera_transform_shakers();
+            }
         }
+    }
+    /// Source setCameraTransform: after height adjustment, before slave pose.
+    fn update_camera_transform_shakers(&mut self) {
+        step_transform_shakers(&mut self.script_camera_shakers, true);
+        let eye = self
+            .camera_fx_adjusted_eye_and_look(
+                self.camera_target + self.camera_orbit_offset() + self.camera_shake_offset,
+                self.camera_target,
+            )
+            .0;
+        let mut rotation = Vec3::ZERO;
+        for shaker in &self.script_camera_shakers {
+            rotation += script_camera_shaker_rotations(shaker, eye);
+        }
+        rotation.x = rotation.x.clamp(-SHAKE_AXIS_PITCH, SHAKE_AXIS_PITCH);
+        rotation.y = rotation.y.clamp(-SHAKE_AXIS_YAW, SHAKE_AXIS_YAW);
+        rotation.z = rotation.z.clamp(-SHAKE_AXIS_ROLL, SHAKE_AXIS_ROLL);
+        self.camera_shake_rotation = rotation;
     }
 }
 
@@ -115,6 +138,19 @@ pub(super) fn step_view_impulse(
         *intensity = 0.;
     }
     Some(offset)
+}
+
+/// W3DView::setCameraTransform steps rotational shakers, after the fast
+/// View return. Impulse shake above is earlier and deliberately independent.
+pub(super) fn step_transform_shakers(shakers: &mut Vec<ScriptCameraShaker>, commit: bool) {
+    if !commit {
+        return;
+    }
+    const SCRIPT_CAMERA_SHAKER_STEP: f32 = 1.0 / 30.0;
+    for shaker in shakers.iter_mut() {
+        shaker.elapsed_seconds += SCRIPT_CAMERA_SHAKER_STEP;
+    }
+    shakers.retain(|shaker| shaker.elapsed_seconds < shaker.duration_seconds);
 }
 
 #[cfg(test)]

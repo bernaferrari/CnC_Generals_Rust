@@ -291,6 +291,15 @@ fn production_camera_phase_precedes_native_region_and_fast_subset_never_commits_
     assert!(phase.contains("if decision.update_views && !self.script_time_fast()"));
     let live = include_str!("camera_view_effects.rs");
     assert!(live.contains("if decision.update_views"));
+    assert!(
+        live.find("self.update_script_camera_shake()").unwrap()
+            < live.find("self.ease_camera_height_above_ground(").unwrap()
+    );
+    assert!(
+        live.find("self.ease_camera_height_above_ground(").unwrap()
+            < live.find("self.update_camera_transform_shakers()").unwrap()
+    );
+    assert!(live.contains("if !self.script_time_fast()"));
     assert!(live.contains("AxisKind::ZoomPitch") && live.contains("AxisKind::Yaw"));
 }
 
@@ -307,4 +316,101 @@ fn impulse_threshold_clears_only_intensity_and_preserves_phase_until_next_enqueu
         Some(Vec3::ZERO)
     );
     assert_eq!((intensity, cosine, sine), (0., -0.5, 0.75));
+}
+
+#[test]
+fn frozen_fast_view_damps_impulse_but_retains_transform_shaker_time() {
+    let mut shakers = vec![ScriptCameraShaker::new(Vec3::ZERO, 100., 1., 4.)];
+    let mut peer = vec![ScriptCameraShaker::new(Vec3::ZERO, 100., 1., 4.)];
+    let mut clock = VisualClock::new();
+    let offer = DisplayInputs {
+        frozen: true,
+        time_fast: true,
+        ..input(1)
+    };
+    let decision = clock.admit(offer);
+    assert!(decision.update_views && !decision.fast_camera_only);
+    let (mut intensity, mut cosine, mut sine) = (4., 1., 0.);
+    step_view_impulse(
+        &mut intensity,
+        &mut cosine,
+        &mut sine,
+        decision.update_views,
+    );
+    step_transform_shakers(&mut shakers, decision.update_views && !offer.time_fast);
+    assert_eq!(intensity, 3.);
+    assert_eq!(shakers[0].elapsed_seconds, 0.);
+    step_transform_shakers(&mut shakers, true);
+    assert_eq!(shakers[0].elapsed_seconds, 1. / 30.);
+    assert_eq!(peer[0].elapsed_seconds, 0.);
+    step_transform_shakers(&mut peer, false);
+    assert_eq!(peer[0].elapsed_seconds, 0.);
+}
+
+#[test]
+fn owning_logic_pause_is_distinct_from_script_freeze_and_keeps_full_view_shake() {
+    let mut logic = GameLogic::new();
+    logic.set_paused(true);
+    assert!(!logic.is_time_frozen_for_simulation());
+    let mut view = LocalView::new();
+    let (decision, axis) = view.offer(
+        DisplayInputs {
+            frozen: logic.is_paused(),
+            tivo_replay: !logic.is_paused(),
+            ..input(1)
+        },
+        logic.is_paused(),
+        1.,
+    );
+    assert!(!axis.changed && axis.was_active);
+    assert_eq!(view.elapsed, 0.);
+    assert!(!decision.draw_drawables && decision.update_views && decision.draw_gpu);
+    assert_eq!(view.intensity, 3.);
+    let source = include_str!("native_display.rs");
+    let start = source.find("fn native_view_is_paused(").unwrap();
+    let end = source[start..].find("/// Invoked once").unwrap() + start;
+    assert!(source[start..end].contains("self.game_logic.is_paused()"));
+    assert!(source.contains("!self.native_view_is_paused()"));
+    assert!(
+        include_str!("camera_view_effects.rs").contains("paused: self.native_view_is_paused()")
+    );
+}
+
+#[test]
+fn admitted_zoom_matches_executed_cpp_mixed_precision_ease_trace() {
+    // Original W3DView::zoomCameraOneFrame + ParabolicEase.cpp, compiled with
+    // float Real and contraction disabled; these are original-execution bits.
+    let golden = [
+        (7, 1_053_460_034),
+        (8, 1_055_100_473),
+        (16, 1_062_594_296),
+        (23, 1_066_753_389),
+    ];
+    let (mut value, mut target, mut elapsed) = (0.2, Some(1.3), 0.);
+    for frame in 1..=30 {
+        step_axis(
+            AxisMotion {
+                value: &mut value,
+                target: &mut target,
+                elapsed_seconds: &mut elapsed,
+                start: 0.2,
+                duration_seconds: 1.,
+                ease_in_seconds: 0.2,
+                ease_out_seconds: 0.3,
+            },
+            AxisKind::ZoomPitch,
+            MotionAdmission {
+                update_views: true,
+                fast_camera_only: false,
+                paused: false,
+                debug_frozen: false,
+                disable_camera_movement: false,
+            },
+        );
+        if let Some((_, bits)) = golden.iter().find(|(step, _)| *step == frame) {
+            assert_eq!(value.to_bits(), *bits, "original CPP zoom frame {frame}");
+        }
+    }
+    assert_eq!(value, 1.3);
+    assert!(target.is_none());
 }

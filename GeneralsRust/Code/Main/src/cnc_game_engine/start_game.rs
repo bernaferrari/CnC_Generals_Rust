@@ -85,7 +85,10 @@ fn shaker_hash_signed(seed: u32, elapsed_bits: u32, axis: u32, pass: u32) -> f32
     unit * 2.0 - 1.0
 }
 
-fn script_camera_shaker_rotations(shaker: &ScriptCameraShaker, camera_position: Vec3) -> Vec3 {
+pub(super) fn script_camera_shaker_rotations(
+    shaker: &ScriptCameraShaker,
+    camera_position: Vec3,
+) -> Vec3 {
     // C++ CameraShakerClass::Compute_Rotations: 3D eye-to-epicenter falloff,
     // omega(t)=omega+(END_OMEGA-omega)*elapsed, plus ±0.5*intensity fudge
     // accumulated three times (once per axis loop).
@@ -1358,13 +1361,16 @@ impl CnCGameEngine {
                 param * param / (v0 * in_t)
             }
         } else if param <= out_t {
-            (in_t + 2.0 * (param - in_t)) / v0
+            // ParabolicEase.cpp uses double literal 2.0 here. Preserve its
+            // float subexpressions before promoting the surrounding arithmetic.
+            ((f64::from(in_t) + 2.0 * f64::from(param - in_t)) / f64::from(v0)) as f32
         } else {
-            let denom = (1.0 - out_t).max(f32::EPSILON);
-            (in_t
-                + 2.0 * (out_t - in_t)
-                + (2.0 * (param - out_t) + out_t * out_t - param * param) / denom)
-                / v0
+            let numerator = f64::from(in_t)
+                + 2.0 * f64::from(out_t - in_t)
+                + (2.0 * f64::from(param - out_t) + f64::from(out_t * out_t)
+                    - f64::from(param * param))
+                    / f64::from(1.0 - out_t);
+            (numerator / f64::from(v0)) as f32
         }
     }
 
@@ -1718,9 +1724,7 @@ impl CnCGameEngine {
 
     pub(super) fn update_script_camera_shake(&mut self) -> bool {
         let previous_offset = self.camera_shake_offset;
-        let previous_rot = self.camera_shake_rotation;
         let mut offset = Vec3::ZERO;
-        let mut rotation = Vec3::ZERO;
 
         offset += super::camera_view_effects::step_view_impulse(
             &mut self.screen_shake_intensity,
@@ -1729,15 +1733,6 @@ impl CnCGameEngine {
             true,
         )
         .expect("called by the admitted full-view phase");
-
-        // C++ W3DView::update: CameraShakerSystem.Timestep(1/30) once per present.
-        // Do not use visual_dt — at 60 fps that halves the envelope/omega sweep.
-        const SCRIPT_CAMERA_SHAKER_STEP: f32 = 1.0 / 30.0;
-        for shaker in &mut self.script_camera_shakers {
-            shaker.elapsed_seconds += SCRIPT_CAMERA_SHAKER_STEP;
-        }
-        self.script_camera_shakers
-            .retain(|s| s.elapsed_seconds < s.duration_seconds);
 
         #[cfg(feature = "game_client")]
         {
@@ -1751,18 +1746,8 @@ impl CnCGameEngine {
             });
         }
 
-        let camera_position = self.camera_position;
-        for shaker in &self.script_camera_shakers {
-            rotation += script_camera_shaker_rotations(shaker, camera_position);
-        }
-        rotation.x = rotation.x.clamp(-SHAKE_AXIS_PITCH, SHAKE_AXIS_PITCH);
-        rotation.y = rotation.y.clamp(-SHAKE_AXIS_YAW, SHAKE_AXIS_YAW);
-        rotation.z = rotation.z.clamp(-SHAKE_AXIS_ROLL, SHAKE_AXIS_ROLL);
-
         self.camera_shake_offset = offset;
-        self.camera_shake_rotation = rotation;
         (self.camera_shake_offset - previous_offset).length_squared() > 0.000001
-            || (self.camera_shake_rotation - previous_rot).length_squared() > 1.0e-8
     }
 
     pub(super) fn normalize_signed_angle(mut angle: f32) -> f32 {
@@ -2662,10 +2647,11 @@ End
             .map(|offset| start + offset)
             .expect("next camera operation");
         let body = &src[start..end];
+        let transform = include_str!("camera_view_effects.rs");
         assert!(
-            body.contains("script_camera_shaker_rotations")
-                && body.contains("camera_shake_rotation")
-                && body.contains("SHAKE_AXIS_PITCH")
+            transform.contains("script_camera_shaker_rotations(shaker, eye)")
+                && transform.contains("self.camera_shake_rotation = rotation")
+                && transform.contains("SHAKE_AXIS_PITCH")
         );
         assert!(!body.contains("offset.x += phase_a.sin() * magnitude"));
         assert!(
@@ -2691,13 +2677,20 @@ End
             .map(|offset| start + offset)
             .expect("next camera operation");
         let body = &src[start..end];
-        assert!(body.contains("const SCRIPT_CAMERA_SHAKER_STEP: f32 = 1.0 / 30.0;"));
-        assert!(body.contains("shaker.elapsed_seconds += SCRIPT_CAMERA_SHAKER_STEP"));
+        assert!(
+            !body.contains("step_transform_shakers"),
+            "impulse and transform stages are distinct"
+        );
+        let transform = include_str!("camera_view_effects.rs");
+        assert!(transform.contains("const SCRIPT_CAMERA_SHAKER_STEP: f32 = 1.0 / 30.0;"));
+        assert!(transform.contains("shaker.elapsed_seconds += SCRIPT_CAMERA_SHAKER_STEP"));
         assert!(!body.contains("elapsed_seconds += dt"));
         let view = include_str!("camera_view_effects.rs");
         assert!(
             view.contains("if decision.update_views")
                 && view.contains("self.update_script_camera_shake()")
+                && view.contains("if !self.script_time_fast()")
+                && view.contains("self.update_camera_transform_shakers()")
         );
         let (mut intensity, mut cosine, mut sine) = (4., 1., 0.);
         assert_eq!(
@@ -2876,7 +2869,20 @@ End
         let start = src
             .find("fn host_center_camera_on_impl")
             .expect("host_center_camera_on_impl");
-        let body = &src[start..start + 1200];
+        let mut depth = 0;
+        let open = src[start..].find('{').unwrap() + start;
+        let end = src[open..]
+            .char_indices()
+            .find_map(|(offset, ch)| {
+                match ch {
+                    '{' => depth += 1,
+                    '}' => depth -= 1,
+                    _ => {}
+                }
+                (depth == 0).then_some(open + offset + 1)
+            })
+            .expect("complete scripted center implementation");
+        let body = &src[start..end];
         assert!(
             body.contains("widen_scripted_camera_constraint")
                 && body.contains("if !clamp_to_world"),
@@ -2894,8 +2900,16 @@ End
             AxisKind, AxisMotion, MotionAdmission, step_axis,
         };
         let view = include_str!("camera_view_effects.rs");
-        assert!(view.contains("paused: self.game_paused") && view.contains("GameState::Paused"));
-        assert!(view.contains("self.update_script_camera_shake()"));
+        assert!(view.contains("paused: self.native_view_is_paused()"));
+        let owner = include_str!("native_display.rs");
+        assert!(
+            owner.contains("self.game_logic.is_paused()") && owner.contains("GameState::Paused")
+        );
+        assert!(
+            view.contains("self.update_script_camera_shake()")
+                && view.contains("if !self.script_time_fast()")
+                && view.contains("self.update_camera_transform_shakers()")
+        );
         assert!(!view.contains("shake_dt = if self.presentation_or_boot_time_frozen()"));
         for paused in [true, false] {
             let (mut value, mut target, mut elapsed) = (0., Some(1.), 0.);
