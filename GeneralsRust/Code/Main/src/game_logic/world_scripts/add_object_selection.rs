@@ -50,7 +50,7 @@ impl GameLogic {
         object.visual_draw_identity_token = std::sync::Arc::new(());
         object.unit_ai_runtime = Default::default();
         let id = object.id;
-        self.objects.insert(id, object);
+        self.objects.admit(id, object);
         self.attach_host_fog_ghost(id);
     }
 

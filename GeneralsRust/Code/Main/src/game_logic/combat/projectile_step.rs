@@ -8,7 +8,7 @@ impl CombatSystem {
         &mut self,
         proj_id: ObjectId,
         dt: f32,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         mut countermeasures: Option<
             &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
         >,

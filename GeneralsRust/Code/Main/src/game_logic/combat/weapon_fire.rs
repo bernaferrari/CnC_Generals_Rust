@@ -216,7 +216,7 @@ fn handle_projectileless_pending(
 /// Apply leftover delayed-damage entries whose frame has arrived to live objects.
 pub fn apply_ready_projectileless_delayed_damage(
     combat: &mut CombatSystem,
-    objects: &mut HashMap<ObjectId, Object>,
+    objects: &mut crate::game_logic::HostObjectStore,
     current_frame: u32,
     players: Option<&HashMap<u32, crate::game_logic::Player>>,
     health_events: &mut crate::game_logic::HostHealthEvents,

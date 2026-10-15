@@ -261,12 +261,16 @@ impl GameLogic {
         let faction = self.objects.get(&id).expect("receiving defector").team;
         self.on_defect_kick_passengers_owned(id, faction);
         self.defect_parked_units_owned(id, destination, frames);
-        // The host's canonical world-list ordering remains a separate migration.
+        // Object.cpp:6203 visits produced mines in the canonical Object list.
         let mines: Vec<_> = self
             .objects
+            .ordered_ids()
             .iter()
-            .filter_map(|(mine_id, mine)| {
-                (mine.is_kind_of(KindOf::Mine) && mine.producer_id == Some(id)).then_some(*mine_id)
+            .copied()
+            .filter(|mine_id| {
+                self.objects.get(mine_id).is_some_and(|mine| {
+                    mine.is_kind_of(KindOf::Mine) && mine.producer_id == Some(id)
+                })
             })
             .collect();
         for mine in mines {

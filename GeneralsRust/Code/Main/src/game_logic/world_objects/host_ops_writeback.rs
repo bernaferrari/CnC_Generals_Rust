@@ -948,15 +948,13 @@ impl GameLogic {
 
     /// Wave 955/958: host-authority mutable object map borrow.
     #[inline]
-    pub fn host_objects_mut(
-        &mut self,
-    ) -> &mut std::collections::HashMap<ObjectId, crate::game_logic::object::Object> {
+    pub fn host_objects_mut(&mut self) -> &mut HostObjectStore {
         self.named_unit_history.extend(
             self.objects
                 .values()
                 .filter_map(|object| (!object.name.is_empty()).then(|| object.name.clone())),
         );
-        self.objects.map_mut()
+        &mut self.objects
     }
 
     /// Wave 950/958: host-authority mutable object borrow.

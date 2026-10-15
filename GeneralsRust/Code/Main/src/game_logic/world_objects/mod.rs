@@ -54,3 +54,6 @@ mod team_removal_owner_tests;
 
 #[cfg(test)]
 mod team_transfer_owner_tests;
+
+#[cfg(test)]
+mod produced_mine_order_tests;

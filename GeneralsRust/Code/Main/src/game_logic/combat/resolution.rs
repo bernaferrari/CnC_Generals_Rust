@@ -235,7 +235,7 @@ impl CombatSystem {
     pub fn update_projectiles(
         &mut self,
         dt: f32,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         health_events: &mut crate::game_logic::HostHealthEvents,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> Vec<ObjectId> {
@@ -411,7 +411,7 @@ impl CombatSystem {
     pub fn update_projectiles_with_countermeasures(
         &mut self,
         dt: f32,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         countermeasures: Option<
             &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
         >,
@@ -436,7 +436,7 @@ impl CombatSystem {
     pub fn update_projectiles_with_relationships(
         &mut self,
         dt: f32,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         countermeasures: Option<
             &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
         >,
@@ -462,7 +462,7 @@ impl CombatSystem {
     pub(crate) fn update_projectiles_with_relationships_and_terrain(
         &mut self,
         dt: f32,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         countermeasures: Option<
             &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
         >,
@@ -508,7 +508,7 @@ impl CombatSystem {
     pub(in crate::game_logic) fn prepare_projectile_impacts(
         &mut self,
         dt: f32,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         mut countermeasures: Option<
             &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
         >,
@@ -558,7 +558,7 @@ impl CombatSystem {
     pub(in crate::game_logic) fn apply_damage_events(
         &mut self,
         damage_events: &[DamageEvent],
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         players: Option<&HashMap<u32, crate::game_logic::Player>>,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
         frame: u32,
@@ -779,7 +779,7 @@ impl CombatSystem {
     fn apply_projectileless_delayed_shot(
         &mut self,
         shot: &LiveProjectilelessDelayedDamage,
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         players: Option<&HashMap<u32, crate::game_logic::Player>>,
         frame: u32,
         historic_damage_limit: u32,

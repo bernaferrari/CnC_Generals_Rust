@@ -110,13 +110,16 @@ fn fire_at_keeps_gattling_store_type() {
         "the accepted command retains the authored damage classification",
     );
     assert_eq!(pending_projectile_queue_len_for_test(&combat), 1);
-    let mut objects = HashMap::from([
+    let mut objects = crate::game_logic::HostObjectStore::new();
+    for (id, object) in [
         (ObjectId(1), attacker),
         (
             ObjectId(2),
             victim("ProjectilelessGattlingVictim", target_position),
         ),
-    ]);
+    ] {
+        objects.insert(id, object);
+    }
     drain_pending_projectiles(&mut combat, &objects, 3);
     assert_eq!(pending_projectile_queue_len_for_test(&combat), 0);
     assert_eq!(
@@ -203,13 +206,16 @@ fn fire_at_projectileless_keeps_identity_in_receiving_pending_queue() {
         1,
         "one accepted shot record is not a flying projectile"
     );
-    let mut objects = HashMap::from([
+    let mut objects = crate::game_logic::HostObjectStore::new();
+    for (id, object) in [
         (ObjectId(1), attacker),
         (
             ObjectId(2),
             victim("ProjectilelessDelayVictim", target_position),
         ),
-    ]);
+    ] {
+        objects.insert(id, object);
+    }
     drain_pending_projectiles(&mut combat, &objects, 3);
     assert_eq!(pending_projectile_queue_len_for_test(&combat), 0);
     assert_eq!(

@@ -16,10 +16,11 @@ mod authority;
 mod construct;
 mod crate_tick;
 mod host;
+mod host_object_store;
 mod player;
-mod script_camera;
 #[path = "../score_academy.rs"]
 mod score_academy;
+mod script_camera;
 
 pub(self) use ambient_sound_retries::AmbientSoundRetries;
 pub(self) use authority::DestructionEvent;
@@ -36,6 +37,7 @@ pub use crate_tick::{
 };
 pub(crate) use host::PathfindingHeightSamples;
 pub use host::{GameLogic, RuntimeWeatherState};
+pub use host_object_store::HostObjectStore;
 pub(crate) use player::PlayerSideRole;
 pub(self) use player::{
     AirfieldHealingInfo, AirfieldParkingSpace, FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL,
@@ -46,8 +48,7 @@ pub(self) use player::{
     capture_upgrade_names_for_team, normalize_upgrade_name,
 };
 pub use player::{
-    HostAuthoredBuild, HostObjectStore, Player, PlayerMapSideState, PlayerTemplateIdentity,
-    SkirmishRulesState,
+    HostAuthoredBuild, Player, PlayerMapSideState, PlayerTemplateIdentity, SkirmishRulesState,
 };
 pub use script_camera::{
     ATTACK_PRIORITY_DISTANCE_MODIFIER, AbleToAttackType, AttackAimResult, AttackFireResult,

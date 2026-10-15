@@ -414,7 +414,7 @@ fn is_garrisonable_container(obj: &Object) -> bool {
 /// C++ GarrisonHitKillCount collide path. Returns the building center when the
 /// grenade/missile consumed itself without a normal detonation weapon.
 pub fn apply_garrison_hit_kill(
-    objects: &mut HashMap<ObjectId, Object>,
+    objects: &mut crate::game_logic::HostObjectStore,
     container_id: ObjectId,
     launcher_id: ObjectId,
     flight: &HostProjectileFlight,

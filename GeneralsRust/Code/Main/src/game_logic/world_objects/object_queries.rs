@@ -365,7 +365,7 @@ impl GameLogic {
 
     /// Wave 958: legacy alias — prefer [`Self::host_objects_mut`].
     #[inline]
-    pub fn get_objects_mut(&mut self) -> &mut HashMap<ObjectId, Object> {
+    pub fn get_objects_mut(&mut self) -> &mut HostObjectStore {
         self.host_objects_mut()
     }
 

@@ -1198,7 +1198,7 @@ impl BuildingBehavior {
     /// → `onRemoving` → free FIREPOINT/STATION. Missing occupants (already
     /// destroyed) also drop their slot.
     pub fn sweep_dead_garrison_occupants(
-        objects: &mut HashMap<ObjectId, Object>,
+        objects: &mut crate::game_logic::HostObjectStore,
         current_frame: u32,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
     ) -> Vec<ObjectId> {
@@ -1490,7 +1490,7 @@ mod tests {
         bd.garrison_point_occupant =
             vec![Some(ObjectId(10)), Some(ObjectId(11)), Some(ObjectId(99))];
         bunker.building_data = Some(bd);
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         objects.insert(bunker.id, bunker);
         objects.insert(dead.id, dead);
         objects.insert(live.id, live);

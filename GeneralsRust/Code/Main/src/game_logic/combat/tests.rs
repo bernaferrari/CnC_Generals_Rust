@@ -110,7 +110,7 @@ pub(in crate::game_logic) mod tests {
         let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
 
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         queue_projectile_direct(
             &mut combat,
             lifecycle_test_pending_projectile(
@@ -173,7 +173,7 @@ pub(in crate::game_logic) mod tests {
         // DetonateOnNoFuel=Yes in retail WeaponObjects.ini. C++ rounds that
         // duration up to 11 logic frames and invokes its detonation weapon.
         let mut fuel_combat = CombatSystem::new();
-        let mut fuel_objects = HashMap::new();
+        let mut fuel_objects = crate::game_logic::HostObjectStore::new();
         queue_projectile_direct(
             &mut fuel_combat,
             lifecycle_test_pending_projectile(
@@ -229,7 +229,7 @@ pub(in crate::game_logic) mod tests {
         // impact FX when that target vanishes.
         let target = ObjectId(9_002);
         let mut target_loss_combat = CombatSystem::new();
-        let mut target_loss_objects = HashMap::new();
+        let mut target_loss_objects = crate::game_logic::HostObjectStore::new();
         target_loss_objects.insert(
             target,
             make_obj(
@@ -371,7 +371,7 @@ pub(in crate::game_logic) mod tests {
 
         let _combat_serial = combat_test_guard();
 
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(1);
         let wall = ObjectId(2);
         let tgt = ObjectId(3);
@@ -456,7 +456,7 @@ pub(in crate::game_logic) mod tests {
 
         let _combat_serial = combat_test_guard();
 
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(21);
         let factory = ObjectId(22);
         let jet = ObjectId(23);
@@ -558,7 +558,7 @@ pub(in crate::game_logic) mod tests {
 
         let _combat_serial = combat_test_guard();
 
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(91);
         let factory = ObjectId(92);
         let tgt = ObjectId(93);
@@ -691,7 +691,7 @@ pub(in crate::game_logic) mod tests {
 
         let _combat_serial = combat_test_guard();
 
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(10);
         let tgt = ObjectId(11);
         objects.insert(
@@ -758,7 +758,7 @@ pub(in crate::game_logic) mod tests {
 
         let _combat_serial = combat_test_guard();
 
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(20);
         let tgt = ObjectId(21);
         let near = ObjectId(22);
@@ -843,7 +843,7 @@ pub(in crate::game_logic) mod tests {
 
         let _combat_serial = combat_test_guard();
 
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(70);
         let tgt = ObjectId(71);
         let edge = ObjectId(72);
@@ -935,7 +935,7 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(30);
         let tgt = ObjectId(31);
         objects.insert(
@@ -1002,7 +1002,7 @@ pub(in crate::game_logic) mod tests {
 
         let _combat_serial = combat_test_guard();
 
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(40);
         let tgt = ObjectId(41);
         objects.insert(
@@ -1103,7 +1103,7 @@ pub(in crate::game_logic) mod tests {
 
         let _combat_serial = combat_test_guard();
         let mut combat = CombatSystem::new();
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let shooter = ObjectId(1);
         let target = ObjectId(2);
         let mut t = Object::new_simple(
@@ -1166,7 +1166,7 @@ pub(in crate::game_logic) mod tests {
 
         let _combat_serial = combat_test_guard();
         let mut combat = CombatSystem::new();
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let shooter = ObjectId(1);
         let building = ObjectId(2);
         let occupant = ObjectId(3);
@@ -1270,7 +1270,7 @@ pub(in crate::game_logic) mod tests {
 
         let _combat_serial = combat_test_guard();
         let mut combat = CombatSystem::new();
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let shooter = ObjectId(1);
         let target = ObjectId(2);
         let mut t = Object::new_simple(
@@ -1350,7 +1350,7 @@ pub(in crate::game_logic) mod tests {
     fn pending_projectile_preserves_exhaust_and_frozen_fire_effect_context() {
         let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
-        let objects = HashMap::new();
+        let objects = crate::game_logic::HostObjectStore::new();
         queue_projectile(&mut combat, PendingProjectile {
             shooter_id: ObjectId(1),
             shooter_pos: Vec3::ZERO,
@@ -1432,7 +1432,7 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(40);
         let near = ObjectId(41);
         let far = ObjectId(42);
@@ -1513,7 +1513,7 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(50);
         let tgt = ObjectId(51);
         let mut unit = make_obj(
@@ -1578,7 +1578,7 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(60);
         let ally = ObjectId(61);
         let enemy = ObjectId(62);
@@ -1659,7 +1659,7 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(70);
         let ally = ObjectId(71);
         objects.insert(
@@ -1726,7 +1726,7 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(72);
         let ground = ObjectId(73);
         let high = ObjectId(74);
@@ -1819,7 +1819,7 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(80);
         let building = ObjectId(81);
         let mut bldg = make_obj(
@@ -1875,7 +1875,7 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(90);
         let ally = ObjectId(91);
         let bystander = ObjectId(92);
@@ -1967,7 +1967,7 @@ pub(in crate::game_logic) mod tests {
             store.add_weapon_template(template);
         });
 
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(190);
         let near = ObjectId(191);
         let far = ObjectId(192);
@@ -2055,7 +2055,7 @@ pub(in crate::game_logic) mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let _combat_serial = combat_test_guard();
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(100);
         let enemy = ObjectId(101);
         objects.insert(
@@ -2123,7 +2123,7 @@ pub(in crate::game_logic) mod tests {
 
         let _combat_serial = combat_test_guard();
 
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(70);
         let wall = ObjectId(71);
         let tgt = ObjectId(72);
@@ -2206,7 +2206,7 @@ pub(in crate::game_logic) mod tests {
     fn scatter_radius_offsets_aim_and_clears_target() {
         let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(80);
         let tgt = ObjectId(81);
         objects.insert(
@@ -2278,7 +2278,7 @@ pub(in crate::game_logic) mod tests {
     fn scale_weapon_speed_slows_close_shots() {
         let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         let atk = ObjectId(90);
         let tgt = ObjectId(91);
         // Place target at firebase min range (50).
@@ -2502,7 +2502,7 @@ pub(in crate::game_logic) mod tests {
         pending.speed_unit = ProjectileSpeedUnit::DistancePerLogicFrame;
         queue_projectile_direct(&mut combat, pending);
 
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         drain_pending_projectiles(&mut combat, &objects, 0);
         let projectile = combat
             .projectiles_snapshot()
@@ -2584,7 +2584,7 @@ pub(in crate::game_logic) mod tests {
         pending.speed_unit = ProjectileSpeedUnit::DistancePerLogicFrame;
         queue_projectile_direct(&mut combat, pending);
 
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         drain_pending_projectiles(&mut combat, &objects, 0);
         let projectile = combat
             .projectiles_snapshot()
@@ -2641,7 +2641,7 @@ pub(in crate::game_logic) mod tests {
         pending.min_attack_range = parsed.min_range;
         queue_projectile_direct(&mut combat, pending);
 
-        let objects = HashMap::new();
+        let objects = crate::game_logic::HostObjectStore::new();
         drain_pending_projectiles(&mut combat, &objects, 0);
         let projectile = combat
             .projectiles_snapshot()
@@ -2671,7 +2671,7 @@ pub(in crate::game_logic) mod tests {
         pending.speed_unit = ProjectileSpeedUnit::DistancePerLogicFrame;
         queue_projectile_direct(&mut combat, pending);
 
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         drain_pending_projectiles(&mut combat, &objects, 0);
         let projectile_id = combat
             .projectiles_snapshot()
@@ -2729,7 +2729,7 @@ pub(in crate::game_logic) mod tests {
         });
         let leftover_before = leftover_delayed_damage_count_for_test();
 
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         objects.insert(
             ObjectId(502),
             make_obj(
@@ -2800,7 +2800,7 @@ pub(in crate::game_logic) mod tests {
         crate::game_logic::host_historic_bonus::set_logic_frame(7);
         let leftover_before = leftover_delayed_damage_count_for_test();
 
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         objects.insert(
             ObjectId(502),
             make_obj(
@@ -2874,7 +2874,7 @@ pub(in crate::game_logic) mod tests {
             ..Weapon::default()
         });
         assert!(atk.fire_at(ObjectId(2), 1.0, 3, &mut combat, &mut _attack_output,));
-        let mut objects = HashMap::new();
+        let mut objects = crate::game_logic::HostObjectStore::new();
         objects.insert(
             ObjectId(2),
             make_obj(

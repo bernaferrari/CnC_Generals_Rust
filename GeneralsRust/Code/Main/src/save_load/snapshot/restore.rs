@@ -28,6 +28,7 @@ impl SnapshotBuilder {
             next_object_id,
             body_kinds,
             &HashMap::new(),
+            None,
             game_logic,
         )
     }
@@ -41,10 +42,18 @@ impl SnapshotBuilder {
             ObjectId,
             crate::game_logic::native_lifecycle::NativeLifecycleRuntime,
         >,
+        saved_order: Option<&[ObjectId]>,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        let mut ids: Vec<ObjectId> = objects.keys().cloned().collect();
-        ids.sort();
+        super::object_order_persist::validate(saved_order, objects)?;
+        let ids: Vec<ObjectId> = match saved_order {
+            Some(order) => order.to_vec(),
+            None => {
+                let mut ids: Vec<_> = objects.keys().copied().collect();
+                ids.sort();
+                ids
+            }
+        };
 
         // C++ ProductionUpdate::xfer rejects absent unit/upgrade definitions
         // (ProductionUpdate.cpp:1304–1328). A live object's synthesized template
