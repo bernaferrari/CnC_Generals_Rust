@@ -6,6 +6,8 @@ use crate::save_load::camera_codec::CameraCodec;
 use glam::{Mat4, Vec3};
 use serde::{Deserialize, Serialize};
 
+use super::pose::inverse_camera_transform;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct HeightState {
     legacy: CameraHeightContinuation,
@@ -167,14 +169,18 @@ impl SessionCameraState {
         {
             return Err("invalid session camera pose or axis continuation".into());
         }
-        for matrix in [self.view_matrix, self.projection_matrix] {
-            let determinant = matrix.determinant();
-            if !matrix.is_finite() || !determinant.is_finite() || determinant == 0.0 {
-                return Err("invalid completed session camera matrix".into());
-            }
-            if !matrix.inverse().is_finite() {
-                return Err("nonfinite inverse session camera matrix".into());
-            }
+        inverse_camera_transform(self.view_matrix)?;
+        // Projection is intentionally projective, never an affine view matrix.
+        let projection = self.projection_matrix;
+        let determinant = projection.determinant();
+        if !projection.is_finite() || !determinant.is_finite() || determinant == 0.0 {
+            return Err("invalid completed session camera matrix".into());
+        }
+        if projection
+            .try_inverse()
+            .is_none_or(|inverse| !inverse.is_finite())
+        {
+            return Err("nonfinite inverse session camera matrix".into());
         }
         if self.script_camera_shakers.len() > 4096
             || self.script_camera_shakers.iter().any(|value| {
@@ -247,10 +253,22 @@ impl SessionCameraState {
         camera.camera_follow_factor = self.camera_follow_factor;
     }
 
+    /// A native V2 record must describe this exact completed owner matrix;
+    /// eye/forward/up alone cannot establish handedness, shear, or full scale.
+    pub(crate) fn validate_completed_view(&self, matrix: Mat4) -> Result<(), String> {
+        self.validate()?;
+        if self.view_matrix.to_cols_array().map(f32::to_bits)
+            != matrix.to_cols_array().map(f32::to_bits)
+        {
+            return Err("logic/native completed camera matrix disagrees".into());
+        }
+        Ok(())
+    }
+
     /// Native85 stores these observations instead of the raw completed matrix.
     pub(crate) fn completed_pose(&self) -> Result<(Vec3, Vec3, Vec3), String> {
         self.validate()?;
-        let inverse = self.view_matrix.inverse();
+        let inverse = inverse_camera_transform(self.view_matrix)?;
         Ok((
             inverse.transform_point3(Vec3::ZERO),
             inverse.transform_vector3(Vec3::NEG_Z),

@@ -476,6 +476,26 @@ impl RenderPipeline {
                                     &visual_plans,
                                 );
 
+                            let installed_controls = w3d_model.native_draw_capture_controls(
+                                &authored_primary_turret,
+                                u.turret_angle_deg,
+                                u.turret_pitch_deg,
+                                &weapon_controls,
+                            );
+                            self.install_native_draw_pose(
+                                object_id,
+                                draw_module_index,
+                                Arc::clone(&w3d_model),
+                                &draw_model,
+                                world_matrix,
+                                animation_binding.clone(),
+                                installed_controls,
+                                authored_primary_turret.has_primary_bone()
+                                    || weapon_controls
+                                        .iter()
+                                        .any(|control| control.recoil_pivot_index.is_some()),
+                            );
+
                             // Retain the real native ModelDraw pose before any
                             // mesh visibility/frustum output is converted into
                             // ordinary items. C++ clones hidden children too.
@@ -511,6 +531,27 @@ impl RenderPipeline {
                             if !in_frustum || scene_culled {
                                 continue;
                             }
+
+                            // Parent RTS3DScene eligibility was accepted above.
+                            // Freeze ONE receiving RenderObj hierarchy now, before
+                            // mesh visibility/rigid transforms/aggregate palettes.
+                            // ForwardPass consumes those immutable results; it must
+                            // not advance a second clock or write another owner.
+                            let anim_frame = match self
+                                .drawable_visual_states
+                                .get_mut(&(object_id.0, draw_module_index))
+                                .expect("Draw installed its exact owner")
+                                .admit_parent_render_hierarchy(self.animation_sync_ms)
+                            {
+                                Ok(frame) => frame,
+                                Err(error) => {
+                                    warn!(
+                                        "Invalid owned RenderObj hierarchy for object {} Draw {}: {:?}",
+                                        object_id, draw_module_index, error
+                                    );
+                                    continue;
+                                }
+                            };
 
                             // C++ `HLodClass::Update_Sub_Object_Transforms`
                             // samples its additional-model parent bones after

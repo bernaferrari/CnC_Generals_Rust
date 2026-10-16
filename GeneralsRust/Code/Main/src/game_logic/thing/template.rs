@@ -40,6 +40,20 @@ pub(crate) struct ReceivingDrawModels {
 }
 
 impl ReceivingDrawModels {
+    pub(crate) fn object_draws(
+        &self,
+        bits: u128,
+    ) -> std::result::Result<Vec<crate::assets::AuthoredDrawModel>, ()> {
+        crate::assets::ObjectDefinition::select_object_draws_from_modules(&self.modules, bits)
+    }
+
+    pub(crate) fn first_object_draw(
+        &self,
+        bits: u128,
+    ) -> std::result::Result<Option<crate::assets::AuthoredDrawModel>, ()> {
+        crate::assets::ObjectDefinition::select_first_object_draw_from_modules(&self.modules, bits)
+    }
+
     pub(crate) fn select(&self, bits: u128) -> Vec<crate::assets::AuthoredDrawModel> {
         crate::assets::ObjectDefinition::select_draw_models_from_modules(&self.modules, bits)
             .unwrap_or_else(|| {

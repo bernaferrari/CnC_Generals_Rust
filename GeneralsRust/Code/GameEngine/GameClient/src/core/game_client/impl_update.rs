@@ -560,6 +560,12 @@ impl GameClient {
             }
             let position = Vector3::new(entry.position[0], entry.position[1], entry.position[2]);
             drawable.set_position(position);
+            if let Some(basic) = drawable.downcast_ref::<BasicDrawable>() {
+                observe(PresentationDrawableMutation::TransformInstalled {
+                    source: &e,
+                    transform: basic.native_base_transform(),
+                });
+            }
             let transform = Matrix4::rotation_y(entry.orientation)
                 .mul(&Matrix4::rotation_z(entry.float_yaw))
                 .mul(&Matrix4::rotation_x(entry.float_pitch));
@@ -671,6 +677,19 @@ impl GameClient {
     where
         I: IntoIterator<Item = PresentationDrawableSync>,
     {
+        self.sync_presentation_drawables_observed(entries, 0, |_| {})
+    }
+
+    /// Same actual admission, with a synchronous receiving native-render owner.
+    pub fn sync_presentation_drawables_observed<I>(
+        &mut self,
+        entries: I,
+        sync_ms: u32,
+        mut observe: impl FnMut(PresentationDrawableMutation<'_>),
+    ) -> GameClientResult<(usize, usize, usize)>
+    where
+        I: IntoIterator<Item = PresentationDrawableSync>,
+    {
         use crate::drawable::DrawableExt;
 
         let mut created = 0usize;
@@ -707,15 +726,34 @@ impl GameClient {
                     };
                     let position = Vector3::new(e.position[0], e.position[1], e.position[2]);
                     drawable.set_position(position);
+                    if let Some(basic) = drawable.downcast_ref::<BasicDrawable>() {
+                        observe(PresentationDrawableMutation::TransformInstalled {
+                            source: &e,
+                            transform: basic.native_base_transform(),
+                        });
+                    }
                     let transform = Matrix4::rotation_y(e.orientation)
                         .mul(&Matrix4::rotation_z(e.float_yaw))
                         .mul(&Matrix4::rotation_x(e.float_pitch));
                     drawable.set_instance_transform(transform);
+                    if let Some(basic) = drawable.downcast_ref::<BasicDrawable>() {
+                        observe(PresentationDrawableMutation::TransformInstalled {
+                            source: &e,
+                            transform: basic.native_base_transform(),
+                        });
+                    }
                     if let Some(basic) = drawable.downcast_mut::<BasicDrawable>() {
                         if !visual_template_name.is_empty() {
                             basic.set_template_name(Some(visual_template_name.clone()));
                         }
                         Self::stamp_presentation_object_residual(basic, &e);
+                        let flags = basic.get_model_condition_flags();
+                        let bits = (0..128.min(flags.get_bit_names().len()))
+                            .fold(0u128, |bits, i| bits | ((flags.test(i) as u128) << i));
+                        observe(PresentationDrawableMutation::ConditionsMarked {
+                            source: &e,
+                            bits,
+                        });
                     }
                     updated = updated.saturating_add(1);
                     continue;
@@ -745,6 +783,10 @@ impl GameClient {
                 // Destruction must succeed before displacing any identity or
                 // creating its replacement; failure keeps the installed owner.
                 self.destroy_drawable(drawable_id)?;
+                observe(PresentationDrawableMutation::Destroyed {
+                    host_epoch: e.host_epoch,
+                    object_id: e.object_id,
+                });
                 if self
                     .drawables
                     .drawable_object_map
@@ -771,6 +813,11 @@ impl GameClient {
             // (W3DTankDraw treads, W3DTruckDraw wheels, W3DOverlord* rider,
             // W3DLaserDraw width, W3DDebrisDraw anims). Live presentation
             // used to create a bare BasicDrawable here.
+            observe(PresentationDrawableMutation::Creating {
+                source: &e,
+                initial_transform: drawable.native_base_transform(),
+                sync_ms,
+            });
             Self::attach_presentation_specialized_draw_modules(&mut drawable, &e);
             let position = Vector3::new(e.position[0], e.position[1], e.position[2]);
             drawable.set_position(position);
@@ -778,7 +825,15 @@ impl GameClient {
                 .mul(&Matrix4::rotation_z(e.float_yaw))
                 .mul(&Matrix4::rotation_x(e.float_pitch));
             drawable.set_instance_transform(transform);
+            observe(PresentationDrawableMutation::TransformInstalled {
+                source: &e,
+                transform: drawable.native_base_transform(),
+            });
             Self::stamp_presentation_object_residual(&mut drawable, &e);
+            let flags = drawable.get_model_condition_flags();
+            let bits = (0..128.min(flags.get_bit_names().len()))
+                .fold(0u128, |bits, i| bits | ((flags.test(i) as u128) << i));
+            observe(PresentationDrawableMutation::ConditionsMarked { source: &e, bits });
             let native_laser = Self::owned_laser_count(&mut drawable) == 1;
             let id = self.alloc_drawable_id();
             drawable.set_id(id);
@@ -821,6 +876,10 @@ impl GameClient {
         let mut pruned = 0usize;
         for (drawable_id, binding_key) in stale {
             self.destroy_drawable(drawable_id)?;
+            observe(PresentationDrawableMutation::Destroyed {
+                host_epoch: binding_key.host_epoch,
+                object_id: binding_key.object_id,
+            });
             if self
                 .drawables
                 .drawable_object_map

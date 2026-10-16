@@ -1416,6 +1416,7 @@ impl GameLogic {
             object.id.0,
             object.visual_object_generation,
         )
+        .with_native_pose(object.native_pose_revision(), object.get_transform_matrix())
     }
 
     /// Make this world's engine-store bundle the ambient resolution target

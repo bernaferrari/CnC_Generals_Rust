@@ -877,7 +877,7 @@ impl DrawModuleDefinition {
     /// Select the entire source state so rendering can retain its exact
     /// `Animation` / `IdleAnimation` records instead of later choosing an
     /// arbitrary W3D clip from combat-condition heuristics.
-    fn selected_condition_state_for_conditions(
+    pub(super) fn selected_condition_state_for_conditions(
         &self,
         condition_bits: u128,
     ) -> std::result::Result<Option<(usize, &DrawConditionStateDefinition)>, ()> {
@@ -920,7 +920,7 @@ impl DrawModuleDefinition {
         Ok(best_state)
     }
 
-    fn authored_draw_model(
+    pub(super) fn authored_draw_model(
         &self,
         module_index: u32,
         state_index: u32,
@@ -935,6 +935,7 @@ impl DrawModuleDefinition {
             },
             animations: state.animations.clone(),
             animation_mode: state.animation_mode.clone(),
+            animation_speed_range_bits: state.animation_speed_range_bits,
             subobject_visibility: state.subobject_visibility.clone(),
             primary_turret: state.primary_turret.clone(),
             weapon_bone_bindings: state.weapon_bone_bindings.clone(),

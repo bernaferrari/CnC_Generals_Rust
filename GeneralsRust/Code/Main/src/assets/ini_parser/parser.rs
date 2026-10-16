@@ -381,6 +381,26 @@ impl IniParser {
                             value,
                             true,
                         ),
+                        "animationspeedfactorrange" => {
+                            if let Some(state) = active_draw_module
+                                .and_then(|module| obj.draw_modules.get_mut(module))
+                                .and_then(|module| {
+                                    active_condition_state
+                                        .and_then(|state| module.condition_states.get_mut(state))
+                                })
+                            {
+                                let values = value
+                                    .split_whitespace()
+                                    .map(str::parse::<f32>)
+                                    .collect::<std::result::Result<Vec<_>, _>>();
+                                state.animation_speed_range_bits = Some(match values {
+                                    Ok(values) if values.len() == 2 => {
+                                        [values[0].to_bits(), values[1].to_bits()]
+                                    }
+                                    _ => [f32::NAN.to_bits(); 2],
+                                });
+                            }
+                        }
                         "animationmode" => Self::assign_draw_condition_animation_mode(
                             obj,
                             active_draw_module,

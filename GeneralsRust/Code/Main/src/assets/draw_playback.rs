@@ -23,6 +23,7 @@ pub(crate) struct LiveDrawPlaybackIdentity {
     world_epoch: u64,
     object_id: u32,
     object_generation: u64,
+    native_pose: Option<(u64, glam::Mat4)>,
 }
 
 impl LiveDrawPlaybackIdentity {
@@ -39,7 +40,18 @@ impl LiveDrawPlaybackIdentity {
             world_epoch,
             object_id,
             object_generation,
+            native_pose: None,
         }
+    }
+
+    /// Freeze actual setter-owned transform facts, independent of visual interpolation.
+    pub(crate) fn with_native_pose(mut self, revision: u64, transform: glam::Mat4) -> Self {
+        self.native_pose = Some((revision, transform));
+        self
+    }
+
+    pub(crate) fn native_pose(&self) -> Option<(u64, glam::Mat4)> {
+        self.native_pose
     }
 
     pub(crate) fn object_id(&self) -> u32 {
@@ -117,6 +129,9 @@ impl PartialEq for LiveDrawPlaybackKey {
 }
 impl Eq for LiveDrawPlaybackKey {}
 impl LiveDrawPlaybackKey {
+    pub(crate) fn object_id(&self) -> u32 {
+        self.object_id
+    }
     pub(crate) fn is_alive(&self) -> bool {
         self.world.strong_count() != 0 && self.object.strong_count() != 0
     }
@@ -158,5 +173,33 @@ impl LiveDrawAnimationCompletionTarget {
 
     pub(crate) fn playback_key(&self) -> LiveDrawPlaybackKey {
         self.identity.playback_key(self.module_index)
+    }
+}
+
+#[cfg(test)]
+mod native_pose_identity_tests {
+    use super::*;
+
+    #[test]
+    fn frozen_setter_facts_preserve_identity_and_do_not_alias_other_admissions() {
+        let world = std::sync::Arc::new(());
+        let object = std::sync::Arc::new(());
+        let original = LiveDrawPlaybackIdentity::new(world.clone(), object.clone(), 1, 7, 2)
+            .with_native_pose(10, glam::Mat4::IDENTITY);
+        let moved = LiveDrawPlaybackIdentity::new(world.clone(), object.clone(), 1, 7, 2)
+            .with_native_pose(11, glam::Mat4::from_translation(glam::Vec3::X));
+        assert_eq!(original, moved);
+        assert_ne!(original.native_pose(), moved.native_pose());
+        assert_eq!(original.clone().native_pose(), original.native_pose());
+        let peer = LiveDrawPlaybackIdentity::new(std::sync::Arc::new(()), object.clone(), 1, 7, 2)
+            .with_native_pose(10, glam::Mat4::IDENTITY);
+        let readmitted =
+            LiveDrawPlaybackIdentity::new(world.clone(), std::sync::Arc::new(()), 1, 7, 2)
+                .with_native_pose(0, glam::Mat4::IDENTITY);
+        let reset = LiveDrawPlaybackIdentity::new(world, object, 2, 7, 2)
+            .with_native_pose(0, glam::Mat4::IDENTITY);
+        assert_ne!(original, peer);
+        assert_ne!(original, readmitted);
+        assert_ne!(original, reset);
     }
 }

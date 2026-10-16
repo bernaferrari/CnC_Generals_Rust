@@ -4,6 +4,7 @@ pub(crate) mod camera;
 mod look_at;
 mod motion;
 pub(crate) mod scripted;
+mod slave;
 pub(crate) mod waypoint;
 
 use game_engine::common::global_data::GlobalData;

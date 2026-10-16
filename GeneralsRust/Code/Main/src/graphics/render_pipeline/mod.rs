@@ -857,26 +857,7 @@ impl Default for ObjectWeaponRecoilState {
     }
 }
 
-/// Unified renderer-local state for a single `(ObjectId, Draw-module)`.
-/// Animation may be absent while recoil remains meaningful: a selected Draw
-/// state with no HAnim is bind pose, not an instruction to lose a real gun
-/// recoil event.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub(super) struct ObjectVisualState {
-    pub identity: Option<FrozenVisualDrawIdentity>,
-    pub animation: Option<ObjectAnimationState>,
-    pub animation_paused: bool,
-    pub animation_resume_mode: Option<crate::assets::AuthoredDrawAnimationMode>,
-    /// A restored `None` animation is an explicit saved bind-pose choice.
-    /// Keep it distinct from an ordinary cache miss: the latter may become
-    /// available after normal prewarm, while a loaded snapshot must never
-    /// invent a timeline that was absent when it was saved.
-    pub force_bind_pose: bool,
-    pub last_seen_weapon_discharge_sequence: u64,
-    pub recoil_slots: [Vec<ObjectWeaponRecoilState>; 3],
-    pub loco_acceleration_pitch_rate: f32,
-    pub loco_acceleration_roll_rate: f32,
-}
+pub(super) use installed_draw_pose::ObjectVisualState;
 
 /// Clear renderer-local state whose keys are meaningful only within one live
 /// game world.  Keep this separate from asset caches: a model or texture can
@@ -935,6 +916,10 @@ pub(super) enum RenderModelLoadResult {
     Failed,
 }
 
+mod installed_draw_pose;
+#[cfg(feature = "game_client")]
+mod native_draw_admission;
+pub(crate) use installed_draw_pose::NativeCameraPoseUnavailable;
 mod forward_materials;
 mod forward_render;
 mod hlod_aggregate_render;

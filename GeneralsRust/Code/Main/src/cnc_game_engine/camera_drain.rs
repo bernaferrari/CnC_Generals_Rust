@@ -1853,9 +1853,20 @@ impl CnCGameEngine {
             })
             .collect::<Vec<_>>();
 
+        let native_source_inputs: HashMap<_, _> = pres
+            .native_resident_drawable_inputs()
+            .into_iter()
+            .map(|unit| (unit.id.0, unit))
+            .collect();
+        let sync_ms = self.render_pipeline.current_animation_sync_ms();
+        let native_owner = &mut self.render_pipeline;
+        let graphics = &mut self.graphics_system;
         let (created, updated, pruned) = self
             .game_client
-            .sync_presentation_drawables(sync_entries)
+            .sync_presentation_drawables_observed(sync_entries, sync_ms, |mutation| {
+                let source = native_source_inputs.get(&mutation.object_id());
+                native_owner.receive_native_drawable_mutation(mutation, source, graphics);
+            })
             .map_err(|error| error.to_string())?;
         if created + updated + pruned > 0 {
             log::trace!(

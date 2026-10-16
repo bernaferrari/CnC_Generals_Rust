@@ -1589,6 +1589,10 @@ pub struct Object {
     pub visual_draw_identity_token: std::sync::Arc<()>,
     #[serde(skip)]
     pub visual_draw_state_revision: u64,
+    /// Runtime setter notification sequence, owned by this admitted Object.
+    /// Equal-value setters still notify, matching Thing::reactToTransformChange.
+    #[serde(skip)]
+    native_pose_revision: u64,
     #[serde(skip)]
     pub pending_weapon_visual_capture: Option<crate::game_logic::PendingWeaponVisualDispatchCapture>,
 

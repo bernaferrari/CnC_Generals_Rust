@@ -266,7 +266,8 @@ impl CnCGameEngine {
         });
         if decision.sync {
             WW3D::sync(decision.sync_time_ms);
-            self.render_pipeline.observe_animation_sync(decision.sync_time_ms);
+            self.render_pipeline
+                .observe_animation_sync(decision.sync_time_ms);
         }
         let result = self.finish_native_display_after_admission(decision, camera_scroll);
         if result.is_err() {
@@ -286,6 +287,12 @@ impl CnCGameEngine {
         decision: DisplayAdmission,
         camera_scroll: f32,
     ) -> Result<(), String> {
+        #[cfg(feature = "game_client")]
+        if self.native_display.pending.is_none() {
+            self.host_sync_presentation_direct_drawables(
+                self.presentation_or_boot_time_frozen() || self.game_paused,
+            )?;
+        }
         // Command intake has finished. Only this admitted view operation may
         // advance scripted camera axes, follow, shake and terrain-height ease.
         self.advance_native_camera_view(decision, camera_scroll);
@@ -300,11 +307,6 @@ impl CnCGameEngine {
                     || pending.client_frame != current_frame
             }) {
                 return Err("pending Client display belongs to a different world/frame".into());
-            }
-            if self.native_display.pending.is_none() {
-                self.host_sync_presentation_direct_drawables(
-                    self.presentation_or_boot_time_frozen() || self.game_paused,
-                )?;
             }
             let views = if decision.draw_drawables {
                 let frame = self
@@ -382,15 +384,23 @@ impl CnCGameEngine {
         }
         // Source setCameraTransform applies a slave's final pose last. The
         // retained slave resolver has its own tracked identity/bone gap.
-        let slave_pose = self.apply_host_slave_camera();
-        let positional_slave = self
+        #[cfg(feature = "game_client")]
+        if let Some(id) = self
             .game_logic
             .session_view
             .camera
             .camera_slave_mode
             .as_ref()
-            .is_some_and(|mode| mode.bone_name.is_empty());
-        if (!slave_pose || positional_slave)
+            .and_then(|mode| {
+                self.game_logic
+                    .owned_named_script_object(&mode.thing_template_name, None)
+            })
+        {
+            self.render_pipeline
+                .consume_native_camera_conditions(id, &mut self.graphics_system);
+        }
+        let slave_pose = self.apply_host_slave_camera();
+        if !slave_pose
             && matches!(
                 self.current_state,
                 GameState::InGame | GameState::Paused | GameState::Menu

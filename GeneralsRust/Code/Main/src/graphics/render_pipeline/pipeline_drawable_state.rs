@@ -77,7 +77,19 @@ fn client_animation_mode(
     }
 }
 
-fn frozen_visual_identity_for_draw_model(
+fn authored_mode(mode: ClientDrawableAnimationMode) -> crate::assets::AuthoredDrawAnimationMode {
+    use crate::assets::AuthoredDrawAnimationMode as A;
+    match mode {
+        ClientDrawableAnimationMode::Manual => A::Manual,
+        ClientDrawableAnimationMode::Loop => A::Loop,
+        ClientDrawableAnimationMode::Once => A::Once,
+        ClientDrawableAnimationMode::LoopBackwards => A::LoopBackwards,
+        ClientDrawableAnimationMode::OnceBackwards => A::OnceBackwards,
+        ClientDrawableAnimationMode::LoopPingPong => A::LoopPingPong,
+    }
+}
+
+pub(super) fn frozen_visual_identity_for_draw_model(
     source_template_name: &str,
     draw_model: &crate::assets::AuthoredDrawModel,
 ) -> Option<FrozenVisualDrawIdentity> {
@@ -104,7 +116,7 @@ fn frozen_visual_identity_for_draw_model(
     })
 }
 
-fn visual_identity_matches_snapshot(
+pub(super) fn visual_identity_matches_snapshot(
     identity: &FrozenVisualDrawIdentity,
     snapshot: &ClientDrawableStateSnapshot,
 ) -> bool {
@@ -118,6 +130,7 @@ fn visual_identity_matches_snapshot(
         && identity.selected_condition_state_index == snapshot.selected_condition_state_index
         && match (&identity.animation, &snapshot.animation) {
             (None, None) => true,
+            (None, Some(saved)) => saved.has_finite_values(),
             (Some(expected), Some(saved)) => {
                 expected
                     .hierarchy_animation
@@ -128,7 +141,7 @@ fn visual_identity_matches_snapshot(
         }
 }
 
-fn snapshot_from_visual_state(
+pub(super) fn snapshot_from_visual_state(
     object_id: u32,
     draw_module_index: u32,
     state: &ObjectVisualState,
@@ -136,6 +149,18 @@ fn snapshot_from_visual_state(
     let identity = state.identity.as_ref()?;
     let animation = match (&identity.animation, &state.animation) {
         (None, None) => None,
+        (None, Some(live))
+            if state.retained_installed_binding().is_some()
+                && live.current_frame.is_finite()
+                && live.frame_rate.is_finite()
+                && live.num_frames > 0 =>
+        {
+            Some(ClientDrawableAnimationSnapshot {
+                hierarchy_animation: live.animation_identity.clone(),
+                frame: live.current_frame,
+                mode: client_animation_mode(&live.mode)?,
+            })
+        }
         (Some(expected), Some(live))
             if !state.force_bind_pose
                 && live
@@ -668,7 +693,35 @@ impl RenderPipeline {
             let first_bind = state.identity.is_none();
             let retained_recoil = first_bind.then(|| state.recoil_slots.clone());
             let retained_sequence = first_bind.then_some(state.last_seen_weapon_discharge_sequence);
+            let retained_animation = if identity.animation.is_none()
+                && matches!(&state.installed_draw_pose,super::installed_draw_pose::InstalledDrawObject::Ready(pose) if pose.can_reuse_for(model,draw_model))
+            {
+                state.animation.take()
+            } else {
+                None
+            };
+            let installed_draw_pose = std::mem::take(&mut state.installed_draw_pose);
+            let native_source_template = std::mem::take(&mut state.native_source_template);
+            let native_source_supported = state.native_source_supported;
+            let native_condition_supported = state.native_condition_supported;
+            let native_condition_bits = state.native_condition_bits;
+            let native_pending_condition = state.native_pending_condition.take();
+            let native_selected_condition = state.native_selected_condition.take();
+            let native_drawable_transform = state.native_drawable_transform;
+            let native_transform_revision = state.native_transform_revision;
+            let native_host_identity = state.native_host_identity.clone();
             *state = ObjectVisualState {
+                animation: retained_animation,
+                installed_draw_pose,
+                native_source_template,
+                native_source_supported,
+                native_condition_supported,
+                native_condition_bits,
+                native_pending_condition,
+                native_selected_condition,
+                native_drawable_transform,
+                native_transform_revision,
+                native_host_identity,
                 identity: Some(identity.clone()),
                 animation_paused,
                 animation_resume_mode,
@@ -734,6 +787,20 @@ impl RenderPipeline {
                     );
                     return (None, 0.0, controls);
                 }
+                (None, Some(saved_animation)) if saved_animation.has_finite_values() => {
+                    Self::cached_draw_animation_binding(model, &saved_animation.hierarchy_animation)
+                        .filter(|binding| model.animation_binding_is_compatible(binding))
+                        .and_then(|binding| {
+                            model
+                                .animation_binding_metadata(&binding)
+                                .and_then(|(frames, rate)| {
+                                    (frames > 0
+                                        && rate > 0
+                                        && saved_animation.frame <= frames.saturating_sub(1) as f32)
+                                        .then_some((binding, frames, rate))
+                                })
+                        })
+                }
                 (Some(expected), Some(saved_animation))
                     if expected
                         .hierarchy_animation
@@ -764,10 +831,10 @@ impl RenderPipeline {
                 state.force_bind_pose = false;
                 state.animation = Some(ObjectAnimationState {
                     animation_binding_key: Some(binding.state_key()),
-                    animation_identity: identity
+                    animation_identity: saved
                         .animation
                         .as_ref()
-                        .expect("checked Some animation")
+                        .expect("checked saved animation")
                         .hierarchy_animation
                         .clone(),
                     current_frame: saved
@@ -777,13 +844,23 @@ impl RenderPipeline {
                         .frame,
                     frame_rate: frame_rate as f32,
                     num_frames,
-                    mode: draw_model.animation_mode.clone(),
+                    mode: authored_mode(saved.animation.as_ref().unwrap().mode),
                     last_sync_ms: self.animation_sync_ms,
                     previous_frame: saved.animation.as_ref().expect("checked animation").frame,
                     frame_rate_multiplier: 1.,
-                    direction: ObjectAnimationState::initial_direction(&draw_model.animation_mode),
-                    playback_mode: draw_model.animation_mode.clone(),
+                    direction: ObjectAnimationState::initial_direction(&authored_mode(
+                        saved.animation.as_ref().unwrap().mode,
+                    )),
+                    playback_mode: authored_mode(saved.animation.as_ref().unwrap().mode),
                 });
+                if identity.animation.is_none() {
+                    if let super::installed_draw_pose::InstalledDrawObject::Ready(pose) =
+                        &mut state.installed_draw_pose
+                    {
+                        pose.animation_binding = Some(binding.clone());
+                        pose.hierarchy_valid = false;
+                    }
+                }
                 let topology = model
                     .weapon_barrel_topology_for_authored_bindings(&draw_model.weapon_bone_bindings);
                 let Some(recoil_slots) = topology.as_ref().and_then(|topology| {
@@ -845,6 +922,24 @@ impl RenderPipeline {
             return (None, 0.0, controls);
         }
         let Some(expected) = identity.animation.as_ref() else {
+            let should_animate = leftover_should_animate_for_presentation(
+                self.presentation_frame.as_deref(),
+                object_id,
+                draw_model.animations_require_power.get(),
+            );
+            if let Some((binding, frame)) =
+                state.advance_retained_motion_at_draw(self.animation_sync_ms, should_animate)
+            {
+                let topology = model
+                    .weapon_barrel_topology_for_authored_bindings(&draw_model.weapon_bone_bindings);
+                let controls = recoil_controls_for_topology(
+                    state,
+                    topology.as_ref(),
+                    &draw_model.recoil_kinematics,
+                    &discharges,
+                );
+                return (Some(binding), frame, controls);
+            }
             state.animation = None;
             let topology = model
                 .weapon_barrel_topology_for_authored_bindings(&draw_model.weapon_bone_bindings);
@@ -947,7 +1042,6 @@ impl RenderPipeline {
             }
             _ => {}
         }
-        animation.admit_sync(self.animation_sync_ms);
         let current_frame = animation.current_frame;
         let topology =
             model.weapon_barrel_topology_for_authored_bindings(&draw_model.weapon_bone_bindings);

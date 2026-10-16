@@ -296,12 +296,7 @@ fn raw_pose_and_committed_view_remain_distinct_and_keys_survive() {
     assert_eq!(restored.completed_eye, state.completed_eye);
     assert_eq!(restored.completed_forward, state.completed_forward);
     assert_eq!(restored.camera_zoom_frame, 14);
-    let pose = NativeCameraContinuation(
-        restored,
-        #[cfg(feature = "game_client")]
-        None,
-    )
-    .camera_persist();
+    let pose = NativeCameraContinuation(restored, NativeCameraExtras::default()).camera_persist();
     assert_eq!(pose.angle, 7.25);
     assert_eq!(pose.position, state.camera_position.to_array());
     assert_eq!(pose.target, state.camera_target.to_array());

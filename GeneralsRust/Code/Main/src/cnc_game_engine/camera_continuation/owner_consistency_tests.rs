@@ -16,11 +16,7 @@ fn pair() -> (GameLogic, NativeCameraContinuation) {
     state.validate().unwrap();
     (
         source,
-        NativeCameraContinuation(
-            state,
-            #[cfg(feature = "game_client")]
-            None,
-        ),
+        NativeCameraContinuation(state, NativeCameraExtras::default()),
     )
 }
 

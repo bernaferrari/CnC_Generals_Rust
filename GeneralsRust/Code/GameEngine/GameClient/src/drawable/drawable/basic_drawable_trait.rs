@@ -619,3 +619,13 @@ impl Drawable for BasicDrawable {
         Snapshotable::xfer(self, xfer)
     }
 }
+
+impl BasicDrawable {
+    /// Receiving Thing/Drawable transform at reactToTransformChange, before
+    /// Draw adds locomotor recoil and instance scale. Native direct admission
+    /// already stores Y-up coordinates here; only storage layout changes at
+    /// the renderer boundary.
+    pub(crate) fn native_base_transform(&self) -> Matrix4 {
+        Matrix4::translation(self.position).mul(&self.instance_transform)
+    }
+}

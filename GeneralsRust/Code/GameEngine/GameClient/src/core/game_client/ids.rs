@@ -228,3 +228,35 @@ impl DrawableId {
         self.0 != 0
     }
 }
+
+/// Synchronous native RenderObj lifecycle facts. The observer is borrowed for
+/// this operation; no callback is published or retained on Drawable/GameClient.
+pub enum PresentationDrawableMutation<'a> {
+    Creating {
+        source: &'a PresentationDrawableSync,
+        initial_transform: crate::drawable::Matrix4,
+        sync_ms: u32,
+    },
+    TransformInstalled {
+        source: &'a PresentationDrawableSync,
+        transform: crate::drawable::Matrix4,
+    },
+    ConditionsMarked {
+        source: &'a PresentationDrawableSync,
+        bits: u128,
+    },
+    Destroyed {
+        host_epoch: u64,
+        object_id: u32,
+    },
+}
+impl PresentationDrawableMutation<'_> {
+    pub fn object_id(&self) -> u32 {
+        match self {
+            Self::Creating { source, .. }
+            | Self::TransformInstalled { source, .. }
+            | Self::ConditionsMarked { source, .. } => source.object_id,
+            Self::Destroyed { object_id, .. } => *object_id,
+        }
+    }
+}

@@ -516,6 +516,18 @@ impl UnitRenderInput {
     /// the query-layer disguise override: an actual disguise owns its Object
     /// identity, while ordinary inputs keep opaque exact W3D module keys for
     /// the renderer.
+    /// Exact source first ObjectDrawInterface, even if selected Model=None.
+    /// Missing receiving source metadata is an unresolved producer seam; do not
+    /// infer an interface from first visible model or global template lookup.
+    pub(crate) fn first_object_draw(
+        &self,
+    ) -> std::result::Result<Option<crate::assets::AuthoredDrawModel>, ()> {
+        self.receiving_draw_models
+            .as_deref()
+            .ok_or(())?
+            .first_object_draw(self.model_condition_bits_with_combat_flags())
+    }
+
     pub(crate) fn resolve_draw_models_for_frozen_conditions(&mut self) {
         let fallback_draw_models = self.draw_models.clone();
         let bits = self.model_condition_bits_with_combat_flags();

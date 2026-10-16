@@ -104,3 +104,5 @@ mod session_view;
 pub(crate) use session_view::{
     SessionView, SessionViewImpulse, SessionViewState, camera, scripted, waypoint,
 };
+
+mod native_drawable_source;

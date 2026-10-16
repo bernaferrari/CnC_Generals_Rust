@@ -15,6 +15,7 @@ impl Object {
     pub fn set_position(&mut self, position: Vec3) {
         let old_position = self.get_position();
         self.thing.set_position(position);
+        self.notify_native_pose_installed();
         self.react_to_position_change(old_position);
     }
 
@@ -23,6 +24,7 @@ impl Object {
     pub fn set_transform_matrix(&mut self, transform: Mat4) {
         let old_position = self.get_position();
         self.thing.set_transform_matrix(transform);
+        self.notify_native_pose_installed();
         self.react_to_position_change(old_position);
     }
 
@@ -168,6 +170,18 @@ impl Object {
 
     pub fn set_orientation(&mut self, angle: f32) {
         self.thing.set_orientation(angle);
+        self.notify_native_pose_installed();
+    }
+
+    pub(crate) fn native_pose_revision(&self) -> u64 {
+        self.native_pose_revision
+    }
+
+    pub(super) fn notify_native_pose_installed(&mut self) {
+        self.native_pose_revision = self
+            .native_pose_revision
+            .checked_add(1)
+            .expect("Object native pose notification sequence exhausted");
     }
 
     pub fn get_transform_matrix(&self) -> Mat4 {
@@ -1134,5 +1148,28 @@ impl Object {
         }
         self.model_condition_bits = bits;
         self.sync_overlord_addon_body_damage();
+    }
+}
+
+#[cfg(test)]
+mod native_pose_notification_tests {
+    use super::*;
+
+    #[test]
+    fn equal_setters_notify_and_queries_do_not() {
+        let mut object = Object::new_simple(ObjectId(1), ObjectType::Vehicle, "PoseFixture".into());
+        let initial = object.native_pose_revision();
+        let position = object.get_position();
+        object.set_position(position);
+        assert_eq!(object.native_pose_revision(), initial + 1);
+        object.set_orientation(object.get_orientation());
+        assert_eq!(object.native_pose_revision(), initial + 2);
+        let matrix = object.get_transform_matrix();
+        object.set_transform_matrix(matrix);
+        assert_eq!(object.native_pose_revision(), initial + 3);
+        assert_eq!(object.get_transform_matrix(), matrix);
+        assert_eq!(object.native_pose_revision(), initial + 3);
+        let clone = object.clone();
+        assert_eq!(clone.native_pose_revision(), object.native_pose_revision());
     }
 }

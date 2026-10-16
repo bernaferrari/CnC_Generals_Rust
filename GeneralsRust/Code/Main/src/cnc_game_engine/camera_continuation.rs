@@ -13,10 +13,15 @@ use std::time::{Duration, Instant};
 const MAX_BYTES: usize = 1_048_576;
 
 /// Private validated fields prevent mutation between detached decoding and commit.
-pub(crate) struct NativeCameraContinuation(
-    CameraState,
-    #[cfg(feature = "game_client")] Option<(glam::Vec2, Vec3)>,
-);
+pub(crate) struct NativeCameraContinuation(CameraState, NativeCameraExtras);
+
+/// Detached versioned observations; admission writes the existing SessionCamera.
+/// Neither this value nor the historical Native85 record is a runtime owner.
+#[derive(Default)]
+struct NativeCameraExtras {
+    filter: Option<(glam::Vec2, Vec3)>,
+    completed_view: Option<glam::Mat4>,
+}
 
 #[derive(Serialize, Deserialize)]
 struct CameraState {
@@ -186,6 +191,14 @@ impl CameraState {
 }
 
 impl NativeCameraContinuation {
+    /// V2 retains the exact installed matrix. Raw/V1 only promised a normalized
+    /// semantic pose and use their original look-at reconstruction.
+    fn completed_view(&self) -> glam::Mat4 {
+        self.1
+            .completed_view
+            .unwrap_or_else(|| self.0.completed_view())
+    }
+
     /// Decode/capture validates each record independently; this detects two
     /// individually valid records that refer to different camera continuations.
     pub(crate) fn validate_logic_continuation(
@@ -196,6 +209,9 @@ impl NativeCameraContinuation {
             // Raw/V1 inactive Rust records have no complete camera to compare.
             return Ok(());
         };
+        if let Some(view) = self.1.completed_view {
+            owned.validate_completed_view(view)?;
+        }
         let (eye, forward, up) = owned.completed_pose()?;
         let same =
             |a: Vec3, b: Vec3| a.to_array().map(f32::to_bits) == b.to_array().map(f32::to_bits);
@@ -207,10 +223,10 @@ impl NativeCameraContinuation {
         }
         let mut camera = SessionCamera::default();
         self.0.admit_session_camera_fields(&mut camera);
-        camera.view_matrix = self.0.completed_view();
+        camera.view_matrix = self.completed_view();
         #[cfg(feature = "game_client")]
         {
-            let (scroll, previous_target) = self.1.unwrap_or_default();
+            let (scroll, previous_target) = self.1.filter.unwrap_or_default();
             camera.native_filter_scroll = scroll;
             camera.native_filter_previous_target = previous_target;
         }
@@ -229,7 +245,9 @@ impl NativeCameraContinuation {
 impl CnCGameEngine {
     pub(crate) fn capture_camera_continuation(&self) -> Result<Vec<u8>, String> {
         let now = Instant::now();
-        let inverse_view = self.game_logic.session_view.camera.view_matrix.inverse();
+        let inverse_view = crate::presentation_frame::camera::pose::inverse_camera_transform(
+            self.game_logic.session_view.camera.view_matrix,
+        )?;
         let view = self.game_logic.session_view.capture();
         let state = CameraState {
             completed_eye: inverse_view.transform_point3(Vec3::ZERO),
@@ -447,7 +465,6 @@ impl CnCGameEngine {
             last_right_click_time_age: age(now, self.last_right_click_time)?,
             rmb_deselect_down_at_age: age(now, self.rmb_deselect_down_at)?,
         };
-        state.validate()?;
         encode_native_camera(self, &state)
     }
     pub(crate) fn decode_camera_continuation(
@@ -461,15 +478,15 @@ impl CnCGameEngine {
     pub(crate) fn admit_camera_continuation(&mut self, continuation: NativeCameraContinuation) {
         #[cfg(feature = "game_client")]
         {
-            let (scroll, previous_target) = continuation.1.unwrap_or_default();
+            let (scroll, previous_target) = continuation.1.filter.unwrap_or_default();
             self.game_logic.session_view.camera.native_filter_scroll = scroll;
             self.game_logic
                 .session_view
                 .camera
                 .native_filter_previous_target = previous_target;
         }
+        let completed_view = continuation.completed_view();
         let state = continuation.0;
-        let completed_view = state.completed_view();
         let now = Instant::now();
         state.admit_session_camera_fields(&mut self.game_logic.session_view.camera);
         self.look_at_modes.admit_continuation(state.look_at);

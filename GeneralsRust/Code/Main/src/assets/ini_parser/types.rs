@@ -423,6 +423,8 @@ pub struct DrawConditionStateDefinition {
     pub model: AuthoredConditionModel,
     pub animations: Vec<AuthoredDrawAnimation>,
     pub animation_mode: AuthoredDrawAnimationMode,
+    /// Source AnimationSpeedFactorRange, float bit patterns; None is default 1..1.
+    pub animation_speed_range_bits: Option<[u32; 2]>,
     /// Ordered C++ `ModelConditionInfo::m_hideShowVec` counterpart.  This is
     /// copied wholesale from `DefaultConditionState` before local directives
     /// are parsed, just like model and animation state.
@@ -461,6 +463,7 @@ impl DrawConditionStateDefinition {
             model: AuthoredConditionModel::Unspecified,
             animations: Vec::new(),
             animation_mode: AuthoredDrawAnimationMode::Once,
+            animation_speed_range_bits: None,
             subobject_visibility: Vec::new(),
             primary_turret: AuthoredDrawPrimaryTurret::default(),
             weapon_bone_bindings: AuthoredDrawWeaponBoneBindings::default(),
@@ -480,6 +483,7 @@ impl DrawConditionStateDefinition {
             model: AuthoredConditionModel::Unspecified,
             animations: Vec::new(),
             animation_mode: AuthoredDrawAnimationMode::Once,
+            animation_speed_range_bits: None,
             subobject_visibility: Vec::new(),
             primary_turret: AuthoredDrawPrimaryTurret::default(),
             weapon_bone_bindings: AuthoredDrawWeaponBoneBindings::default(),
@@ -499,6 +503,7 @@ impl DrawConditionStateDefinition {
             model: AuthoredConditionModel::Unspecified,
             animations: Vec::new(),
             animation_mode: AuthoredDrawAnimationMode::Once,
+            animation_speed_range_bits: None,
             subobject_visibility: Vec::new(),
             primary_turret: AuthoredDrawPrimaryTurret::default(),
             weapon_bone_bindings: AuthoredDrawWeaponBoneBindings::default(),
@@ -623,6 +628,8 @@ pub struct AuthoredDrawModel {
     /// Defaults to source `ANIM_MODE_ONCE` for legacy presentation frames.
     #[serde(default)]
     pub animation_mode: AuthoredDrawAnimationMode,
+    #[serde(default)]
+    pub animation_speed_range_bits: Option<[u32; 2]>,
     /// Frozen active `ShowSubObject`/`HideSubObject` directives.  Empty is the
     /// legacy/default representation and leaves every resolved HLOD child
     /// visible unless its animation says otherwise.

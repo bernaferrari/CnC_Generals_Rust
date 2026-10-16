@@ -700,65 +700,14 @@ impl W3DModel {
     ) -> Option<Vec<W3dHlodAggregatePose>> {
         let fallback =
             self.aggregate_attachment_poses_for_binding(animation_binding, animation_frame)?;
-        let Some((_hlod, hierarchy)) = self.rigid_hlod_context() else {
+        let Some(capture_controls) = self.native_draw_capture_controls(
+            primary_turret,
+            turret_angle_degrees,
+            turret_pitch_degrees,
+            weapon_controls,
+        ) else {
             return Some(fallback);
         };
-
-        let mut capture_controls = Vec::new();
-        if primary_turret.primary_fields_valid && !primary_turret.has_unsupported_alternate_turret()
-        {
-            if let Some((bone_index, transform)) = primary_turret
-                .yaw_bone
-                .as_deref()
-                .and_then(|bone_name| Self::primary_turret_pivot_index(hierarchy, bone_name))
-                .and_then(|bone_index| {
-                    Self::primary_turret_angle_radians(
-                        turret_angle_degrees,
-                        primary_turret.yaw_art_angle_radians(),
-                    )
-                    .map(|angle| (bone_index, Mat4::from_rotation_z(angle)))
-                })
-            {
-                capture_controls.push((i32::try_from(bone_index).ok()?, transform));
-            }
-            if let Some((bone_index, transform)) = primary_turret
-                .pitch_bone
-                .as_deref()
-                .and_then(|bone_name| Self::primary_turret_pivot_index(hierarchy, bone_name))
-                .and_then(|bone_index| {
-                    Self::primary_turret_angle_radians(
-                        turret_pitch_degrees,
-                        primary_turret.pitch_art_angle_radians(),
-                    )
-                    .map(|angle| (bone_index, Mat4::from_rotation_y(-angle)))
-                })
-            {
-                // `handleClientTurretPositioning` controls yaw before pitch.
-                // Preserve that order, including a malformed same-pivot
-                // source where pitch intentionally replaces yaw.
-                capture_controls.push((i32::try_from(bone_index).ok()?, transform));
-            }
-        }
-
-        for control in weapon_controls {
-            let Some(pivot_index) = control
-                .recoil_pivot_index
-                .and_then(|index| usize::try_from(index).ok())
-                .filter(|index| *index != 0 && *index < hierarchy.pivots.len())
-            else {
-                continue;
-            };
-            if !control.recoil_shift.is_finite() || control.recoil_shift < 0.0 {
-                return Some(fallback);
-            }
-            // `handleClientRecoil` runs after turret positioning. Its later
-            // slot/barrel control replaces an earlier control on the same
-            // source pivot, exactly as `HTreeClass::Control_Bone` does.
-            capture_controls.push((
-                i32::try_from(pivot_index).ok()?,
-                Mat4::from_translation(Vec3::new(-control.recoil_shift, 0.0, 0.0)),
-            ));
-        }
 
         if capture_controls.is_empty() {
             return Some(fallback);

@@ -1004,60 +1004,58 @@ impl CnCGameEngine {
         else {
             return false;
         };
-        let origin = self
-            .last_presentation_frame
-            .as_ref()
-            .and_then(|frame| frame.first_alive_position_for_template(&mode.thing_template_name));
-        let mut eye = None;
-        let mut look = origin;
-        #[cfg(feature = "game_client")]
-        {
-            game_client::display::view::with_tactical_view(|view| {
-                view.camera_enable_slave_mode(&mode.thing_template_name, &mode.bone_name);
-            });
-            let slaved =
-                game_client::display::view::with_tactical_view_ref(|view| view.is_camera_slaved());
-            if slaved {
-                let p = game_client::display::view::with_tactical_view_ref(|view| {
-                    view.get_3d_camera_position()
-                });
-                // Leftover View is C++ Z-up; live host is Y-up.
-                eye = Some(Vec3::new(p.x, p.z, p.y));
-            }
-        }
-        let Some(origin) = origin else {
+        let Some(id) = self
+            .game_logic
+            .owned_named_script_object(&mode.thing_template_name, None)
+        else {
+            self.game_logic.session_view.camera.camera_slave_mode = None;
             return false;
         };
-        if let Some(eye_pos) = eye {
-            self.game_logic.session_view.camera.camera_position = eye_pos;
-            self.game_logic.session_view.target = look.unwrap_or(origin);
-            self.game_logic.session_view.camera.view_matrix = Mat4::look_at_rh(
-                self.game_logic.session_view.camera.camera_position,
-                self.game_logic.session_view.target,
-                Vec3::Y,
-            );
-            true
-        } else if !mode.bone_name.is_empty() {
-            // Bone missing: still parent the camera at the unit, not an orbit look-at.
-            self.game_logic.session_view.camera.camera_position = origin + Vec3::Y * 2.0;
-            self.game_logic.session_view.target = origin;
-            self.game_logic.session_view.camera.view_matrix = Mat4::look_at_rh(
-                self.game_logic.session_view.camera.camera_position,
-                self.game_logic.session_view.target,
-                Vec3::Y,
-            );
-            true
-        } else {
-            let clamped = self.clamp_to_world_bounds(origin);
-            if (self.game_logic.session_view.target.x - clamped.x).abs() > 0.001
-                || (self.game_logic.session_view.target.z - clamped.z).abs() > 0.001
+        #[cfg(feature = "game_client")]
+        {
+            if self
+                .game_client
+                .presentation_direct_drawable_state(self.host_direct_visual_world_epoch, id.0)
+                .is_none()
             {
-                self.game_logic.session_view.target.x = clamped.x;
-                self.game_logic.session_view.target.z = clamped.z;
-                true
-            } else {
-                false
+                self.game_logic.session_view.camera.camera_slave_mode = None;
+                return false;
             }
+            let Some(source) = self.last_presentation_frame.as_ref().and_then(|frame| {
+                frame
+                    .native_resident_drawable_inputs()
+                    .into_iter()
+                    .find(|source| source.id == id)
+            }) else {
+                return false;
+            };
+            let Ok(Some(module)) = source.first_object_draw() else {
+                return false;
+            };
+            match self.render_pipeline.native_installed_camera_pose(
+                id,
+                module.module_index,
+                &mode.bone_name,
+            ) {
+                Ok(world) => {
+                    return self
+                        .game_logic
+                        .session_view
+                        .commit_native_slave_world(world);
+                }
+                Err(reason) => {
+                    // NoRenderObject leaves tm uninitialized in original C++.
+                    // Preserve the ordinary owning camera on this undefined
+                    // source path; never invent bone/origin/2m or use Core View.
+                    log::trace!("Native slave pose unavailable: {:?}", reason);
+                    return false;
+                }
+            }
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = (mode, id);
+            false
         }
     }
 

@@ -3,29 +3,55 @@ use super::*;
 
 impl CameraState {
     pub(super) fn validate(&self) -> Result<(), String> {
-        let forward_length = self.completed_forward.length_squared();
-        let up_length = self.completed_up.length_squared();
-        let cross_length = self
-            .completed_forward
-            .cross(self.completed_up)
-            .length_squared();
-        let look = self.completed_eye + self.completed_forward;
-        if !self.completed_eye.is_finite()
-            || !self.completed_forward.is_finite()
-            || !self.completed_up.is_finite()
-            || !look.is_finite()
-            || !forward_length.is_finite()
-            || !up_length.is_finite()
-            || !cross_length.is_finite()
-            || cross_length < 1.0e-12
-            || forward_length < 1.0e-12
-            || up_length < 1.0e-12
-            || (look - self.completed_eye).length_squared() < 1.0e-12
-        {
-            return Err("invalid completed camera view".into());
-        }
-        if !glam::Mat4::look_at_rh(self.completed_eye, look, self.completed_up).is_finite() {
-            return Err("nonfinite reconstructed camera view".into());
+        self.validate_with_completed_view(None)
+    }
+
+    pub(super) fn validate_with_completed_view(
+        &self,
+        completed_view: Option<glam::Mat4>,
+    ) -> Result<(), String> {
+        if let Some(matrix) = completed_view {
+            let inverse =
+                crate::presentation_frame::camera::pose::inverse_camera_transform(matrix)?;
+            let same =
+                |a: Vec3, b: Vec3| a.to_array().map(f32::to_bits) == b.to_array().map(f32::to_bits);
+            let eye = inverse.transform_point3(Vec3::ZERO);
+            let forward = inverse.transform_vector3(Vec3::NEG_Z);
+            let up = inverse.transform_vector3(Vec3::Y);
+            if !eye.is_finite()
+                || !forward.is_finite()
+                || !up.is_finite()
+                || !same(eye, self.completed_eye)
+                || !same(forward, self.completed_forward)
+                || !same(up, self.completed_up)
+            {
+                return Err("native camera matrix and pose observations disagree".into());
+            }
+        } else {
+            let forward_length = self.completed_forward.length_squared();
+            let up_length = self.completed_up.length_squared();
+            let cross_length = self
+                .completed_forward
+                .cross(self.completed_up)
+                .length_squared();
+            let look = self.completed_eye + self.completed_forward;
+            if !self.completed_eye.is_finite()
+                || !self.completed_forward.is_finite()
+                || !self.completed_up.is_finite()
+                || !look.is_finite()
+                || !forward_length.is_finite()
+                || !up_length.is_finite()
+                || !cross_length.is_finite()
+                || cross_length < 1.0e-12
+                || forward_length < 1.0e-12
+                || up_length < 1.0e-12
+                || (look - self.completed_eye).length_squared() < 1.0e-12
+            {
+                return Err("invalid completed camera view".into());
+            }
+            if !glam::Mat4::look_at_rh(self.completed_eye, look, self.completed_up).is_finite() {
+                return Err("nonfinite reconstructed camera view".into());
+            }
         }
         self.height.validate()?;
         self.look_at.validate()?;

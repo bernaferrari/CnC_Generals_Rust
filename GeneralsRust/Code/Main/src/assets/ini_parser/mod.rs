@@ -17,6 +17,7 @@ use std::collections::HashMap;
 
 mod captured_object_source;
 mod client_module_declarations;
+mod first_object_draw;
 mod objects;
 mod parser;
 mod types;

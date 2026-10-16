@@ -1,5 +1,39 @@
 //! Shared completed-pose arithmetic; no clocks or state mutation.
 use glam::{Mat4, Vec3};
+
+// Matrix3D has an implicit (0,0,0,1) homogeneous row. General Mat4 inverse
+// computes its last entry as cofactor*(1/det), which can round away from 1.
+// Preserve those native bits within the actual glam affine-helper precondition;
+// any nonzero XYZ perspective term is rejected, rather than hidden by tolerance.
+fn affine_view_row(matrix: Mat4) -> bool {
+    matrix.x_axis.w == 0.0
+        && matrix.y_axis.w == 0.0
+        && matrix.z_axis.w == 0.0
+        && (matrix.w_axis.w - 1.0).abs() <= 1.0e-6
+}
+
+/// Check and invert the affine camera transform before admission or persistence.
+/// Projection has a separate validation path; reflected/scaled affine views are valid.
+pub(crate) fn inverse_camera_transform(matrix: Mat4) -> Result<Mat4, String> {
+    let determinant = matrix.determinant();
+    if !matrix.is_finite() || !determinant.is_finite() || determinant == 0.0 {
+        return Err("invalid completed camera view matrix".into());
+    }
+    if !affine_view_row(matrix) {
+        return Err("non-affine completed camera view matrix".into());
+    }
+    let inverse = matrix
+        .try_inverse()
+        .ok_or_else(|| "singular completed camera view matrix".to_owned())?;
+    if !inverse.is_finite() {
+        return Err("nonfinite inverse camera view matrix".into());
+    }
+    if !affine_view_row(inverse) {
+        return Err("non-affine inverse camera view matrix".into());
+    }
+    Ok(inverse)
+}
+
 /// Current map basis and existing shake/FX; no clock advances during redraw.
 pub(crate) fn camera_orbit_pose(
     native_camera: &super::height::CameraHeight,

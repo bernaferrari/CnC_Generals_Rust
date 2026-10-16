@@ -1047,6 +1047,7 @@ impl Object {
     ) {
         self.structure_topple_data = Some(runtime);
         self.thing.set_transform_matrix(matrix);
+        self.notify_native_pose_installed();
     }
 
     pub(crate) fn apply_owned_structure_topple_rotation(&mut self) {
@@ -1063,6 +1064,7 @@ impl Object {
             dy,
         );
         self.thing.set_transform_matrix(matrix);
+        self.notify_native_pose_installed();
     }
     pub(crate) fn finish_owned_structure_topple_pose(&mut self) {
         self.model_condition_bits &=
@@ -1078,12 +1080,14 @@ impl Object {
         let angle = data.dir_y.atan2(data.dir_x);
         let original = self.get_orientation();
         self.thing.set_orientation(original);
+        self.notify_native_pose_installed();
         self.thing.set_transform_matrix(
             crate::game_logic::host_structure_topple::pose::rotate_done_basis(
                 self.thing.get_transform_matrix(),
                 angle - original,
             ),
         );
+        self.notify_native_pose_installed();
     }
 
     /// Combined presentation lean (tree topple or structure topple).

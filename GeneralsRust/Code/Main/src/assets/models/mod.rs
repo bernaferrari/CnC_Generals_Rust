@@ -13,6 +13,8 @@ mod hlod_bounding_box;
 mod hlod_dazzle_child;
 mod hlod_emitter_child;
 mod w3d_anim;
+mod w3d_camera_bone;
+pub(crate) use w3d_camera_bone::BonePoseUnavailable;
 mod w3d_collection_aggregate;
 mod w3d_dazzle_loader;
 mod w3d_emitter_loader;

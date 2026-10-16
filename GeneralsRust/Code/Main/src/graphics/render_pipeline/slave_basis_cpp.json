@@ -1,0 +1,747 @@
+{
+  "scope": "Extracted CameraClass Set_Transform + Project, Matrix3D Transform_Vector/Get_Orthogonal_Inverse, Matrix4x4 Init_Perspective rigid component oracle",
+  "limitations": [
+    "POD RenderObjClass Set_Transform stores provided matrix; Update_Frustum scaffold selects original orthogonal inverse for these rigid cases rather than unavailable D3DXMatrixInverse; no general scaled/sheared inverse acceptance",
+    "Projection multiplication/scalar PODs scaffolded; full engine/frustum/device not executed",
+    "Points are transformed from nontrivial camera-local witnesses using extracted Transform_Vector; identity, translated, cyclic axis and nonaxis rational rigid rotation cameras",
+    "Original GL depth maps to WGPU by z_wgpu=0.5*z_gl+0.5; compare x/y unchanged"
+  ],
+  "pins": {
+    "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/camera.cpp": "7a5444fb2e06d6448cd40d0fec916b5416114b624eda2a48b37710001f14959f",
+    "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/matrix3d.h": "e81042fe83b8e5fcf6baa131cd77999f8d073d61684980ada9c6095716d99804",
+    "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/matrix3d.cpp": "c1c842b0425f188e6f94fdb4baac79035e2adb5e62776a94fe2009bbef04ef96",
+    "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/matrix4.h": "9c26ae95f58c0c2e71343dd9d5944223e8745b5e9b49469abc4ef4b5f167d9f0"
+  },
+  "oracle_sha256": "e6eb3285c527b8e36d2f0b51ab6bf853a6fa9415829bb044c5587b23c9286ee5",
+  "optimization_outputs_equal": true,
+  "projection": {
+    "left": -2,
+    "right": 2,
+    "bottom": -1.5,
+    "top": 1.5,
+    "near": 2,
+    "far": 100
+  },
+  "records": [
+    {
+      "camera": 0,
+      "source_rotation_row_major": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "source_translation": [
+        0,
+        0,
+        0
+      ],
+      "source_world_point": [
+        0.0,
+        0.0,
+        -10.0
+      ],
+      "cpp_projected_gl": [
+        0.0,
+        0.0,
+        0.632653058
+      ],
+      "cpp_result": 0
+    },
+    {
+      "camera": 0,
+      "source_rotation_row_major": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "source_translation": [
+        0,
+        0,
+        0
+      ],
+      "source_world_point": [
+        3.0,
+        2.0,
+        -8.0
+      ],
+      "cpp_projected_gl": [
+        0.375,
+        0.333333343,
+        0.53061223
+      ],
+      "cpp_result": 0
+    },
+    {
+      "camera": 0,
+      "source_rotation_row_major": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "source_translation": [
+        0,
+        0,
+        0
+      ],
+      "source_world_point": [
+        -9.0,
+        4.0,
+        -11.0
+      ],
+      "cpp_projected_gl": [
+        -0.818181872,
+        0.484848499,
+        0.669758797
+      ],
+      "cpp_result": 0
+    },
+    {
+      "camera": 0,
+      "source_rotation_row_major": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "source_translation": [
+        0,
+        0,
+        0
+      ],
+      "source_world_point": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "cpp_projected_gl": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cpp_result": 2
+    },
+    {
+      "camera": 0,
+      "source_rotation_row_major": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "source_translation": [
+        0,
+        0,
+        0
+      ],
+      "source_world_point": [
+        0.0,
+        0.0,
+        -120.0
+      ],
+      "cpp_projected_gl": [
+        0.0,
+        0.0,
+        1.0068028
+      ],
+      "cpp_result": 3
+    },
+    {
+      "camera": 0,
+      "source_rotation_row_major": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "source_translation": [
+        0,
+        0,
+        0
+      ],
+      "source_world_point": [
+        13.0,
+        -7.0,
+        11.0
+      ],
+      "cpp_projected_gl": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cpp_result": 2
+    },
+    {
+      "camera": 1,
+      "source_rotation_row_major": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "source_translation": [
+        13,
+        -7,
+        23
+      ],
+      "source_world_point": [
+        13.0,
+        -7.0,
+        13.0
+      ],
+      "cpp_projected_gl": [
+        0.0,
+        0.0,
+        0.632653058
+      ],
+      "cpp_result": 0
+    },
+    {
+      "camera": 1,
+      "source_rotation_row_major": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "source_translation": [
+        13,
+        -7,
+        23
+      ],
+      "source_world_point": [
+        16.0,
+        -5.0,
+        15.0
+      ],
+      "cpp_projected_gl": [
+        0.375,
+        0.333333343,
+        0.53061223
+      ],
+      "cpp_result": 0
+    },
+    {
+      "camera": 1,
+      "source_rotation_row_major": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "source_translation": [
+        13,
+        -7,
+        23
+      ],
+      "source_world_point": [
+        4.0,
+        -3.0,
+        12.0
+      ],
+      "cpp_projected_gl": [
+        -0.818181872,
+        0.484848499,
+        0.669758797
+      ],
+      "cpp_result": 0
+    },
+    {
+      "camera": 1,
+      "source_rotation_row_major": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "source_translation": [
+        13,
+        -7,
+        23
+      ],
+      "source_world_point": [
+        13.0,
+        -7.0,
+        22.0
+      ],
+      "cpp_projected_gl": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cpp_result": 2
+    },
+    {
+      "camera": 1,
+      "source_rotation_row_major": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "source_translation": [
+        13,
+        -7,
+        23
+      ],
+      "source_world_point": [
+        13.0,
+        -7.0,
+        -97.0
+      ],
+      "cpp_projected_gl": [
+        0.0,
+        0.0,
+        1.0068028
+      ],
+      "cpp_result": 3
+    },
+    {
+      "camera": 1,
+      "source_rotation_row_major": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "source_translation": [
+        13,
+        -7,
+        23
+      ],
+      "source_world_point": [
+        26.0,
+        -14.0,
+        34.0
+      ],
+      "cpp_projected_gl": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cpp_result": 2
+    },
+    {
+      "camera": 2,
+      "source_rotation_row_major": [
+        0,
+        0,
+        1,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "source_translation": [
+        17,
+        31,
+        -9
+      ],
+      "source_world_point": [
+        7.0,
+        31.0,
+        -9.0
+      ],
+      "cpp_projected_gl": [
+        0.0,
+        0.0,
+        0.632653058
+      ],
+      "cpp_result": 0
+    },
+    {
+      "camera": 2,
+      "source_rotation_row_major": [
+        0,
+        0,
+        1,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "source_translation": [
+        17,
+        31,
+        -9
+      ],
+      "source_world_point": [
+        9.0,
+        34.0,
+        -7.0
+      ],
+      "cpp_projected_gl": [
+        0.375,
+        0.333333343,
+        0.53061223
+      ],
+      "cpp_result": 0
+    },
+    {
+      "camera": 2,
+      "source_rotation_row_major": [
+        0,
+        0,
+        1,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "source_translation": [
+        17,
+        31,
+        -9
+      ],
+      "source_world_point": [
+        6.0,
+        22.0,
+        -5.0
+      ],
+      "cpp_projected_gl": [
+        -0.818181872,
+        0.484848499,
+        0.669758797
+      ],
+      "cpp_result": 0
+    },
+    {
+      "camera": 2,
+      "source_rotation_row_major": [
+        0,
+        0,
+        1,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "source_translation": [
+        17,
+        31,
+        -9
+      ],
+      "source_world_point": [
+        16.0,
+        31.0,
+        -9.0
+      ],
+      "cpp_projected_gl": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cpp_result": 2
+    },
+    {
+      "camera": 2,
+      "source_rotation_row_major": [
+        0,
+        0,
+        1,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "source_translation": [
+        17,
+        31,
+        -9
+      ],
+      "source_world_point": [
+        -103.0,
+        31.0,
+        -9.0
+      ],
+      "cpp_projected_gl": [
+        0.0,
+        0.0,
+        1.0068028
+      ],
+      "cpp_result": 3
+    },
+    {
+      "camera": 2,
+      "source_rotation_row_major": [
+        0,
+        0,
+        1,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "source_translation": [
+        17,
+        31,
+        -9
+      ],
+      "source_world_point": [
+        28.0,
+        44.0,
+        -16.0
+      ],
+      "cpp_projected_gl": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cpp_result": 2
+    },
+    {
+      "camera": 3,
+      "source_rotation_row_major": [
+        0.36,
+        -0.48,
+        0.8,
+        0.8,
+        0.6,
+        0.0,
+        -0.48,
+        0.64,
+        0.6
+      ],
+      "source_translation": [
+        -25,
+        11,
+        41
+      ],
+      "source_world_point": [
+        -33.0,
+        11.0,
+        35.0
+      ],
+      "cpp_projected_gl": [
+        0.0,
+        0.0,
+        0.632653058
+      ],
+      "cpp_result": 0
+    },
+    {
+      "camera": 3,
+      "source_rotation_row_major": [
+        0.36,
+        -0.48,
+        0.8,
+        0.8,
+        0.6,
+        0.0,
+        -0.48,
+        0.64,
+        0.6
+      ],
+      "source_translation": [
+        -25,
+        11,
+        41
+      ],
+      "source_world_point": [
+        -31.2800007,
+        14.6000004,
+        36.0400009
+      ],
+      "cpp_projected_gl": [
+        0.374999791,
+        0.333333373,
+        0.530612171
+      ],
+      "cpp_result": 0
+    },
+    {
+      "camera": 3,
+      "source_rotation_row_major": [
+        0.36,
+        -0.48,
+        0.8,
+        0.8,
+        0.6,
+        0.0,
+        -0.48,
+        0.64,
+        0.6
+      ],
+      "source_translation": [
+        -25,
+        11,
+        41
+      ],
+      "source_world_point": [
+        -38.9599991,
+        6.19999981,
+        41.2799988
+      ],
+      "cpp_projected_gl": [
+        -0.818181872,
+        0.484848022,
+        0.669758797
+      ],
+      "cpp_result": 0
+    },
+    {
+      "camera": 3,
+      "source_rotation_row_major": [
+        0.36,
+        -0.48,
+        0.8,
+        0.8,
+        0.6,
+        0.0,
+        -0.48,
+        0.64,
+        0.6
+      ],
+      "source_translation": [
+        -25,
+        11,
+        41
+      ],
+      "source_world_point": [
+        -25.7999992,
+        11.0,
+        40.4000015
+      ],
+      "cpp_projected_gl": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cpp_result": 2
+    },
+    {
+      "camera": 3,
+      "source_rotation_row_major": [
+        0.36,
+        -0.48,
+        0.8,
+        0.8,
+        0.6,
+        0.0,
+        -0.48,
+        0.64,
+        0.6
+      ],
+      "source_translation": [
+        -25,
+        11,
+        41
+      ],
+      "source_world_point": [
+        -121.0,
+        11.0,
+        -31.0
+      ],
+      "cpp_projected_gl": [
+        -3.17891455e-08,
+        0.0,
+        1.0068028
+      ],
+      "cpp_result": 3
+    },
+    {
+      "camera": 3,
+      "source_rotation_row_major": [
+        0.36,
+        -0.48,
+        0.8,
+        0.8,
+        0.6,
+        0.0,
+        -0.48,
+        0.64,
+        0.6
+      ],
+      "source_translation": [
+        -25,
+        11,
+        41
+      ],
+      "source_world_point": [
+        -8.15999985,
+        17.2000008,
+        36.8800011
+      ],
+      "cpp_projected_gl": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cpp_result": 2
+    }
+  ]
+}

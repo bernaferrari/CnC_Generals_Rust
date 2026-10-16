@@ -238,3 +238,6 @@ mod owned_snow_tests;
 
 #[cfg(test)]
 mod borrowed_snapshot_tests;
+
+#[cfg(test)]
+mod native_draw_lifecycle_observer_tests;
