@@ -10250,6 +10250,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_snow_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -49452,6 +49459,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_laser_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_snow_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -160062,7 +160076,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "4e15199177a7466259297009c3731e24f367af5c6095b3c966276a6528e87c11",
+  "input_digest": "d6afd2f676302e50dc1c8b7fa958c9cfc3e89f08f3496ef7377787bdd7e7ae78",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -163674,11 +163688,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2634,
+        "end_line": 2669,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini.rs",
-      "sha256": "d145ee76df72cc821421501db07bd9b1e9e7dc251b7c145ea671b069084bf922",
+      "sha256": "564994d144247430bae4214cd89753551234d7d9f541ad862265d45cfdf18ad8",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -165882,11 +165896,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 93,
+        "end_line": 96,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/client_types.rs",
-      "sha256": "5b27a064db3c43d447351cf0d845554d012cc57a9f1bba9306afa6f493e87609",
+      "sha256": "760ee311fea8fa5dc5f2ca81470ef7c7e6c57318cc52cd152cbee64b8eae487b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -165978,11 +165992,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 824,
+        "end_line": 828,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_draw.rs",
-      "sha256": "2d9c12c13ab1a72c6ded039635e1d60c6c378e3bd5b89d4ad3ed34c1936d6b3d",
+      "sha256": "7a80ae0c764c3c0d5a7b557030afb8194669e97afded4b0c301c1199288218fd",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -165990,11 +166004,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 871,
+        "end_line": 879,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_init.rs",
-      "sha256": "daa941974d561b532aad56d4f1f8c9ed82f5caa541f5a89061499145bc980921",
+      "sha256": "8b823171c1fa37ceb4f75b3b1403f1dcec671cce89f3459aa3bfb8fcd9127fb0",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -166002,11 +166016,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2348,
+        "end_line": 2344,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_update.rs",
-      "sha256": "f47eb8fb3a79a51aabb33a0ef892ed7fe307a41bff1fd3e82f7cb4cea0ad358d",
+      "sha256": "b6e44e548537dde15dc4c81f8706bb217488ba82a9bb9812962b6bf2536ac25d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -166026,11 +166040,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 586,
+        "end_line": 642,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/live_slot.rs",
-      "sha256": "f3c4cfbe9fa8ceea31adc3794905f05f2942c17995c7262003f05c337048624c",
+      "sha256": "f165fa867f7e78f22d5444b9268ed5db2b325692d083ff54fe71d149c75f8df0",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -166062,11 +166076,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 235,
+        "end_line": 238,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/mod.rs",
-      "sha256": "82b04a26a287f342ed007e4db5abe69c408ebfd9408bf61b6ac58d2190699e0b",
+      "sha256": "77b0aa337e0696e5e036d03f216a47824815d10ef83bc01a604fe76e89e082dd",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -166187,6 +166201,18 @@
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_laser_tests.rs",
       "sha256": "1bc9a4b015d0f632b94fafcb6a7c9a0d163c3136add2433e8769aad12f8fb1f9",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 162,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_snow_tests.rs",
+      "sha256": "46aa31b6ebf24ecc20b91591a6ed50ec98fde3b301fe80ae9797d6297d562779",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -166398,11 +166424,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 2802,
+        "end_line": 2795,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/tests.rs",
-      "sha256": "37a49ec70e746170ad1caf72d44b87f6244c9640c0808a2b30fa585fa01ea7ce",
+      "sha256": "bc0e5a07e6b29db58fc09b7240304e8699e187bf7eb15b9a7d5e5a1ac080802f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -166470,11 +166496,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1386,
+        "end_line": 1406,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/display.rs",
-      "sha256": "346558757b7782bb80292e0ba4fe5cbb23d49efc7300be83639114d8250cb126",
+      "sha256": "e4af6079e6fec6d88dc2408b6089eddc9b7c5233a63c9beeaef41afd4f5e9aea",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173507,11 +173533,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 712,
+        "end_line": 731,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/snow.rs",
-      "sha256": "a92483dc69df6da8093211bce9579da2e83e0e8b74491caffa3c53d488d59156",
+      "sha256": "26ab0501f349c2809fd1b786045251388951c2cb7f91035289bb85f33e919951",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -174071,11 +174097,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3047,
+        "end_line": 3052,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/impl_gpu.rs",
-      "sha256": "5b8beda3954c7456e7005a334bcaab34ee813febcacf24a4732e0f3387308d45",
+      "sha256": "929a5360ea006a8b27c6d74f27b59e1ee94bdf73490322f620920b88bf5e3ea1",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -174195,377 +174221,382 @@
         },
         {
           "kind": "fn",
-          "line": 1404,
+          "line": 1337,
+          "name": "ensure_snow_texture_bind_group_owned"
+        },
+        {
+          "kind": "fn",
+          "line": 1409,
           "name": "wanted_scorch_texture_name"
         },
         {
           "kind": "fn",
-          "line": 1408,
+          "line": 1413,
           "name": "ensure_scorch_texture_bind_group"
         },
         {
           "kind": "fn",
-          "line": 1478,
+          "line": 1483,
           "name": "create_fallback_scorch_texture"
         },
         {
           "kind": "fn",
-          "line": 1531,
+          "line": 1536,
           "name": "load_first_available_named_overlay_texture"
         },
         {
           "kind": "fn",
-          "line": 1551,
+          "line": 1556,
           "name": "create_fallback_snow_texture"
         },
         {
           "kind": "const",
-          "line": 1553,
+          "line": 1558,
           "name": "PIXELS"
         },
         {
           "kind": "fn",
-          "line": 1589,
+          "line": 1594,
           "name": "load_first_available_road_texture"
         },
         {
           "kind": "fn",
-          "line": 1610,
+          "line": 1615,
           "name": "road_texture_name_candidates"
         },
         {
           "kind": "fn",
-          "line": 1646,
+          "line": 1651,
           "name": "road_texture_path_candidates"
         },
         {
           "kind": "fn",
-          "line": 1666,
+          "line": 1671,
           "name": "create_fallback_road_texture"
         },
         {
           "kind": "const",
-          "line": 1669,
+          "line": 1674,
           "name": "PIXELS"
         },
         {
           "kind": "fn",
-          "line": 1707,
+          "line": 1712,
           "name": "ensure_water_texture_bind_group"
         },
         {
           "kind": "fn",
-          "line": 1780,
+          "line": 1785,
           "name": "apply_water_transparency_map_overrides"
         },
         {
           "kind": "fn",
-          "line": 1824,
+          "line": 1829,
           "name": "load_first_available_water_texture"
         },
         {
           "kind": "fn",
-          "line": 1845,
+          "line": 1850,
           "name": "water_texture_name_candidates"
         },
         {
           "kind": "fn",
-          "line": 1888,
+          "line": 1893,
           "name": "water_texture_path_candidates"
         },
         {
           "kind": "fn",
-          "line": 1906,
+          "line": 1911,
           "name": "create_fallback_water_texture"
         },
         {
           "kind": "const",
-          "line": 1909,
+          "line": 1914,
           "name": "PIXELS"
         },
         {
           "kind": "fn",
-          "line": 1945,
+          "line": 1950,
           "name": "record_tree_draws"
         },
         {
           "kind": "fn",
-          "line": 1968,
+          "line": 1973,
           "name": "current_tree_object_lights"
         },
         {
           "kind": "fn",
-          "line": 1984,
+          "line": 1989,
           "name": "update_tree_meshes"
         },
         {
           "kind": "fn",
-          "line": 2053,
+          "line": 2058,
           "name": "upload_tree_mesh"
         },
         {
           "kind": "fn",
-          "line": 2076,
+          "line": 2081,
           "name": "tree_buffer_mut"
         },
         {
           "kind": "fn",
-          "line": 2080,
+          "line": 2085,
           "name": "last_tree_gpu_vertices"
         },
         {
           "kind": "fn",
-          "line": 2084,
+          "line": 2089,
           "name": "last_tree_atlas_mips"
         },
         {
           "kind": "fn",
-          "line": 2088,
+          "line": 2093,
           "name": "upload_tree_atlas_texture"
         },
         {
           "kind": "fn",
-          "line": 2143,
+          "line": 2148,
           "name": "create_fallback_tree_atlas"
         },
         {
           "kind": "const",
-          "line": 2145,
+          "line": 2150,
           "name": "PIXELS"
         },
         {
           "kind": "fn",
-          "line": 2183,
+          "line": 2188,
           "name": "bind_tree_atlas_group"
         },
         {
           "kind": "fn",
-          "line": 2225,
+          "line": 2230,
           "name": "sync_global_water_plane"
         },
         {
           "kind": "fn",
-          "line": 2322,
+          "line": 2327,
           "name": "rebuild_extra_blend_gpu_state"
         },
         {
           "kind": "fn",
-          "line": 2332,
+          "line": 2337,
           "name": "build_extra_blend_draw_mesh"
         },
         {
           "kind": "fn",
-          "line": 2344,
+          "line": 2349,
           "name": "extra_blend_mesh_to_terrain_vertices"
         },
         {
           "kind": "fn",
-          "line": 2386,
+          "line": 2391,
           "name": "upload_extra_blend_overlay"
         },
         {
           "kind": "fn",
-          "line": 2446,
+          "line": 2451,
           "name": "extra_blend_draw"
         },
         {
           "kind": "fn",
-          "line": 2458,
+          "line": 2463,
           "name": "record_extra_blend_pass"
         },
         {
           "kind": "fn",
-          "line": 2491,
+          "line": 2496,
           "name": "extra_blend_tile_positions"
         },
         {
           "kind": "fn",
-          "line": 2495,
+          "line": 2500,
           "name": "extra_blend_tile_count"
         },
         {
           "kind": "fn",
-          "line": 2499,
+          "line": 2504,
           "name": "last_extra_blend_gpu_upload"
         },
         {
           "kind": "fn",
-          "line": 2503,
+          "line": 2508,
           "name": "last_extra_blend_draw_mesh"
         },
         {
           "kind": "fn",
-          "line": 2507,
+          "line": 2512,
           "name": "extra_blend_draw_count"
         },
         {
           "kind": "fn",
-          "line": 2514,
+          "line": 2519,
           "name": "bake_terrain_vertex_dynamic_light"
         },
         {
           "kind": "fn",
-          "line": 2530,
+          "line": 2535,
           "name": "scorches_need_gpu_rebuild"
         },
         {
           "kind": "fn",
-          "line": 2538,
+          "line": 2543,
           "name": "scorch_overlay_texture_name"
         },
         {
           "kind": "fn",
-          "line": 2542,
+          "line": 2547,
           "name": "scorch_bind_group_ready"
         },
         {
           "kind": "fn",
-          "line": 2546,
+          "line": 2551,
           "name": "last_scorch_texture_name"
         },
         {
           "kind": "fn",
-          "line": 2551,
+          "line": 2556,
           "name": "rgba_f32_to_bgra_u32"
         },
         {
           "kind": "fn",
-          "line": 2559,
+          "line": 2564,
           "name": "bgra_u32_to_rgba_f32"
         },
         {
           "kind": "struct",
-          "line": 2569,
+          "line": 2574,
           "name": "GameClientSwayRng"
         },
         {
           "kind": "fn",
-          "line": 2572,
+          "line": 2577,
           "name": "int_range"
         },
         {
           "kind": "fn",
-          "line": 2575,
+          "line": 2580,
           "name": "real_range"
         },
         {
           "kind": "fn",
-          "line": 2582,
+          "line": 2587,
           "name": "script_tree_breeze"
         },
         {
           "kind": "fn",
-          "line": 2590,
+          "line": 2595,
           "name": "tree_breeze_from_script"
         },
         {
           "kind": "fn",
-          "line": 2603,
+          "line": 2608,
           "name": "height_map_cell_at_world"
         },
         {
           "kind": "fn",
-          "line": 2626,
+          "line": 2631,
           "name": "directional_blend_alpha"
         },
         {
           "kind": "fn",
-          "line": 2678,
+          "line": 2683,
           "name": "unique_bound_texture_ids"
         },
         {
           "kind": "fn",
-          "line": 2695,
+          "line": 2700,
           "name": "texture_class_index_from_ndx"
         },
         {
           "kind": "fn",
-          "line": 2716,
+          "line": 2721,
           "name": "source_tile_class_contains"
         },
         {
           "kind": "fn",
-          "line": 2719,
+          "line": 2724,
           "name": "texture_matches_class_name"
         },
         {
           "kind": "fn",
-          "line": 2738,
+          "line": 2743,
           "name": "bound_texture_id_for_source_tile"
         },
         {
           "kind": "fn",
-          "line": 2772,
+          "line": 2777,
           "name": "pack_water_rgba_int"
         },
         {
           "kind": "fn",
-          "line": 2782,
+          "line": 2787,
           "name": "authored_road_texture_name"
         },
         {
           "kind": "fn",
-          "line": 2815,
+          "line": 2820,
           "name": "each_source_road_and_synthetic_join_uses_its_own_texture"
         },
         {
           "kind": "fn",
-          "line": 2866,
+          "line": 2871,
           "name": "class"
         },
         {
           "kind": "fn",
-          "line": 2875,
+          "line": 2880,
           "name": "bound_fixture"
         },
         {
           "kind": "fn",
-          "line": 2918,
+          "line": 2923,
           "name": "get_texture_class_from_ndx_includes_tile_zero"
         },
         {
           "kind": "fn",
-          "line": 2929,
+          "line": 2934,
           "name": "adjacent_classes_bind_different_texture_id_slots"
         },
         {
           "kind": "fn",
-          "line": 2945,
+          "line": 2950,
           "name": "unmapped_tile_is_not_used_as_slot_index"
         },
         {
           "kind": "fn",
-          "line": 2957,
+          "line": 2962,
           "name": "blend"
         },
         {
           "kind": "fn",
-          "line": 2969,
+          "line": 2974,
           "name": "horiz_blend_covers_one_x_edge_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 2984,
+          "line": 2989,
           "name": "vert_blend_covers_one_z_edge_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 2996,
+          "line": 3001,
           "name": "diagonal_blends_ramp_across_the_cell"
         },
         {
           "kind": "fn",
-          "line": 3017,
+          "line": 3022,
           "name": "long_diagonal_widens_the_ramp_across_the_cell"
         },
         {
           "kind": "fn",
-          "line": 3028,
+          "line": 3033,
           "name": "flipped_blends_swap_the_axes_before_evaluating"
         },
         {
           "kind": "fn",
-          "line": 3038,
+          "line": 3043,
           "name": "custom_edge_class_disables_the_alpha_blend"
         }
       ]
@@ -175419,11 +175450,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1663,
+        "end_line": 1656,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/overlay_gpu.rs",
-      "sha256": "c276d6793879b9c53ef9810f10648f3bd0b2dab28dd6d5b3f8a7d84f5e1d459f",
+      "sha256": "46052d556c87e4f78140369ceb5eb5c00d438ad0684c2810ec9cdbbc26abfddd",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -175618,112 +175649,112 @@
         },
         {
           "kind": "fn",
-          "line": 1018,
+          "line": 1011,
           "name": "upload_smudge_mesh"
         },
         {
           "kind": "fn",
-          "line": 1093,
+          "line": 1086,
           "name": "upload_flat_lod_meshes"
         },
         {
           "kind": "struct",
-          "line": 1111,
+          "line": 1104,
           "name": "MapRef"
         },
         {
           "kind": "fn",
-          "line": 1113,
+          "line": 1106,
           "name": "x_extent"
         },
         {
           "kind": "fn",
-          "line": 1116,
+          "line": 1109,
           "name": "y_extent"
         },
         {
           "kind": "fn",
-          "line": 1119,
+          "line": 1112,
           "name": "height"
         },
         {
           "kind": "fn",
-          "line": 1122,
+          "line": 1115,
           "name": "static_diffuse"
         },
         {
           "kind": "fn",
-          "line": 1125,
+          "line": 1118,
           "name": "border_size_inline"
         },
         {
           "kind": "fn",
-          "line": 1151,
+          "line": 1144,
           "name": "record_overlay_draws"
         },
         {
           "kind": "fn",
-          "line": 1218,
+          "line": 1211,
           "name": "rebuild_all_overlays"
         },
         {
           "kind": "fn",
-          "line": 1234,
+          "line": 1227,
           "name": "record_shoreline_draws"
         },
         {
           "kind": "fn",
-          "line": 1259,
+          "line": 1252,
           "name": "record_extra_water_draws"
         },
         {
           "kind": "fn",
-          "line": 1329,
+          "line": 1322,
           "name": "bib_stand_in_appearance"
         },
         {
           "kind": "const",
-          "line": 1337,
+          "line": 1330,
           "name": "WATER_UV_FACTOR"
         },
         {
           "kind": "const",
-          "line": 1339,
+          "line": 1332,
           "name": "HEIGHT_TO_USE"
         },
         {
           "kind": "fn",
-          "line": 1347,
+          "line": 1340,
           "name": "pack_water_setting_diffuse"
         },
         {
           "kind": "fn",
-          "line": 1370,
+          "line": 1363,
           "name": "bake_trapezoid_water"
         },
         {
           "kind": "fn",
-          "line": 1465,
+          "line": 1458,
           "name": "bake_river_strip"
         },
         {
           "kind": "fn",
-          "line": 1550,
+          "line": 1543,
           "name": "trapezoid_bake_uses_authored_z_and_world_uvs"
         },
         {
           "kind": "fn",
-          "line": 1584,
+          "line": 1577,
           "name": "river_bake_uses_bank_pairs_not_centerline_offset"
         },
         {
           "kind": "fn",
-          "line": 1606,
+          "line": 1599,
           "name": "leftover_add_water_velocity_drains_into_live_grid"
         },
         {
           "kind": "fn",
-          "line": 1628,
+          "line": 1621,
           "name": "shroud_overlay_r8_feed_replaces_fallback_state"
         }
       ]
@@ -176064,11 +176095,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 425,
+        "end_line": 445,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/traits.rs",
-      "sha256": "ecfffcbc67a1f8f22ec78d224aa1a10a17050b8e7b8964b3d274c8f686ee3556",
+      "sha256": "29b523256c24c028514f44997dda94164ca8f6aac60dcf0bb728ec753ff6fe95",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -176103,72 +176134,77 @@
         },
         {
           "kind": "fn",
-          "line": 231,
+          "line": 234,
+          "name": "render_client_view"
+        },
+        {
+          "kind": "fn",
+          "line": 244,
           "name": "snow_min_height"
         },
         {
           "kind": "fn",
-          "line": 238,
+          "line": 251,
           "name": "render_with_snow_camera"
         },
         {
           "kind": "fn",
-          "line": 325,
+          "line": 344,
           "name": "render"
         },
         {
           "kind": "fn",
-          "line": 333,
+          "line": 353,
           "name": "get_height_at"
         },
         {
           "kind": "fn",
-          "line": 341,
+          "line": 361,
           "name": "get_normal_at"
         },
         {
           "kind": "fn",
-          "line": 349,
+          "line": 369,
           "name": "is_valid_position"
         },
         {
           "kind": "fn",
-          "line": 353,
+          "line": 373,
           "name": "chunk_manager"
         },
         {
           "kind": "fn",
-          "line": 357,
+          "line": 377,
           "name": "chunk_draw_count"
         },
         {
           "kind": "fn",
-          "line": 361,
+          "line": 381,
           "name": "oversize_terrain"
         },
         {
           "kind": "fn",
-          "line": 365,
+          "line": 385,
           "name": "set_terrain_tracks_detail"
         },
         {
           "kind": "struct",
-          "line": 374,
+          "line": 394,
           "name": "TerrainUniforms"
         },
         {
           "kind": "type",
-          "line": 390,
+          "line": 410,
           "name": "WaterVertex"
         },
         {
           "kind": "type",
-          "line": 393,
+          "line": 413,
           "name": "RoadVertex"
         },
         {
           "kind": "fn",
-          "line": 396,
+          "line": 416,
           "name": "desc"
         }
       ]

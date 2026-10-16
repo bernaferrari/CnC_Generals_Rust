@@ -5,6 +5,7 @@ use super::*;
 #[derive(Default)]
 struct RecordingUi(Vec<bool>, Vec<Option<f32>>);
 impl crate::game_logic::ScriptUiEffects for RecordingUi {
+    fn weather_visible(&mut self, _visible: bool) {}
     fn letterbox(
         &mut self,
         camera: &mut crate::presentation_frame::camera::SessionCamera,

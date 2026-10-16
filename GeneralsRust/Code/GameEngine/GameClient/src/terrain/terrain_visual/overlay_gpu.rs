@@ -4,7 +4,7 @@
 use super::IRegion2D as BgRegion;
 use super::water_tracks::{decode_wak_records, water_track_wak_path};
 use super::*;
-use crate::snow::{get_snow_manager, get_weather_setting};
+
 use crate::system::smudge::get_smudge_manager;
 use game_engine::common::ini::ini_water::get_water_transparency;
 use game_engine::map_object::MAP_XY_FACTOR as MAP_XY;
@@ -962,26 +962,20 @@ impl TerrainVisualImpl {
                 .collect();
     }
 
-    fn upload_snow_mesh(&mut self, camera: Option<&snow_camera::SnowCamera>) {
+    fn upload_snow_mesh(
+        &mut self,
+        camera: Option<&snow_camera::SnowCamera>,
+        snow: Option<&crate::snow::SnowRenderState>,
+    ) {
         let Some(device) = self.device.as_ref() else {
             self.snow_mesh = None;
             return;
         };
-        let enabled = get_weather_setting()
-            .and_then(|s| s.read().ok().map(|g| g.snow_enabled))
-            .unwrap_or(false);
-        if !enabled {
-            self.snow_mesh = None;
-            return;
-        }
-        let Some(manager) = get_snow_manager() else {
+        let Some(snow) = snow.filter(|snow| snow.definition.snow_enabled) else {
             self.snow_mesh = None;
             return;
         };
-        let Ok(guard) = manager.lock() else {
-            self.snow_mesh = None;
-            return;
-        };
+        let guard = &snow.manager;
         if !guard.is_visible() {
             self.snow_mesh = None;
             return;
@@ -993,7 +987,6 @@ impl TerrainVisualImpl {
         let flakes =
             guard.flake_positions_y_up_clipped(camera.position_y_up, Some(camera.visible_xy));
         let quad = guard.quad_size();
-        drop(guard);
         if flakes.is_empty() {
             self.snow_mesh = None;
             return;

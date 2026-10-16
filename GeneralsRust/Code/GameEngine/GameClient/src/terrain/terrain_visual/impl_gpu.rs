@@ -1332,6 +1332,11 @@ impl TerrainVisualImpl {
 
     fn ensure_snow_texture_bind_group(&mut self, device: &wgpu::Device) {
         let wanted = Self::wanted_snow_texture_name();
+        self.ensure_snow_texture_bind_group_owned(device, &wanted);
+    }
+
+    fn ensure_snow_texture_bind_group_owned(&mut self, device: &wgpu::Device, wanted: &str) {
+        let wanted = wanted.to_owned();
         if self.snow_texture_bind_group.is_some()
             && !self.snow_texture_is_fallback
             && self.snow_texture_name.eq_ignore_ascii_case(&wanted)

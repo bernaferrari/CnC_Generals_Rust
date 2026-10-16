@@ -2259,9 +2259,10 @@ impl CnCGameEngine {
             let tracked_carriers = &self.physical_gather_carrier_ids;
             let playability = &mut self.interactive_playability;
             #[cfg(feature = "game_client")]
-            let client = &mut self.game_client;
+            let (mut client_frame, snow) = self.game_client.split_frame_and_snow();
             #[cfg(feature = "game_client")]
             let mut ui = super::control_bar_viewport::NativeScriptUi::new(
+                snow,
                 &mut self.control_bar,
                 &mut self.control_bar_callbacks,
             );
@@ -2278,7 +2279,7 @@ impl CnCGameEngine {
                 ui,
                 |frame| {
                     #[cfg(feature = "game_client")]
-                    client.set_frame(frame);
+                    client_frame.set_frame(frame);
                     #[cfg(not(feature = "game_client"))]
                     let _ = frame;
                 },

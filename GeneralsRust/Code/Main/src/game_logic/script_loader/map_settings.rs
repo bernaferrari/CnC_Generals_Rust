@@ -305,6 +305,21 @@ pub fn overlay_map_ini_create_overrides(contents: &str) -> usize {
     }
 }
 
+/// Parse into a detached map definition using the ordinary INI tokenizer and
+/// C++ base-copy override chain. No live renderer or weather manager is touched.
+fn overlay_owned_map_weather(
+    contents: &str,
+    definition: &mut Option<game_engine::common::ini::ini_weather::WeatherSetting>,
+    updates: &mut Vec<game_engine::common::ini::ini_weather::WeatherSetting>,
+) -> LoaderResult<()> {
+    let extracted = extract_map_ini_weather_blocks(contents);
+    INI::new()
+        .with_inline_source_and_load_type(&extracted, INILoadType::CreateOverrides, |ini| {
+            ini.parse_current_file_into_weather(definition, updates)
+        })
+        .map_err(|error| GameLogicError::Configuration(format!("map Weather: {error}")))
+}
+
 /// Overlay map.ini `Weather` onto `TheWeatherSetting` via CREATE_OVERRIDES
 /// (C++ GameLogic.cpp:2407-2408 `ini.load(..., INI_LOAD_CREATE_OVERRIDES)`).
 /// Returns whether a Weather block was applied.
@@ -312,8 +327,6 @@ pub fn overlay_map_ini_weather(contents: &str) -> bool {
     game_engine::common::ini::ini_weather::clear_weather_setting_overrides();
     let extracted = extract_map_ini_weather_blocks(contents);
     if extracted.trim().is_empty() {
-        #[cfg(feature = "game_client")]
-        sync_live_snow_manager_from_common();
         return false;
     }
     let nanos = std::time::SystemTime::now()
@@ -338,21 +351,7 @@ pub fn overlay_map_ini_weather(contents: &str) -> bool {
         warn!("map.ini Weather CREATE_OVERRIDES parse failed: {err}");
         return false;
     }
-    #[cfg(feature = "game_client")]
-    sync_live_snow_manager_from_common();
     true
-}
-
-#[cfg(feature = "game_client")]
-fn sync_live_snow_manager_from_common() {
-    // Common INI dispatch writes TheWeatherSetting; SnowManager still needs
-    // the GameClient copy + flake spacing (C++ Snow.cpp parseWeatherDefinition).
-    let _ = game_client::snow::get_weather_setting();
-    let manager = game_client::snow::get_snow_manager()
-        .unwrap_or_else(game_client::snow::initialize_snow_manager);
-    if let Ok(mut guard) = manager.lock() {
-        guard.update_ini_settings();
-    }
 }
 
 /// Parse settings from an already-decompressed chunky map.
@@ -413,6 +412,10 @@ fn parse_map_settings_from_loaded_chunky(
         std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
     >,
 ) -> LoaderResult<MapMetadata> {
+    // Capture pristine immutable content before any other map's overrides.
+    if meta.weather_definition.is_none() {
+        meta.weather_definition = game_engine::common::ini::ini_weather::get_base_weather_setting();
+    }
     let body = &chunky.bytes[chunky.body_offset..];
     if let Some((ver, payload)) = find_chunk_by_label(body, &chunky.toc, "GlobalLighting")? {
         parse_lighting_payload_for_settings(ver, payload, &mut meta)?;
@@ -506,7 +509,11 @@ fn parse_map_settings_from_loaded_chunky(
                 // ParticleSystem still needs the live GameClient manager hook.
                 let _ = overlay_map_ini_particle_systems(&contents);
                 // Weather CREATE_OVERRIDES + SnowManager flake spacing.
-                let _ = overlay_map_ini_weather(&contents);
+                overlay_owned_map_weather(
+                    &contents,
+                    &mut meta.weather_definition,
+                    &mut meta.weather_definition_updates,
+                )?;
 
                 let mut skybox_textures: [Option<String>; 5] = [None, None, None, None, None];
                 for raw_line in contents.lines() {
@@ -571,6 +578,11 @@ fn parse_map_settings_from_loaded_chunky(
                 } else {
                     let _ = overlay_map_ini_create_overrides(&contents);
                 }
+                overlay_owned_map_weather(
+                    &contents,
+                    &mut meta.weather_definition,
+                    &mut meta.weather_definition_updates,
+                )?;
             }
 
             // C++ parity: only treat dedicated heightmap companions as terrain sources.
@@ -680,5 +692,89 @@ mod cash_tests {
                 .is_err()
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod owned_weather_tests {
+    use super::*;
+    #[test]
+    fn absent_base_first_block_becomes_base_for_later_overrides() {
+        let mut definition = None;
+        let mut updates = Vec::new();
+        overlay_owned_map_weather(
+            "Weather\n SnowVelocity = 17\nEnd\n",
+            &mut definition,
+            &mut updates,
+        )
+        .unwrap();
+        overlay_owned_map_weather(
+            "Weather\n SnowAmplitude = 23\nEnd\n",
+            &mut definition,
+            &mut updates,
+        )
+        .unwrap();
+        assert_eq!(
+            definition.as_ref().unwrap().final_override().snow_velocity,
+            17.
+        );
+        assert_eq!(
+            definition.as_ref().unwrap().final_override().snow_amplitude,
+            23.
+        );
+        assert_eq!(updates.len(), 2);
+        assert_eq!(updates[0].snow_velocity, 17.);
+        assert_eq!(updates[1].snow_amplitude, 23.);
+    }
+    #[test]
+    fn map_and_solo_weather_use_detached_cpp_base_copy_overrides() {
+        let mut owner = Some(game_engine::common::ini::ini_weather::WeatherSetting::default());
+        let mut peer = owner.clone();
+        let mut updates = Vec::new();
+        let mut peer_updates = Vec::new();
+        overlay_owned_map_weather(
+            "Weather\n SnowVelocity = 17\n SnowEnabled = Yes\nEnd\n",
+            &mut owner,
+            &mut updates,
+        )
+        .unwrap();
+        overlay_owned_map_weather(
+            "Weather\n SnowAmplitude = 23\nEnd\n",
+            &mut owner,
+            &mut updates,
+        )
+        .unwrap();
+        let final_definition = owner.as_ref().unwrap().final_override();
+        assert_eq!(final_definition.snow_amplitude, 23.);
+        assert_eq!(
+            final_definition.snow_velocity, 4.,
+            "CPP copies pristine base, not previous override"
+        );
+        assert!(!final_definition.snow_enabled);
+        overlay_owned_map_weather(
+            "Weather\n SnowVelocity = 31\nEnd\n",
+            &mut peer,
+            &mut peer_updates,
+        )
+        .unwrap();
+        assert_eq!(peer.as_ref().unwrap().final_override().snow_velocity, 31.);
+        assert_eq!(owner.as_ref().unwrap().final_override().snow_velocity, 4.);
+        assert!(
+            overlay_owned_map_weather(
+                "Weather\n SnowVelocity = broken\nEnd\n",
+                &mut peer,
+                &mut peer_updates
+            )
+            .is_err()
+        );
+        assert_eq!(peer.as_ref().unwrap().final_override().snow_velocity, 31.);
+        assert_eq!(updates.len(), 2);
+        assert_eq!(
+            peer_updates.len(),
+            1,
+            "failed block emits no admitted update"
+        );
+        assert_eq!(updates[0].snow_velocity, 17.);
+        assert_eq!(updates[1].snow_velocity, 4.);
     }
 }

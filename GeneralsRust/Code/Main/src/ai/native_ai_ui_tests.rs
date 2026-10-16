@@ -4,6 +4,7 @@ struct NativeAiUiRecorder {
     events: Vec<(bool, Option<f32>)>,
 }
 impl crate::game_logic::ScriptUiEffects for NativeAiUiRecorder {
+    fn weather_visible(&mut self, _visible: bool) {}
     fn letterbox(
         &mut self,
         camera: &mut crate::presentation_frame::camera::SessionCamera,

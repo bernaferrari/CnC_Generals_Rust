@@ -926,8 +926,18 @@ impl SubsystemInterface for Display {
     }
 }
 
-impl DisplayInterface for Display {
-    fn draw(&self) -> Result<(), Box<dyn std::error::Error>> {
+impl Display {
+    /// Receiving Client snapshot; compatibility load-screen draws keep the adapter.
+    pub fn draw_with_snow(
+        &self,
+        snow: &crate::snow::SnowRenderState,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.draw_with_snow_state(Some(snow))
+    }
+    fn draw_with_snow_state(
+        &self,
+        snow: Option<&crate::snow::SnowRenderState>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         crate::display::client_draw_schedule::run_dual_world_cpu_phases();
 
         let (frame, view) = self
@@ -1006,7 +1016,11 @@ impl DisplayInterface for Display {
             // Terrain rendering pass: guard must outlive RenderPass due to wgpu borrow on record_chunk_draws.
             if let Ok(mut terrain_guard) = THE_TERRAIN_VISUAL.lock() {
                 if let Some(terrain) = terrain_guard.as_mut() {
-                    let _ = terrain.render(&view_glam, &proj_glam);
+                    if let Some(snow) = snow {
+                        let _ = terrain.render_client_view(&view_glam, &proj_glam, snow);
+                    } else {
+                        let _ = terrain.render(&view_glam, &proj_glam);
+                    }
                     {
                         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                             label: Some("Display Terrain Pass"),
@@ -1307,6 +1321,12 @@ impl DisplayInterface for Display {
 
         self.graphics.queue().present(frame);
         Ok(())
+    }
+}
+
+impl DisplayInterface for Display {
+    fn draw(&self) -> Result<(), Box<dyn std::error::Error>> {
+        self.draw_with_snow_state(None)
     }
 
     fn preload_common_textures(&self) -> Result<(), Box<dyn std::error::Error>> {

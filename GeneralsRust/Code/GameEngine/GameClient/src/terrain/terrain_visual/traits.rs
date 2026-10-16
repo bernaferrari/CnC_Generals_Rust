@@ -224,9 +224,22 @@ impl TerrainVisualImpl {
         view: &Mat4,
         projection: &Mat4,
         min_height: f32,
+        snow: &crate::snow::SnowRenderState,
     ) -> Result<(), TerrainError> {
         let camera = snow_camera::SnowCamera::native_y_up(*view, *projection, min_height);
-        self.render_with_snow_camera(view, projection, camera)
+        self.render_with_snow_camera(view, projection, camera, Some(snow))
+    }
+
+    /// Receiving standalone Client keeps its historical source-axis inference.
+    pub fn render_client_view(
+        &mut self,
+        view: &Mat4,
+        projection: &Mat4,
+        snow: &crate::snow::SnowRenderState,
+    ) -> Result<(), TerrainError> {
+        let camera =
+            snow_camera::SnowCamera::from_client_view(*view, *projection, self.snow_min_height());
+        self.render_with_snow_camera(view, projection, camera, Some(snow))
     }
 
     fn snow_min_height(&self) -> f32 {
@@ -241,6 +254,7 @@ impl TerrainVisualImpl {
         view_matrix: &Mat4,
         projection_matrix: &Mat4,
         snow_camera: Option<snow_camera::SnowCamera>,
+        snow: Option<&crate::snow::SnowRenderState>,
     ) -> Result<(), TerrainError> {
         if !self.enabled {
             return Ok(());
@@ -260,10 +274,15 @@ impl TerrainVisualImpl {
         let camera_inverse = view_matrix.inverse();
         let camera_position = camera_inverse.transform_point3(Vec3::ZERO);
         if let Some(device) = self.device.clone() {
-            self.ensure_snow_texture_bind_group(device.as_ref());
+            if let Some(snow) = snow {
+                self.ensure_snow_texture_bind_group_owned(
+                    device.as_ref(),
+                    &snow.definition.snow_texture,
+                );
+            }
             self.apply_water_transparency_map_overrides(device.as_ref());
         }
-        self.upload_snow_mesh(snow_camera.as_ref());
+        self.upload_snow_mesh(snow_camera.as_ref(), snow);
         if self.overlay.overlays_dirty {
             self.rebuild_all_overlays();
         }
@@ -328,7 +347,8 @@ impl TerrainVisual for TerrainVisualImpl {
             *projection_matrix,
             self.snow_min_height(),
         );
-        self.render_with_snow_camera(view_matrix, projection_matrix, camera)
+        let snow = crate::snow::SnowRenderState::from_standalone();
+        self.render_with_snow_camera(view_matrix, projection_matrix, camera, snow.as_ref())
     }
 
     fn get_height_at(&self, x: f32, y: f32) -> Result<f32, TerrainError> {

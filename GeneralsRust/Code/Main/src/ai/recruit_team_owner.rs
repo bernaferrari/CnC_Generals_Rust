@@ -174,6 +174,7 @@ mod tests {
     #[derive(Default)]
     struct Ui(Vec<bool>);
     impl crate::game_logic::ScriptUiEffects for Ui {
+        fn weather_visible(&mut self, _visible: bool) {}
         fn letterbox(
             &mut self,
             _: &mut crate::presentation_frame::camera::SessionCamera,

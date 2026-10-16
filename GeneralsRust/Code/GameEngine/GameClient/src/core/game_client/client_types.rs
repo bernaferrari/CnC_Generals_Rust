@@ -24,6 +24,9 @@ pub const TRANSLATOR_ID_INVALID: TranslatorId = 0;
 pub struct GameClient {
     // Core state
     frame: u32,
+    snow: crate::snow::SnowManager,
+    snow_definition: crate::snow::WeatherSetting,
+    snow_base_definition: crate::snow::WeatherSetting,
     last_visual_time_frame: u32,
     /// Display-phase admission belongs to this receiving Client, independently
     /// of any peer with the same frame number. Not serialized, like C++ static lastFrame.

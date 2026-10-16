@@ -173,6 +173,8 @@ impl GameLogic {
                 let parsed_settings = match parsed {
                     Ok(meta) => match self.admit_ai_map_overrides(ai_draft) {
                         Ok(()) => {
+                            self.weather_definition_updates =
+                                meta.weather_definition_updates.clone();
                             if let Some(rules) = meta.physics_rules {
                                 if let Err(error) = self.admit_physics_map_rules(rules) {
                                     log::warn!("Map Physics admission failed: {error}");

@@ -46,7 +46,7 @@ impl Default for WeatherSetting {
 }
 
 impl WeatherSetting {
-    fn from_common(common: &ini_weather::WeatherSetting) -> Self {
+    pub fn from_common(common: &ini_weather::WeatherSetting) -> Self {
         Self {
             snow_texture: common.snow_texture.clone(),
             snow_frequency_scale_x: common.snow_frequency_scale_x,
@@ -190,7 +190,26 @@ pub fn camera_facing_quad_corners(
     })
 }
 
-#[derive(Debug)]
+/// Immutable presentation snapshot; runtime ownership remains on GameClient.
+#[derive(Debug, Clone)]
+pub struct SnowRenderState {
+    pub manager: SnowManager,
+    pub definition: WeatherSetting,
+}
+
+impl SnowRenderState {
+    /// Standalone service adapter; native rendering receives an owned snapshot.
+    pub fn from_standalone() -> Option<Self> {
+        let definition = get_weather_setting()?.read().ok()?.clone();
+        let manager = get_snow_manager()?.lock().ok()?.clone();
+        Some(Self {
+            manager,
+            definition,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct SnowManager {
     starting_heights: Vec<f32>,
     time: f32,
@@ -704,7 +723,7 @@ mod tests {
             .and_then(|rest| rest.split("pub fn init_savegame_counter_bridge").next())
             .unwrap_or(init);
         assert!(
-            reset_fn.contains("get_snow_manager") && reset_fn.contains("guard.reset()"),
+            reset_fn.contains("self.snow.reset()"),
             "C++ GameClient::reset calls TheSnowManager->reset()"
         );
     }

@@ -832,17 +832,10 @@ mod tests {
     #[test]
     fn game_client_reset_restores_snow_visibility() {
         // C++ GameClient.cpp:451-452 TheSnowManager->reset() → m_isVisible=TRUE
-        let snow = crate::snow::initialize_snow_manager();
-        snow.lock().expect("snow lock").set_visible(false);
-        assert!(!snow.lock().expect("snow lock").is_visible());
-
         let mut client = GameClient::new().expect("GameClient::new");
+        client.snow_mut().set_visible(false);
         client.reset().expect("GameClient::reset");
-
-        assert!(
-            snow.lock().expect("snow lock").is_visible(),
-            "SHOW_WEATHER=No must not stick after GameClient::reset"
-        );
+        assert!(client.snow_render_state().manager.is_visible());
     }
 
     #[test]

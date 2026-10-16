@@ -67,7 +67,7 @@ mod tests {
     }
 
     #[test]
-    fn set_weather_visible_reaches_snow_manager() {
+    fn detached_weather_intent_does_not_mutate_foreign_snow_manager() {
         // C++ ScriptActions.cpp:3804 TheSnowManager->setVisible
         #[cfg(feature = "game_client")]
         {
@@ -77,8 +77,8 @@ mod tests {
             logic.set_weather_visible(false);
             assert!(!logic.weather_state().visible);
             assert!(
-                !snow.lock().expect("snow lock").is_visible(),
-                "script Weather must hide SnowManager flakes"
+                snow.lock().expect("snow lock").is_visible(),
+                "detached intent must not change another Client's snow"
             );
             logic.set_weather_visible(true);
             assert!(snow.lock().expect("snow lock").is_visible());

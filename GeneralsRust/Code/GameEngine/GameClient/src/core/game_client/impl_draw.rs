@@ -28,8 +28,12 @@ impl LiveInGameHudDrawCounts {
 
 impl GameClient {
     pub fn draw_display(&mut self) -> GameClientResult<()> {
+        let snow = self.snow_render_state();
         if let Some(display) = &self.subsystem_manager.display {
-            display.lock().unwrap_or_else(|e| e.into_inner()).draw()?;
+            display
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .draw_with_snow(&snow)?;
         }
         Ok(())
     }

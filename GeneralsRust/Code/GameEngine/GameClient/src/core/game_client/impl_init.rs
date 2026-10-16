@@ -32,6 +32,9 @@ impl GameClient {
     pub fn new() -> GameClientResult<Self> {
         let client = Self {
             frame: 0,
+            snow: crate::snow::SnowManager::new(),
+            snow_definition: crate::snow::WeatherSetting::default(),
+            snow_base_definition: crate::snow::WeatherSetting::default(),
             last_visual_time_frame: u32::MAX,
             // C++ W3DDisplay initializes lastFrame to ~0; reset does not clear it.
             last_native_draw_frame: u32::MAX,
@@ -228,11 +231,7 @@ impl GameClient {
 
         // C++ GameClient.cpp:451-452 TheSnowManager->reset() restores
         // m_isVisible=TRUE so SHOW_WEATHER=No does not stick across maps.
-        if let Some(snow) = crate::snow::get_snow_manager() {
-            if let Ok(mut guard) = snow.lock() {
-                guard.reset();
-            }
-        }
+        self.snow.reset();
 
         // Clear TOC
         self.drawable_toc.clear();
@@ -669,7 +668,16 @@ impl GameClient {
         crate::helpers::register_live_control_bar_hooks();
         self.install_script_action_handler();
 
-        let _ = crate::snow::initialize_snow_manager();
+        self.snow_base_definition =
+            game_engine::common::ini::ini_weather::get_base_weather_setting()
+                .as_ref()
+                .map(crate::snow::WeatherSetting::from_common)
+                .unwrap_or_default();
+        self.snow_definition = self.snow_base_definition.clone();
+        self.snow
+            .init_with_definition(&self.snow_definition, &mut |low, high| {
+                crate::GameClientRandomValue!(low, high)
+            });
 
         if self.subsystem_manager.video_player.is_none() {
             let mut video_player = VideoPlayerSubsystem;

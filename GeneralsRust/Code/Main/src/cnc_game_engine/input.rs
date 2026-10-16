@@ -1867,6 +1867,7 @@ impl CnCGameEngine {
                  frame: &crate::presentation_frame::PresentationFrame| {
                     physics_visual_owner.complete_input(input, frame)
                 };
+            let snow = self.game_client.snow_render_state();
             let (render_pipeline, graphics_system, game_client) = (
                 &mut self.render_pipeline,
                 &mut self.graphics_system,
@@ -1938,6 +1939,7 @@ impl CnCGameEngine {
                 skip_world_scene,
                 Some(&mut direct_scene_candidate_sink),
                 filter,
+                &snow,
                 filter_scroll,
                 presentation_logic_frame,
                 Some(&mut complete_filter_camera),

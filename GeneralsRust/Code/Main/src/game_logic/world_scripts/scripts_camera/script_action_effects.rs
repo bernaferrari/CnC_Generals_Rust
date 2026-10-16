@@ -12,6 +12,8 @@ impl GameLogic {
         let Some(ui) = ui.as_mut() else {
             return;
         };
+        // Catch up detached/headless intent on the next receiving Client loan.
+        ui.weather_visible(self.weather_state.visible);
         for enabled in std::mem::take(&mut self.session_view.pending_letterbox_visibility) {
             ui.letterbox(
                 &mut self.session_view.camera,
@@ -634,6 +636,9 @@ impl GameLogic {
             .last()
         {
             self.set_weather_visible(visible);
+            if let Some(ui) = ui.as_mut() {
+                ui.weather_visible(visible);
+            }
         }
 
         let popup_messages = self.mission_scripts.drain_popup_message_requests();

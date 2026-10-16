@@ -48,6 +48,8 @@ pub struct GameLogic {
     pub(crate) drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes,
     /// Original Map.ini/Solo.ini source when geometry came from an embedded save.
     pub(crate) map_definition_source: Option<String>,
+    pub(crate) weather_definition_updates:
+        Vec<game_engine::common::ini::ini_weather::WeatherSetting>,
     /// Immutable AI definitions admitted by this match, including map overrides.
     pub(crate) ai_definitions: crate::game_logic::ai_definitions::AiDefinitions,
     /// Main-owned upgrade, terrain, shroud and visual services; no Core AI.

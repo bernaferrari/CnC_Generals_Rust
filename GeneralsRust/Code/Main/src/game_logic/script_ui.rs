@@ -4,6 +4,9 @@
 //! driving application lends this interface during execution instead of storing
 //! window resources or selecting another session's UI inside GameLogic.
 pub(crate) trait ScriptUiEffects {
+    /// Immediate visual weather delivery to the receiving Client.
+    fn weather_visible(&mut self, visible: bool);
+
     /// C++ ScriptActions::doLetterBoxMode: Hide(TRUE) or Show(FALSE), before
     /// publishing the letterbox flag and continuing to the next action.
     fn letterbox(

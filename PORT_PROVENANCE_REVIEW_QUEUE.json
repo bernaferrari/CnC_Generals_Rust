@@ -21270,6 +21270,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/owned_snow_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/presentation_specialized_draw.rs"
             },
@@ -189810,7 +189815,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "4e15199177a7466259297009c3731e24f367af5c6095b3c966276a6528e87c11",
+  "provenance_input_digest": "d6afd2f676302e50dc1c8b7fa958c9cfc3e89f08f3496ef7377787bdd7e7ae78",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

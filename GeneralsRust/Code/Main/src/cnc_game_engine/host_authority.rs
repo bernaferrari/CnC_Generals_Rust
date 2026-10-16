@@ -197,9 +197,10 @@ impl CnCGameEngine {
         // Shell scripts use the same receiving client phase as match scripts.
         // Keep the existing bounded fixed-step kernel and pause decision.
         #[cfg(feature = "game_client")]
-        let client = &mut self.game_client;
+        let (mut client_frame, snow) = self.game_client.split_frame_and_snow();
         #[cfg(feature = "game_client")]
         let mut ui = super::control_bar_viewport::NativeScriptUi::new(
+            snow,
             &mut self.control_bar,
             &mut self.control_bar_callbacks,
         );
@@ -214,7 +215,7 @@ impl CnCGameEngine {
             ui,
             |frame| {
                 #[cfg(feature = "game_client")]
-                client.set_frame(frame);
+                client_frame.set_frame(frame);
                 #[cfg(not(feature = "game_client"))]
                 let _ = frame;
             },
@@ -1140,6 +1141,23 @@ impl CnCGameEngine {
         &mut self.game_logic
     }
 
+    /// Admission is the sole native map-definition handoff. Candidates never
+    /// reroll or reset the receiving Client's physical snow during parsing.
+    fn host_admit_snow_for_world(&mut self) {
+        #[cfg(feature = "game_client")]
+        {
+            self.game_client.admit_base_snow_definition();
+            for definition in &self.game_logic.weather_definition_updates {
+                self.game_client.admit_snow_definition(
+                    &game_client::snow::WeatherSetting::from_common(definition),
+                );
+            }
+            self.game_client
+                .snow_mut()
+                .set_visible(self.game_logic.weather_state().visible);
+        }
+    }
+
     /// Wave 935: intentional full GameLogic replace boundary (map-load install).
     #[inline]
     pub(super) fn host_replace_game_logic(&mut self, mut logic: crate::game_logic::GameLogic) {
@@ -1171,6 +1189,7 @@ impl CnCGameEngine {
             logic.session_view.filter = candidate_filter;
         }
         self.game_logic = logic;
+        self.host_admit_snow_for_world();
         crate::command_system::bind_host_replay_authority(&self.game_logic.replay_pending);
         if let Some(shadow) = self.gameworld_shadow.as_mut() {
             shadow.reset_for_world_boundary();
@@ -1277,6 +1296,7 @@ impl CnCGameEngine {
         logic.session_view.camera.viewport = self.game_logic.session_view.camera.viewport;
         logic.session_view.camera.rebuild_projection();
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
+        self.host_admit_snow_for_world();
         #[cfg(feature = "game_client")]
         self.game_client
             .bind_visual_world(gamelogic::helpers::ClientVisualHandle::new(Arc::clone(

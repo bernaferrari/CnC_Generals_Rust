@@ -1357,6 +1357,7 @@ impl CnCGameEngine {
     ) -> bool {
         #[cfg(feature = "game_client")]
         let mut ui = super::control_bar_viewport::NativeScriptUi::new(
+            self.game_client.snow_mut(),
             &mut self.control_bar,
             &mut self.control_bar_callbacks,
         );

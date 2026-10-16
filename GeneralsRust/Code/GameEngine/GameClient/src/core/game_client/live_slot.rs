@@ -79,8 +79,15 @@ pub(crate) fn owns_live_game_client_slot(client: &GameClient) -> bool {
 /// the live singleton.  A non-registered test/local client intentionally does
 /// not replace the active engine's value.
 pub(crate) fn publish_live_game_client_frame(client: &GameClient) {
-    if owns_live_game_client_slot(client) {
-        LIVE_GAME_CLIENT_FRAME.store(client.frame, Ordering::Release);
+    publish_client_frame_for_identity(std::ptr::from_ref(client) as usize, client.frame);
+}
+
+fn publish_client_frame_for_identity(identity: usize, frame: u32) {
+    let current_thread = std::thread::current().id();
+    if let Ok(slot) = live_game_client_slot().lock() {
+        if slot.raw == Some(identity) && slot.owner_thread == Some(current_thread) {
+            LIVE_GAME_CLIENT_FRAME.store(frame, Ordering::Release);
+        }
     }
 }
 
@@ -583,3 +590,52 @@ mod live_slot_tests {
 #[cfg(test)]
 #[path = "fx_client_bone_tests.rs"]
 mod fx_client_bone_tests;
+
+/// Disjoint frame loan. Address is comparison identity only, never dereferenced.
+pub struct ClientFrameWriter<'a> {
+    frame: &'a mut u32,
+    identity: usize,
+}
+impl ClientFrameWriter<'_> {
+    pub fn set_frame(&mut self, frame: u32) {
+        *self.frame = frame;
+        publish_client_frame_for_identity(self.identity, frame);
+    }
+}
+impl GameClient {
+    pub fn split_frame_and_snow(
+        &mut self,
+    ) -> (ClientFrameWriter<'_>, &mut crate::snow::SnowManager) {
+        let identity = std::ptr::from_mut(self) as usize;
+        (
+            ClientFrameWriter {
+                frame: &mut self.frame,
+                identity,
+            },
+            &mut self.snow,
+        )
+    }
+    pub fn snow_mut(&mut self) -> &mut crate::snow::SnowManager {
+        &mut self.snow
+    }
+    pub fn snow_render_state(&self) -> crate::snow::SnowRenderState {
+        crate::snow::SnowRenderState {
+            manager: self.snow.clone(),
+            definition: self.snow_definition.clone(),
+        }
+    }
+    /// C++ GameLogic::reset deletes definition overrides without refreshing
+    /// SnowManager's cached parameters or noise. Only a parsed Weather block
+    /// calls updateIniSettings; immutable definition admission is separate.
+    pub fn admit_base_snow_definition(&mut self) {
+        self.snow_definition = self.snow_base_definition.clone();
+    }
+    /// Admit one successfully parsed Weather block, including its runtime refresh.
+    pub fn admit_snow_definition(&mut self, definition: &crate::snow::WeatherSetting) {
+        self.snow_definition = definition.clone();
+        self.snow
+            .update_ini_settings_with_definition(definition, &mut |low, high| {
+                crate::GameClientRandomValue!(low, high)
+            });
+    }
+}

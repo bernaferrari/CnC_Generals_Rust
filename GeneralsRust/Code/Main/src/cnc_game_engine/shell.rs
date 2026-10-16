@@ -2089,6 +2089,7 @@ impl CnCGameEngine {
             if let Err(err) = self.render_pipeline.warm_loaded_terrain(
                 &self.game_logic.session_view.camera.view_matrix,
                 &self.game_logic.session_view.camera.projection_matrix,
+                &self.game_client.snow_render_state(),
             ) {
                 warn!("Shell terrain warmup failed: {err}");
             } else {

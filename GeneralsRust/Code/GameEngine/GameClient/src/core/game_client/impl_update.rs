@@ -192,12 +192,8 @@ impl GameClient {
     }
 
     /// C++ `TheSnowManager->UPDATE()` + `TheAnim2DCollection->UPDATE()`.
-    pub fn update_cpp_snow_and_anim2d(&self, delta_seconds: f32) {
-        if let Some(snow) = crate::snow::get_snow_manager() {
-            if let Ok(mut guard) = snow.lock() {
-                guard.update(delta_seconds);
-            }
-        }
+    pub fn update_cpp_snow_and_anim2d(&mut self, delta_seconds: f32) {
+        self.snow.update(delta_seconds);
         crate::system::update_client_anim2d_collection();
     }
 

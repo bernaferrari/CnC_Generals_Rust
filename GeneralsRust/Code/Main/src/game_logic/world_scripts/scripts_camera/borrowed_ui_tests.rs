@@ -18,6 +18,7 @@ struct ReceivingUi {
     delivered: Vec<bool>,
 }
 impl crate::game_logic::ScriptUiEffects for ReceivingUi {
+    fn weather_visible(&mut self, _visible: bool) {}
     fn letterbox(
         &mut self,
         camera: &mut crate::presentation_frame::camera::SessionCamera,

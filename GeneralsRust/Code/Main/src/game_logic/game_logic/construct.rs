@@ -65,6 +65,7 @@ impl GameLogic {
             production_energy: Default::default(),
             ai_definitions,
             map_definition_source: None,
+            weather_definition_updates: Vec::new(),
             health_events: crate::game_logic::HostHealthEvents::default(),
             is_scoring_enabled: true,
             eva_announcements: Default::default(),
@@ -763,6 +764,7 @@ impl GameLogic {
         self.weapon_definitions = self.weapon_definition_base.clone();
         log::debug!("GameLogic::reset() - resetting game state");
         self.map_definition_source = None;
+        self.weather_definition_updates.clear();
         self.w3d_ghosts = Default::default();
         self.host_ghosts = Default::default();
         self.ai_definitions.reset();

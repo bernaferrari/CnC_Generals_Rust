@@ -232,3 +232,6 @@ mod receiving_condition_phase_tests;
 
 #[cfg(test)]
 mod receiving_material_phase_tests;
+
+#[cfg(test)]
+mod owned_snow_tests;

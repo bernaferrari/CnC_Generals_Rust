@@ -138,7 +138,7 @@ impl WeatherSetting {
         }
     }
 
-    fn clone_without_chain(&self) -> WeatherSetting {
+    pub(crate) fn clone_without_chain(&self) -> WeatherSetting {
         let mut copy = self.clone();
         copy.next_override = None;
         copy.is_override = false;
@@ -367,6 +367,15 @@ pub fn get_weather_setting() -> Option<WeatherSetting> {
         })
 }
 
+/// Immutable pristine content definition, excluding any other match's overrides.
+pub fn get_base_weather_setting() -> Option<WeatherSetting> {
+    get_weather_setting_mut()
+        .read()
+        .ok()?
+        .as_ref()
+        .map(WeatherSetting::clone_without_chain)
+}
+
 /// Get mutable access to the weather setting store
 fn get_weather_setting_mut() -> &'static RwLock<Option<WeatherSetting>> {
     WEATHER_SETTING.get_or_init(|| RwLock::new(None))
@@ -406,13 +415,19 @@ pub fn init_weather_setting() {
 /// - If `CreateOverrides` load type, copy the base, chain as override, parse onto it
 /// - Otherwise throw (C++ `INI_INVALID_DATA`)
 pub fn parse_weather_definition(ini: &mut INI) -> INIResult<()> {
-    let load_type = ini.get_load_type();
-    let field_parse_table = WeatherSetting::get_field_parse();
-
     let mut guard = get_weather_setting_mut()
         .write()
         .map_err(|_| INIError::UnknownError)?;
+    parse_weather_definition_into(ini, &mut guard)
+}
 
+/// Same C++ override algorithm, with the definition chain owned by this load.
+pub(crate) fn parse_weather_definition_into(
+    ini: &mut INI,
+    guard: &mut Option<WeatherSetting>,
+) -> INIResult<()> {
+    let load_type = ini.get_load_type();
+    let field_parse_table = WeatherSetting::get_field_parse();
     if guard.is_none() {
         let mut setting = WeatherSetting::new();
         ini.init_from_ini_with_fields(&mut setting, &field_parse_table)?;

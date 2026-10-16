@@ -1401,6 +1401,19 @@ impl INI {
     where
         F: FnOnce(&mut INI) -> INIResult<R>,
     {
+        self.with_inline_source_and_load_type(contents, INILoadType::Overwrite, f)
+    }
+
+    /// Detached content admission uses the same tokenizer with explicit override semantics.
+    pub fn with_inline_source_and_load_type<F, R>(
+        &mut self,
+        contents: &str,
+        load_type: INILoadType,
+        f: F,
+    ) -> INIResult<R>
+    where
+        F: FnOnce(&mut INI) -> INIResult<R>,
+    {
         if self.file.is_some() {
             return Err(INIError::FileAlreadyOpen);
         }
@@ -1408,7 +1421,7 @@ impl INI {
         self.staged_temp_file = None;
         self.file = Some(IniInput::Inline(Cursor::new(contents.as_bytes().to_vec())));
         self.filename = "<inline>".to_string();
-        self.load_type = INILoadType::Overwrite;
+        self.load_type = load_type;
         self.read_buffer_next = 0;
         self.read_buffer_used = 0;
 
@@ -1436,7 +1449,16 @@ impl INI {
         &mut self,
         store: &mut PlayerTemplateStore,
     ) -> INIResult<()> {
-        self.parse_file_with_player_templates(Some(store))
+        self.parse_file_with_owned_definitions(Some(store), None, None)
+    }
+
+    /// Parse Weather blocks into this load's detached definition chain.
+    pub fn parse_current_file_into_weather(
+        &mut self,
+        store: &mut Option<super::ini_weather::WeatherSetting>,
+        updates: &mut Vec<super::ini_weather::WeatherSetting>,
+    ) -> INIResult<()> {
+        self.parse_file_with_owned_definitions(None, Some(store), Some(updates))
     }
 
     /// Prepare file for reading
@@ -1510,12 +1532,14 @@ impl INI {
 
     /// Parse the entire file
     fn parse_file(&mut self) -> INIResult<()> {
-        self.parse_file_with_player_templates(None)
+        self.parse_file_with_owned_definitions(None, None, None)
     }
 
-    fn parse_file_with_player_templates(
+    fn parse_file_with_owned_definitions(
         &mut self,
         mut player_templates: Option<&mut PlayerTemplateStore>,
+        mut weather: Option<&mut Option<super::ini_weather::WeatherSetting>>,
+        mut weather_updates: Option<&mut Vec<super::ini_weather::WeatherSetting>>,
     ) -> INIResult<()> {
         let mut skipping_corrupt_block = false;
         while !self.end_of_file {
@@ -1546,6 +1570,17 @@ impl INI {
                     && let Some(store) = player_templates.as_deref_mut()
                 {
                     super::ini_player_template::parse_player_template_definition_into(self, store)
+                } else if first_token.eq_ignore_ascii_case("Weather")
+                    && let Some(store) = weather.as_deref_mut()
+                {
+                    let result = super::ini_weather::parse_weather_definition_into(self, store);
+                    if result.is_ok()
+                        && let Some(updates) = weather_updates.as_deref_mut()
+                        && let Some(definition) = store.as_ref()
+                    {
+                        updates.push(definition.final_override().clone_without_chain());
+                    }
+                    result
                 } else {
                     parser(self)
                 };

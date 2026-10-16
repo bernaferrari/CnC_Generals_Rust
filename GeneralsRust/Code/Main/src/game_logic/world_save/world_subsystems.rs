@@ -336,17 +336,9 @@ impl GameLogic {
         }
     }
 
+    /// Authored presentation intent; an explicit Client loan delivers physical snow.
     pub fn set_weather_visible(&mut self, visible: bool) {
         self.weather_state.visible = visible;
-        #[cfg(feature = "game_client")]
-        {
-            // C++ ScriptActions.cpp:3804 TheSnowManager->setVisible(showWeather)
-            let snow = game_client::snow::get_snow_manager()
-                .unwrap_or_else(game_client::snow::initialize_snow_manager);
-            if let Ok(mut guard) = snow.lock() {
-                guard.set_visible(visible);
-            }
-        }
     }
 
     pub fn queue_pending_special_ability(

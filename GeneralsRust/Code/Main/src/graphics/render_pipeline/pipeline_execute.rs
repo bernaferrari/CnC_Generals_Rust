@@ -50,6 +50,7 @@ impl RenderPipeline {
         >,
         #[cfg(feature = "game_client")]
         view_filter: &mut game_client::display::view_filter::ViewFilterState,
+        #[cfg(feature = "game_client")] snow: &game_client::snow::SnowRenderState,
         #[cfg(feature = "game_client")] filter_scroll: glam::Vec2,
         #[cfg(feature = "game_client")] filter_logic_frame: u32,
         #[cfg(feature = "game_client")] mut filter_camera: Option<
@@ -315,7 +316,7 @@ impl RenderPipeline {
         #[cfg(feature = "game_client")]
         if render_world_scene {
             let terrain_started = std::time::Instant::now();
-            self.update_and_enqueue_terrain_pass(view_matrix, projection_matrix)?;
+            self.update_and_enqueue_terrain_pass(view_matrix, projection_matrix, snow)?;
             terrain_elapsed = terrain_started.elapsed();
         }
 

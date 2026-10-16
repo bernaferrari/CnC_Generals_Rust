@@ -88,3 +88,57 @@ fn authored_freeze_speed_weather_follow_receiver_without_or_with_foreign_handler
         },
     );
 }
+
+#[cfg(feature = "game_client")]
+#[test]
+fn authored_weather_reaches_borrowed_snow_and_detached_intent_catches_up() {
+    struct SnowUi<'a>(&'a mut game_client::snow::SnowManager);
+    impl crate::game_logic::ScriptUiEffects for SnowUi<'_> {
+        fn weather_visible(&mut self, visible: bool) {
+            self.0.set_visible(visible);
+        }
+        fn letterbox(
+            &mut self,
+            _: &mut crate::presentation_frame::camera::SessionCamera,
+            _: bool,
+            _: bool,
+        ) {
+        }
+    }
+    let mut owner = GameLogic::new();
+    let peer = game_client::snow::SnowManager::new();
+    let mut snow = game_client::snow::SnowManager::new();
+    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    for visible in [false, true, false] {
+        let mut action = ScriptAction::new(ScriptActionType::ShowWeather);
+        action
+            .add_parameter(Parameter::with_int(
+                ParameterType::Boolean,
+                i32::from(visible),
+            ))
+            .unwrap();
+        engine.friend_execute_action_with_driver(
+            &action,
+            None,
+            gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+            &mut HostScriptExecutionDriver::with_ui(
+                &mut owner,
+                &engine,
+                Some(&mut SnowUi(&mut snow)),
+            ),
+        );
+        assert_eq!(snow.is_visible(), visible);
+        assert_eq!(owner.weather_state().visible, visible);
+        assert!(peer.is_visible());
+    }
+    owner.set_weather_visible(true);
+    assert!(
+        !snow.is_visible(),
+        "detached intent has no implicit visual service"
+    );
+    let mut ui = SnowUi(&mut snow);
+    let _loan = HostScriptExecutionDriver::with_ui(&mut owner, &engine, Some(&mut ui));
+    drop(_loan);
+    assert!(snow.is_visible());
+    assert!(peer.is_visible());
+}

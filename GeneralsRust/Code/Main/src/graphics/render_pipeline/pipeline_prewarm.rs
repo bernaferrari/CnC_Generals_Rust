@@ -371,8 +371,9 @@ impl RenderPipeline {
         &mut self,
         view_matrix: &Mat4,
         projection_matrix: &Mat4,
+        snow: &game_client::snow::SnowRenderState,
     ) -> Result<()> {
-        self.update_and_enqueue_terrain_pass(view_matrix, projection_matrix)
+        self.update_and_enqueue_terrain_pass(view_matrix, projection_matrix, snow)
     }
 
     #[cfg(feature = "game_client")]
@@ -380,6 +381,7 @@ impl RenderPipeline {
         &mut self,
         view_matrix: &Mat4,
         projection_matrix: &Mat4,
+        snow: &game_client::snow::SnowRenderState,
     ) -> Result<()> {
         static LOGGED_ZERO_TERRAIN_CHUNKS: AtomicBool = AtomicBool::new(false);
         static LOGGED_NONZERO_TERRAIN_CHUNKS: AtomicBool = AtomicBool::new(false);
@@ -401,6 +403,7 @@ impl RenderPipeline {
                         &client_view_matrix,
                         &client_projection_matrix,
                         snow_min_height,
+                        snow,
                     )
                     .map_err(|e| {
                         anyhow::anyhow!("terrain visual render state update failed: {}", e)

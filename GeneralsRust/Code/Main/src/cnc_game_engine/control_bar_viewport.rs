@@ -97,6 +97,7 @@ impl CnCGameEngine {
 /// GameLogic retains only its camera; no UI service is published into a world.
 #[cfg(feature = "game_client")]
 pub(super) struct NativeScriptUi<'a> {
+    snow: &'a mut game_client::snow::SnowManager,
     bar: &'a mut game_client::gui::control_bar::ControlBar,
     callbacks: &'a mut game_client::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
 }
@@ -104,10 +105,15 @@ pub(super) struct NativeScriptUi<'a> {
 #[cfg(feature = "game_client")]
 impl<'a> NativeScriptUi<'a> {
     pub(super) fn new(
+        snow: &'a mut game_client::snow::SnowManager,
         bar: &'a mut game_client::gui::control_bar::ControlBar,
         callbacks: &'a mut game_client::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
     ) -> Self {
-        Self { bar, callbacks }
+        Self {
+            snow,
+            bar,
+            callbacks,
+        }
     }
 
     fn letterbox_with_parent(
@@ -132,6 +138,10 @@ impl<'a> NativeScriptUi<'a> {
 
 #[cfg(feature = "game_client")]
 impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
+    fn weather_visible(&mut self, visible: bool) {
+        self.snow.set_visible(visible);
+    }
+
     fn letterbox(
         &mut self,
         camera: &mut crate::presentation_frame::camera::SessionCamera,
