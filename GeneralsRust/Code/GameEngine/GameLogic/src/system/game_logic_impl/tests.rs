@@ -1168,7 +1168,7 @@ mod tests {
         // hq-um5t: those extras belong on GameClient, not the logic tick.
         let src = include_str!("impl_update.rs");
         let update_fn = src
-            .split("pub fn update(&mut self, frame: u32)")
+            .split("fn update_with_optional_upgrade_services(")
             .nth(1)
             .and_then(|rest| rest.split("pub fn take_radar_updates").next())
             .expect("GameLogic::update body");
