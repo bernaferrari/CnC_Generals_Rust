@@ -177,169 +177,164 @@ impl Xfer for RuntimeCommonXferAdapter<'_> {
     }
 }
 
-pub(crate) fn xfer_live_game_client_state(
+pub(crate) fn xfer_game_client_state(
+    client: &mut GameClient,
     xfer: &mut dyn RuntimeXfer,
 ) -> Result<(), RuntimeXferStatus> {
-    with_live_game_client_mut(|client| {
-        if xfer.get_xfer_mode() == RuntimeXferMode::Load {
-            xfer.set_client_frame_context(game_engine::ClientFrameContext::Frame(client.frame))?;
-        }
-        let current_version: u8 = 3;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)?;
+    if xfer.get_xfer_mode() == RuntimeXferMode::Load {
+        xfer.set_client_frame_context(game_engine::ClientFrameContext::Frame(client.frame))?;
+    }
+    let current_version: u8 = 3;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
 
-        // Backward-compatibility with older Rust save chunk version before
-        // the C++-ordered envelope was introduced.
-        if version <= 1 {
-            xfer.xfer_unsigned_int(&mut client.frame)?;
-            if xfer.get_xfer_mode() == RuntimeXferMode::Load {
-                xfer.set_client_frame_context(game_engine::ClientFrameContext::Frame(
-                    client.frame,
-                ))?;
-            }
-            xfer.xfer_int(&mut client.local_player_id)?;
-            xfer.xfer_unsigned_int(&mut client.rendered_object_count)?;
-
-            let mut next_drawable_id = client.drawables.next_drawable_id.0;
-            xfer.xfer_unsigned_int(&mut next_drawable_id)?;
-            client.drawables.next_drawable_id = DrawableId(next_drawable_id.max(1));
-
-            let mut startup_sizzle_pending = client.startup_sizzle_pending;
-            xfer.xfer_bool(&mut startup_sizzle_pending)?;
-            client.startup_sizzle_pending = startup_sizzle_pending;
-
-            let mut drawable_count = client.drawables.drawable_map.len() as u32;
-            xfer.xfer_unsigned_int(&mut drawable_count)?;
-
-            if xfer.get_xfer_mode() == RuntimeXferMode::Load {
-                if client.drawables.next_drawable_id.0 <= 1
-                    && !client.drawables.drawable_map.is_empty()
-                {
-                    let max_id = client
-                        .drawables
-                        .drawable_map
-                        .keys()
-                        .map(|id| id.0)
-                        .max()
-                        .unwrap_or(1);
-                    client.drawables.next_drawable_id = DrawableId(max_id.saturating_add(1));
-                }
-                client.set_drawable_id_counter(client.drawables.next_drawable_id.0);
-            }
-            return Ok(());
-        }
-
-        // C++ parity envelope:
-        // v3, frame, drawable TOC, drawable archive blocks, briefing history (v2+)
+    // Backward-compatibility with older Rust save chunk version before
+    // the C++-ordered envelope was introduced.
+    if version <= 1 {
         xfer.xfer_unsigned_int(&mut client.frame)?;
         if xfer.get_xfer_mode() == RuntimeXferMode::Load {
             xfer.set_client_frame_context(game_engine::ClientFrameContext::Frame(client.frame))?;
         }
-        {
-            let mut adapter = RuntimeCommonXferAdapter::new(xfer);
-            client
-                .xfer_drawable_toc(&mut adapter)
-                .map_err(|_| RuntimeXferStatus::InvalidData)?;
+        xfer.xfer_int(&mut client.local_player_id)?;
+        xfer.xfer_unsigned_int(&mut client.rendered_object_count)?;
 
-            let save_entries = if adapter.is_writing() {
-                client
-                    .collect_saveable_drawables_sorted()
-                    .map_err(|_| RuntimeXferStatus::InvalidData)?
-            } else {
-                client.drawables.drawable_map.clear();
-                client.drawables.native_drawable_order.clear();
-                client.drawables.ray_effects.reset();
-                client.drawables.owned_laser_order.clear();
-                client.drawables.drawable_object_map.clear();
-                client
+        let mut next_drawable_id = client.drawables.next_drawable_id.0;
+        xfer.xfer_unsigned_int(&mut next_drawable_id)?;
+        client.drawables.next_drawable_id = DrawableId(next_drawable_id.max(1));
+
+        let mut startup_sizzle_pending = client.startup_sizzle_pending;
+        xfer.xfer_bool(&mut startup_sizzle_pending)?;
+        client.startup_sizzle_pending = startup_sizzle_pending;
+
+        let mut drawable_count = client.drawables.drawable_map.len() as u32;
+        xfer.xfer_unsigned_int(&mut drawable_count)?;
+
+        if xfer.get_xfer_mode() == RuntimeXferMode::Load {
+            if client.drawables.next_drawable_id.0 <= 1 && !client.drawables.drawable_map.is_empty()
+            {
+                let max_id = client
                     .drawables
-                    .presentation_direct_drawable_bindings
-                    .clear();
-                Vec::new()
-            };
+                    .drawable_map
+                    .keys()
+                    .map(|id| id.0)
+                    .max()
+                    .unwrap_or(1);
+                client.drawables.next_drawable_id = DrawableId(max_id.saturating_add(1));
+            }
+            client.set_drawable_id_counter(client.drawables.next_drawable_id.0);
+        }
+        return Ok(());
+    }
 
-            let mut drawable_count: u16 = save_entries
-                .len()
-                .try_into()
-                .map_err(|_| RuntimeXferStatus::InvalidData)?;
-            adapter
-                .xfer_unsigned_short(&mut drawable_count)
-                .map_err(|_| RuntimeXferStatus::InvalidData)?;
+    // C++ parity envelope:
+    // v3, frame, drawable TOC, drawable archive blocks, briefing history (v2+)
+    xfer.xfer_unsigned_int(&mut client.frame)?;
+    if xfer.get_xfer_mode() == RuntimeXferMode::Load {
+        xfer.set_client_frame_context(game_engine::ClientFrameContext::Frame(client.frame))?;
+    }
+    {
+        let mut adapter = RuntimeCommonXferAdapter::new(xfer);
+        client
+            .xfer_drawable_toc(&mut adapter)
+            .map_err(|_| RuntimeXferStatus::InvalidData)?;
 
-            if adapter.is_writing() {
-                let toc_lookup: HashMap<String, u16> = client
-                    .drawable_toc
-                    .iter()
-                    .map(|entry| (entry.name.clone(), entry.id))
-                    .collect();
+        let save_entries = if adapter.is_writing() {
+            client
+                .collect_saveable_drawables_sorted()
+                .map_err(|_| RuntimeXferStatus::InvalidData)?
+        } else {
+            client.drawables.drawable_map.clear();
+            client.drawables.native_drawable_order.clear();
+            client.drawables.ray_effects.reset();
+            client.drawables.owned_laser_order.clear();
+            client.drawables.drawable_object_map.clear();
+            client
+                .drawables
+                .presentation_direct_drawable_bindings
+                .clear();
+            Vec::new()
+        };
 
-                for (drawable_id, template_name) in save_entries {
-                    let Some(drawable) = client.drawables.drawable_map.get_mut(&drawable_id) else {
-                        return Err(RuntimeXferStatus::InvalidData);
-                    };
-                    let mut toc_id = toc_lookup
-                        .get(&template_name)
-                        .copied()
-                        .ok_or(RuntimeXferStatus::InvalidData)?;
-                    adapter
-                        .xfer_unsigned_short(&mut toc_id)
-                        .map_err(|_| RuntimeXferStatus::InvalidData)?;
+        let mut drawable_count: u16 = save_entries
+            .len()
+            .try_into()
+            .map_err(|_| RuntimeXferStatus::InvalidData)?;
+        adapter
+            .xfer_unsigned_short(&mut drawable_count)
+            .map_err(|_| RuntimeXferStatus::InvalidData)?;
 
-                    adapter.begin_block().map_err(common_status_to_runtime)?;
-                    let mut object_id: ObjectID = drawable.get_object_id().unwrap_or(INVALID_ID);
-                    adapter
-                        .xfer_unsigned_int(&mut object_id)
-                        .map_err(|_| RuntimeXferStatus::InvalidData)?;
-                    let receiving_id = drawable.get_id();
-                    GameClient::xfer_drawable_snapshot(drawable.as_mut(), &mut adapter)
-                        .map_err(|_| RuntimeXferStatus::InvalidData)?;
-                    adapter.end_block().map_err(common_status_to_runtime)?;
-                }
-            } else {
-                for _ in 0..drawable_count {
-                    let mut toc_id: u16 = 0;
-                    adapter
-                        .xfer_unsigned_short(&mut toc_id)
-                        .map_err(|_| RuntimeXferStatus::InvalidData)?;
+        if adapter.is_writing() {
+            let toc_lookup: HashMap<String, u16> = client
+                .drawable_toc
+                .iter()
+                .map(|entry| (entry.name.clone(), entry.id))
+                .collect();
 
-                    let toc_name = client
-                        .find_toc_entry_by_id(toc_id)
-                        .map(|entry| entry.name.clone())
-                        .ok_or(RuntimeXferStatus::InvalidData)?;
+            for (drawable_id, template_name) in save_entries {
+                let Some(drawable) = client.drawables.drawable_map.get_mut(&drawable_id) else {
+                    return Err(RuntimeXferStatus::InvalidData);
+                };
+                let mut toc_id = toc_lookup
+                    .get(&template_name)
+                    .copied()
+                    .ok_or(RuntimeXferStatus::InvalidData)?;
+                adapter
+                    .xfer_unsigned_short(&mut toc_id)
+                    .map_err(|_| RuntimeXferStatus::InvalidData)?;
 
-                    let data_size = adapter.begin_block().map_err(common_status_to_runtime)?;
+                adapter.begin_block().map_err(common_status_to_runtime)?;
+                let mut object_id: ObjectID = drawable.get_object_id().unwrap_or(INVALID_ID);
+                adapter
+                    .xfer_unsigned_int(&mut object_id)
+                    .map_err(|_| RuntimeXferStatus::InvalidData)?;
+                let receiving_id = drawable.get_id();
+                GameClient::xfer_drawable_snapshot(drawable.as_mut(), &mut adapter)
+                    .map_err(|_| RuntimeXferStatus::InvalidData)?;
+                adapter.end_block().map_err(common_status_to_runtime)?;
+            }
+        } else {
+            for _ in 0..drawable_count {
+                let mut toc_id: u16 = 0;
+                adapter
+                    .xfer_unsigned_short(&mut toc_id)
+                    .map_err(|_| RuntimeXferStatus::InvalidData)?;
 
-                    // The Arc outlives this guard. Drawable binding below can
-                    // resolve ambient sound through ThingFactory again.
-                    let template = {
-                        let guard =
-                            get_thing_factory().map_err(|_| RuntimeXferStatus::InvalidData)?;
-                        let factory = guard.as_ref().ok_or(RuntimeXferStatus::InvalidData)?;
-                        factory.find_template(&toc_name, false)
-                    };
-                    let Some(template) = template else {
-                        adapter.skip(data_size).map_err(common_status_to_runtime)?;
-                        continue;
-                    };
+                let toc_name = client
+                    .find_toc_entry_by_id(toc_id)
+                    .map(|entry| entry.name.clone())
+                    .ok_or(RuntimeXferStatus::InvalidData)?;
 
-                    let mut object_id: ObjectID = INVALID_ID;
-                    adapter
-                        .xfer_unsigned_int(&mut object_id)
-                        .map_err(|_| RuntimeXferStatus::InvalidData)?;
-                    // Host/presentation path: OBJECT_REGISTRY may be empty. Do not
-                    // fail xfer; bind_drawable_to_object runs only when present.
+                let data_size = adapter.begin_block().map_err(common_status_to_runtime)?;
 
-                    let mut reuse_id = None;
-                    if object_id != INVALID_ID {
-                        if let Some(existing_id) = client.get_drawable_for_object(object_id) {
-                            reuse_id = Some(existing_id);
-                        }
+                // The Arc outlives this guard. Drawable binding below can
+                // resolve ambient sound through ThingFactory again.
+                let template = {
+                    let guard = get_thing_factory().map_err(|_| RuntimeXferStatus::InvalidData)?;
+                    let factory = guard.as_ref().ok_or(RuntimeXferStatus::InvalidData)?;
+                    factory.find_template(&toc_name, false)
+                };
+                let Some(template) = template else {
+                    adapter.skip(data_size).map_err(common_status_to_runtime)?;
+                    continue;
+                };
+
+                let mut object_id: ObjectID = INVALID_ID;
+                adapter
+                    .xfer_unsigned_int(&mut object_id)
+                    .map_err(|_| RuntimeXferStatus::InvalidData)?;
+                // Host/presentation path: OBJECT_REGISTRY may be empty. Do not
+                // fail xfer; bind_drawable_to_object runs only when present.
+
+                let mut reuse_id = None;
+                if object_id != INVALID_ID {
+                    if let Some(existing_id) = client.get_drawable_for_object(object_id) {
+                        reuse_id = Some(existing_id);
                     }
+                }
 
-                    let mut drawable = if let Some(existing_id) = reuse_id {
-                        let needs_replace = if let Some(existing) =
-                            client.drawables.drawable_map.get(&existing_id)
-                        {
+                let mut drawable = if let Some(existing_id) = reuse_id {
+                    let needs_replace =
+                        if let Some(existing) = client.drawables.drawable_map.get(&existing_id) {
                             let guard =
                                 get_thing_factory().map_err(|_| RuntimeXferStatus::InvalidData)?;
                             let factory = guard.as_ref().ok_or(RuntimeXferStatus::InvalidData)?;
@@ -351,90 +346,102 @@ pub(crate) fn xfer_live_game_client_state(
                         } else {
                             true
                         };
-                        if needs_replace {
-                            client
-                                .destroy_drawable(existing_id)
-                                .map_err(|_| RuntimeXferStatus::InvalidData)?;
-                            None
-                        } else {
-                            client.drawables.take_native_drawable_for_load(existing_id)
-                        }
-                    } else {
-                        None
-                    };
-
-                    if drawable.is_none() {
-                        let created_id = client
-                            .create_drawable_from_template(template.as_ref())
-                            .map_err(|_| RuntimeXferStatus::InvalidData)?;
-                        let (mut created, receiving_position) = client
-                            .drawables
-                            .take_native_drawable_for_load(created_id)
-                            .ok_or(RuntimeXferStatus::InvalidData)?;
+                    if needs_replace {
                         client
-                            .drawables
-                            .owned_laser_order
-                            .retain(|owner| *owner != created_id);
-                        if object_id != INVALID_ID {
-                            created.set_object_id(Some(object_id));
-                        }
-                        drawable = Some((created, receiving_position));
+                            .destroy_drawable(existing_id)
+                            .map_err(|_| RuntimeXferStatus::InvalidData)?;
+                        None
+                    } else {
+                        client.drawables.take_native_drawable_for_load(existing_id)
                     }
+                } else {
+                    None
+                };
 
-                    let (mut drawable, receiving_position) =
-                        drawable.ok_or(RuntimeXferStatus::InvalidData)?;
-                    GameClient::xfer_drawable_snapshot(drawable.as_mut(), &mut adapter)
+                if drawable.is_none() {
+                    let created_id = client
+                        .create_drawable_from_template(template.as_ref())
                         .map_err(|_| RuntimeXferStatus::InvalidData)?;
-                    let id = drawable.get_id();
-                    if let Some(object_id) = drawable.get_object_id() {
-                        client.drawables.drawable_object_map.insert(object_id, id);
-                    }
-                    let native_lasers = GameClient::owned_laser_count(drawable.as_mut());
-                    if native_lasers > 1 {
-                        return Err(RuntimeXferStatus::InvalidData);
-                    }
-                    GameClient::bind_owned_laser_module(drawable.as_mut(), id);
+                    let (mut created, receiving_position) = client
+                        .drawables
+                        .take_native_drawable_for_load(created_id)
+                        .ok_or(RuntimeXferStatus::InvalidData)?;
                     client
                         .drawables
                         .owned_laser_order
-                        .retain(|owner| *owner != id);
-                    if native_lasers == 1 {
-                        client.drawables.owned_laser_order.insert(0, id);
-                    }
-                    client.drawables.restore_native_drawable_after_load(
-                        id,
-                        drawable,
-                        receiving_position,
-                    );
-
-                    adapter.end_block().map_err(common_status_to_runtime)?;
-
+                        .retain(|owner| *owner != created_id);
                     if object_id != INVALID_ID {
-                        // Dual-world residual bind only; host maps via drawable_object_map above.
-                        if OBJECT_REGISTRY.get_object(object_id).is_some() {
-                            let _ = client.bind_drawable_to_object(id, object_id);
-                        }
+                        created.set_object_id(Some(object_id));
+                    }
+                    drawable = Some((created, receiving_position));
+                }
+
+                let (mut drawable, receiving_position) =
+                    drawable.ok_or(RuntimeXferStatus::InvalidData)?;
+                GameClient::xfer_drawable_snapshot(drawable.as_mut(), &mut adapter)
+                    .map_err(|_| RuntimeXferStatus::InvalidData)?;
+                let id = drawable.get_id();
+                if let Some(object_id) = drawable.get_object_id() {
+                    client.drawables.drawable_object_map.insert(object_id, id);
+                }
+                let native_lasers = GameClient::owned_laser_count(drawable.as_mut());
+                if native_lasers > 1 {
+                    return Err(RuntimeXferStatus::InvalidData);
+                }
+                GameClient::bind_owned_laser_module(drawable.as_mut(), id);
+                client
+                    .drawables
+                    .owned_laser_order
+                    .retain(|owner| *owner != id);
+                if native_lasers == 1 {
+                    client.drawables.owned_laser_order.insert(0, id);
+                }
+                client.drawables.restore_native_drawable_after_load(
+                    id,
+                    drawable,
+                    receiving_position,
+                );
+
+                adapter.end_block().map_err(common_status_to_runtime)?;
+
+                if object_id != INVALID_ID {
+                    // Dual-world residual bind only; host maps via drawable_object_map above.
+                    if OBJECT_REGISTRY.get_object(object_id).is_some() {
+                        let _ = client.bind_drawable_to_object(id, object_id);
                     }
                 }
             }
         }
+    }
 
-        if version >= 2 {
-            let mut adapter = RuntimeCommonXferAdapter::new(xfer);
-            xfer_diplomacy_briefing_history(&mut adapter, version)
-                .map_err(|_| RuntimeXferStatus::InvalidData)?;
-        }
+    if version >= 2 {
+        let mut adapter = RuntimeCommonXferAdapter::new(xfer);
+        xfer_diplomacy_briefing_history(&mut adapter, version)
+            .map_err(|_| RuntimeXferStatus::InvalidData)?;
+    }
 
-        Ok(())
-    })
-    .unwrap_or(Err(RuntimeXferStatus::InvalidData))
+    Ok(())
 }
 
-pub(crate) fn run_live_game_client_load_post_process() -> Result<(), RuntimeXferStatus> {
-    with_live_game_client_mut(|client| {
-        client
+/// Operation-scoped snapshot loan. Never stored in the global GameState.
+pub struct GameClientSnapshot<'a> {
+    client: &'a mut GameClient,
+}
+impl GameClient {
+    pub fn snapshot(&mut self) -> GameClientSnapshot<'_> {
+        GameClientSnapshot { client: self }
+    }
+}
+impl game_engine::Snapshot for GameClientSnapshot<'_> {
+    fn crc(&mut self, xfer: &mut dyn RuntimeXfer) -> Result<(), RuntimeXferStatus> {
+        self.xfer(xfer)
+    }
+    fn xfer(&mut self, xfer: &mut dyn RuntimeXfer) -> Result<(), RuntimeXferStatus> {
+        xfer_game_client_state(self.client, xfer)
+    }
+    fn load_post_process(&mut self) -> Result<(), RuntimeXferStatus> {
+        self.client
             .load_post_process()
             .map_err(|_| RuntimeXferStatus::InvalidData)
-    })
-    .unwrap_or(Err(RuntimeXferStatus::InvalidData))
+    }
 }

@@ -235,3 +235,6 @@ mod receiving_material_phase_tests;
 
 #[cfg(test)]
 mod owned_snow_tests;
+
+#[cfg(test)]
+mod borrowed_snapshot_tests;

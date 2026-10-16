@@ -48,10 +48,7 @@ use gamelogic::object::draw::W3DTreeDrawModuleData;
 use glam::{Mat4, Vec3};
 use kira::{AudioManager, AudioManagerSettings, DefaultBackend};
 
-use crate::core::game_client::{
-    InGameUI, VideoPlayerInterface, run_live_game_client_load_post_process,
-    xfer_live_game_client_state,
-};
+use crate::core::game_client::{InGameUI, VideoPlayerInterface};
 use crate::gui::ingame_ui::MessageText;
 
 fn xfer_bool_flag(xfer: &mut dyn Xfer, value: &mut bool) -> Result<(), XferStatus> {
@@ -1066,19 +1063,25 @@ pub fn register_tactical_view_snapshot_block() {
     );
 }
 
+// Immutable contract marker. An operation must supply the receiving Client loan.
+// Missing ownership is an error, never a singleton lookup or successful no-op.
 struct GameClientSnapshotBridge;
 
 impl XferSnapshotTrait for GameClientSnapshotBridge {
+    fn requires_operation_owner(&self) -> bool {
+        true
+    }
     fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
         self.xfer(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        xfer_live_game_client_state(xfer)
+        let _ = xfer;
+        Err(XferStatus::InvalidData)
     }
 
     fn load_post_process(&mut self) -> Result<(), XferStatus> {
-        run_live_game_client_load_post_process()
+        Err(XferStatus::InvalidData)
     }
 }
 
@@ -3522,5 +3525,91 @@ mod radar_presentation_tests {
         handle.set_radar_presentation(frozen.clone());
         assert_eq!(handle.admit_radar_draw(&frozen), 0);
         assert_eq!(handle.take_radar_acknowledgments().len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod missing_client_snapshot_tests {
+    use super::*;
+    #[test]
+    fn real_client_snapshot_named_dispatch_uses_loan_not_registered_peer() {
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            module_path!(),
+            "real_client_snapshot_named_dispatch_uses_loan_not_registered_peer",
+        ) {
+            return;
+        }
+        use crate::core::game_client::{
+            GameClient, clear_live_game_client, register_live_game_client,
+        };
+        use game_engine::System::SaveGame::{
+            AvailableGameInfo, BorrowedSnapshotBlock, GameState, SaveCode, SaveFileType,
+            SaveGameInfo, SnapshotType,
+        };
+        fn state(path: &std::path::Path) -> GameState {
+            let mut state = GameState::new(path.to_owned());
+            state.add_snapshot_block(
+                "CHUNK_GameClient".into(),
+                Box::new(GameClientSnapshotBridge),
+                SnapshotType::SaveLoad,
+            );
+            state
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let mut source = GameClient::new().unwrap();
+        let mut peer = GameClient::new().unwrap();
+        source.set_frame(37);
+        peer.set_frame(91);
+        register_live_game_client(&mut peer);
+        let mut writer = state(directory.path());
+        {
+            let mut snapshot = source.snapshot();
+            assert_eq!(
+                writer.save_game_with_snapshots(
+                    "owned.sav".into(),
+                    "owned".into(),
+                    SaveFileType::Normal,
+                    SnapshotType::SaveLoad,
+                    &mut [BorrowedSnapshotBlock {
+                        block_name: "CHUNK_GameClient",
+                        snapshot: &mut snapshot
+                    }]
+                ),
+                Ok(SaveCode::Ok)
+            );
+        }
+        let mut receiving = GameClient::new().unwrap();
+        receiving.set_frame(777);
+        let mut reader = state(directory.path());
+        {
+            let mut snapshot = receiving.snapshot();
+            assert_eq!(
+                reader.load_game_with_snapshots(
+                    AvailableGameInfo {
+                        filename: "owned.sav".into(),
+                        save_game_info: SaveGameInfo::default()
+                    },
+                    &mut [BorrowedSnapshotBlock {
+                        block_name: "CHUNK_GameClient",
+                        snapshot: &mut snapshot
+                    }]
+                ),
+                Ok(SaveCode::Ok)
+            );
+        }
+        assert_eq!(receiving.get_frame(), 37);
+        assert_eq!(source.get_frame(), 37);
+        assert_eq!(peer.get_frame(), 91);
+        clear_live_game_client(&mut peer);
+    }
+
+    #[test]
+    fn game_client_snapshot_marker_rejects_missing_receiver() {
+        let mut marker = GameClientSnapshotBridge;
+        assert!(marker.requires_operation_owner());
+        let mut writer = game_engine::System::xfer_save::XferSave::new();
+        assert_eq!(marker.xfer(&mut writer), Err(XferStatus::InvalidData));
+        assert_eq!(marker.crc(&mut writer), Err(XferStatus::InvalidData));
+        assert_eq!(marker.load_post_process(), Err(XferStatus::InvalidData));
     }
 }

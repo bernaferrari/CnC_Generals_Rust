@@ -47,9 +47,7 @@ fn receiving_native_failed_drawable_decode_leaves_no_live_roster_node() {
             reader
                 .open(file.path().to_string_lossy().into_owned())
                 .unwrap();
-            register_live_game_client(&mut receiving);
-            let result = xfer_live_game_client_state(&mut reader);
-            clear_live_game_client(&mut receiving);
+            let result = xfer_game_client_state(&mut receiving, &mut reader);
             reader.close().unwrap();
             result.is_err()
         } else {

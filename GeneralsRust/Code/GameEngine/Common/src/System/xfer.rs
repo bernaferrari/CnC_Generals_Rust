@@ -700,7 +700,13 @@ pub trait Xfer {
 // ------------------------------------------------------------------------------------------------
 // Snapshot Trait - Base interface for data structures that can be saved/loaded
 // ------------------------------------------------------------------------------------------------
-pub trait Snapshot: Send {
+pub trait Snapshot {
+    /// Registered marker for state whose receiver must be lent by this operation.
+    /// Global registries store only Send snapshots; synchronous loans need not be Send.
+    fn requires_operation_owner(&self) -> bool {
+        false
+    }
+
     /// Run the "light" CRC check on this data structure
     fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus>;
 

@@ -362,8 +362,15 @@ const SNAPSHOT_MAX: usize = 3;
 // ------------------------------------------------------------------------------------------------
 // Snapshot Block - Associates a snapshot with its block name
 // ------------------------------------------------------------------------------------------------
+/// A named receiver borrowed for one save/load operation. Never stored in GameState.
+/// The same loan is used for transfer and the original deferred fixup phase.
+pub struct BorrowedSnapshotBlock<'a> {
+    pub block_name: &'a str,
+    pub snapshot: &'a mut dyn Snapshot,
+}
+
 struct SnapshotBlock {
-    snapshot: Box<dyn Snapshot>,
+    snapshot: Box<dyn Snapshot + Send>,
     block_name: String,
 }
 
@@ -512,7 +519,7 @@ impl GameState {
     pub fn add_snapshot_block(
         &mut self,
         block_name: String,
-        snapshot: Box<dyn Snapshot>,
+        snapshot: Box<dyn Snapshot + Send>,
         which: SnapshotType,
     ) {
         if block_name.is_empty() {
@@ -728,6 +735,18 @@ impl GameState {
         save_type: SaveFileType,
         which: SnapshotType,
     ) -> Result<SaveCode, XferStatus> {
+        self.save_game_with_snapshots(filename, desc, save_type, which, &mut [])
+    }
+
+    pub fn save_game_with_snapshots(
+        &mut self,
+        filename: String,
+        desc: String,
+        save_type: SaveFileType,
+        which: SnapshotType,
+        snapshots: &mut [BorrowedSnapshotBlock<'_>],
+    ) -> Result<SaveCode, XferStatus> {
+        self.validate_snapshot_loans(which, save_type, snapshots)?;
         // Find filename if not provided
         let filename = if filename.is_empty() {
             match self.find_next_save_filename(&desc) {
@@ -769,7 +788,7 @@ impl GameState {
         }
 
         // Write save file
-        match self.xfer_save_data(&mut xfer_save, which) {
+        match self.xfer_save_data_with_snapshots(&mut xfer_save, which, snapshots) {
             Ok(_) => {
                 if let Err(close_err) = xfer_save.close() {
                     eprintln!("Error closing save file: {:?}", close_err);
@@ -802,6 +821,19 @@ impl GameState {
 
     /// Load a game
     pub fn load_game(&mut self, game_info: AvailableGameInfo) -> Result<SaveCode, XferStatus> {
+        self.load_game_with_snapshots(game_info, &mut [])
+    }
+
+    pub fn load_game_with_snapshots(
+        &mut self,
+        game_info: AvailableGameInfo,
+        snapshots: &mut [BorrowedSnapshotBlock<'_>],
+    ) -> Result<SaveCode, XferStatus> {
+        self.validate_snapshot_loans(
+            SnapshotType::SaveLoad,
+            game_info.save_game_info.save_file_type,
+            snapshots,
+        )?;
         let requested_mission_save =
             game_info.save_game_info.save_file_type == SaveFileType::Mission;
 
@@ -849,13 +881,17 @@ impl GameState {
             let _ghost_object_save_lock = GhostObjectSaveLockGuard::new();
 
             // Load save data
-            let load_result = self.xfer_save_data(&mut xfer_load, SnapshotType::SaveLoad);
+            let load_result = self.xfer_save_data_with_snapshots(
+                &mut xfer_load,
+                SnapshotType::SaveLoad,
+                snapshots,
+            );
             let close_result = xfer_load.close();
 
             (load_result, close_result)
         };
 
-        let post_process_result = self.game_state_post_process_load();
+        let post_process_result = self.game_state_post_process_load_with_snapshots(snapshots);
 
         self.is_in_load_game = false;
 
@@ -958,6 +994,15 @@ impl GameState {
         xfer: &mut dyn Xfer,
         which: SnapshotType,
     ) -> Result<(), XferStatus> {
+        self.xfer_save_data_with_snapshots(xfer, which, &mut [])
+    }
+
+    fn xfer_save_data_with_snapshots(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        which: SnapshotType,
+        snapshots: &mut [BorrowedSnapshotBlock<'_>],
+    ) -> Result<(), XferStatus> {
         match xfer.get_xfer_mode() {
             XferMode::Save => {
                 // Save all blocks
@@ -985,6 +1030,11 @@ impl GameState {
                     // Transfer block data
                     if block_name.eq_ignore_ascii_case(GAME_STATE_BLOCK_STRING) {
                         self.xfer(xfer)?;
+                    } else if let Some(loan) = snapshots
+                        .iter_mut()
+                        .find(|loan| loan.block_name == block_name)
+                    {
+                        loan.snapshot.xfer_with_state(xfer, self)?;
                     } else {
                         // Take the block out so `&mut self` (the mutex-held
                         // GameState) can be handed to the bridge — borrowing
@@ -1032,15 +1082,21 @@ impl GameState {
                         .position(|block| block.block_name == token);
                     if let Some(pos) = block_pos {
                         let _block_size = xfer.begin_block()?;
-                        // Take the block out (see save branch) so the bridge
-                        // receives `&mut self` instead of re-locking THE_GAME_STATE.
-                        let mut snapshot = std::mem::replace(
-                            &mut self.snapshot_block_lists[index][pos].snapshot,
-                            Box::new(NullSnapshot),
-                        );
-                        let res = snapshot.xfer_with_state(xfer, self);
-                        self.snapshot_block_lists[index][pos].snapshot = snapshot;
-                        res?;
+                        if let Some(loan) =
+                            snapshots.iter_mut().find(|loan| loan.block_name == token)
+                        {
+                            loan.snapshot.xfer_with_state(xfer, self)?;
+                        } else {
+                            // Take the block out (see save branch) so the bridge
+                            // receives `&mut self` instead of re-locking THE_GAME_STATE.
+                            let mut snapshot = std::mem::replace(
+                                &mut self.snapshot_block_lists[index][pos].snapshot,
+                                Box::new(NullSnapshot),
+                            );
+                            let res = snapshot.xfer_with_state(xfer, self);
+                            self.snapshot_block_lists[index][pos].snapshot = snapshot;
+                            res?;
+                        }
                         // The block owner records one deferred fixup after a
                         // successful transfer. Nested xfer_snapshot calls never
                         // require pointers back into this borrowed GameState.
@@ -1069,12 +1125,26 @@ impl GameState {
     /// drain registered snapshots, then `ThePartitionManager->update()`.
     /// Public like C++ `GameState.h:188`.
     pub fn game_state_post_process_load(&mut self) -> Result<(), XferStatus> {
+        self.game_state_post_process_load_with_snapshots(&mut [])
+    }
+
+    pub fn game_state_post_process_load_with_snapshots(
+        &mut self,
+        snapshots: &mut [BorrowedSnapshotBlock<'_>],
+    ) -> Result<(), XferStatus> {
         // Drain the list first so we do not leave stale pointers behind if a fixup fails.
-        let snapshots = std::mem::take(&mut self.snapshot_post_process_list);
-        for (which, index) in snapshots {
+        let registrations = std::mem::take(&mut self.snapshot_post_process_list);
+        for (which, index) in registrations {
             let list_index = which as usize;
             if let Some(block) = self.snapshot_block_lists[list_index].get_mut(index) {
-                block.snapshot.load_post_process()?;
+                if let Some(loan) = snapshots
+                    .iter_mut()
+                    .find(|loan| loan.block_name == block.block_name)
+                {
+                    loan.snapshot.load_post_process()?;
+                } else {
+                    block.snapshot.load_post_process()?;
+                }
             }
         }
 
@@ -1088,6 +1158,45 @@ impl GameState {
     /// Add snapshot for post processing
     pub fn add_post_process_snapshot(&mut self, which: SnapshotType, index: usize) {
         self.snapshot_post_process_list.push((which, index));
+    }
+
+    fn validate_snapshot_loans(
+        &self,
+        which: SnapshotType,
+        save_type: SaveFileType,
+        snapshots: &[BorrowedSnapshotBlock<'_>],
+    ) -> Result<(), XferStatus> {
+        let blocks = &self.snapshot_block_lists[which as usize];
+        for (index, loan) in snapshots.iter().enumerate() {
+            if loan
+                .block_name
+                .eq_ignore_ascii_case(GAME_STATE_BLOCK_STRING)
+                || !blocks
+                    .iter()
+                    .any(|block| block.block_name == loan.block_name)
+                || snapshots[..index]
+                    .iter()
+                    .any(|other| other.block_name == loan.block_name)
+            {
+                return Err(XferStatus::InvalidData);
+            }
+        }
+        for block in blocks {
+            if save_type == SaveFileType::Mission
+                && block.block_name != GAME_STATE_BLOCK_STRING
+                && block.block_name != CAMPAIGN_BLOCK_STRING
+            {
+                continue;
+            }
+            if block.snapshot.requires_operation_owner()
+                && !snapshots
+                    .iter()
+                    .any(|loan| loan.block_name == block.block_name)
+            {
+                return Err(XferStatus::InvalidData);
+            }
+        }
+        Ok(())
     }
 
     /// Find next available save filename
@@ -1297,11 +1406,21 @@ impl GameState {
         xfer: &mut dyn Xfer,
         which: SnapshotType,
     ) -> Result<(), XferStatus> {
+        self.friend_xfer_save_data_for_crc_with_snapshots(xfer, which, &mut [])
+    }
+
+    pub fn friend_xfer_save_data_for_crc_with_snapshots(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        which: SnapshotType,
+        snapshots: &mut [BorrowedSnapshotBlock<'_>],
+    ) -> Result<(), XferStatus> {
+        self.validate_snapshot_loans(which, SaveFileType::Normal, snapshots)?;
         self.game_info.description.clear();
         self.game_info.save_file_type = SaveFileType::Normal;
         self.game_info.mission_map_name.clear();
         self.game_info.pristine_map_name.clear();
-        self.xfer_save_data(xfer, which)
+        self.xfer_save_data_with_snapshots(xfer, which, snapshots)
     }
 }
 
@@ -1319,7 +1438,7 @@ mod tests {
 
     static HOOK_TEST_LOCK: Mutex<()> = Mutex::new(());
 
-    // NOTE: `dyn Snapshot` requires `Send`, so these shared test counters use
+    // NOTE: registered snapshots require `Send`, so these shared test counters use
     // `Arc<AtomicU32>` for Send-safe shared observation; Cell is not Sync.
     struct CountingSnapshot {
         payload: Arc<AtomicU32>,
@@ -1780,3 +1899,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "borrowed_snapshot_tests.rs"]
+mod borrowed_snapshot_tests;

@@ -16701,6 +16701,11 @@
           "candidate_destinations": [
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/System/SaveGame/borrowed_snapshot_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/System/SaveGame/game_state.rs"
             },
@@ -21132,6 +21137,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/animation.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/borrowed_snapshot_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -189815,7 +189825,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "d6afd2f676302e50dc1c8b7fa958c9cfc3e89f08f3496ef7377787bdd7e7ae78",
+  "provenance_input_digest": "3a3b29ce7991468bdbd627d6beabc89edd1355a5e51b2b04b392c1379c02eba6",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,
