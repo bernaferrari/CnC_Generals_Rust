@@ -1,4 +1,8 @@
 use super::*;
+mod overlap_crush;
+pub(in crate::game_logic) use overlap_crush::{
+    OverlapCrushDamage, OverlapCrushResume, OverlapCrushStep,
+};
 
 impl Object {
     /// C++ applyGravitationalForces residual (host world Y up).
@@ -274,204 +278,36 @@ impl Object {
         self.check_for_overlap_collision_with_services(other, is_ally, &mut services)
     }
 
+    /// Standalone/tool adapter drives the same caller phases, but cannot run
+    /// world score/onDie. Native callers drive each yielded request on GameLogic.
     pub(in crate::game_logic) fn check_for_overlap_collision_with_services(
         &mut self,
         other: &mut Object,
         is_ally: bool,
         services: &mut super::PhysicsDamageServices<'_>,
     ) -> bool {
-        use crate::game_logic::host_partition_collision_physics_residual::{
-            CrushTarget, PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL, past_crush_point_residual,
-        };
-        self.ensure_crush_levels();
-        other.ensure_crush_levels();
-        if self.velocity_is_very_small() {
-            return false;
-        }
-        let self_crushing_other = self.can_crush_only(other, is_ally);
-        let self_being_crushed = other.can_crush_only(self, is_ally);
-        if self_crushing_other && self_being_crushed {
-            return false;
-        }
-        if self_being_crushed {
-            return true; // passive overlap
-        }
-        // C++ SquishCollide::onCollide is independent of TEST_CRUSH_ONLY.
-        // Instant-squish when the victim has the authored module.
-        if other.has_squish_collide {
-            use crate::game_logic::host_squish_collide::{
-                SQUISH_HUGE_DAMAGE, authored_crusher_geometry, should_skip_squish_for_goal_ability,
-                squish_geom_collides_with, template_has_hijacker_update, velocity_toward_victim,
-            };
-            let has_hijacker = template_has_hijacker_update(&other.template_name);
-            let tnt_active =
-                crate::game_logic::host_tank_hunter::is_tank_hunter_template(&other.template_name)
-                    && other.ai_state == crate::game_logic::AIState::SpecialAbility
-                    && other.target == Some(self.id);
-            if !is_ally
-                && self.crusher_level > 0
-                && !should_skip_squish_for_goal_ability(
-                    other.target,
-                    self.id,
-                    has_hijacker,
-                    tnt_active,
-                )
-            {
-                let us = self.get_position();
-                let them = other.get_position();
-                let vel = self.movement.velocity;
-                let toward = velocity_toward_victim((us.x, us.z), (them.x, them.z), (vel.x, vel.z));
-                let crusher_g = &self.thing.geometry;
-                let crusher_half_x =
-                    ((crusher_g.bounds_max.x - crusher_g.bounds_min.x).abs() * 0.5).max(0.0);
-                let fallback_major = crusher_g
-                    .radius
-                    .max(self.selection_radius)
-                    .max(crusher_half_x)
-                    .max(1.0);
-                let fallback_h = (crusher_g.bounds_max.y - crusher_g.bounds_min.y)
-                    .abs()
-                    .max(crusher_g.radius)
-                    .max(1.0);
-                let crusher_geom = authored_crusher_geometry(
-                    &self.thing.template.geometry_info,
-                    fallback_major,
-                    fallback_h,
-                );
-                let victim_g = &other.thing.geometry;
-                let victim_h = if other.thing.template.geometry_info.authored {
-                    other.thing.template.geometry_info.height.max(0.01)
-                } else {
-                    (victim_g.bounds_max.y - victim_g.bounds_min.y)
-                        .abs()
-                        .max(victim_g.radius)
-                        .max(1.0)
-                };
-                if toward
-                    && squish_geom_collides_with(
-                        (us.x, us.y, us.z),
-                        self.get_orientation(),
-                        crusher_geom,
-                        (them.x, them.y, them.z),
-                        other.get_orientation(),
-                        victim_h,
-                    )
-                {
-                    // C++ SquishCollide.cpp:88-93: HUGE_DAMAGE + DEATH_CRUSHED.
-                    // The victim's die pipeline then runs CrushDie::onDie
-                    // (CrushDie.cpp:137-180), which stamps FRONT/BACK crushed
-                    // body flags from the dealer-relative crushLocationCheck.
-                    let _ = services.apply(
+        let mut resume = OverlapCrushResume::Start;
+        loop {
+            match self.step_overlap_crush(other, is_ally, resume) {
+                OverlapCrushStep::Complete(result) => return result,
+                OverlapCrushStep::Damage {
+                    request,
+                    resume: next,
+                } => {
+                    let killed = services.apply(
                         other,
-                        SQUISH_HUGE_DAMAGE,
-                        Some(self.id),
-                        crate::game_logic::combat::DamageType::Crush,
-                        crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
+                        request.amount,
+                        request.source,
+                        request.damage_type,
+                        request.death_type,
                     );
-                    if matches!(
-                        other.status.death_type,
-                        crate::game_logic::host_usa_pilot::HostDeathType::Crushed
-                    ) {
-                        other.fire_crush_die_from_crusher(Some((us.x, us.z)));
+                    if killed {
+                        other.finish_standalone_crush_damage(next);
                     }
-                    self.add_physics_overlap(other.id);
-                    return true;
+                    resume = next;
                 }
             }
         }
-        if !self_crushing_other {
-            return false;
-        }
-        // add overlap
-        let oid = other.id;
-        let first =
-            self.physics_previous_overlap != Some(oid) && self.physics_current_overlap != Some(oid);
-        self.add_physics_overlap(oid);
-        if first {
-            // 0-amount crush damage residual (DamageFX trigger only).
-            let _ = services.apply(
-                other,
-                0.0,
-                Some(self.id),
-                crate::game_logic::combat::DamageType::Crush,
-                crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
-            );
-        }
-        if other.front_crushed && other.back_crushed {
-            return true;
-        }
-        let us = self.get_position();
-        let them = other.get_position();
-        // C++ PhysicsUpdate.cpp:1488 — crush ray is unit facing, not velocity.
-        let (dx_f, dz_f) = self.unit_direction_xz();
-        // C++ getGeometryInfo().getMajorRadius() / 2 (PhysicsUpdate.cpp:1490).
-        let geom = &other.thing.template.geometry_info;
-        let major = if geom.authored {
-            geom.major_radius
-        } else {
-            other.selection_radius.max(1.0)
-        };
-        let offset = major / 2.0;
-        let crushee_facing = other.unit_direction_xz();
-        let target = {
-            use crate::game_logic::host_partition_collision_physics_residual::select_crush_target_by_perp_residual;
-            select_crush_target_by_perp_residual(
-                other.front_crushed,
-                other.back_crushed,
-                (us.x, us.z),
-                (them.x, them.z),
-                (dx_f, dz_f),
-                crushee_facing,
-                offset,
-            )
-        };
-        if target == CrushTarget::NoCrush {
-            return true;
-        }
-        let point = match target {
-            CrushTarget::FrontEndCrush => (
-                them.x + crushee_facing.0 * offset,
-                them.z + crushee_facing.1 * offset,
-            ),
-            CrushTarget::BackEndCrush => (
-                them.x - crushee_facing.0 * offset,
-                them.z - crushee_facing.1 * offset,
-            ),
-            CrushTarget::TotalCrush | CrushTarget::NoCrush => (them.x, them.z),
-        };
-        if past_crush_point_residual((us.x, us.z), point, (dx_f, dz_f), offset) {
-            // C++ applies HUGE crush damage only. CrushDie::onDie writes
-            // FRONT/BACK/TOTAL from the previous (usually unset) flags.
-            let crusher_xz = (us.x, us.z);
-            let _ = services.apply(
-                other,
-                PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
-                Some(self.id),
-                crate::game_logic::combat::DamageType::Crush,
-                crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
-            );
-            if matches!(
-                other.status.death_type,
-                crate::game_logic::host_usa_pilot::HostDeathType::Crushed
-            ) {
-                other.fire_crush_die_from_crusher(Some(crusher_xz));
-                if let Some(declarations) = other.thing().template.native_die_declarations.as_ref()
-                {
-                    let slots: Vec<_> = declarations
-                        .iter()
-                        .filter(|declaration| {
-                            matches!(
-                                declaration.kind,
-                                crate::game_logic::native_die_definition::NativeDieKind::Crush
-                            ) && declaration.gate.allows(other, other.status.death_type)
-                        })
-                        .map(|declaration| declaration.source_index)
-                        .collect();
-                    other.native_die_runtime.completed.extend(slots);
-                }
-            }
-        }
-        true
     }
 
     /// End-of-frame overlap residual: previous = current, clear current.

@@ -3280,6 +3280,9 @@ mod physics_damage;
 mod physics_landing;
 mod physics_motion;
 pub(in crate::game_logic) use physics_damage::{PhysicsDamageServices, PhysicsDamageSources};
+pub(in crate::game_logic) use physics_motion::{
+    OverlapCrushDamage, OverlapCrushResume, OverlapCrushStep,
+};
 mod body_visuals;
 pub(crate) use body_visuals::MaxHealthChange;
 mod material_commands;
@@ -3352,6 +3355,7 @@ pub const OBJECT_SRC: &str = concat!(
     include_str!("orders.rs"),
     include_str!("physics.rs"),
     include_str!("physics_motion.rs"),
+    include_str!("physics_motion/overlap_crush.rs"),
     include_str!("pose.rs"),
     include_str!("record.rs"),
     include_str!("rtb.rs"),

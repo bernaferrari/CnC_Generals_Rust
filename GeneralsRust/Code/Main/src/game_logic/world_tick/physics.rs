@@ -738,41 +738,45 @@ impl GameLogic {
         if crusher_id == crushee_id {
             return false;
         }
-        let previous_source = self
-            .objects
-            .get(&crushee_id)
-            .and_then(|object| object.last_damage_source);
-        let source_players = self.physics_damage_sources([Some(crusher_id), previous_source]);
-        let frame = self.frame;
-        let fx_player = self.local_player_id();
-        Self::with_physics_body_fx_parts(
-            &mut self.session_view,
-            fx_player,
-            self.world_services.shroud(),
-            &mut self.combat_particles,
-            frame,
-            &source_players,
-            |body_fx| {
-                let players = &mut self.players;
-                let mut player_effects = |effect| {
-                    Self::apply_body_player_effect(players, frame, &source_players.players, effect)
-                };
-                let mut services = crate::game_logic::object::PhysicsDamageServices {
-                    sources: &source_players,
-                    frame,
-                    health_events: &mut self.health_events,
-                    repulsors: &self.enable_repulsors,
-                    player_effects: &mut player_effects,
-                    body_fx,
-                };
+        use crate::game_logic::object::{OverlapCrushResume, OverlapCrushStep};
+        let mut resume = OverlapCrushResume::Start;
+        loop {
+            let step = {
                 let [Some(crusher), Some(crushee)] =
                     self.objects.get_disjoint_mut([&crusher_id, &crushee_id])
                 else {
-                    return false;
+                    // Normal destruction is deferred, so queued identities stay
+                    // here. A genuinely absent identity cannot be borrowed again.
+                    return resume.has_started();
                 };
-                crusher.check_for_overlap_collision_with_services(crushee, is_ally, &mut services)
-            },
-        )
+                crusher.step_overlap_crush(crushee, is_ally, resume)
+            };
+            match step {
+                OverlapCrushStep::Complete(result) => return result,
+                OverlapCrushStep::Damage {
+                    request,
+                    resume: next,
+                } => {
+                    let context = crate::game_logic::object::DamageHitContext::new(
+                        request.source.and_then(|id| self.objects.get(&id)),
+                        None,
+                        request.damage_type,
+                    );
+                    self.apply_owned_damage(
+                        request.victim,
+                        request.amount,
+                        request.source,
+                        request.damage_type,
+                        request.death_type,
+                        None,
+                        &context,
+                    );
+                    // score -> actual onDie -> fresh Armor all finish before
+                    // reacquiring either installed Object for the next statement.
+                    resume = next;
+                }
+            }
+        }
     }
 
     pub fn apply_immobile_collide_bounce(
@@ -1359,3 +1363,7 @@ mod physics_damage_owner_tests;
 #[cfg(all(test, feature = "game_client"))]
 #[path = "physics_fx_owner_tests.rs"]
 mod physics_fx_owner_tests;
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "physics_death_phase_tests.rs"]
+mod physics_death_phase_tests;
