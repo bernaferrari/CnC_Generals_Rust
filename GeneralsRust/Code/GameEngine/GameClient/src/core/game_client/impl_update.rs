@@ -1750,7 +1750,7 @@ impl GameClient {
             });
         }
 
-        self.update_effects(visual_delta)?;
+        self.update_native_effects(visual_delta)?;
         apply_pending_script_display_state();
         // C++ GameClient.cpp:719-722 — TheTerrainVisual->UPDATE().
         self.update_terrain_visual();
@@ -1889,10 +1889,27 @@ impl GameClient {
     }
 
     fn update_effects(&mut self, delta_time: f32) -> GameClientResult<()> {
+        Self::update_scene_lights(delta_time);
         if delta_time > 0.0 {
-            crate::fx_list::tick_scene_dynamic_lights();
             crate::display::view::with_tactical_view(|view| view.tick_impulse_shake());
         }
+        self.update_effect_decals(delta_time)
+    }
+
+    // Main advances its receiving SessionView impulse at the admitted view phase.
+    // Native scene effects must not advance an unrelated standalone Core View.
+    fn update_native_effects(&mut self, delta_time: f32) -> GameClientResult<()> {
+        Self::update_scene_lights(delta_time);
+        self.update_effect_decals(delta_time)
+    }
+
+    fn update_scene_lights(delta_time: f32) {
+        if delta_time > 0.0 {
+            crate::fx_list::tick_scene_dynamic_lights();
+        }
+    }
+
+    fn update_effect_decals(&mut self, delta_time: f32) -> GameClientResult<()> {
         if let Some(ref decals) = self.subsystem_manager.decal_manager {
             if let Ok(mut guard) = decals.lock() {
                 let config = EffectsConfig::default();

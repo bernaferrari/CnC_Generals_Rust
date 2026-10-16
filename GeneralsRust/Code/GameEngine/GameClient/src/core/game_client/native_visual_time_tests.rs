@@ -275,3 +275,58 @@ fn receiving_freeze_admission_matches_extracted_cpp_truth_repeat_and_unsigned_wr
         "all original oracle offers must execute in one continuous trace"
     );
 }
+
+#[test]
+fn native_shell_never_advances_foreign_core_impulse_but_standalone_effects_do() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "native_shell_never_advances_foreign_core_impulse_but_standalone_effects_do",
+    ) {
+        return;
+    }
+    get_shell().init().unwrap();
+    use crate::display::view::{CameraShakeType, Point3};
+    let mut rules = game_engine::common::global_data::read().clone();
+    rules.shake_normal_intensity = 2.;
+    rules.max_shake_intensity = 100.;
+    crate::display::view::with_tactical_view(|view| {
+        view.reset_camera_shake();
+        view.set_position(&Point3::origin());
+        view.shake_with_services(
+            &Point3::origin(),
+            CameraShakeType::Normal,
+            &rules,
+            &mut |_, _| 0.,
+        );
+        view.tick_impulse_shake();
+    });
+    let core = || {
+        crate::display::view::with_tactical_view_ref(|view| {
+            let offset = view.impulse_shake_offset();
+            (view.camera_shake_intensity(), offset.x, offset.y)
+        })
+    };
+    let before = core();
+    assert!(before.0 > 0. && (before.1 != 0. || before.2 != 0.));
+    let mut owner = client(161);
+    let mut peer = client(161);
+    for receiving in [&mut owner, &mut peer] {
+        let prepared = receiving
+            .begin_presentation_shell_with_owned_visual_time(1. / 30., frames(161), &[], || {
+                NativeVisualTime {
+                    frozen: false,
+                    visual_speed: 1.,
+                }
+            })
+            .unwrap();
+        assert!(!prepared.frozen);
+        assert_eq!(
+            core(),
+            before,
+            "native prefix must not tick standalone camera"
+        );
+    }
+    // Actual retained standalone effects entry still performs its original tick.
+    owner.update_effects(1. / 30.).unwrap();
+    assert!(core().0 < before.0);
+}
