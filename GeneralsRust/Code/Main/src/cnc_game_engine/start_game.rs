@@ -1527,8 +1527,9 @@ impl CnCGameEngine {
     }
 
     pub(super) fn enqueue_script_screen_shake(&mut self, intensity: i32) {
-        self.game_logic
-            .enqueue_script_screen_shake_at(intensity, self.frame_counter);
+        // Historical queued intents retain once-only intake; all current
+        // borrowed script operations have already applied before this phase.
+        self.game_logic.admit_script_screen_shake(intensity);
     }
 
     pub(super) fn enqueue_script_camera_shaker(&mut self, request: CameraAddShakerRequest) {

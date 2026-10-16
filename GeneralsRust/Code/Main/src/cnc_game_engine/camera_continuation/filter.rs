@@ -775,3 +775,7 @@ mod follow_snap_v3_tests;
 #[cfg(test)]
 #[path = "constraint_v4_tests.rs"]
 mod constraint_v4_tests;
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "screen_shake_phase_save_tests.rs"]
+mod screen_shake_phase_save_tests;

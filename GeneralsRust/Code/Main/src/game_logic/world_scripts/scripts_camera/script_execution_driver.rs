@@ -1696,7 +1696,13 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         request: ScriptCameraRequest<'_>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        Some(self.world.mission_scripts.apply_camera_request(request))
+        match request {
+            ScriptCameraRequest::ScreenShake { intensity } => {
+                self.world.admit_script_screen_shake(intensity);
+                Some(Ok(()))
+            }
+            _ => Some(self.world.mission_scripts.apply_camera_request(request)),
+        }
     }
 
     fn display(
@@ -2254,3 +2260,7 @@ impl GameLogic {
 #[cfg(test)]
 #[path = "object_effect_owner_tests.rs"]
 mod object_effect_owner_tests;
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "screen_shake_phase_tests.rs"]
+mod screen_shake_phase_tests;

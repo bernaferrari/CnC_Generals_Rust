@@ -58,6 +58,12 @@ impl crate::game_logic::GameLogic {
     pub(crate) fn admit_camera_map_shake(&mut self, rules: CameraShakeRules) -> Result<(), String> {
         self.session_view.camera.shake_policy.admit_map(rules)
     }
+    /// The borrowed script walk owns the actual Logic clock. The approved
+    /// deterministic angle algorithm never discovers a presentation Engine.
+    pub(crate) fn admit_script_screen_shake(&mut self, intensity: i32) {
+        self.enqueue_script_screen_shake_at(intensity, self.get_current_frame() as u32);
+    }
+
     /// ScriptActions.cpp5030 calls the same source shake at current position.
     /// Retain the already-approved deterministic angle seed; only rule owner
     /// and the shared original impulse algorithm change here.

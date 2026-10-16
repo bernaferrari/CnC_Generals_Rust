@@ -1372,25 +1372,33 @@ fn camera_set_default_allows_zero_max_height_scale_like_cpp() {
 }
 
 #[test]
-fn script_screen_shake_requests_are_drained_for_engine() {
+fn script_screen_shake_hook_fallback_applies_once_before_engine_intake() {
     let mut game_logic = GameLogic::new();
     game_logic.scripts_loaded = true;
-
     game_logic
         .mission_scripts
         .push_screen_shake(ScreenShakeRequest { intensity: 2 });
+    game_logic.evaluate_and_execute_scripts(0.0);
+    assert_eq!(
+        game_logic.session_view.impulse.intensity, 2.5,
+        "source Strong category"
+    );
     game_logic
         .mission_scripts
         .push_screen_shake(ScreenShakeRequest { intensity: 5 });
     game_logic.evaluate_and_execute_scripts(0.0);
-
-    let shakes = game_logic.take_screen_shake_requests();
-    assert_eq!(shakes.len(), 2);
-    assert_eq!(shakes[0].intensity, 2);
-    assert_eq!(shakes[1].intensity, 5);
+    assert_eq!(
+        game_logic.session_view.impulse.intensity, 3.,
+        "2.5+12 exceeds10 and uses source fixed3"
+    );
     assert!(
         game_logic.take_screen_shake_requests().is_empty(),
-        "screen shake queue should be drained after take"
+        "applied hooks are not delayed Engine requests"
+    );
+    game_logic.evaluate_and_execute_scripts(0.0);
+    assert_eq!(
+        game_logic.session_view.impulse.intensity, 3.,
+        "drained fallback never reapplies"
     );
 }
 

@@ -828,7 +828,16 @@ fn assert_remaining_effect(world: &mut GameLogic, kind: ScriptActionType, id: Ob
         }
         CameraLetterboxBegin => assert!(world.cinematic_letterbox),
         CameraLetterboxEnd => assert!(!world.cinematic_letterbox),
-        ScreenShake => assert_eq!(world.pending_screen_shakes.last().unwrap().intensity, 2),
+        ScreenShake => {
+            assert_eq!(
+                world.session_view.impulse.intensity, 2.5,
+                "source Strong category applied before the next action"
+            );
+            assert!(
+                world.pending_screen_shakes.is_empty(),
+                "already-applied shake must not replay in presentation"
+            );
+        }
         CameraAddShakerAt => {
             let r = world.pending_camera_add_shakers.last().unwrap();
             assert_eq!(

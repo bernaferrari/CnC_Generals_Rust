@@ -255,9 +255,10 @@ impl GameLogic {
             self.pending_camera_slave_mode_disable = true;
         }
 
-        let screen_shakes = self.mission_scripts.drain_screen_shake_requests();
-        if !screen_shakes.is_empty() {
-            self.pending_screen_shakes.extend(screen_shakes);
+        // Retained standalone hooks meet the same receiving action boundary.
+        // New borrowed ScreenShake already applied directly and queues nothing.
+        for request in self.mission_scripts.drain_screen_shake_requests() {
+            self.admit_script_screen_shake(request.intensity);
         }
 
         let camera_shakers = self.mission_scripts.drain_camera_add_shaker_requests();
