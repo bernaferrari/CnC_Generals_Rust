@@ -1014,6 +1014,29 @@ impl GameLogic {
         Some(id)
     }
 
+    pub(crate) fn create_object_with_script_ui(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        position: Vec3,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> Option<ObjectId> {
+        let owner_player_id = self.unique_player_id_for_team(team);
+        let id = self.create_object_with_initial_team_and_ui(
+            template_name,
+            team,
+            owner_player_id,
+            position,
+            FactoryCreationPurpose::AtCreation,
+            None,
+            interpreter,
+            ui,
+        )?;
+        self.apply_cash_bounty_on_object_created(id);
+        Some(id)
+    }
+
     /// Create an object for a specific controlling player while retaining the
     /// player's faction in `team` for INI/template and visual selection.
     pub fn create_object_for_player(
@@ -1270,8 +1293,31 @@ impl GameLogic {
         activate: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> Option<ObjectId> {
+        self.create_object_on_exact_script_team_with_ui(
+            template,
+            controller,
+            team_name,
+            team_id,
+            position,
+            activate,
+            interpreter,
+            &mut None,
+        )
+    }
+
+    pub(crate) fn create_object_on_exact_script_team_with_ui(
+        &mut self,
+        template: &str,
+        controller: u32,
+        team_name: &str,
+        team_id: u32,
+        position: Vec3,
+        activate: bool,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> Option<ObjectId> {
         let faction = self.players.get(&controller)?.team;
-        let id = self.create_object_with_initial_team(
+        let id = self.create_object_with_initial_team_and_ui(
             template,
             faction,
             Some(controller),
@@ -1279,6 +1325,7 @@ impl GameLogic {
             FactoryCreationPurpose::AtCreation,
             Some((team_name, team_id, activate)),
             interpreter,
+            ui,
         )?;
         self.apply_cash_bounty_on_object_created(id);
         Some(id)
@@ -1293,6 +1340,29 @@ impl GameLogic {
         creation_purpose: FactoryCreationPurpose,
         initial_team: Option<(&str, u32, bool)>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) -> Option<ObjectId> {
+        self.create_object_with_initial_team_and_ui(
+            template_name,
+            team,
+            owner_player_id,
+            position,
+            creation_purpose,
+            initial_team,
+            interpreter,
+            &mut None,
+        )
+    }
+
+    fn create_object_with_initial_team_and_ui(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+        creation_purpose: FactoryCreationPurpose,
+        initial_team: Option<(&str, u32, bool)>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) -> Option<ObjectId> {
         if owner_player_id.is_some_and(|player_id| {
             self.players.get(&player_id).map(|player| player.team) != Some(team)
@@ -2408,10 +2478,11 @@ impl GameLogic {
             // C++ Object.cpp onCreate residual: inherit team prototype attitude + attack priority.
             self.inherit_team_ai_defaults(id);
             // C++ GameLogic map/create: team->setActive() once the team has members.
-            self.admit_team_for_host_object(
+            self.admit_team_for_host_object_with_ui(
                 id,
                 interpreter,
                 initial_team.is_none_or(|(_, _, activate)| activate),
+                ui,
             );
 
             // C++ SpecialPowerModule ctor (SpecialPowerModule.cpp:86-101):

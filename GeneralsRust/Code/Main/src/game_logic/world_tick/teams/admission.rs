@@ -14,6 +14,16 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         activate: bool,
     ) {
+        self.admit_team_for_host_object_with_ui(id, interpreter, activate, &mut None)
+    }
+
+    pub(crate) fn admit_team_for_host_object_with_ui(
+        &mut self,
+        id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        activate: bool,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         let Some(obj) = self.objects.get(&id) else {
             return;
         };
@@ -71,7 +81,7 @@ impl GameLogic {
             .unwrap_or_else(|error| error.into_inner())
             .get_id();
         drop(factory);
-        if let Err(error) = self.run_team_creation_effects(effects, interpreter) {
+        if let Err(error) = self.run_team_creation_effects_with_ui(effects, interpreter, ui) {
             log::error!("team admission callback failed: {error}");
             return;
         }
@@ -124,18 +134,27 @@ impl GameLogic {
         effects: Vec<String>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> gamelogic::GameLogicResult<()> {
+        self.run_team_creation_effects_with_ui(effects, interpreter, &mut None)
+    }
+
+    pub(crate) fn run_team_creation_effects_with_ui(
+        &mut self,
+        effects: Vec<String>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> gamelogic::GameLogicResult<()> {
         if effects.is_empty() {
             return Ok(());
         }
         if let Some(engine) = interpreter {
             for name in effects {
-                self.execute_owned_ai_condition(engine, &name, None);
+                self.execute_owned_ai_condition_with_ui(engine, &name, None, ui);
             }
             Ok(())
         } else {
             self.with_owned_script_engine(|engine, world| {
                 for name in effects {
-                    world.execute_owned_ai_condition(engine, &name, None);
+                    world.execute_owned_ai_condition_with_ui(engine, &name, None, ui);
                 }
             })
             .ok_or_else(|| {

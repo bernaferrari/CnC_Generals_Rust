@@ -163,12 +163,25 @@ impl GameLogic {
         action: &gamelogic::scripting::core::ScriptAction,
         team_id: Option<u32>,
     ) {
+        self.execute_script_team_actions_with_ui(engine, action, team_id, &mut None)
+    }
+
+    pub(crate) fn execute_script_team_actions_with_ui(
+        &mut self,
+        engine: &gamelogic::scripting::engine::ScriptEngine,
+        action: &gamelogic::scripting::core::ScriptAction,
+        team_id: Option<u32>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         engine.friend_execute_action_with_driver(
             action,
             team_id,
             gamelogic::scripting::executor::ScriptContext::at_frame(self.frame),
-            &mut super::script_execution_driver::HostScriptExecutionDriver::with_interpreter(
-                self, engine,
+            &mut super::script_execution_driver::HostScriptExecutionDriver::with_ui(
+                self,
+                engine,
+                ui.as_mut()
+                    .map(|effects| &mut **effects as &mut dyn crate::game_logic::ScriptUiEffects),
             ),
         );
     }

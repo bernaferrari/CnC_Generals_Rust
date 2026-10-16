@@ -3,7 +3,15 @@
 use super::*;
 
 impl GameLogic {
-    pub(in crate::game_logic) fn evaluate_and_execute_scripts(&mut self, _dt: f32) {
+    pub(in crate::game_logic) fn evaluate_and_execute_scripts(&mut self, dt: f32) {
+        self.evaluate_and_execute_scripts_with_ui(dt, None);
+    }
+
+    pub(in crate::game_logic) fn evaluate_and_execute_scripts_with_ui(
+        &mut self,
+        _dt: f32,
+        mut ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         if !self.scripts_loaded {
             return;
         }
@@ -92,14 +100,18 @@ impl GameLogic {
                 suppress_new_windows: false,
                 host_trigger_world: Arc::clone(&world.host_trigger_world),
             };
-            let mut driver =
-                script_execution_driver::HostScriptExecutionDriver::with_interpreter(world, engine);
+            let mut driver = script_execution_driver::HostScriptExecutionDriver::with_ui(
+                world,
+                engine,
+                ui.as_mut()
+                    .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+            );
             if let Err(err) = engine.update_with_driver(context, &mut driver) {
                 log::error!("ScriptEngine::update failed: {err}");
             }
         });
         // Flush requests queued outside the action walk as well.
-        self.apply_script_action_requests();
+        self.apply_script_action_requests_with_ui(None, ui);
 
         self.script_broadcasts
             .retain(|msg| self.sim_time_seconds <= msg.expires_at);

@@ -26,7 +26,9 @@ pub(crate) mod native_lifecycle;
 pub(crate) mod native_lifecycle_definition;
 pub(crate) mod physics_rules;
 pub(crate) mod production_energy;
+mod script_ui;
 pub(crate) use game_logic::PathfindingHeightSamples;
+pub(crate) use script_ui::ScriptUiEffects;
 
 #[cfg(test)]
 pub(crate) fn evaluate_and_execute_scripts_for_test(logic: &mut game_logic::GameLogic, dt: f32) {

@@ -2260,12 +2260,22 @@ impl CnCGameEngine {
             let playability = &mut self.interactive_playability;
             #[cfg(feature = "game_client")]
             let client = &mut self.game_client;
-            let snap = Self::host_update_logic_frame(
+            #[cfg(feature = "game_client")]
+            let mut ui = super::control_bar_viewport::NativeScriptUi::new(
+                &mut self.control_bar,
+                &mut self.control_bar_callbacks,
+            );
+            #[cfg(feature = "game_client")]
+            let ui = Some(&mut ui as &mut dyn crate::game_logic::ScriptUiEffects);
+            #[cfg(not(feature = "game_client"))]
+            let ui = None;
+            let snap = Self::host_update_logic_frame_with_script_ui(
                 &mut self.game_logic,
                 self.game_paused,
                 dt,
                 self.last_frame_timing.as_ref(),
                 headless_step_budget,
+                ui,
                 |frame| {
                     #[cfg(feature = "game_client")]
                     client.set_frame(frame);
@@ -2416,9 +2426,11 @@ impl CnCGameEngine {
                 return;
             }
         };
-        let authored_visibility =
-            std::mem::take(&mut self.game_logic.session_view.pending_letterbox_visibility);
-        let has_authored_visibility = !authored_visibility.is_empty();
+        let (authored_visibility, delivered_synchronously) = self
+            .game_logic
+            .session_view
+            .take_letterbox_visibility_output();
+        let has_authored_visibility = delivered_synchronously || !authored_visibility.is_empty();
         for hidden in authored_visibility {
             if hidden {
                 self.hide_owned_control_bar(true);
@@ -2435,7 +2447,7 @@ impl CnCGameEngine {
             let was_letterbox = self.game_client.letterbox_overlay_enabled();
             self.game_client
                 .apply_presentation_cinematic_letterbox(letterbox);
-            if was_letterbox != letterbox {
+            if !has_authored_visibility && was_letterbox != letterbox {
                 // Display::enableLetterBox changes View's zoom limit only on
                 // the transition; a manual toggle survives ordinary frames.
                 self.game_logic

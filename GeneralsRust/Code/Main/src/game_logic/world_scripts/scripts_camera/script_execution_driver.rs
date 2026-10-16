@@ -12,6 +12,7 @@ use std::sync::{Arc, RwLock};
 pub(super) struct HostScriptExecutionDriver<'a> {
     world: &'a mut GameLogic,
     interpreter: Option<&'a gamelogic::scripting::engine::ScriptEngine>,
+    ui: Option<&'a mut dyn crate::game_logic::ScriptUiEffects>,
 }
 
 impl<'a> HostScriptExecutionDriver<'a> {
@@ -19,6 +20,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         Self {
             world,
             interpreter: None,
+            ui: None,
         }
     }
 
@@ -29,6 +31,20 @@ impl<'a> HostScriptExecutionDriver<'a> {
         Self {
             world,
             interpreter: Some(interpreter),
+            ui: None,
+        }
+    }
+
+    pub(super) fn with_ui(
+        world: &'a mut GameLogic,
+        interpreter: &'a gamelogic::scripting::engine::ScriptEngine,
+        mut ui: Option<&'a mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> Self {
+        world.deliver_pending_script_ui(&mut ui);
+        Self {
+            world,
+            interpreter: Some(interpreter),
+            ui,
         }
     }
 
@@ -464,11 +480,12 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        Some(self.world.apply_owned_script_create_object(
+        Some(self.world.apply_owned_script_create_object_with_ui(
             request,
             calling,
             condition,
             self.interpreter,
+            &mut self.ui,
         ))
     }
 
@@ -1525,13 +1542,17 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 self.world
                     .apply_owned_script_base_defense(player, structure, flank);
             }
-            ScriptAiPlayerRequest::BuildTeam { team } => {
-                self.world
-                    .apply_owned_script_team_build(team, None, self.interpreter)
-            }
-            ScriptAiPlayerRequest::RecruitTeam { team, radius } => self
+            ScriptAiPlayerRequest::BuildTeam { team } => self
                 .world
-                .apply_owned_script_team_build(team, Some(radius), self.interpreter),
+                .apply_owned_script_team_build_with_ui(team, None, self.interpreter, &mut self.ui),
+            ScriptAiPlayerRequest::RecruitTeam { team, radius } => {
+                self.world.apply_owned_script_team_build_with_ui(
+                    team,
+                    Some(radius),
+                    self.interpreter,
+                    &mut self.ui,
+                )
+            }
             ScriptAiPlayerRequest::BuildSupplyCenter {
                 player,
                 building,
@@ -1678,12 +1699,12 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         team: &str,
         waypoint: &str,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        self.world
-            .host_script_create_reinforcement_team_with_interpreter(
-                team,
-                waypoint,
-                self.interpreter,
-            );
+        self.world.host_script_create_reinforcement_team_with_ui(
+            team,
+            waypoint,
+            self.interpreter,
+            &mut self.ui,
+        );
         Some(Ok(()))
     }
 
@@ -1704,8 +1725,12 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     }
 
     fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
-        self.world
-            .apply_script_action_requests_with_interpreter(self.interpreter);
+        self.world.apply_script_action_requests_with_ui(
+            self.interpreter,
+            self.ui
+                .as_mut()
+                .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+        );
         Ok(())
     }
 

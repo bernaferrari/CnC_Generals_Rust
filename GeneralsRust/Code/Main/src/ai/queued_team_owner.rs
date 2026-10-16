@@ -237,6 +237,17 @@ impl GameLogic {
         priority: bool,
         interpreter: Option<&ScriptEngine>,
     ) -> bool {
+        self.build_owned_specific_ai_team_with_ui(player, name, priority, interpreter, &mut None)
+    }
+
+    pub(crate) fn build_owned_specific_ai_team_with_ui(
+        &mut self,
+        player: u32,
+        name: &str,
+        priority: bool,
+        interpreter: Option<&ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> bool {
         let prepared = (|| {
             let ai = self.ai_manager.ai_players.get(&player)?;
             if !self.get_player(player).is_some_and(|p| p.can_build_units) {
@@ -297,10 +308,10 @@ impl GameLogic {
         };
         for script in effects {
             if let Some(engine) = interpreter {
-                self.execute_owned_ai_condition(engine, &script, None);
+                self.execute_owned_ai_condition_with_ui(engine, &script, None, ui);
             } else {
                 self.with_owned_script_engine(|engine, world| {
-                    world.execute_owned_ai_condition(engine, &script, None);
+                    world.execute_owned_ai_condition_with_ui(engine, &script, None, ui);
                 });
             }
         }
@@ -338,10 +349,10 @@ impl GameLogic {
         let (execute, condition) = admitted_actions.unwrap();
         if execute && !condition.is_empty() {
             if let Some(engine) = interpreter {
-                self.execute_owned_ai_condition(engine, &condition, Some(team_id));
+                self.execute_owned_ai_condition_with_ui(engine, &condition, Some(team_id), ui);
             } else {
                 self.with_owned_script_engine(|engine, world| {
-                    world.execute_owned_ai_condition(engine, &condition, Some(team_id));
+                    world.execute_owned_ai_condition_with_ui(engine, &condition, Some(team_id), ui);
                 });
             }
         }
@@ -354,11 +365,21 @@ impl GameLogic {
         name: &str,
         team: Option<u32>,
     ) {
+        self.execute_owned_ai_condition_with_ui(engine, name, team, &mut None)
+    }
+
+    pub(crate) fn execute_owned_ai_condition_with_ui(
+        &mut self,
+        engine: &ScriptEngine,
+        name: &str,
+        team: Option<u32>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         if let Some(action) = engine
             .find_script_clone_by_name(name)
             .and_then(|script| script.get_action().cloned())
         {
-            self.execute_script_team_actions(engine, &action, team);
+            self.execute_script_team_actions_with_ui(engine, &action, team, ui);
         }
     }
 

@@ -198,10 +198,20 @@ impl CnCGameEngine {
         // Keep the existing bounded fixed-step kernel and pause decision.
         #[cfg(feature = "game_client")]
         let client = &mut self.game_client;
-        let snap = self.game_logic.tick_logic_frame_with_client_frame(
+        #[cfg(feature = "game_client")]
+        let mut ui = super::control_bar_viewport::NativeScriptUi::new(
+            &mut self.control_bar,
+            &mut self.control_bar_callbacks,
+        );
+        #[cfg(feature = "game_client")]
+        let ui = Some(&mut ui as &mut dyn crate::game_logic::ScriptUiEffects);
+        #[cfg(not(feature = "game_client"))]
+        let ui = None;
+        let snap = self.game_logic.tick_logic_frame_with_script_ui(
             dt,
             None,
             Some(budget),
+            ui,
             |frame| {
                 #[cfg(feature = "game_client")]
                 client.set_frame(frame);
@@ -229,6 +239,28 @@ impl CnCGameEngine {
         before_step: impl FnMut(u32),
         after_step: impl FnMut(&mut crate::game_logic::GameLogic),
     ) -> crate::game_logic::SimTimingSnapshot {
+        Self::host_update_logic_frame_with_script_ui(
+            logic,
+            game_paused,
+            dt,
+            timing,
+            budget,
+            None,
+            before_step,
+            after_step,
+        )
+    }
+
+    pub(super) fn host_update_logic_frame_with_script_ui(
+        logic: &mut crate::game_logic::GameLogic,
+        game_paused: bool,
+        dt: f32,
+        timing: Option<&FrameTiming>,
+        budget: Option<usize>,
+        ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        before_step: impl FnMut(u32),
+        after_step: impl FnMut(&mut crate::game_logic::GameLogic),
+    ) -> crate::game_logic::SimTimingSnapshot {
         if game_paused {
             return crate::game_logic::SimTimingSnapshot::default();
         }
@@ -236,7 +268,7 @@ impl CnCGameEngine {
         if logic.is_paused() {
             logic.set_paused(false);
         }
-        logic.tick_logic_frame_with_client_frame(dt, timing, budget, before_step, after_step)
+        logic.tick_logic_frame_with_script_ui(dt, timing, budget, ui, before_step, after_step)
     }
 
     /// Wave 908: stamp sim timing residuals from a post-tick snapshot payload.
@@ -1121,8 +1153,8 @@ impl CnCGameEngine {
 
         // The receiving application keeps its persistent view until map admission
         // resets it. A detached candidate never publishes or replaces this state.
-        let candidate_visibility =
-            std::mem::take(&mut logic.session_view.pending_letterbox_visibility);
+        let (candidate_visibility, candidate_visibility_delivered) =
+            logic.session_view.take_letterbox_visibility_output();
         let candidate_focus_previous = logic.session_view.pending_focus_previous_target;
         let candidate_scripted = std::mem::take(&mut logic.session_view.scripted);
         // Map actions already applied to the candidate's receiving filter.
@@ -1130,6 +1162,9 @@ impl CnCGameEngine {
         let candidate_filter = std::mem::take(&mut logic.session_view.filter);
         logic.session_view = std::mem::take(&mut self.game_logic.session_view);
         logic.session_view.pending_letterbox_visibility = candidate_visibility;
+        logic
+            .session_view
+            .letterbox_visibility_delivered_since_present = candidate_visibility_delivered;
         logic.session_view.pending_focus_previous_target = candidate_focus_previous;
         logic.session_view.scripted = candidate_scripted;
         #[cfg(feature = "game_client")]
@@ -1237,6 +1272,9 @@ impl CnCGameEngine {
         // View dimensions belong to the receiving window, never to a saved world.
         // V2 may replace the complete camera continuation but not its viewport.
         logic.session_view.pending_letterbox_visibility.clear();
+        logic
+            .session_view
+            .letterbox_visibility_delivered_since_present = false;
         logic.session_view.camera.viewport = self.game_logic.session_view.camera.viewport;
         logic.session_view.camera.rebuild_projection();
         let old_logic = std::mem::replace(&mut self.game_logic, logic);

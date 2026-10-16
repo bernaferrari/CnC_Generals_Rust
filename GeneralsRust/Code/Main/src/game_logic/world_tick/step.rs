@@ -218,6 +218,18 @@ impl GameLogic {
         mut before_step: impl FnMut(u32),
         after_step: impl FnMut(&mut Self),
     ) -> SimTimingSnapshot {
+        self.tick_logic_frame_with_script_ui(dt, timing, budget, None, before_step, after_step)
+    }
+
+    pub(crate) fn tick_logic_frame_with_script_ui(
+        &mut self,
+        dt: f32,
+        timing: Option<&FrameTiming>,
+        budget: Option<usize>,
+        mut ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        mut before_step: impl FnMut(u32),
+        after_step: impl FnMut(&mut Self),
+    ) -> SimTimingSnapshot {
         let (delta_time, absolute_time) = timing
             .map(|timing| (timing.delta_seconds(), Some(timing.total_seconds())))
             .unwrap_or((dt, None));
@@ -227,7 +239,11 @@ impl GameLogic {
             budget.map(|budget| budget.max(1)),
             |logic, fixed_dt| {
                 before_step(logic.frame);
-                logic.update_simulation(fixed_dt)
+                logic.update_simulation_with_script_ui(
+                    fixed_dt,
+                    ui.as_mut()
+                        .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+                )
             },
             after_step,
         );
@@ -406,6 +422,14 @@ impl GameLogic {
     ///           no outcome variant invented for it]
     /// ```
     pub(in super::super) fn update_simulation(&mut self, dt: f32) -> SimulationStepOutcome {
+        self.update_simulation_with_script_ui(dt, None)
+    }
+
+    fn update_simulation_with_script_ui(
+        &mut self,
+        dt: f32,
+        ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> SimulationStepOutcome {
         assert!(
             !self.host_logic_step_active,
             "nested update on the same GameLogic"
@@ -422,7 +446,7 @@ impl GameLogic {
             self.combat_particles.clear_frame_events();
             // The driving world already owns its live Object values.
             // A comparison session never supplies begin-step state.
-            self.with_host_logic_step(|logic| logic.update_simulation_in_step(dt))
+            self.with_host_logic_step(|logic| logic.update_simulation_in_step(dt, ui))
                 .expect("a fixed step enters its owner phase once")
         })
     }
@@ -442,7 +466,11 @@ impl GameLogic {
         Some(run(&mut owner))
     }
 
-    fn update_simulation_in_step(&mut self, dt: f32) -> SimulationStepOutcome {
+    fn update_simulation_in_step(
+        &mut self,
+        dt: f32,
+        ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> SimulationStepOutcome {
         debug_assert!(
             std::sync::Arc::ptr_eq(
                 &gamelogic::system::engine_stores::active_services(),
@@ -459,7 +487,7 @@ impl GameLogic {
         // C++: TheScriptEngine->UPDATE();
         // Scripts run BEFORE everything else so they can react to the previous
         // frame's state and issue commands for this frame.
-        self.evaluate_and_execute_scripts(dt);
+        self.evaluate_and_execute_scripts_with_ui(dt, ui);
 
         // -----------------------------------------------------------------------
         // Phase 2: Time Freeze Check (C++ lines 3603-3617)

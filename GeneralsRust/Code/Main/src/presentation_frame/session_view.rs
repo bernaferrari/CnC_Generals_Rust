@@ -20,6 +20,9 @@ pub(crate) struct SessionView {
     /// Authored Show/Hide deliveries; repeated equal letterbox values are events.
     /// Runtime output only, never saved as another camera state.
     pub(crate) pending_letterbox_visibility: Vec<bool>,
+    /// A synchronous authored UI effect already reached the receiving bar.
+    /// Presentation consumes this acknowledgement instead of repeating it.
+    pub(crate) letterbox_visibility_delivered_since_present: bool,
     pub(crate) impulse: SessionViewImpulse,
     #[cfg(feature = "game_client")]
     pub(crate) filter: game_client::display::view_filter::ViewFilterState,
@@ -44,6 +47,13 @@ pub(crate) struct SessionViewState {
 }
 
 impl SessionView {
+    pub(crate) fn take_letterbox_visibility_output(&mut self) -> (Vec<bool>, bool) {
+        (
+            std::mem::take(&mut self.pending_letterbox_visibility),
+            std::mem::take(&mut self.letterbox_visibility_delivered_since_present),
+        )
+    }
+
     pub(crate) fn capture(&self) -> SessionViewState {
         SessionViewState {
             target: self.target,
@@ -64,6 +74,7 @@ impl SessionView {
             return Err("invalid session view state".into());
         }
         self.pending_letterbox_visibility.clear();
+        self.letterbox_visibility_delivered_since_present = false;
         self.target = state.target;
         self.impulse = SessionViewImpulse {
             intensity: state.intensity,
@@ -256,3 +267,6 @@ impl SessionView {
 
 #[cfg(test)]
 mod motion_tests;
+
+#[cfg(test)]
+mod letterbox_delivery_tests;

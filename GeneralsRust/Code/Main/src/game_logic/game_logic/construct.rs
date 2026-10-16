@@ -1344,6 +1344,8 @@ impl GameLogic {
         self.session_view.scripted.script_look_toward_object_id = None;
         self.session_view.scripted.object_tracking = None;
         self.session_view.pending_letterbox_visibility.clear();
+        self.session_view
+            .letterbox_visibility_delivered_since_present = false;
         self.session_view.scripted.script_default_camera_pitch = 0.0;
         self.session_view.scripted.script_default_camera_angle = 0.0;
         self.session_view.scripted.script_default_camera_max_height = 1.0;

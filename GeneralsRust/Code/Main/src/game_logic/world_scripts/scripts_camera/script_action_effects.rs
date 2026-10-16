@@ -3,6 +3,38 @@
 use super::*;
 
 impl GameLogic {
+    /// Older output from an unmigrated callback must precede the next borrowed
+    /// invocation. Drain it before any new script action can observe the UI.
+    pub(super) fn deliver_pending_script_ui(
+        &mut self,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
+        let Some(ui) = ui.as_mut() else {
+            return;
+        };
+        for enabled in std::mem::take(&mut self.session_view.pending_letterbox_visibility) {
+            ui.letterbox(
+                &mut self.session_view.camera,
+                enabled,
+                matches!(self.game_mode, GameMode::Replay),
+            );
+            self.session_view
+                .letterbox_visibility_delivered_since_present = true;
+        }
+    }
+
+    fn admit_script_letterbox_state(&mut self, enabled: bool) {
+        // W3DDisplay.cpp:2092: only a transition changes the zoom limit. This
+        // runs at the authored action, before another action may move the view.
+        if self.cinematic_letterbox != enabled {
+            self.session_view
+                .camera
+                .native_camera
+                .set_zoom_limited(!enabled);
+        }
+        self.cinematic_letterbox = enabled;
+    }
+
     pub(super) fn apply_script_action_requests(&mut self) {
         self.apply_script_action_requests_with_interpreter(None);
     }
@@ -10,6 +42,14 @@ impl GameLogic {
     pub(super) fn apply_script_action_requests_with_interpreter(
         &mut self,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) {
+        self.apply_script_action_requests_with_ui(interpreter, None);
+    }
+
+    pub(super) fn apply_script_action_requests_with_ui(
+        &mut self,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        mut ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
         self.apply_host_skirmish_script_requests();
         self.apply_host_set_base_construction_speed_requests();
@@ -34,7 +74,7 @@ impl GameLogic {
         self.apply_host_follow_waypoints_script_requests();
         self.apply_host_skirmish_approach_path_script_requests();
 
-        self.apply_host_create_script_requests_with_interpreter(interpreter);
+        self.apply_host_create_script_requests_with_ui(interpreter, &mut ui);
         self.apply_host_boobytrap_script_requests();
         self.apply_host_unmanned_script_requests();
         self.apply_host_radar_event_script_requests();
@@ -441,9 +481,23 @@ impl GameLogic {
             self.apply_script_camera_mod_look_toward(last.position, true);
         }
 
+        self.deliver_pending_script_ui(&mut ui);
         for last in self.mission_scripts.drain_letterbox_events() {
+            if let Some(ui) = ui.as_mut() {
+                ui.letterbox(
+                    &mut self.session_view.camera,
+                    last,
+                    matches!(self.game_mode, GameMode::Replay),
+                );
+                self.session_view
+                    .letterbox_visibility_delivered_since_present = true;
+                self.admit_script_letterbox_state(last);
+                continue;
+            }
+            // Unmigrated callback roots still deliver through the explicit
+            // pending output. Do not replay synchronously delivered effects.
             self.session_view.pending_letterbox_visibility.push(last);
-            self.cinematic_letterbox = last;
+            self.admit_script_letterbox_state(last);
             // CPP Show/HideControlBar writes View height only when the
             // authored parent exists. Admit that camera effect synchronously
             // so a later action observes this session's projection. Native

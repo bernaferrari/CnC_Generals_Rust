@@ -1043,3 +1043,10 @@ mod named_camera_owner_tests;
 
 #[path = "letterbox_delivery_tests.rs"]
 mod letterbox_delivery_tests;
+
+#[cfg(feature = "game_client")]
+#[path = "borrowed_ui_tests.rs"]
+mod borrowed_ui_tests;
+
+#[path = "immediate_create_ui_tests.rs"]
+mod immediate_create_ui_tests;

@@ -92,3 +92,68 @@ impl CnCGameEngine {
         );
     }
 }
+
+/// Native script actions borrow UI for one synchronous interpreter operation.
+/// GameLogic retains only its camera; no UI service is published into a world.
+#[cfg(feature = "game_client")]
+pub(super) struct NativeScriptUi<'a> {
+    bar: &'a mut game_client::gui::control_bar::ControlBar,
+    callbacks: &'a mut game_client::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
+}
+
+#[cfg(feature = "game_client")]
+impl<'a> NativeScriptUi<'a> {
+    pub(super) fn new(
+        bar: &'a mut game_client::gui::control_bar::ControlBar,
+        callbacks: &'a mut game_client::gui::callbacks::control_bar_callbacks::ControlBarCallbacks,
+    ) -> Self {
+        Self { bar, callbacks }
+    }
+
+    fn letterbox_with_parent(
+        &mut self,
+        camera: &mut crate::presentation_frame::camera::SessionCamera,
+        enabled: bool,
+        replay: bool,
+        parent: Option<std::rc::Rc<std::cell::RefCell<game_client::gui::GameWindow>>>,
+    ) {
+        // ScriptActions.cpp:3749-3760: HideControlBar(TRUE) precedes enabling
+        // letterbox; ShowControlBar(FALSE) precedes disabling it. Every authored
+        // call applies even if the display's letterbox flag is unchanged.
+        if enabled {
+            self.callbacks
+                .hide_control_bar_owned(self.bar, camera, parent, true, true);
+        } else {
+            self.callbacks
+                .show_control_bar_owned(self.bar, camera, parent, replay, false);
+        }
+    }
+}
+
+#[cfg(feature = "game_client")]
+impl crate::game_logic::ScriptUiEffects for NativeScriptUi<'_> {
+    fn letterbox(
+        &mut self,
+        camera: &mut crate::presentation_frame::camera::SessionCamera,
+        enabled: bool,
+        replay: bool,
+    ) {
+        let parent = game_client::gui::with_window_manager(|manager| {
+            if enabled {
+                game_client::gui::callbacks::replay_controls::hide_replay_controls_owned(
+                    manager, replay,
+                );
+            } else {
+                game_client::gui::callbacks::replay_controls::show_replay_controls_owned(
+                    manager, replay,
+                );
+            }
+            manager.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
+        });
+        self.letterbox_with_parent(camera, enabled, replay, parent);
+    }
+}
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "control_bar_viewport_tests.rs"]
+mod script_ui_tests;
