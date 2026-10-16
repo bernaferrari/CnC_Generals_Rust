@@ -234,43 +234,73 @@ impl SnowManager {
         }
     }
 
+    /// Standalone adapter. Instance owners should supply their effective definition and RNG.
     pub fn init(&mut self) {
-        self.starting_heights = vec![0.0; SNOW_NOISE_X * SNOW_NOISE_Y];
-        self.time = 0.0;
-        self.update_ini_settings();
+        let Some(settings) = get_weather_setting() else {
+            return;
+        };
+        let settings = settings.read().unwrap_or_else(|e| e.into_inner()).clone();
+        self.init_with_definition(&settings, &mut |low, high| {
+            crate::GameClientRandomValue!(low, high)
+        });
     }
 
+    /// C++ SnowManager::init: allocate noise, reset time, then apply the definition.
+    /// Construction and initialization never publish this manager.
+    pub fn init_with_definition(
+        &mut self,
+        settings: &WeatherSetting,
+        random: &mut impl FnMut(i32, i32) -> i32,
+    ) {
+        self.starting_heights = vec![0.0; SNOW_NOISE_X * SNOW_NOISE_Y];
+        self.time = 0.0;
+        self.update_ini_settings_with_definition(settings, random);
+    }
+
+    /// Standalone adapter for callers not yet migrated to an explicit owner.
     pub fn update_ini_settings(&mut self) {
         let Some(settings) = get_weather_setting() else {
             return;
         };
-        let guard = settings.read().unwrap_or_else(|e| e.into_inner());
+        let settings = settings.read().unwrap_or_else(|e| e.into_inner()).clone();
+        self.update_ini_settings_with_definition(&settings, &mut |low, high| {
+            crate::GameClientRandomValue!(low, high)
+        });
+    }
 
+    /// Apply effective INI values and reroll exactly 4096 bounded integer heights.
+    /// The caller owns the random stream; bounds are inclusive. Time and script
+    /// visibility survive definition updates, as in Snow.cpp.
+    pub fn update_ini_settings_with_definition(
+        &mut self,
+        settings: &WeatherSetting,
+        random: &mut impl FnMut(i32, i32) -> i32,
+    ) {
         // C++ SnowManager::updateIniSettings never touches m_isVisible.
         if self.starting_heights.len() != SNOW_NOISE_X * SNOW_NOISE_Y {
             self.starting_heights = vec![0.0; SNOW_NOISE_X * SNOW_NOISE_Y];
         }
-        let box_dimensions = guard.snow_box_dimensions.max(0.0);
+        let box_dimensions = settings.snow_box_dimensions.max(0.0);
         let box_i = box_dimensions.max(1.0) as i32;
         for height in &mut self.starting_heights {
             // C++: rand() % boxDimensions → [0, box_i); client stream inclusive [0, box_i-1]
-            *height = crate::GameClientRandomValue!(0, box_i - 1) as f32;
+            *height = random(0, box_i - 1) as f32;
         }
 
-        self.velocity = guard.snow_velocity;
-        self.frequency_scale_x = guard.snow_frequency_scale_x;
-        self.frequency_scale_y = guard.snow_frequency_scale_y;
-        self.amplitude = guard.snow_amplitude;
-        self.point_size = guard.snow_point_size;
-        self.quad_size = guard.snow_quad_size;
-        self.box_dimensions = guard.snow_box_dimensions;
-        self.emitter_spacing = if guard.snow_box_density != 0.0 {
-            1.0 / guard.snow_box_density
+        self.velocity = settings.snow_velocity;
+        self.frequency_scale_x = settings.snow_frequency_scale_x;
+        self.frequency_scale_y = settings.snow_frequency_scale_y;
+        self.amplitude = settings.snow_amplitude;
+        self.point_size = settings.snow_point_size;
+        self.quad_size = settings.snow_quad_size;
+        self.box_dimensions = settings.snow_box_dimensions;
+        self.emitter_spacing = if settings.snow_box_density != 0.0 {
+            1.0 / settings.snow_box_density
         } else {
             0.0
         };
-        self.max_point_size = guard.snow_max_point_size;
-        self.min_point_size = guard.snow_min_point_size;
+        self.max_point_size = settings.snow_max_point_size;
+        self.min_point_size = settings.snow_min_point_size;
         self.full_time_period = if self.velocity.abs() > f32::EPSILON {
             self.box_dimensions / self.velocity
         } else {
@@ -486,18 +516,16 @@ mod tests {
 
     #[test]
     fn update_ini_settings_does_not_overwrite_script_visibility() {
-        let _ = initialize_snow_manager();
-        let settings = ensure_weather_setting();
-        {
-            let mut guard = settings.write().unwrap_or_else(|e| e.into_inner());
-            guard.snow_enabled = true;
-            guard.snow_box_dimensions = 50.0;
-            guard.snow_box_density = 1.0;
-        }
+        let settings = WeatherSetting {
+            snow_enabled: true,
+            snow_box_dimensions: 50.0,
+            snow_box_density: 1.0,
+            ..WeatherSetting::default()
+        };
         let mut snow = SnowManager::new();
-        snow.init();
+        snow.init_with_definition(&settings, &mut |low, _| low);
         snow.set_visible(false);
-        snow.update_ini_settings();
+        snow.update_ini_settings_with_definition(&settings, &mut |low, _| low);
         assert!(
             !snow.is_visible(),
             "C++ updateIniSettings never derives m_isVisible from SnowEnabled"
@@ -516,6 +544,77 @@ mod tests {
     }
 
     #[test]
+    fn explicit_definition_lifecycle_is_instance_owned() {
+        let mut first = SnowManager::new();
+        let mut peer = SnowManager::new();
+        assert!(first.starting_heights().is_empty());
+        assert!(peer.starting_heights().is_empty());
+        assert_eq!(first.time(), 0.0);
+        assert!(first.is_visible());
+
+        let mut settings = WeatherSetting {
+            snow_box_dimensions: 50.75,
+            snow_velocity: 5.0,
+            ..WeatherSetting::default()
+        };
+        let mut draws = 0;
+        first.set_visible(false);
+        first.init_with_definition(&settings, &mut |low, high| {
+            assert_eq!((low, high), (0, 49));
+            draws += 1;
+            high
+        });
+        assert_eq!(draws, 4096);
+        assert!(
+            first
+                .starting_heights()
+                .iter()
+                .all(|height| *height == 49.0)
+        );
+        assert!(!first.is_visible());
+        first.update(0.75);
+        peer.init_with_definition(&WeatherSetting::default(), &mut |low, _| low);
+        peer.update(0.25);
+        let peer_heights = peer.starting_heights().to_vec();
+
+        settings.snow_box_dimensions = 80.0;
+        settings.snow_velocity = 8.0;
+        settings.snow_box_density = 2.0;
+        first.update_ini_settings_with_definition(&settings, &mut |low, high| {
+            assert_eq!((low, high), (0, 79));
+            draws += 1;
+            17
+        });
+        assert_eq!(draws, 8192);
+        assert_eq!(first.time(), 0.75);
+        assert!(!first.is_visible());
+        assert_eq!(first.velocity, 8.0);
+        assert_eq!(first.emitter_spacing, 0.5);
+        assert_eq!(first.full_time_period, 10.0);
+        assert!(
+            first
+                .starting_heights()
+                .iter()
+                .all(|height| *height == 17.0)
+        );
+        first.reset();
+        assert!(first.is_visible());
+        assert_eq!(first.time(), 0.75);
+        assert!(
+            first
+                .starting_heights()
+                .iter()
+                .all(|height| *height == 17.0)
+        );
+        assert_eq!(peer.time(), 0.25);
+        assert_eq!(peer.starting_heights(), peer_heights.as_slice());
+
+        first.init_with_definition(&settings, &mut |_, _| 3);
+        assert_eq!(first.time(), 0.0);
+        assert!(first.starting_heights().iter().all(|height| *height == 3.0));
+    }
+
+    #[test]
     fn reset_restores_script_visibility() {
         let mut snow = SnowManager::new();
         snow.set_visible(false);
@@ -528,18 +627,16 @@ mod tests {
 
     #[test]
     fn flake_positions_clip_to_terrain_visible_box() {
-        let _ = initialize_snow_manager();
-        let settings = ensure_weather_setting();
-        {
-            let mut guard = settings.write().unwrap_or_else(|e| e.into_inner());
-            guard.snow_enabled = true;
-            guard.snow_box_dimensions = 50.0;
-            guard.snow_box_density = 1.0;
-            guard.snow_amplitude = 0.0;
-            guard.snow_quad_size = 0.0;
-        }
+        let settings = WeatherSetting {
+            snow_enabled: true,
+            snow_box_dimensions: 50.0,
+            snow_box_density: 1.0,
+            snow_amplitude: 0.0,
+            snow_quad_size: 0.0,
+            ..WeatherSetting::default()
+        };
         let mut snow = SnowManager::new();
-        snow.init();
+        snow.init_with_definition(&settings, &mut |low, _| low);
         snow.set_visible(true);
         let unclipped = snow.flake_positions_y_up([0.0, 10.0, 0.0]);
         assert_eq!(unclipped.len(), 50 * 50);

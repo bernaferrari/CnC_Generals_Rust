@@ -20273,6 +20273,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/shadow_pass/frustum.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/status_circle.rs"
             },
             {
@@ -189805,7 +189810,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "4275381d2958f20630adf46a0b4d35c02773f06fb53513eea297bdcc7c2acfd4",
+  "provenance_input_digest": "4e15199177a7466259297009c3731e24f367af5c6095b3c966276a6528e87c11",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

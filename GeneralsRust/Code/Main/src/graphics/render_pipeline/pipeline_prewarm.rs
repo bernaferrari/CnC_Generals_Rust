@@ -384,6 +384,11 @@ impl RenderPipeline {
         static LOGGED_ZERO_TERRAIN_CHUNKS: AtomicBool = AtomicBool::new(false);
         static LOGGED_NONZERO_TERRAIN_CHUNKS: AtomicBool = AtomicBool::new(false);
 
+        let snow_min_height = self
+            .presentation_frame
+            .as_ref()
+            .and_then(|frame| frame.world_env.runtime_heightmap.as_ref())
+            .map_or(0., |heightmap| heightmap.min_height);
         let terrain_pass_started = Instant::now();
         if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
             if let Some(terrain_visual) = guard.as_mut() {
@@ -392,7 +397,11 @@ impl RenderPipeline {
                     Mat4::from_cols_array_2d(&projection_matrix.to_cols_array_2d());
                 let terrain_render_started = Instant::now();
                 terrain_visual
-                    .render(&client_view_matrix, &client_projection_matrix)
+                    .render_native_y_up(
+                        &client_view_matrix,
+                        &client_projection_matrix,
+                        snow_min_height,
+                    )
                     .map_err(|e| {
                         anyhow::anyhow!("terrain visual render state update failed: {}", e)
                     })?;

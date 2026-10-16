@@ -101,3 +101,5 @@ pub const TERRAIN_VISUAL_SRC: &str = concat!(
     include_str!("traits.rs"),
     include_str!("api.rs"),
 );
+
+mod snow_camera;

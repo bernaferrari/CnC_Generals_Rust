@@ -4,6 +4,9 @@
 //! Projected unit decals are queued onto terrain; volumetric volumes write
 //! stencil then a 0x7fa0a0a0 fill quad. Occluded units get a player-color pass.
 
+mod frustum;
+pub use frustum::clipped_visible_box_z_up;
+
 use crate::display::view::with_tactical_view_ref;
 use crate::drawable::drawable_manager::with_drawable_manager;
 use crate::drawable::StealthLook;

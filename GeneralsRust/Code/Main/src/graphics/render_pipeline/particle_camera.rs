@@ -2,7 +2,7 @@
 //! The session has already applied terrain/HAG, FX pitch and camera shake.
 use game_client::display::shadow_pass::VisibleBox;
 use game_client::effects::particle_renderer::ParticleUniforms;
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec3};
 
 #[derive(Clone, Copy)]
 pub(super) struct ParticleCamera {
@@ -23,39 +23,14 @@ impl ParticleCamera {
     ) -> Option<Self> {
         let axis = super::terrain_to_main_axis_matrix();
         let particle_view = view * axis;
-        let clip = projection * particle_view;
-        if !clip.is_finite() || clip.determinant() == 0. {
+        if !camera_position.is_finite() {
             return None;
         }
-        let inverse = clip.inverse();
-        if !inverse.is_finite() || !camera_position.is_finite() || !min_height.is_finite() {
-            return None;
-        }
-        let mut corners = [Vec3::ZERO; 8];
-        let signs = [(-1., 1.), (1., 1.), (1., -1.), (-1., -1.)];
-        for (plane, depth) in [0., 1.].into_iter().enumerate() {
-            for (i, (x, y)) in signs.into_iter().enumerate() {
-                let point = inverse * Vec4::new(x, y, depth, 1.);
-                let point = point.truncate() / point.w;
-                if !point.is_finite() {
-                    return None;
-                }
-                corners[plane * 4 + i] = point;
-            }
-        }
-        for i in 0..4 {
-            let a = corners[i];
-            let delta = corners[i + 4] - a;
-            // PlaneClass::Compute_Intersection uses an exact parallel check.
-            if delta.z != 0. {
-                let fraction = (min_height - a.z) / delta.z;
-                if (0. ..=1.).contains(&fraction) {
-                    corners[i + 4] = a + delta * fraction;
-                }
-            }
-        }
-        let min = corners.iter().copied().reduce(Vec3::min)?;
-        let max = corners.iter().copied().reduce(Vec3::max)?;
+        let visible = game_client::display::shadow_pass::clipped_visible_box_z_up(
+            particle_view,
+            projection,
+            min_height,
+        )?;
         let camera = axis.transform_point3(camera_position);
         Some(Self {
             uniforms: ParticleUniforms {
@@ -66,10 +41,7 @@ impl ParticleCamera {
                 source_z_up: 1,
                 ..ParticleUniforms::default()
             },
-            visible: VisibleBox {
-                center: ((min + max) * 0.5).to_array(),
-                extent: ((max - min) * 0.5).to_array(),
-            },
+            visible,
         })
     }
 }
@@ -77,6 +49,18 @@ impl ParticleCamera {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_terrain_pass_selects_receiving_y_up_snow_camera_explicitly() {
+        let source = include_str!("pipeline_prewarm.rs")
+            .split("pub(super) fn update_and_enqueue_terrain_pass(")
+            .nth(1)
+            .unwrap();
+        assert!(source.contains(".render_native_y_up("));
+        assert!(source.contains("snow_min_height"));
+        assert!(source.contains("frame.world_env.runtime_heightmap.as_ref()"));
+        assert!(!source.contains("snow_terrain_visible_xy"));
+    }
 
     fn observation(eye: Vec3, target: Vec3, ground: f32) -> ParticleCamera {
         ParticleCamera::capture(

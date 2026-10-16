@@ -5789,6 +5789,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/snow_camera.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -8170,6 +8177,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/shadow_pass.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/shadow_pass/frustum.rs"
           },
           {
             "cargo_reachable": true,
@@ -12889,6 +12903,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/shroud_gpu.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/snow_camera.rs"
           },
           {
             "cargo_reachable": true,
@@ -42634,6 +42655,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/shadow_pass/frustum.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/status_circle.rs"
           },
           {
@@ -51399,6 +51427,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/shroud_gpu.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/snow_camera.rs"
           },
           {
             "cargo_reachable": true,
@@ -160027,7 +160062,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "4275381d2958f20630adf46a0b4d35c02773f06fb53513eea297bdcc7c2acfd4",
+  "input_digest": "4e15199177a7466259297009c3731e24f367af5c6095b3c966276a6528e87c11",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -166519,11 +166554,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1293,
+        "end_line": 49,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/shadow_pass/frustum.rs",
+      "sha256": "661cf3471b2204c5c54d214fdab971ee65ec6d5208c0e3f11c6df8b1564d295a",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 1296,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/shadow_pass.rs",
-      "sha256": "ac57d6c5b4ffe17bd48d51c998554f99723dd65349bdc4223981ac595393bfed",
+      "sha256": "cd74822ec5f14018e176c4ec6b9b2e44b7729850c436ff27066c9958b152788e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173460,11 +173507,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 615,
+        "end_line": 712,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/snow.rs",
-      "sha256": "d3b593358d146a6a3f10ae6b3b363af9cfb56606762df1a16832550895f4bc71",
+      "sha256": "a92483dc69df6da8093211bce9579da2e83e0e8b74491caffa3c53d488d59156",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -175354,11 +175401,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 104,
+        "end_line": 106,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/mod.rs",
-      "sha256": "e3575c2be3682d0734157161c5ef69500bae0de3a915c310fd3bb79b83411cec",
+      "sha256": "036f28bc8912bd7746b93841785f12b7286d599200617d6877513e17d148a10a",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -175372,321 +175419,311 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1717,
+        "end_line": 1663,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/overlay_gpu.rs",
-      "sha256": "34a09ab316346b0b80f8cb4c12de01fc1cb5832b2eb63766600ea5d3a75614ae",
+      "sha256": "c276d6793879b9c53ef9810f10648f3bd0b2dab28dd6d5b3f8a7d84f5e1d459f",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "const",
-          "line": 13,
+          "line": 11,
           "name": "NUM_BUMP_FRAMES"
         },
         {
           "kind": "const",
-          "line": 15,
+          "line": 13,
           "name": "WATER_GRID_DAMP"
         },
         {
           "kind": "const",
-          "line": 16,
+          "line": 14,
           "name": "FEATHER_THICKNESS"
         },
         {
           "kind": "fn",
-          "line": 19,
+          "line": 17,
           "name": "apply_tree_world_bounds"
         },
         {
           "kind": "fn",
-          "line": 28,
+          "line": 26,
           "name": "rebuild_shoreline"
         },
         {
           "kind": "fn",
-          "line": 62,
+          "line": 60,
           "name": "rebuild_tank_tracks"
         },
         {
           "kind": "fn",
-          "line": 68,
+          "line": 66,
           "name": "unit_moved"
         },
         {
           "kind": "fn",
-          "line": 72,
+          "line": 70,
           "name": "add_tree"
         },
         {
           "kind": "fn",
-          "line": 95,
+          "line": 93,
           "name": "set_shroud_level"
         },
         {
           "kind": "fn",
-          "line": 112,
+          "line": 110,
           "name": "init_shroud_overlay"
         },
         {
           "kind": "fn",
-          "line": 139,
+          "line": 137,
           "name": "set_shroud_overlay_r8"
         },
         {
           "kind": "fn",
-          "line": 168,
+          "line": 166,
           "name": "shroud_alpha_at_world"
         },
         {
           "kind": "fn",
-          "line": 185,
+          "line": 183,
           "name": "set_map_water_areas"
         },
         {
           "kind": "fn",
-          "line": 195,
+          "line": 193,
           "name": "polygon_water_mesh_count"
         },
         {
           "kind": "fn",
-          "line": 198,
+          "line": 196,
           "name": "add_heat_smudge"
         },
         {
           "kind": "fn",
-          "line": 203,
+          "line": 201,
           "name": "clear_heat_smudges"
         },
         {
           "kind": "fn",
-          "line": 208,
+          "line": 206,
           "name": "sample_water_height"
         },
         {
           "kind": "fn",
-          "line": 215,
+          "line": 213,
           "name": "load_water_tracks_from_map"
         },
         {
           "kind": "fn",
-          "line": 229,
+          "line": 227,
           "name": "drain_leftover_water_velocity"
         },
         {
           "kind": "fn",
-          "line": 243,
+          "line": 241,
           "name": "simulate_water_grid"
         },
         {
           "kind": "const",
-          "line": 252,
+          "line": 250,
           "name": "PREFERRED_HEIGHT_FUDGE"
         },
         {
           "kind": "const",
-          "line": 253,
+          "line": 251,
           "name": "AT_REST_VELOCITY_FUDGE"
         },
         {
           "kind": "fn",
-          "line": 308,
+          "line": 306,
           "name": "upload_shoreline_meshes"
         },
         {
           "kind": "fn",
-          "line": 364,
+          "line": 362,
           "name": "water_grid_cell_is_wet"
         },
         {
           "kind": "fn",
-          "line": 372,
+          "line": 370,
           "name": "upload_water_grid_mesh"
         },
         {
           "kind": "fn",
-          "line": 501,
+          "line": 499,
           "name": "standing_water_diffuse_packed"
         },
         {
           "kind": "fn",
-          "line": 541,
+          "line": 539,
           "name": "sync_polygon_water_meshes"
         },
         {
           "kind": "fn",
-          "line": 609,
+          "line": 607,
           "name": "upload_water_overlay"
         },
         {
           "kind": "fn",
-          "line": 636,
+          "line": 634,
           "name": "upload_bib_meshes"
         },
         {
           "kind": "const",
-          "line": 662,
+          "line": 660,
           "name": "BIB_UVS"
         },
         {
           "kind": "fn",
-          "line": 712,
+          "line": 710,
           "name": "upload_prop_meshes"
         },
         {
           "kind": "const",
-          "line": 713,
+          "line": 711,
           "name": "PROP_CARD_UVS"
         },
         {
           "kind": "fn",
-          "line": 778,
+          "line": 776,
           "name": "bib_art_bound"
         },
         {
           "kind": "fn",
-          "line": 786,
+          "line": 784,
           "name": "ensure_bib_texture_bind_groups"
         },
         {
           "kind": "const",
-          "line": 787,
+          "line": 785,
           "name": "BIB_TEXTURES"
         },
         {
           "kind": "fn",
-          "line": 853,
+          "line": 851,
           "name": "upload_tank_track_meshes"
         },
         {
           "kind": "fn",
-          "line": 879,
+          "line": 877,
           "name": "upload_custom_edge_meshes"
         },
         {
           "kind": "fn",
-          "line": 966,
+          "line": 964,
           "name": "upload_snow_mesh"
         },
         {
           "kind": "fn",
-          "line": 1029,
-          "name": "snow_camera_axes_y_up"
-        },
-        {
-          "kind": "fn",
-          "line": 1045,
-          "name": "snow_terrain_visible_xy"
-        },
-        {
-          "kind": "fn",
-          "line": 1072,
+          "line": 1018,
           "name": "upload_smudge_mesh"
         },
         {
           "kind": "fn",
-          "line": 1147,
+          "line": 1093,
           "name": "upload_flat_lod_meshes"
         },
         {
           "kind": "struct",
-          "line": 1165,
+          "line": 1111,
           "name": "MapRef"
         },
         {
           "kind": "fn",
-          "line": 1167,
+          "line": 1113,
           "name": "x_extent"
         },
         {
           "kind": "fn",
-          "line": 1170,
+          "line": 1116,
           "name": "y_extent"
         },
         {
           "kind": "fn",
-          "line": 1173,
+          "line": 1119,
           "name": "height"
         },
         {
           "kind": "fn",
-          "line": 1176,
+          "line": 1122,
           "name": "static_diffuse"
         },
         {
           "kind": "fn",
-          "line": 1179,
+          "line": 1125,
           "name": "border_size_inline"
         },
         {
           "kind": "fn",
-          "line": 1205,
+          "line": 1151,
           "name": "record_overlay_draws"
         },
         {
           "kind": "fn",
-          "line": 1272,
+          "line": 1218,
           "name": "rebuild_all_overlays"
         },
         {
           "kind": "fn",
-          "line": 1288,
+          "line": 1234,
           "name": "record_shoreline_draws"
         },
         {
           "kind": "fn",
-          "line": 1313,
+          "line": 1259,
           "name": "record_extra_water_draws"
         },
         {
           "kind": "fn",
-          "line": 1383,
+          "line": 1329,
           "name": "bib_stand_in_appearance"
         },
         {
           "kind": "const",
-          "line": 1391,
+          "line": 1337,
           "name": "WATER_UV_FACTOR"
         },
         {
           "kind": "const",
-          "line": 1393,
+          "line": 1339,
           "name": "HEIGHT_TO_USE"
         },
         {
           "kind": "fn",
-          "line": 1401,
+          "line": 1347,
           "name": "pack_water_setting_diffuse"
         },
         {
           "kind": "fn",
-          "line": 1424,
+          "line": 1370,
           "name": "bake_trapezoid_water"
         },
         {
           "kind": "fn",
-          "line": 1519,
+          "line": 1465,
           "name": "bake_river_strip"
         },
         {
           "kind": "fn",
-          "line": 1604,
+          "line": 1550,
           "name": "trapezoid_bake_uses_authored_z_and_world_uvs"
         },
         {
           "kind": "fn",
-          "line": 1638,
+          "line": 1584,
           "name": "river_bake_uses_bank_pairs_not_centerline_offset"
         },
         {
           "kind": "fn",
-          "line": 1660,
+          "line": 1606,
           "name": "leftover_add_water_velocity_drains_into_live_grid"
         },
         {
           "kind": "fn",
-          "line": 1682,
+          "line": 1628,
           "name": "shroud_overlay_r8_feed_replaces_fallback_state"
         }
       ]
@@ -175789,6 +175826,64 @@
           "kind": "fn",
           "line": 328,
           "name": "record_shroud_ground_pass"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 182,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/snow_camera.rs",
+      "sha256": "577c1dc70c342807f765ae254c35ed4caa5575bb0f62f911c40635cfa55ef0e2",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "struct",
+          "line": 8,
+          "name": "SnowCamera"
+        },
+        {
+          "kind": "fn",
+          "line": 17,
+          "name": "native_y_up"
+        },
+        {
+          "kind": "fn",
+          "line": 23,
+          "name": "from_client_view"
+        },
+        {
+          "kind": "fn",
+          "line": 28,
+          "name": "capture"
+        },
+        {
+          "kind": "fn",
+          "line": 61,
+          "name": "quad"
+        },
+        {
+          "kind": "fn",
+          "line": 78,
+          "name": "native_snow_keeps_y_up_even_at_steep_fx_pitch_and_projects_billboards"
+        },
+        {
+          "kind": "fn",
+          "line": 100,
+          "name": "equivalent_native_and_client_source_cameras_have_the_same_snow_box"
+        },
+        {
+          "kind": "fn",
+          "line": 130,
+          "name": "receiving_snow_box_is_independent_of_foreign_core_camera_changes"
+        },
+        {
+          "kind": "fn",
+          "line": 162,
+          "name": "snow_camera_rejects_invalid_frustum_without_a_foreign_view_fallback"
         }
       ]
     },
@@ -175969,11 +176064,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 391,
+        "end_line": 425,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/traits.rs",
-      "sha256": "187579ac13589441a38a063e205a2bc1270866175adb9cc83fdcea02fbf3de74",
+      "sha256": "ecfffcbc67a1f8f22ec78d224aa1a10a17050b8e7b8964b3d274c8f686ee3556",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -176003,62 +176098,77 @@
         },
         {
           "kind": "fn",
-          "line": 221,
+          "line": 222,
+          "name": "render_native_y_up"
+        },
+        {
+          "kind": "fn",
+          "line": 231,
+          "name": "snow_min_height"
+        },
+        {
+          "kind": "fn",
+          "line": 238,
+          "name": "render_with_snow_camera"
+        },
+        {
+          "kind": "fn",
+          "line": 325,
           "name": "render"
         },
         {
           "kind": "fn",
-          "line": 299,
+          "line": 333,
           "name": "get_height_at"
         },
         {
           "kind": "fn",
-          "line": 307,
+          "line": 341,
           "name": "get_normal_at"
         },
         {
           "kind": "fn",
-          "line": 315,
+          "line": 349,
           "name": "is_valid_position"
         },
         {
           "kind": "fn",
-          "line": 319,
+          "line": 353,
           "name": "chunk_manager"
         },
         {
           "kind": "fn",
-          "line": 323,
+          "line": 357,
           "name": "chunk_draw_count"
         },
         {
           "kind": "fn",
-          "line": 327,
+          "line": 361,
           "name": "oversize_terrain"
         },
         {
           "kind": "fn",
-          "line": 331,
+          "line": 365,
           "name": "set_terrain_tracks_detail"
         },
         {
           "kind": "struct",
-          "line": 340,
+          "line": 374,
           "name": "TerrainUniforms"
         },
         {
           "kind": "type",
-          "line": 356,
+          "line": 390,
           "name": "WaterVertex"
         },
         {
           "kind": "type",
-          "line": 359,
+          "line": 393,
           "name": "RoadVertex"
         },
         {
           "kind": "fn",
-          "line": 362,
+          "line": 396,
           "name": "desc"
         }
       ]

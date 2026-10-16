@@ -217,8 +217,31 @@ impl TerrainTrackHeightProvider for TerrainVisualImpl {
     }
 }
 
-impl TerrainVisual for TerrainVisualImpl {
-    fn render(&mut self, view_matrix: &Mat4, projection_matrix: &Mat4) -> Result<(), TerrainError> {
+impl TerrainVisualImpl {
+    /// Native Main submits Y-up matrices explicitly, including steep FX pitch.
+    pub fn render_native_y_up(
+        &mut self,
+        view: &Mat4,
+        projection: &Mat4,
+        min_height: f32,
+    ) -> Result<(), TerrainError> {
+        let camera = snow_camera::SnowCamera::native_y_up(*view, *projection, min_height);
+        self.render_with_snow_camera(view, projection, camera)
+    }
+
+    fn snow_min_height(&self) -> f32 {
+        self.height_map
+            .as_ref()
+            .map(|map| map.min_height)
+            .unwrap_or(0.)
+    }
+
+    fn render_with_snow_camera(
+        &mut self,
+        view_matrix: &Mat4,
+        projection_matrix: &Mat4,
+        snow_camera: Option<snow_camera::SnowCamera>,
+    ) -> Result<(), TerrainError> {
         if !self.enabled {
             return Ok(());
         }
@@ -240,7 +263,7 @@ impl TerrainVisual for TerrainVisualImpl {
             self.ensure_snow_texture_bind_group(device.as_ref());
             self.apply_water_transparency_map_overrides(device.as_ref());
         }
-        self.upload_snow_mesh(camera_position, view_matrix);
+        self.upload_snow_mesh(snow_camera.as_ref());
         if self.overlay.overlays_dirty {
             self.rebuild_all_overlays();
         }
@@ -295,6 +318,17 @@ impl TerrainVisual for TerrainVisualImpl {
         self.road_system.render(view_matrix, projection_matrix)?;
 
         Ok(())
+    }
+}
+
+impl TerrainVisual for TerrainVisualImpl {
+    fn render(&mut self, view_matrix: &Mat4, projection_matrix: &Mat4) -> Result<(), TerrainError> {
+        let camera = snow_camera::SnowCamera::from_client_view(
+            *view_matrix,
+            *projection_matrix,
+            self.snow_min_height(),
+        );
+        self.render_with_snow_camera(view_matrix, projection_matrix, camera)
     }
 
     fn get_height_at(&self, x: f32, y: f32) -> Result<f32, TerrainError> {
