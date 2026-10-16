@@ -1727,6 +1727,24 @@ impl CnCGameEngine {
         self.render_pipeline
             .set_presentation_frame(self.last_presentation_frame.clone());
         #[cfg(feature = "game_client")]
+        {
+            let ui = self
+                .game_client
+                .in_game_ui_subsystem()
+                .map(game_client::core::subsystems::InGameUiHandle::new);
+            let camera = crate::graphics::radar_view::RadarCamera::capture(
+                &self.game_logic.session_view,
+                self.game_logic.radar().terrain_average_z(),
+            );
+            self.render_pipeline.set_native_radar_frame(
+                crate::graphics::ui_radar::NativeRadarFrame::capture(
+                    camera,
+                    self.game_logic.radar(),
+                    ui,
+                ),
+            );
+        }
+        #[cfg(feature = "game_client")]
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             self.render_pipeline.ensure_specialized_draw_inputs(
                 frame,
@@ -2156,91 +2174,11 @@ impl CnCGameEngine {
     /// unproject the tactical view's four screen corners onto the terrain plane.
     /// Order is UL, UR, LR, LL so the radar box rotates with camera yaw.
     fn tactical_view_box_world_corners(&self) -> Option<[glam::Vec3; 4]> {
-        let live = self.live_unproject_tactical_view_box_world_corners();
-        if live.is_some() {
-            let _ = self.leftover_tactical_view_box_world_corners();
-            return live;
-        }
-        self.leftover_tactical_view_box_world_corners()
-    }
-
-    fn leftover_tactical_view_box_world_corners(&self) -> Option<[glam::Vec3; 4]> {
-        #[cfg(feature = "game_client")]
-        {
-            use game_client::display::view::{with_tactical_view, with_tactical_view_ref};
-
-            // Keep leftover TheTacticalView pose/size in lockstep so leftover
-            // W3DLeftHUDDraw `build_view_box_lines` sees the live camera.
-            self.publish_core_hud_camera_pose();
-            let (view_w, view_h) = self.tactical_viewport_size();
-            with_tactical_view(|view| {
-                view.set_width(view_w as i32);
-                view.set_height(view_h as i32);
-            });
-            let terrain_z = Some(self.game_logic.radar().terrain_average_z())
-                .filter(|z| z.is_finite())
-                .unwrap_or(self.game_logic.session_view.target.y);
-            let pts = with_tactical_view_ref(|view| {
-                view.get_screen_corner_world_points_at_z(terrain_z).ok()
-            })?;
-            // Leftover View is Z-up (x/y ground). Host is Y-up (x/z ground).
-            // Leftover order is UL, UR, LL, LR; C++ radar walks UL, UR, LR, LL.
-            Some([
-                glam::Vec3::new(pts[0].x, pts[0].z, pts[0].y),
-                glam::Vec3::new(pts[1].x, pts[1].z, pts[1].y),
-                glam::Vec3::new(pts[3].x, pts[3].z, pts[3].y),
-                glam::Vec3::new(pts[2].x, pts[2].z, pts[2].y),
-            ])
-        }
-        #[cfg(not(feature = "game_client"))]
-        {
-            None
-        }
-    }
-
-    fn live_unproject_tactical_view_box_world_corners(&self) -> Option<[glam::Vec3; 4]> {
-        let (view_w, view_h) = self.tactical_viewport_size();
-        if view_w <= 1.0 || view_h <= 1.0 {
-            return None;
-        }
-        let terrain_y = {
-            #[cfg(feature = "game_client")]
-            {
-                Some(self.game_logic.radar().terrain_average_z())
-                    .filter(|z| z.is_finite())
-                    .unwrap_or(self.game_logic.session_view.target.y)
-            }
-            #[cfg(not(feature = "game_client"))]
-            {
-                self.game_logic.session_view.target.y
-            }
-        };
-        // C++ View.cpp:216-223: UL, UR, then "bottomLeft"=LR, "bottomRight"=LL.
-        let screens = [(0.0, 0.0), (view_w, 0.0), (view_w, view_h), (0.0, view_h)];
-        let mut corners = [glam::Vec3::ZERO; 4];
-        for (index, screen) in screens.iter().copied().enumerate() {
-            let (near, far) = super::mouse::unproject_mouse_ray(
-                self.game_logic.session_view.camera.view_matrix,
-                self.game_logic.session_view.camera.projection_matrix,
-                screen,
-                view_w,
-                view_h,
-            )?;
-            let dir = far - near;
-            if dir.y.abs() <= 1.0e-6 {
-                return None;
-            }
-            let t = (terrain_y - near.y) / dir.y;
-            if !t.is_finite() {
-                return None;
-            }
-            let hit = near + dir * t;
-            if !hit.is_finite() {
-                return None;
-            }
-            corners[index] = glam::Vec3::new(hit.x, terrain_y, hit.z);
-        }
-        Some(corners)
+        crate::graphics::radar_view::RadarCamera::capture(
+            &self.game_logic.session_view,
+            self.game_logic.radar().terrain_average_z(),
+        )
+        .corners()
     }
 
     /// Process UI events emitted by UIManager and apply to engine/game state.

@@ -29,6 +29,7 @@ impl GameWindow {
                 input: Some(Box::new(default_input_callback)),
                 system: Some(Box::new(default_system_callback)),
                 control_bar_system: false,
+                owned_radar_draw: false,
             },
             widget: None,
             combobox_links: None,
@@ -1653,7 +1654,30 @@ impl GameWindow {
     where
         F: Fn(&GameWindow, &WindowInstanceData) + 'static,
     {
+        self.callbacks.owned_radar_draw = false;
         self.callbacks.draw = Some(Box::new(callback));
+    }
+
+    pub fn set_radar_draw_callback(&mut self) {
+        self.set_draw_callback(crate::gui::w3d_gadget_draw::w3d_left_hud_draw);
+        self.callbacks.owned_radar_draw = true;
+    }
+
+    pub(crate) fn draw_with_radar(
+        &self,
+        context: Option<&crate::gui::w3d_gadget_draw::RadarDrawContext<'_>>,
+    ) {
+        if self.callbacks.owned_radar_draw && !self.is_hidden() {
+            if let Some(context) = context {
+                crate::gui::w3d_gadget_draw::w3d_left_hud_draw_with_radar(
+                    self,
+                    &self.inst_data,
+                    context,
+                );
+                return;
+            }
+        }
+        self.draw();
     }
 
     /// Get draw callback.
@@ -1663,6 +1687,7 @@ impl GameWindow {
 
     /// Reset draw callback to the legacy default handler.
     pub fn reset_draw_callback(&mut self) {
+        self.callbacks.owned_radar_draw = false;
         self.callbacks.draw = Some(Box::new(legacy_default_draw_callback));
     }
 
@@ -1738,6 +1763,7 @@ impl GameWindow {
         tooltip: Option<TooltipCallback>,
     ) {
         self.callbacks.input = input.or_else(|| Some(Box::new(default_input_callback)));
+        self.callbacks.owned_radar_draw = false;
         self.callbacks.draw = draw.or_else(|| Some(Box::new(legacy_default_draw_callback)));
         self.callbacks.tooltip = tooltip;
     }

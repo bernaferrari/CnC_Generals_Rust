@@ -160133,7 +160133,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "1308272823d50de87e335e4e5b1278609bbb0023649d8fbec436dbf7be85079b",
+  "input_digest": "1b44c6e8ed699acb623a1d1a0d6d348a233f29f001ff15eeec3df44bd398cc11",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -165142,11 +165142,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 350,
+        "end_line": 355,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/radar/presentation.rs",
-      "sha256": "6db444346de52a76e7917a9f87032bcf015529d4abcf8227d5c155b98456842f",
+      "sha256": "3a8b13d8ce157c41366df2000ea1ef80f39b33ebee38f5bf1c05c0c8a7165ba9",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172155,11 +172155,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1890,
+        "end_line": 1916,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window/window_impl_core.rs",
-      "sha256": "7b5a821b7309c8737e82e40819407560cf42c51b759ea459b69863bb1245e53e",
+      "sha256": "a865290aad325d2b5570158afefa652dc9f65083b8ba765ab3b7c0818977b2a0",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -172203,11 +172203,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 174,
+        "end_line": 175,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window/window_struct.rs",
-      "sha256": "0c0c08cf3e0922875349a730a3c91b429f455e8045f1902b73c1417c26023533",
+      "sha256": "4fd62fbaf8f3907b983817f059b00ecbfce406665b5a7c7da96e6170f6139c98",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

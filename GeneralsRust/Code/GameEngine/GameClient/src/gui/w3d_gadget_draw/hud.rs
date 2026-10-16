@@ -1,3 +1,17 @@
+/// Completed receiving-camera corners in original C++ Z-up coordinates.
+#[derive(Clone, Copy)]
+pub struct RadarViewCorners {
+    pub origin_world: Coord3D,
+    /// Clockwise UL, UR, LR, LL.
+    pub corners: [Coord3D; 4],
+}
+/// A lexical draw loan, never published or retained by windows.
+pub struct RadarDrawContext<'a> {
+    pub radar: Option<&'a game_engine::common::system::radar::RadarPresentation>,
+    pub view_box: Option<RadarViewCorners>,
+    pub admit: &'a dyn Fn(&game_engine::common::system::radar::RadarPresentation),
+}
+
 use super::*;
 
 pub fn w3d_clock_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -64,6 +78,20 @@ pub(super) fn should_draw_radar_check() -> bool {
 }
 
 pub fn w3d_left_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    draw_left_hud(window, inst_data, None);
+}
+pub(crate) fn w3d_left_hud_draw_with_radar(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    context: &RadarDrawContext<'_>,
+) {
+    draw_left_hud(window, inst_data, Some(context));
+}
+fn draw_left_hud(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    context: Option<&RadarDrawContext<'_>>,
+) {
     // First check for video buffer (in-game movies)
     if inst_data
         .video_buffer
@@ -79,17 +107,20 @@ pub fn w3d_left_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     // W3DLeftHUDDraw draws radar when:
     // - TheRadar->isRadarForced() OR
     // - (!TheRadar->isRadarHidden() AND player->hasRadar())
-    if should_draw_radar_check() {
+    if context.map_or_else(should_draw_radar_check, |context| {
+        context.radar.is_some_and(|radar| radar.is_radar_shown())
+    }) {
         // Get window position and size for radar drawing
         let (pos_x, pos_y) = window.get_screen_position();
         let (size_x, size_y) = window.get_size();
 
         // Draw radar with 1-pixel border (matching C++ TheRadar->draw(pos.x + 1, pos.y + 1, size.x - 2, size.y - 2))
-        draw_radar_in_hud(
+        draw_radar_in_hud_with_context(
             pos_x + 1,
             pos_y + 1,
             size_x.saturating_sub(2),
             size_y.saturating_sub(2),
+            context,
         );
     }
     // C++ W3DLeftHUDDraw (W3DControlBar.cpp:38-73): video → draw, radar →
@@ -101,14 +132,33 @@ pub fn w3d_left_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
 
 /// Draw radar in the HUD area (matches C++ TheRadar->draw())
 pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
+    draw_radar_in_hud_with_context(x, y, width, height, None);
+}
+fn draw_radar_in_hud_with_context(
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    context: Option<&RadarDrawContext<'_>>,
+) {
     if width <= 0 || height <= 0 {
         return;
     }
-
-    let Some(radar) = crate::helpers::TheInGameUI::radar_presentation() else {
-        return;
+    let standalone;
+    let radar = if let Some(context) = context {
+        let Some(radar) = context.radar else {
+            return;
+        };
+        (context.admit)(radar);
+        radar
+    } else {
+        standalone = crate::helpers::TheInGameUI::radar_presentation();
+        let Some(radar) = standalone.as_ref() else {
+            return;
+        };
+        crate::helpers::TheInGameUI::admit_radar_draw(radar);
+        radar.as_ref()
     };
-    crate::helpers::TheInGameUI::admit_radar_draw(&radar);
     let events = radar.draw_events();
 
     // Draw terrain texture from radar system
@@ -384,41 +434,49 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
             }
         }
 
-        let view_box_lines = with_tactical_view_ref(|view| {
-            let terrain_z = radar.terrain_average_z();
-            let (origin_x, origin_y) = view.origin();
-            let origin_world =
-                view.screen_to_world_at_z(&IPoint2::new(origin_x, origin_y), terrain_z);
-            let corners = view.get_screen_corner_world_points_at_z(terrain_z);
-            match (origin_world, corners) {
-                (Ok(origin_world), Ok(corners)) => {
-                    let to_coord = |point: crate::display::view::Point3| {
-                        Coord3D::new(point.x, point.y, point.z)
-                    };
-                    radar.build_view_box_lines(
-                        to_coord(origin_world),
-                        [
-                            to_coord(corners[0]),
-                            to_coord(corners[1]),
-                            to_coord(corners[3]),
-                            to_coord(corners[2]),
-                        ],
-                        ul.x,
-                        ul.y,
-                        scaled_width,
-                        scaled_height,
-                        // C++ `drawViewBox` clips against the whole radar
-                        // window, while the draw rect here is inset by 1px
-                        // (W3DLeftHUDDraw `pos+1 / size-2`).
-                        x - 1,
-                        y - 1,
-                        width + 2,
-                        height + 2,
-                    )
+        let view_box_lines = if let Some(context) = context {
+            owned_view_box_lines(
+                context,
+                (ul.x, ul.y, scaled_width, scaled_height),
+                (x - 1, y - 1, width + 2, height + 2),
+            )
+        } else {
+            with_tactical_view_ref(|view| {
+                let terrain_z = radar.terrain_average_z();
+                let (origin_x, origin_y) = view.origin();
+                let origin_world =
+                    view.screen_to_world_at_z(&IPoint2::new(origin_x, origin_y), terrain_z);
+                let corners = view.get_screen_corner_world_points_at_z(terrain_z);
+                match (origin_world, corners) {
+                    (Ok(origin_world), Ok(corners)) => {
+                        let to_coord = |point: crate::display::view::Point3| {
+                            Coord3D::new(point.x, point.y, point.z)
+                        };
+                        radar.build_view_box_lines(
+                            to_coord(origin_world),
+                            [
+                                to_coord(corners[0]),
+                                to_coord(corners[1]),
+                                to_coord(corners[3]),
+                                to_coord(corners[2]),
+                            ],
+                            ul.x,
+                            ul.y,
+                            scaled_width,
+                            scaled_height,
+                            // C++ `drawViewBox` clips against the whole radar
+                            // window, while the draw rect here is inset by 1px
+                            // (W3DLeftHUDDraw `pos+1 / size-2`).
+                            x - 1,
+                            y - 1,
+                            width + 2,
+                            height + 2,
+                        )
+                    }
+                    _ => Vec::new(),
                 }
-                _ => Vec::new(),
-            }
-        });
+            })
+        };
         for line in view_box_lines {
             // Degenerate initial camera: all four screen corners project onto
             // the same radar cell, so `build_view_box_lines` emits zero-length
@@ -547,3 +605,28 @@ mod tests {
         assert!(bottom_left_v.abs() < f32::EPSILON);
     }
 }
+
+fn owned_view_box_lines(
+    context: &RadarDrawContext<'_>,
+    rect: (i32, i32, i32, i32),
+    clip: (i32, i32, i32, i32),
+) -> Vec<game_engine::common::system::radar::RadarViewBoxLine> {
+    let (Some(radar), Some(view)) = (context.radar, context.view_box) else {
+        return Vec::new();
+    };
+    radar.build_view_box_lines(
+        view.origin_world,
+        view.corners,
+        rect.0,
+        rect.1,
+        rect.2,
+        rect.3,
+        clip.0,
+        clip.1,
+        clip.2,
+        clip.3,
+    )
+}
+#[cfg(test)]
+#[path = "hud_radar_owner_tests.rs"]
+mod radar_owner_tests;

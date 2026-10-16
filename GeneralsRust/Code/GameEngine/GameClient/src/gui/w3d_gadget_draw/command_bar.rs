@@ -19,7 +19,9 @@ pub fn ensure_control_bar_wnd_draw_callbacks() {
             w3d_command_bar_foreground_draw,
         );
         assign("ControlBar.wnd:PowerWindow", w3d_power_draw);
-        assign("ControlBar.wnd:LeftHUD", w3d_left_hud_draw);
+        if let Some(window) = wm.find_window_by_name("ControlBar.wnd:LeftHUD") {
+            window.borrow_mut().set_radar_draw_callback();
+        }
         assign("ControlBar.wnd:RightHUD", w3d_right_hud_draw);
         assign("ControlBar.wnd:GeneralsExp", w3d_command_bar_gen_exp_draw);
     });

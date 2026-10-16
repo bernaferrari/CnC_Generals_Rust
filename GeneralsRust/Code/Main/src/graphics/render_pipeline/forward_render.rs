@@ -183,6 +183,7 @@ impl ForwardPass {
             projected_shroud_uploader: crate::graphics::ProjectedShroudGpuUploader::default(),
             ghost_lighting_environment: None,
             tactical_viewport: Default::default(),
+            native_radar_frame: None,
             laser_vertex_buffer: None,
             laser_vertex_capacity: 0,
             laser_vertices_uploaded: 0,
@@ -579,6 +580,7 @@ impl ForwardPass {
             &mut dyn FnMut(&mut ww3d_engine::RenderFrame) -> RendererResult<()>,
         >,
     ) -> Result<()> {
+        let native_radar_frame = self.native_radar_frame.clone();
         // Check if renderer is ready before attempting to render
         // This prevents crashes when engine is shutting down or not initialized
         if !self.is_ready() {
@@ -638,8 +640,11 @@ impl ForwardPass {
                     // C++ winRepaint still runs after a 3D fault. End the
                     // WW3D frame so pending_frame is not leaked and the UI
                     // overlay still flushes.
-                    self.renderer.enqueue_post_frame_callback(|frame| {
-                        crate::graphics::ui_render_pass::flush_ui_to_frame(frame)
+                    self.renderer.enqueue_post_frame_callback(move |frame| {
+                        crate::graphics::ui_render_pass::flush_ui_to_frame_observed(
+                            frame,
+                            native_radar_frame.as_ref(),
+                        )
                     });
                     let _ = self.renderer.end_frame();
                     return Err(anyhow::anyhow!(
@@ -648,8 +653,11 @@ impl ForwardPass {
                 }
                 Err(std::sync::TryLockError::WouldBlock) => {
                     warn!("WW3D renderer handle already locked - skipping mesh queue");
-                    self.renderer.enqueue_post_frame_callback(|frame| {
-                        crate::graphics::ui_render_pass::flush_ui_to_frame(frame)
+                    self.renderer.enqueue_post_frame_callback(move |frame| {
+                        crate::graphics::ui_render_pass::flush_ui_to_frame_observed(
+                            frame,
+                            native_radar_frame.as_ref(),
+                        )
                     });
                     self.renderer.end_frame().map_err(|e| {
                         anyhow::anyhow!(
@@ -766,6 +774,14 @@ impl ForwardPass {
             } else {
                 None
             };
+            // A late filter may commit a new receiving camera. Use that exact
+            // submitted pose for the HUD; this only projects, never advances it.
+            let radar_for_draw = native_radar_frame.as_ref().map(|radar| {
+                updated_camera.map_or_else(
+                    || radar.clone(),
+                    |camera| radar.with_matrices(camera.view, camera.projection),
+                )
+            });
             if !skip_scene && !locked_meshes.is_empty() {
                 let mut renderer = renderer_handle.lock().map_err(|_| {
                     ww3d_renderer_3d::Error::InvalidOperation(
@@ -783,7 +799,10 @@ impl ForwardPass {
             if let Some(overlay) = post_draw_overlay.as_mut() {
                 overlay(frame)?;
             }
-            if let Err(err) = crate::graphics::ui_render_pass::flush_ui_to_frame(frame) {
+            if let Err(err) = crate::graphics::ui_render_pass::flush_ui_to_frame_observed(
+                frame,
+                radar_for_draw.as_ref(),
+            ) {
                 log::warn!("post-frame flush_ui_to_frame failed: {err}");
             }
             Ok(())

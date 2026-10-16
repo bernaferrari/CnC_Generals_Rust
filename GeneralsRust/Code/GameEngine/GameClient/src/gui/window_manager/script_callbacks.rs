@@ -1375,7 +1375,7 @@ impl WindowManager {
                     window.set_draw_callback(w3d_cameo_movie_draw);
                 }
                 "W3DLeftHUDDraw" => {
-                    window.set_draw_callback(w3d_left_hud_draw);
+                    window.set_radar_draw_callback();
                 }
                 "W3DRightHUDDraw" => {
                     window.set_draw_callback(w3d_right_hud_draw);

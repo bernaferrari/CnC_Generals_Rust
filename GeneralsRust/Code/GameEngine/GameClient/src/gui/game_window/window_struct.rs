@@ -47,6 +47,7 @@ pub struct WindowCallbacks {
     pub input: Option<InputCallback>,
     pub system: Option<SystemCallback>,
     pub(crate) control_bar_system: bool,
+    pub(crate) owned_radar_draw: bool,
 }
 
 /// Main GameWindow struct representing a UI window or control

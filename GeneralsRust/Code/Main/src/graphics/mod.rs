@@ -41,7 +41,9 @@ pub use render_pipeline::{
     simulate_presentation_boundary_fallback_counter_source,
     simulate_presentation_boundary_prepare_honesty,
 };
+pub(crate) mod radar_view;
 pub mod selection_renderer;
+pub(crate) mod ui_radar;
 pub mod ui_render_pass;
 pub mod world_anim_layout;
 pub use floating_text_layout::{

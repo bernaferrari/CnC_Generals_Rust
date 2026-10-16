@@ -26,6 +26,11 @@ pub struct RadarPresentation {
 }
 
 impl RadarSystem {
+    /// An immutable UI input belongs to this current map/session incarnation.
+    pub fn owns_presentation(&self, presentation: &RadarPresentation) -> bool {
+        Arc::ptr_eq(&self.owner_identity, presentation.identity())
+    }
+
     pub fn presentation(&self) -> RadarPresentation {
         RadarPresentation {
             identity: self.owner_identity.clone(),

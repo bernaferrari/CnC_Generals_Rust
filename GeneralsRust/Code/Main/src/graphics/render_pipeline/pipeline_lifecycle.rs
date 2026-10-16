@@ -216,6 +216,13 @@ impl RenderPipeline {
         ));
     }
 
+    pub(crate) fn set_native_radar_frame(
+        &mut self,
+        frame: crate::graphics::ui_radar::NativeRadarFrame,
+    ) {
+        self.forward_pass.native_radar_frame = Some(frame);
+    }
+
     /// Copy the receiving View's admitted integer viewport. Render adapters
     /// never reconstruct its height from a fractional surface size.
     pub(crate) fn set_tactical_3d_viewport(

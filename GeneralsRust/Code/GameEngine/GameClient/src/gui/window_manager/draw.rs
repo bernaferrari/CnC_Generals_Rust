@@ -56,26 +56,38 @@ fn default_draw_uses_image(window: &GameWindow) -> bool {
 impl WindowManager {
     /// Draw all windows
     pub fn draw_all(&mut self) {
+        self.draw_all_with_radar_context(None);
+    }
+    pub fn draw_all_with_radar(
+        &mut self,
+        context: &crate::gui::w3d_gadget_draw::RadarDrawContext<'_>,
+    ) {
+        self.draw_all_with_radar_context(Some(context));
+    }
+    fn draw_all_with_radar_context(
+        &mut self,
+        context: Option<&crate::gui::w3d_gadget_draw::RadarDrawContext<'_>>,
+    ) {
         // Match C++ WinRepaint ordering: top-level windows are stored head-first,
         // but repaint walks from tail to head in BELOW / normal / ABOVE passes.
         for window in self.root_windows.iter().rev() {
             let status = window.borrow().get_status();
             if status.contains(WindowStatus::BELOW) {
-                self.draw_window_hierarchy(window);
+                self.draw_window_hierarchy_radar(window, false, context);
             }
         }
 
         for window in self.root_windows.iter().rev() {
             let status = window.borrow().get_status();
             if !status.intersects(WindowStatus::ABOVE | WindowStatus::BELOW) {
-                self.draw_window_hierarchy(window);
+                self.draw_window_hierarchy_radar(window, false, context);
             }
         }
 
         for window in self.root_windows.iter().rev() {
             let status = window.borrow().get_status();
             if status.contains(WindowStatus::ABOVE) {
-                self.draw_window_hierarchy(window);
+                self.draw_window_hierarchy_radar(window, false, context);
             }
         }
 
@@ -190,6 +202,14 @@ impl WindowManager {
         window: &Rc<RefCell<GameWindow>>,
         ancestor_hidden: bool,
     ) {
+        self.draw_window_hierarchy_radar(window, ancestor_hidden, None);
+    }
+    fn draw_window_hierarchy_radar(
+        &self,
+        window: &Rc<RefCell<GameWindow>>,
+        ancestor_hidden: bool,
+        context: Option<&crate::gui::w3d_gadget_draw::RadarDrawContext<'_>>,
+    ) {
         let window_borrow = window.borrow();
         let name = window_borrow.get_name().to_string();
         let status = window_borrow.get_status();
@@ -205,7 +225,7 @@ impl WindowManager {
         let is_listbox = (window_borrow.get_style() & GWS_SCROLL_LISTBOX) != 0;
 
         if !see_thru {
-            window_borrow.draw();
+            window_borrow.draw_with_radar(context);
         }
 
         if is_listbox && border {
@@ -216,7 +236,7 @@ impl WindowManager {
         // for(; child; child = child->m_prev) drawWindow(child);
         // Our Vec is stored head-first, so reverse iteration matches tail-to-head repaint.
         for child in window_borrow.children().iter().rev() {
-            self.draw_window_hierarchy_internal(child, effectively_hidden);
+            self.draw_window_hierarchy_radar(child, effectively_hidden, context);
         }
 
         if !is_listbox && border {

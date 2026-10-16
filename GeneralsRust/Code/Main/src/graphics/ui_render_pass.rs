@@ -127,6 +127,13 @@ fn retry_missing_control_bar_parent_while_ingame(
 }
 
 pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult<()> {
+    flush_ui_to_frame_observed(frame, None)
+}
+
+pub(crate) fn flush_ui_to_frame_observed(
+    frame: &mut ww3d_engine::RenderFrame,
+    radar: Option<&super::ui_radar::NativeRadarFrame>,
+) -> RendererResult<()> {
     let renderer_arc = match game_client::gui::ui_globals::with_ui_renderer(|r| r.clone()) {
         Some(arc) => arc,
         None => {
@@ -183,7 +190,11 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
     game_client::display::view::draw_live_command_markers();
     let root_count = game_client::gui::window_manager::with_window_manager(|wm| {
         let roots = wm.root_window_count();
-        wm.draw_all();
+        if let Some(radar) = radar {
+            radar.draw_windows(wm);
+        } else {
+            wm.draw_all();
+        }
         roots
     });
 

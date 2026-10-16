@@ -904,6 +904,8 @@ pub struct ForwardPass {
     /// Per-frame C++ ghost light environment. Ghost meshes are always fogged
     /// and must not inherit the ordinary object/FOW light environment.
     ghost_lighting_environment: Option<Arc<LightEnvironmentClass>>,
+    /// Immutable native UI input for this render handoff; never a camera owner.
+    native_radar_frame: Option<crate::graphics::ui_radar::NativeRadarFrame>,
     tactical_viewport: crate::presentation_frame::camera::viewport::TacticalViewport,
     /// Live SegLine vertex buffer (created on first laser upload).
     laser_vertex_buffer: Option<Arc<wgpu::Buffer>>,
