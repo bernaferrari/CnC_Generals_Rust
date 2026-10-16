@@ -1262,6 +1262,10 @@ pub struct CnCGameEngine {
     pub(crate) camera_zoom_ease_in: f32,
     pub(crate) camera_zoom_ease_out: f32,
     pub(in crate::cnc_game_engine) native_camera: super::camera_height::CameraHeight,
+    #[cfg(feature = "game_client")]
+    pub(in crate::cnc_game_engine) native_filter_scroll: glam::Vec2,
+    #[cfg(feature = "game_client")]
+    pub(in crate::cnc_game_engine) native_filter_previous_target: Vec3,
     pub(crate) camera_pitch_radians: f32,
     pub(crate) camera_pitch_target: Option<f32>,
     pub(crate) camera_pitch_start: f32,

@@ -554,8 +554,17 @@ impl GameLogic {
         if DEBUG_CAMERA_FOCUS_LOGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 24 {
             log::trace!("DEBUG_SHELL_CAMERA_BRIDGE: request_camera_focus position={position:?}");
         }
+        self.session_view.pending_focus_previous_target = None;
         self.pending_camera_focus = Some(position);
         self.script_camera_focus_estimate = position;
+    }
+
+    /// Source waypoint movement saves the old logical View position before
+    /// changing it. Preserve origin with the pending focus, including completion.
+    pub(crate) fn request_path_camera_focus(&mut self, position: Vec3) {
+        let previous = self.session_view.target;
+        self.request_camera_focus(position);
+        self.session_view.pending_focus_previous_target = Some(previous);
     }
 
     /// C++ `W3DView::setAngle`/`setPitch`/`setZoom`/`setHeightAboveGround`:
@@ -594,6 +603,7 @@ impl GameLogic {
         self.script_look_toward_object_id = None;
         self.script_look_toward_hold_seconds = 0.0;
         self.pending_camera_focus = None;
+        self.session_view.pending_focus_previous_target = None;
         self.mission_scripts.set_camera_movement_finished(true);
     }
 
@@ -940,11 +950,16 @@ impl GameLogic {
         &self.pending_camera_add_shakers
     }
 
+    pub fn peek_pending_camera_motion_blur(&self) -> &[CameraMotionBlurRequest] {
+        &self.pending_camera_motion_blur
+    }
+
     pub fn peek_pending_camera_motion_blur_count(&self) -> usize {
         self.pending_camera_motion_blur.len()
     }
 
     pub fn queue_pending_camera_focus(&mut self, pos: Vec3) {
+        self.session_view.pending_focus_previous_target = None;
         self.pending_camera_focus = Some(pos);
     }
 
@@ -989,6 +1004,7 @@ impl GameLogic {
     }
 
     pub fn take_camera_focus_request(&mut self) -> Option<Vec3> {
+        self.session_view.pending_focus_previous_target = None;
         self.pending_camera_focus.take()
     }
 

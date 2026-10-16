@@ -20262,6 +20262,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/shader_filter_owner_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/shadow_pass.rs"
             },
@@ -20284,6 +20289,21 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view_filter.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view_filter_cpp_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view_filter_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -189775,7 +189795,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "b723fda129932b5ba33b29dc64cfabf5c3d10baa03cd35f8bd81ae5a8af38e9f",
+  "provenance_input_digest": "f7b021e74da94bf5760dd0dc6a4706414453df60b3b2df3b06ca472a4e166e12",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

@@ -1,5 +1,9 @@
 //! PhysicsUpdate landing Body effects, bounce and stunned destruction.
 use super::*;
+mod contact;
+pub(in crate::game_logic) use contact::{
+    ContactDamage, ContactStep, MotionContact, StampContact, StunContact,
+};
 
 #[cfg(test)]
 mod supplied_fixture_clock_tests {
@@ -53,31 +57,9 @@ impl Object {
         &mut self,
         services: &mut super::PhysicsDamageServices<'_>,
     ) -> bool {
-        if !self.kill_when_resting_on_ground || self.status.destroyed {
-            return false;
-        }
-        if self.is_above_terrain() {
-            return false;
-        }
-        if !self.velocity_is_very_small() {
-            return false;
-        }
-        let is_drone = self.is_kind_of(KindOf::Drone);
-        // C++: kill if !KINDOF_DRONE OR dead OR unmanned.
-        if is_drone && self.is_alive() && !self.status.disabled_unmanned {
-            return false;
-        }
-        if self.status.destroyed {
-            return false;
-        }
-        let amount = self.health.current.max(0.0);
-        services.apply(
-            self,
-            amount,
-            None,
-            crate::game_logic::combat::DamageType::Unresistable,
-            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
-        )
+        self.prepare_resting_kill()
+            .map(|request| services.apply_contact(self, &request))
+            .unwrap_or(false)
     }
 
     /// C++ Object::kill — lethal UNRESISTABLE so Body/Die modules (FX, OCL) run.
@@ -125,46 +107,13 @@ impl Object {
         impact_vy: f32,
         services: &mut super::PhysicsDamageServices<'_>,
     ) -> f32 {
-        if self.immune_to_falling_damage || self.is_kind_of(KindOf::Projectile) {
+        let Some(request) = self.prepare_fall_damage(impact_vy) else {
             return 0.0;
-        }
-        // Leftover/C++: netSpeed = -activeVelZ - height_to_speed(minFallHeight).
-        // Host Y-up. Compare leftover default ~2.385, not live sqrt(80).
-        let min_fall = self.fall_damage_speed_threshold(self.min_fall_speed_for_damage);
-        let net_speed = (-impact_vy) - min_fall;
-        if net_speed <= 0.0 {
-            return 0.0;
-        }
-        let vx = self.movement.velocity.x;
-        let vz = self.movement.velocity.z;
-        // Steep-fall gate residual.
-        let steep_x =
-            vx.abs() <= Self::FALL_TINY_DELTA || (impact_vy / vx).abs() >= Self::FALL_MIN_ANGLE_TAN;
-        let steep_z =
-            vz.abs() <= Self::FALL_TINY_DELTA || (impact_vy / vz).abs() >= Self::FALL_MIN_ANGLE_TAN;
-        if !(steep_x && steep_z) {
-            return 0.0;
-        }
-        let damage_amt = net_speed * self.physics_get_mass() * self.fall_height_damage_factor;
-        if damage_amt <= 0.0 {
-            return 0.0;
-        }
-        let source = Some(self.id);
-        let killed = services.apply(
-            self,
-            damage_amt,
-            source,
-            crate::game_logic::combat::DamageType::Falling,
-            crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
-        );
-        if killed {
-            use crate::game_logic::host_enum_table_residual::MC_BIT_SPLATTED;
-            self.model_condition_bits |= 1u128 << MC_BIT_SPLATTED;
-            self.refresh_model_condition_bits();
-            // refresh may clear SPLATTED if not wired — re-set after.
-            self.model_condition_bits |= 1u128 << MC_BIT_SPLATTED;
-        }
-        damage_amt
+        };
+        let amount = request.amount;
+        services.apply_contact(self, &request);
+        self.finish_fall_contact();
+        amount
     }
 
     /// C++ PhysicsBehavior::applyYPRDamping residual.
@@ -225,38 +174,15 @@ impl Object {
         ground_y: f32,
         services: &mut super::PhysicsDamageServices<'_>,
     ) -> f32 {
-        if !self.shock_allow_bounce || new_y > ground_y {
-            return 0.0;
-        }
-        let mut bounce_vy = 0.0;
-        let vy = self.movement.velocity.y;
-        if old_y > ground_y && vy < 0.0 {
-            let stiffness = self.physics_ground_stiffness();
-            // C++ desiredAccelZ = fabs(vz)*stiffness; mass≈1 → velocity kick.
-            bounce_vy = vy.abs() * stiffness;
-        }
-        // Damp tumble rates on bounce.
-        self.shock_yaw_rate *= Self::BOUNCE_YPR_DAMPING;
-        self.shock_pitch_rate *= Self::BOUNCE_YPR_DAMPING;
-        self.shock_roll_rate *= Self::BOUNCE_YPR_DAMPING;
-        // C++ handleBounce vz<0: setAngles(yaw, 0, up>0 ? 0 : PI) before
-        // testStunnedUnitForDestruction. Yaw-only overwrite is leftover
-        // update_simple gotBounceForce — it must not run before the stun
-        // test, and leftover handle_bounce pose is the 0-or-PI roll.
-        if vy < 0.0 {
-            self.right_physics_pitch_keep_flip();
-        }
-        if bounce_vy > 0.0 {
-            self.movement.velocity.y = bounce_vy;
-            // C++ testStunnedUnitForDestruction on successful bounce force.
-            if self.test_stunned_unit_for_destruction_with_services(services) {
+        let (bounce, request) = self.begin_contact_bounce(old_y, new_y, ground_y);
+        if let Some(request) = request {
+            let killed = services.apply_contact(self, &request);
+            self.finish_stun_kill(killed);
+            if killed {
                 return 0.0;
             }
-            return bounce_vy;
         }
-        // C++ handleBounce bounceForce.z==0: setAllowBouncing(m_originalAllowBounce).
-        self.shock_allow_bounce = self.original_allow_bounce;
-        0.0
+        bounce
     }
 
     /// Default locomotor surfaces residual from KindOf (fail-closed ground units).
@@ -284,57 +210,11 @@ impl Object {
         &mut self,
         services: &mut super::PhysicsDamageServices<'_>,
     ) -> bool {
-        if !self.is_shock_stunned() || self.status.destroyed {
+        let Some(request) = self.prepare_stun_kill() else {
             return false;
-        }
-        self.ensure_locomotor_surfaces();
-        // Upside down when integrated transform up-Y < 0 (C++ Get_Z_Vector().Z).
-        if self.physics_transform_up_y() < 0.0 {
-            return self.kill_from_stun_destruction(services);
-        }
-        // C++ obj->isOffMap residual.
-        let pos = self.get_position();
-        if crate::game_logic::host_deliver_payload::is_off_map_default_residual(pos) {
-            return self.kill_from_stun_destruction(services);
-        }
-        // C++ AIUpdateInterface *aiInt = obj->getAI(); if (!aiInt) return;
-        if !self.has_ai_update_interface() {
-            return false;
-        }
-        // C++ isCliffCell && !hasLocomotorForSurface(CLIFF).
-        if self.cell_is_cliff && !self.has_locomotor_for_surface(LOCO_SURFACE_CLIFF) {
-            return self.kill_from_stun_destruction(services);
-        }
-        // C++ isUnderwater && !hasLocomotorForSurface(WATER).
-        if self.cell_is_underwater && !self.has_locomotor_for_surface(LOCO_SURFACE_WATER) {
-            return self.kill_from_stun_destruction(services);
-        }
-        false
-    }
-
-    fn kill_from_stun_destruction(
-        &mut self,
-        services: &mut super::PhysicsDamageServices<'_>,
-    ) -> bool {
-        if self.status.destroyed {
-            return false;
-        }
-        // C++ PhysicsBehavior::testStunnedUnitForDestruction → Object::kill().
-        let amount = self.health.current.max(0.0);
-        let killed = services.apply(
-            self,
-            amount,
-            None,
-            crate::game_logic::combat::DamageType::Unresistable,
-            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
-        );
-        if killed {
-            self.set_ai_state(AIState::Idle);
-            self.target = None;
-            self.shock_stun_frames = 0;
-            self.set_status_disabled_freefall(false);
-            self.refresh_model_condition_bits();
-        }
+        };
+        let killed = services.apply_contact(self, &request);
+        self.finish_stun_kill(killed);
         killed
     }
 }

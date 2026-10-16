@@ -354,7 +354,6 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
     ) {
-        let physics_fx_player = self.local_player_id();
         // C++ m_isBlockedAndStuck → patchPath; requestSafePath → findSafePath Dijkstra.
         let mut repaths: Vec<(ObjectId, Vec<Vec3>, bool)> = Vec::new();
         let mut concessions: Vec<(ObjectId, bool, u32, bool, f32)> = Vec::new();
@@ -740,7 +739,6 @@ impl GameLogic {
 
         for &id in object_ids {
             self.prepare_transport_return_path(id);
-            let physics_source_players = self.physics_damage_source_players(id);
             let (ground_y, surface_y, climber_ahead_y, cell_type, underwater) = {
                 let Some(obj) = self.objects.get(&id) else {
                     continue;
@@ -840,19 +838,22 @@ impl GameLogic {
                     obj.landing_splat_done = false;
                     if obj.is_disabled() {
                         if obj.status.disabled_freefall {
-                            Self::stamp_object_airborne_target(
-                                obj,
-                                ground_y,
-                                self.frame,
-                                &mut self.players,
-                                &physics_source_players,
-                                &mut self.health_events,
-                                &self.enable_repulsors,
-                                &mut self.session_view,
-                                physics_fx_player,
-                                self.world_services.shroud(),
-                                &mut self.combat_particles,
+                            // Release both the object and borrowed terrain view before original Body callbacks.
+                            let _ = obj;
+                            let _ = flight_terrain;
+                            self.drive_owned_contact(
+                                id,
+                                crate::game_logic::object::StampContact::Start(ground_y),
+                                Object::step_stamp_contact,
                             );
+                            let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                grid: &self.pathfinding_system.grid,
+                                terrain: self.terrain.as_ref(),
+                                samples: self.pathfinding_height_samples.as_ref(),
+                            };
+                            let Some(obj) = self.objects.get_mut(&id) else {
+                                break 'unit;
+                            };
                         } else {
                             obj.movement.velocity = Vec3::ZERO;
                         }
@@ -861,19 +862,22 @@ impl GameLogic {
                     // C++ Locomotor.cpp:954-958 getIsStunned — no motive walk.
                     // Leave velocity for PhysicsBehavior tumble / shock tick.
                     if obj.is_shock_stunned() {
-                        Self::stamp_object_airborne_target(
-                            obj,
-                            ground_y,
-                            self.frame,
-                            &mut self.players,
-                            &physics_source_players,
-                            &mut self.health_events,
-                            &self.enable_repulsors,
-                            &mut self.session_view,
-                            physics_fx_player,
-                            self.world_services.shroud(),
-                            &mut self.combat_particles,
+                        // Release both the object and borrowed terrain view before original Body callbacks.
+                        let _ = obj;
+                        let _ = flight_terrain;
+                        self.drive_owned_contact(
+                            id,
+                            crate::game_logic::object::StampContact::Start(ground_y),
+                            Object::step_stamp_contact,
                         );
+                        let flight_terrain = super::flight_terrain::FlightTerrainView {
+                            grid: &self.pathfinding_system.grid,
+                            terrain: self.terrain.as_ref(),
+                            samples: self.pathfinding_height_samples.as_ref(),
+                        };
+                        let Some(obj) = self.objects.get_mut(&id) else {
+                            break 'unit;
+                        };
                         break 'unit;
                     }
                     // C++ locoUpdate_moveTowardsPosition always applyMotiveForce(0)
@@ -899,19 +903,22 @@ impl GameLogic {
                             obj.leftover_surface_ht(surface_y)
                         };
                         Self::apply_live_handle_behavior_z(obj, sy, None, Some(&flight_terrain));
-                        Self::stamp_object_airborne_target(
-                            obj,
-                            ground_y,
-                            self.frame,
-                            &mut self.players,
-                            &physics_source_players,
-                            &mut self.health_events,
-                            &self.enable_repulsors,
-                            &mut self.session_view,
-                            physics_fx_player,
-                            self.world_services.shroud(),
-                            &mut self.combat_particles,
+                        // Release both the object and borrowed terrain view before original Body callbacks.
+                        let _ = obj;
+                        let _ = flight_terrain;
+                        self.drive_owned_contact(
+                            id,
+                            crate::game_logic::object::StampContact::Start(ground_y),
+                            Object::step_stamp_contact,
                         );
+                        let flight_terrain = super::flight_terrain::FlightTerrainView {
+                            grid: &self.pathfinding_system.grid,
+                            terrain: self.terrain.as_ref(),
+                            samples: self.pathfinding_height_samples.as_ref(),
+                        };
+                        let Some(obj) = self.objects.get_mut(&id) else {
+                            break 'unit;
+                        };
                         obj.cur_max_blocked_speed = 999_999.0;
                         break 'unit;
                     }
@@ -935,19 +942,22 @@ impl GameLogic {
                             .height_treats_as_airborne(obj.get_position().y - ground_y - deck_drop);
                     if obj.is_rappelling() {
                         // C++ AIRappelState owns Z; handleBehaviorZ must not snap to Y=0.
-                        Self::stamp_object_airborne_target(
-                            obj,
-                            ground_y,
-                            self.frame,
-                            &mut self.players,
-                            &physics_source_players,
-                            &mut self.health_events,
-                            &self.enable_repulsors,
-                            &mut self.session_view,
-                            physics_fx_player,
-                            self.world_services.shroud(),
-                            &mut self.combat_particles,
+                        // Release both the object and borrowed terrain view before original Body callbacks.
+                        let _ = obj;
+                        let _ = flight_terrain;
+                        self.drive_owned_contact(
+                            id,
+                            crate::game_logic::object::StampContact::Start(ground_y),
+                            Object::step_stamp_contact,
                         );
+                        let flight_terrain = super::flight_terrain::FlightTerrainView {
+                            grid: &self.pathfinding_system.grid,
+                            terrain: self.terrain.as_ref(),
+                            samples: self.pathfinding_height_samples.as_ref(),
+                        };
+                        let Some(obj) = self.objects.get_mut(&id) else {
+                            break 'unit;
+                        };
                         break 'unit;
                     }
 
@@ -1026,19 +1036,22 @@ impl GameLogic {
                                     None,
                                     Some(&flight_terrain),
                                 );
-                                Self::stamp_object_airborne_target(
-                                    obj,
-                                    ground_y,
-                                    self.frame,
-                                    &mut self.players,
-                                    &physics_source_players,
-                                    &mut self.health_events,
-                                    &self.enable_repulsors,
-                                    &mut self.session_view,
-                                    physics_fx_player,
-                                    self.world_services.shroud(),
-                                    &mut self.combat_particles,
+                                // Release both the object and borrowed terrain view before original Body callbacks.
+                                let _ = obj;
+                                let _ = flight_terrain;
+                                self.drive_owned_contact(
+                                    id,
+                                    crate::game_logic::object::StampContact::Start(ground_y),
+                                    Object::step_stamp_contact,
                                 );
+                                let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    grid: &self.pathfinding_system.grid,
+                                    terrain: self.terrain.as_ref(),
+                                    samples: self.pathfinding_height_samples.as_ref(),
+                                };
+                                let Some(obj) = self.objects.get_mut(&id) else {
+                                    break 'unit;
+                                };
                                 if !blocked_out && obj.num_frames_blocked > 1 {
                                     obj.num_frames_blocked = 1;
                                 }
@@ -1058,19 +1071,22 @@ impl GameLogic {
                             None,
                             Some(&flight_terrain),
                         );
-                        Self::stamp_object_airborne_target(
-                            obj,
-                            ground_y,
-                            self.frame,
-                            &mut self.players,
-                            &physics_source_players,
-                            &mut self.health_events,
-                            &self.enable_repulsors,
-                            &mut self.session_view,
-                            physics_fx_player,
-                            self.world_services.shroud(),
-                            &mut self.combat_particles,
+                        // Release both the object and borrowed terrain view before original Body callbacks.
+                        let _ = obj;
+                        let _ = flight_terrain;
+                        self.drive_owned_contact(
+                            id,
+                            crate::game_logic::object::StampContact::Start(ground_y),
+                            Object::step_stamp_contact,
                         );
+                        let flight_terrain = super::flight_terrain::FlightTerrainView {
+                            grid: &self.pathfinding_system.grid,
+                            terrain: self.terrain.as_ref(),
+                            samples: self.pathfinding_height_samples.as_ref(),
+                        };
+                        let Some(obj) = self.objects.get_mut(&id) else {
+                            break 'unit;
+                        };
                         break 'unit;
                     }
 
@@ -1214,19 +1230,22 @@ impl GameLogic {
                                     None,
                                     Some(&flight_terrain),
                                 );
-                                Self::stamp_object_airborne_target(
-                                    obj,
-                                    ground_y,
-                                    self.frame,
-                                    &mut self.players,
-                                    &physics_source_players,
-                                    &mut self.health_events,
-                                    &self.enable_repulsors,
-                                    &mut self.session_view,
-                                    physics_fx_player,
-                                    self.world_services.shroud(),
-                                    &mut self.combat_particles,
+                                // Release both the object and borrowed terrain view before original Body callbacks.
+                                let _ = obj;
+                                let _ = flight_terrain;
+                                self.drive_owned_contact(
+                                    id,
+                                    crate::game_logic::object::StampContact::Start(ground_y),
+                                    Object::step_stamp_contact,
                                 );
+                                let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    grid: &self.pathfinding_system.grid,
+                                    terrain: self.terrain.as_ref(),
+                                    samples: self.pathfinding_height_samples.as_ref(),
+                                };
+                                let Some(obj) = self.objects.get_mut(&id) else {
+                                    break 'unit;
+                                };
                                 break 'unit;
                             }
                         }
@@ -1357,19 +1376,22 @@ impl GameLogic {
                                     None,
                                     Some(&flight_terrain),
                                 );
-                                Self::stamp_object_airborne_target(
-                                    obj,
-                                    ground_y,
-                                    self.frame,
-                                    &mut self.players,
-                                    &physics_source_players,
-                                    &mut self.health_events,
-                                    &self.enable_repulsors,
-                                    &mut self.session_view,
-                                    physics_fx_player,
-                                    self.world_services.shroud(),
-                                    &mut self.combat_particles,
+                                // Release both the object and borrowed terrain view before original Body callbacks.
+                                let _ = obj;
+                                let _ = flight_terrain;
+                                self.drive_owned_contact(
+                                    id,
+                                    crate::game_logic::object::StampContact::Start(ground_y),
+                                    Object::step_stamp_contact,
                                 );
+                                let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    grid: &self.pathfinding_system.grid,
+                                    terrain: self.terrain.as_ref(),
+                                    samples: self.pathfinding_height_samples.as_ref(),
+                                };
+                                let Some(obj) = self.objects.get_mut(&id) else {
+                                    break 'unit;
+                                };
                                 obj.cur_max_blocked_speed = 999_999.0;
                                 break 'unit;
                             }
@@ -1479,19 +1501,22 @@ impl GameLogic {
                                     None,
                                     Some(&flight_terrain),
                                 );
-                                Self::stamp_object_airborne_target(
-                                    obj,
-                                    ground_y,
-                                    self.frame,
-                                    &mut self.players,
-                                    &physics_source_players,
-                                    &mut self.health_events,
-                                    &self.enable_repulsors,
-                                    &mut self.session_view,
-                                    physics_fx_player,
-                                    self.world_services.shroud(),
-                                    &mut self.combat_particles,
+                                // Release both the object and borrowed terrain view before original Body callbacks.
+                                let _ = obj;
+                                let _ = flight_terrain;
+                                self.drive_owned_contact(
+                                    id,
+                                    crate::game_logic::object::StampContact::Start(ground_y),
+                                    Object::step_stamp_contact,
                                 );
+                                let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    grid: &self.pathfinding_system.grid,
+                                    terrain: self.terrain.as_ref(),
+                                    samples: self.pathfinding_height_samples.as_ref(),
+                                };
+                                let Some(obj) = self.objects.get_mut(&id) else {
+                                    break 'unit;
+                                };
                                 break 'unit;
                             }
                             // C++ locoUpdate_moveTowardsPosition LOCO_THRUST
@@ -1507,19 +1532,22 @@ impl GameLogic {
                                     None,
                                     Some(&flight_terrain),
                                 );
-                                Self::stamp_object_airborne_target(
-                                    obj,
-                                    ground_y,
-                                    self.frame,
-                                    &mut self.players,
-                                    &physics_source_players,
-                                    &mut self.health_events,
-                                    &self.enable_repulsors,
-                                    &mut self.session_view,
-                                    physics_fx_player,
-                                    self.world_services.shroud(),
-                                    &mut self.combat_particles,
+                                // Release both the object and borrowed terrain view before original Body callbacks.
+                                let _ = obj;
+                                let _ = flight_terrain;
+                                self.drive_owned_contact(
+                                    id,
+                                    crate::game_logic::object::StampContact::Start(ground_y),
+                                    Object::step_stamp_contact,
                                 );
+                                let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                    grid: &self.pathfinding_system.grid,
+                                    terrain: self.terrain.as_ref(),
+                                    samples: self.pathfinding_height_samples.as_ref(),
+                                };
+                                let Some(obj) = self.objects.get_mut(&id) else {
+                                    break 'unit;
+                                };
                                 let mut reached_target = obj
                                     .host_locomotor_distance_to_goal(current_pos, target_pos)
                                     < close_enough;
@@ -1777,19 +1805,22 @@ impl GameLogic {
                                         None,
                                         Some(&flight_terrain),
                                     );
-                                    Self::stamp_object_airborne_target(
-                                        obj,
-                                        ground_y,
-                                        self.frame,
-                                        &mut self.players,
-                                        &physics_source_players,
-                                        &mut self.health_events,
-                                        &self.enable_repulsors,
-                                        &mut self.session_view,
-                                        physics_fx_player,
-                                        self.world_services.shroud(),
-                                        &mut self.combat_particles,
+                                    // Release both the object and borrowed terrain view before original Body callbacks.
+                                    let _ = obj;
+                                    let _ = flight_terrain;
+                                    self.drive_owned_contact(
+                                        id,
+                                        crate::game_logic::object::StampContact::Start(ground_y),
+                                        Object::step_stamp_contact,
                                     );
+                                    let flight_terrain = super::flight_terrain::FlightTerrainView {
+                                        grid: &self.pathfinding_system.grid,
+                                        terrain: self.terrain.as_ref(),
+                                        samples: self.pathfinding_height_samples.as_ref(),
+                                    };
+                                    let Some(obj) = self.objects.get_mut(&id) else {
+                                        break 'unit;
+                                    };
                                     break 'unit;
                                 }
                             }
@@ -2252,21 +2283,11 @@ impl GameLogic {
                             }
                         }
                     }
-                    if let Some(obj) = self.objects.get_mut(&id) {
-                        Self::stamp_object_airborne_target(
-                            obj,
-                            gy,
-                            self.frame,
-                            &mut self.players,
-                            &physics_source_players,
-                            &mut self.health_events,
-                            &self.enable_repulsors,
-                            &mut self.session_view,
-                            physics_fx_player,
-                            self.world_services.shroud(),
-                            &mut self.combat_particles,
-                        );
-                    }
+                    self.drive_owned_contact(
+                        id,
+                        crate::game_logic::object::StampContact::Start(gy),
+                        Object::step_stamp_contact,
+                    );
                 }
             }
             self.admit_host_radar_disabled_edges(id);
@@ -2469,35 +2490,19 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
     ) {
-        let physics_fx_player = self.local_player_id();
         for &id in object_ids {
-            let sample = self.objects.get(&id).and_then(|obj| {
-                if obj.is_disabled() && !obj.status.disabled_freefall {
-                    None
-                } else {
-                    Some((obj.get_position(), obj.ground_height))
-                }
-            });
-            let Some((pos, fallback)) = sample else {
+            let Some((pos, fallback)) = self.objects.get(&id).and_then(|obj| {
+                (!(obj.is_disabled() && !obj.status.disabled_freefall))
+                    .then_some((obj.get_position(), obj.ground_height))
+            }) else {
                 continue;
             };
-            let gy = self.terrain_height_at(pos).unwrap_or(fallback);
-            let physics_source_players = self.physics_damage_source_players(id);
-            if let Some(obj) = self.objects.get_mut(&id) {
-                Self::stamp_object_airborne_target(
-                    obj,
-                    gy,
-                    self.frame,
-                    &mut self.players,
-                    &physics_source_players,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
-                    &mut self.session_view,
-                    physics_fx_player,
-                    self.world_services.shroud(),
-                    &mut self.combat_particles,
-                );
-            }
+            let ground_y = self.terrain_height_at(pos).unwrap_or(fallback);
+            self.drive_owned_contact(
+                id,
+                crate::game_logic::object::StampContact::Start(ground_y),
+                Object::step_stamp_contact,
+            );
             self.admit_host_radar_disabled_edges(id);
         }
     }
@@ -2550,103 +2555,6 @@ impl GameLogic {
                 })
             }),
         }
-    }
-
-    fn stamp_object_airborne_target(
-        obj: &mut Object,
-        ground_y: f32,
-        frame: u32,
-        players: &mut std::collections::HashMap<u32, crate::game_logic::Player>,
-        source_players: &crate::game_logic::object::PhysicsDamageSources,
-        health_events: &mut crate::game_logic::HostHealthEvents,
-        repulsors: &bool,
-        session_view: &mut crate::presentation_frame::SessionView,
-        fx_player: Option<u32>,
-        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
-        particles: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
-    ) {
-        Self::with_physics_body_fx_parts(
-            session_view,
-            fx_player,
-            shroud,
-            particles,
-            frame,
-            source_players,
-            |body_fx| {
-                let mut player_effects = |effect| {
-                    Self::apply_body_player_effect(players, frame, &source_players.players, effect)
-                };
-                let mut services = crate::game_logic::object::PhysicsDamageServices {
-                    sources: source_players,
-                    frame,
-                    health_events,
-                    repulsors,
-                    player_effects: &mut player_effects,
-                    body_fx,
-                };
-                Self::stamp_object_airborne_target_body(obj, ground_y, &mut services);
-            },
-        );
-    }
-
-    fn stamp_object_airborne_target_body(
-        obj: &mut Object,
-        ground_y: f32,
-        services: &mut crate::game_logic::object::PhysicsDamageServices<'_>,
-    ) {
-        obj.ground_height = ground_y;
-        let mut pos = obj.get_position();
-        // C++ PhysicsUpdate.cpp:748-760. Every unit at or below the layer
-        // is lifted. Excess upward speed is removed. ALLOW_TO_FALL clears.
-        if pos.y <= ground_y {
-            let impact_vy = obj.movement.velocity.y;
-            let was_airborne = obj.was_airborne_last_frame;
-            let old_y = pos.y;
-            let dz = ground_y - pos.y;
-            obj.movement.velocity.y += dz;
-            if obj.movement.velocity.y > 0.0 {
-                obj.movement.velocity.y = 0.0;
-            }
-            obj.invalidate_velocity_magnitude();
-            pos.y = ground_y;
-            obj.set_position(pos);
-            obj.allow_to_fall = false;
-            // C++ PhysicsUpdate.cpp:822-831. Bounce sound uses the pre-land height.
-            if was_airborne && !obj.immune_to_falling_damage {
-                obj.record_bounce_land(old_y);
-                obj.pending_ground_collide = true;
-                let _ = obj.apply_shock_fall_damage_with_services(impact_vy, services);
-                obj.landing_splat_done = true;
-            }
-            if obj.velocity_is_very_small() {
-                let _ = obj.maybe_kill_when_resting_on_ground_with_services(services);
-            }
-            obj.was_airborne_last_frame = false;
-            obj.is_in_freefall = false;
-            obj.set_status_disabled_freefall(false);
-            obj.model_condition_bits &=
-                !(1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_FREEFALL);
-            // C++ PhysicsUpdate.cpp:765-769. First ground hit while stunned
-            // swaps STUNNED_FLAILING for STUNNED.
-            if obj.shock_stun_frames > 0 {
-                obj.shock_grounded_once = true;
-                obj.model_condition_bits &= !(1u128
-                    << crate::game_logic::host_enum_table_residual::MC_BIT_STUNNED_FLAILING);
-                obj.model_condition_bits |=
-                    1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_STUNNED;
-            }
-        } else if obj.is_in_freefall {
-            // C++ PhysicsUpdate.cpp:774-777. Physics IS_IN_FREEFALL, not parachuting.
-            obj.set_status_disabled_freefall(true);
-            obj.model_condition_bits |=
-                1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_FREEFALL;
-        } else if obj.stick_to_ground && !obj.allow_to_fall {
-            // C++ PhysicsUpdate.cpp:779-781. STICK_TO_GROUND, not ALLOW_TO_FALL,
-            // already above the layer. Not a path-blocked unit.
-            pos.y = ground_y;
-            obj.set_position(pos);
-        }
-        obj.stamp_airborne_target_from_locomotor();
     }
 
     /// C++ AIExitState::update polls isExitBusy / getAiFreeToExit every frame

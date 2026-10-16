@@ -66,42 +66,18 @@ impl GameLogic {
         self.requeue_expired_path_requests(&expired_paths);
         let mut landed: Vec<ObjectId> = Vec::new();
         for (id, ground_y) in ground_heights {
-            let source_players = self.physics_damage_source_players(id);
-            let frame = self.frame;
-            let fx_player = self.local_player_id();
-            Self::with_physics_body_fx_parts(
-                &mut self.session_view,
-                fx_player,
-                self.world_services.shroud(),
-                &mut self.combat_particles,
-                frame,
-                &source_players,
-                |body_fx| {
-                    let players = &mut self.players;
-                    let mut player_effects = |effect| {
-                        Self::apply_body_player_effect(
-                            players,
-                            frame,
-                            &source_players.players,
-                            effect,
-                        )
-                    };
-                    let mut services = crate::game_logic::object::PhysicsDamageServices {
-                        sources: &source_players,
-                        frame,
-                        health_events: &mut self.health_events,
-                        repulsors: &self.enable_repulsors,
-                        player_effects: &mut player_effects,
-                        body_fx,
-                    };
-                    if let Some(o) = self.objects.get_mut(&id) {
-                        let _ = o.tick_physics_motion_step_with_services(ground_y, &mut services);
-                        if o.pending_ground_collide {
-                            landed.push(id);
-                        }
-                    }
-                },
+            self.drive_owned_contact(
+                id,
+                crate::game_logic::object::MotionContact::Start(ground_y),
+                Object::step_motion_contact,
             );
+            if self
+                .objects
+                .get(&id)
+                .is_some_and(|o| o.pending_ground_collide)
+            {
+                landed.push(id);
+            }
         }
         for id in landed {
             self.dispatch_physics_ground_collide(id);
@@ -257,48 +233,27 @@ impl GameLogic {
                 .get(&id)
                 .map(|o| self.physics_ground_y_with_deck(o, terrain_y))
                 .unwrap_or(terrain_y);
-            let source_players = self.physics_damage_source_players(id);
-            let frame = self.frame;
-            let fx_player = self.local_player_id();
-            Self::with_physics_body_fx_parts(
-                &mut self.session_view,
-                fx_player,
-                self.world_services.shroud(),
-                &mut self.combat_particles,
-                frame,
-                &source_players,
-                |body_fx| {
-                    let players = &mut self.players;
-                    let mut player_effects = |effect| {
-                        Self::apply_body_player_effect(
-                            players,
-                            frame,
-                            &source_players.players,
-                            effect,
-                        )
-                    };
-                    let mut services = crate::game_logic::object::PhysicsDamageServices {
-                        sources: &source_players,
-                        frame,
-                        health_events: &mut self.health_events,
-                        repulsors: &self.enable_repulsors,
-                        player_effects: &mut player_effects,
-                        body_fx,
-                    };
-                    if let Some(o) = self.objects.get_mut(&id) {
-                        o.cell_is_cliff = cliff;
-                        o.cell_is_underwater = water;
-                        o.ground_height = ground_y;
-                        if o.shock_stun_frames > 0 {
-                            o.tick_shock_stun_with_services(&mut services);
-                        }
-                        while let Some((name, vol)) = o.take_bounce_audio_pending() {
-                            let p = o.get_position();
-                            bounce_audio.push((id, name, p, vol));
-                        }
-                    }
-                },
-            );
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.cell_is_cliff = cliff;
+                o.cell_is_underwater = water;
+                o.ground_height = ground_y;
+            }
+            if self
+                .objects
+                .get(&id)
+                .is_some_and(|o| o.shock_stun_frames > 0)
+            {
+                self.drive_owned_contact(
+                    id,
+                    crate::game_logic::object::StunContact::Start,
+                    Object::step_stun_contact,
+                );
+            }
+            if let Some(o) = self.objects.get_mut(&id) {
+                while let Some((name, vol)) = o.take_bounce_audio_pending() {
+                    bounce_audio.push((id, name, o.get_position(), vol));
+                }
+            }
         }
         // C++ TheAudio->addAudioEvent bounce residual.
         for (id, name, pos, vol) in bounce_audio {

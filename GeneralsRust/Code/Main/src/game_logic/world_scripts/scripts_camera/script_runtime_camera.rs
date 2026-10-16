@@ -527,13 +527,13 @@ impl GameLogic {
         if let Some((finished, focus, _freeze_angle, look, remaining)) = move_step {
             self.mission_scripts.set_camera_movement_finished(false);
             if finished {
-                self.request_camera_focus(focus);
+                self.request_path_camera_focus(focus);
                 self.script_camera_move_to = None;
                 self.mark_script_camera_movement_maybe_finished();
                 return;
             }
             if focus != Vec3::ZERO || look.is_some() {
-                self.request_camera_focus(focus);
+                self.request_path_camera_focus(focus);
                 if let Some(look) = look {
                     self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
                         position: look,
@@ -578,13 +578,13 @@ impl GameLogic {
         };
         self.mission_scripts.set_camera_movement_finished(false);
         if finished {
-            self.request_camera_focus(focus);
+            self.request_path_camera_focus(focus);
             self.script_camera_path = None;
             self.mark_script_camera_movement_maybe_finished();
             return;
         }
         if focus != Vec3::ZERO || look.is_some() {
-            self.request_camera_focus(focus);
+            self.request_path_camera_focus(focus);
             if let Some(look) = look {
                 self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
                     position: look,

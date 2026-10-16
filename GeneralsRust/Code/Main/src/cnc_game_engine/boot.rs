@@ -551,6 +551,10 @@ impl CnCGameEngine {
             camera_zoom_ease_in: 0.0,
             camera_zoom_ease_out: 0.0,
             native_camera,
+            #[cfg(feature = "game_client")]
+            native_filter_scroll: glam::Vec2::ZERO,
+            #[cfg(feature = "game_client")]
+            native_filter_previous_target: Vec3::ZERO,
             camera_pitch_radians,
             camera_pitch_target: None,
             camera_pitch_start: camera_pitch_radians,

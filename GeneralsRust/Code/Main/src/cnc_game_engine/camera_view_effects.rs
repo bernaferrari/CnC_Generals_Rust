@@ -22,17 +22,23 @@ impl CnCGameEngine {
                     self.look_at_clear_player_broke_camera_lock();
                 }
             } else if let Some((Some(position), tether)) = follow {
+                // Source saves the old logical position only for a live follow
+                // movement, outside script/debug freeze and pause (W3DView1220).
+                #[cfg(feature = "game_client")]
+                if !self
+                    .last_presentation_frame
+                    .as_ref()
+                    .is_some_and(|frame| frame.script_time_frozen)
+                    && !self.native_view_is_paused()
+                {
+                    self.native_filter_previous_target = self.game_logic.session_view.target;
+                }
                 self.apply_camera_follow_or_tether(Vec3::from_array(position), tether);
                 did_scripted_movement = true;
             } else {
                 self.camera_follow_factor = -1.;
             }
             self.apply_airborne_follow_yaw();
-            #[cfg(feature = "game_client")]
-            if let Some(pos) = game_client::display::view::take_motion_blur_zoom_look_at() {
-                self.host_set_camera_follow_object(None);
-                self.host_player_look_at(Vec3::new(pos.x, pos.z, pos.y));
-            }
         }
         let admission = MotionAdmission {
             update_views: decision.update_views,
@@ -72,6 +78,13 @@ impl CnCGameEngine {
             AxisKind::ZoomPitch,
             admission,
         );
+        #[cfg(feature = "game_client")]
+        if self.camera_yaw_target.is_some()
+            && (admission.fast_camera_only
+                || (admission.update_views && !admission.paused && !admission.debug_frozen))
+        {
+            self.native_filter_previous_target = self.game_logic.session_view.target;
+        }
         let yaw = step_axis(
             AxisMotion {
                 value: &mut self.camera_yaw_radians,

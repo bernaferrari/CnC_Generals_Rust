@@ -51,6 +51,7 @@ pub mod status_circle;
 pub mod texture_system;
 pub mod video_texture;
 pub mod view;
+pub mod view_filter;
 
 pub use display::Display;
 pub use display_fx::DrawImageMode;

@@ -470,9 +470,24 @@ fn presentation_camera_follow_residual() {
             && follow.contains("frame.camera_tether_play")
             && follow.contains("apply_camera_follow_or_tether")
     );
+    // The receiving camera saves its own previous logical target for the
+    // filter's scroll delta. This is bookkeeping, not a live follow lookup.
+    let save_previous_target =
+        "self.native_filter_previous_target = self.game_logic.session_view.target;";
+    assert_eq!(
+        follow.matches(save_previous_target).count(),
+        1,
+        "follow must save only the receiving camera's previous target"
+    );
+    let follow_without_bookkeeping = follow.replacen(save_previous_target, "", 1);
     assert!(
-        !follow.contains("self.game_logic"),
-        "follow may not rediscover a live logic owner"
+        follow.contains(".map(|frame| (frame.camera_follow_position, frame.camera_tether_play))")
+            && follow
+                .contains("self.apply_camera_follow_or_tether(Vec3::from_array(position), tether)")
+            && !follow_without_bookkeeping.contains("self.game_logic")
+            && !follow_without_bookkeeping.contains("OBJECT_REGISTRY")
+            && !follow_without_bookkeeping.contains("peek_camera_follow_target_position"),
+        "follow/tether position must come from the frozen frame without live object resolution"
     );
 }
 

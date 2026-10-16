@@ -591,6 +591,10 @@ impl ForwardPass {
         camera_position: Vec3,
         lighting: Option<&CachedLighting>,
         projected_shroud: Option<&crate::fow_rendering::ProjectedShroudSnapshot>,
+        skip_scene: bool,
+        mut post_render: Option<
+            &mut dyn FnMut(&mut ww3d_engine::RenderFrame) -> RendererResult<()>,
+        >,
     ) -> Result<()> {
         // Check if renderer is ready before attempting to render
         // This prevents crashes when engine is shutting down or not initialized
@@ -763,16 +767,19 @@ impl ForwardPass {
         // clock requests in an erased pass (clock rings vanish), so only
         // the post-frame registration below remains. Error paths above
         // still enqueue post-frame flushes so the overlay survives 3D faults.
-        self.renderer.enqueue_post_frame_callback(|frame| {
+        let mut finish_scene = |frame: &mut ww3d_engine::RenderFrame| {
+            if let Some(callback) = post_render.as_mut() {
+                callback(frame)?;
+            }
             if let Err(err) = crate::graphics::ui_render_pass::flush_ui_to_frame(frame) {
                 log::warn!("post-frame flush_ui_to_frame failed: {err}");
             }
             Ok(())
-        });
+        };
 
-        // End frame - submit queued work to GPU (runs post-frame callbacks first)
+        // Scene effects finish on this frame, before its UI overlay and submission.
         self.renderer
-            .end_frame()
+            .end_frame_with_scene_policy(skip_scene, Some(&mut finish_scene))
             .map_err(|e| anyhow::anyhow!("WW3D renderer end_frame failed: {e:?}"))?;
 
         let stats = self.renderer.stats();
@@ -1333,11 +1340,15 @@ mod tests {
 
     #[test]
     fn leftover_particles_present_with_z_up_view() {
-        let src = include_str!("forward_render.rs");
+        let src = include_str!("forward_render.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production forward renderer");
         assert!(
             src.contains("fn leftover_z_up_particle_uniforms")
                 && src.contains("Mat4::look_at_rh(camera, look, Vec3::Z)")
-                && src.contains("leftover_z_up_particle_uniforms(time)"),
+                && src.contains("let uniforms = leftover_z_up_particle_uniforms(time);")
+                && src.contains("camera_position: [camera.x, camera.y, camera.z]"),
             "Main present must submit leftover Z-up particles with leftover Z-up view"
         );
         assert!(

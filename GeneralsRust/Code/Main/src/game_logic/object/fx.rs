@@ -100,10 +100,28 @@ impl crate::game_logic::GameLogic {
 impl crate::game_logic::GameLogic {
     /// Complete the actual object's authored modules at this onDie point.
     pub(crate) fn fire_owned_fx_list_die(&mut self, id: crate::game_logic::ObjectId) {
+        let source = self
+            .objects
+            .get(&id)
+            .and_then(|object| object.last_damage_source);
+        self.fire_owned_fx_list_die_from_source(id, source);
+    }
+
+    /// Actual DamageInfo source, including explicit NULL, is distinct from
+    /// prior Body history used by the standalone/direct-admission adapter.
+    pub(in crate::game_logic) fn fire_owned_fx_list_die_from_source(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+        source: Option<crate::game_logic::ObjectId>,
+    ) {
         #[cfg(feature = "game_client")]
         {
             let player = self.local_player_id();
-            let secondary = self.observe_fx_list_die_secondary(id);
+            let secondary = source
+                .and_then(|source| self.objects.get(&source))
+                .map(|object| {
+                    Self::observe_host_fx_object(object, player, self.world_services.shroud())
+                });
             Self::with_host_fx_view_parts(
                 &mut self.session_view,
                 player,
@@ -127,7 +145,17 @@ impl crate::game_logic::GameLogic {
         }
         #[cfg(not(feature = "game_client"))]
         if let Some(object) = self.objects.get_mut(&id) {
-            object.fire_fx_list_die();
+            object.fire_fx_list_die_with_fx(&mut |name, object, at_object| {
+                if at_object {
+                    crate::game_logic::dispatch_fx_list_at_object(
+                        name,
+                        object.id.0,
+                        source.map(|source| source.0),
+                    )
+                } else {
+                    crate::game_logic::dispatch_fx_list_at_pos(name, object.get_position())
+                }
+            });
         }
     }
 
@@ -248,13 +276,15 @@ impl crate::game_logic::GameLogic {
             let primary = Self::observe_host_fx_object(object, player, shroud);
             // Self-damage observes this same current transform, including any
             // pose updates made during earlier Body callbacks.
-            let secondary = if object.last_damage_source == Some(object.id) {
-                Some(&primary)
-            } else {
-                secondary.filter(|pose| {
-                    Some(crate::game_logic::ObjectId(pose.id)) == object.last_damage_source
-                })
-            };
+            // The caller supplied the current operation's source. NULL must
+            // remain NULL even when Body history retains a prior self-hit.
+            let secondary = secondary.map(|pose| {
+                if pose.id == object.id.0 {
+                    &primary
+                } else {
+                    pose
+                }
+            });
             Self::dispatch_fx_list_at_object_with_view(name, &primary, secondary, view)
         } else {
             Self::dispatch_fx_list_at_position_with_view(

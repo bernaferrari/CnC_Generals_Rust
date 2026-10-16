@@ -1367,3 +1367,7 @@ mod physics_fx_owner_tests;
 #[cfg(all(test, feature = "game_client"))]
 #[path = "physics_death_phase_tests.rs"]
 mod physics_death_phase_tests;
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "physics_landing_phase_tests.rs"]
+mod physics_landing_phase_tests;

@@ -2221,6 +2221,10 @@ impl PresentationFrame {
                 Some((x, y))
             },
             camera_focus: logic.peek_pending_camera_focus().map(|p| [p.x, p.y, p.z]),
+            camera_focus_previous_target: logic
+                .session_view
+                .pending_focus_previous_target
+                .map(|p| p.to_array()),
             camera_follow_position: logic
                 .peek_camera_follow_target_position()
                 .map(|p| [p.x, p.y, p.z]),
@@ -2241,6 +2245,7 @@ impl PresentationFrame {
                 .take(8)
                 .collect(),
             camera_motion_blur_count: logic.peek_pending_camera_motion_blur_count(),
+            camera_motion_blur: logic.peek_pending_camera_motion_blur().to_vec(),
             camera_zoom: logic
                 .peek_pending_camera_zoom()
                 .map(|z| (z.zoom, z.duration_seconds)),

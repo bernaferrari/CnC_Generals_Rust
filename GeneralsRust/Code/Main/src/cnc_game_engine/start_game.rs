@@ -2181,6 +2181,8 @@ impl CnCGameEngine {
         }
 
         #[cfg(feature = "game_client")]
+        self.reset_native_filter_selection();
+        #[cfg(feature = "game_client")]
         if let Err(err) = self.game_client.reset() {
             warn!("GameEngine::reset GameClient::reset failed: {err}");
         }

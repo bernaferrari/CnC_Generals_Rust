@@ -365,23 +365,6 @@ impl CnCGameEngine {
             }
             movement = self.camera_scroll_world_delta(screen_scroll);
             scroll_amount = screen_scroll.length();
-            // Same-frame leftover View::m_scrollAmount for motion-blur follow.
-            #[cfg(feature = "game_client")]
-            {
-                game_client::display::view::with_tactical_view(|view| {
-                    view.record_scroll_amount(game_client::display::view::Vector2::new(
-                        screen_scroll.x,
-                        screen_scroll.y,
-                    ));
-                });
-            }
-        } else {
-            #[cfg(feature = "game_client")]
-            {
-                game_client::display::view::with_tactical_view(|view| {
-                    view.record_scroll_amount(game_client::display::view::Vector2::zero());
-                });
-            }
         }
 
         let mut camera_changed = false;

@@ -41,7 +41,46 @@ impl PhysicsDamageServices<'_> {
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
     ) -> bool {
-        let context = DamageHitContext::default().with_last_damage_observations(
+        self.apply_with_kill(victim, amount, source, damage_type, death_type, false)
+    }
+    pub(super) fn apply_contact(
+        &mut self,
+        victim: &mut Object,
+        request: &super::ContactDamage,
+    ) -> bool {
+        let amount = if request.kill {
+            if victim.thing().template.body_kind.is_some() || victim.health.maximum > 0.0 {
+                victim.health.maximum
+            } else {
+                victim.max_health.max(1.0)
+            }
+        } else {
+            request.amount
+        };
+        self.apply_with_kill(
+            victim,
+            amount,
+            request.source,
+            request.kind,
+            request.death,
+            request.kill,
+        )
+    }
+    fn apply_with_kill(
+        &mut self,
+        victim: &mut Object,
+        amount: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        kill: bool,
+    ) -> bool {
+        let context = (if kill {
+            DamageHitContext::for_kill()
+        } else {
+            DamageHitContext::default()
+        })
+        .with_last_damage_observations(
             self.sources.observe(source),
             self.sources.observe(victim.last_damage_source),
         );

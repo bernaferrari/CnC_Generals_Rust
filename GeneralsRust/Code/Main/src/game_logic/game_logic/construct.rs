@@ -1348,6 +1348,7 @@ impl GameLogic {
         self.last_radar_audio_time = -10.0;
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
+        self.session_view.pending_focus_previous_target = None;
         self.script_camera_focus_estimate = Vec3::ZERO;
         self.script_camera_move_to = None;
         self.script_camera_path = None;

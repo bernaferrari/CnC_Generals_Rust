@@ -643,10 +643,8 @@ impl GameLogic {
 
         if let Some(last) = camera_view.bw_modes.into_iter().last() {
             #[cfg(feature = "game_client")]
-            game_client::core::script_action_handler::script_set_camera_bw_mode(
-                last.enabled,
-                last.frames,
-            );
+            self.session_view.apply_bw(last.enabled, last.frames);
+            // Compatibility notification only; GPU observes session_view.filter.
             self.pending_camera_bw_mode = Some(last);
         }
 
@@ -662,33 +660,9 @@ impl GameLogic {
 
         for request in camera_view.motion_blur {
             #[cfg(feature = "game_client")]
-            match &request {
-                CameraMotionBlurRequest::Basic { zoom_in, saturate } => {
-                    game_client::core::script_action_handler::script_camera_motion_blur(
-                        *zoom_in, *saturate,
-                    );
-                }
-                CameraMotionBlurRequest::Jump { position, saturate } => {
-                    // C++ doCameraMotionBlurJump: leftover set filter+pos only.
-                    // lookAt / request_cam only if leftover filter failed.
-                    let passed =
-                        game_client::core::script_action_handler::script_camera_motion_blur_jump(
-                            position.x, position.z, position.y, *saturate,
-                        );
-                    if !passed {
-                        self.camera_follow_target = None;
-                        self.request_camera_focus(*position);
-                    }
-                }
-                CameraMotionBlurRequest::Follow { amount } => {
-                    game_client::core::script_action_handler::script_camera_motion_blur_follow(
-                        *amount,
-                    );
-                }
-                CameraMotionBlurRequest::EndFollow => {
-                    game_client::core::script_action_handler::script_camera_motion_blur_end_follow(
-                    );
-                }
+            if let Some(position) = self.session_view.apply_motion_blur(&request) {
+                self.camera_follow_target = None;
+                self.request_camera_focus(position);
             }
             #[cfg(not(feature = "game_client"))]
             if let CameraMotionBlurRequest::Jump { position, .. } = &request {

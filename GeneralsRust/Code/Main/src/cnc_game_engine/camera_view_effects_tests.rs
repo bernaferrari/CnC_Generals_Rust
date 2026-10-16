@@ -37,6 +37,7 @@ impl LocalView {
                     sine: -0.5,
                     offset: Vec3::ZERO,
                 },
+                ..Default::default()
             },
         }
     }

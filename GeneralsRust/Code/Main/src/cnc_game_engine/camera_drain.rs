@@ -196,6 +196,10 @@ impl CnCGameEngine {
             && let Some(focus) = pres.camera_focus
         {
             if !player_cancel.cancels_move() {
+                #[cfg(feature = "game_client")]
+                if let Some(previous) = pres.camera_focus_previous_target {
+                    self.native_filter_previous_target = Vec3::from_array(previous);
+                }
                 self.center_camera_on(Vec3::new(focus[0], focus[1], focus[2]));
             }
             // The exact canonical request was acknowledged before side effects;

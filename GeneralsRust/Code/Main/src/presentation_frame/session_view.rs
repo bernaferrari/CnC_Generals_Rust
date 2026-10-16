@@ -8,7 +8,10 @@ use glam::Vec3;
 #[derive(Debug, Default)]
 pub(crate) struct SessionView {
     pub(crate) target: Vec3,
+    pub(crate) pending_focus_previous_target: Option<Vec3>,
     pub(crate) impulse: SessionViewImpulse,
+    #[cfg(feature = "game_client")]
+    pub(crate) filter: game_client::display::view_filter::ViewFilterState,
 }
 
 #[derive(Debug, Default)]
@@ -159,5 +162,82 @@ mod tests {
         candidate.intensity = f32::NAN;
         assert!(receiver.admit(candidate).is_err());
         assert_eq!(receiver.capture(), before);
+    }
+}
+
+#[cfg(feature = "game_client")]
+mod filter_commands {
+    use crate::game_logic::mission_scripts::CameraMotionBlurRequest;
+    use game_client::display::{
+        view::{FilterMode, FilterType, Point3},
+        view_filter::ViewFilterState,
+    };
+    use glam::Vec3;
+    #[cfg(feature = "game_client")]
+    pub(crate) fn admit_motion_blur(
+        filter: &mut ViewFilterState,
+        request: &CameraMotionBlurRequest,
+    ) -> Option<Vec3> {
+        match *request {
+            CameraMotionBlurRequest::Basic { zoom_in, saturate } => {
+                if filter.set_filter(FilterType::MotionBlur) {
+                    let mode = match (zoom_in, saturate) {
+                        (true, true) => FilterMode::MBInSaturate,
+                        (false, true) => FilterMode::MBOutSaturate,
+                        (true, false) => FilterMode::MBInAlpha,
+                        (false, false) => FilterMode::MBOutAlpha,
+                    };
+                    if !filter.set_mode(mode) {
+                        filter.set_filter(FilterType::Null);
+                    }
+                }
+            }
+            CameraMotionBlurRequest::Jump { position, saturate } => {
+                let passed = filter.set_filter(FilterType::MotionBlur)
+                    && filter.set_mode(if saturate {
+                        FilterMode::MBInAndOutSaturate
+                    } else {
+                        FilterMode::MBInAndOutAlpha
+                    });
+                if passed {
+                    filter.set_pos(Point3::new(position.x, position.z, position.y));
+                } else {
+                    filter.set_filter(FilterType::Null);
+                    return Some(position);
+                }
+            }
+            CameraMotionBlurRequest::Follow { amount } => {
+                filter.set_motion_blur_follow(amount);
+            }
+            CameraMotionBlurRequest::EndFollow => {
+                filter.set_mode(FilterMode::MBEndPanAlpha);
+                filter.set_filter(FilterType::MotionBlur);
+            }
+        }
+        None
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(crate) fn admit_bw(filter: &mut ViewFilterState, enabled: bool, frames: i32) {
+        if enabled {
+            filter.set_mode(FilterMode::BWBlackAndWhite);
+            filter.set_filter(FilterType::BlackAndWhite);
+            filter.set_fade_parameters(frames, 1);
+        } else if filter.filter() == FilterType::BlackAndWhite {
+            filter.set_fade_parameters(frames, -1);
+        }
+    }
+}
+
+#[cfg(feature = "game_client")]
+impl SessionView {
+    pub(crate) fn apply_bw(&mut self, enabled: bool, frames: i32) {
+        filter_commands::admit_bw(&mut self.filter, enabled, frames);
+    }
+    pub(crate) fn apply_motion_blur(
+        &mut self,
+        request: &crate::game_logic::mission_scripts::CameraMotionBlurRequest,
+    ) -> Option<Vec3> {
+        filter_commands::admit_motion_blur(&mut self.filter, request)
     }
 }

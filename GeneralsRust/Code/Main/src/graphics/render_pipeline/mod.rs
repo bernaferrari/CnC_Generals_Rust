@@ -654,6 +654,10 @@ pub(super) fn apply_frozen_direct_scene_decisions_to_render_items(
 pub struct RenderPipeline {
     // WW3D renderer bridge
     forward_pass: ForwardPass,
+    #[cfg(feature = "game_client")]
+    view_filter_resources: game_client::display::shader_filter::ShaderFilterResources,
+    #[cfg(feature = "game_client")]
+    completed_filter_look_at: Option<glam::Vec3>,
     /// GPU selection shaders/pipelines live with this render pipeline's device.
     /// Frame callbacks clone the Arc so in-flight draws retain their resources.
     selection_renderer_cache: crate::graphics::selection_renderer::SelectionRendererCache,
@@ -972,3 +976,6 @@ impl RenderPipeline {
         std::mem::take(&mut self.committed_host_ghost_draws)
     }
 }
+
+#[cfg(all(test, feature = "game_client", not(target_arch = "wasm32")))]
+mod view_filter_phase_tests;

@@ -156,6 +156,7 @@ pub struct PresentationFrame {
     pub view_guardband: Option<(f32, f32)>,
     /// Pending camera focus residual.
     pub camera_focus: Option<[f32; 3]>,
+    pub camera_focus_previous_target: Option<[f32; 3]>,
     /// Camera-follow object world position residual (live follow still resolves host id).
     pub camera_follow_position: Option<[f32; 3]>,
     /// Pending BW mode residual (enabled, frames).
@@ -164,6 +165,7 @@ pub struct PresentationFrame {
     pub camera_shakers: Vec<([f32; 3], f32, f32, f32)>,
     /// Pending camera motion-blur request count residual.
     pub camera_motion_blur_count: usize,
+    pub camera_motion_blur: Vec<crate::game_logic::mission_scripts::CameraMotionBlurRequest>,
     /// Pending camera zoom residual (zoom, duration).
     pub camera_zoom: Option<(f32, f32)>,
     pub camera_zoom_reset: bool,

@@ -3278,6 +3278,9 @@ mod panic_runtime;
 mod physics;
 mod physics_damage;
 mod physics_landing;
+pub(in crate::game_logic) use physics_landing::{
+    ContactDamage, ContactStep, MotionContact, StampContact, StunContact,
+};
 mod physics_motion;
 pub(in crate::game_logic) use physics_damage::{PhysicsDamageServices, PhysicsDamageSources};
 pub(in crate::game_logic) use physics_motion::{
@@ -3355,6 +3358,9 @@ pub const OBJECT_SRC: &str = concat!(
     include_str!("orders.rs"),
     include_str!("physics.rs"),
     include_str!("physics_motion.rs"),
+    include_str!("physics_damage.rs"),
+    include_str!("physics_landing.rs"),
+    include_str!("physics_landing/contact.rs"),
     include_str!("physics_motion/overlap_crush.rs"),
     include_str!("pose.rs"),
     include_str!("record.rs"),

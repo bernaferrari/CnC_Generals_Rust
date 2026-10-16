@@ -611,12 +611,20 @@ fn direct_scene_candidate_ledger_follows_real_item_production_before_forward_sor
         collect_call < resolver && resolver < apply && apply < sort,
         "Main resolves and applies the transient candidate ledger after collection and before sort/forward"
     );
+    let execute_without_render_adapters = execute
+        .replace("game_client::display::view_filter::", "")
+        .replace("game_client::display::view::", "")
+        .replace("game_client::display::shadow_pass::", "")
+        .replace("game_client::display::status_circle::", "");
     assert!(
         execute.contains("Main owns this callback")
             && execute.contains("Vec<FrozenDirectDrawableSceneDecision>")
-            && !execute.contains("game_client::")
+            && !execute_without_render_adapters.contains("game_client::")
+            && !execute.contains("get_game_client(")
+            && !execute.contains("OBJECT_REGISTRY")
+            && !execute.contains("game_logic: ")
             && !execute.contains("evaluate_frozen_direct_scene_candidate("),
-        "RenderPipeline must stay GameClient-free; input owns callback resolution and returns Main data"
+        "direct-scene resolution must remain in Main; typed filter/render adapters may not rediscover live objects"
     );
 
     let pipeline = include_str!("mod.rs");
@@ -1117,25 +1125,30 @@ fn unit_render_collection_uses_presentation_frame_without_logic() {
 }
 #[test]
 fn presentation_unit_pass_records_zero_live_identity_reads() {
-    // Structural: Live branch is the only counter bump; presentation maps UnitPassSource::Presentation only.
-    let src = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
+    let src = include_str!("pipeline_collect.rs")
+        .split("#[cfg(test)]")
+        .next()
+        .expect("production collector");
+    assert!(src.contains("self.debug_last_live_unit_identity_reads = 0;"));
+    let inputs = src
+        .split_once("let mut unit_inputs: Vec<crate::presentation_frame::UnitRenderInput>")
+        .expect("typed frozen inputs")
+        .1
+        .split_once("self.live_draw_playback.retain")
+        .expect("input admission boundary")
+        .0;
     assert!(
-        src.contains("debug_last_live_unit_identity_reads"),
-        "must track live unit identity residual"
+        inputs.contains("if let Some(ref pres) = presentation")
+            && inputs.contains("pres.unit_render_inputs()")
+            && inputs.contains("Vec::new()")
+            && !inputs.contains("game_logic")
+            && !inputs.contains("OBJECT_REGISTRY"),
+        "absent presentation must produce empty inputs without a live identity fallback"
     );
     assert!(
-        src.contains("UnitPassSource::Presentation"),
-        "presentation path required"
-    );
-    // When presentation_unit_pass, pass_sources come only from unit_inputs map to Presentation.
-    let idx = src
-        .find("let pass_sources: Vec<UnitPassSource>")
-        .expect("pass_sources");
-    let window = &src[idx..idx + 500];
-    assert!(
-        window.contains("UnitPassSource::Presentation")
-            && window.contains("presentation_unit_pass"),
-        "pass_sources must gate on presentation_unit_pass: {window}"
+        !src.contains("debug_last_live_unit_identity_reads +=")
+            && !src.contains("debug_last_live_unit_identity_reads = 1"),
+        "the presentation-only collector must not introduce live identity reads"
     );
 }
 #[test]
@@ -1153,7 +1166,7 @@ fn collect_shell_fow_is_presentation_only() {
 
 #[test]
 fn roads_and_minimap_are_presentation_only() {
-    let src = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
+    let src = include_str!("pipeline_minimap.rs");
     let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
     let roads = prod
         .split("fn sync_runtime_map_roads")
@@ -1182,16 +1195,13 @@ fn roads_and_minimap_are_presentation_only() {
 
 #[test]
 fn prewarm_is_presentation_only() {
-    let src = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
+    let src = include_str!("pipeline_prewarm.rs");
     let body = src
         .split("fn prewarm_startup_models")
         .nth(1)
         .and_then(|s| {
-            s.split(
-                "
-    fn ",
-            )
-            .next()
+            s.split("pub(super) fn maybe_load_heightmap_hint_after_first_present")
+                .next()
         })
         .expect("prewarm body");
     assert!(
@@ -1225,7 +1235,7 @@ fn execute_accepts_optional_game_logic_for_presentation_only_path() {
 }
 #[test]
 fn minimap_roads_heightmap_are_presentation_only() {
-    let src = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
+    let src = include_str!("pipeline_minimap.rs");
     let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
     assert!(prod.contains("fn refresh_minimap_terrain_base(&mut self)"));
     assert!(!prod.contains("refresh_minimap_terrain_base(&mut self, game_logic"));
@@ -1235,9 +1245,10 @@ fn minimap_roads_heightmap_are_presentation_only() {
     );
     assert!(!prod.contains("sync_runtime_map_roads(&mut self, game_logic"));
     assert!(prod.contains("fn load_heightmap_from_runtime_terrain("));
+    let execute = include_str!("pipeline_execute.rs");
     assert!(
-        prod.contains("self.refresh_minimap_terrain_base()")
-            && !prod.contains("self.refresh_minimap_terrain_base(game_logic)"),
+        execute.contains("self.refresh_minimap_terrain_base()")
+            && !execute.contains("self.refresh_minimap_terrain_base(game_logic)"),
         "minimap base refresh must be presentation-only"
     );
 }
@@ -1383,18 +1394,30 @@ fn terrain_pass_clears_black_not_fog_color() {
 }
 
 #[test]
-fn execute_composites_leftover_view_filters_and_camera_fade() {
-    let src = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
-    assert!(
-        src.contains("composite_live_view_filter"),
-        "live execute must composite leftover View filters"
-    );
-    assert!(
-        src.contains("tick_filter_fade"),
-        "live execute must advance leftover View filter fade frames"
-    );
+fn execute_composites_receiving_view_filter_and_camera_fade_in_current_frame() {
+    let src = include_str!("pipeline_execute.rs");
+    assert!(src.contains("composite_retained_view_filter"));
+    assert!(src.contains("view_filter.tick_fade()"));
+    assert!(src.contains("view_filter.post_render(filter_logic_frame, scroll)"));
+    assert!(src.contains("has_scene_capture_for"));
     assert!(
         src.contains("record_camera_fade"),
-        "live execute must blit scripted CAMERA_FADE after the 3D scene"
+        "scripted CAMERA_FADE remains after the 3D scene"
     );
+    assert!(
+        !src.contains("with_tactical_view"),
+        "the native filter cannot select another session's View"
+    );
+    assert!(
+        !src.contains("take_queued_live_camera_fade"),
+        "the frozen native fade is canonical"
+    );
+    let borrowed = src.find("let mut finish_filters").unwrap();
+    let render = src.find("self.forward_pass.render(").unwrap();
+    assert!(
+        borrowed < render,
+        "the receiving completion is installed before this frame finishes"
+    );
+    let forward = include_str!("forward_render.rs");
+    assert!(forward.contains("end_frame_with_scene_policy(skip_scene, Some(&mut finish_scene))"));
 }

@@ -12,7 +12,10 @@ use std::time::{Duration, Instant};
 const MAX_BYTES: usize = 1_048_576;
 
 /// Private validated fields prevent mutation between detached decoding and commit.
-pub(crate) struct NativeCameraContinuation(CameraState);
+pub(crate) struct NativeCameraContinuation(
+    CameraState,
+    #[cfg(feature = "game_client")] Option<(glam::Vec2, Vec3)>,
+);
 
 #[derive(Serialize, Deserialize)]
 struct CameraState {
@@ -242,7 +245,7 @@ impl CnCGameEngine {
             rmb_deselect_down_at_age: age(now, self.rmb_deselect_down_at)?,
         };
         state.validate()?;
-        codec().serialize(&state).map_err(|error| error.to_string())
+        encode_native_camera(self, &state)
     }
     pub(crate) fn decode_camera_continuation(
         bytes: &[u8],
@@ -250,13 +253,15 @@ impl CnCGameEngine {
         if bytes.len() > MAX_BYTES {
             return Err("camera continuation exceeds size limit".into());
         }
-        let state: CameraState = codec()
-            .deserialize(bytes)
-            .map_err(|error| error.to_string())?;
-        state.validate()?;
-        Ok(NativeCameraContinuation(state))
+        decode_native_camera(bytes)
     }
     pub(crate) fn admit_camera_continuation(&mut self, continuation: NativeCameraContinuation) {
+        #[cfg(feature = "game_client")]
+        {
+            let (scroll, previous_target) = continuation.1.unwrap_or_default();
+            self.native_filter_scroll = scroll;
+            self.native_filter_previous_target = previous_target;
+        }
         let state = continuation.0;
         let now = Instant::now();
         self.native_camera.admit_continuation(state.height);
@@ -408,3 +413,6 @@ pub(super) fn cursor_presentation(name: &str) -> Option<(&'static str, winit::wi
 #[cfg(test)]
 mod tests;
 mod validation;
+
+mod filter;
+use filter::{decode_native_camera, encode_native_camera};

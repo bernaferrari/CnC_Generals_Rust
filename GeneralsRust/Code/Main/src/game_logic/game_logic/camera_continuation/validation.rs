@@ -60,6 +60,9 @@ macro_rules! scalar {($($t:ty),*)=>{$(impl ValidateCamera for $t{fn validate(&se
 scalar!(bool, u32, i32, usize, (), ObjectId);
 impl ValidateCamera for LogicCameraContinuation {
     fn validate(&self) -> Result<(), String> {
+        self.owned_extras.pending_focus_previous_target.validate()?;
+        #[cfg(feature = "game_client")]
+        self.owned_extras.filter.validate()?;
         self.pending_camera_focus.validate()?;
         self.script_camera_focus_estimate.validate()?;
         self.script_camera_move_to.validate()?;

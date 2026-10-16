@@ -415,7 +415,7 @@ pub enum ProjectionMode {
 }
 
 /// Viewport post-process filter type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FilterType {
     Null,
     BlackAndWhite,
@@ -424,7 +424,7 @@ pub enum FilterType {
 }
 
 /// Viewport post-process filter mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FilterMode {
     Null,
     BWBlackAndWhite,
@@ -618,13 +618,7 @@ pub struct View {
     current_height_above_ground: f32,
 
     /// Active screen filter state.
-    view_filter_type: FilterType,
-    view_filter_mode: FilterMode,
-    view_filter_pos: Point3,
-    view_filter_pos_valid: bool,
-    fade_total_frames: i32,
-    fade_progress_frames: i32,
-    fade_direction: i32,
+    filter_state: super::view_filter::ViewFilterState,
     wireframe_enabled: bool,
     wireframe_next_enabled: bool,
     wireframe_pending_frames: u8,
@@ -736,13 +730,7 @@ impl View {
             guard_band_bias: Vector2::new(0.0, 0.0),
             terrain_height_under_camera: 0.0,
             current_height_above_ground: 0.0,
-            view_filter_type: FilterType::Null,
-            view_filter_mode: FilterMode::Null,
-            view_filter_pos: Point3::ZERO,
-            view_filter_pos_valid: false,
-            fade_total_frames: 0,
-            fade_progress_frames: 0,
-            fade_direction: 0,
+            filter_state: super::view_filter::ViewFilterState::new(),
             wireframe_enabled: false,
             wireframe_next_enabled: false,
             wireframe_pending_frames: 0,
@@ -826,11 +814,7 @@ impl View {
         self.camera_has_moved_since_request = true;
         self.slave_eye = None;
         self.slave_target = None;
-        self.view_filter_type = FilterType::Null;
-        self.view_filter_mode = FilterMode::Null;
-        self.fade_total_frames = 0;
-        self.fade_progress_frames = 0;
-        self.fade_direction = 0;
+        self.filter_state.reset();
         self.wireframe_enabled = false;
         self.wireframe_next_enabled = false;
         self.wireframe_pending_frames = 0;
@@ -1796,22 +1780,12 @@ impl View {
 
     /// CPU fade + type used by Display to composite viewport filters.
     pub fn filter_composite(&self) -> ViewFilterComposite {
-        let fade = if self.fade_total_frames > 0 {
-            let t =
-                (self.fade_progress_frames as f32 / self.fade_total_frames as f32).clamp(0.0, 1.0);
-            if self.fade_direction < 0 { 1.0 - t } else { t }
-        } else if self.view_filter_type == FilterType::Null {
-            0.0
-        } else {
-            1.0
-        };
-        ViewFilterComposite {
-            filter: self.view_filter_type,
-            mode: self.view_filter_mode,
-            fade,
-            scroll_delta: self.scroll_amount,
-            zoom_to: self.view_filter_pos_valid.then_some(self.view_filter_pos),
-        }
+        self.filter_state.composite(self.scroll_amount)
+    }
+
+    pub fn filter_post_render(&mut self, logic_frame: u32) -> super::view_filter::FilterPostRender {
+        self.filter_state
+            .post_render(logic_frame, self.scroll_amount)
     }
 
     /// Get the four corner points of the view projected into world space at given Z
@@ -1876,51 +1850,25 @@ impl View {
     }
 
     pub fn get_view_filter_type(&self) -> FilterType {
-        self.view_filter_type
+        self.filter_state.filter()
     }
-
     pub fn get_view_filter_mode(&self) -> FilterMode {
-        self.view_filter_mode
+        self.filter_state.mode()
     }
-
-    pub fn set_view_filter_mode(&mut self, filter_mode: FilterMode) -> bool {
-        self.view_filter_mode = filter_mode;
-        true
+    pub fn set_view_filter_mode(&mut self, mode: FilterMode) -> bool {
+        self.filter_state.set_mode(mode)
     }
-
     pub fn set_view_filter_pos(&mut self, pos: &Point3) {
-        // C++ `W3DView::setViewFilterPos` → `ScreenMotionBlurFilter::setZoomToPos`.
-        self.view_filter_pos = *pos;
-        self.view_filter_pos_valid = true;
+        self.filter_state.set_pos(*pos);
     }
-
     pub fn set_view_filter(&mut self, filter: FilterType) -> bool {
-        self.view_filter_type = filter;
-        true
+        self.filter_state.set_filter(filter)
     }
-
     pub fn set_fade_parameters(&mut self, frames: i32, direction: i32) {
-        self.fade_total_frames = frames.max(0);
-        self.fade_progress_frames = 0;
-        self.fade_direction = direction;
+        self.filter_state.set_fade_parameters(frames, direction);
     }
-
-    /// Advance BW / motion-blur / crossfade fade frames.
-    ///
-    /// Live `render_pipeline` calls this because leftover `Display::draw` /
-    /// `update_view` is not the present path.
     pub fn tick_filter_fade(&mut self) {
-        if self.fade_total_frames > 0 {
-            self.fade_progress_frames += 1;
-            if self.fade_progress_frames >= self.fade_total_frames {
-                if self.fade_direction < 0 && self.view_filter_type == FilterType::BlackAndWhite {
-                    self.view_filter_mode = FilterMode::Null;
-                    self.view_filter_type = FilterType::Null;
-                }
-                self.fade_total_frames = 0;
-                self.fade_progress_frames = 0;
-            }
-        }
+        self.filter_state.tick_fade();
     }
 
     /// Mirrors `W3DView::set3DWireFrameMode`.
@@ -1951,8 +1899,7 @@ impl View {
     }
 
     pub fn set_motion_blur_follow_mode(&mut self, amount: i32) {
-        self.set_view_filter_mode(FilterMode::from_pan_amount(amount));
-        self.set_view_filter(FilterType::MotionBlur);
+        self.filter_state.set_motion_blur_follow(amount);
     }
 
     pub fn is_time_frozen(&self) -> bool {
@@ -2083,7 +2030,7 @@ impl View {
         // Process camera shake (position offsets)
         self.tick_impulse_shake();
 
-        self.tick_filter_fade();
+        // Screen filter fade advances at successful postRender, not view update.
 
         if self.wireframe_pending_frames > 0 {
             self.wireframe_pending_frames -= 1;
@@ -2331,21 +2278,6 @@ pub fn with_tactical_view<R>(f: impl FnOnce(&mut View) -> R) -> R {
 /// Access the global tactical view immutably.
 pub fn with_tactical_view_ref<R>(f: impl FnOnce(&View) -> R) -> R {
     THE_TACTICAL_VIEW.with(|view| f(&view.borrow()))
-}
-
-thread_local! {
-    /// C++ `ScreenMotionBlurFilter::postRender` `TheTacticalView->lookAt` at blur peak.
-    static PENDING_MB_ZOOM_LOOK_AT: Cell<Option<Point3>> = const { Cell::new(None) };
-}
-
-/// Queue leftover-Z-up lookAt for the live host (C++ zoom-to at MAX_COUNT).
-pub fn queue_motion_blur_zoom_look_at(pos: Point3) {
-    PENDING_MB_ZOOM_LOOK_AT.with(|slot| slot.set(Some(pos)));
-}
-
-/// Drain the peak-blur lookAt queued by leftover `filterPostRender`.
-pub fn take_motion_blur_zoom_look_at() -> Option<Point3> {
-    PENDING_MB_ZOOM_LOOK_AT.with(|slot| slot.take())
 }
 
 impl Default for View {

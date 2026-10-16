@@ -227,7 +227,7 @@ pub fn live_view_height_clamp(min_h: f32, max_h: f32, script_max_height_scale: f
 }
 
 impl LookAtHostModes {
-    fn note_scripted_camera_player_cancel(&mut self, next: ScriptedCameraPlayerCancel) {
+    pub(super) fn note_scripted_camera_player_cancel(&mut self, next: ScriptedCameraPlayerCancel) {
         self.scripted_camera_player_cancel = self.scripted_camera_player_cancel.raise(next);
     }
 

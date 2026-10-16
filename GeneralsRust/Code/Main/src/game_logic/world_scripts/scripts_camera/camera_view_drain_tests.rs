@@ -14,6 +14,11 @@ fn flush(world: &mut GameLogic) {
 }
 
 fn seed(world: &GameLogic, value: f32, enabled: bool) {
+    #[cfg(feature = "game_client")]
+    game_client::display::view::with_tactical_view(|view| {
+        view.set_view_filter_mode(game_client::display::view::FilterMode::CrossfadeFbMask);
+        view.set_view_filter(game_client::display::view::FilterType::Crossfade);
+    });
     let hooks = &world.mission_scripts;
     for x in [value - 1.0, value] {
         hooks.push_view_guardband(ViewGuardbandRequest {
@@ -63,16 +68,26 @@ fn check(world: &mut GameLogic, value: f32, enabled: bool) {
     );
     assert_eq!(world.native_view_guardband(), [value, value + 0.5]);
     #[cfg(feature = "game_client")]
-    game_client::display::view::with_tactical_view_ref(|view| {
+    {
         assert_eq!(
-            view.get_view_filter_type(),
+            world.session_view.filter.filter(),
             game_client::display::view::FilterType::MotionBlur
         );
         assert_eq!(
-            view.get_view_filter_mode(),
+            world.session_view.filter.mode(),
             game_client::display::view::FilterMode::MBEndPanAlpha
         );
-    });
+        game_client::display::view::with_tactical_view_ref(|view| {
+            assert_eq!(
+                view.get_view_filter_type(),
+                game_client::display::view::FilterType::Crossfade
+            );
+            assert_eq!(
+                view.get_view_filter_mode(),
+                game_client::display::view::FilterMode::CrossfadeFbMask
+            );
+        });
+    }
 }
 
 #[test]
@@ -200,16 +215,14 @@ fn camera_view_drain_nested_authored_blur_then_bw_applies_before_next_action() {
                 })
             );
             // A whole-walk snapshot would run BW before blur and fail this assertion.
-            game_client::display::view::with_tactical_view_ref(|view| {
-                assert_eq!(
-                    view.get_view_filter_type(),
-                    game_client::display::view::FilterType::BlackAndWhite
-                );
-                assert_eq!(
-                    view.get_view_filter_mode(),
-                    game_client::display::view::FilterMode::BWBlackAndWhite
-                );
-            });
+            assert_eq!(
+                world.session_view.filter.filter(),
+                game_client::display::view::FilterType::BlackAndWhite
+            );
+            assert_eq!(
+                world.session_view.filter.mode(),
+                game_client::display::view::FilterMode::BWBlackAndWhite
+            );
         },
     );
 }

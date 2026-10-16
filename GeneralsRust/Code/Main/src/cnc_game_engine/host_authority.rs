@@ -1120,7 +1120,16 @@ impl CnCGameEngine {
 
         // The receiving application keeps its persistent view until map admission
         // resets it. A detached candidate never publishes or replaces this state.
+        let candidate_focus_previous = logic.session_view.pending_focus_previous_target;
+        // Map actions already applied to the candidate's receiving filter.
+        #[cfg(feature = "game_client")]
+        let candidate_filter = std::mem::take(&mut logic.session_view.filter);
         logic.session_view = std::mem::take(&mut self.game_logic.session_view);
+        logic.session_view.pending_focus_previous_target = candidate_focus_previous;
+        #[cfg(feature = "game_client")]
+        {
+            logic.session_view.filter = candidate_filter;
+        }
         self.game_logic = logic;
         crate::command_system::bind_host_replay_authority(&self.game_logic.replay_pending);
         if let Some(shadow) = self.gameworld_shadow.as_mut() {
@@ -1197,7 +1206,16 @@ impl CnCGameEngine {
         self.render_pipeline.invalidate_world_visual_state();
 
         let native_commit = runtime_world.install_globals();
+        let candidate_focus_previous = logic.session_view.pending_focus_previous_target;
+        // Map actions already applied to the candidate's receiving filter.
+        #[cfg(feature = "game_client")]
+        let candidate_filter = std::mem::take(&mut logic.session_view.filter);
         logic.session_view = std::mem::take(&mut self.game_logic.session_view);
+        logic.session_view.pending_focus_previous_target = candidate_focus_previous;
+        #[cfg(feature = "game_client")]
+        {
+            logic.session_view.filter = candidate_filter;
+        }
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
         #[cfg(feature = "game_client")]
         self.game_client

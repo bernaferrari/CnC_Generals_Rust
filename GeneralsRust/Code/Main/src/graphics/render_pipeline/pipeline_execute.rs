@@ -26,6 +26,11 @@ unsafe impl Send for ShadowCallbackDevice {}
 // `!Sync` default is unreachable.
 unsafe impl Sync for ShadowCallbackDevice {}
 impl RenderPipeline {
+    #[cfg(feature = "game_client")]
+    pub(crate) fn take_completed_filter_look_at(&mut self) -> Option<Vec3> {
+        self.completed_filter_look_at.take()
+    }
+
     pub fn execute(
         &mut self,
         graphics_system: &mut GraphicsSystem,
@@ -48,6 +53,10 @@ impl RenderPipeline {
                 &[FrozenDirectDrawableSceneCandidate],
             ) -> Vec<FrozenDirectDrawableSceneDecision>,
         >,
+        #[cfg(feature = "game_client")]
+        view_filter: &mut game_client::display::view_filter::ViewFilterState,
+        #[cfg(feature = "game_client")] filter_scroll: glam::Vec2,
+        #[cfg(feature = "game_client")] filter_logic_frame: u32,
         complete_physics_visual: Option<
             &mut dyn FnMut(
                 &mut crate::presentation_frame::UnitRenderInput,
@@ -56,6 +65,10 @@ impl RenderPipeline {
         >,
     ) -> Result<()> {
         let execute_started = std::time::Instant::now();
+        #[cfg(feature = "game_client")]
+        {
+            self.completed_filter_look_at = None;
+        }
         trace!("RenderPipeline::execute frame {}", self.frame_number + 1);
         if (self.frame_number + 1).is_multiple_of(300) {
             debug!(
@@ -316,19 +329,6 @@ impl RenderPipeline {
                 self.render_items.len()
             );
         }
-        let projected_shroud = self
-            .presentation_frame
-            .as_ref()
-            .and_then(|frame| frame.terrain_projected_shroud());
-        self.forward_pass.render(
-            graphics_system,
-            &self.render_items,
-            view_matrix,
-            projection_matrix,
-            camera_position,
-            self.cached_lighting.as_ref(),
-            projected_shroud,
-        )?;
         #[cfg(feature = "game_client")]
         {
             // C++ DoShadows(true) after opaque flush.
@@ -373,39 +373,61 @@ impl RenderPipeline {
             // (W3DScene.cpp:833-836). Enqueued after the shadow callback above,
             // so post-frame execution order is shadows -> water -> filter.
             self.execute_water_pass(graphics_system)?;
-
-            // C++ W3DView::draw filterPostRender + W3DStatusCircle fade overlay.
-            // Leftover Display::draw is not the live 3D path.
-            // `filter_composite.scroll_delta` is leftover View.scroll_amount,
-            // stamped same-frame by live `camera_scroll_world_delta`.
-            let filter_composite = {
-                game_client::display::view::with_tactical_view(|view| {
-                    view.tick_filter_fade();
+        }
+        #[cfg(feature = "game_client")]
+        let camera_fade = if shell_scene {
+            crate::presentation_frame::PresentationCameraFade::default()
+        } else {
+            self.presentation_frame
+                .as_ref()
+                .map(|frame| frame.camera_fade)
+                .unwrap_or_default()
+        };
+        #[cfg(feature = "game_client")]
+        let skip_filter_scene = view_filter.filter()
+            == game_client::display::view::FilterType::MotionBlur
+            && view_filter.skip_render()
+            && ww3d_engine::surface_size()
+                .ok()
+                .is_some_and(|(width, height)| {
+                    self.view_filter_resources.has_scene_capture_for(
+                        width,
+                        height,
+                        graphics_system.color_format(),
+                    )
                 });
-                game_client::display::view::with_tactical_view_ref(|view| view.filter_composite())
-            };
-            // C++ W3DStatusCircle.cpp:284-287: the camera-fade overlay renders
-            // only when `isInGame() && getGameMode() != GAME_SHELL`. The shell
-            // menu must never blit the ScriptEngine's startup Multiply fade —
-            // ScriptEngine::newMap arms it (black) and it would black out the
-            // live shell-map world behind the main menu.
-            let camera_fade = if shell_scene {
-                crate::presentation_frame::PresentationCameraFade::default()
-            } else {
-                self.presentation_frame
-                    .as_ref()
-                    .map(|frame| frame.camera_fade)
-                    .unwrap_or_default()
-            };
-            self.enqueue_post_frame_callback(move |gpu_frame| {
-                let dest = gpu_frame.color_view_arc();
-                let format = gpu_frame.color_format();
-                let device = gpu_frame.device_arc();
-                let queue = gpu_frame.queue_arc();
-                let (color_texture, encoder) = gpu_frame.color_texture_and_encoder();
-                let width = color_texture.width();
-                let height = color_texture.height();
-                game_client::display::shader_filter::composite_live_view_filter(
+        #[cfg(feature = "game_client")]
+        if skip_filter_scene {
+            // Reusing an image is not a new accepted draw of its ghost objects.
+            self.committed_host_ghost_draws.clear();
+        }
+        #[cfg(feature = "game_client")]
+        let filter_resources = &mut self.view_filter_resources;
+        #[cfg(feature = "game_client")]
+        let completed_filter_look_at = &mut self.completed_filter_look_at;
+        #[cfg(feature = "game_client")]
+        let mut finish_filters = |gpu_frame: &mut ww3d_engine::RenderFrame| {
+            let dest = gpu_frame.color_view_arc();
+            let format = gpu_frame.color_format();
+            let device = gpu_frame.device_arc();
+            let queue = gpu_frame.queue_arc();
+            let (color_texture, encoder) = gpu_frame.color_texture_and_encoder();
+            let width = color_texture.width();
+            let height = color_texture.height();
+            let scroll = game_client::display::view::Vector2::new(filter_scroll.x, filter_scroll.y);
+            let composite = view_filter.composite(scroll);
+            if filter_resources.prepare(
+                device.as_ref(),
+                queue.as_ref(),
+                format,
+                width,
+                height,
+                &composite,
+            ) {
+                view_filter.tick_fade();
+                let composite = view_filter.composite(scroll);
+                let post = view_filter.post_render(filter_logic_frame, scroll);
+                filter_resources.composite_retained_view_filter(
                     device.as_ref(),
                     queue.as_ref(),
                     encoder,
@@ -414,24 +436,49 @@ impl RenderPipeline {
                     format,
                     width,
                     height,
-                    &filter_composite,
+                    &composite,
+                    &post,
+                    !skip_filter_scene,
                 );
-                let fade = game_client::display::status_circle::take_queued_live_camera_fade()
-                    .map(|overlay| (overlay.fade as u8, overlay.intensity, overlay.diffuse))
-                    .unwrap_or((camera_fade.fade, camera_fade.intensity, camera_fade.diffuse));
-                game_client::display::status_circle::record_camera_fade(
-                    device.as_ref(),
-                    queue.as_ref(),
-                    encoder,
-                    dest.as_ref(),
-                    format,
-                    fade.0,
-                    fade.1,
-                    fade.2,
-                );
-                Ok(())
-            });
-        }
+                *completed_filter_look_at = post
+                    .look_at
+                    .map(|position| Vec3::new(position.x, position.z, position.y));
+            }
+            // Native fade is already frozen for this receiving frame. Core's
+            // shared fade queue cannot choose another session's overlay here.
+            game_client::display::status_circle::record_camera_fade(
+                device.as_ref(),
+                queue.as_ref(),
+                encoder,
+                dest.as_ref(),
+                format,
+                camera_fade.fade,
+                camera_fade.intensity,
+                camera_fade.diffuse,
+            );
+            Ok(())
+        };
+        let projected_shroud = self
+            .presentation_frame
+            .as_ref()
+            .and_then(|frame| frame.terrain_projected_shroud());
+        self.forward_pass.render(
+            graphics_system,
+            &self.render_items,
+            view_matrix,
+            projection_matrix,
+            camera_position,
+            self.cached_lighting.as_ref(),
+            projected_shroud,
+            #[cfg(feature = "game_client")]
+            skip_filter_scene,
+            #[cfg(not(feature = "game_client"))]
+            false,
+            #[cfg(feature = "game_client")]
+            Some(&mut finish_filters),
+            #[cfg(not(feature = "game_client"))]
+            None,
+        )?;
 
         let forward_elapsed = forward_started.elapsed();
         if self.frame_number <= 5 {

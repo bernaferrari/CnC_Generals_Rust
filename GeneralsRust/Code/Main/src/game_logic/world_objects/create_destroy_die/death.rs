@@ -570,7 +570,14 @@ impl GameLogic {
             );
             return;
         }
-        self.fire_owned_fx_list_die(id);
+        let fx_source = match input {
+            Some(input) => input.source,
+            None => self
+                .objects
+                .get(&id)
+                .and_then(|object| object.last_damage_source),
+        };
+        self.fire_owned_fx_list_die_from_source(id, fx_source);
         if let Some(object) = self.objects.get_mut(&id) {
             object.fire_create_object_die();
         }

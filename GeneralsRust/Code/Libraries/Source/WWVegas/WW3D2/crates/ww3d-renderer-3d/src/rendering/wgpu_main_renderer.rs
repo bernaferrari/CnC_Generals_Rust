@@ -399,6 +399,27 @@ impl WgpuMainRenderer {
 
     /// Present the frame.
     pub fn end_frame(&mut self) -> RendererResult<()> {
+        self.end_frame_with_post_render(None)
+    }
+
+    /// Runs a caller-borrowed scene completion before submitting this frame.
+    /// The callback cannot escape into the next frame or require shared ownership.
+    pub fn end_frame_with_post_render(
+        &mut self,
+        post_render: Option<&mut dyn FnMut(&mut ww3d_engine::RenderFrame) -> RendererResult<()>>,
+    ) -> RendererResult<()> {
+        self.end_frame_with_scene_policy(false, post_render)
+    }
+
+    /// Reusing a viewport capture skips scene work, while the caller still
+    /// composites that capture and paints this frame's interface before submit.
+    pub fn end_frame_with_scene_policy(
+        &mut self,
+        skip_scene: bool,
+        mut post_render: Option<
+            &mut dyn FnMut(&mut ww3d_engine::RenderFrame) -> RendererResult<()>,
+        >,
+    ) -> RendererResult<()> {
         let clear = self.config.clear_color;
         let clear_color = wgpu::Color {
             r: clear.x as f64,
@@ -411,6 +432,11 @@ impl WgpuMainRenderer {
             let frame_timing = frame.timing;
             WW3D::sync(frame_timing.total_time.as_millis() as u32);
             let frame_work_result: RendererResult<_> = (|| {
+                if skip_scene {
+                    self.pre_scene_callbacks.clear();
+                    self.post_frame_callbacks.clear();
+                    return Ok(Default::default());
+                }
                 let had_pre_scene_callbacks = !self.pre_scene_callbacks.is_empty();
                 if had_pre_scene_callbacks {
                     self.run_pre_scene_callbacks(&mut frame)?;
@@ -438,7 +464,12 @@ impl WgpuMainRenderer {
                 self.sync_shadow_submissions(shadow_submissions);
                 Ok(stats)
             })();
-            let callback_result = self.run_post_frame_callbacks(&mut frame);
+            let callback_result = self.run_post_frame_callbacks(&mut frame).and_then(|()| {
+                if let Some(callback) = post_render.as_mut() {
+                    callback(&mut frame)?;
+                }
+                Ok(())
+            });
             let end_result = ww3d_engine::end_render(frame)
                 .map_err(|err| RendererError::RenderError(err.to_string()));
             let frame_work_result = match (frame_work_result, callback_result) {

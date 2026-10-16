@@ -51,6 +51,16 @@ pub(crate) struct LogicCameraContinuation {
     script_skybox_enabled: bool,
     cinematic_letterbox: bool,
     hooks: CameraHookContinuation,
+    // Never extend the historical positional record; extras have a versioned envelope.
+    #[serde(skip)]
+    owned_extras: CameraOwnedExtras,
+}
+
+#[derive(Debug, Clone, Default)]
+struct CameraOwnedExtras {
+    #[cfg(feature = "game_client")]
+    filter: game_client::display::view_filter::ViewFilterState,
+    pending_focus_previous_target: Option<Vec3>,
 }
 
 fn codec() -> CameraCodec<MAX_BYTES> {
@@ -102,9 +112,14 @@ impl GameLogic {
             script_skybox_enabled: self.script_skybox_enabled.clone(),
             cinematic_letterbox: self.cinematic_letterbox.clone(),
             hooks: self.mission_scripts.capture_camera_continuation()?,
+            owned_extras: CameraOwnedExtras {
+                #[cfg(feature = "game_client")]
+                filter: self.session_view.filter.clone(),
+                pending_focus_previous_target: self.session_view.pending_focus_previous_target,
+            },
         };
         state.validate()?;
-        codec().serialize(&state).map_err(|e| e.to_string())
+        owned_envelope::encode(&state)
     }
     pub(crate) fn decode_camera_continuation(
         bytes: &[u8],
@@ -112,12 +127,17 @@ impl GameLogic {
         if bytes.len() > MAX_BYTES {
             return Err("camera continuation exceeds 4 MiB".into());
         }
-        let state: LogicCameraContinuation =
-            codec().deserialize(bytes).map_err(|e| e.to_string())?;
+        let state = owned_envelope::decode(bytes)?;
         state.validate()?;
         Ok(state)
     }
     pub(crate) fn admit_camera_continuation(&mut self, state: LogicCameraContinuation) {
+        #[cfg(feature = "game_client")]
+        {
+            self.session_view.filter = state.owned_extras.filter;
+        }
+        self.session_view.pending_focus_previous_target =
+            state.owned_extras.pending_focus_previous_target;
         self.pending_camera_focus = state.pending_camera_focus;
         self.script_camera_focus_estimate = state.script_camera_focus_estimate;
         self.script_camera_move_to = state.script_camera_move_to;
@@ -169,3 +189,10 @@ use validation::ValidateCamera;
 #[cfg(test)]
 #[path = "camera_continuation_tests.rs"]
 mod tests;
+
+#[path = "camera_continuation/owned_envelope.rs"]
+mod owned_envelope;
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "camera_continuation/filter_owner_tests.rs"]
+mod filter_owner_tests;

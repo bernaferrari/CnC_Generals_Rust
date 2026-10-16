@@ -16,6 +16,8 @@ pub(crate) struct CameraRequestAdmission {
     pub slave_disable: bool,
     pub screen_shakes: usize,
     pub shakers: usize,
+    pub bw: bool,
+    pub motion_blur: usize,
 }
 
 impl GameLogic {
@@ -24,11 +26,35 @@ impl GameLogic {
         frame: &crate::presentation_frame::PresentationFrame,
     ) -> CameraRequestAdmission {
         let mut admitted = CameraRequestAdmission::default();
+        if frame.camera_bw_mode.is_some()
+            && self
+                .pending_camera_bw_mode
+                .as_ref()
+                .map(|r| (r.enabled, r.frames))
+                == frame.camera_bw_mode
+        {
+            admitted.bw = true;
+            self.pending_camera_bw_mode = None;
+        }
+        admitted.motion_blur = self
+            .pending_camera_motion_blur
+            .iter()
+            .zip(&frame.camera_motion_blur)
+            .take_while(|(a, b)| a == b)
+            .count();
+        self.pending_camera_motion_blur
+            .drain(..admitted.motion_blur);
         if frame.camera_focus.is_some()
             && self.pending_camera_focus.map(|p| p.to_array()) == frame.camera_focus
+            && self
+                .session_view
+                .pending_focus_previous_target
+                .map(|p| p.to_array())
+                == frame.camera_focus_previous_target
         {
             admitted.focus = true;
             self.pending_camera_focus = None;
+            self.session_view.pending_focus_previous_target = None;
         }
         if frame
             .camera_zoom
@@ -198,5 +224,70 @@ mod camera_request_admission_tests {
         assert_eq!(world.peek_pending_screen_shakes()[0].intensity, 2);
         assert_eq!(peer.peek_pending_screen_shakes()[0].intensity, 1);
         assert_eq!(peer.peek_pending_screen_shakes().len(), 1);
+    }
+    #[test]
+    fn frozen_filter_admission_preserves_new_values_tail_and_peer() {
+        use crate::game_logic::mission_scripts::CameraMotionBlurRequest;
+        let mut world = GameLogic::new();
+        let mut peer = GameLogic::new();
+        world.queue_pending_camera_bw_mode(true, 9);
+        world
+            .pending_camera_motion_blur
+            .push(CameraMotionBlurRequest::Follow { amount: 17 });
+        peer.pending_camera_motion_blur
+            .push(CameraMotionBlurRequest::EndFollow);
+        let frame = PresentationFrame::build_from_logic(&mut world, 0);
+        world.queue_pending_camera_bw_mode(false, 4);
+        world
+            .pending_camera_motion_blur
+            .push(CameraMotionBlurRequest::EndFollow);
+        let admitted = world.acknowledge_frozen_camera_requests(&frame);
+        assert!(!admitted.bw);
+        assert_eq!(admitted.motion_blur, 1);
+        assert_eq!(
+            world
+                .peek_pending_camera_bw_mode()
+                .map(|r| (r.enabled, r.frames)),
+            Some((false, 4))
+        );
+        assert_eq!(
+            world.peek_pending_camera_motion_blur(),
+            &[CameraMotionBlurRequest::EndFollow]
+        );
+        assert_eq!(
+            peer.peek_pending_camera_motion_blur(),
+            &[CameraMotionBlurRequest::EndFollow]
+        );
+        assert_eq!(
+            world.acknowledge_frozen_camera_requests(&frame).motion_blur,
+            0
+        );
+        let fresh = PresentationFrame::build_from_logic(&mut world, 0);
+        let admitted = world.acknowledge_frozen_camera_requests(&fresh);
+        assert!(admitted.bw);
+        assert_eq!(admitted.motion_blur, 1);
+        assert!(world.peek_pending_camera_bw_mode().is_none());
+        assert!(world.peek_pending_camera_motion_blur().is_empty());
+        assert_eq!(peer.peek_pending_camera_motion_blur().len(), 1);
+    }
+    #[test]
+    fn waypoint_focus_origin_survives_completion_and_equal_position_overwrite_is_distinct() {
+        let mut world = GameLogic::new();
+        world.session_view.target = Vec3::new(2., 0., 3.);
+        let destination = Vec3::new(20., 0., 30.);
+        world.request_path_camera_focus(destination);
+        let frame = PresentationFrame::build_from_logic(&mut world, 0);
+        assert_eq!(frame.camera_focus_previous_target, Some([2., 0., 3.]));
+        // A direct LookAt at the same position must not replay an old path delta.
+        world.request_camera_focus(destination);
+        assert!(!world.acknowledge_frozen_camera_requests(&frame).focus);
+        assert_eq!(world.peek_pending_camera_focus(), Some(destination));
+        let direct = PresentationFrame::build_from_logic(&mut world, 0);
+        assert!(direct.camera_focus_previous_target.is_none());
+        assert!(world.acknowledge_frozen_camera_requests(&direct).focus);
+        world.request_path_camera_focus(destination);
+        let path = PresentationFrame::build_from_logic(&mut world, 0);
+        assert!(world.acknowledge_frozen_camera_requests(&path).focus);
+        assert!(world.session_view.pending_focus_previous_target.is_none());
     }
 }

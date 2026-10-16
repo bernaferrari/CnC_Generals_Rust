@@ -1811,6 +1811,10 @@ impl CnCGameEngine {
         let camera_position = self.camera_position;
         #[cfg(feature = "game_client")]
         {
+            self.native_filter_scroll = self.native_filter_render_scroll();
+        }
+        #[cfg(feature = "game_client")]
+        let (render_result, filter_look_at) = {
             let mut physics_visual_owner = self.game_logic.host_physics_visuals.borrow_mut();
             let mut complete_physics_visual =
                 |input: &mut crate::presentation_frame::UnitRenderInput,
@@ -1877,7 +1881,7 @@ impl CnCGameEngine {
                     })
                     .collect()
             };
-            render_pipeline.execute(
+            let result = render_pipeline.execute(
                 graphics_system,
                 &view_matrix,
                 &projection_matrix,
@@ -1887,8 +1891,19 @@ impl CnCGameEngine {
                 deferred_startup_model_load_budget,
                 skip_world_scene,
                 Some(&mut direct_scene_candidate_sink),
+                &mut self.game_logic.session_view.filter,
+                self.native_filter_scroll,
+                presentation_logic_frame,
                 Some(&mut complete_physics_visual),
-            )?;
+            );
+            (result, render_pipeline.take_completed_filter_look_at())
+        };
+        #[cfg(feature = "game_client")]
+        {
+            if let Some(position) = filter_look_at {
+                self.apply_native_filter_look_at(position);
+            }
+            render_result?;
         }
         #[cfg(not(feature = "game_client"))]
         self.render_pipeline.execute(

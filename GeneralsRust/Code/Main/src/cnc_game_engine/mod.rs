@@ -96,6 +96,7 @@ thread_local! {
 mod audio;
 mod boot;
 mod camera_drain;
+mod camera_filter;
 mod camera_height;
 mod camera_motion;
 mod camera_view_effects;

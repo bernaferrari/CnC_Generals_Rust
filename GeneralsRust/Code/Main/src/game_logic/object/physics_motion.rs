@@ -154,7 +154,7 @@ impl Object {
     }
 
     /// Leftover `desired_locomotor_set` / Chinook landed install of SET_TAXIING.
-    fn apply_leftover_taxiing_locomotor_set(&mut self) {
+    pub(super) fn apply_leftover_taxiing_locomotor_set(&mut self) {
         let chinook_landed = self.chinook_ai.as_ref().is_some_and(|ai| {
             ai.flight_status
                 == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
@@ -488,7 +488,7 @@ impl Object {
     }
 
     /// Keep translation; preserve accumulated pitch/roll (C++ setPosition).
-    fn set_position_keep_rotation(&mut self, pos: glam::Vec3) {
+    pub(super) fn set_position_keep_rotation(&mut self, pos: glam::Vec3) {
         let mut mtx = self.get_transform_matrix();
         mtx.w_axis = pos.extend(1.0);
         self.set_transform_matrix(mtx);
@@ -496,7 +496,7 @@ impl Object {
     }
 
     /// C++ PhysicsBehavior::update CenterOfMassOffset * sin(remainingAngle).
-    fn center_of_mass_pitch_scale(&self) -> f32 {
+    pub(super) fn center_of_mass_pitch_scale(&self) -> f32 {
         if self.center_of_mass_offset == 0.0 {
             return 1.0;
         }
@@ -646,160 +646,11 @@ impl Object {
         ground_y: f32,
         services: &mut super::PhysicsDamageServices<'_>,
     ) -> bool {
-        self.apply_leftover_taxiing_locomotor_set();
-
-        self.ground_height = ground_y;
-
-        // C++ PhysicsUpdate.cpp:626 — DISABLED_HELD skips gravity/friction/Euler.
-        // Landing onCollide / bounce still run outside that gate.
-        if self.is_physics_held() {
-            let old_y = self.get_position().y;
-            let impact_vy = self.movement.velocity.y;
-            self.finish_physics_landing_bookkeeping(old_y, ground_y, impact_vy, services);
-            return false;
-        }
-
-        // C++ does not bail on isEffectivelyDead — wrecks keep Euler.
-        if self.is_kind_of(crate::game_logic::KindOf::Structure) && !self.allow_to_fall {
-            return false;
-        }
-
-        self.ground_height = ground_y;
-
-        // C++ PhysicsUpdate.cpp:626-636 applyGravitationalForces every update
-        // unless DISABLED_HELD (gated above). No aircraft exception.
-        // Stun tick already applies leftover gravity while IS_STUNNED.
-        // Living Z-motive units already Euler'd lift+gravity in
-        // apply_live_handle_behavior_z when host march ran (hq-g8oig).
-        // Dead / disabled skip doLocomotor, so they still need gravity here.
-        if self.shock_stun_frames == 0 {
-            let host_live_y_euler_already = !self.is_disabled()
-                && !self.host_skip_dead_locomotor()
-                && matches!(
-                    self.loco_behavior_z,
-                    LocomotorBehaviorZ::SurfaceRelativeHeight
-                        | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
-                        | LocomotorBehaviorZ::AbsoluteHeight
-                );
-            if !host_live_y_euler_already {
-                self.apply_gravitational_forces();
-                self.movement.velocity.y += self.physics_accel.y;
-                self.physics_accel.y = 0.0;
-                self.invalidate_velocity_magnitude();
-            }
-        }
-
-        let old_pos = self.get_position();
-        let old_y = old_pos.y;
-        let airborne_start = old_y > ground_y + 0.05;
-
-        // C++ PhysicsBehavior::update is the sole Euler step. Live march already
-        // integrated pos += v*dt in update_movement (v is units/second).
-        // Applying `old_pos + v` here treats per-second velocity as per-frame
-        // and ~25x retail speed. Only integrate leftover Y / shock here when
-        // the unit is not already path-marching this frame.
-        let v = self.movement.velocity;
-        let marching = self.movement.target_position.is_some() || !self.movement.path.is_empty();
-        let mut new_pos = if marching { old_pos } else { old_pos + v };
-        // YPR: stun tick already integrates while stunned (avoid double apply).
-        if self.shock_stun_frames == 0 {
-            let pryf = self.pitch_roll_yaw_factor;
-            let yaw_rate = self.shock_yaw_rate * pryf;
-            let pitch_rate = self.shock_pitch_rate * pryf * self.center_of_mass_pitch_scale();
-            let roll_rate = self.shock_roll_rate * pryf;
-            self.apply_physics_ypr(yaw_rate, pitch_rate, roll_rate);
-        }
-
-        let bounce_force = self.compute_ground_bounce_force(old_y, new_pos.y, ground_y);
-        let mut bounced = false;
-
-        // Remember z-vel prior to ground-slam (host Y).
-        if new_pos.y <= ground_y {
-            let dy = ground_y - new_pos.y;
-            self.movement.velocity.y += dy;
-            if self.movement.velocity.y > 0.0 {
-                self.movement.velocity.y = 0.0;
-            } else if dy.abs() < 1e-6 && self.movement.velocity.y < 0.0 {
-                // Marching / no Y integrate: do not accumulate gravity into vy.
-                self.movement.velocity.y = 0.0;
-            }
-            self.invalidate_velocity_magnitude();
-            new_pos.y = ground_y;
-            self.allow_to_fall = false;
-            // Stunned flailing → stunned residual on first ground hit.
-            if self.shock_stun_frames > 0 && !self.shock_grounded_once {
-                self.shock_grounded_once = true;
-            }
-        } else if new_pos.y > ground_y {
-            if self.stick_to_ground && !self.allow_to_fall {
-                new_pos.y = ground_y;
-            }
-            // Uphill refusal is moveTowardsPositionLegs, not PhysicsBehavior.
-            // Climber slope: while FLAG_CLIMBING, scale leftover XY when slope>1
-            // (Locomotor.cpp:1734-1739 desiredSpeed /= groundSlope*4).
-            if self.is_climbing && matches!(self.loco_appearance, LocomotorAppearance::Climber) {
-                let slope = (new_pos.y - old_pos.y).abs().max(1.0);
-                if slope > 1.0 {
-                    let scale = 1.0 / (slope * 4.0);
-                    self.movement.velocity.x *= scale;
-                    self.movement.velocity.z *= scale;
-                    self.invalidate_velocity_magnitude();
-                }
-            }
-        }
-
-        // C++ PhysicsUpdate.cpp:665-669 — NaN translation destroyObject.
-        if !new_pos.x.is_finite() || !new_pos.y.is_finite() || !new_pos.z.is_finite() {
-            let hp = self.health.current.max(1.0);
-            {
-                self.internal_change_health(-self.health.current);
-            }
-            self.status.destroyed = true;
-            self.movement.velocity = glam::Vec3::ZERO;
-            self.invalidate_velocity_magnitude();
-            return false;
-        }
-        self.set_position_keep_rotation(new_pos);
-
-        if let Some(force) = bounce_force {
-            if self.shock_allow_bounce {
-                self.apply_physics_force(force);
-                // Immediate integrate of bounce accel residual (C++ applies same frame).
-                self.integrate_physics_accel();
-                bounced = true;
-                // C++ handleBounce (PhysicsUpdate.cpp:505-517) rights 0-or-PI
-                // then testStunned. Do not slam yaw-only here — leftover
-                // handle_bounce roll=PI must survive so stun-kill sees a flip
-                // and inverted wreck poses stick (hq-p6amn).
-                if !self.test_stunned_unit_for_destruction_with_services(services)
-                    && !self.status.destroyed
-                {
-                    self.right_physics_pitch_keep_flip();
-                }
-            }
-        }
-
-        let airborne_end = new_pos.y > ground_y + 0.05;
-        // C++ WAS_AIRBORNE_LAST_FRAME && !airborneAtEnd && !IMMUNE.
-        // Skip when the march stamp already recorded this landing.
-        if self.was_airborne_last_frame
-            && !airborne_end
-            && !self.immune_to_falling_damage
-            && !self.landing_splat_done
-        {
-            self.record_bounce_land(old_y);
-            self.pending_ground_collide = true;
-            let impact_vy = v.y;
-            let _ = self.apply_shock_fall_damage_with_services(impact_vy, services);
-        }
-        self.was_airborne_last_frame = airborne_end;
-        self.stamp_airborne_target_from_locomotor();
-        let _ = airborne_start; // reserved for future free-fall start residual
-        // C++ killWhenRestingOnGround residual after landing.
-        if !airborne_end {
-            let _ = self.maybe_kill_when_resting_on_ground_with_services(services);
-        }
-        bounced
+        self.drive_standalone_contact(
+            super::MotionContact::Start(ground_y),
+            services,
+            Object::step_motion_contact,
+        )
     }
 
     /// C++ landing peel that still runs when HELD skips Euler.
@@ -900,123 +751,15 @@ impl Object {
     }
 
     fn tick_shock_stun_body(&mut self, services: &mut super::PhysicsDamageServices<'_>) {
-        if self.shock_stun_frames == 0 {
-            // Damp residual rates when fully settled.
-            self.shock_yaw_rate *= 0.85;
-            self.shock_pitch_rate *= 0.85;
-            self.shock_roll_rate *= 0.85;
-            if self.shock_yaw_rate.abs() < 1e-4 {
-                self.shock_yaw_rate = 0.0;
-            }
-            // Grounded settle: clear freefall leftovers.
-            if self.movement.velocity.y.abs() < 0.25 {
-                self.movement.velocity.y = 0.0;
-                self.shock_was_airborne = false;
-                self.shock_allow_bounce = false;
-                self.set_status_disabled_freefall(false);
-                let _ = self.maybe_kill_when_resting_on_ground_with_services(services);
-            }
-            // Settled stun ticks must still re-derive model conditions, or
-            // stale STUNNED/FREEFALL bits from the last stunned refresh stick
-            // after relief (C++ PhysicsBehavior::update re-evaluates
-            // IS_STUNNED / IS_IN_FREEFALL every frame, PhysicsUpdate.cpp:671-702).
-            self.refresh_model_condition_bits();
-            return;
-        }
-        // Capture before this frame's land so first ground contact keeps STUNNED
-        // one frame (C++ ≈1 frame grounded stun; FLAILING → STUNNED visible).
-        // Also record pre-tick height band so relief defers on the landing frame.
-        let already_on_ground =
-            self.shock_grounded_once || self.get_position().y <= self.ground_height + 0.05;
-        let was_significantly_airborne = self.is_significantly_above_terrain();
-        // C++ has no stun timer. Keep IS_STUNNED until settle relief.
-        // Integrate YPR while stunned (tumble settle). Motion step skips YPR
-        // when stunned so this is the sole live HAS_PITCHROLLYAW pass.
-        // C++ PhysicsUpdate.cpp:715-727 COM sine applies every YPR frame,
-        // including stunned (shocked units keep pitch/roll rates).
-        let pryf = self.pitch_roll_yaw_factor;
-        self.apply_physics_ypr(
-            self.shock_yaw_rate * pryf,
-            self.shock_pitch_rate * pryf * self.center_of_mass_pitch_scale(),
-            self.shock_roll_rate * pryf,
+        self.drive_standalone_contact(
+            super::StunContact::Start,
+            services,
+            Object::step_stun_contact,
         );
-        self.shock_yaw_rate *= 0.92;
-        self.shock_pitch_rate *= 0.92;
-        self.shock_roll_rate *= 0.92;
-
-        // Vertical freefall / bounce residual (host Y-up == C++ Z).
-        let ground_y = self.ground_height;
-        let old_y = self.get_position().y;
-        // Gravity while airborne or still carrying vertical velocity.
-        if old_y > ground_y + 0.01 || self.movement.velocity.y.abs() > 0.01 {
-            self.movement.velocity.y += self.physics_gravity();
-            let mut pos = self.get_position();
-            let new_y = pos.y + self.movement.velocity.y;
-            if new_y <= ground_y {
-                // Capture impact velocity before bounce/slam (C++ activeVelZ residual).
-                let impact_vy = self.movement.velocity.y;
-                let was_air = self.shock_was_airborne || old_y > ground_y + 0.01;
-                let bounced =
-                    self.handle_shock_ground_bounce_with_services(old_y, new_y, ground_y, services);
-                pos.y = ground_y;
-                self.set_position_keep_rotation(pos);
-                // C++ first ground hit while stunned: FLAILING → STUNNED.
-                if !self.shock_grounded_once {
-                    self.shock_grounded_once = true;
-                }
-                // C++ WAS_AIRBORNE_LAST_FRAME && !airborneAtEnd → bounce sound + fall damage.
-                // One owner per frame: the march stamp may have recorded it already.
-                if was_air && !self.landing_splat_done {
-                    self.record_bounce_land(old_y);
-                    self.pending_ground_collide = true;
-                    let _ = self.apply_shock_fall_damage_with_services(impact_vy, services);
-                }
-                if bounced <= 0.0 {
-                    // Slam residual: clamp downward vel at ground.
-                    if self.movement.velocity.y < 0.0 {
-                        self.movement.velocity.y = 0.0;
-                    }
-                    self.shock_was_airborne = false;
-                    // C++ clear IS_IN_FREEFALL / DISABLED_FREEFALL when grounded.
-                    self.set_status_disabled_freefall(false);
-                } else {
-                    // Bounce still airborne residual.
-                    self.shock_was_airborne = true;
-                    self.set_status_disabled_freefall(true);
-                }
-            } else {
-                pos.y = new_y;
-                self.set_position_keep_rotation(pos);
-                self.shock_was_airborne = true;
-                // C++ IS_IN_FREEFALL → DISABLED_FREEFALL + MODELCONDITION_FREEFALL.
-                self.set_status_disabled_freefall(true);
-            }
-        } else {
-            // Lateral bleed only when grounded.
-            if self.movement.velocity.y.abs() < 0.5 {
-                self.movement.velocity.y = 0.0;
-            }
-            self.set_status_disabled_freefall(false);
-            self.shock_was_airborne = false;
-        }
-        // Lateral friction residual while stunned on ground.
-        if self.get_position().y <= ground_y + 0.01 {
-            self.movement.velocity.x *= 0.92;
-            self.movement.velocity.z *= 0.92;
-            // Ground contact residual: freefall disable only while airborne.
-            if self.movement.velocity.y <= 0.01 {
-                self.set_status_disabled_freefall(false);
-            }
-            // C++ killWhenRestingOnGround after settle.
-            let _ = self.maybe_kill_when_resting_on_ground_with_services(services);
-        }
-        // C++ PhysicsUpdate.cpp:672-682: clear stun when |vel|<0.5 or not significantly airborne.
-        self.maybe_clear_shock_stun_relief(already_on_ground, was_significantly_airborne);
-        self.refresh_model_condition_bits();
     }
 
     /// C++ STUN_RELIEF_EPSILON / !isSignificantlyAboveTerrain residual.
-    fn maybe_clear_shock_stun_relief(
+    pub(super) fn maybe_clear_shock_stun_relief(
         &mut self,
         already_on_ground: bool,
         was_significantly_airborne: bool,
