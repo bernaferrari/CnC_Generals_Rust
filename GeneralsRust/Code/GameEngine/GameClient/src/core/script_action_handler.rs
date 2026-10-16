@@ -3,7 +3,6 @@ use crate::display::view::{
     CameraLockType, CameraShakeType, FilterMode, FilterType, Point3, Vector2, with_tactical_view,
     with_tactical_view_ref,
 };
-use crate::effects::weather_complete::get_weather_system_mut;
 use crate::game_text::GameText;
 use crate::gui::callbacks::control_bar_callbacks::{hide_control_bar, show_control_bar};
 use crate::helpers::TheInGameUI;
@@ -1423,11 +1422,6 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         if let Some(snow) = crate::snow::get_snow_manager() {
             if let Ok(mut guard) = snow.lock() {
                 guard.set_visible(visible);
-            }
-        }
-        if let Ok(mut weather_guard) = get_weather_system_mut() {
-            if let Some(weather) = weather_guard.as_mut() {
-                weather.set_enabled(visible);
             }
         }
         Ok(())

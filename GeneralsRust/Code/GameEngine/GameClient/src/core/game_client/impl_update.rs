@@ -1903,15 +1903,6 @@ impl GameClient {
                 guard.update(delta_time, &config);
             }
         }
-        if let Ok(mut weather_guard) = get_weather_system_mut() {
-            if let Some(weather) = weather_guard.as_mut() {
-                let camera_pos = with_tactical_view_ref(|view| view.get_3d_camera_position());
-                weather.update(
-                    delta_time,
-                    glam::Vec3::new(camera_pos.x, camera_pos.y, camera_pos.z),
-                );
-            }
-        }
         Ok(())
     }
 

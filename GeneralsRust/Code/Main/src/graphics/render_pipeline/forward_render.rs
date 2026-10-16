@@ -24,8 +24,6 @@ use super::particle_camera::ParticleCamera;
 #[cfg(feature = "game_client")]
 use game_client::effects::particle_renderer::register_particle_renderer;
 #[cfg(feature = "game_client")]
-use game_client::effects::weather_complete::get_weather_system;
-#[cfg(feature = "game_client")]
 use game_client::effects::{ParticleRenderer, get_particle_system_manager};
 #[cfg(feature = "game_client")]
 use game_client::fx_list::get_decal_manager;
@@ -313,7 +311,7 @@ impl ForwardPass {
         true
     }
 
-    /// Queue GameClient particle, weather, and decal draws on Main's sole WGPU
+    /// Queue GameClient particle and decal draws on Main's sole WGPU
     /// frame.  `GameClient::Display::draw` stays disconnected: it would create
     /// and present a second surface instead of sharing this post-scene target.
     #[cfg(feature = "game_client")]
@@ -413,27 +411,8 @@ impl ForwardPass {
                 &uniforms,
             );
 
-            // Weather and decals are updated by `update_presentation_shell` too.
-            // Draw their real client-managed data in the same post-scene order as
-            // GameClient::Display rather than synthesizing presentation geometry.
-            if let Ok(weather_guard) = get_weather_system() {
-                if let Some(weather) = weather_guard.as_ref() {
-                    let particles = weather.get_all_particles();
-                    if !particles.is_empty() {
-                        let mut weather_uniforms = uniforms;
-                        weather_uniforms.particle_count =
-                            particles.len().min(u32::MAX as usize) as u32;
-                        renderer_guard.render_weather_particles(
-                            encoder,
-                            color_view.as_ref(),
-                            depth_view.as_ref(),
-                            &particles,
-                            &weather_uniforms,
-                        );
-                    }
-                }
-            }
-
+            // Client decals follow particle/tracer submission. Retail snow is
+            // emitted by terrain overlays, not an unconfigured weather manager.
             let mut decals = if let Some(manager) = get_decal_manager() {
                 manager
                     .lock()

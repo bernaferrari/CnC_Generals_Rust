@@ -2,13 +2,13 @@
 //!
 //! Full implementation of environmental weather effects including rain, snow, dust storms,
 //! fog, and sandstorms for Command & Conquer Generals Zero Hour.
-//! Matches C++ behavior with GPU-accelerated particle rendering.
+//! Optional locally owned particle effects. Retail C++ weather is implemented
+//! by `crate::snow`; these effects do not publish or control that subsystem.
 
 use super::particle_manager::*;
 use super::particle_system::*;
+use glam::Vec3;
 use std::collections::VecDeque;
-use std::sync::{OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use glam::{Vec3};
 
 fn client_real(lo: f32, hi: f32) -> f32 {
     crate::GameClientRandomValueReal!(lo, hi)
@@ -19,7 +19,7 @@ const MAX_RAIN_PARTICLES: usize = 2000;
 const MAX_SNOW_PARTICLES: usize = 1500;
 const MAX_DUST_PARTICLES: usize = 500;
 
-/// Types of weather effects (matches C++ exactly)
+/// Optional environmental particle types; not the retail SnowManager enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WeatherType {
     None = 0,
@@ -674,11 +674,6 @@ impl WeatherSystem {
 
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
-        if let Some(snow) = crate::snow::get_snow_manager() {
-            if let Ok(mut guard) = snow.lock() {
-                guard.set_visible(enabled);
-            }
-        }
         if !enabled {
             if let Some(rain) = &mut self.rain_system {
                 rain.set_enabled(false);
@@ -705,35 +700,6 @@ impl Default for WeatherSystem {
     fn default() -> Self {
         Self::new()
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum WeatherSystemError {
-    #[error("Weather system not initialized")]
-    NotInitialized,
-    #[error("Weather system lock poisoned")]
-    LockPoisoned,
-}
-
-static WEATHER_SYSTEM: OnceLock<RwLock<Option<WeatherSystem>>> = OnceLock::new();
-
-pub fn initialize_weather_system() -> Result<(), WeatherSystemError> {
-    let lock = WEATHER_SYSTEM.get_or_init(|| RwLock::new(None));
-    let mut guard = lock.write().map_err(|_| WeatherSystemError::LockPoisoned)?;
-    *guard = Some(WeatherSystem::new());
-    Ok(())
-}
-
-pub fn get_weather_system()
--> Result<RwLockReadGuard<'static, Option<WeatherSystem>>, WeatherSystemError> {
-    let lock = WEATHER_SYSTEM.get_or_init(|| RwLock::new(None));
-    lock.read().map_err(|_| WeatherSystemError::LockPoisoned)
-}
-
-pub fn get_weather_system_mut()
--> Result<RwLockWriteGuard<'static, Option<WeatherSystem>>, WeatherSystemError> {
-    let lock = WEATHER_SYSTEM.get_or_init(|| RwLock::new(None));
-    lock.write().map_err(|_| WeatherSystemError::LockPoisoned)
 }
 
 #[cfg(test)]
@@ -786,6 +752,36 @@ mod tests {
 
         let visibility = dust.get_visibility_modifier();
         assert!(visibility > 0.0 && visibility <= 1.0);
+    }
+
+    #[test]
+    fn local_weather_visibility_does_not_change_retail_snow_or_peer() {
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            module_path!(),
+            "local_weather_visibility_does_not_change_retail_snow_or_peer",
+        ) {
+            return;
+        }
+        // This deliberate foreign-service fixture stays in the existing bounded
+        // test child. Local WeatherSystem instances have no retail snow owner.
+        let retail = crate::snow::initialize_snow_manager();
+        retail.lock().unwrap().set_visible(true);
+        let mut owner = WeatherSystem::new();
+        let mut peer = WeatherSystem::new();
+        owner.set_enabled(false);
+        assert!(!owner.enabled);
+        assert!(peer.enabled);
+        assert!(retail.lock().unwrap().is_visible());
+        retail.lock().unwrap().set_visible(false);
+        owner.set_enabled(true);
+        assert!(owner.enabled);
+        assert!(!retail.lock().unwrap().is_visible());
+        peer.set_enabled(false);
+        assert!(owner.enabled);
+        assert!(!peer.enabled);
+        drop(peer);
+        assert!(owner.enabled);
+        assert!(!retail.lock().unwrap().is_visible());
     }
 
     #[test]

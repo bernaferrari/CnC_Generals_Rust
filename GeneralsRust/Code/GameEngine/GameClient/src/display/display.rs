@@ -17,7 +17,6 @@ use crate::effects::particle_manager::get_particle_system_manager;
 use crate::effects::particle_renderer::{
     ParticleRenderer as GpuParticleRenderer, ParticleUniforms, register_particle_renderer,
 };
-use crate::effects::weather_complete::get_weather_system;
 use crate::fx_list::get_decal_manager;
 use crate::game_text::GameText;
 use crate::gui::display_string::{DisplayStringHandle, get_display_string_manager};
@@ -1186,26 +1185,8 @@ impl DisplayInterface for Display {
             }
         }
 
-        // Weather and decal rendering pass
+        // Decal rendering pass (retail snow is drawn by terrain overlays).
         if let Some(renderer) = self.particle_renderer.as_ref() {
-            if let Ok(weather_guard) = get_weather_system() {
-                if let Some(weather) = weather_guard.as_ref() {
-                    let particles = weather.get_all_particles();
-                    if !particles.is_empty() {
-                        let mut uniforms = self.build_particle_uniforms();
-                        uniforms.particle_count = particles.len() as u32;
-                        if let Ok(mut renderer_guard) = renderer.lock() {
-                            renderer_guard.render_weather_particles(
-                                &mut encoder,
-                                scene_view,
-                                &self.depth_view,
-                                &particles,
-                                &uniforms,
-                            );
-                        }
-                    }
-                }
-            }
             let mut decals = if let Some(manager) = get_decal_manager() {
                 manager
                     .lock()

@@ -615,11 +615,6 @@ impl GameClient {
         }
         crate::effects::particle_manager::register_particle_system_manager_bridge();
         register_particle_system_snapshot_block();
-        if let Err(e) = initialize_weather_system() {
-            return Err(GameClientError::SubsystemError(format!(
-                "Weather system init failed: {e}"
-            )));
-        }
 
         if self.subsystem_manager.decal_manager.is_none() {
             let decals = Arc::new(Mutex::new(DecalManager::default()));

@@ -67,7 +67,6 @@ use crate::display::display::Display as GraphicsDisplay;
 use crate::display::image::{get_mapped_image_collection, sync_mapped_images_from_common};
 use crate::display::view::with_tactical_view_ref;
 use crate::drawable::*;
-use crate::effects::weather_complete::{get_weather_system_mut, initialize_weather_system};
 use crate::effects::{DecalManager, EffectsConfig};
 use crate::fx_list::{init_fx_list_store, register_decal_manager, register_fx_audio};
 use crate::game_text::GameText;
