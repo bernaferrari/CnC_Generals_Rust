@@ -45,6 +45,11 @@ fn visual_world_state_reset_clears_object_timeline_components() {
                 frame_rate: 30.0,
                 num_frames: 12,
                 mode: crate::assets::AuthoredDrawAnimationMode::Loop,
+                last_sync_ms: 0,
+                previous_frame: 0.,
+                frame_rate_multiplier: 1.,
+                direction: 1.,
+                playback_mode: crate::assets::AuthoredDrawAnimationMode::Loop,
             }),
             ..Default::default()
         },

@@ -70,10 +70,10 @@ fn client_animation_mode(
         crate::assets::AuthoredDrawAnimationMode::OnceBackwards => {
             Some(ClientDrawableAnimationMode::OnceBackwards)
         }
-        // Main has no exact ping-pong direction state or unsupported-mode
-        // adapter.  A save must not invent one by serializing a nearby mode.
-        crate::assets::AuthoredDrawAnimationMode::LoopPingPong
-        | crate::assets::AuthoredDrawAnimationMode::Unsupported(_) => None,
+        crate::assets::AuthoredDrawAnimationMode::LoopPingPong => {
+            Some(ClientDrawableAnimationMode::LoopPingPong)
+        }
+        crate::assets::AuthoredDrawAnimationMode::Unsupported(_) => None,
     }
 }
 
@@ -642,7 +642,6 @@ impl RenderPipeline {
         source_template_name: &str,
         draw_model: &crate::assets::AuthoredDrawModel,
         completion_target: Option<&crate::assets::LiveDrawAnimationCompletionTarget>,
-        delta_time: f32,
         pending_restore: Option<ClientDrawableStateSnapshot>,
         visual_plans: &[crate::presentation_frame::FrozenWeaponVisualDispatchPlan],
     ) -> (
@@ -664,11 +663,15 @@ impl RenderPipeline {
         let key = (object_id.0, draw_module_index);
         let state = self.drawable_visual_states.entry(key).or_default();
         if state.identity.as_ref() != Some(&identity) {
+            let animation_paused = state.animation_paused;
+            let animation_resume_mode = state.animation_resume_mode.clone();
             let first_bind = state.identity.is_none();
             let retained_recoil = first_bind.then(|| state.recoil_slots.clone());
             let retained_sequence = first_bind.then_some(state.last_seen_weapon_discharge_sequence);
             *state = ObjectVisualState {
                 identity: Some(identity.clone()),
+                animation_paused,
+                animation_resume_mode,
                 ..Default::default()
             };
             if let Some(recoil_slots) = retained_recoil {
@@ -775,6 +778,11 @@ impl RenderPipeline {
                     frame_rate: frame_rate as f32,
                     num_frames,
                     mode: draw_model.animation_mode.clone(),
+                    last_sync_ms: self.animation_sync_ms,
+                    previous_frame: saved.animation.as_ref().expect("checked animation").frame,
+                    frame_rate_multiplier: 1.,
+                    direction: ObjectAnimationState::initial_direction(&draw_model.animation_mode),
+                    playback_mode: draw_model.animation_mode.clone(),
                 });
                 let topology = model
                     .weapon_barrel_topology_for_authored_bindings(&draw_model.weapon_bone_bindings);
@@ -897,72 +905,49 @@ impl RenderPipeline {
                 frame_rate: frame_rate as f32,
                 num_frames,
                 mode: draw_model.animation_mode.clone(),
+                last_sync_ms: self.animation_sync_ms,
+                previous_frame: start_frame,
+                frame_rate_multiplier: 1.,
+                direction: ObjectAnimationState::initial_direction(&draw_model.animation_mode),
+                playback_mode: draw_model.animation_mode.clone(),
             });
         }
-        let animation = state
-            .animation
-            .as_mut()
-            .expect("initialized animation state");
         let should_animate = leftover_should_animate_for_presentation(
             self.presentation_frame.as_deref(),
             object_id,
             draw_model.animations_require_power.get(),
         );
-        if should_animate && delta_time > 0.0 && delta_time < 1.0 && animation.num_frames > 1 {
-            let terminal = (animation.num_frames - 1) as f32;
-            let delta = delta_time * animation.frame_rate;
-            animation.current_frame = match &animation.mode {
-                crate::assets::AuthoredDrawAnimationMode::Manual => animation.current_frame,
-                crate::assets::AuthoredDrawAnimationMode::Once => {
-                    (animation.current_frame + delta).min(terminal)
-                }
-                crate::assets::AuthoredDrawAnimationMode::Loop => {
-                    // Wrap over the full clip length so the terminal frame
-                    // plays; modulo (num_frames - 1) skipped it, hitching
-                    // every loop cycle one frame early.  num_frames > 1 is
-                    // guaranteed by the enclosing guard.
-                    (animation.current_frame + delta) % animation.num_frames as f32
-                }
-                crate::assets::AuthoredDrawAnimationMode::OnceBackwards => {
-                    (animation.current_frame - delta).max(0.0)
-                }
-                crate::assets::AuthoredDrawAnimationMode::LoopBackwards => {
-                    // Mirror of the Loop wrap: cover the full clip length
-                    // including the terminal frame.
-                    (animation.current_frame - delta).rem_euclid(animation.num_frames as f32)
-                }
-                crate::assets::AuthoredDrawAnimationMode::LoopPingPong
-                | crate::assets::AuthoredDrawAnimationMode::Unsupported(_) => {
-                    animation.current_frame
-                }
-            };
-        }
-        if should_animate {
-            match &animation.mode {
-                crate::assets::AuthoredDrawAnimationMode::Once
-                    if animation.num_frames > 0
-                        && animation.current_frame + 1e-3
-                            >= (animation.num_frames.saturating_sub(1) as f32) =>
-                {
-                    Self::notify_unplayable_transition_complete(
-                        &mut self.live_draw_playback,
-                        completion_target,
-                        draw_model,
-                    );
-                }
-                crate::assets::AuthoredDrawAnimationMode::OnceBackwards
-                    if animation.current_frame <= 1e-3 =>
-                {
-                    Self::notify_unplayable_transition_complete(
-                        &mut self.live_draw_playback,
-                        completion_target,
-                        draw_model,
-                    );
-                }
-                _ => {}
+        // setPauseAnimation reads stored Frame, then Set_Animation resets its
+        // Sync baseline; only a preceding actual bone query samples old time.
+        state.install_animation_pause(!should_animate, self.animation_sync_ms);
+        let animation = state
+            .animation
+            .as_mut()
+            .expect("initialized animation state");
+        match &animation.playback_mode {
+            crate::assets::AuthoredDrawAnimationMode::Once
+                if animation.num_frames > 0
+                    && animation.current_frame
+                        == (animation.num_frames.saturating_sub(1) as f32) =>
+            {
+                Self::notify_unplayable_transition_complete(
+                    &mut self.live_draw_playback,
+                    completion_target,
+                    draw_model,
+                );
             }
+            crate::assets::AuthoredDrawAnimationMode::OnceBackwards
+                if animation.current_frame == 0.0 =>
+            {
+                Self::notify_unplayable_transition_complete(
+                    &mut self.live_draw_playback,
+                    completion_target,
+                    draw_model,
+                );
+            }
+            _ => {}
         }
-
+        animation.admit_sync(self.animation_sync_ms);
         let current_frame = animation.current_frame;
         let topology =
             model.weapon_barrel_topology_for_authored_bindings(&draw_model.weapon_bone_bindings);

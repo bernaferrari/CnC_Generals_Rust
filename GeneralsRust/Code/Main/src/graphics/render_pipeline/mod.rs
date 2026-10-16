@@ -750,6 +750,8 @@ pub struct RenderPipeline {
     #[cfg(feature = "game_client")]
     frozen_ghost_scene: Option<game_client::render_bridge::FrozenGhostSceneFrame>,
     last_frame_time: f32,
+    /// Last actual WW3D Sync admitted by NativeDisplay; not a refresh clock.
+    animation_sync_ms: u32,
     /// When set, collect_render_items prefers presentation-owned transforms/model keys.
     presentation_frame: Option<Rc<crate::presentation_frame::PresentationFrame>>,
     /// Frozen specialized module values bound to this exact immutable frame.
@@ -809,6 +811,11 @@ pub(super) struct ObjectAnimationState {
     frame_rate: f32,
     num_frames: u32,
     mode: crate::assets::AuthoredDrawAnimationMode,
+    last_sync_ms: u32,
+    previous_frame: f32,
+    frame_rate_multiplier: f32,
+    direction: f32,
+    playback_mode: crate::assets::AuthoredDrawAnimationMode,
 }
 
 /// Stable selected Draw identity for renderer-local state.  This deliberately
@@ -858,6 +865,8 @@ impl Default for ObjectWeaponRecoilState {
 pub(super) struct ObjectVisualState {
     pub identity: Option<FrozenVisualDrawIdentity>,
     pub animation: Option<ObjectAnimationState>,
+    pub animation_paused: bool,
+    pub animation_resume_mode: Option<crate::assets::AuthoredDrawAnimationMode>,
     /// A restored `None` animation is an explicit saved bind-pose choice.
     /// Keep it distinct from an ordinary cache miss: the latter may become
     /// available after normal prewarm, while a loaded snapshot must never
@@ -992,3 +1001,6 @@ mod view_filter_phase_tests;
 
 #[cfg(all(test, feature = "game_client"))]
 mod locked_filter_gpu_tests;
+
+#[path = "animation_sync.rs"]
+mod animation_sync;

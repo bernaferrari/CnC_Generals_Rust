@@ -266,6 +266,7 @@ impl CnCGameEngine {
         });
         if decision.sync {
             WW3D::sync(decision.sync_time_ms);
+            self.render_pipeline.observe_animation_sync(decision.sync_time_ms);
         }
         let result = self.finish_native_display_after_admission(decision, camera_scroll);
         if result.is_err() {

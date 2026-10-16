@@ -131,6 +131,8 @@ pub enum ClientDrawableAnimationMode {
     Once,
     LoopBackwards,
     OnceBackwards,
+    // Appended: existing positional enum discriminants remain unchanged.
+    LoopPingPong,
 }
 
 /// C++ `W3DModelDraw::WeaponRecoilInfo::RecoilState`.

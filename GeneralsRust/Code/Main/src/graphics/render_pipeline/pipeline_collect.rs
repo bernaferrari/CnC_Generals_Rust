@@ -472,7 +472,6 @@ impl RenderPipeline {
                                     template_name_owned.as_str(),
                                     &draw_model,
                                     u.draw_animation_completion_target(draw_module_index),
-                                    delta_time,
                                     pending_client_drawable_restore,
                                     &visual_plans,
                                 );

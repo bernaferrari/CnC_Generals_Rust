@@ -96,6 +96,7 @@ impl RenderPipeline {
             #[cfg(feature = "game_client")]
             frozen_ghost_scene: None,
             last_frame_time: 0.0,
+            animation_sync_ms: 0,
             presentation_frame: None,
             #[cfg(feature = "game_client")]
             frozen_specialized_draw: None,
@@ -415,5 +416,12 @@ mod presentation_handle_tests {
         assert_eq!(renderer.local_supplies, original_supplies);
         assert_eq!(ui.local_supplies, original_supplies);
         assert_eq!(host.local_supplies, original_supplies.wrapping_add(1));
+    }
+}
+
+impl RenderPipeline {
+    /// Observe an actual Sync operation. Pose evaluation stays lazy on each owner.
+    pub(crate) fn observe_animation_sync(&mut self, sync_time_ms: u32) {
+        self.animation_sync_ms = sync_time_ms;
     }
 }
