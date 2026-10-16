@@ -245,3 +245,78 @@ fn authored_missing_camera_path_keeps_idle_completion_and_armed_modifiers() {
         },
     );
 }
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn authored_rotate_cancels_receiving_path_preserves_axes_and_continues_after_restore() {
+    super::super::sequential_actor_tests::isolated(
+        module_path!(),
+        "authored_rotate_cancels_receiving_path_preserves_axes_and_continues_after_restore",
+        || {
+            let (mut owner, id, _) = world(110.);
+            let (mut peer, peer_id, _) = world(210.);
+            assert_eq!(id, peer_id);
+            *owner.world_services.terrain().write().unwrap() = terrain_chain("CameraPath", 111.);
+            *peer.world_services.terrain().write().unwrap() = terrain_chain("CameraPath", 411.);
+            authored(
+                &mut owner,
+                &peer.mission_scripts,
+                vec![path_action("CameraPath")],
+            );
+            authored(
+                &mut peer,
+                &owner.mission_scripts,
+                vec![path_action("CameraPath")],
+            );
+            assert!(owner.session_view.scripted.motion.active);
+            assert!(peer.session_view.scripted.motion.active);
+            owner.headless_camera_view_offer(33);
+            let position = owner.session_view.target;
+            let peer_before = peer.capture_camera_continuation().unwrap();
+            authored(
+                &mut owner,
+                &peer.mission_scripts,
+                vec![
+                    reals(ScriptActionType::ZoomCamera, &[0.8, 6., 0.1, 0.2]),
+                    reals(ScriptActionType::PitchCamera, &[0.7, 5., 0.1, 0.2]),
+                    Box::new(ScriptAction::new(ScriptActionType::CameraModFreezeTime)),
+                    reals(ScriptActionType::RotateCamera, &[0.75, 1., 0.2, 0.3]),
+                ],
+            );
+            // W3DView::rotateCamera only replaces rotation/tracking and the
+            // waypoint path. Independent scalar motion and stored freeze survive.
+            assert!(!owner.session_view.scripted.motion.active);
+            assert!(!owner.session_view.scripted.path_arrived);
+            assert!(owner.session_view.scripted.object_tracking.is_none());
+            assert_eq!(owner.session_view.camera.camera_zoom_target, Some(0.8));
+            assert_eq!(owner.session_view.camera.camera_pitch_target, Some(0.7));
+            assert!(owner.session_view.scripted.script_camera_freeze_time);
+            assert!(owner.session_view.camera.camera_yaw_target.is_some());
+            assert_eq!(owner.session_view.target, position);
+            assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
+            let saved = owner.capture_camera_continuation().unwrap();
+            let mut restored = GameLogic::new();
+            restored
+                .admit_camera_continuation(GameLogic::decode_camera_continuation(&saved).unwrap());
+            assert_eq!(restored.capture_camera_continuation().unwrap(), saved);
+            peer.reset();
+            assert_eq!(owner.capture_camera_continuation().unwrap(), saved);
+            // Cross rotation completion and the old path's remaining duration.
+            // It must never resume, including in the encoded continuation.
+            for _ in 0..260 {
+                owner.headless_camera_view_offer(33);
+                restored.headless_camera_view_offer(33);
+                assert_eq!(owner.session_view.target, position);
+                assert_eq!(restored.session_view.target, position);
+                assert_eq!(
+                    owner.capture_camera_continuation().unwrap(),
+                    restored.capture_camera_continuation().unwrap()
+                );
+            }
+            assert!(owner.session_view.camera.camera_yaw_target.is_none());
+            assert!(!owner.session_view.scripted.motion.active);
+            assert!(!owner.session_view.scripted.script_camera_freeze_time);
+            assert_camera_queues_empty(&peer.mission_scripts);
+        },
+    );
+}
