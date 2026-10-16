@@ -99,12 +99,12 @@ fn live_run_loop_updates_common_the_audio_each_frame() {
     );
     assert!(
         audio.contains("TheAudio::get()")
-            && audio.contains("audio.update()")
+            && audio.contains("audio.update_with_view(view.listener")
             && audio.contains("GameEngine.cpp:736"),
-        "host_update_the_audio must call Common TheAudio::update"
+        "host_update_the_audio must pass the receiving view to Common audio"
     );
     assert!(
-        audio.contains("sync_audio_listener_from_main_camera")
+        audio.contains("publish_core_hud_camera_pose")
             && audio.contains("camera_position")
             && audio.contains("session_view.target")
             && audio.contains("GameAudio.cpp:281"),

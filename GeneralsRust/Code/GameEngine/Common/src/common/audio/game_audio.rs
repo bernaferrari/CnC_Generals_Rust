@@ -54,6 +54,9 @@ pub type UnsignedInt = u32;
 /// Hook for routing AudioEventRts playback to the active client audio backend.
 pub trait SoundPlaybackHook: Send + Sync {
     fn play(&self, event: &AudioEventRts) -> Result<(), String>;
+    fn play_with_visibility(&self, event: &AudioEventRts, _on_screen: bool) -> Result<(), String> {
+        self.play(event)
+    }
     fn stop(&self, handle: AudioHandle);
     fn pause(&self, handle: AudioHandle);
     fn resume(&self, handle: AudioHandle);
@@ -203,6 +206,8 @@ pub trait AudioViewResolver: Send + Sync {
         dot > 0.64
     }
 }
+
+include!("game_audio_view.rs");
 
 static AUDIO_VIEW_RESOLVER: OnceLock<Arc<dyn AudioViewResolver>> = OnceLock::new();
 
@@ -768,92 +773,6 @@ impl AudioManager {
             sound_mgr.reset();
         }
         self.remove_level_specific_audio_event_infos();
-    }
-
-    pub fn update(&mut self) {
-        // C++ MilesAudioManager::update (MilesAudioManager.cpp:460-468):
-        // AudioManager::update (listener/zoom) → setDeviceListenerPosition →
-        // processRequestList → processPlayingList → processFadingList → processStoppedList.
-        self.update_listener_from_view();
-        self.process_request_list();
-        self.process_playing_list();
-        self.process_fading_list();
-        if let Some(sound_mgr) = &mut self.sound_manager {
-            sound_mgr.update();
-        }
-        self.purge_inactive_events();
-    }
-
-    fn update_listener_from_view(&mut self) {
-        let Some(resolver) = AUDIO_VIEW_RESOLVER.get() else {
-            return;
-        };
-
-        let ground_pos = resolver.get_tactical_view_position();
-        let angle = resolver.get_tactical_view_angle();
-        let camera_pos = resolver.get_3d_camera_position();
-        let ground_height = resolver.get_ground_height(ground_pos.x, ground_pos.y);
-
-        let look_to = Coord3D {
-            x: -angle.sin(),
-            y: angle.cos(),
-            z: 0.0,
-        };
-
-        let desired_height = self.audio_settings.microphone_desired_height_above_terrain;
-        let max_percentage = self
-            .audio_settings
-            .microphone_max_percentage_between_ground_and_camera;
-
-        let mut ground_to_camera = Coord3D {
-            x: camera_pos.x - ground_pos.x,
-            y: camera_pos.y - ground_pos.y,
-            z: camera_pos.z - ground_pos.z,
-        };
-
-        let best_scale_factor = if camera_pos.z <= desired_height || ground_to_camera.z <= 0.0 {
-            max_percentage
-        } else {
-            let z_scale = desired_height / ground_to_camera.z;
-            max_percentage.min(z_scale)
-        };
-
-        ground_to_camera.x *= best_scale_factor;
-        ground_to_camera.y *= best_scale_factor;
-        ground_to_camera.z *= best_scale_factor;
-
-        let mut microphone_pos = Coord3D {
-            x: ground_pos.x,
-            y: ground_pos.y,
-            z: ground_height,
-        };
-        microphone_pos.x += ground_to_camera.x;
-        microphone_pos.y += ground_to_camera.y;
-        microphone_pos.z += ground_to_camera.z;
-
-        self.set_listener_position(&microphone_pos, &look_to);
-
-        let max_boost_scalar = self.audio_settings.zoom_sound_volume_percentage_amount;
-        let min_dist = self.audio_settings.zoom_min_distance;
-        let max_dist = self.audio_settings.zoom_max_distance;
-
-        self.zoom_volume = 1.0 - max_boost_scalar;
-
-        if max_boost_scalar > 0.0 {
-            let dx = camera_pos.x - microphone_pos.x;
-            let dy = camera_pos.y - microphone_pos.y;
-            let dz = camera_pos.z - microphone_pos.z;
-            let dist = (dx * dx + dy * dy + dz * dz).sqrt();
-
-            if dist < min_dist {
-                self.zoom_volume = 1.0;
-            } else if dist < max_dist {
-                let scalar = (dist - min_dist) / (max_dist - min_dist);
-                self.zoom_volume = 1.0 - scalar * max_boost_scalar;
-            }
-        }
-
-        self.set_3d_volume_adjustment(self.zoom_volume);
     }
 
     /// Add an audio event to be played
@@ -1583,6 +1502,9 @@ impl AudioManager {
 
     /// C++ `MilesAudioManager::processRequestList` (MilesAudioManager.cpp:2218-2238).
     pub fn process_request_list(&mut self) {
+        self.process_request_list_with_visibility(&mut legacy_audio_visibility);
+    }
+    fn process_request_list_with_visibility(&mut self, visible: &mut dyn FnMut(&Coord3D) -> bool) {
         let mut i = 0;
         while i < self.audio_requests.len() {
             if !self.should_process_request_this_frame(&self.audio_requests[i]) {
@@ -1620,7 +1542,7 @@ impl AudioManager {
             }
 
             let request = self.audio_requests.remove(i);
-            self.process_request(request);
+            self.process_request(request, visible);
         }
     }
 
@@ -1685,7 +1607,11 @@ impl AudioManager {
     }
 
     /// C++ `MilesAudioManager::processRequest` (2916-2935).
-    fn process_request(&mut self, request: AudioRequest) {
+    fn process_request(
+        &mut self,
+        request: AudioRequest,
+        visible: &mut dyn FnMut(&Coord3D) -> bool,
+    ) {
         match request.request {
             RequestType::Stop => {
                 if let Some(handle) = request.get_handle() {
@@ -1694,7 +1620,7 @@ impl AudioManager {
             }
             RequestType::Play => {
                 if let Some(event) = request.take_pending_event() {
-                    self.play_audio_event(event);
+                    self.play_audio_event(event, visible);
                 }
             }
             RequestType::Pause => {
@@ -1835,7 +1761,11 @@ impl AudioManager {
         let _ = with_sound_playback_hook(|hook| hook.stop(handle));
     }
 
-    fn play_audio_event(&mut self, event: AudioEventRts) {
+    fn play_audio_event(
+        &mut self,
+        event: AudioEventRts,
+        visible: &mut dyn FnMut(&Coord3D) -> bool,
+    ) {
         let Some(info) = event.get_audio_event_info() else {
             report_play_failure_once(
                 event.get_event_name(),
@@ -1864,7 +1794,9 @@ impl AudioManager {
             }
         }
 
-        let hook_result = with_sound_playback_hook(|hook| hook.play(&event));
+        let hook_result = with_sound_playback_hook(|hook| {
+            hook.play_with_visibility(&event, playback_visibility(&event, visible))
+        });
         let play_ok = match hook_result {
             Some(Ok(())) | None => true,
             Some(Err(msg)) => {
@@ -2533,7 +2465,7 @@ impl AudioManager {
         });
     }
 
-    fn process_playing_list(&mut self) {
+    fn process_playing_list(&mut self, visible: &mut dyn FnMut(&Coord3D) -> bool) {
         // C++ MilesAudioManager::processPlayingList (MilesAudioManager.cpp:2242-2368).
         let handles: Vec<AudioHandle> = self.active_audio_events.keys().copied().collect();
         let mut to_stop: Vec<AudioHandle> = Vec::new();
@@ -2583,7 +2515,7 @@ impl AudioManager {
             }
 
             if !with_sound_playback_hook(|hook| hook.is_playing(handle)).unwrap_or(true) {
-                if self.notify_of_audio_completion(&mut event) {
+                if self.notify_of_audio_completion_with_visibility(&mut event, visible) {
                     let still_playing =
                         with_sound_playback_hook(|hook| hook.is_playing(handle)).unwrap_or(false);
                     if still_playing {
@@ -2633,6 +2565,13 @@ impl AudioManager {
     }
 
     fn notify_of_audio_completion(&mut self, event: &mut AudioEventRts) -> bool {
+        self.notify_of_audio_completion_with_visibility(event, &mut legacy_audio_visibility)
+    }
+    fn notify_of_audio_completion_with_visibility(
+        &mut self,
+        event: &mut AudioEventRts,
+        visible: &mut dyn FnMut(&Coord3D) -> bool,
+    ) -> bool {
         // C++ MilesAudioManager::notifyOfAudioCompletion (MilesAudioManager.cpp:1507-1566).
         if self.disallow_speech
             && event
@@ -2651,7 +2590,7 @@ impl AudioManager {
             }
             if event.get_next_play_portion() == PortionToPlay::Sound {
                 event.decrease_loop_count();
-                if self.start_next_loop(event) {
+                if self.start_next_loop(event, visible) {
                     return true;
                 }
             }
@@ -2662,7 +2601,7 @@ impl AudioManager {
             && event
                 .get_audio_event_info()
                 .is_some_and(|info| info.sound_type != AudioType::Music)
-            && self.replay_playing_event(event)
+            && self.replay_playing_event(event, visible)
         {
             return true;
         }
@@ -2670,7 +2609,7 @@ impl AudioManager {
         if event
             .get_audio_event_info()
             .is_some_and(|info| info.sound_type == AudioType::Music)
-            && self.replay_playing_event(event)
+            && self.replay_playing_event(event, visible)
         {
             return true;
         }
@@ -2678,15 +2617,25 @@ impl AudioManager {
         false
     }
 
-    fn replay_playing_event(&self, event: &AudioEventRts) -> bool {
-        match with_sound_playback_hook(|hook| hook.play(event)) {
+    fn replay_playing_event(
+        &self,
+        event: &AudioEventRts,
+        visible: &mut dyn FnMut(&Coord3D) -> bool,
+    ) -> bool {
+        match with_sound_playback_hook(|hook| {
+            hook.play_with_visibility(event, playback_visibility(event, visible))
+        }) {
             Some(Ok(())) => true,
             Some(Err(_)) => false,
             None => true,
         }
     }
 
-    fn start_next_loop(&mut self, event: &mut AudioEventRts) -> bool {
+    fn start_next_loop(
+        &mut self,
+        event: &mut AudioEventRts,
+        visible: &mut dyn FnMut(&Coord3D) -> bool,
+    ) -> bool {
         // C++ MilesAudioManager::startNextLoop (MilesAudioManager.cpp:2719-2756).
         // Loop count is decreased by notifyOfAudioCompletion before this call.
         if event.get_request_stop() {
@@ -2704,7 +2653,7 @@ impl AudioManager {
             return true;
         }
 
-        self.replay_playing_event(event)
+        self.replay_playing_event(event, visible)
     }
 
     pub fn pending_play_request_count(&self) -> usize {
@@ -3089,8 +3038,12 @@ impl RodioPlaybackHook {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl SoundPlaybackHook for RodioPlaybackHook {
-    fn play(&self, event: &AudioEventRts) -> Result<(), String> {
+impl RodioPlaybackHook {
+    fn play_with_observation(
+        &self,
+        event: &AudioEventRts,
+        on_screen: Option<bool>,
+    ) -> Result<(), String> {
         let handle = event.get_playing_handle();
         if handle == 0 {
             return Err("No handle assigned".to_string());
@@ -3121,12 +3074,9 @@ impl SoundPlaybackHook for RodioPlaybackHook {
         if event.is_positional_audio() {
             if let Some(info) = event.get_audio_event_info() {
                 if info.low_pass_freq > 0.0 {
-                    let on_screen = AUDIO_VIEW_RESOLVER
-                        .get()
-                        .map(|resolver| {
-                            resolver.is_world_position_on_screen(&miles_event_world_position(event))
-                        })
-                        .unwrap_or(true);
+                    let on_screen = on_screen.unwrap_or_else(|| {
+                        legacy_audio_visibility(&miles_event_world_position(event))
+                    });
                     if !on_screen {
                         // C++ AIL_set_3D_sample_occlusion(sample, 1.0 - m_lowPassFreq)
                         volume *= info.low_pass_freq.clamp(0.0, 1.0);
@@ -3199,7 +3149,16 @@ impl SoundPlaybackHook for RodioPlaybackHook {
         self.sinks.lock().unwrap().insert(handle, state);
         Ok(())
     }
+}
 
+#[cfg(not(target_arch = "wasm32"))]
+impl SoundPlaybackHook for RodioPlaybackHook {
+    fn play(&self, event: &AudioEventRts) -> Result<(), String> {
+        self.play_with_observation(event, None)
+    }
+    fn play_with_visibility(&self, event: &AudioEventRts, on_screen: bool) -> Result<(), String> {
+        self.play_with_observation(event, Some(on_screen))
+    }
     fn stop(&self, handle: AudioHandle) {
         if let Some(state) = self.sinks.lock().unwrap().remove(&handle) {
             state.sink.stop();
@@ -3700,3 +3659,7 @@ mod audio_settings_archive_tests {
         assert_eq!(settings.sounds_extension, "wav");
     }
 }
+
+#[cfg(test)]
+#[path = "game_audio_owned_view_tests.rs"]
+mod owned_audio_view_tests;

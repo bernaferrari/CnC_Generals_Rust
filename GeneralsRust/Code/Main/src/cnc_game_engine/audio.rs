@@ -188,9 +188,10 @@ impl CnCGameEngine {
     /// C++ `GameEngine::update` `TheAudio->UPDATE()` (`GameEngine.cpp:736`).
     /// Live Common `AudioManager::update` drains AR_Play / fade / playing lists.
     pub(super) fn host_update_the_audio(&mut self) {
-        self.sync_audio_listener_from_main_camera();
+        self.publish_core_hud_camera_pose();
         if let Some(audio) = gamelogic::helpers::TheAudio::get() {
-            audio.update();
+            let view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
+            audio.update_with_view(view.listener, &mut |position| view.is_on_screen(position));
         }
         // C++ GameEngine.cpp:738 TheGameClient->UPDATE() includes Eva::update
         // after TheAudio. Publish host frame first so Eva.cpp:271 is not 0.
@@ -198,8 +199,9 @@ impl CnCGameEngine {
     }
 
     /// C++ GameAudio.cpp:281-330: mic/listener from TheTacticalView camera.
-    /// Drive GameClient View so AUDIO_VIEW_RESOLVER is not stuck at (0,0,0).
-    pub(super) fn sync_audio_listener_from_main_camera(&self) {
+    /// Outbound compatibility pose for remaining Core HUD/radar consumers.
+    /// Native audio consumes CompletedAudioView directly and never reads this mirror.
+    pub(super) fn publish_core_hud_camera_pose(&self) {
         #[cfg(feature = "game_client")]
         {
             use game_client::display::view::{Point3, with_tactical_view};

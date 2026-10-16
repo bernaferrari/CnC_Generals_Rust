@@ -605,6 +605,16 @@ impl GameLogic {
         ground
     }
 
+    /// C++ raw map ground sampling; no bridge layer or presentation remapping.
+    pub(crate) fn raw_terrain_ground_height_at(&self, position: Vec3) -> f32 {
+        crate::game_logic::game_logic::FlightTerrainView {
+            grid: &self.pathfinding_system.grid,
+            terrain: self.terrain.as_ref(),
+            samples: self.pathfinding_height_samples.as_ref(),
+        }
+        .raw_ground(position, 0.0)
+    }
+
     /// Original getGroundHeight without the bridge deck override used by
     /// getLayerHeight. Positional effects/crushing must not climb a deck.
     pub(crate) fn terrain_ground_height_at(&self, world_pos: Vec3) -> Option<f32> {

@@ -629,6 +629,18 @@ impl TheAudio {
         }
     }
 
+    pub fn update_with_view(
+        &self,
+        observation: game_engine::common::audio::game_audio::AudioViewObservation,
+        visible: &mut dyn FnMut(&game_engine::common::audio::audio_event_rts::Coord3D) -> bool,
+    ) {
+        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+        let manager_lock = manager.lock();
+        if let Ok(mut guard) = manager_lock {
+            guard.update_with_view(observation, visible);
+        }
+    }
+
     pub fn pause_audio(&self, affect: EngineAudioAffect) {
         let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
         let manager_lock = manager.lock();

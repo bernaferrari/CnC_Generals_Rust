@@ -1,5 +1,5 @@
 {
-  "input_digest": "3a3b29ce7991468bdbd627d6beabc89edd1355a5e51b2b04b392c1379c02eba6",
+  "input_digest": "1308272823d50de87e335e4e5b1278609bbb0023649d8fbec436dbf7be85079b",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -53,7 +53,7 @@
       "no_reachable_implementation": 686,
       "ownership_symbol": 6,
       "unreviewed_mapping": 1381,
-      "unreviewed_source_range_ownership": 58,
+      "unreviewed_source_range_ownership": 59,
       "unreviewed_symbol_ownership": 1388
     },
     "by_scope": {
@@ -120,7 +120,7 @@
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 4247,
+    "strict_blockers": 4248,
     "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }

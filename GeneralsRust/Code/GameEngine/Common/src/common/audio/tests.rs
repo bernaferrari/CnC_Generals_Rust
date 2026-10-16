@@ -233,8 +233,19 @@ fn does_violate_limit_sets_oldest_handle_and_interrupt_request_counts() {
     assert!(!manager.does_violate_limit(&mut interrupt));
     assert_eq!(interrupt.get_handle_to_kill(), 1001);
 
-    let queued = event_with(test_info("Boom", AudioType::SoundEffect, 0, 1), 1.0);
-    let _ = manager.add_audio_event(&queued);
+    // A noninterrupting request is rejected while the playing limit is full.
+    let rejected = event_with(test_info("Boom", AudioType::SoundEffect, 0, 1), 1.0);
+    assert_eq!(manager.add_audio_event(&rejected), AHSV_NO_SOUND);
+    assert_eq!(manager.pending_play_request_count(), 0);
+    // C++ permits one interrupting request to replace the oldest playing sound,
+    // then rejects a second request in the same frame (pending count == limit).
+    let queued = event_with(
+        test_info("Boom", AudioType::SoundEffect, AC_INTERRUPT, 1),
+        1.0,
+    );
+    assert!(manager.add_audio_event(&queued) >= AHSV_FIRST_HANDLE);
+    assert_eq!(manager.pending_play_request_count(), 1);
+    assert!(manager.active_event_mut_for_test(1001).is_some());
     let mut second_interrupt = event_with(
         test_info("Boom", AudioType::SoundEffect, AC_INTERRUPT, 1),
         1.0,
@@ -294,6 +305,13 @@ fn wav_channel_count_reads_fmt_channels() {
 
 #[test]
 fn the_audio_singleton_registers_rodio_not_wwaudio() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "the_audio_singleton_registers_rodio_not_wwaudio",
+    ) {
+        return;
+    }
+
     // C++ TheAudio (AudioManager) is created in GameEngine::init
     // (GameEngine.cpp createAudioManager / MilesAudioManager).
     // Live Rust analog is Common THE_AUDIO + rodio, not the leftover audio crate.
@@ -306,11 +324,15 @@ fn the_audio_singleton_registers_rodio_not_wwaudio() {
         &manager,
         THE_AUDIO.get().expect("THE_AUDIO set")
     ));
+    assert!(
+        sound_playback_hook_registered(),
+        "boot must register the real playback hook"
+    );
     let src = include_str!("game_audio.rs");
-    let prod = src.split("#[cfg(test)]").next().expect("production");
+    let prod = src; // The root contains production items and test-only accessors.
     assert!(
         prod.contains(
-            "use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Sink, Source}"
+            "use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Sink, Source, SpatialSink}"
         ) && prod.contains("fn register_rodio_playback_hook"),
         "Common TheAudio backend must be rodio, not Miles leftover crate"
     );
@@ -322,6 +344,13 @@ fn the_audio_singleton_registers_rodio_not_wwaudio() {
 
 #[test]
 fn initialize_global_audio_manager_applies_retail_slider_volumes() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "initialize_global_audio_manager_applies_retail_slider_volumes",
+    ) {
+        return;
+    }
+
     // C++ AudioManager::init (GameAudio.cpp) copies preferred slider volumes.
     // Pre-fix `new()` left music/sound/speech at 0 so playback was muted.
     let manager = initialize_global_audio_manager();
@@ -356,6 +385,13 @@ fn update_drains_queued_play_requests_like_miles_process_request_list() {
 
 #[test]
 fn boot_equivalent_audio_ini_load_resolves_retail_event_names() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "boot_equivalent_audio_ini_load_resolves_retail_event_names",
+    ) {
+        return;
+    }
+
     // C++ AudioManager::init (GameAudio.cpp:186-199) loads Music.ini,
     // SoundEffects.ini, Speech.ini, Voice.ini into m_allAudioEventInfo.
     // addAudioEvent returns AHSV_Error when the name is missing (line 393-395).
@@ -394,9 +430,12 @@ fn boot_equivalent_audio_ini_load_resolves_retail_event_names() {
 fn rodio_play_does_not_reenter_the_audio_mutex() {
     let src = include_str!("game_audio.rs");
     let play = src
-        .split("impl SoundPlaybackHook for RodioPlaybackHook")
+        .split("fn play_with_observation(")
         .nth(1)
-        .and_then(|s| s.split("fn stop(").next())
+        .and_then(|s| {
+            s.split("impl SoundPlaybackHook for RodioPlaybackHook")
+                .next()
+        })
         .unwrap_or("");
     assert!(
         play.contains("try_lock()"),
@@ -749,6 +788,13 @@ fn set_listener_position_stores_orientation() {
 
 #[test]
 fn play_failure_session_set_logs_once_per_event() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "play_failure_session_set_logs_once_per_event",
+    ) {
+        return;
+    }
+
     // C++ "Missing Audio File" (AudioFileCache::openFile,
     // MilesAudioManager.cpp:3134) is one line per missing file; the Rust
     // session set keeps the same one-line-per-event rate limit so a mute
@@ -775,6 +821,13 @@ fn play_failure_session_set_logs_once_per_event() {
 
 #[test]
 fn unresolved_add_audio_event_reports_failure_once() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "unresolved_add_audio_event_reports_failure_once",
+    ) {
+        return;
+    }
+
     // C++ addAudioEvent returns AHSV_Error for unknown names
     // (GameAudio.cpp:393-395). Pre-fix the dropped handle was invisible;
     // now the resolve failure is reported once per event name.

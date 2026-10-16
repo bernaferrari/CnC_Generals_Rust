@@ -2171,7 +2171,7 @@ impl CnCGameEngine {
 
             // Keep leftover TheTacticalView pose/size in lockstep so leftover
             // W3DLeftHUDDraw `build_view_box_lines` sees the live camera.
-            self.sync_audio_listener_from_main_camera();
+            self.publish_core_hud_camera_pose();
             let (view_w, view_h) = self.tactical_viewport_size();
             with_tactical_view(|view| {
                 view.set_width(view_w as i32);

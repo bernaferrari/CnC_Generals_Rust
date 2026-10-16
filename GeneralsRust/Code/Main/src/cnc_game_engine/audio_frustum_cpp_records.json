@@ -1,0 +1,98 @@
+[
+  {
+    "position": [
+      0,
+      -15,
+      0
+    ],
+    "on_screen": true
+  },
+  {
+    "position": [
+      15,
+      -15,
+      0
+    ],
+    "on_screen": true
+  },
+  {
+    "position": [
+      -15,
+      -15,
+      0
+    ],
+    "on_screen": true
+  },
+  {
+    "position": [
+      15.01,
+      -15,
+      0
+    ],
+    "on_screen": false
+  },
+  {
+    "position": [
+      0,
+      -15,
+      15
+    ],
+    "on_screen": true
+  },
+  {
+    "position": [
+      0,
+      -15,
+      -15
+    ],
+    "on_screen": true
+  },
+  {
+    "position": [
+      0,
+      -15,
+      15.01
+    ],
+    "on_screen": false
+  },
+  {
+    "position": [
+      0,
+      -10,
+      0
+    ],
+    "on_screen": true
+  },
+  {
+    "position": [
+      0,
+      -9.99,
+      0
+    ],
+    "on_screen": false
+  },
+  {
+    "position": [
+      0,
+      -20,
+      0
+    ],
+    "on_screen": true
+  },
+  {
+    "position": [
+      0,
+      -20.01,
+      0
+    ],
+    "on_screen": false
+  },
+  {
+    "position": [
+      0,
+      15,
+      0
+    ],
+    "on_screen": false
+  }
+]
