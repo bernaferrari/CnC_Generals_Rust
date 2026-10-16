@@ -22,6 +22,41 @@ impl ScriptActionDispatcher<'_> {
         // Retain legacy callback-error continuation, including after_action.
     }
 
+    /// CPP getUnitNamed reads the driving interpreter's calling/condition
+    /// object and exact authored name. Missing is authoritative; only the
+    /// standalone adapter may consult the Core registry.
+    pub(super) fn resolve_camera_named_object(
+        &self,
+        name: &str,
+        driver: &dyn ScriptExecutionDriver,
+    ) -> Option<ObjectID> {
+        let this_object = self
+            .context
+            .with_engine_ref(|engine| engine.script_object_id())
+            .flatten();
+        match driver.named_object_id(name, this_object) {
+            crate::scripting::engine::ScriptOwnerQuery::Present(id) => Some(id),
+            crate::scripting::engine::ScriptOwnerQuery::Missing => None,
+            crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
+                let tracker = get_named_object_tracker();
+                let id = tracker.get_object_id(name).ok().flatten();
+                if id.is_some() || dual_world_registry_unavailable() {
+                    return id;
+                }
+                let lower = name.to_ascii_lowercase();
+                OBJECT_REGISTRY
+                    .get_all_objects()
+                    .into_iter()
+                    .find_map(|object| {
+                        object.read().ok().and_then(|object| {
+                            (object.get_name().to_ascii_lowercase() == lower)
+                                .then(|| object.get_id())
+                        })
+                    })
+            }
+        }
+    }
+
     /// Resolve a raw waypoint through the driving camera owner. Missing and
     /// failed owned queries are final; only an unavailable driver selects the
     /// standalone Core terrain adapter. Errors retain camera action continuation.
@@ -656,26 +691,7 @@ impl ScriptActionDispatcher<'_> {
             play
         );
 
-        // C++ `TheScriptEngine->getUnitNamed` — host injects name→id into the
-        // crate tracker. Empty OBJECT_REGISTRY must not skip named lookup.
-        let tracker = get_named_object_tracker();
-        let mut object_id = tracker.get_object_id(&unit_name).ok().flatten();
-        // Wave 284: empty dual-world → skip crate Object walk only.
-        if object_id.is_none() && !dual_world_registry_unavailable() {
-            let lower = unit_name.to_ascii_lowercase();
-            object_id = OBJECT_REGISTRY
-                .get_all_objects()
-                .into_iter()
-                .find_map(|obj_ref| {
-                    obj_ref.read().ok().and_then(|obj| {
-                        if obj.get_name().to_ascii_lowercase() == lower {
-                            Some(obj.get_id())
-                        } else {
-                            None
-                        }
-                    })
-                });
-        }
+        let object_id = self.resolve_camera_named_object(&unit_name, driver);
 
         let Some(object_id) = object_id else {
             log::warn!("Camera tether failed: unit '{}' not found", unit_name);
@@ -743,26 +759,7 @@ impl ScriptActionDispatcher<'_> {
         let ease_in_seconds = action.get_parameter(3).map(|p| p.get_real()).unwrap_or(0.0);
         let ease_out_seconds = action.get_parameter(4).map(|p| p.get_real()).unwrap_or(0.0);
 
-        // C++ `TheScriptEngine->getUnitNamed` — host injects name→id into the
-        // crate tracker. Empty OBJECT_REGISTRY must not skip named lookup.
-        let tracker = get_named_object_tracker();
-        let mut object_id = tracker.get_object_id(&object_name).ok().flatten();
-        // Wave 284: empty dual-world → skip crate Object walk only.
-        if object_id.is_none() && !dual_world_registry_unavailable() {
-            let lower = object_name.to_ascii_lowercase();
-            object_id = OBJECT_REGISTRY
-                .get_all_objects()
-                .into_iter()
-                .find_map(|obj_ref| {
-                    obj_ref.read().ok().and_then(|obj| {
-                        if obj.get_name().to_ascii_lowercase() == lower {
-                            Some(obj.get_id())
-                        } else {
-                            None
-                        }
-                    })
-                });
-        }
+        let object_id = self.resolve_camera_named_object(&object_name, driver);
 
         log::debug!(
             "Camera looking toward '{}' (sec: {}, hold: {}, ease_in: {}, ease_out: {})",

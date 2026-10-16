@@ -73,10 +73,6 @@ impl CnCGameEngine {
         init_subsystem_manager()
             .map_err(|err| warn!("Subsystem manager initialization failed: {err}"))
             .ok();
-        // C++ parity: GameEngine::init() line 679 — HideControlBar() after init completes.
-        {
-            let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);
-        }
         Self::apply_command_line_overrides(&command_line);
         // C++ GameEngine::init (GameEngine.cpp:360-361): TheGameLODManager
         // after parseCommandLine, before Water/Weather INI. init() loads
@@ -420,6 +416,10 @@ impl CnCGameEngine {
         let pending_state = None;
 
         game_logic.session_view.camera = crate::presentation_frame::camera::SessionCamera {
+            viewport: crate::presentation_frame::camera::viewport::TacticalViewport::for_display(
+                surface_w, surface_h,
+            )
+            .map_err(anyhow::Error::msg)?,
             camera_follow_factor: -1.0,
             camera_position,
             scripted_camera_constraint_widen: None,
@@ -519,6 +519,9 @@ impl CnCGameEngine {
             },
             #[cfg(feature = "game_client")]
             control_bar: game_client::gui::control_bar::ControlBar::new(),
+            #[cfg(feature = "game_client")]
+            control_bar_callbacks:
+                game_client::gui::callbacks::control_bar_callbacks::ControlBarCallbacks::new(),
 
             game_logic,
             default_starting_cash: crate::game_logic::Player::DEFAULT_STARTING_MONEY,
@@ -1138,7 +1141,7 @@ impl CnCGameEngine {
         // C++ GameEngine::init / HideControlBar — hide the live WND parent.
         #[cfg(feature = "game_client")]
         {
-            let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);
+            self.hide_owned_control_bar(true);
         }
         // Soft GameHUD visibility stays paired for construction-ghost residual.
         if self.game_hud_mut().hud_visible() {

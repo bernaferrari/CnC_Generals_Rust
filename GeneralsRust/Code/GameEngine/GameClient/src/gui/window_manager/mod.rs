@@ -117,6 +117,7 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{file::FileAccess, file_system::get_file_system};
 use log::warn;
 
+mod control_bar_dispatch;
 mod create_destroy;
 mod draw;
 mod focus_tab;
@@ -132,13 +133,15 @@ mod script_callbacks;
 mod types;
 mod wnd_parse;
 
+pub use control_bar_dispatch::ControlBarInputContext;
 pub use layout::{WindowLayout, WindowLayoutInfo};
 pub use reentry::{
     ReentryFallback, WindowMouseFacts, dispatch_os_key_to_window_manager,
-    dispatch_os_mouse_to_window_manager, dispatch_os_mouse_to_window_manager_with_facts,
-    hide_window_rc, queue_create_layout, queue_set_focus, queue_window_manager_op,
-    queue_window_manager_op_deferred, window_manager_try_borrow_free, with_window_manager,
-    with_window_manager_ref,
+    dispatch_os_key_to_window_manager_with_control_bar, dispatch_os_mouse_to_window_manager,
+    dispatch_os_mouse_to_window_manager_with_control_bar,
+    dispatch_os_mouse_to_window_manager_with_facts, hide_window_rc, queue_create_layout,
+    queue_set_focus, queue_window_manager_op, queue_window_manager_op_deferred,
+    window_manager_try_borrow_free, with_window_manager, with_window_manager_ref,
 };
 pub use types::{CaptureFlags, ModalWindow, TabDirection};
 
@@ -407,3 +410,6 @@ pub const WINDOW_MANAGER_SRC: &str = concat!(
     include_str!("types.rs"),
     include_str!("wnd_parse.rs"),
 );
+
+#[cfg(test)]
+mod control_bar_dispatch_tests;

@@ -214,11 +214,11 @@ fn wnd_control_bar_is_live_gameplay_hud_not_only_soft_ui_manager() {
     // C++ HideControlBar / ShowControlBar / ToggleControlBar (ControlBarCallback.cpp:477-549).
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
-        src.contains("fn hide_gameplay_layouts") && src.contains("hide_control_bar(true)"),
+        src.contains("fn hide_gameplay_layouts") && src.contains("hide_owned_control_bar(true)"),
         "shell hide must call live WND HideControlBar"
     );
     assert!(
-        src.contains("fn ensure_gameplay_layouts") && src.contains("show_control_bar"),
+        src.contains("fn ensure_gameplay_layouts") && src.contains("show_owned_control_bar"),
         "InGame enter must ShowControlBar on live WND tree"
     );
     let hud = include_str!("../ui/hud.rs");

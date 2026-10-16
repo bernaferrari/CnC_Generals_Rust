@@ -1046,7 +1046,15 @@ fn key_and_screenedge_scroll_mouse_lock_like_cpp() {
         dispatch
             .matches("game_client::gui::dispatch_os_mouse_to_window_manager_with_facts(")
             .count(),
-        3
+        2,
+        "position and wheel preserve receiving mouse facts"
+    );
+    assert_eq!(
+        dispatch
+            .matches("dispatch_os_mouse_to_window_manager_with_control_bar(")
+            .count(),
+        1,
+        "button dispatch also borrows its receiving bar and viewport"
     );
     let cam = src
         .find("fn update_camera(&mut self, dt: f32)")

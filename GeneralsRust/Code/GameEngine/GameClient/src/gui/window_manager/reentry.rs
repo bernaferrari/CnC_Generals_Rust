@@ -298,6 +298,28 @@ pub fn dispatch_os_mouse_to_window_manager_with_facts(
     )
 }
 
+/// Native selected WND actions receive the actual bar and view for this call.
+pub fn dispatch_os_mouse_to_window_manager_with_control_bar(
+    msg: WindowMessage,
+    x: i32,
+    y: i32,
+    facts: WindowMouseFacts,
+    context: &mut super::ControlBarInputContext<'_>,
+) -> WindowInputReturnCode {
+    dispatch_mouse_with_facts(
+        msg,
+        x,
+        y,
+        facts,
+        |msg, x, y, data| {
+            with_window_manager(|manager| {
+                manager.process_mouse_event_with_control_bar(msg, x, y, data, context)
+            })
+        },
+        || crate::gui::shell::get_shell().is_shell_active(),
+    )
+}
+
 fn dispatch_mouse_with_facts(
     msg: WindowMessage,
     x: i32,
@@ -331,6 +353,21 @@ mod mouse_facts_tests;
 ///
 /// `state` is the C++ key-state byte (`KEY_STATE_DOWN=0x02`, `KEY_STATE_UP=0x01`).
 /// Shell active consumes the key so world hotkeys do not also fire.
+pub fn dispatch_os_key_to_window_manager_with_control_bar(
+    key: u8,
+    state: u8,
+    context: &mut super::ControlBarInputContext<'_>,
+) -> WindowInputReturnCode {
+    let rc = with_window_manager(|manager| {
+        manager.process_key_event_with_control_bar(key, state, context)
+    });
+    if crate::gui::shell::get_shell().is_shell_active() {
+        WindowInputReturnCode::Used
+    } else {
+        rc
+    }
+}
+
 pub fn dispatch_os_key_to_window_manager(key: u8, state: u8) -> WindowInputReturnCode {
     let rc = with_window_manager(|manager| manager.process_key_event(key, state));
     if crate::gui::shell::get_shell().is_shell_active() {

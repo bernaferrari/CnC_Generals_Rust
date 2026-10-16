@@ -1085,10 +1085,7 @@ impl CnCGameEngine {
                 {
                     #[cfg(feature = "game_client")]
                     {
-                        let _ =
-                            game_client::gui::callbacks::control_bar_callbacks::toggle_control_bar(
-                                true,
-                            );
+                        self.toggle_owned_control_bar(true);
                     }
                     self.game_hud_mut().toggle_visibility();
                     info!(
@@ -1469,10 +1466,7 @@ impl CnCGameEngine {
                     }
                     #[cfg(feature = "game_client")]
                     {
-                        let _ =
-                            game_client::gui::callbacks::control_bar_callbacks::toggle_control_bar(
-                                true,
-                            );
+                        self.toggle_owned_control_bar(true);
                     }
                     self.game_hud_mut().toggle_visibility();
                     true

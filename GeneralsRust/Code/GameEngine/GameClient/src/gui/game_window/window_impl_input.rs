@@ -10,6 +10,27 @@ impl GameWindow {
         data1: WindowMsgData,
         data2: WindowMsgData,
     ) -> WindowMsgHandled {
+        let mut notification = None;
+        self.handle_widget_input_phase(msg, data1, data2, false, &mut notification)
+    }
+    pub(crate) fn handle_widget_input_with_control_bar_notification(
+        &mut self,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+    ) -> (WindowMsgHandled, Option<ControlBarNotification>) {
+        let mut notification = None;
+        let result = self.handle_widget_input_phase(msg, data1, data2, true, &mut notification);
+        (result, notification)
+    }
+    fn handle_widget_input_phase(
+        &mut self,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+        owned_control_bar: bool,
+        notification: &mut Option<ControlBarNotification>,
+    ) -> WindowMsgHandled {
         self.sync_listbox_content_top_inset();
         if matches!(self.widget, Some(WindowWidget::ComboBox(_)))
             && msg == WindowMessage::LeftUp
@@ -207,6 +228,9 @@ impl GameWindow {
             Some(WindowWidget::HorizontalSlider(_)) | Some(WindowWidget::VerticalSlider(_))
         );
 
+        let single_push_button_notification = owned_control_bar
+            && messages.len() == 1
+            && matches!(self.widget, Some(WindowWidget::PushButton(_)));
         let original_data1 = data1;
         for message in messages {
             if let GadgetMessage::FocusChanged { has_focus, .. } = message {
@@ -389,6 +413,26 @@ impl GameWindow {
                 }
             };
 
+            if single_push_button_notification
+                && matches!(
+                    msg,
+                    WindowMessage::GadgetSelected | WindowMessage::GadgetRightClick
+                )
+                && data1 as u32
+                    == game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+                        "ControlBar.wnd:ButtonLarge",
+                    )
+                && let Some(owner) = target_owner.as_ref()
+                && owner.borrow().callbacks.control_bar_system
+            {
+                *notification = Some(ControlBarNotification {
+                    owner: owner.clone(),
+                });
+                // This is the sole message. Only the consumed-input handled
+                // flag follows the original owner callback; no widget work is
+                // moved across the synchronous notification boundary.
+                return WindowMsgHandled::Handled;
+            }
             let result = if let Some(ref owner) = target_owner {
                 owner.borrow_mut().send_system_message(msg, data1, data2)
             } else {

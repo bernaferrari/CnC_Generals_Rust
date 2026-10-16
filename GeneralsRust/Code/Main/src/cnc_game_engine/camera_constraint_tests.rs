@@ -26,10 +26,12 @@ fn camera_constraint_plane_uses_receiving_fixed_ground_not_logical_zero() {
     camera.initialize_map(80., 300., 37.5, 0.);
     let view = Mat4::look_at_rh(Vec3::new(0., 300., 300.), Vec3::ZERO, Vec3::Y);
     let projection = Mat4::perspective_rh(50_f32.to_radians(), 4. / 3., 1., 2000.);
-    let viewport = (800., 600.);
+    let viewport =
+        crate::presentation_frame::camera::viewport::TacticalViewport::for_display(800, 600)
+            .unwrap();
     let actual = native_camera_constraint_inset(&camera, view, projection, viewport);
-    let source = w3d_camera_constraint_offset(view, projection, viewport, 80.);
-    let wrong_logical_plane = w3d_camera_constraint_offset(view, projection, viewport, 0.);
+    let source = w3d_camera_constraint_offset(view, projection, (800., 600.), 80.);
+    let wrong_logical_plane = w3d_camera_constraint_offset(view, projection, (800., 600.), 0.);
     assert_eq!(actual, source);
     assert!(actual.is_finite() && actual > 0.);
     assert!((actual - wrong_logical_plane).abs() > 1.);

@@ -182,7 +182,7 @@ impl ForwardPass {
             queue,
             projected_shroud_uploader: crate::graphics::ProjectedShroudGpuUploader::default(),
             ghost_lighting_environment: None,
-            tactical_view_height_frac: 1.0,
+            tactical_viewport: Default::default(),
             laser_vertex_buffer: None,
             laser_vertex_capacity: 0,
             laser_vertices_uploaded: 0,
@@ -693,9 +693,8 @@ impl ForwardPass {
             self.camera.set_position(camera_position);
             self.camera.set_view_matrix(*view_matrix);
             self.camera.set_projection_matrix(*projection_matrix);
-            let frac = self.tactical_view_height_frac.clamp(0.05, 1.0);
-            self.camera
-                .set_viewport(glam::Vec2::new(0.0, 0.0), glam::Vec2::new(1.0, frac));
+            let (viewport_min, viewport_max) = self.tactical_viewport.normalized_bounds();
+            self.camera.set_viewport(viewport_min, viewport_max);
             renderer.set_camera(self.camera.clone());
             renderer.set_light_environment(Self::build_light_environment(lighting));
             renderer.set_projected_shroud(projected_shroud_binding);

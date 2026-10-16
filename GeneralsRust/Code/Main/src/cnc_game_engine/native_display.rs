@@ -397,13 +397,14 @@ impl CnCGameEngine {
         {
             self.apply_camera_orbit_transform();
         }
-        let (width, height) = super::types::render_surface_extent(&self.window);
-        self.render_pipeline.set_tactical_3d_viewport(
-            width as f32,
-            height as f32,
-            self.tactical_view_height_frac(),
-        );
+        let viewport = self.game_logic.session_view.camera.viewport;
+        self.render_pipeline.set_tactical_3d_viewport(viewport);
         self.rebuild_tactical_projection();
+        // Until FX/radar/audio consume the completed native snapshot directly,
+        // keep their existing presentation observation current. This operation
+        // neither selects nor advances a simulation or its camera/HAG.
+        #[cfg(feature = "game_client")]
+        game_client::display::view::with_tactical_view(|view| viewport.observe_in_core_view(view));
     }
 }
 

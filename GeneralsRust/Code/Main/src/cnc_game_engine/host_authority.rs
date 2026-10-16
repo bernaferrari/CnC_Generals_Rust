@@ -1121,12 +1121,15 @@ impl CnCGameEngine {
 
         // The receiving application keeps its persistent view until map admission
         // resets it. A detached candidate never publishes or replaces this state.
+        let candidate_visibility =
+            std::mem::take(&mut logic.session_view.pending_letterbox_visibility);
         let candidate_focus_previous = logic.session_view.pending_focus_previous_target;
         let candidate_scripted = std::mem::take(&mut logic.session_view.scripted);
         // Map actions already applied to the candidate's receiving filter.
         #[cfg(feature = "game_client")]
         let candidate_filter = std::mem::take(&mut logic.session_view.filter);
         logic.session_view = std::mem::take(&mut self.game_logic.session_view);
+        logic.session_view.pending_letterbox_visibility = candidate_visibility;
         logic.session_view.pending_focus_previous_target = candidate_focus_previous;
         logic.session_view.scripted = candidate_scripted;
         #[cfg(feature = "game_client")]
@@ -1155,6 +1158,13 @@ impl CnCGameEngine {
         self.invalidate_presentation_terrain_cache();
         self.draw_module_name_cache.borrow_mut().clear();
         self.kind_name_cache.borrow_mut().clear();
+        #[cfg(feature = "game_client")]
+        if matches!(
+            self.game_logic.game_mode(),
+            crate::game_logic::GameMode::Replay
+        ) {
+            self.set_owned_control_bar_scheme("Observer");
+        }
     }
 
     /// Preserve the candidate's saved continuation after presentation commit
@@ -1224,6 +1234,11 @@ impl CnCGameEngine {
                 logic.session_view.filter = candidate_filter;
             }
         }
+        // View dimensions belong to the receiving window, never to a saved world.
+        // V2 may replace the complete camera continuation but not its viewport.
+        logic.session_view.pending_letterbox_visibility.clear();
+        logic.session_view.camera.viewport = self.game_logic.session_view.camera.viewport;
+        logic.session_view.camera.rebuild_projection();
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
         #[cfg(feature = "game_client")]
         self.game_client
@@ -1362,6 +1377,13 @@ impl CnCGameEngine {
             // fast-view continuation, but projection belongs to this display's
             // current viewport. Loading must not restore another window's aspect.
             self.rebuild_tactical_projection();
+        }
+        #[cfg(feature = "game_client")]
+        if matches!(
+            self.game_logic.game_mode(),
+            crate::game_logic::GameMode::Replay
+        ) {
+            self.set_owned_control_bar_scheme("Observer");
         }
         // Keep the client companion staged until the first complete frozen
         // frame after the successful world replacement. Actual collection

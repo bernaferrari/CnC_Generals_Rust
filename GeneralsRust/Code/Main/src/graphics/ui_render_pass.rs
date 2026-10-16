@@ -94,28 +94,6 @@ impl<T: UiFrameLifecycle> Drop for UiFrameCleanup<T> {
     }
 }
 
-/// C++ `W3DInGameUI::draw` always `winRepaint()`s the live ControlBar tree.
-/// `HideControlBar` at boot (and `show_control_bar` early-return when
-/// `ControlBarState.visible` is already true) can leave `ControlBarParent`
-/// HIDDEN after InGame enter. Unhide it on every non-shell frame.
-fn unhide_control_bar_parent_while_ingame(
-    wm: &mut game_client::gui::window_manager::WindowManager,
-) {
-    if !game_client::gui::callbacks::control_bar_callbacks::is_control_bar_visible() {
-        return;
-    }
-    // ForwardPass only flushes this overlay for the live 3D frame.
-    // Do not gate on Shell.is_shell_active — leftover MainMenu can
-    // keep that flag true and leave ControlBarParent HIDDEN.
-    let Some(parent) = wm.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
-    else {
-        return;
-    };
-    if parent.borrow().is_hidden() {
-        let _ = parent.borrow_mut().hide(false);
-    }
-}
-
 /// C++ `winRepaint` always has the ControlBar tree (`InGameUI::createControlBar`
 /// + `ShowControlBar`). The Rust InGame enter load can miss; retry on the live
 /// `TheWindowManager` with backoff so a later flush can emit draw commands.
@@ -197,13 +175,6 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
     #[cfg(feature = "game_client")]
     {
         game_client::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks();
-        // C++ ScriptActions::doLetterBoxMode HideControlBar(TRUE) / ShowControlBar(FALSE).
-        // flush must not force-show the live ControlBar through a cutscene.
-        if game_client::display::display_fx::letterbox_enabled() {
-            let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);
-        } else if game_client::gui::callbacks::control_bar_callbacks::is_control_bar_visible() {
-            let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(true);
-        }
     }
 
     // C++ W3DInGameUI::draw (W3DInGameUI.cpp:379-415) renders move/attack
@@ -211,7 +182,6 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
     #[cfg(feature = "game_client")]
     game_client::display::view::draw_live_command_markers();
     let root_count = game_client::gui::window_manager::with_window_manager(|wm| {
-        unhide_control_bar_parent_while_ingame(wm);
         let roots = wm.root_window_count();
         wm.draw_all();
         roots

@@ -3,7 +3,7 @@
 //! Implements in-game control bar callbacks and radar input handling, matching
 //! the behavior of C++ ControlBarCallback.cpp.
 
-use crate::display::view::{Point3, set_tactical_view_height_frac, with_tactical_view};
+use crate::display::view::{Point3, with_tactical_view};
 use crate::gui::callbacks::replay_controls::{
     hide_replay_controls, show_replay_controls, toggle_replay_controls,
 };
@@ -34,6 +34,25 @@ use std::sync::{Arc, RwLock};
 const CMD_NEED_TARGET_POS: u32 = 0x0000_0020;
 const CMD_ATTACK_OBJECTS_POSITION: u32 = 0x0000_1000;
 const KEY_ESC: usize = 0x1B;
+
+/// Borrowed writer into the camera belonging to the receiving client.
+/// Display dimensions and the resulting integer height share that owner.
+pub trait ControlBarViewport {
+    fn display_size(&self) -> (u32, u32);
+    fn set_height_px(&mut self, height: i32);
+}
+
+/// Explicit standalone adapter; native clients provide their SessionCamera.
+pub struct StandaloneControlBarViewport;
+impl ControlBarViewport for StandaloneControlBarViewport {
+    fn display_size(&self) -> (u32, u32) {
+        let (width, height) = with_window_manager_ref(|manager| manager.screen_size());
+        (width.max(0) as u32, height.max(0) as u32)
+    }
+    fn set_height_px(&mut self, height: i32) {
+        with_tactical_view(|view| view.set_height(height));
+    }
+}
 
 /// Control bar system state
 #[derive(Debug, Clone)]
@@ -229,6 +248,140 @@ impl ControlBarCallbacks {
             state: ControlBarState::default(),
             animate_manager: AnimateWindowManager::new(),
             button_communicator: 0,
+        }
+    }
+
+    /// CPP ControlBar::update advances the actual window animation manager
+    /// during the admitted UI update, then hides a completed reversed parent.
+    pub fn update_window_animations(
+        &mut self,
+        parent: Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>,
+    ) {
+        self.update_window_animations_at(parent, std::time::Instant::now());
+    }
+
+    pub fn update_window_animations_at(
+        &mut self,
+        parent: Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>,
+        now: std::time::Instant,
+    ) {
+        self.animate_manager.update_at(now);
+        if self.animate_manager.is_finished() && self.animate_manager.is_reversed() {
+            if let Some(parent) = parent {
+                let _ = parent.borrow_mut().hide(true);
+                self.state.visible = false;
+            }
+        }
+    }
+
+    /// Show the receiving bar. Parent lookup is performed by the caller;
+    /// no process-global control bar or tactical view participates.
+    pub fn show_control_bar_owned(
+        &mut self,
+        bar: &mut ControlBar,
+        viewport: &mut dyn ControlBarViewport,
+        parent: Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>,
+        replay: bool,
+        immediate: bool,
+    ) {
+        bar.show_special_power_shortcut();
+        if let Some(parent) = parent {
+            bar.switch_control_bar_stage_on_window_owned(
+                ControlBarStage::Default,
+                viewport,
+                replay,
+                Some(parent.clone()),
+            );
+            let (_, height) = viewport.display_size();
+            // Show writes 80% even when replay makes stage-switch inert.
+            viewport.set_height_px((height as f32 * 0.80) as i32);
+            if !immediate {
+                let (width, height) = viewport.display_size();
+                self.animate_manager
+                    .set_screen_size(width as i32, height as i32);
+                self.animate_manager.reset();
+                self.animate_manager.register_window(
+                    parent.clone(),
+                    AnimationType::SlideBottom,
+                    true,
+                    500,
+                    0,
+                );
+                bar.animate_special_power_shortcut(true);
+            }
+            let _ = parent.borrow_mut().hide(false);
+            self.state.visible = true;
+        }
+        bar.mark_ui_dirty();
+    }
+
+    pub fn hide_control_bar_owned(
+        &mut self,
+        bar: &mut ControlBar,
+        viewport: &mut dyn ControlBarViewport,
+        parent: Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>,
+        window_manager_present: bool,
+        immediate: bool,
+    ) {
+        bar.hide_special_power_shortcut();
+        if window_manager_present {
+            if let Some(parent) = parent {
+                viewport.set_height_px(viewport.display_size().1 as i32);
+                if immediate {
+                    let _ = parent.borrow_mut().hide(true);
+                    bar.hide_special_power_shortcut();
+                }
+                self.state.visible = false;
+            }
+            if !immediate {
+                self.animate_manager.reverse_animate_window();
+                bar.animate_special_power_shortcut(false);
+            }
+            bar.hide_purchase_science();
+        }
+    }
+
+    pub fn toggle_control_bar_owned(
+        &mut self,
+        bar: &mut ControlBar,
+        viewport: &mut dyn ControlBarViewport,
+        parent: Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>,
+        replay: bool,
+        immediate: bool,
+    ) {
+        let Some(parent) = parent else {
+            return;
+        };
+        if parent.borrow().is_hidden() {
+            bar.show_special_power_shortcut();
+            viewport.set_height_px((viewport.display_size().1 as f32 * 0.80) as i32);
+            let _ = parent.borrow_mut().hide(false);
+            bar.switch_control_bar_stage_on_window_owned(
+                ControlBarStage::Default,
+                viewport,
+                replay,
+                Some(parent.clone()),
+            );
+            if !immediate {
+                let (width, height) = viewport.display_size();
+                self.animate_manager
+                    .set_screen_size(width as i32, height as i32);
+                self.animate_manager.reset();
+                self.animate_manager.register_window(
+                    parent.clone(),
+                    AnimationType::SlideBottom,
+                    true,
+                    500,
+                    0,
+                );
+                bar.animate_special_power_shortcut(true);
+            }
+            self.state.visible = true;
+        } else {
+            bar.hide_special_power_shortcut();
+            viewport.set_height_px(viewport.display_size().1 as i32);
+            let _ = parent.borrow_mut().hide(true);
+            self.state.visible = false;
         }
     }
 
@@ -507,11 +660,12 @@ impl ControlBarCallbacks {
             screen_h
         };
         // C++ HideControlBar setHeight(Display) / ShowControlBar 80%. Live 3D
-        // viewport reads tactical_view_height_frac, not only leftover view height.
-        set_tactical_view_height_frac(if show { 0.80 } else { 1.0 });
-        with_tactical_view(|view| {
-            view.set_height(target_height);
-        });
+        // Standalone adapter writes its Core View directly.
+        if parent_live {
+            with_tactical_view(|view| {
+                view.set_height(target_height);
+            });
+        }
         if show {
             if parent_live {
                 // C++ ShowControlBar: scheme is applied at InGame start; stage DEFAULT
@@ -928,16 +1082,151 @@ mod tests {
         assert!(show_control_bar(true).is_ok());
     }
 
+    struct OwnedViewport {
+        display: (u32, u32),
+        height: i32,
+    }
+    impl ControlBarViewport for OwnedViewport {
+        fn display_size(&self) -> (u32, u32) {
+            self.display
+        }
+        fn set_height_px(&mut self, height: i32) {
+            self.height = height;
+        }
+    }
+
     #[test]
-    fn hide_control_bar_lifts_tactical_view_frac() {
-        use crate::display::view::tactical_view_height_frac;
-        set_tactical_view_height_frac(0.80);
+    fn owned_stage_and_visibility_write_receiving_integer_height_only() {
+        let mut viewport = OwnedViewport {
+            display: (801, 601),
+            height: 601,
+        };
+        let peer = OwnedViewport {
+            display: (1024, 777),
+            height: 555,
+        };
+        let mut bar = ControlBar::new();
+        let parent = std::rc::Rc::new(std::cell::RefCell::new(GameWindow::new()));
+        let _ = parent.borrow_mut().set_position(17, 31);
+        bar.switch_control_bar_stage_owned(
+            ControlBarStage::Default,
+            &mut viewport,
+            false,
+            Some(&mut parent.borrow_mut()),
+        );
+        assert_eq!(viewport.height, 480);
+        bar.switch_control_bar_stage_owned(
+            ControlBarStage::Low,
+            &mut viewport,
+            false,
+            Some(&mut parent.borrow_mut()),
+        );
+        assert_eq!(viewport.height, 601);
+        assert_eq!(parent.borrow().get_position(), (17, 540));
+        bar.switch_control_bar_stage_owned(
+            ControlBarStage::Hidden,
+            &mut viewport,
+            false,
+            Some(&mut parent.borrow_mut()),
+        );
+        assert_eq!(viewport.height, 601);
+        assert!(parent.borrow().is_hidden());
+        bar.switch_control_bar_stage_owned(
+            ControlBarStage::Default,
+            &mut viewport,
+            true,
+            Some(&mut parent.borrow_mut()),
+        );
+        assert_eq!(bar.get_control_bar_stage(), ControlBarStage::Hidden);
+        bar.switch_control_bar_stage_owned(
+            ControlBarStage::Squished,
+            &mut viewport,
+            false,
+            Some(&mut parent.borrow_mut()),
+        );
+        assert_eq!(bar.get_control_bar_stage(), ControlBarStage::Hidden);
         let mut callbacks = ControlBarCallbacks::new();
-        callbacks.state.visible = true;
-        assert!(callbacks.hide_control_bar(true).is_ok());
-        assert!((tactical_view_height_frac() - 1.0).abs() < f32::EPSILON);
-        assert!(callbacks.show_control_bar(true).is_ok());
-        assert!((tactical_view_height_frac() - 0.80).abs() < f32::EPSILON);
+        callbacks.show_control_bar_owned(
+            &mut bar,
+            &mut viewport,
+            Some(parent.clone()),
+            false,
+            true,
+        );
+        assert_eq!(viewport.height, 480);
+        assert!(!parent.borrow().is_hidden());
+        callbacks.hide_control_bar_owned(&mut bar, &mut viewport, Some(parent.clone()), true, true);
+        assert_eq!(viewport.height, 601);
+        assert!(parent.borrow().is_hidden());
+        callbacks.show_control_bar_owned(&mut bar, &mut viewport, None, false, true);
+        assert_eq!(
+            viewport.height, 601,
+            "missing parent cannot resize receiving view"
+        );
+        assert_eq!(peer.height, 555);
+    }
+
+    #[test]
+    fn owned_window_animation_advances_only_receiving_manager_and_hides_after_reverse() {
+        let mut viewport = OwnedViewport {
+            display: (800, 600),
+            height: 600,
+        };
+        let mut peer_viewport = OwnedViewport {
+            display: (800, 600),
+            height: 600,
+        };
+        let mut bar = ControlBar::new();
+        let mut peer_bar = ControlBar::new();
+        let parent = std::rc::Rc::new(std::cell::RefCell::new(GameWindow::new()));
+        let peer = std::rc::Rc::new(std::cell::RefCell::new(GameWindow::new()));
+        let _ = parent.borrow_mut().set_position(20, 40);
+        let _ = peer.borrow_mut().set_position(20, 40);
+        let mut callbacks = ControlBarCallbacks::new();
+        let mut peer_callbacks = ControlBarCallbacks::new();
+        callbacks.show_control_bar_owned(
+            &mut bar,
+            &mut viewport,
+            Some(parent.clone()),
+            false,
+            false,
+        );
+        peer_callbacks.show_control_bar_owned(
+            &mut peer_bar,
+            &mut peer_viewport,
+            Some(peer.clone()),
+            false,
+            false,
+        );
+        let initial = parent.borrow().get_position();
+        assert_ne!(initial, (20, 40));
+        assert_eq!(peer.borrow().get_position(), initial);
+        let now = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        callbacks.update_window_animations_at(Some(parent.clone()), now);
+        assert_ne!(parent.borrow().get_position(), initial);
+        assert_eq!(peer.borrow().get_position(), initial);
+        for _ in 0..100 {
+            callbacks.update_window_animations_at(Some(parent.clone()), now);
+        }
+        assert_eq!(parent.borrow().get_position(), (20, 40));
+        assert!(!parent.borrow().is_hidden());
+        callbacks.hide_control_bar_owned(
+            &mut bar,
+            &mut viewport,
+            Some(parent.clone()),
+            true,
+            false,
+        );
+        assert!(
+            !parent.borrow().is_hidden(),
+            "reverse hides only after completion"
+        );
+        for _ in 0..100 {
+            callbacks.update_window_animations_at(Some(parent.clone()), now);
+        }
+        assert!(parent.borrow().is_hidden());
+        assert_eq!(peer.borrow().get_position(), initial);
+        assert!(!peer.borrow().is_hidden());
     }
 
     #[test]

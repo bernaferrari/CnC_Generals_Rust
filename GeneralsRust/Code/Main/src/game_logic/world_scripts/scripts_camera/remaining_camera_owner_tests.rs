@@ -1037,3 +1037,9 @@ mod receiving_look_at_tests;
 
 #[path = "receiving_tracking_tests.rs"]
 mod receiving_tracking_tests;
+
+#[path = "named_camera_owner_tests.rs"]
+mod named_camera_owner_tests;
+
+#[path = "letterbox_delivery_tests.rs"]
+mod letterbox_delivery_tests;

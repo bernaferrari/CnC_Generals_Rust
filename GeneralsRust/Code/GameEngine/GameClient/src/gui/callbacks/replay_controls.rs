@@ -35,36 +35,51 @@ pub fn apply_replay_control_visibility(hide: bool) {
     });
 }
 
-fn with_replay_window(f: impl FnOnce(&std::rc::Rc<std::cell::RefCell<GameWindow>>)) {
+/// Borrowed native replay controls; missing authored windows remain absent.
+pub fn show_replay_controls_owned(
+    manager: &mut crate::gui::window_manager::WindowManager,
+    in_replay: bool,
+) {
     let parent_id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
-    with_window_manager(|manager| {
-        if let Some(win) = manager.get_window_by_id(parent_id) {
-            f(&win);
-        }
-    });
+    if let Some(window) = manager.get_window_by_id(parent_id) {
+        let _ = window.borrow_mut().hide(!in_replay);
+    }
 }
 
-/// C++ InGameUI.cpp:203-210 `showReplayControls` — show only in replay.
+pub fn hide_replay_controls_owned(
+    manager: &mut crate::gui::window_manager::WindowManager,
+    _in_replay: bool,
+) {
+    let parent_id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
+    if let Some(window) = manager.get_window_by_id(parent_id) {
+        let _ = window.borrow_mut().hide(true);
+    }
+}
+
+pub fn toggle_replay_controls_owned(
+    manager: &mut crate::gui::window_manager::WindowManager,
+    in_replay: bool,
+) {
+    let parent_id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
+    if let Some(window) = manager.get_window_by_id(parent_id) {
+        let show = in_replay && window.borrow().is_hidden();
+        let _ = window.borrow_mut().hide(!show);
+    }
+}
+
+/// Standalone Core adapter reads its legacy mode only at this boundary.
 pub fn show_replay_controls() {
-    with_replay_window(|win| {
-        let show = TheGameLogic::is_in_replay_game();
-        let _ = win.borrow_mut().hide(!show);
-    });
+    let replay = TheGameLogic::is_in_replay_game();
+    with_window_manager(|manager| show_replay_controls_owned(manager, replay));
 }
 
-/// C++ InGameUI.cpp:214-220 `hideReplayControls`.
 pub fn hide_replay_controls() {
-    with_replay_window(|win| {
-        let _ = win.borrow_mut().hide(true);
-    });
+    with_window_manager(|manager| hide_replay_controls_owned(manager, false));
 }
 
-/// C++ InGameUI.cpp:224-231 `toggleReplayControls`.
 pub fn toggle_replay_controls() {
-    with_replay_window(|win| {
-        let show = TheGameLogic::is_in_replay_game() && win.borrow().is_hidden();
-        let _ = win.borrow_mut().hide(!show);
-    });
+    let replay = TheGameLogic::is_in_replay_game();
+    with_window_manager(|manager| toggle_replay_controls_owned(manager, replay));
 }
 
 pub fn replay_control_input(
@@ -95,4 +110,51 @@ pub fn replay_control_system(
     };
     let mut replay = replay.write().unwrap_or_else(|e| e.into_inner());
     replay.system(window, msg, data1, data2)
+}
+
+#[cfg(test)]
+mod owned_tests {
+    use super::*;
+    use crate::gui::window_manager::WindowManager;
+
+    #[test]
+    fn replay_visibility_uses_receiving_manager_and_explicit_mode() {
+        let mut owner = WindowManager::new();
+        let mut peer = WindowManager::new();
+        let id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
+        let parent = owner
+            .create_window_with_id(None, 0, 0, 100, 40, id)
+            .unwrap();
+        let peer_parent = peer.create_window_with_id(None, 0, 0, 100, 40, id).unwrap();
+        let _ = parent.borrow_mut().hide(true);
+        let _ = peer_parent.borrow_mut().hide(true);
+        show_replay_controls_owned(&mut owner, true);
+        assert!(!parent.borrow().is_hidden());
+        assert!(peer_parent.borrow().is_hidden());
+        toggle_replay_controls_owned(&mut owner, true);
+        assert!(parent.borrow().is_hidden());
+        toggle_replay_controls_owned(&mut owner, true);
+        assert!(!parent.borrow().is_hidden());
+        hide_replay_controls_owned(&mut owner, true);
+        assert!(parent.borrow().is_hidden());
+        show_replay_controls_owned(&mut owner, false);
+        assert!(parent.borrow().is_hidden());
+        toggle_replay_controls_owned(&mut owner, false);
+        assert!(parent.borrow().is_hidden());
+        show_replay_controls_owned(&mut peer, true);
+        assert!(!peer_parent.borrow().is_hidden());
+        assert!(parent.borrow().is_hidden());
+        hide_replay_controls_owned(&mut peer, false);
+        assert!(peer_parent.borrow().is_hidden());
+    }
+
+    #[test]
+    fn missing_replay_control_is_not_created_by_visibility_callbacks() {
+        let mut manager = WindowManager::new();
+        let id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
+        show_replay_controls_owned(&mut manager, true);
+        hide_replay_controls_owned(&mut manager, false);
+        toggle_replay_controls_owned(&mut manager, true);
+        assert!(manager.get_window_by_id(id).is_none());
+    }
 }

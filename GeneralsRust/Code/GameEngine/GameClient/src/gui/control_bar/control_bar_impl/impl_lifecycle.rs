@@ -116,7 +116,19 @@ impl ControlBar {
         // ShowControlBar queues DEFAULT (ControlBarCallback.cpp:489) before this
         // live instance ticks. Apply it so CommandWindow HIDDEN is cleared InGame.
         self.apply_pending_control_bar_stage();
-        self.apply_live_hook_events();
+        self.apply_live_hook_events(true);
+        self.update_body(delta_time)
+    }
+
+    /// Native viewport/stage changes are already admitted on this instance.
+    /// Unmigrated HUD clicks, science and shortcut events retain their explicit
+    /// compatibility intake until their receiving-owner migration is complete.
+    pub fn update_owned(&mut self, delta_time: Duration) -> Result<(), Box<dyn std::error::Error>> {
+        self.apply_live_hook_events(false);
+        self.update_body(delta_time)
+    }
+
+    fn update_body(&mut self, delta_time: Duration) -> Result<(), Box<dyn std::error::Error>> {
         crate::gui::w3d_gadget_draw::ensure_scheme_draw_registered();
         crate::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks();
         super::control_bar_observer::init_observer_controls();
@@ -425,7 +437,7 @@ impl ControlBar {
         format!("{produced} / {consumed}")
     }
 
-    fn apply_live_hook_events(&mut self) {
+    fn apply_live_hook_events(&mut self, standalone_viewport: bool) {
         let events = drain_live_control_bar_events();
         if events.ui_dirty {
             self.mark_ui_dirty();
@@ -445,13 +457,13 @@ impl ControlBar {
         if let Some(enabled) = events.animate_special_power_shortcut {
             self.animate_special_power_shortcut(enabled);
         }
-        if events.toggle_control_bar_stage {
+        if standalone_viewport && events.toggle_control_bar_stage {
             self.toggle_control_bar_stage();
         }
         if events.init_special_power_shortcut_for_player.is_some() {
             self.init_special_power_shortcut_bar();
         }
-        if events.set_scheme_by_player.is_some() {
+        if standalone_viewport && events.set_scheme_by_player.is_some() {
             self.set_control_bar_scheme_by_player();
         }
         for click in events.clicks {

@@ -69,10 +69,10 @@ pub(super) fn native_camera_constraint_inset(
     camera: &super::camera_height::CameraHeight,
     view: Mat4,
     projection: Mat4,
-    viewport: (f32, f32),
+    viewport: crate::presentation_frame::camera::viewport::TacticalViewport,
 ) -> f32 {
     // C++ calcCameraConstraints uses m_groundLevel, not View::m_pos.z.
-    w3d_camera_constraint_offset(view, projection, viewport, camera.basis().ground_level())
+    viewport.constraint_inset(view, projection, camera.basis().ground_level())
 }
 
 fn shaker_hash_signed(seed: u32, elapsed_bits: u32, axis: u32, pass: u32) -> f32 {
@@ -1353,38 +1353,13 @@ impl CnCGameEngine {
         if pitch.is_finite() { pitch } else { 1.0 }
     }
 
-    /// C++ `TheTacticalView->getHeight() / TheDisplay->getHeight()`.
-    pub(super) fn tactical_view_height_frac(&self) -> f32 {
-        #[cfg(feature = "game_client")]
-        {
-            game_client::display::view::tactical_view_height_frac()
-        }
-        #[cfg(not(feature = "game_client"))]
-        {
-            1.0
-        }
-    }
-
-    /// Live 3D tactical viewport in surface points (top-left origin).
-    ///
-    /// Matches the swapchain extent (logical window size) so the 3D view, the
-    /// WND/UI draw space, and mouse unprojection share one coordinate space.
+    /// Actual receiving View dimensions; never recomputed from a fraction.
     pub(super) fn tactical_viewport_size(&self) -> (f32, f32) {
-        let (w, h) = super::types::render_surface_extent(&self.window);
-        (
-            w as f32,
-            ((h as f32) * self.tactical_view_height_frac()).max(1.0),
-        )
+        let (width, height) = self.game_logic.session_view.camera.viewport.size();
+        (width as f32, height as f32)
     }
-
     pub(super) fn rebuild_tactical_projection(&mut self) {
-        let (width, height) = self.tactical_viewport_size();
-        self.game_logic.session_view.camera.projection_matrix = perspective_rh_from_horizontal_fov(
-            DEFAULT_VIEW_FOV_RADIANS,
-            width / height,
-            DEFAULT_VIEW_NEAR_CLIP,
-            DEFAULT_VIEW_FAR_CLIP,
-        );
+        self.game_logic.session_view.camera.rebuild_projection();
     }
 
     pub(super) fn parabolic_ease(param: f32, ease_in_time: f32, ease_out_time: f32) -> f32 {
@@ -1786,7 +1761,7 @@ impl CnCGameEngine {
             &self.game_logic.session_view.camera.native_camera,
             self.game_logic.session_view.camera.view_matrix,
             self.game_logic.session_view.camera.projection_matrix,
-            self.tactical_viewport_size(),
+            self.game_logic.session_view.camera.viewport,
         );
         let env = self
             .render_pipeline
@@ -2070,7 +2045,7 @@ impl CnCGameEngine {
             &self.game_logic.session_view.camera.native_camera,
             self.game_logic.session_view.camera.view_matrix,
             self.game_logic.session_view.camera.projection_matrix,
-            self.tactical_viewport_size(),
+            self.game_logic.session_view.camera.viewport,
         );
         constrain_camera_target_to_map(
             position,
@@ -2772,7 +2747,7 @@ End
         assert!(admitted.was_active && admitted.completed && admitted.changed);
         assert_eq!((fx_pitch, target, elapsed), (2., None, 1));
         assert!(
-            src.contains("tactical_view_height_frac")
+            src.contains("self.game_logic.session_view.camera.viewport")
                 && src.contains("rebuild_tactical_projection"),
             "default control bar must shrink the live 3D frustum"
         );
@@ -2824,9 +2799,16 @@ End
             body.contains("airborne_look_at_ground") && body.contains("PATHFIND_CELL_SIZE_F"),
             "C++ W3DView::lookAt airborne ray must be live"
         );
+        let helper = src
+            .split("pub(super) fn native_camera_constraint_inset(")
+            .nth(1)
+            .unwrap()
+            .split("fn shaker_hash_signed")
+            .next()
+            .unwrap();
         assert!(
-            src.contains("w3d_camera_constraint_offset"),
-            "clamp must use W3DView inset, not raw map extent"
+            helper.contains("viewport.constraint_inset("),
+            "native clamping must use the receiving integer viewport kernel"
         );
     }
 

@@ -28,6 +28,7 @@ impl GameWindow {
                 tooltip: None,
                 input: Some(Box::new(default_input_callback)),
                 system: Some(Box::new(default_system_callback)),
+                control_bar_system: false,
             },
             widget: None,
             combobox_links: None,
@@ -1694,6 +1695,7 @@ impl GameWindow {
             + 'static,
     {
         self.callbacks.system = Some(Box::new(callback));
+        self.callbacks.control_bar_system = false;
     }
 
     /// Get system callback.
@@ -1707,6 +1709,7 @@ impl GameWindow {
     /// Reset system callback to the default handler.
     pub fn reset_system_callback(&mut self) {
         self.callbacks.system = Some(Box::new(default_system_callback));
+        self.callbacks.control_bar_system = false;
     }
 
     /// Set tooltip callback
@@ -1773,6 +1776,29 @@ impl GameWindow {
         } else {
             self.handle_widget_input(msg, data1, data2)
         }
+    }
+
+    /// The selected native ControlBar notification is delivered after the
+    /// sender RefMut ends, before window-manager routing can continue.
+    pub(crate) fn send_input_with_control_bar_notification(
+        &mut self,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+    ) -> (WindowMsgHandled, Option<ControlBarNotification>) {
+        if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
+            return (WindowMsgHandled::Ignored, None);
+        }
+        if let Some(callback) = self.callbacks.input.as_ref() {
+            let result = callback(self, msg, data1, data2);
+            if !result.is_ignored() {
+                return (result, None);
+            }
+        }
+        self.handle_widget_input_with_control_bar_notification(msg, data1, data2)
+    }
+    pub(crate) fn mark_control_bar_system_callback(&mut self) {
+        self.callbacks.control_bar_system = true;
     }
 
     /// Send input after legacy window-manager routing has already selected the target.

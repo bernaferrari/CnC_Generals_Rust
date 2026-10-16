@@ -64,8 +64,6 @@ pub const LETTER_BOX_FADE_TIME_MS: f32 = 1000.0;
 
 thread_local! {
     static DISPLAY_LETTER_BOXED: Cell<bool> = const { Cell::new(false) };
-    /// C++ `TheTacticalView->getHeight() / TheDisplay->getHeight()`.
-    static TACTICAL_VIEW_HEIGHT_FRAC: Cell<f32> = const { Cell::new(1.0) };
 }
 
 /// C++ `TheDisplay->isLetterBoxed()` as seen by `W3DView::buildCameraTransform`.
@@ -76,21 +74,6 @@ pub fn set_display_letter_boxed(enabled: bool) {
 /// C++ `TheDisplay->isLetterBoxed()`.
 pub fn is_display_letter_boxed() -> bool {
     DISPLAY_LETTER_BOXED.with(|flag| flag.get())
-}
-
-/// Live 3D viewport height as a fraction of the display (C++ `setHeight`).
-pub fn set_tactical_view_height_frac(frac: f32) {
-    let frac = if frac.is_finite() {
-        frac.clamp(0.05, 1.0)
-    } else {
-        1.0
-    };
-    TACTICAL_VIEW_HEIGHT_FRAC.with(|cell| cell.set(frac));
-}
-
-/// C++ tactical view height / display height. Default control bar is 0.80.
-pub fn tactical_view_height_frac() -> f32 {
-    TACTICAL_VIEW_HEIGHT_FRAC.with(|cell| cell.get())
 }
 
 fn ground_height_at(x: f32, y: f32) -> f32 {

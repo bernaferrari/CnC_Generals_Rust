@@ -1528,10 +1528,11 @@ impl CnCGameEngine {
             self.sync_eva_messages_from_presentation(&pres);
             #[cfg(feature = "game_client")]
             {
+                self.update_owned_control_bar_animations();
                 pres.apply_to_control_bar(&mut self.control_bar);
                 let _ = self
                     .control_bar
-                    .update(std::time::Duration::from_millis(33));
+                    .update_owned(std::time::Duration::from_millis(33));
             }
             // Keep last_presentation aligned with pipeline freeze when it was the source.
             self.last_presentation_frame = Some(pres.into());
@@ -1623,10 +1624,11 @@ impl CnCGameEngine {
         self.apply_presentation_to_huds(&pres);
         #[cfg(feature = "game_client")]
         {
+            self.update_owned_control_bar_animations();
             pres.apply_to_control_bar(&mut self.control_bar);
             let _ = self
                 .control_bar
-                .update(std::time::Duration::from_millis(33));
+                .update_owned(std::time::Duration::from_millis(33));
         }
         let mut ui = GameUIState::default();
         pres.apply_to_ui_state(&mut ui);
@@ -2111,8 +2113,7 @@ impl CnCGameEngine {
                     let _ = game_client::gui::callbacks::ingame_callbacks::set_in_game_chat_type(
                         game_client::gui::callbacks::ingame_callbacks::InGameChatType::Everyone,
                     );
-                    self.control_bar
-                        .set_control_bar_scheme_by_player_side("Observer");
+                    self.set_owned_control_bar_scheme("Observer");
                 }
             }
         }
@@ -2215,10 +2216,11 @@ impl CnCGameEngine {
             self.sync_eva_messages_from_presentation(&pres);
             #[cfg(feature = "game_client")]
             {
+                self.update_owned_control_bar_animations();
                 pres.apply_to_control_bar(&mut self.control_bar);
                 let _ = self
                     .control_bar
-                    .update(std::time::Duration::from_millis(33));
+                    .update_owned(std::time::Duration::from_millis(33));
             }
         } else {
             // Wave 238: boot residual via ui_local_economy (no &Player dual-read).
@@ -2414,29 +2416,42 @@ impl CnCGameEngine {
                 return;
             }
         };
-        if let Some(pres) = self.last_presentation_frame.as_ref() {
+        let authored_visibility =
+            std::mem::take(&mut self.game_logic.session_view.pending_letterbox_visibility);
+        let has_authored_visibility = !authored_visibility.is_empty();
+        for hidden in authored_visibility {
+            if hidden {
+                self.hide_owned_control_bar(true);
+            } else {
+                self.show_owned_control_bar(false);
+            }
+        }
+        if let Some(letterbox) = self
+            .last_presentation_frame
+            .as_ref()
+            .map(|frame| frame.cinematic_letterbox)
+        {
             // Presentation cinematic letterbox residual → client display.
             let was_letterbox = self.game_client.letterbox_overlay_enabled();
             self.game_client
-                .apply_presentation_cinematic_letterbox(pres.cinematic_letterbox);
-            if was_letterbox != pres.cinematic_letterbox {
+                .apply_presentation_cinematic_letterbox(letterbox);
+            if was_letterbox != letterbox {
                 // Display::enableLetterBox changes View's zoom limit only on
                 // the transition; a manual toggle survives ordinary frames.
                 self.game_logic
                     .session_view
                     .camera
                     .native_camera
-                    .set_zoom_limited(!pres.cinematic_letterbox);
+                    .set_zoom_limited(!letterbox);
             }
-            // C++ ScriptActions::doLetterBoxMode HideControlBar(TRUE)/ShowControlBar(FALSE).
-            if pres.cinematic_letterbox {
-                let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);
-                // hide_control_bar no-ops when already hidden; still lift the
-                // live 80% tactical frac so letterbox 3D fills the display.
-                game_client::display::view::set_tactical_view_height_frac(1.0);
-            } else if was_letterbox {
-                let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(false);
+            // Deliver a transition once; rendering never writes View height.
+            if !has_authored_visibility && letterbox && !was_letterbox {
+                self.hide_owned_control_bar(true);
+            } else if !has_authored_visibility && !letterbox && was_letterbox {
+                self.show_owned_control_bar(false);
             }
+        }
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
             // Military caption residual → InGameUI (duration from freeze).
             self.game_client.apply_presentation_military_caption(
                 pres.military_caption.as_deref(),

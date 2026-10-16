@@ -85,23 +85,10 @@ pub(crate) fn apply_scheme_right_hud_image(image_name: &str) {
 /// `switchToContext` (ControlBar.cpp:2136-2137 hide it in every non-observer
 /// context) — mirror that here so the DEFAULT stage can never leak the
 /// observer "Units / Buildings" tab labels over the command grid.
+// Existing context adapters share the same matrix; the WND route supplies
+// its receiving manager directly instead of entering this service wrapper.
 fn reveal_ingame_command_window() {
-    with_window_manager(|manager| {
-        let set_hidden = |name: &str, hidden: bool| {
-            if let Some(win) = manager.find_window_by_name(name) {
-                let _ = win.borrow_mut().hide(hidden);
-            }
-        };
-        set_hidden("ControlBar.wnd:ControlBarParent", false);
-        set_hidden("ControlBar.wnd:CommandWindow", false);
-        set_hidden("ControlBar.wnd:UnderConstructionWindow", true);
-        set_hidden("ControlBar.wnd:OCLTimerWindow", true);
-        set_hidden("ControlBar.wnd:ObserverPlayerListWindow", true);
-        set_hidden("ControlBar.wnd:ObserverPlayerInfoWindow", true);
-        for i in 1..=14 {
-            set_hidden(&format!("ControlBar.wnd:ButtonCommand{:02}", i), false);
-        }
-    });
+    with_window_manager(ControlBar::reveal_ingame_command_window_owned);
 }
 
 /// C++ `switchToContext(CB_CONTEXT_NONE)` hide matrix (ControlBar.cpp:2128-2137):
@@ -287,19 +274,6 @@ fn leftover_ensure_named_window(name: &str) {
 
 fn leftover_display_size() -> (i32, i32) {
     with_window_manager(|manager| manager.screen_size())
-}
-
-fn leftover_set_tactical_view_height(height: i32) {
-    let (_sw, sh) = leftover_display_size();
-    let frac = if sh > 0 {
-        (height as f32 / sh as f32).clamp(0.05, 1.0)
-    } else {
-        1.0
-    };
-    crate::display::view::set_tactical_view_height_frac(frac);
-    crate::display::view::with_tactical_view(|view| {
-        view.set_height(height);
-    });
 }
 
 const GEN_EXP_PARENT: &str = "GeneralsExpPoints.wnd:GenExpParent";
@@ -790,35 +764,62 @@ impl ControlBar {
     // C++ ControlBar.cpp:2968-3053
     // ---------------------------------------------------------------------------
 
-    fn leftover_capture_default_control_bar_position(&mut self) {
-        let Some(parent) = leftover_find_window(CONTROL_BAR_PARENT) else {
-            return;
-        };
-        let (parent_x, parent_y) = parent.borrow().get_position();
+    fn capture_control_bar_position_owned(&mut self, parent: &crate::gui::GameWindow) {
+        let (parent_x, parent_y) = parent.get_position();
         if !self.default_control_bar_captured {
             self.default_control_bar_x = parent_x;
             self.default_control_bar_y = parent_y;
             self.default_control_bar_captured = true;
         }
+    }
 
-        // C++ ControlBar::init captures BackgroundMarker's screen position
-        // for both scheme layers before setLowControlBarConfig moves the
-        // parent. The scheme manager can be initialized after this ControlBar
-        // instance, so retry the one-time capture on each stage transition.
-        let Some(marker) = leftover_find_window("ControlBar.wnd:BackgroundMarker") else {
-            return;
-        };
+    /// A parent can already be mutably borrowed by WND notification. Walk
+    /// that known ancestor through the supplied borrow rather than silently
+    /// truncating screen coordinates on a RefCell conflict.
+    pub fn capture_control_bar_marker_owned(
+        &self,
+        marker: &crate::gui::GameWindow,
+        parent: &crate::gui::GameWindow,
+    ) {
         let Some(manager) = game_engine::common::ini::get_control_bar_scheme_manager() else {
             return;
         };
-        let (marker_x, marker_y) = marker.borrow().get_screen_position();
+        let (mut x, mut y) = marker.get_position();
+        let mut next = marker.get_parent();
+        while let Some(window) = next {
+            if std::ptr::eq(
+                window.as_ref().as_ptr() as *const crate::gui::GameWindow,
+                parent,
+            ) {
+                let (px, py) = parent.get_position();
+                x += px;
+                y += py;
+                next = parent.get_parent();
+            } else {
+                let Ok(window) = window.try_borrow() else {
+                    return;
+                };
+                let (px, py) = window.get_position();
+                x += px;
+                y += py;
+                next = window.get_parent();
+            }
+        }
+        let (parent_x, parent_y) = parent.get_position();
         manager.write().capture_marker_base_once(
-            marker_x + self.default_control_bar_x - parent_x,
-            marker_y + self.default_control_bar_y - parent_y,
+            x + self.default_control_bar_x - parent_x,
+            y + self.default_control_bar_y - parent_y,
         );
     }
 
     fn leftover_set_up_down_images(&self) {
+        let Some(button) = leftover_find_window(BUTTON_LARGE) else {
+            return;
+        };
+        self.set_up_down_images_owned(&mut button.borrow_mut());
+    }
+
+    fn set_up_down_images_owned(&self, button: &mut crate::gui::GameWindow) {
         // C++ ControlBar::setUpDownImages (ControlBar.cpp:3128-3146): the
         // up/down toggle button shows the scheme's ToggleButtonDown* art in the
         // default stage and ToggleButtonUp* art when collapsed to the low
@@ -843,11 +844,7 @@ impl ControlBar {
                 &scheme.toggle_button_down_pushed,
             )
         };
-        let Some(win) = leftover_find_window(BUTTON_LARGE) else {
-            return;
-        };
-        let mut guard = win.borrow_mut();
-        let data = guard.instance_data_mut();
+        let data = button.instance_data_mut();
         if let Some(image) = leftover_mapped_image(on) {
             data.enabled_draw_data[0].image = Some(image);
         }
@@ -859,71 +856,167 @@ impl ControlBar {
         }
     }
 
-    fn leftover_set_default_control_bar_config(&mut self) {
-        // C++ captures m_defaultControlBarPosition at layout load
-        // (ControlBar.cpp:1056), before any stage moves the parent. Capture
-        // before reveal so Default/Low/Squished restore the authored spot,
-        // not the reveal-pinned bottom position.
-        self.leftover_capture_default_control_bar_position();
-        self.control_bar_stage = ControlBarStage::Default;
-        reveal_ingame_command_window();
-        let (_sw, sh) = leftover_display_size();
-        leftover_set_tactical_view_height(((sh as f32) * 0.80) as i32);
-        if let Some(parent) = leftover_find_window(CONTROL_BAR_PARENT) {
-            let _ = parent
-                .borrow_mut()
-                .set_position(self.default_control_bar_x, self.default_control_bar_y);
-            let _ = parent.borrow_mut().hide(false);
+    /// Apply the original context/window visibility admission through the
+    /// receiving manager, before any node in that tree is mutably borrowed.
+    pub fn reveal_ingame_command_window_owned(
+        manager: &mut crate::gui::window_manager::WindowManager,
+    ) {
+        let set_hidden = |name: &str, hidden: bool| {
+            if let Some(win) = manager.find_window_by_name(name) {
+                let _ = win.borrow_mut().hide(hidden);
+            }
+        };
+        set_hidden("ControlBar.wnd:ControlBarParent", false);
+        set_hidden("ControlBar.wnd:CommandWindow", false);
+        set_hidden("ControlBar.wnd:UnderConstructionWindow", true);
+        set_hidden("ControlBar.wnd:OCLTimerWindow", true);
+        set_hidden("ControlBar.wnd:ObserverPlayerListWindow", true);
+        set_hidden("ControlBar.wnd:ObserverPlayerInfoWindow", true);
+        for i in 1..=14 {
+            set_hidden(&format!("ControlBar.wnd:ButtonCommand{:02}", i), false);
         }
-        self.leftover_set_up_down_images();
-    }
-
-    fn leftover_set_squished_control_bar_config(&mut self) {
-        // C++ setSquishedControlBarConfig (ControlBar.cpp:3017-3028): parent
-        // back at the default position with a full-height tactical view.
-        if self.control_bar_stage == ControlBarStage::Squished {
-            return;
-        }
-        self.control_bar_stage = ControlBarStage::Squished;
-        let (_sw, sh) = leftover_display_size();
-        leftover_set_tactical_view_height(sh);
-        self.leftover_capture_default_control_bar_position();
-        if let Some(parent) = leftover_find_window(CONTROL_BAR_PARENT) {
-            let _ = parent
-                .borrow_mut()
-                .set_position(self.default_control_bar_x, self.default_control_bar_y);
-        }
-    }
-
-    fn leftover_set_low_control_bar_config(&mut self) {
-        self.leftover_capture_default_control_bar_position();
-        self.control_bar_stage = ControlBarStage::Low;
-        let (_sw, sh) = leftover_display_size();
-        leftover_set_tactical_view_height(sh);
-        let y = sh - ((sh as f32) * 0.10) as i32;
-        if let Some(parent) = leftover_find_window(CONTROL_BAR_PARENT) {
-            let _ = parent
-                .borrow_mut()
-                .set_position(self.default_control_bar_x, y);
-            let _ = parent.borrow_mut().hide(false);
-        }
-        self.leftover_set_up_down_images();
     }
 
     pub fn switch_control_bar_stage(&mut self, stage: ControlBarStage) {
         PENDING_CONTROL_BAR_STAGE.store(0xFF, std::sync::atomic::Ordering::SeqCst);
-        if TheGameLogic::is_in_replay_game() {
+        let parent = leftover_find_window(CONTROL_BAR_PARENT);
+        let mut viewport =
+            crate::gui::callbacks::control_bar_callbacks::StandaloneControlBarViewport;
+        self.switch_control_bar_stage_on_window_owned(
+            stage,
+            &mut viewport,
+            TheGameLogic::is_in_replay_game(),
+            parent,
+        );
+    }
+
+    /// Resolve existing service handles before borrowing any tree node.
+    /// The actual stage operation never traverses the manager recursively.
+    pub fn switch_control_bar_stage_on_window_owned(
+        &mut self,
+        stage: ControlBarStage,
+        viewport: &mut dyn crate::gui::callbacks::control_bar_callbacks::ControlBarViewport,
+        replay: bool,
+        parent: Option<std::rc::Rc<std::cell::RefCell<crate::gui::GameWindow>>>,
+    ) {
+        if replay || stage == ControlBarStage::Squished {
             return;
         }
-        match stage {
-            ControlBarStage::Default => self.leftover_set_default_control_bar_config(),
-            ControlBarStage::Squished => self.leftover_set_squished_control_bar_config(),
-            ControlBarStage::Low => self.leftover_set_low_control_bar_config(),
-            ControlBarStage::Hidden => {
-                self.control_bar_stage = ControlBarStage::Hidden;
-                leftover_hide_window(CONTROL_BAR_PARENT, true);
-            }
+        let Some(parent) = parent else {
+            return;
+        };
+        if stage == ControlBarStage::Default {
+            with_window_manager(Self::reveal_ingame_command_window_owned);
         }
+        let button = leftover_find_window(BUTTON_LARGE);
+        let marker = leftover_find_window("ControlBar.wnd:BackgroundMarker");
+        let mut parent = parent.borrow_mut();
+        self.capture_control_bar_position_owned(&parent);
+        if let Some(marker) = marker {
+            self.capture_control_bar_marker_owned(&marker.borrow(), &parent);
+        }
+        let mut button = button.as_ref().map(|button| button.borrow_mut());
+        self.switch_control_bar_stage_with_button_owned(
+            stage,
+            viewport,
+            replay,
+            Some(&mut parent),
+            button.as_deref_mut(),
+        );
+    }
+
+    /// CPP switchControlBarStage: replay is a no-op; the Squished case is
+    /// commented out in the original switch and must not resize the view.
+    pub fn switch_control_bar_stage_owned(
+        &mut self,
+        stage: ControlBarStage,
+        viewport: &mut dyn crate::gui::callbacks::control_bar_callbacks::ControlBarViewport,
+        replay: bool,
+        parent: Option<&mut crate::gui::GameWindow>,
+    ) {
+        self.switch_control_bar_stage_with_button_owned(stage, viewport, replay, parent, None);
+    }
+
+    pub fn switch_control_bar_stage_with_button_owned(
+        &mut self,
+        stage: ControlBarStage,
+        viewport: &mut dyn crate::gui::callbacks::control_bar_callbacks::ControlBarViewport,
+        replay: bool,
+        parent: Option<&mut crate::gui::GameWindow>,
+        mut button: Option<&mut crate::gui::GameWindow>,
+    ) {
+        if replay || stage == ControlBarStage::Squished {
+            return;
+        }
+        let Some(parent) = parent else {
+            return;
+        };
+        if button.is_some() {
+            // WND dispatch already borrows its manager; do not rediscover any
+            // windows through that service during the notification.
+            if !self.default_control_bar_captured {
+                (self.default_control_bar_x, self.default_control_bar_y) = parent.get_position();
+                self.default_control_bar_captured = true;
+            }
+        } else {
+            self.capture_control_bar_position_owned(parent);
+        }
+        let (_, height) = viewport.display_size();
+        let height = height as i32;
+        self.control_bar_stage = stage;
+        match stage {
+            ControlBarStage::Default => {
+                viewport.set_height_px((height as f32 * 0.80) as i32);
+                let _ = parent.set_position(self.default_control_bar_x, self.default_control_bar_y);
+                let _ = parent.hide(false);
+                if let Some(button) = button.as_deref_mut() {
+                    self.set_up_down_images_owned(button);
+                }
+            }
+            ControlBarStage::Low => {
+                viewport.set_height_px(height);
+                // CPP assignment truncates the complete subtraction, not 10%.
+                let y = (height as f64 - 0.1 * height as f64) as i32;
+                let _ = parent.set_position(self.default_control_bar_x, y);
+                let _ = parent.hide(false);
+                if let Some(button) = button.as_deref_mut() {
+                    self.set_up_down_images_owned(button);
+                }
+            }
+            ControlBarStage::Hidden => {
+                let _ = parent.hide(true);
+            }
+            ControlBarStage::Squished => unreachable!(),
+        }
+    }
+
+    pub fn toggle_control_bar_stage_owned(
+        &mut self,
+        viewport: &mut dyn crate::gui::callbacks::control_bar_callbacks::ControlBarViewport,
+        replay: bool,
+        parent: Option<&mut crate::gui::GameWindow>,
+    ) {
+        let stage = if self.control_bar_stage == ControlBarStage::Default {
+            ControlBarStage::Low
+        } else {
+            ControlBarStage::Default
+        };
+        self.switch_control_bar_stage_owned(stage, viewport, replay, parent);
+    }
+
+    pub fn toggle_control_bar_stage_with_button_owned(
+        &mut self,
+        viewport: &mut dyn crate::gui::callbacks::control_bar_callbacks::ControlBarViewport,
+        replay: bool,
+        parent: Option<&mut crate::gui::GameWindow>,
+        button: Option<&mut crate::gui::GameWindow>,
+    ) {
+        let stage = if self.control_bar_stage == ControlBarStage::Default {
+            ControlBarStage::Low
+        } else {
+            ControlBarStage::Default
+        };
+        self.switch_control_bar_stage_with_button_owned(stage, viewport, replay, parent, button);
     }
 
     /// C++ `ShowControlBar` (ControlBarCallback.cpp:489) when ControlBarParent is live.
@@ -1220,7 +1313,31 @@ impl ControlBar {
         self.apply_scheme_context_and_default_stage();
     }
 
+    pub fn set_control_bar_scheme_by_player_side_owned(
+        &mut self,
+        player_side: &str,
+        viewport: &mut dyn crate::gui::callbacks::control_bar_callbacks::ControlBarViewport,
+        replay: bool,
+        parent: Option<std::rc::Rc<std::cell::RefCell<crate::gui::GameWindow>>>,
+    ) {
+        self.apply_control_bar_scheme_for_side(player_side);
+        self.apply_scheme_context();
+        self.switch_control_bar_stage_on_window_owned(
+            ControlBarStage::Default,
+            viewport,
+            replay,
+            parent,
+        );
+        self.mark_ui_dirty();
+    }
+
     fn apply_scheme_context_and_default_stage(&mut self) {
+        self.apply_scheme_context();
+        self.switch_control_bar_stage(ControlBarStage::Default);
+        self.mark_ui_dirty();
+    }
+
+    fn apply_scheme_context(&mut self) {
         let is_observer = logic_player_list()
             .read()
             .ok()
@@ -1247,9 +1364,6 @@ impl ControlBar {
             game_mode != gamelogic::system::game_logic::GAME_LAN
                 && game_mode != gamelogic::system::game_logic::GAME_INTERNET,
         );
-
-        self.switch_control_bar_stage(ControlBarStage::Default);
-        self.mark_ui_dirty();
     }
 
     // ---------------------------------------------------------------------------
@@ -2024,6 +2138,18 @@ impl ControlBar {
         self.update(Duration::from_millis(33))?;
         self.apply_pending_control_bar_stage();
         Ok(())
+    }
+
+    pub fn update_for_selection_owned(
+        &mut self,
+        selected_objects: Vec<u32>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.context
+            .write()
+            .map_err(|_| "Failed to acquire context write lock")?
+            .selected_objects = selected_objects;
+        self.mark_ui_dirty();
+        self.update_owned(Duration::from_millis(33))
     }
 
     pub fn set_observer_mode(&mut self, observer: bool) {

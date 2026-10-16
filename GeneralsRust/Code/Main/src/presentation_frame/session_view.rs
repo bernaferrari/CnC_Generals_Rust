@@ -17,6 +17,9 @@ pub(crate) struct SessionView {
     pub(crate) scripted: scripted::ScriptCameraState,
     pub(crate) target: Vec3,
     pub(crate) pending_focus_previous_target: Option<Vec3>,
+    /// Authored Show/Hide deliveries; repeated equal letterbox values are events.
+    /// Runtime output only, never saved as another camera state.
+    pub(crate) pending_letterbox_visibility: Vec<bool>,
     pub(crate) impulse: SessionViewImpulse,
     #[cfg(feature = "game_client")]
     pub(crate) filter: game_client::display::view_filter::ViewFilterState,
@@ -60,6 +63,7 @@ impl SessionView {
         {
             return Err("invalid session view state".into());
         }
+        self.pending_letterbox_visibility.clear();
         self.target = state.target;
         self.impulse = SessionViewImpulse {
             intensity: state.intensity,

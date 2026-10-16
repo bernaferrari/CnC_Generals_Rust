@@ -6,11 +6,14 @@ pub(crate) mod continuation;
 pub(crate) mod height;
 pub(crate) mod motion;
 pub(crate) mod pose;
+pub(crate) mod projection;
 mod shaker;
+pub(crate) mod viewport;
 pub(crate) use shaker::ScriptCameraShaker;
 
 #[derive(Debug)]
 pub(crate) struct SessionCamera {
+    pub(crate) viewport: viewport::TacticalViewport,
     pub(crate) camera_position: Vec3,
     pub(crate) scripted_camera_constraint_widen: Option<(f32, f32, f32, f32)>,
     pub(crate) camera_zoom: f32,
@@ -53,6 +56,7 @@ impl Default for SessionCamera {
         let native_camera = height::CameraHeight::new(300., 37.5, 0.);
         let (position, look) = native_camera.basis().pose(Vec3::ZERO, 1., 0., 0.);
         Self {
+            viewport: Default::default(),
             camera_position: position,
             scripted_camera_constraint_widen: None,
             camera_zoom: 1.,

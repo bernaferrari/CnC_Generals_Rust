@@ -46,6 +46,7 @@ pub struct WindowCallbacks {
     pub tooltip: Option<TooltipCallback>,
     pub input: Option<InputCallback>,
     pub system: Option<SystemCallback>,
+    pub(crate) control_bar_system: bool,
 }
 
 /// Main GameWindow struct representing a UI window or control
@@ -163,4 +164,10 @@ impl Default for GameWindow {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Bounded notification from one selected gadget input. The caller releases
+/// the sender borrow before delivering it synchronously to its actual owner.
+pub(crate) struct ControlBarNotification {
+    pub(crate) owner: Rc<RefCell<GameWindow>>,
 }

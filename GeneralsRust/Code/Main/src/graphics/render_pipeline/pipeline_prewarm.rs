@@ -443,8 +443,7 @@ impl RenderPipeline {
         // Terrain is the first color pass; later scene/water Load the
         // backbuffer. Clear BLACK like C++ Begin_Render, not fog peach.
         let clear_color = self.terrain_clear_color();
-        let vp_w = self.tactical_viewport_width.max(1.0);
-        let vp_h = (self.tactical_viewport_height * self.tactical_view_height_frac).max(1.0);
+        let (vp_x, vp_y, vp_w, vp_h) = self.tactical_viewport.pixel_rect();
         self.forward_pass.enqueue_pre_scene_callback(move |frame| {
             let terrain_draw_started = Instant::now();
             let depth_view = frame.depth_view_arc();
@@ -476,9 +475,9 @@ impl RenderPipeline {
                 timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,
-});
-            render_pass.set_viewport(0.0, 0.0, vp_w, vp_h, 0.0, 1.0);
-            render_pass.set_scissor_rect(0, 0, vp_w as u32, vp_h as u32);
+            });
+            render_pass.set_viewport(vp_x, vp_y, vp_w, vp_h, 0.0, 1.0);
+            render_pass.set_scissor_rect(vp_x as u32, vp_y as u32, vp_w as u32, vp_h as u32);
 
             if let Some(terrain_guard) = terrain_visual_guard.as_ref() {
                 if let Some(terrain_visual) = terrain_guard.as_ref() {

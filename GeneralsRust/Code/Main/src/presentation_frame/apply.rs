@@ -1277,7 +1277,7 @@ impl PresentationFrame {
                     .or_else(|| self.command_set_name_including_disabled()),
             );
         }
-        let _ = control_bar.update_for_selection(ids);
+        let _ = control_bar.update_for_selection_owned(ids);
         // Re-project the frozen selection identity after context evaluation:
         // C++ updateContextCommand's queue branch swaps the portrait for the
         // build-queue strip (ControlBarCommand.cpp), but this frame's apply is

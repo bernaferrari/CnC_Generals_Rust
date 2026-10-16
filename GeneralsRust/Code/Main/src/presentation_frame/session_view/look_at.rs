@@ -1,36 +1,8 @@
 //! Immediate W3DView::lookAt geometry against the receiving terrain.
 use super::SessionView;
 use gamelogic::terrain::TerrainLogic;
-use glam::{Mat4, Vec3, Vec4};
+use glam::Vec3;
 
-fn unproject(view: Mat4, projection: Mat4, x: f32, y: f32) -> Option<(Vec3, Vec3)> {
-    let inverse = (projection * view).inverse();
-    let point = |depth| {
-        let p = inverse * Vec4::new(x, y, depth, 1.);
-        (p.w.abs() > 1e-7).then(|| p.truncate() / p.w)
-    };
-    let near = point(0.)?;
-    let far = point(1.)?;
-    (near.is_finite() && far.is_finite()).then_some((near, far))
-}
-fn at_height(ray: (Vec3, Vec3), height: f32) -> Option<Vec3> {
-    let direction = ray.1 - ray.0;
-    if direction.y.abs() < 1e-7 {
-        return None;
-    }
-    let t = (height - ray.0.y) / direction.y;
-    t.is_finite().then_some(ray.0 + direction * t)
-}
-fn inset(view: Mat4, projection: Mat4, ground: f32) -> f32 {
-    // Pixel center and 95%-height normalize to these NDC coordinates for
-    // every viewport. No window/presentation owner is required for admission.
-    let points = unproject(view, projection, 0., 0.)
-        .and_then(|a| at_height(a, ground))
-        .zip(unproject(view, projection, 0., -0.9).and_then(|b| at_height(b, ground)));
-    points.map_or(0., |(a, b)| {
-        ((a.x - b.x).powi(2) + (a.z - b.z).powi(2)).sqrt()
-    })
-}
 fn constrain(
     mut p: Vec3,
     min: Vec3,
@@ -164,7 +136,7 @@ impl SessionView {
         if !requested.is_finite() || !bounds.0.is_finite() || !bounds.1.is_finite() {
             return Err("nonfinite receiving LookAt position/bounds".into());
         }
-        let inset = inset(
+        let inset = self.camera.viewport.constraint_inset(
             self.camera.view_matrix,
             self.camera.projection_matrix,
             self.camera.native_camera.basis().ground_level(),
@@ -175,11 +147,12 @@ impl SessionView {
         }
         let mut target = requested;
         if requested.y > 10. + ground {
-            if let Some((near, far)) = unproject(
+            // Unlike calcCameraConstraints, original lookAt unprojects the
+            // normalized center directly, not a truncated center pixel.
+            if let Some((near, far)) = super::camera::viewport::TacticalViewport::ray_at_ndc(
                 self.camera.view_matrix,
                 self.camera.projection_matrix,
-                0.,
-                0.,
+                glam::Vec2::ZERO,
             ) {
                 let direction = (far - near).try_normalize().unwrap_or(-Vec3::Y);
                 let eye = self

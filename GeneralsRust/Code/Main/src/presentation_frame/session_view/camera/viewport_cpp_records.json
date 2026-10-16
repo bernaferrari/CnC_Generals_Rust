@@ -1,0 +1,1160 @@
+[
+  {
+    "case": "default_even",
+    "display": [
+      800,
+      600
+    ],
+    "view": [
+      800,
+      480,
+      0,
+      0
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1070945621,
+    "viewport_max_bits": [
+      1065353216,
+      1061997773
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 1,
+    "mouse_calls": 0,
+    "center": [
+      400,
+      240
+    ],
+    "bottom": [
+      400,
+      456
+    ],
+    "ndc_bits": [
+      0,
+      2147483648,
+      0,
+      3211159142
+    ],
+    "events": [
+      "window.position",
+      "window.show",
+      "tooltip",
+      "updown"
+    ]
+  },
+  {
+    "case": "default_odd",
+    "display": [
+      801,
+      603
+    ],
+    "view": [
+      801,
+      482,
+      0,
+      0
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1070905013,
+    "viewport_max_bits": [
+      1065353216,
+      1061986644
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 1,
+    "mouse_calls": 0,
+    "center": [
+      400,
+      241
+    ],
+    "bottom": [
+      400,
+      457
+    ],
+    "ndc_bits": [
+      3131286016,
+      2147483648,
+      3131286016,
+      3211096488
+    ],
+    "events": [
+      "window.position",
+      "window.show",
+      "tooltip",
+      "updown"
+    ]
+  },
+  {
+    "case": "hidden_stage_retains_default_height",
+    "display": [
+      801,
+      603
+    ],
+    "view": [
+      801,
+      482,
+      0,
+      0
+    ],
+    "stage": 3,
+    "hidden": true,
+    "aspect_bits": 1070905013,
+    "viewport_max_bits": [
+      1065353216,
+      1061986644
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 0,
+    "mouse_calls": 0,
+    "center": [
+      400,
+      241
+    ],
+    "bottom": [
+      400,
+      457
+    ],
+    "ndc_bits": [
+      3131286016,
+      2147483648,
+      3131286016,
+      3211096488
+    ],
+    "events": [
+      "window.hide"
+    ]
+  },
+  {
+    "case": "explicit_hide_expands_after_hidden_stage",
+    "display": [
+      801,
+      603
+    ],
+    "view": [
+      801,
+      603,
+      0,
+      0
+    ],
+    "stage": 3,
+    "hidden": true,
+    "aspect_bits": 1068107684,
+    "viewport_max_bits": [
+      1065353216,
+      1065353216
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 1,
+    "mouse_calls": 0,
+    "center": [
+      400,
+      301
+    ],
+    "bottom": [
+      400,
+      572
+    ],
+    "ndc_bits": [
+      3131286016,
+      987323904,
+      3131286016,
+      3211111844
+    ],
+    "events": [
+      "replay.hide",
+      "shortcut.hide",
+      "window.hide",
+      "shortcut.hide",
+      "science.hide"
+    ]
+  },
+  {
+    "case": "show_restores_default_twice",
+    "display": [
+      801,
+      603
+    ],
+    "view": [
+      801,
+      482,
+      0,
+      0
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1070905013,
+    "viewport_max_bits": [
+      1065353216,
+      1061986644
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 2,
+    "mouse_calls": 0,
+    "center": [
+      400,
+      241
+    ],
+    "bottom": [
+      400,
+      457
+    ],
+    "ndc_bits": [
+      3131286016,
+      2147483648,
+      3131286016,
+      3211096488
+    ],
+    "events": [
+      "replay.show",
+      "shortcut.show",
+      "window.position",
+      "window.show",
+      "tooltip",
+      "updown",
+      "window.show",
+      "ui.dirty"
+    ]
+  },
+  {
+    "case": "low_stage_full",
+    "display": [
+      801,
+      603
+    ],
+    "view": [
+      801,
+      603,
+      0,
+      0
+    ],
+    "stage": 2,
+    "hidden": false,
+    "aspect_bits": 1068107684,
+    "viewport_max_bits": [
+      1065353216,
+      1065353216
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 1,
+    "mouse_calls": 0,
+    "center": [
+      400,
+      301
+    ],
+    "bottom": [
+      400,
+      572
+    ],
+    "ndc_bits": [
+      3131286016,
+      987323904,
+      3131286016,
+      3211111844
+    ],
+    "events": [
+      "window.position",
+      "window.show",
+      "updown"
+    ]
+  },
+  {
+    "case": "hidden_stage_retains_low_height",
+    "display": [
+      801,
+      603
+    ],
+    "view": [
+      801,
+      603,
+      0,
+      0
+    ],
+    "stage": 3,
+    "hidden": true,
+    "aspect_bits": 1068107684,
+    "viewport_max_bits": [
+      1065353216,
+      1065353216
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 0,
+    "mouse_calls": 0,
+    "center": [
+      400,
+      301
+    ],
+    "bottom": [
+      400,
+      572
+    ],
+    "ndc_bits": [
+      3131286016,
+      987323904,
+      3131286016,
+      3211111844
+    ],
+    "events": [
+      "window.hide"
+    ]
+  },
+  {
+    "case": "resize_preserves_integer_default_ratio",
+    "display": [
+      1601,
+      1000
+    ],
+    "view": [
+      1601,
+      799,
+      0,
+      0
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1073757572,
+    "viewport_max_bits": [
+      1065353216,
+      1061980996
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 5,
+    "mouse_calls": 2,
+    "center": [
+      800,
+      399
+    ],
+    "bottom": [
+      800,
+      759
+    ],
+    "ndc_bits": [
+      3122904064,
+      983829504,
+      3122904064,
+      3211157042
+    ],
+    "events": [
+      "window.position",
+      "window.show",
+      "tooltip",
+      "updown"
+    ]
+  },
+  {
+    "case": "resize_roundtrip_truncates",
+    "display": [
+      801,
+      603
+    ],
+    "view": [
+      801,
+      481,
+      0,
+      0
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1070933995,
+    "viewport_max_bits": [
+      1065353216,
+      1061958821
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 4,
+    "mouse_calls": 2,
+    "center": [
+      400,
+      240
+    ],
+    "bottom": [
+      400,
+      456
+    ],
+    "ndc_bits": [
+      3131286016,
+      990396416,
+      3131286016,
+      3211092870
+    ],
+    "events": []
+  },
+  {
+    "case": "explicit_show_recomputes_80_percent_after_resize",
+    "display": [
+      801,
+      603
+    ],
+    "view": [
+      801,
+      482,
+      0,
+      0
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1070905013,
+    "viewport_max_bits": [
+      1065353216,
+      1061986644
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 2,
+    "mouse_calls": 0,
+    "center": [
+      400,
+      241
+    ],
+    "bottom": [
+      400,
+      457
+    ],
+    "ndc_bits": [
+      3131286016,
+      2147483648,
+      3131286016,
+      3211096488
+    ],
+    "events": [
+      "replay.show",
+      "shortcut.show",
+      "window.position",
+      "window.show",
+      "tooltip",
+      "updown",
+      "animation.reset",
+      "animation.register",
+      "shortcut.animate.show",
+      "window.show",
+      "ui.dirty"
+    ]
+  },
+  {
+    "case": "resize_custom_rect_origin",
+    "display": [
+      1603,
+      1003
+    ],
+    "view": [
+      1282,
+      778,
+      17,
+      24
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1070787481,
+    "viewport_max_bits": [
+      1062171511,
+      1061991082
+    ],
+    "viewport_min_bits": [
+      1009631508,
+      1019479323
+    ],
+    "hfov_bits": 1060285053,
+    "aspect_calls": 4,
+    "mouse_calls": 2,
+    "center": [
+      658,
+      413
+    ],
+    "bottom": [
+      658,
+      763
+    ],
+    "ndc_bits": [
+      0,
+      2147483648,
+      0,
+      3211154830
+    ],
+    "events": []
+  },
+  {
+    "case": "resize_custom_roundtrip",
+    "display": [
+      1001,
+      777
+    ],
+    "view": [
+      800,
+      602,
+      10,
+      18
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1068112260,
+    "viewport_max_bits": [
+      1062151969,
+      1061963225
+    ],
+    "viewport_min_bits": [
+      1008971044,
+      1019070124
+    ],
+    "hfov_bits": 1060277005,
+    "aspect_calls": 4,
+    "mouse_calls": 2,
+    "center": [
+      410,
+      319
+    ],
+    "bottom": [
+      410,
+      589
+    ],
+    "ndc_bits": [
+      0,
+      2147483648,
+      0,
+      3211108978
+    ],
+    "events": []
+  },
+  {
+    "case": "negative_origin_truncation",
+    "display": [
+      801,
+      603
+    ],
+    "view": [
+      801,
+      482,
+      -3,
+      -7
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1070905013,
+    "viewport_max_bits": [
+      1065290380,
+      1061791883
+    ],
+    "viewport_min_bits": [
+      3145036804,
+      3158192665
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 0,
+    "mouse_calls": 0,
+    "center": [
+      397,
+      234
+    ],
+    "bottom": [
+      397,
+      450
+    ],
+    "ndc_bits": [
+      3131286016,
+      2147483648,
+      3131286016,
+      3211096488
+    ],
+    "events": []
+  },
+  {
+    "case": "small_odd_rect",
+    "display": [
+      5,
+      3
+    ],
+    "view": [
+      5,
+      3,
+      2,
+      3
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1070945621,
+    "viewport_max_bits": [
+      1068708659,
+      1073741824
+    ],
+    "viewport_min_bits": [
+      1053609165,
+      1065353216
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 0,
+    "mouse_calls": 0,
+    "center": [
+      4,
+      4
+    ],
+    "bottom": [
+      4,
+      5
+    ],
+    "ndc_bits": [
+      3192704204,
+      1051372202,
+      3192704204,
+      3198855852
+    ],
+    "events": []
+  },
+  {
+    "case": "height_two_same_pick_row",
+    "display": [
+      2,
+      2
+    ],
+    "view": [
+      2,
+      2,
+      0,
+      0
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1065353216,
+    "viewport_max_bits": [
+      1065353216,
+      1065353216
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 0,
+    "mouse_calls": 0,
+    "center": [
+      1,
+      1
+    ],
+    "bottom": [
+      1,
+      1
+    ],
+    "ndc_bits": [
+      0,
+      2147483648,
+      0,
+      2147483648
+    ],
+    "events": []
+  },
+  {
+    "case": "height_one_same_pick_row",
+    "display": [
+      1,
+      1
+    ],
+    "view": [
+      1,
+      1,
+      0,
+      0
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1065353216,
+    "viewport_max_bits": [
+      1065353216,
+      1065353216
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 0,
+    "mouse_calls": 0,
+    "center": [
+      0,
+      0
+    ],
+    "bottom": [
+      0,
+      0
+    ],
+    "ndc_bits": [
+      3212836864,
+      1065353216,
+      3212836864,
+      1065353216
+    ],
+    "events": []
+  },
+  {
+    "case": "negative_origin_crosses_zero_whole_expression_truncates",
+    "display": [
+      1,
+      1
+    ],
+    "view": [
+      1,
+      1,
+      -1,
+      -1
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1065353216,
+    "viewport_max_bits": [
+      0,
+      0
+    ],
+    "viewport_min_bits": [
+      3212836864,
+      3212836864
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 0,
+    "mouse_calls": 0,
+    "center": [
+      0,
+      0
+    ],
+    "bottom": [
+      0,
+      0
+    ],
+    "ndc_bits": [
+      1065353216,
+      3212836864,
+      1065353216,
+      3212836864
+    ],
+    "events": []
+  },
+  {
+    "case": "default_at_one_height_source_zero",
+    "display": [
+      1,
+      1
+    ],
+    "view": [
+      1,
+      0,
+      0,
+      0
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 2139095040,
+    "viewport_max_bits": [
+      1065353216,
+      0
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 1,
+    "mouse_calls": 0,
+    "samples": null,
+    "events": [
+      "window.position",
+      "window.show",
+      "tooltip",
+      "updown"
+    ]
+  },
+  {
+    "case": "show_missing_parent_retains_height",
+    "display": [
+      801,
+      603
+    ],
+    "view": [
+      801,
+      333,
+      0,
+      0
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1075442218,
+    "viewport_max_bits": [
+      1065353216,
+      1057841030
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 0,
+    "mouse_calls": 0,
+    "center": [
+      400,
+      166
+    ],
+    "bottom": [
+      400,
+      316
+    ],
+    "ndc_bits": [
+      3131286016,
+      994364928,
+      3131286016,
+      3211123874
+    ],
+    "events": [
+      "replay.show",
+      "shortcut.show",
+      "ui.dirty"
+    ]
+  },
+  {
+    "case": "hide_missing_parent_nonimmediate_retains_height",
+    "display": [
+      801,
+      603
+    ],
+    "view": [
+      801,
+      333,
+      0,
+      0
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1075442218,
+    "viewport_max_bits": [
+      1065353216,
+      1057841030
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 0,
+    "mouse_calls": 0,
+    "center": [
+      400,
+      166
+    ],
+    "bottom": [
+      400,
+      316
+    ],
+    "ndc_bits": [
+      3131286016,
+      994364928,
+      3131286016,
+      3211123874
+    ],
+    "events": [
+      "replay.hide",
+      "shortcut.hide",
+      "animation.reverse",
+      "shortcut.animate.hide",
+      "science.hide"
+    ]
+  },
+  {
+    "case": "hide_no_window_manager_retains_height",
+    "display": [
+      801,
+      603
+    ],
+    "view": [
+      801,
+      333,
+      0,
+      0
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1075442218,
+    "viewport_max_bits": [
+      1065353216,
+      1057841030
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 0,
+    "mouse_calls": 0,
+    "center": [
+      400,
+      166
+    ],
+    "bottom": [
+      400,
+      316
+    ],
+    "ndc_bits": [
+      3131286016,
+      994364928,
+      3131286016,
+      3211123874
+    ],
+    "events": [
+      "replay.hide",
+      "shortcut.hide"
+    ]
+  },
+  {
+    "case": "replay_stage_noop",
+    "display": [
+      801,
+      603
+    ],
+    "view": [
+      801,
+      603,
+      0,
+      0
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1068107684,
+    "viewport_max_bits": [
+      1065353216,
+      1065353216
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 0,
+    "mouse_calls": 0,
+    "center": [
+      400,
+      301
+    ],
+    "bottom": [
+      400,
+      572
+    ],
+    "ndc_bits": [
+      3131286016,
+      987323904,
+      3131286016,
+      3211111844
+    ],
+    "events": []
+  },
+  {
+    "case": "replay_show_explicit_height_still_applies",
+    "display": [
+      801,
+      603
+    ],
+    "view": [
+      801,
+      482,
+      0,
+      0
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1070905013,
+    "viewport_max_bits": [
+      1065353216,
+      1061986644
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 1,
+    "mouse_calls": 0,
+    "center": [
+      400,
+      241
+    ],
+    "bottom": [
+      400,
+      457
+    ],
+    "ndc_bits": [
+      3131286016,
+      2147483648,
+      3131286016,
+      3211096488
+    ],
+    "events": [
+      "replay.show",
+      "shortcut.show",
+      "window.show",
+      "ui.dirty"
+    ]
+  },
+  {
+    "case": "direct_squished_helper_full_not_switch_admitted",
+    "display": [
+      803,
+      607
+    ],
+    "view": [
+      803,
+      607,
+      0,
+      0
+    ],
+    "stage": 1,
+    "hidden": false,
+    "aspect_bits": 1068061893,
+    "viewport_max_bits": [
+      1065353216,
+      1065353216
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 1,
+    "mouse_calls": 0,
+    "center": [
+      401,
+      303
+    ],
+    "bottom": [
+      401,
+      576
+    ],
+    "ndc_bits": [
+      3131259392,
+      987230208,
+      3131259392,
+      3211123210
+    ],
+    "events": [
+      "window.position",
+      "tooltip",
+      "scheme"
+    ]
+  },
+  {
+    "case": "switch_squished_unsupported_source_assert",
+    "display": [
+      803,
+      607
+    ],
+    "view": [
+      803,
+      607,
+      0,
+      0
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1068061893,
+    "viewport_max_bits": [
+      1065353216,
+      1065353216
+    ],
+    "viewport_min_bits": [
+      0,
+      0
+    ],
+    "hfov_bits": 1063216883,
+    "aspect_calls": 0,
+    "mouse_calls": 0,
+    "center": [
+      401,
+      303
+    ],
+    "bottom": [
+      401,
+      576
+    ],
+    "ndc_bits": [
+      3131259392,
+      987230208,
+      3131259392,
+      3211123210
+    ],
+    "events": [
+      "invalid-stage"
+    ]
+  },
+  {
+    "case": "large_finite_resize",
+    "display": [
+      32767,
+      32749
+    ],
+    "view": [
+      30000,
+      24988,
+      9,
+      14
+    ],
+    "stage": 0,
+    "hidden": false,
+    "aspect_bits": 1067035772,
+    "viewport_max_bits": [
+      1063941077,
+      1061384451
+    ],
+    "viewport_min_bits": [
+      965738784,
+      970989893
+    ],
+    "hfov_bits": 1061980538,
+    "aspect_calls": 4,
+    "mouse_calls": 2,
+    "center": [
+      15009,
+      12508
+    ],
+    "bottom": [
+      15009,
+      23752
+    ],
+    "ndc_bits": [
+      0,
+      2147483648,
+      0,
+      3211158336
+    ],
+    "events": []
+  }
+]

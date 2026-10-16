@@ -89,6 +89,27 @@ impl WindowManager {
         data: WindowMsgData,
         mouse_delta: Option<(i32, i32)>,
     ) -> WindowInputReturnCode {
+        self.process_mouse_event_phase(msg, x, y, data, mouse_delta, None)
+    }
+    pub fn process_mouse_event_with_control_bar(
+        &mut self,
+        msg: WindowMessage,
+        x: i32,
+        y: i32,
+        data: WindowMsgData,
+        context: &mut super::ControlBarInputContext<'_>,
+    ) -> WindowInputReturnCode {
+        self.process_mouse_event_phase(msg, x, y, data, None, Some(context))
+    }
+    fn process_mouse_event_phase(
+        &mut self,
+        msg: WindowMessage,
+        x: i32,
+        y: i32,
+        data: WindowMsgData,
+        mouse_delta: Option<(i32, i32)>,
+        mut context: Option<&mut super::ControlBarInputContext<'_>>,
+    ) -> WindowInputReturnCode {
         const GGM_LEFT_DRAG: u32 = 16384;
         const GGM_CLOSE: u32 = GGM_LEFT_DRAG + 5;
         let old_lone = self.lone_window.as_ref().and_then(|w| w.upgrade());
@@ -116,7 +137,14 @@ impl WindowManager {
                         };
 
                         if should_send_release {
-                            let _ = grab_window.borrow_mut().send_input_message(msg, data, 0);
+                            let _ = self.send_input_selected(
+                                &grab_window,
+                                msg,
+                                data,
+                                0,
+                                false,
+                                context.as_deref_mut(),
+                            );
                         }
                         self.set_grab_window(None);
                         return WindowInputReturnCode::Used;
@@ -125,7 +153,14 @@ impl WindowManager {
                         if let Some((dx, dy)) = mouse_delta {
                             self.move_grabbed_draggable_window(&grab_window, dx, dy);
                         }
-                        let _ = grab_window.borrow_mut().send_input_message(msg, data, 0);
+                        let _ = self.send_input_selected(
+                            &grab_window,
+                            msg,
+                            data,
+                            0,
+                            false,
+                            context.as_deref_mut(),
+                        );
                         return WindowInputReturnCode::Used;
                     }
                     _ => {
@@ -136,8 +171,15 @@ impl WindowManager {
         }
 
         if let Some(window) = target_window {
-            let handled_window =
-                self.send_mouse_message_up_chain(&window, msg, data, x, y, capture_window.as_ref());
+            let handled_window = self.send_mouse_message_up_chain_phase(
+                &window,
+                msg,
+                data,
+                x,
+                y,
+                capture_window.as_ref(),
+                context.as_deref_mut(),
+            );
 
             self.update_current_mouse_region(Some(&window), capture_window.as_ref(), x, y);
 
@@ -276,18 +318,32 @@ impl WindowManager {
         y: i32,
         stop_at: Option<&Rc<RefCell<GameWindow>>>,
     ) -> Option<Rc<RefCell<GameWindow>>> {
+        self.send_mouse_message_up_chain_phase(start, msg, data, x, y, stop_at, None)
+    }
+    fn send_mouse_message_up_chain_phase(
+        &mut self,
+        start: &Rc<RefCell<GameWindow>>,
+        msg: WindowMessage,
+        data: WindowMsgData,
+        x: i32,
+        y: i32,
+        stop_at: Option<&Rc<RefCell<GameWindow>>>,
+        mut context: Option<&mut super::ControlBarInputContext<'_>>,
+    ) -> Option<Rc<RefCell<GameWindow>>> {
         let mut current = Some(start.clone());
         while let Some(window) = current {
             let (wx, wy) = window.borrow().get_screen_position();
-            let result = {
-                let mut window_ref = window.borrow_mut();
-                let _ = window_ref.set_cursor_position(x - wx, y - wy);
-                if stop_at.is_some() {
-                    window_ref.send_routed_input_message(msg, data, 0)
-                } else {
-                    window_ref.send_input_message(msg, data, 0)
-                }
-            };
+            {
+                let _ = window.borrow_mut().set_cursor_position(x - wx, y - wy);
+            }
+            let result = self.send_input_selected(
+                &window,
+                msg,
+                data,
+                0,
+                stop_at.is_some(),
+                context.as_deref_mut(),
+            );
 
             if result.is_handled() {
                 return Some(window);
@@ -428,16 +484,35 @@ impl WindowManager {
 
     /// Process key event
     pub fn process_key_event(&mut self, key: u8, state: u8) -> WindowInputReturnCode {
+        self.process_key_event_phase(key, state, None)
+    }
+    pub fn process_key_event_with_control_bar(
+        &mut self,
+        key: u8,
+        state: u8,
+        context: &mut super::ControlBarInputContext<'_>,
+    ) -> WindowInputReturnCode {
+        self.process_key_event_phase(key, state, Some(context))
+    }
+    fn process_key_event_phase(
+        &mut self,
+        key: u8,
+        state: u8,
+        mut context: Option<&mut super::ControlBarInputContext<'_>>,
+    ) -> WindowInputReturnCode {
         if key == 0 {
             return WindowInputReturnCode::NotUsed;
         }
 
         if let Some(mut window) = self.get_focus() {
             loop {
-                let result = window.borrow_mut().send_input_message(
+                let result = self.send_input_selected(
+                    &window,
                     WindowMessage::Char,
                     key as WindowMsgData,
                     state as WindowMsgData,
+                    false,
+                    context.as_deref_mut(),
                 );
                 if result.is_handled() {
                     return WindowInputReturnCode::Used;

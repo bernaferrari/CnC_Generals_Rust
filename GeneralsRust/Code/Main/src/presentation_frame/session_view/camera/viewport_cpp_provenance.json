@@ -1,0 +1,321 @@
+{
+  "scope": "Original extracted numeric viewport setters, resize and integer pick conversion only; no full terrain/pick-ray or GPU comparison. UI event counts in the corpus are not asserted by the rectangle replay.",
+  "receipt": {
+    "scope": "Original numeric viewport component, not a full UI/render/game executable",
+    "fragments": 26,
+    "generator_sha256": "3b959abd1571ff5cdfdbb805a090b118cb63cc2e4557e74c7de51adf2ad834de",
+    "oracle_sha256": "a6941e585f1d01bb0109ea356d111ae1758a9f87ea6a1752a9ed16350d8bb3c5",
+    "fragment_manifest_sha256": "0ebae122067c268d7021ea0ea4be6c73e56b0e41a681e15768ddf51576b50830",
+    "compiler_version": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n",
+    "builds": [
+      {
+        "label": "O0",
+        "argv": [
+          "/usr/bin/clang++",
+          "-std=c++17",
+          "-ffp-contract=off",
+          "-O0",
+          "/Users/bernardoferrari/Downloads/.generals-evidence/452/cpp-viewport-oracle/oracle.cpp",
+          "-o",
+          "/Users/bernardoferrari/Downloads/.generals-evidence/452/cpp-viewport-oracle/oracle-O0"
+        ],
+        "exit": 0,
+        "executable_sha256": "da9dd7149abe4c6635c16bbb2e863f57664646de32be2b0beb4bdc146a4c6dea",
+        "stdout_sha256": "1f9e4d78c30c41990061e9e5f270757c43b095456861e35ed97ae6b8f99637ba",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "records": 26
+      },
+      {
+        "label": "O2",
+        "argv": [
+          "/usr/bin/clang++",
+          "-std=c++17",
+          "-ffp-contract=off",
+          "-O2",
+          "/Users/bernardoferrari/Downloads/.generals-evidence/452/cpp-viewport-oracle/oracle.cpp",
+          "-o",
+          "/Users/bernardoferrari/Downloads/.generals-evidence/452/cpp-viewport-oracle/oracle-O2"
+        ],
+        "exit": 0,
+        "executable_sha256": "702c520410cc9a8f1e4a955a689d2419880a75b5343f59ca7229a40c20743b33",
+        "stdout_sha256": "1f9e4d78c30c41990061e9e5f270757c43b095456861e35ed97ae6b8f99637ba",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "records": 26
+      },
+      {
+        "label": "ubsan",
+        "argv": [
+          "/usr/bin/clang++",
+          "-std=c++17",
+          "-ffp-contract=off",
+          "-O1",
+          "-fsanitize=undefined",
+          "-fno-sanitize-recover=all",
+          "/Users/bernardoferrari/Downloads/.generals-evidence/452/cpp-viewport-oracle/oracle.cpp",
+          "-o",
+          "/Users/bernardoferrari/Downloads/.generals-evidence/452/cpp-viewport-oracle/oracle-ubsan"
+        ],
+        "exit": 0,
+        "executable_sha256": "3c16eec55f519180645c2c56426c06b3276e77b4ae279b36c9dc4b5357cf25f8",
+        "stdout_sha256": "1f9e4d78c30c41990061e9e5f270757c43b095456861e35ed97ae6b8f99637ba",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "records": 26
+      }
+    ],
+    "exclusions": [
+      "Scene pick-ray/world intersections are not executed: only original integer screen assignments and original PixelScreenToW3DLogicalScreen are executed.",
+      "UI/window/recorder/player dependencies are explicit local shims; original branch/call order and numeric setter bodies remain intact.",
+      "No SLIDE_LETTERBOX preprocessor option, matching normal source build.",
+      "Hide missing-parent+immediate=true dereferences null in original; excluded.",
+      "Zero-height Default result is recorded as original numeric invalid viewport; sample conversion skipped, not a supported rendering domain.",
+      "Squished direct helper exists but switch case is commented out; both are distinguished."
+    ],
+    "outputs_identical": true
+  },
+  "source_fragments": [
+    {
+      "label": "virtual void setWidth(",
+      "source": "GeneralsMD/Code/GameEngine/Include/GameClient/View.h",
+      "source_sha256": "368fa9e7f7700eb4b06d1f1357e4571ccbb14d201995ba8a1ede22a0231704ad",
+      "start_line": 98,
+      "end_line": 98,
+      "fragment_sha256": "a18f640e456d6f50722ae92f3addeebd8d3cd7a60fb4a5ca053c6ccd2c847f9d",
+      "source_text": "virtual void setWidth( Int width ) { m_width = width; }"
+    },
+    {
+      "label": "virtual Int getWidth(",
+      "source": "GeneralsMD/Code/GameEngine/Include/GameClient/View.h",
+      "source_sha256": "368fa9e7f7700eb4b06d1f1357e4571ccbb14d201995ba8a1ede22a0231704ad",
+      "start_line": 99,
+      "end_line": 99,
+      "fragment_sha256": "a01afbcb7ee9f99e7417048c685e75fdbc7664afe9ecebdef5c03d380c21e277",
+      "source_text": "virtual Int getWidth( void ) { return m_width; }"
+    },
+    {
+      "label": "virtual void setHeight(",
+      "source": "GeneralsMD/Code/GameEngine/Include/GameClient/View.h",
+      "source_sha256": "368fa9e7f7700eb4b06d1f1357e4571ccbb14d201995ba8a1ede22a0231704ad",
+      "start_line": 100,
+      "end_line": 100,
+      "fragment_sha256": "1a4aad2e6521437b390fd9001c2d79ee2aac65638ff68b54a31626aad24f9cac",
+      "source_text": "virtual void setHeight( Int height ) { m_height = height; }"
+    },
+    {
+      "label": "virtual Int getHeight(",
+      "source": "GeneralsMD/Code/GameEngine/Include/GameClient/View.h",
+      "source_sha256": "368fa9e7f7700eb4b06d1f1357e4571ccbb14d201995ba8a1ede22a0231704ad",
+      "start_line": 101,
+      "end_line": 101,
+      "fragment_sha256": "3bce9df5a4b14510af86aa0b280d6f8f242a5c385ab57fec95cb3f9c93396888",
+      "source_text": "virtual Int getHeight( void ) { return m_height; }"
+    },
+    {
+      "label": "virtual void setOrigin(",
+      "source": "GeneralsMD/Code/GameEngine/Include/GameClient/View.h",
+      "source_sha256": "368fa9e7f7700eb4b06d1f1357e4571ccbb14d201995ba8a1ede22a0231704ad",
+      "start_line": 102,
+      "end_line": 102,
+      "fragment_sha256": "7707a580dde0cad8364ecc4319d70e867dee13b574952856cce6e07cf18881cf",
+      "source_text": "virtual void setOrigin( Int x, Int y) { m_originX=x; m_originY=y;}"
+    },
+    {
+      "label": "virtual void getOrigin(",
+      "source": "GeneralsMD/Code/GameEngine/Include/GameClient/View.h",
+      "source_sha256": "368fa9e7f7700eb4b06d1f1357e4571ccbb14d201995ba8a1ede22a0231704ad",
+      "start_line": 103,
+      "end_line": 103,
+      "fragment_sha256": "77ccc77581958fb829b2d0217456fa29c33936eb5fe1a563265a27a0c086bd0b",
+      "source_text": "virtual void getOrigin( Int *x, Int *y) { *x=m_originX; *y=m_originY;}"
+    },
+    {
+      "label": "ControlBarStages",
+      "source": "GeneralsMD/Code/GameEngine/Include/GameClient/ControlBar.h",
+      "source_sha256": "69d37c66bceba55062050fd448df3e3e8e745074616a909985b91b8634d4323e",
+      "start_line": 615,
+      "end_line": 623,
+      "fragment_sha256": "beafaa1c24328dce2576991273ad4bdd3076b14c662cf12baabe291093d3745c",
+      "source_text": "enum ControlBarStages\n{\n\tCONTROL_BAR_STAGE_DEFAULT = 0,\t\t///< full view for the world to see\n\tCONTROL_BAR_STAGE_SQUISHED,\t\t\t\t///< squished just for expeirenced players\n\tCONTROL_BAR_STAGE_LOW,\t\t\t\t\t\t///< control bar a la minimalist\n\tCONTROL_BAR_STAGE_HIDDEN,\t\t\t\t\t///< yo, where be da control bar at?\n\t\n\tMAX_CONTROL_BAR_STAGES\n};"
+    },
+    {
+      "label": "#define WWMATH_PI[^\\n]*",
+      "source": "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/wwmath.h",
+      "source_sha256": "1506b189fcead836247527a2a506522731a66fcf76f20c65b42d19cb8443efba",
+      "start_line": 19,
+      "end_line": 19,
+      "fragment_sha256": "2f9ebca1f03f8a9313e26644bafbeaf5fee5f8c4f396ca00f9d3997f027145ce",
+      "source_text": "#define WWMATH_PI\t\t\t\t3.141592654f"
+    },
+    {
+      "label": "#define DEG_TO_RADF\\(x\\)[^\\n]*",
+      "source": "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/wwmath.h",
+      "source_sha256": "1506b189fcead836247527a2a506522731a66fcf76f20c65b42d19cb8443efba",
+      "start_line": 50,
+      "end_line": 50,
+      "fragment_sha256": "49f2477bb3751fc1162295923fc83c40313b403cd1e24a07a3d636b81771dd9a",
+      "source_text": "#define DEG_TO_RADF(x)\t(((float)x)*WWMATH_PI/180.0f)"
+    },
+    {
+      "label": "Bool Display::setDisplayMode(",
+      "source": "GeneralsMD/Code/GameEngine/Source/GameClient/Display.cpp",
+      "source_sha256": "81e0250860d51df80b9ad8a65da7966e4e81dcc2040a7bd778d68c19304ef23a",
+      "start_line": 122,
+      "end_line": 141,
+      "fragment_sha256": "dc69c18c317b6e5acb3234c0174fb4a481702a3943ba79628238e53b169f9b42",
+      "source_text": "Bool Display::setDisplayMode( UnsignedInt xres, UnsignedInt yres, UnsignedInt bitdepth, Bool windowed )\n{\n\t//Get old values\n\tUnsignedInt oldDisplayHeight=getHeight();\n\tUnsignedInt oldDisplayWidth=getWidth();\n\tInt oldViewWidth=TheTacticalView->getWidth();\n\tInt oldViewHeight=TheTacticalView->getHeight();\n\tInt oldViewOriginX,oldViewOriginY;\n\tTheTacticalView->getOrigin(&oldViewOriginX,&oldViewOriginY);\n\n\tsetWidth(xres);\n\tsetHeight(yres);\n\n\t//Adjust view to match previous proportions\n\tTheTacticalView->setWidth((Real)oldViewWidth/(Real)oldDisplayWidth*(Real)xres);\n\tTheTacticalView->setHeight((Real)oldViewHeight/(Real)oldDisplayHeight*(Real)yres);\n\tTheTacticalView->setOrigin((Real)oldViewOriginX/(Real)oldDisplayWidth*(Real)xres,\n\t(Real)oldViewOriginY/(Real)oldDisplayHeight*(Real)yres);\n\treturn TRUE;\n}"
+    },
+    {
+      "label": "void Display::setWidth(",
+      "source": "GeneralsMD/Code/GameEngine/Source/GameClient/Display.cpp",
+      "source_sha256": "81e0250860d51df80b9ad8a65da7966e4e81dcc2040a7bd778d68c19304ef23a",
+      "start_line": 146,
+      "end_line": 156,
+      "fragment_sha256": "7d76d6ebd014cfc6a94ac3f7a44d16855e632cfacb0c89d851d72a5017dea62e",
+      "source_text": "void Display::setWidth( UnsignedInt width )\n{\n\n\t// set the new width\n\tm_width = width;\n\n\t// set the new mouse limits\n\tif( TheMouse )\n\t\tTheMouse->setMouseLimits();\n\n}"
+    },
+    {
+      "label": "void Display::setHeight(",
+      "source": "GeneralsMD/Code/GameEngine/Source/GameClient/Display.cpp",
+      "source_sha256": "81e0250860d51df80b9ad8a65da7966e4e81dcc2040a7bd778d68c19304ef23a",
+      "start_line": 161,
+      "end_line": 171,
+      "fragment_sha256": "3bd1e7f5ff7a7121baa81e7ccd812d02692e0db3728f2225bfa81512560d8cc0",
+      "source_text": "void Display::setHeight( UnsignedInt height )\n{\n\n\t// se the new height\n\tm_height = height;\n\n\t// set the new mouse limits\n\tif( TheMouse )\n\t\tTheMouse->setMouseLimits();\n\n}"
+    },
+    {
+      "label": "void W3DView::setHeight(",
+      "source": "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DView.cpp",
+      "source_sha256": "0a62e7572862b8a3f75cb5d3427f19550f02dbf5d8920f55ced2ab98b11736ff",
+      "start_line": 180,
+      "end_line": 190,
+      "fragment_sha256": "7430ee9b796162f5dde56411f474905471a11e2ee73dce56cc22985958f3e6bd",
+      "source_text": "void W3DView::setHeight(Int height)\n{\n\t// extend View functionality\n\tView::setHeight(height);\n\n\tVector2 vMin,vMax;\n\tm_3DCamera->Set_Aspect_Ratio((Real)getWidth()/(Real)height);\n \tm_3DCamera->Get_Viewport(vMin,vMax);\n \tvMax.Y=(Real)(m_originY+height)/(Real)TheDisplay->getHeight();\n \tm_3DCamera->Set_Viewport(vMin,vMax);\n}"
+    },
+    {
+      "label": "void W3DView::setWidth(",
+      "source": "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DView.cpp",
+      "source_sha256": "0a62e7572862b8a3f75cb5d3427f19550f02dbf5d8920f55ced2ab98b11736ff",
+      "start_line": 195,
+      "end_line": 209,
+      "fragment_sha256": "12219f07ced385dca296977e10b1da010faa12a2f529399a8a833a55907a7691",
+      "source_text": "void W3DView::setWidth(Int width)\n{\n\t// extend View functionality\n\tView::setWidth(width);\n\n\tVector2 vMin,vMax;\n\tm_3DCamera->Set_Aspect_Ratio((Real)width/(Real)getHeight());\n \tm_3DCamera->Get_Viewport(vMin,vMax);\n \tvMax.X=(Real)(m_originX+width)/(Real)TheDisplay->getWidth();\n \tm_3DCamera->Set_Viewport(vMin,vMax);\n\n\t//we want to maintain the same scale, so we'll need to adjust the fov.\n\t//default W3D fov for full-screen is 50 degrees.\n\tm_3DCamera->Set_View_Plane((Real)width/(Real)TheDisplay->getWidth()*DEG_TO_RADF(50.0f),-1);\n}"
+    },
+    {
+      "label": "void W3DView::setOrigin(",
+      "source": "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DView.cpp",
+      "source_sha256": "0a62e7572862b8a3f75cb5d3427f19550f02dbf5d8920f55ced2ab98b11736ff",
+      "start_line": 214,
+      "end_line": 229,
+      "fragment_sha256": "074d9aa01b77d6e6a6716987fce7c323f5f1a2e859afef22826531b6c26b7234",
+      "source_text": "void W3DView::setOrigin( Int x, Int y)\n{\n\t// extend View functionality\n\tView::setOrigin(x,y);\n\n\tVector2 vMin,vMax;\n\n \tm_3DCamera->Get_Viewport(vMin,vMax);\n \tvMin.X=(Real)x/(Real)TheDisplay->getWidth();\n\tvMin.Y=(Real)y/(Real)TheDisplay->getHeight();\n \tm_3DCamera->Set_Viewport(vMin,vMax);\n\n\t// bottom-right border was also moved my this call, so force an update of extents.\n\tsetWidth(m_width);\n\tsetHeight(m_height);\n}"
+    },
+    {
+      "label": "void ControlBar::switchControlBarStage(",
+      "source": "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBar.cpp",
+      "source_sha256": "5e32f07319241bd5dac0d26413383d757f82f8a83a5dccbb91ba0cee3cf9fec0",
+      "start_line": 2977,
+      "end_line": 3000,
+      "fragment_sha256": "1355f11c0d76eae388c0c8f49be0fcf978f564fdff6bcbd049350648772e3459",
+      "source_text": "void ControlBar::switchControlBarStage( ControlBarStages stage )\n{\n\tif(stage < CONTROL_BAR_STAGE_DEFAULT || stage >= MAX_CONTROL_BAR_STAGES)\n\t\treturn;\n\tif (TheRecorder && TheRecorder->getMode() == RECORDERMODETYPE_PLAYBACK)\n\t\treturn;\n\tswitch (stage) {\n\tcase CONTROL_BAR_STAGE_DEFAULT:\n\t\tsetDefaultControlBarConfig();\n\t\tbreak;\n//\tcase CONTROL_BAR_STAGE_SQUISHED:\n//\t\tsetSquishedControlBarConfig();\n//\t\tbreak;\n\tcase CONTROL_BAR_STAGE_LOW:\n\t\tsetLowControlBarConfig();\n\t\tbreak;\n\tcase CONTROL_BAR_STAGE_HIDDEN:\n\t\tsetHiddenControlBar();\n\t\tbreak;\n\tdefault:\n\t\tDEBUG_ASSERTCRASH(FALSE,(\"ControlBar::switchControlBarStage we were passed in a stage that's not supported %d\", stage));\n\t}\n\t\n}"
+    },
+    {
+      "label": "void ControlBar::setDefaultControlBarConfig(",
+      "source": "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBar.cpp",
+      "source_sha256": "5e32f07319241bd5dac0d26413383d757f82f8a83a5dccbb91ba0cee3cf9fec0",
+      "start_line": 3001,
+      "end_line": 3015,
+      "fragment_sha256": "9daa4e81c5b4de9fcfb4737e36318c3080f1ff7699f564ba910c455dac426c6a",
+      "source_text": "void ControlBar::setDefaultControlBarConfig( void )\n{\n//\tif(m_currentControlBarStage == CONTROL_BAR_STAGE_SQUISHED)\n//\t{\n//\t\tm_controlBarResizer->sizeWindowsDefault();\n//\t\tm_controlBarSchemeManager->setControlBarSchemeByPlayerTemplate(ThePlayerList->getLocalPlayer()->getPlayerTemplate(), FALSE);\n//\t}\n\tm_currentControlBarStage = CONTROL_BAR_STAGE_DEFAULT;\n\tTheTacticalView->setHeight((Int)(TheDisplay->getHeight() * 0.80f)); \n\tm_contextParent[ CP_MASTER ]->winSetPosition(m_defaultControlBarPosition.x, m_defaultControlBarPosition.y);\n\tm_contextParent[ CP_MASTER ]->winHide(FALSE);\n\trepopulateBuildTooltipLayout();\n\tsetUpDownImages();\n\n}"
+    },
+    {
+      "label": "void ControlBar::setSquishedControlBarConfig(",
+      "source": "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBar.cpp",
+      "source_sha256": "5e32f07319241bd5dac0d26413383d757f82f8a83a5dccbb91ba0cee3cf9fec0",
+      "start_line": 3017,
+      "end_line": 3028,
+      "fragment_sha256": "6bade93f9e8524985441e4273140650b679ddbfb83a7f4271a7c7a93e3aa2df3",
+      "source_text": "void ControlBar::setSquishedControlBarConfig( void )\n{\n\tif(m_currentControlBarStage == CONTROL_BAR_STAGE_SQUISHED)\n\t\treturn;\n\tm_currentControlBarStage = CONTROL_BAR_STAGE_SQUISHED;\n\tm_contextParent[ CP_MASTER ]->winSetPosition(m_defaultControlBarPosition.x, m_defaultControlBarPosition.y);\n\t\n//\tm_controlBarResizer->sizeWindowsAlt();\n\trepopulateBuildTooltipLayout();\t\n\tTheTacticalView->setHeight((Int)(TheDisplay->getHeight())); \n\tm_controlBarSchemeManager->setControlBarSchemeByPlayerTemplate(ThePlayerList->getLocalPlayer()->getPlayerTemplate(), TRUE);\n}"
+    },
+    {
+      "label": "void ControlBar::setLowControlBarConfig(",
+      "source": "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBar.cpp",
+      "source_sha256": "5e32f07319241bd5dac0d26413383d757f82f8a83a5dccbb91ba0cee3cf9fec0",
+      "start_line": 3030,
+      "end_line": 3047,
+      "fragment_sha256": "70ec0809b4d66898fb7a1f6863a84c6c0ec185fb97fb2f18f145528af7896b03",
+      "source_text": "void ControlBar::setLowControlBarConfig( void )\n{\n//\tif(m_currentControlBarStage == CONTROL_BAR_STAGE_SQUISHED)\n//\t{\n//\t\tm_controlBarResizer->sizeWindowsDefault();\n//\t\tm_controlBarSchemeManager->setControlBarSchemeByPlayerTemplate(ThePlayerList->getLocalPlayer()->getPlayerTemplate(), FALSE);\n//\t}\n\t\n\tm_currentControlBarStage = CONTROL_BAR_STAGE_LOW;\n\tICoord2D pos;\n\tpos.x = m_defaultControlBarPosition.x;\n\tpos.y = TheDisplay->getHeight() - .1 * TheDisplay->getHeight();\n\tTheTacticalView->setHeight((Int)(TheDisplay->getHeight())); \n\tm_contextParent[ CP_MASTER ]->winSetPosition(pos.x, pos.y);\n\tm_contextParent[ CP_MASTER ]->winHide(FALSE);\n\tsetUpDownImages();\n\n}"
+    },
+    {
+      "label": "void ControlBar::setHiddenControlBar(",
+      "source": "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBar.cpp",
+      "source_sha256": "5e32f07319241bd5dac0d26413383d757f82f8a83a5dccbb91ba0cee3cf9fec0",
+      "start_line": 3049,
+      "end_line": 3053,
+      "fragment_sha256": "0f35d40e6764ddaea3f9a42fc404bed78d536456073ee6c348b5ec58a2f38fca",
+      "source_text": "void ControlBar::setHiddenControlBar( void )\n{\n\tm_currentControlBarStage = CONTROL_BAR_STAGE_HIDDEN;\n\tm_contextParent[ CP_MASTER ]->winHide(TRUE);\n}"
+    },
+    {
+      "label": "void ShowControlBar(",
+      "source": "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/ControlBarCallback.cpp",
+      "source_sha256": "fadc97168ef2cd6e2b13df3b693013146a327845f1c88f57c18e5c0c776191cb",
+      "start_line": 477,
+      "end_line": 507,
+      "fragment_sha256": "1df21d69953ba2134d34382621900139891bbb82504c3058bcb8867c091f355e",
+      "source_text": "void ShowControlBar( Bool immediate )\n{\n\tshowReplayControls();\n\tif(TheControlBar)\n\t\tTheControlBar->showSpecialPowerShortcut();\n\tif (TheWindowManager)\n\t{\n\t\tInt id = (Int)TheNameKeyGenerator->nameToKey(AsciiString(\"ControlBar.wnd:ControlBarParent\"));\n\t\tGameWindow *window = TheWindowManager->winGetWindowFromId(NULL, id);\n\n\t\tif (window)\n\t\t{\t\n\t\t\tTheControlBar->switchControlBarStage(CONTROL_BAR_STAGE_DEFAULT);\n\t\t\tTheTacticalView->setHeight((Int)(TheDisplay->getHeight() * 0.80f));\n\t\t\tif (TheControlBar->m_animateWindowManager && !immediate)\n\t\t\t{\n\t\t\t\tTheControlBar->m_animateWindowManager->reset();\n\t\t\t\t//TheControlBar->m_animateWindowManager->registerGameWindow(window, WIN_ANIMATION_SLIDE_BOTTOM_TIMED, TRUE, 1000, 0);\n\t\t\t\tTheControlBar->m_animateWindowManager->registerGameWindow(window, WIN_ANIMATION_SLIDE_BOTTOM, TRUE, 500, 0);\n\t\t\t\tTheControlBar->animateSpecialPowerShortcut(TRUE);\n\t\t\t}\n\t\t\twindow->winHide(FALSE);\n\t\t}\n\n\t}  \n\n\t// We want to get everything recalced since this is a major state change.\n\tif(TheControlBar)\n\t\tTheControlBar->markUIDirty();\n\n}"
+    },
+    {
+      "label": "void HideControlBar(",
+      "source": "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/ControlBarCallback.cpp",
+      "source_sha256": "fadc97168ef2cd6e2b13df3b693013146a327845f1c88f57c18e5c0c776191cb",
+      "start_line": 512,
+      "end_line": 549,
+      "fragment_sha256": "8296e75d9bb10b06d5a5c2452cda42b17bf0f42d202dfb4595bae8fb16e77579",
+      "source_text": "void HideControlBar( Bool immediate )\n{\n\thideReplayControls();\n\tif(TheControlBar)\n\t\tTheControlBar->hideSpecialPowerShortcut();\n\tif (TheWindowManager)\n\t{\n\t\tInt id = (Int)TheNameKeyGenerator->nameToKey(AsciiString(\"ControlBar.wnd:ControlBarParent\"));\n\t\tGameWindow *window = TheWindowManager->winGetWindowFromId(NULL, id);\n\n\t\tif (window)\n\t\t{\n#ifdef SLIDE_LETTERBOX\n\t\t\t\tTheTacticalView->setHeight((Int)(TheDisplay->getHeight() * 0.80f)); \n#else\n\t\t\t\tTheTacticalView->setHeight(TheDisplay->getHeight());\n#endif\n\t\t}\n\t\tif (immediate)\n\t\t{\n\t\t\twindow->winHide(TRUE);\n\t\t\tif(TheControlBar)\n\t\t\t\tTheControlBar->hideSpecialPowerShortcut();\n\t\n\t\t}\n\t\telse\n\t\t{\n\t\t\tTheControlBar->m_animateWindowManager->reverseAnimateWindow();\n\t\t\tTheControlBar->animateSpecialPowerShortcut(FALSE);\n\t\t}\n\n\t\t//Always get rid of the purchase science screen!\n\t\tif( TheControlBar )\n\t\t{\n\t\t\tTheControlBar->hidePurchaseScience();\n\t\t}\n\t}  \n}"
+    },
+    {
+      "label": "void PixelScreenToW3DLogicalScreen(",
+      "source": "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/Common/W3DConvert.cpp",
+      "source_sha256": "cf58b38806c15350a9fbcba5d9454c42ff1b3a5ce56c4d1179586136887b0a7e",
+      "start_line": 70,
+      "end_line": 78,
+      "fragment_sha256": "ae4b8a8dbee081879200af93377a093852da8f746c4f480648c64728674c00e8",
+      "source_text": "void PixelScreenToW3DLogicalScreen( Int screenX, Int screenY,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tReal *logX, Real *logY,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tInt screenWidth, Int screenHeight )\n{\n\n\t*logX = ((2.0f * screenX) / (Real)screenWidth) - 1.0f;\n\t*logY = -(((2.0f * screenY) / (Real)screenHeight) - 1.0f);\n\n}"
+    },
+    {
+      "label": "screen\\.x=0\\.5f\\*getWidth\\(\\)\\+m_originX;",
+      "source": "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DView.cpp",
+      "source_sha256": "0a62e7572862b8a3f75cb5d3427f19550f02dbf5d8920f55ced2ab98b11736ff",
+      "start_line": 480,
+      "end_line": 480,
+      "fragment_sha256": "6065905baadea0a71df6049df3dc2e8714215ca33fbcfbebf3e26fd574f885e3",
+      "source_text": "screen.x=0.5f*getWidth()+m_originX;"
+    },
+    {
+      "label": "screen\\.y=0\\.5f\\*getHeight\\(\\)\\+m_originY;",
+      "source": "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DView.cpp",
+      "source_sha256": "0a62e7572862b8a3f75cb5d3427f19550f02dbf5d8920f55ced2ab98b11736ff",
+      "start_line": 481,
+      "end_line": 481,
+      "fragment_sha256": "a2a48cfcbd5e4433a79e52091795e1ee663eb1e00fe9eaba52f9e26a39222631",
+      "source_text": "screen.y=0.5f*getHeight()+m_originY;"
+    },
+    {
+      "label": "screen\\.y = m_originY\\+ 0\\.95f\\*getHeight\\(\\);",
+      "source": "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DView.cpp",
+      "source_sha256": "0a62e7572862b8a3f75cb5d3427f19550f02dbf5d8920f55ced2ab98b11736ff",
+      "start_line": 491,
+      "end_line": 491,
+      "fragment_sha256": "af19dbdd65f14a49777c25e67f4c36c08730830fe755a659e33f28dcb5c297d3",
+      "source_text": "screen.y = m_originY+ 0.95f*getHeight();"
+    }
+  ],
+  "expected_records_sha256": "886da16d65bb4bb381e0c019fe8f4b8c829eb281948b76114a7a0b33cd776ae9",
+  "safety_policy": "Original zero-height case is rejected before receiving mutation; missing-parent immediate Hide null dereference is excluded.",
+  "reproduction": {
+    "generator": "GeneralsRust/Code/Main/scripts/generate_camera_viewport_cpp.py",
+    "sha256": "e0eb90779f01e07c4fc88e792c0fdeb139337c7bd711e3ebc182802d1118a1a4",
+    "command": "python3 GeneralsRust/Code/Main/scripts/generate_camera_viewport_cpp.py --output-dir <external-directory>",
+    "records_equal": 26,
+    "oracle_source_equal": true,
+    "stdout_sha256": "1f9e4d78c30c41990061e9e5f270757c43b095456861e35ed97ae6b8f99637ba"
+  }
+}

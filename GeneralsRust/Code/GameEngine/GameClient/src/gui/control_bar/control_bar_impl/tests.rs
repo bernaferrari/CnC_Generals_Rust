@@ -368,6 +368,15 @@ mod tests {
 
     #[test]
     fn presentation_power_is_owned_by_each_control_bar() {
+        if matches!(
+            crate::test_process::run_bounded(
+                module_path!(),
+                "presentation_power_is_owned_by_each_control_bar"
+            ),
+            crate::test_process::TestProcess::ParentVerified
+        ) {
+            return;
+        }
         // W3DControlBar.cpp:90-126 reads the selected local/observer player's
         // Energy. Another bar's frozen input cannot replace that player's pair.
         struct RestorePlayers(gamelogic::player::PlayerList);

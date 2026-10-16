@@ -119,8 +119,16 @@ impl CnCGameEngine {
                 warn!("WW3D resize failed: {err:?}");
             }
 
-            // C++ W3DView setHeight: aspect uses the tactical viewport, not the full window.
-            self.rebuild_tactical_projection();
+            if let Err(error) = self
+                .game_logic
+                .session_view
+                .camera
+                .resize_display(logical_w, logical_h)
+            {
+                warn!("Tactical view resize rejected: {error}");
+            }
+            self.render_pipeline
+                .set_tactical_3d_viewport(self.game_logic.session_view.camera.viewport);
             self.ui_manager.resize(logical_w, logical_h);
         }
     }
@@ -1545,10 +1553,11 @@ impl CnCGameEngine {
         self.sync_eva_messages_from_logic();
         #[cfg(feature = "game_client")]
         {
+            self.update_owned_control_bar_animations();
             pres.apply_to_control_bar(&mut self.control_bar);
             let _ = self
                 .control_bar
-                .update(std::time::Duration::from_millis(33));
+                .update_owned(std::time::Duration::from_millis(33));
         }
         true
     }
@@ -1821,7 +1830,7 @@ impl CnCGameEngine {
                 &self.game_logic.session_view.camera.native_camera,
                 self.game_logic.session_view.camera.view_matrix,
                 self.game_logic.session_view.camera.projection_matrix,
-                self.tactical_viewport_size(),
+                self.game_logic.session_view.camera.viewport,
             );
             // The pipeline was seeded from this exact immutable frame above;
             // borrow its environment without borrowing the mutable pipeline.

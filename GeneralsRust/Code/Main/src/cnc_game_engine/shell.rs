@@ -613,7 +613,7 @@ impl CnCGameEngine {
         );
         #[cfg(feature = "game_client")]
         {
-            let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);
+            self.hide_owned_control_bar(true);
         }
         // Window manager layouts are also suspended via ui_manager.suspend_for_shell_overlay()
         // on the Menu transition path.
@@ -655,20 +655,7 @@ impl CnCGameEngine {
                             );
                         }
                     }
-                    let _ =
-                        game_client::gui::callbacks::control_bar_callbacks::show_control_bar(true);
-                    // show_control_bar no-ops when ControlBarState.visible is
-                    // already true; the WND parent can still be HIDDEN from
-                    // HideControlBar at boot. Force the retail parent visible.
-                    game_client::gui::with_window_manager(|wm| {
-                        if let Some(parent) =
-                            wm.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
-                        {
-                            if parent.borrow().is_hidden() {
-                                let _ = parent.borrow_mut().hide(false);
-                            }
-                        }
-                    });
+                    self.show_owned_control_bar(true);
                     // C++ GameLogic.cpp:2233 setControlBarSchemeByPlayer(local)
                     // then ShowControlBar switches DEFAULT (ControlBarCallback.cpp:489).
                     if crate::gameplay_layout::control_bar_parent_is_live() {
@@ -676,14 +663,7 @@ impl CnCGameEngine {
                             .ui_local_player_team_name()
                             .filter(|name| !name.is_empty())
                             .unwrap_or_else(|| "Observer".to_string());
-                        game_client::helpers::TheControlBar::set_control_bar_scheme_by_player(
-                            &side,
-                        );
-                        self.control_bar
-                            .set_control_bar_scheme_by_player_side(&side);
-                        self.control_bar.switch_control_bar_stage(
-                            game_client::gui::control_bar::ControlBarStage::Default,
-                        );
+                        self.set_owned_control_bar_scheme(&side);
                     }
                 }
             }
@@ -710,16 +690,7 @@ impl CnCGameEngine {
                 info!(
                     "ensure_gameplay_layouts: ControlBarParent materialised on live WM after enter"
                 );
-                let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(true);
-                game_client::gui::with_window_manager(|wm| {
-                    if let Some(parent) =
-                        wm.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
-                    {
-                        if parent.borrow().is_hidden() {
-                            let _ = parent.borrow_mut().hide(false);
-                        }
-                    }
-                });
+                self.show_owned_control_bar(true);
             } else {
                 error!(
                     "ensure_gameplay_layouts: ControlBarParent missing on live WM after InGame enter; searched={:?}",

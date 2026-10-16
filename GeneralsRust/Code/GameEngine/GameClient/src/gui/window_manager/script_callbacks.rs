@@ -8,22 +8,20 @@ use crate::gui::callbacks::{
     difficulty_select_system, download_menu_init, download_menu_input, download_menu_shutdown,
     download_menu_system, download_menu_update, game_info_window_init, game_info_window_system,
     generals_exp_points_input, generals_exp_points_system, get_control_bar_system,
-    get_diplomacy_system, get_ingame_ui_system, get_message_box_system,
-    with_credits_menu, with_lan_lobby_menu, with_map_select_menu, with_options_menu,
-    with_single_player_menu,
-    ime_candidate_main_draw, ime_candidate_text_area_draw, ime_candidate_window_input,
-    ime_candidate_window_system, in_game_popup_message_init, in_game_popup_message_input,
-    in_game_popup_message_system, keyboard_options_menu_init, keyboard_options_menu_input,
-    keyboard_options_menu_shutdown, keyboard_options_menu_system, keyboard_options_menu_update,
-    lan_game_options_menu_init, lan_game_options_menu_input, lan_game_options_menu_shutdown,
-    lan_game_options_menu_system, lan_game_options_menu_update, lan_map_select_menu_init,
-    lan_map_select_menu_input, lan_map_select_menu_shutdown, lan_map_select_menu_system,
-    lan_map_select_menu_update, network_direct_connect_init, network_direct_connect_input,
-    network_direct_connect_shutdown, network_direct_connect_system, network_direct_connect_update,
-    popup_buddy_notification_system, popup_communicator_init, popup_communicator_input,
-    popup_communicator_shutdown, popup_communicator_system, popup_communicator_update,
-    popup_host_game_init, popup_host_game_input, popup_host_game_system, popup_host_game_update,
-    popup_join_game_init, popup_join_game_input, popup_join_game_system, popup_ladder_select_init,
+    get_diplomacy_system, get_ingame_ui_system, get_message_box_system, ime_candidate_main_draw,
+    ime_candidate_text_area_draw, ime_candidate_window_input, ime_candidate_window_system,
+    in_game_popup_message_init, in_game_popup_message_input, in_game_popup_message_system,
+    keyboard_options_menu_init, keyboard_options_menu_input, keyboard_options_menu_shutdown,
+    keyboard_options_menu_system, keyboard_options_menu_update, lan_game_options_menu_init,
+    lan_game_options_menu_input, lan_game_options_menu_shutdown, lan_game_options_menu_system,
+    lan_game_options_menu_update, lan_map_select_menu_init, lan_map_select_menu_input,
+    lan_map_select_menu_shutdown, lan_map_select_menu_system, lan_map_select_menu_update,
+    network_direct_connect_init, network_direct_connect_input, network_direct_connect_shutdown,
+    network_direct_connect_system, network_direct_connect_update, popup_buddy_notification_system,
+    popup_communicator_init, popup_communicator_input, popup_communicator_shutdown,
+    popup_communicator_system, popup_communicator_update, popup_host_game_init,
+    popup_host_game_input, popup_host_game_system, popup_host_game_update, popup_join_game_init,
+    popup_join_game_input, popup_join_game_system, popup_ladder_select_init,
     popup_ladder_select_input, popup_ladder_select_shutdown, popup_ladder_select_system,
     popup_ladder_select_update, popup_player_info_init, popup_player_info_input,
     popup_player_info_shutdown, popup_player_info_system, popup_player_info_update,
@@ -37,28 +35,30 @@ use crate::gui::callbacks::{
     skirmish_game_options_menu_shutdown, skirmish_game_options_menu_system,
     skirmish_game_options_menu_update, skirmish_map_select_menu_init,
     skirmish_map_select_menu_input, skirmish_map_select_menu_shutdown,
-    skirmish_map_select_menu_system, skirmish_map_select_menu_update, wol_buddy_overlay_init,
-    wol_buddy_overlay_input, wol_buddy_overlay_rc_menu_init, wol_buddy_overlay_rc_menu_system,
-    wol_buddy_overlay_shutdown, wol_buddy_overlay_system, wol_buddy_overlay_update,
-    wol_custom_score_screen_init, wol_custom_score_screen_input, wol_custom_score_screen_shutdown,
-    wol_custom_score_screen_system, wol_custom_score_screen_update, wol_game_setup_menu_init,
-    wol_game_setup_menu_input, wol_game_setup_menu_shutdown, wol_game_setup_menu_system,
-    wol_game_setup_menu_update, wol_ladder_screen_init, wol_ladder_screen_input,
-    wol_ladder_screen_shutdown, wol_ladder_screen_system, wol_ladder_screen_update,
-    wol_lobby_menu_init, wol_lobby_menu_input, wol_lobby_menu_shutdown, wol_lobby_menu_system,
-    wol_lobby_menu_update, wol_locale_select_init, wol_locale_select_input,
-    wol_locale_select_shutdown, wol_locale_select_system, wol_locale_select_update,
-    wol_login_menu_init, wol_login_menu_input, wol_login_menu_shutdown, wol_login_menu_system,
-    wol_login_menu_update, wol_map_select_menu_init, wol_map_select_menu_input,
-    wol_map_select_menu_shutdown, wol_map_select_menu_system, wol_map_select_menu_update,
-    wol_message_window_init, wol_message_window_input, wol_message_window_shutdown,
-    wol_message_window_system, wol_message_window_update, wol_qm_score_screen_init,
-    wol_qm_score_screen_input, wol_qm_score_screen_shutdown, wol_qm_score_screen_system,
-    wol_qm_score_screen_update, wol_quick_match_menu_init, wol_quick_match_menu_input,
-    wol_quick_match_menu_shutdown, wol_quick_match_menu_system, wol_quick_match_menu_update,
-    wol_status_menu_init, wol_status_menu_input, wol_status_menu_shutdown, wol_status_menu_system,
-    wol_status_menu_update, wol_welcome_menu_init, wol_welcome_menu_input,
-    wol_welcome_menu_shutdown, wol_welcome_menu_system, wol_welcome_menu_update,
+    skirmish_map_select_menu_system, skirmish_map_select_menu_update, with_credits_menu,
+    with_lan_lobby_menu, with_map_select_menu, with_options_menu, with_single_player_menu,
+    wol_buddy_overlay_init, wol_buddy_overlay_input, wol_buddy_overlay_rc_menu_init,
+    wol_buddy_overlay_rc_menu_system, wol_buddy_overlay_shutdown, wol_buddy_overlay_system,
+    wol_buddy_overlay_update, wol_custom_score_screen_init, wol_custom_score_screen_input,
+    wol_custom_score_screen_shutdown, wol_custom_score_screen_system,
+    wol_custom_score_screen_update, wol_game_setup_menu_init, wol_game_setup_menu_input,
+    wol_game_setup_menu_shutdown, wol_game_setup_menu_system, wol_game_setup_menu_update,
+    wol_ladder_screen_init, wol_ladder_screen_input, wol_ladder_screen_shutdown,
+    wol_ladder_screen_system, wol_ladder_screen_update, wol_lobby_menu_init, wol_lobby_menu_input,
+    wol_lobby_menu_shutdown, wol_lobby_menu_system, wol_lobby_menu_update, wol_locale_select_init,
+    wol_locale_select_input, wol_locale_select_shutdown, wol_locale_select_system,
+    wol_locale_select_update, wol_login_menu_init, wol_login_menu_input, wol_login_menu_shutdown,
+    wol_login_menu_system, wol_login_menu_update, wol_map_select_menu_init,
+    wol_map_select_menu_input, wol_map_select_menu_shutdown, wol_map_select_menu_system,
+    wol_map_select_menu_update, wol_message_window_init, wol_message_window_input,
+    wol_message_window_shutdown, wol_message_window_system, wol_message_window_update,
+    wol_qm_score_screen_init, wol_qm_score_screen_input, wol_qm_score_screen_shutdown,
+    wol_qm_score_screen_system, wol_qm_score_screen_update, wol_quick_match_menu_init,
+    wol_quick_match_menu_input, wol_quick_match_menu_shutdown, wol_quick_match_menu_system,
+    wol_quick_match_menu_update, wol_status_menu_init, wol_status_menu_input,
+    wol_status_menu_shutdown, wol_status_menu_system, wol_status_menu_update,
+    wol_welcome_menu_init, wol_welcome_menu_input, wol_welcome_menu_shutdown,
+    wol_welcome_menu_system, wol_welcome_menu_update,
 };
 use crate::gui::game_window::*;
 use crate::gui::header_template::get_header_template_manager;
@@ -117,37 +117,27 @@ impl WindowManager {
                     }
                 })),
                 "SinglePlayerMenuInit" => Some(Box::new(|layout, _| {
-                    if let Err(err) =
-                        with_single_player_menu(|menu| menu.init(layout, None))
-                    {
+                    if let Err(err) = with_single_player_menu(|menu| menu.init(layout, None)) {
                         warn!("Single player menu init failed: {}", err);
                     }
                 })),
                 "OptionsMenuInit" => Some(Box::new(|layout, _| {
-                    if let Err(err) =
-                        with_options_menu(|menu| menu.init(layout, None))
-                    {
+                    if let Err(err) = with_options_menu(|menu| menu.init(layout, None)) {
                         warn!("Options menu init failed: {}", err);
                     }
                 })),
                 "MapSelectMenuInit" => Some(Box::new(|layout, _| {
-                    if let Err(err) =
-                        with_map_select_menu(|menu| menu.init(layout, None))
-                    {
+                    if let Err(err) = with_map_select_menu(|menu| menu.init(layout, None)) {
                         warn!("Map select menu init failed: {}", err);
                     }
                 })),
                 "CreditsMenuInit" => Some(Box::new(|layout, _| {
-                    if let Err(err) =
-                        with_credits_menu(|menu| menu.init(layout, None))
-                    {
+                    if let Err(err) = with_credits_menu(|menu| menu.init(layout, None)) {
                         warn!("Credits menu init failed: {}", err);
                     }
                 })),
                 "LanLobbyMenuInit" => Some(Box::new(|layout, _| {
-                    if let Err(err) =
-                        with_lan_lobby_menu(|menu| menu.init(layout, None))
-                    {
+                    if let Err(err) = with_lan_lobby_menu(|menu| menu.init(layout, None)) {
                         warn!("LAN lobby menu init failed: {}", err);
                     }
                 })),
@@ -276,37 +266,27 @@ impl WindowManager {
                     }
                 })),
                 "SinglePlayerMenuUpdate" => Some(Box::new(|layout, _| {
-                    if let Err(err) =
-                        with_single_player_menu(|menu| menu.update(layout, None))
-                    {
+                    if let Err(err) = with_single_player_menu(|menu| menu.update(layout, None)) {
                         warn!("Single player menu update failed: {}", err);
                     }
                 })),
                 "OptionsMenuUpdate" => Some(Box::new(|layout, _| {
-                    if let Err(err) =
-                        with_options_menu(|menu| menu.update(layout, None))
-                    {
+                    if let Err(err) = with_options_menu(|menu| menu.update(layout, None)) {
                         warn!("Options menu update failed: {}", err);
                     }
                 })),
                 "MapSelectMenuUpdate" => Some(Box::new(|layout, _| {
-                    if let Err(err) =
-                        with_map_select_menu(|menu| menu.update(layout, None))
-                    {
+                    if let Err(err) = with_map_select_menu(|menu| menu.update(layout, None)) {
                         warn!("Map select menu update failed: {}", err);
                     }
                 })),
                 "CreditsMenuUpdate" => Some(Box::new(|layout, _| {
-                    if let Err(err) =
-                        with_credits_menu(|menu| menu.update(layout, None))
-                    {
+                    if let Err(err) = with_credits_menu(|menu| menu.update(layout, None)) {
                         warn!("Credits menu update failed: {}", err);
                     }
                 })),
                 "LanLobbyMenuUpdate" => Some(Box::new(|layout, _| {
-                    if let Err(err) =
-                        with_lan_lobby_menu(|menu| menu.update(layout, None))
-                    {
+                    if let Err(err) = with_lan_lobby_menu(|menu| menu.update(layout, None)) {
                         warn!("LAN lobby menu update failed: {}", err);
                     }
                 })),
@@ -414,37 +394,27 @@ impl WindowManager {
                     }
                 })),
                 "SinglePlayerMenuShutdown" => Some(Box::new(|layout, data| {
-                    if let Err(err) =
-                        with_single_player_menu(|menu| menu.shutdown(layout, None))
-                    {
+                    if let Err(err) = with_single_player_menu(|menu| menu.shutdown(layout, None)) {
                         warn!("Single player menu shutdown failed: {}", err);
                     }
                 })),
                 "OptionsMenuShutdown" => Some(Box::new(|layout, data| {
-                    if let Err(err) =
-                        with_options_menu(|menu| menu.shutdown(layout, None))
-                    {
+                    if let Err(err) = with_options_menu(|menu| menu.shutdown(layout, None)) {
                         warn!("Options menu shutdown failed: {}", err);
                     }
                 })),
                 "MapSelectMenuShutdown" => Some(Box::new(|layout, data| {
-                    if let Err(err) =
-                        with_map_select_menu(|menu| menu.shutdown(layout, None))
-                    {
+                    if let Err(err) = with_map_select_menu(|menu| menu.shutdown(layout, None)) {
                         warn!("Map select menu shutdown failed: {}", err);
                     }
                 })),
                 "CreditsMenuShutdown" => Some(Box::new(|layout, data| {
-                    if let Err(err) =
-                        with_credits_menu(|menu| menu.shutdown(layout, None))
-                    {
+                    if let Err(err) = with_credits_menu(|menu| menu.shutdown(layout, None)) {
                         warn!("Credits menu shutdown failed: {}", err);
                     }
                 })),
                 "LanLobbyMenuShutdown" => Some(Box::new(|layout, data| {
-                    if let Err(err) =
-                        with_lan_lobby_menu(|menu| menu.shutdown(layout, None))
-                    {
+                    if let Err(err) = with_lan_lobby_menu(|menu| menu.shutdown(layout, None)) {
                         warn!("LAN lobby menu shutdown failed: {}", err);
                     }
                 })),
@@ -580,6 +550,7 @@ impl WindowManager {
                             callbacks.system(window, msg, data1, data2)
                         })
                     });
+                    window.mark_control_bar_system_callback();
                 }
                 "ControlBarObserverSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {

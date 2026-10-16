@@ -338,50 +338,32 @@ fn lookat_scroll_world_delta(
     Vec3::new(world.x, 0.0, world.z)
 }
 
-/// C++ `W3DView::calcCameraConstraints` inset: |center-95%| pick at ground Y.
+/// Full-display adapter for the shared C++ integer constraint-pick operation.
 pub(super) fn w3d_camera_constraint_offset(
     view: Mat4,
     projection: Mat4,
     viewport: (f32, f32),
     ground_y: f32,
 ) -> f32 {
+    // Full-rectangle compatibility adapter. Native constraints supply the
+    // actual SessionCamera rectangle, including its integer origin.
     let (width, height) = viewport;
-    if width <= 1.0 || height <= 1.0 {
-        return 0.0;
+    if !width.is_finite()
+        || !height.is_finite()
+        || width < 1.
+        || height < 1.
+        || width >= i32::MAX as f32
+        || height >= i32::MAX as f32
+    {
+        return 0.;
     }
-    let Some((c_near, c_far)) =
-        unproject_mouse_ray(view, projection, (width * 0.5, height * 0.5), width, height)
-    else {
-        return 0.0;
-    };
-    let Some((b_near, b_far)) = unproject_mouse_ray(
-        view,
-        projection,
-        (width * 0.5, height * 0.95),
-        width,
-        height,
-    ) else {
-        return 0.0;
-    };
-    let Some(center) = ray_hit_height(c_near, c_far, ground_y) else {
-        return 0.0;
-    };
-    let Some(bottom) = ray_hit_height(b_near, b_far, ground_y) else {
-        return 0.0;
-    };
-    Vec2::new(center.x - bottom.x, center.z - bottom.z).length()
-}
-
-fn ray_hit_height(near: Vec3, far: Vec3, height: f32) -> Option<Vec3> {
-    let dy = far.y - near.y;
-    if dy.abs() <= PICK_RAY_EPSILON {
-        return None;
-    }
-    let t = (height - near.y) / dy;
-    if !t.is_finite() {
-        return None;
-    }
-    Some(near + (far - near) * t)
+    crate::presentation_frame::camera::viewport::TacticalViewport::for_display(
+        width as u32,
+        height as u32,
+    )
+    .map_or(0., |viewport| {
+        viewport.constraint_inset(view, projection, ground_y)
+    })
 }
 
 pub(super) fn airborne_look_at_ground(

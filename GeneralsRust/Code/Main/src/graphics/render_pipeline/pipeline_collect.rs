@@ -2039,8 +2039,7 @@ impl RenderPipeline {
                         .map_err(|e| anyhow::anyhow!("water plane sync failed: {e}"))?;
                 }
             }
-            let vp_w = self.tactical_viewport_width.max(1.0);
-            let vp_h = (self.tactical_viewport_height * self.tactical_view_height_frac).max(1.0);
+            let (vp_x, vp_y, vp_w, vp_h) = self.tactical_viewport.pixel_rect();
             self.forward_pass.enqueue_post_frame_callback(move |frame| {
                 let Some(depth_view) = frame.depth_view_arc() else {
                     return Ok(());
@@ -2080,8 +2079,8 @@ impl RenderPipeline {
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
-                render_pass.set_viewport(0.0, 0.0, vp_w, vp_h, 0.0, 1.0);
-                render_pass.set_scissor_rect(0, 0, vp_w as u32, vp_h as u32);
+                render_pass.set_viewport(vp_x, vp_y, vp_w, vp_h, 0.0, 1.0);
+                render_pass.set_scissor_rect(vp_x as u32, vp_y as u32, vp_w as u32, vp_h as u32);
                 terrain_visual.record_water_scene_draws(&mut render_pass);
                 drop(render_pass);
                 Ok(())

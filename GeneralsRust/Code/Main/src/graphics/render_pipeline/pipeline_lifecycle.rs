@@ -116,9 +116,7 @@ impl RenderPipeline {
             debug_last_world_anim_pack_ok: false,
             debug_last_particle_systems_packed: 0,
             debug_last_particle_pack_ok: false,
-            tactical_view_height_frac: 1.0,
-            tactical_viewport_width: 1.0,
-            tactical_viewport_height: 1.0,
+            tactical_viewport: Default::default(),
         })
     }
 
@@ -218,28 +216,24 @@ impl RenderPipeline {
         ));
     }
 
-    /// C++ `W3DView::setHeight` — 3D viewport is the top `frac` of the window.
-    pub fn set_tactical_3d_viewport(&mut self, width: f32, height: f32, frac: f32) {
-        let frac = if frac.is_finite() {
-            frac.clamp(0.05, 1.0)
-        } else {
-            1.0
-        };
-        self.tactical_view_height_frac = frac;
-        self.tactical_viewport_width = width.max(1.0);
-        self.tactical_viewport_height = height.max(1.0);
-        self.forward_pass.tactical_view_height_frac = frac;
+    /// Copy the receiving View's admitted integer viewport. Render adapters
+    /// never reconstruct its height from a fractional surface size.
+    pub(crate) fn set_tactical_3d_viewport(
+        &mut self,
+        viewport: crate::presentation_frame::camera::viewport::TacticalViewport,
+    ) {
+        self.tactical_viewport = viewport;
+        self.forward_pass.tactical_viewport = viewport;
     }
 
-    /// The tactical viewport rect in framebuffer pixels — the exact rect the
-    /// terrain/water pre-scene passes render through (`(0, 0, w, h*frac)`).
-    /// C++ `W3DView::setHeight` parity: every world-space lane shares this
-    /// device viewport, so their depth writes line up row-for-row.
     pub fn tactical_viewport_pixel_size(&self) -> (f32, f32) {
-        (
-            self.tactical_viewport_width,
-            self.tactical_viewport_height * self.tactical_view_height_frac,
-        )
+        let (width, height) = self.tactical_viewport.size();
+        (width as f32, height as f32)
+    }
+
+    /// Exact admitted origin and dimensions, including offset tactical views.
+    pub fn tactical_viewport_pixel_rect(&self) -> (f32, f32, f32, f32) {
+        self.tactical_viewport.pixel_rect()
     }
 
     /// Install the immutable direct-host shroud sidecar for the frame just

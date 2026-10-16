@@ -441,22 +441,30 @@ impl GameLogic {
             self.apply_script_camera_mod_look_toward(last.position, true);
         }
 
-        if let Some(last) = self
-            .mission_scripts
-            .drain_letterbox_events()
-            .last()
-            .copied()
-        {
+        for last in self.mission_scripts.drain_letterbox_events() {
+            self.session_view.pending_letterbox_visibility.push(last);
             self.cinematic_letterbox = last;
-            // C++ ScriptActions::doLetterBoxMode HideControlBar(TRUE)/ShowControlBar(FALSE).
+            // CPP Show/HideControlBar writes View height only when the
+            // authored parent exists. Admit that camera effect synchronously
+            // so a later action observes this session's projection. Native
+            // delivery still applies the actual bar/window visibility.
             #[cfg(feature = "game_client")]
             {
-                if last {
-                    let _ =
-                        game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);
-                } else {
-                    let _ =
-                        game_client::gui::callbacks::control_bar_callbacks::show_control_bar(false);
+                let parent_live = game_client::gui::with_window_manager(|manager| {
+                    manager
+                        .find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
+                        .is_some()
+                });
+                if parent_live {
+                    let height = self.session_view.camera.viewport.display_size().1;
+                    let height = if last {
+                        height as i32
+                    } else {
+                        (height as f32 * 0.80) as i32
+                    };
+                    if let Err(error) = self.session_view.camera.set_view_height_px(height) {
+                        log::warn!("Receiving letterbox viewport admission failed: {error}");
+                    }
                 }
             }
         }

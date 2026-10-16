@@ -390,7 +390,8 @@ fn presentation_cinematic_letterbox_residual() {
     assert!(
         gc.contains("fn apply_presentation_cinematic_letterbox")
             && gc.contains("enable_letter_box(enabled)")
-            && eng.contains("apply_presentation_cinematic_letterbox(pres.cinematic_letterbox)")
+            && eng.contains("map(|frame| frame.cinematic_letterbox)")
+            && eng.contains("apply_presentation_cinematic_letterbox(letterbox)")
             && eng.contains("Presentation cinematic letterbox residual"),
         "presentation cinematic_letterbox must drive GameClient display letterbox"
     );

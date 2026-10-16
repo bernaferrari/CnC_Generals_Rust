@@ -409,27 +409,7 @@ impl ScriptActionDispatcher<'_> {
             snap_to_unit
         );
 
-        // C++ `TheScriptEngine->getUnitNamed` — host injects name→id into the
-        // crate tracker. Empty OBJECT_REGISTRY must not skip named lookup.
-        let tracker = get_named_object_tracker();
-        let mut object_id = tracker.get_object_id(&unit_name).ok().flatten();
-
-        // Wave 284: empty dual-world → skip crate Object walk only.
-        if object_id.is_none() && !dual_world_registry_unavailable() {
-            let lower = unit_name.to_ascii_lowercase();
-            object_id = OBJECT_REGISTRY
-                .get_all_objects()
-                .into_iter()
-                .find_map(|obj_ref| {
-                    obj_ref.read().ok().and_then(|obj| {
-                        if obj.get_name().to_ascii_lowercase() == lower {
-                            Some(obj.get_id())
-                        } else {
-                            None
-                        }
-                    })
-                });
-        }
+        let object_id = self.resolve_camera_named_object(&unit_name, driver);
 
         let Some(object_id) = object_id else {
             log::warn!("Camera follow failed: unit '{}' not found", unit_name);

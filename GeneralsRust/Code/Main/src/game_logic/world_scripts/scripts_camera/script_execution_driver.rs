@@ -2086,8 +2086,14 @@ impl GameLogic {
             engine.get_objects_should_receive_difficulty_bonus();
         self.owned_script_engine = Some(engine);
     }
-    /// Move the Send interpreter into one bounded owner operation. Drop restores
-    /// it even on unwinding; callbacks receive the actual borrowed interpreter.
+    /// Observe only this session's interpreter at an input boundary.
+    pub(crate) fn owned_script_game_ending(&self) -> bool {
+        self.owned_script_engine
+            .as_ref()
+            .is_some_and(|engine| engine.is_game_ending())
+    }
+
+    /// Move the interpreter into one bounded operation; Drop restores it on unwind.
     pub(crate) fn with_owned_script_engine<R>(
         &mut self,
         operation: impl FnOnce(&gamelogic::scripting::engine::ScriptEngine, &mut GameLogic) -> R,

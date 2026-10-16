@@ -207,7 +207,7 @@ impl CnCGameEngine {
     /// Returns true when the WND consumed the click (shell active or gadget Used).
     /// C++ WindowXlat RAW_KEY → focused gadget `GWM_CHAR`.
     pub(in crate::cnc_game_engine) fn dispatch_os_key_to_window_manager(
-        &self,
+        &mut self,
         physical_key: &winit::keyboard::PhysicalKey,
         pressed: bool,
     ) -> bool {
@@ -219,8 +219,22 @@ impl CnCGameEngine {
             };
             // C++ KEY_STATE_DOWN=0x02, KEY_STATE_UP=0x01
             let state = if pressed { 0x02 } else { 0x01 };
-            game_client::gui::dispatch_os_key_to_window_manager(vk, state)
-                == WindowInputReturnCode::Used
+            let replay = matches!(
+                self.game_logic.game_mode(),
+                crate::game_logic::GameMode::Replay
+            );
+            let game_ending = self.game_logic.owned_script_game_ending();
+            let mut context = game_client::gui::window_manager::ControlBarInputContext {
+                control_bar: &mut self.control_bar,
+                viewport: &mut self.game_logic.session_view.camera,
+                replay,
+                game_ending,
+            };
+            game_client::gui::window_manager::dispatch_os_key_to_window_manager_with_control_bar(
+                vk,
+                state,
+                &mut context,
+            ) == WindowInputReturnCode::Used
         }
         #[cfg(not(feature = "game_client"))]
         {
@@ -345,7 +359,7 @@ impl CnCGameEngine {
     }
 
     pub(in crate::cnc_game_engine) fn dispatch_os_mouse_to_window_manager(
-        &self,
+        &mut self,
         button: MouseButton,
         pressed: bool,
         x: i32,
@@ -377,13 +391,20 @@ impl CnCGameEngine {
                 }
                 MouseInputOrigin::Injected => HostControlBarInputProvenance::InjectedOrUnknown,
             };
+            let facts = self.native_window_mouse_facts();
+            let replay = matches!(
+                self.game_logic.game_mode(),
+                crate::game_logic::GameMode::Replay
+            );
+            let game_ending = self.game_logic.owned_script_game_ending();
+            let mut context = game_client::gui::window_manager::ControlBarInputContext {
+                control_bar: &mut self.control_bar,
+                viewport: &mut self.game_logic.session_view.camera,
+                replay,
+                game_ending,
+            };
             with_host_control_bar_input_provenance(provenance, || {
-                game_client::gui::dispatch_os_mouse_to_window_manager_with_facts(
-                    msg,
-                    x,
-                    y,
-                    self.native_window_mouse_facts(),
-                ) == WindowInputReturnCode::Used
+                game_client::gui::window_manager::dispatch_os_mouse_to_window_manager_with_control_bar(msg,x,y,facts,&mut context)==WindowInputReturnCode::Used
             })
         }
         #[cfg(not(feature = "game_client"))]
