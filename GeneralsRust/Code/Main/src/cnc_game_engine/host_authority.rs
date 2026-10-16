@@ -197,7 +197,8 @@ impl CnCGameEngine {
         // Shell scripts use the same receiving client phase as match scripts.
         // Keep the existing bounded fixed-step kernel and pause decision.
         #[cfg(feature = "game_client")]
-        let (mut client_frame, snow) = self.game_client.split_frame_and_snow();
+        let (mut client_frame, snow, presence) =
+            self.game_client.split_frame_snow_and_drawable_presence();
         #[cfg(feature = "game_client")]
         let mut ui = super::control_bar_viewport::NativeScriptUi::new(
             snow,
@@ -205,14 +206,25 @@ impl CnCGameEngine {
             &mut self.control_bar_callbacks,
         );
         #[cfg(feature = "game_client")]
-        let ui = Some(&mut ui as &mut dyn crate::game_logic::ScriptUiEffects);
+        let mut view = super::native_view_effects::NativeRendererViewEffects::new(
+            self.render_pipeline.borrow_native_installed_poses(),
+            &mut self.graphics_system,
+            presence,
+            self.host_direct_visual_world_epoch,
+            self.current_player_id,
+        );
+        #[cfg(feature = "game_client")]
+        let effects = crate::game_logic::ScriptPresentationEffects {
+            ui: Some(&mut ui),
+            view: Some(&mut view),
+        };
         #[cfg(not(feature = "game_client"))]
-        let ui = None;
-        let snap = self.game_logic.tick_logic_frame_with_script_ui(
+        let effects = crate::game_logic::ScriptPresentationEffects::default();
+        let snap = self.game_logic.tick_logic_frame_with_script_effects(
             dt,
             None,
             Some(budget),
-            ui,
+            effects,
             |frame| {
                 #[cfg(feature = "game_client")]
                 client_frame.set_frame(frame);
@@ -240,25 +252,25 @@ impl CnCGameEngine {
         before_step: impl FnMut(u32),
         after_step: impl FnMut(&mut crate::game_logic::GameLogic),
     ) -> crate::game_logic::SimTimingSnapshot {
-        Self::host_update_logic_frame_with_script_ui(
+        Self::host_update_logic_frame_with_script_effects(
             logic,
             game_paused,
             dt,
             timing,
             budget,
-            None,
+            Default::default(),
             before_step,
             after_step,
         )
     }
 
-    pub(super) fn host_update_logic_frame_with_script_ui(
+    pub(super) fn host_update_logic_frame_with_script_effects(
         logic: &mut crate::game_logic::GameLogic,
         game_paused: bool,
         dt: f32,
         timing: Option<&FrameTiming>,
         budget: Option<usize>,
-        ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: crate::game_logic::ScriptPresentationEffects<'_>,
         before_step: impl FnMut(u32),
         after_step: impl FnMut(&mut crate::game_logic::GameLogic),
     ) -> crate::game_logic::SimTimingSnapshot {
@@ -269,7 +281,7 @@ impl CnCGameEngine {
         if logic.is_paused() {
             logic.set_paused(false);
         }
-        logic.tick_logic_frame_with_script_ui(dt, timing, budget, ui, before_step, after_step)
+        logic.tick_logic_frame_with_script_effects(dt, timing, budget, ui, before_step, after_step)
     }
 
     /// Wave 908: stamp sim timing residuals from a post-tick snapshot payload.
@@ -1341,6 +1353,7 @@ impl CnCGameEngine {
         self.render_pipeline.set_presentation_frame(None);
         self.ensure_presentation_env_seeded();
         if !has_camera_continuation {
+            self.game_logic.session_view.camera.invalidate_constraints();
             (
                 self.game_logic.session_view.target,
                 self.game_logic.session_view.camera.camera_position,

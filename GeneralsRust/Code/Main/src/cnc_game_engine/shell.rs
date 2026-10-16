@@ -2055,6 +2055,7 @@ impl CnCGameEngine {
                 .or(self.last_presentation_frame.as_deref());
             // Wave 540/552: prefer presentation fow_shell_bypass when freeze present.
             let in_shell_camera = self.shell_bypass_from_presentation(startup_camera_presentation);
+            self.game_logic.session_view.camera.invalidate_constraints();
             (
                 self.game_logic.session_view.target,
                 self.game_logic.session_view.camera.camera_position,

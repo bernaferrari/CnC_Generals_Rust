@@ -1156,7 +1156,12 @@ impl GameLogic {
         structure_id: ObjectId,
         observe_prepared: impl FnMut(&GameLogic, ObjectId),
     ) {
-        self.finish_structure_construction(structure_id, None, observe_prepared, &mut None);
+        self.finish_structure_construction(
+            structure_id,
+            None,
+            observe_prepared,
+            &mut Default::default(),
+        );
     }
 
     pub(crate) fn notify_structure_construction_complete_with_interpreter(
@@ -1164,20 +1169,39 @@ impl GameLogic {
         structure_id: ObjectId,
         interpreter: &gamelogic::scripting::engine::ScriptEngine,
     ) {
-        self.notify_structure_construction_complete_with_ui(
+        self.notify_structure_construction_complete_with_effects(
             structure_id,
             Some(interpreter),
-            &mut None,
+            &mut Default::default(),
         );
     }
 
+    pub(crate) fn notify_structure_construction_complete_with_effects(
+        &mut self,
+        structure_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        self.finish_structure_construction(structure_id, interpreter, |_, _| {}, ui);
+    }
+    // Explicit UI-only adapter for standalone callers; native roots lend both domains.
     pub(crate) fn notify_structure_construction_complete_with_ui(
         &mut self,
         structure_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
-        self.finish_structure_construction(structure_id, interpreter, |_, _| {}, ui);
+        let mut effects = crate::game_logic::ScriptPresentationEffects {
+            ui: ui
+                .as_mut()
+                .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+            view: None,
+        };
+        self.notify_structure_construction_complete_with_effects(
+            structure_id,
+            interpreter,
+            &mut effects,
+        )
     }
 
     fn finish_structure_construction(
@@ -1185,7 +1209,7 @@ impl GameLogic {
         structure_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         mut observe_prepared: impl FnMut(&GameLogic, ObjectId),
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         if self
             .objects
@@ -1215,7 +1239,7 @@ impl GameLogic {
         let name = obj.template_name.clone();
         observe_prepared(self, structure_id);
         if let Some((owner, rebuilding)) = owner_and_rebuild {
-            self.complete_owned_structure_player_with_ui(
+            self.complete_owned_structure_player_with_effects(
                 structure_id,
                 owner,
                 rebuilding,
@@ -1263,7 +1287,7 @@ impl GameLogic {
             obj.start_power_recharge_with_frames(&power, frames);
         }
         // C++ CreateModules onBuildComplete (Preorder/GrantUpgrade/LockWeapon/SP/Supply).
-        self.apply_create_modules_on_build_complete_with_ui(structure_id, interpreter, ui);
+        self.apply_create_modules_on_build_complete_with_effects(structure_id, interpreter, ui);
         if let Some(object) = self.objects.get_mut(&structure_id) {
             object.handle_partition_cell_maintenance();
             object.stamp_partition_value_threat();

@@ -138,7 +138,7 @@ fn actual_native_cancel_wiring_uses_only_receiving_owner() {
         .find("pub(in crate::cnc_game_engine) fn cancel_scripted_camera_from_player_set")
         .unwrap();
     let end = s[begin..]
-        .find("/// C++ `W3DView::cameraEnableSlaveMode`")
+        .find("fn sync_letterbox_os_cursor_visibility(")
         .unwrap()
         + begin;
     let body = &s[begin..end];

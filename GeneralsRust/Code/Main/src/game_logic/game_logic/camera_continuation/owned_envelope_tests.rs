@@ -23,14 +23,23 @@ fn v1_bytes(state: &LogicCameraContinuation) -> Vec<u8> {
     bytes
 }
 
-// Explicit input-only V2 fixture: its unchanged payload is the V3 base, without
-// the new snap bool. Live capture must still write the current V3 header.
+// Input-only historical fixtures are typed projections of the unchanged V2
+// payload. V3 adds snap; V4 wraps V3 with the new constraint cache.
 fn v2_bytes_from_current(current: &[u8]) -> Vec<u8> {
     assert_eq!(&current[..4], MAGIC);
-    assert_eq!(&current[4..8], &3_u32.to_le_bytes());
-    let current: EnvelopeV3 = codec().deserialize(&current[8..]).unwrap();
+    assert_eq!(&current[4..8], &4_u32.to_le_bytes());
+    let current: EnvelopeV4 = codec().deserialize(&current[8..]).unwrap();
     let mut bytes = MAGIC.to_vec();
     bytes.extend_from_slice(&2_u32.to_le_bytes());
+    bytes.extend(codec().serialize(&current.base.base).unwrap());
+    bytes
+}
+fn v3_bytes_from_current(current: &[u8]) -> Vec<u8> {
+    assert_eq!(&current[..4], MAGIC);
+    assert_eq!(&current[4..8], &4_u32.to_le_bytes());
+    let current: EnvelopeV4 = codec().deserialize(&current[8..]).unwrap();
+    let mut bytes = MAGIC.to_vec();
+    bytes.extend_from_slice(&3_u32.to_le_bytes());
     bytes.extend(codec().serialize(&current.base).unwrap());
     bytes
 }
@@ -64,7 +73,11 @@ fn camera_owner_v2_is_self_contained_without_a_native_block_and_leaves_peer_unch
     let peer_before = peer.capture_camera_continuation().unwrap();
     let current = source.capture_camera_continuation().unwrap();
     let v2 = v2_bytes_from_current(&current);
-    for (version, bytes) in [(2_u32, v2), (3_u32, current.clone())] {
+    for (version, bytes) in [
+        (2_u32, v2),
+        (3_u32, v3_bytes_from_current(&current)),
+        (4_u32, current.clone()),
+    ] {
         assert_eq!(&bytes[..4], MAGIC);
         assert_eq!(&bytes[4..8], &version.to_le_bytes());
         let state = GameLogic::decode_camera_continuation(&bytes).unwrap();
@@ -82,6 +95,8 @@ fn camera_owner_v2_is_self_contained_without_a_native_block_and_leaves_peer_unch
             // Reproject the admitted state to the historical schema as well:
             // the import must preserve every old V2 field and byte.
             assert_eq!(v2_bytes_from_current(&recaptured), bytes);
+        } else if version == 3 {
+            assert_eq!(v3_bytes_from_current(&recaptured), bytes);
         } else {
             assert_eq!(recaptured, bytes);
         }
@@ -176,25 +191,37 @@ fn old_rust_active_paths_reject_before_receiving_or_peer_mutation() {
 #[test]
 fn camera_owner_v2_rejects_conflicting_legacy_projection_and_trailing_bytes() {
     let current = GameLogic::new().capture_camera_continuation().unwrap();
-    for saved in [v2_bytes_from_current(&current), current] {
+    for saved in [
+        v2_bytes_from_current(&current),
+        v3_bytes_from_current(&current),
+        current,
+    ] {
         let version = u32::from_le_bytes(saved[4..8].try_into().unwrap());
-        let mut envelope = if version == 2 {
-            EnvelopeV3 {
-                base: codec().deserialize::<EnvelopeV2>(&saved[8..]).unwrap(),
-                follow_snap_immediate: false,
-            }
-        } else {
-            assert_eq!(version, 3);
-            codec().deserialize::<EnvelopeV3>(&saved[8..]).unwrap()
+        let mut envelope = match version {
+            2 => EnvelopeV4 {
+                base: EnvelopeV3 {
+                    base: codec().deserialize::<EnvelopeV2>(&saved[8..]).unwrap(),
+                    follow_snap_immediate: false,
+                },
+                constraints: Default::default(),
+            },
+            3 => EnvelopeV4 {
+                base: codec().deserialize::<EnvelopeV3>(&saved[8..]).unwrap(),
+                constraints: Default::default(),
+            },
+            4 => codec().deserialize::<EnvelopeV4>(&saved[8..]).unwrap(),
+            _ => panic!("unexpected fixture camera version {version}"),
         };
-        let mut legacy: LogicCameraContinuation =
-            codec().deserialize(&envelope.base.legacy_record).unwrap();
+        let mut legacy: LogicCameraContinuation = codec()
+            .deserialize(&envelope.base.base.legacy_record)
+            .unwrap();
         legacy.script_camera_focus_estimate.x += 1.;
-        envelope.base.legacy_record = codec().serialize(&legacy).unwrap();
-        let payload = if version == 2 {
-            codec().serialize(&envelope.base).unwrap()
-        } else {
-            codec().serialize(&envelope).unwrap()
+        envelope.base.base.legacy_record = codec().serialize(&legacy).unwrap();
+        let payload = match version {
+            2 => codec().serialize(&envelope.base.base).unwrap(),
+            3 => codec().serialize(&envelope.base).unwrap(),
+            4 => codec().serialize(&envelope).unwrap(),
+            _ => unreachable!(),
         };
         let mut malformed = saved[..8].to_vec();
         malformed.extend(payload);
@@ -351,4 +378,34 @@ fn camera_owner_reset_cancels_actual_scalar_and_tracking_flags_without_replacing
         hag
     );
     assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
+}
+
+#[test]
+fn current_v4_to_input_v2_removes_only_cache_and_snap_extensions() {
+    let mut world = GameLogic::new();
+    world
+        .session_view
+        .camera
+        .constraints
+        .recalculate(Vec3::ZERO, Vec3::new(1000., 0., 800.), 37.)
+        .unwrap();
+    world.session_view.camera.camera_follow_snap_immediate = true;
+    let current = world.capture_camera_continuation().unwrap();
+    let saved: EnvelopeV4 = codec().deserialize(&current[8..]).unwrap();
+    let v2 = v2_bytes_from_current(&current);
+    assert_eq!(&v2[4..8], &2_u32.to_le_bytes());
+    assert_eq!(&v2[8..], codec().serialize(&saved.base.base).unwrap());
+    let decoded = GameLogic::decode_camera_continuation(&v2).unwrap();
+    assert!(!decoded.owned_constraints().is_valid());
+    assert!(!decoded.owned_follow_snap_immediate());
+    assert_eq!(
+        codec().serialize(&decoded).unwrap(),
+        saved.base.base.legacy_record
+    );
+    assert_eq!(
+        codec()
+            .serialize(decoded.owned_camera_state().unwrap())
+            .unwrap(),
+        codec().serialize(&saved.base.base.camera).unwrap()
+    );
 }

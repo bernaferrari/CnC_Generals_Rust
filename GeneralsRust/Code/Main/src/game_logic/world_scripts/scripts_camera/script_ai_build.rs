@@ -8,15 +8,20 @@ impl GameLogic {
         recruit_radius: Option<f32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) {
-        self.apply_owned_script_team_build_with_ui(team, recruit_radius, interpreter, &mut None)
+        self.apply_owned_script_team_build_with_effects(
+            team,
+            recruit_radius,
+            interpreter,
+            &mut Default::default(),
+        )
     }
 
-    pub(super) fn apply_owned_script_team_build_with_ui(
+    pub(super) fn apply_owned_script_team_build_with_effects(
         &mut self,
         team: &str,
         recruit_radius: Option<f32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         // C++ requires the prototype controller; neither a live team nor the
         // script caller substitutes for a missing prototype/controller.
@@ -32,10 +37,10 @@ impl GameLogic {
         };
         if let Some(radius) = recruit_radius {
             if let Some(id) = crate::ai::AIManager::resolve_player_id(self, &controller) {
-                self.recruit_owned_specific_ai_team_with_ui(id, team, radius, interpreter, ui);
+                self.recruit_owned_specific_ai_team_with_effects(id, team, radius, interpreter, ui);
             }
         } else if let Some(id) = crate::ai::AIManager::resolve_player_id(self, &controller) {
-            self.build_owned_specific_ai_team_with_ui(id, team, true, interpreter, ui);
+            self.build_owned_specific_ai_team_with_effects(id, team, true, interpreter, ui);
         }
     }
 

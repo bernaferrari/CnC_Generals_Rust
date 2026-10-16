@@ -138,10 +138,20 @@ fn take_native_restore_candidates(
 }
 
 impl RenderPipeline {
+    pub(crate) fn admit_pending_native_drawable_restore(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+    ) {
+        self.borrow_native_installed_poses()
+            .admit_pending_native_drawable_restore(id);
+    }
+}
+
+impl super::super::native_pose_loan::NativeInstalledPoseLoan<'_> {
     /// Consume this resident object's saved modules after constructor/dirty
     /// installation and before the first GetBoneTransform. Other objects stay
     /// queued; no visibility-filtered frame or Draw operation is required.
-    pub(crate) fn admit_pending_native_drawable_restore(
+    pub(in crate::graphics::render_pipeline) fn admit_pending_native_drawable_restore(
         &mut self,
         id: crate::game_logic::ObjectId,
     ) {

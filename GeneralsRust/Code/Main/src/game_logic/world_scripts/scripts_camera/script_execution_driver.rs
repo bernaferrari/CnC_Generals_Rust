@@ -12,7 +12,7 @@ use std::sync::{Arc, RwLock};
 pub(super) struct HostScriptExecutionDriver<'a> {
     world: &'a mut GameLogic,
     interpreter: Option<&'a gamelogic::scripting::engine::ScriptEngine>,
-    ui: Option<&'a mut dyn crate::game_logic::ScriptUiEffects>,
+    ui: crate::game_logic::ScriptPresentationEffects<'a>,
 }
 
 impl<'a> HostScriptExecutionDriver<'a> {
@@ -20,7 +20,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
         Self {
             world,
             interpreter: None,
-            ui: None,
+            ui: Default::default(),
         }
     }
 
@@ -31,14 +31,14 @@ impl<'a> HostScriptExecutionDriver<'a> {
         Self {
             world,
             interpreter: Some(interpreter),
-            ui: None,
+            ui: Default::default(),
         }
     }
 
-    pub(super) fn with_ui(
+    pub(super) fn with_effects(
         world: &'a mut GameLogic,
         interpreter: &'a gamelogic::scripting::engine::ScriptEngine,
-        mut ui: Option<&'a mut dyn crate::game_logic::ScriptUiEffects>,
+        mut ui: crate::game_logic::ScriptPresentationEffects<'a>,
     ) -> Self {
         world.deliver_pending_script_ui(&mut ui);
         Self {
@@ -47,15 +47,25 @@ impl<'a> HostScriptExecutionDriver<'a> {
             ui,
         }
     }
+    // Explicit UI-only adapter for standalone callers; native roots lend both domains.
+    pub(super) fn with_ui(
+        world: &'a mut GameLogic,
+        interpreter: &'a gamelogic::scripting::engine::ScriptEngine,
+        mut ui: Option<&'a mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> Self {
+        let effects = crate::game_logic::ScriptPresentationEffects { ui: ui, view: None };
+        Self::with_effects(world, interpreter, effects)
+    }
 
     /// Callback delivery while the interpreter is already borrowed by a frame
     /// or AI script walk uses that exact interpreter, never a missing field.
     pub(crate) fn complete_structure(&mut self, object: ObjectId) {
-        self.world.notify_structure_construction_complete_with_ui(
-            object,
-            self.interpreter,
-            &mut self.ui,
-        );
+        self.world
+            .notify_structure_construction_complete_with_effects(
+                object,
+                self.interpreter,
+                &mut self.ui,
+            );
     }
 
     fn player_script_name(player: &Player) -> &str {
@@ -462,7 +472,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     ) -> Option<gamelogic::GameLogicResult<()>> {
         Some(
             self.world
-                .update_owned_script_team_states_with_ui(engine, &mut self.ui),
+                .update_owned_script_team_states_with_effects(engine, &mut self.ui),
         )
     }
 
@@ -482,7 +492,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        Some(self.world.apply_owned_script_create_object_with_ui(
+        Some(self.world.apply_owned_script_create_object_with_effects(
             request,
             calling,
             condition,
@@ -1544,11 +1554,16 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 self.world
                     .apply_owned_script_base_defense(player, structure, flank);
             }
-            ScriptAiPlayerRequest::BuildTeam { team } => self
-                .world
-                .apply_owned_script_team_build_with_ui(team, None, self.interpreter, &mut self.ui),
+            ScriptAiPlayerRequest::BuildTeam { team } => {
+                self.world.apply_owned_script_team_build_with_effects(
+                    team,
+                    None,
+                    self.interpreter,
+                    &mut self.ui,
+                )
+            }
             ScriptAiPlayerRequest::RecruitTeam { team, radius } => {
-                self.world.apply_owned_script_team_build_with_ui(
+                self.world.apply_owned_script_team_build_with_effects(
                     team,
                     Some(radius),
                     self.interpreter,
@@ -1719,12 +1734,13 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         team: &str,
         waypoint: &str,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        self.world.host_script_create_reinforcement_team_with_ui(
-            team,
-            waypoint,
-            self.interpreter,
-            &mut self.ui,
-        );
+        self.world
+            .host_script_create_reinforcement_team_with_effects(
+                team,
+                waypoint,
+                self.interpreter,
+                &mut self.ui,
+            );
         Some(Ok(()))
     }
 
@@ -1735,7 +1751,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        Some(self.world.merge_owned_script_team_with_ui(
+        Some(self.world.merge_owned_script_team_with_effects(
             source,
             destination,
             calling,
@@ -1746,13 +1762,8 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     }
 
     fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
-        self.world.apply_script_action_requests_with_ui(
-            self.interpreter,
-            self.ui
-                .as_mut()
-                .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
-        );
-        Ok(())
+        self.world
+            .apply_script_action_requests_with_effects(self.interpreter, self.ui.reborrow())
     }
 
     fn literal_template_exists(&self, name: &str) -> ScriptOwnerQuery<bool> {
@@ -2166,9 +2177,27 @@ impl GameLogic {
         name: &str,
         object: ObjectId,
     ) {
-        self.run_object_script_with_ui(engine, name, object, &mut None);
+        self.run_object_script_with_effects(engine, name, object, &mut Default::default());
     }
 
+    pub(crate) fn run_object_script_with_effects(
+        &mut self,
+        engine: &gamelogic::scripting::engine::ScriptEngine,
+        name: &str,
+        object: ObjectId,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let context = gamelogic::scripting::executor::ScriptContext::at_frame(self.frame);
+        if let Err(error) = engine.run_object_script_with_driver(
+            name,
+            object.0,
+            context,
+            &mut HostScriptExecutionDriver::with_effects(self, engine, ui.reborrow()),
+        ) {
+            log::error!("attached object script failed: {error}");
+        }
+    }
+    // Explicit UI-only adapter for standalone callers.
     pub(crate) fn run_object_script_with_ui(
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,
@@ -2176,30 +2205,24 @@ impl GameLogic {
         object: ObjectId,
         ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
-        let context = gamelogic::scripting::executor::ScriptContext::at_frame(self.frame);
-        if let Err(error) = engine.run_object_script_with_driver(
-            name,
-            object.0,
-            context,
-            &mut HostScriptExecutionDriver::with_ui(
-                self,
-                engine,
-                ui.as_mut()
-                    .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
-            ),
-        ) {
-            log::error!("attached object script failed: {error}");
-        }
-    }
-    pub(crate) fn run_owned_object_script(&mut self, name: &str, object: ObjectId) {
-        self.run_owned_object_script_with_ui(name, object, &mut None);
+        let mut effects = crate::game_logic::ScriptPresentationEffects {
+            ui: ui
+                .as_mut()
+                .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+            view: None,
+        };
+        self.run_object_script_with_effects(engine, name, object, &mut effects)
     }
 
-    pub(crate) fn run_owned_object_script_with_ui(
+    pub(crate) fn run_owned_object_script(&mut self, name: &str, object: ObjectId) {
+        self.run_owned_object_script_with_effects(name, object, &mut Default::default());
+    }
+
+    pub(crate) fn run_owned_object_script_with_effects(
         &mut self,
         name: &str,
         object: ObjectId,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         if name.is_empty() || name == "<none>" {
             return;
@@ -2209,7 +2232,7 @@ impl GameLogic {
             "a borrowed interpreter must be supplied explicitly for attached callbacks"
         );
         self.with_owned_script_engine(|engine, world| {
-            world.run_object_script_with_ui(engine, name, object, ui)
+            world.run_object_script_with_effects(engine, name, object, ui)
         });
     }
 }

@@ -436,19 +436,19 @@ impl GameLogic {
     /// Returns whether any commands were processed.
     #[inline]
     pub fn process_commands_if_needed(&mut self) -> bool {
-        self.process_commands_if_needed_with_ui(&mut None)
+        self.process_commands_if_needed_with_effects(&mut Default::default())
     }
 
-    pub(crate) fn process_commands_if_needed_with_ui(
+    pub(crate) fn process_commands_if_needed_with_effects(
         &mut self,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         // C++ Player::update posts MSG_ENABLE_RETALIATION_MODE once per second.
         self.leftover_dispatch_tick();
         if self.command_queue.is_empty() {
             return false;
         }
-        self.process_commands_with_ui(ui);
+        self.process_commands_with_effects(ui);
         true
     }
 
@@ -458,27 +458,27 @@ impl GameLogic {
         &mut self,
         command: crate::command_system::GameCommand,
     ) -> bool {
-        self.queue_and_process_command_with_ui(command, &mut None)
+        self.queue_and_process_command_with_effects(command, &mut Default::default())
     }
 
-    pub(crate) fn queue_and_process_command_with_ui(
+    pub(crate) fn queue_and_process_command_with_effects(
         &mut self,
         command: crate::command_system::GameCommand,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         self.queue_command(command);
-        self.process_commands_if_needed_with_ui(ui)
+        self.process_commands_if_needed_with_effects(ui)
     }
 
     pub fn process_commands(&mut self) {
-        self.process_commands_with_ui(&mut None);
+        self.process_commands_with_effects(&mut Default::default());
     }
 
     /// The driving native phase lends UI across each queued command and its
     /// immediate factory callbacks. Recorder/replay admission stays in order.
-    pub(crate) fn process_commands_with_ui(
+    pub(crate) fn process_commands_with_effects(
         &mut self,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         // The recorder observes this driving world even outside a full tick.
         crate::command_system::stamp_host_logic_frame(&mut self.replay_pending, self.frame);
@@ -493,12 +493,21 @@ impl GameLogic {
             state_crc,
         );
         while let Some(command) = self.command_queue.pop_front() {
-            self.execute_command_with_ui(
-                command,
-                ui.as_mut()
-                    .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
-            );
+            self.execute_command_with_effects(command, ui.reborrow());
         }
+    }
+    // Explicit UI-only adapter for standalone callers; native roots lend both domains.
+    pub(crate) fn process_commands_with_ui(
+        &mut self,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
+        let mut effects = crate::game_logic::ScriptPresentationEffects {
+            ui: ui
+                .as_mut()
+                .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+            view: None,
+        };
+        self.process_commands_with_effects(&mut effects)
     }
 
     /// Snapshot number of active beacons (used by HUD to clear highlights).

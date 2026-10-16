@@ -2593,18 +2593,22 @@ impl GameLogic {
         team: Team,
         position: Vec3,
     ) {
-        self.apply_listening_outpost_initial_payload_with_ui(
-            outpost_id, team, position, None, &mut None,
+        self.apply_listening_outpost_initial_payload_with_effects(
+            outpost_id,
+            team,
+            position,
+            None,
+            &mut Default::default(),
         );
     }
 
-    pub(in super::super) fn apply_listening_outpost_initial_payload_with_ui(
+    pub(in super::super) fn apply_listening_outpost_initial_payload_with_effects(
         &mut self,
         outpost_id: ObjectId,
         team: Team,
         position: Vec3,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_listening_outpost::{
             LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT, LISTENING_OUTPOST_PAYLOAD_TEMPLATE,
@@ -2656,7 +2660,7 @@ impl GameLogic {
                 .objects
                 .get(&outpost_id)
                 .and_then(|parent| parent.owner_player_id);
-            let Some(hunter_id) = self.create_object_for_owner_or_team_with_ui(
+            let Some(hunter_id) = self.create_object_for_owner_or_team_with_effects(
                 payload_name,
                 team,
                 owner,
@@ -2707,18 +2711,22 @@ impl GameLogic {
         team: Team,
         position: Vec3,
     ) {
-        self.apply_troop_crawler_initial_payload_with_ui(
-            crawler_id, team, position, None, &mut None,
+        self.apply_troop_crawler_initial_payload_with_effects(
+            crawler_id,
+            team,
+            position,
+            None,
+            &mut Default::default(),
         );
     }
 
-    pub(in super::super) fn apply_troop_crawler_initial_payload_with_ui(
+    pub(in super::super) fn apply_troop_crawler_initial_payload_with_effects(
         &mut self,
         crawler_id: ObjectId,
         team: Team,
         position: Vec3,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_troop_crawler::{
             TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT, TROOP_CRAWLER_PAYLOAD_TEMPLATE,
@@ -2763,7 +2771,7 @@ impl GameLogic {
                 .objects
                 .get(&crawler_id)
                 .and_then(|parent| parent.owner_player_id);
-            let Some(guard_id) = self.create_object_for_owner_or_team_with_ui(
+            let Some(guard_id) = self.create_object_for_owner_or_team_with_effects(
                 payload_name,
                 team,
                 owner,

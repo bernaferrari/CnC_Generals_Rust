@@ -414,7 +414,7 @@ impl CnCGameEngine {
             let x: f32 = args.get("x").and_then(|s| s.parse().ok()).unwrap_or(0.0);
             let y: f32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(0.0);
             let z: f32 = args.get("z").and_then(|s| s.parse().ok()).unwrap_or(0.0);
-            let target = self.clamp_to_world_bounds(glam::Vec3::new(x, y, z));
+            let target = glam::Vec3::new(x, y, z);
             // Use the same W3D-orbit rebuild as physical centering.  Writing
             // only `camera_position` here left the actual view matrix stale
             // and made the next input update snap the command back.
@@ -440,6 +440,7 @@ impl CnCGameEngine {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(1.0_f32)
                 .clamp(0.2_f32, 4.0_f32);
+            self.game_logic.session_view.camera.invalidate_constraints();
             self.game_logic.session_view.camera.camera_zoom = z;
             self.cancel_scripted_camera_from_player_set();
             self.apply_camera_orbit_transform();

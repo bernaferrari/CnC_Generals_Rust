@@ -19,6 +19,9 @@ pub(super) struct ObjectVisualState {
     pub native_drawable_transform: Mat4,
     pub native_transform_revision: Option<u64>,
     pub native_host_identity: Option<crate::assets::LiveDrawPlaybackIdentity>,
+    /// Actual Client association allocated after the constructor observer.
+    #[cfg(feature = "game_client")]
+    pub native_client_binding: Option<game_client::core::PresentationDirectDrawableBindingKey>,
 
     pub installed_draw_pose: installed_draw_pose::InstalledDrawObject,
     pub identity: Option<FrozenVisualDrawIdentity>,
@@ -245,15 +248,8 @@ impl RenderPipeline {
         module_index: u32,
         bone_name: &str,
     ) -> Result<Mat4, NativeCameraPoseUnavailable> {
-        use NativeCameraPoseUnavailable::*;
-        let state = self
-            .drawable_visual_states
-            .get_mut(&(id.0, module_index))
-            .ok_or(UnadmittedDrawableLifecycle)?;
-        if !state.native_source_supported || !state.native_condition_supported {
-            return Err(UnadmittedDrawableLifecycle);
-        }
-        state.installed_camera_pose(self.animation_sync_ms, bone_name)
+        self.borrow_native_installed_poses()
+            .installed_camera_pose(id, module_index, bone_name)
     }
 }
 
@@ -332,7 +328,7 @@ impl ObjectVisualState {
         }
         Ok(pose.sampled_frame)
     }
-    fn installed_camera_pose(
+    pub(super) fn installed_camera_pose(
         &mut self,
         sync_ms: u32,
         bone_name: &str,

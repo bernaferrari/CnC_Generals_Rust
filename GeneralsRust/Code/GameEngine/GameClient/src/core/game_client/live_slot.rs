@@ -602,6 +602,22 @@ impl ClientFrameWriter<'_> {
         publish_client_frame_for_identity(self.identity, frame);
     }
 }
+/// Read-only loan of this client's actual admitted Drawable associations.
+/// No registry copy or presentation snapshot can substitute for this owner.
+pub struct NativeDrawablePresence<'a> {
+    drawables: &'a drawable_world::DrawableWorld,
+}
+impl NativeDrawablePresence<'_> {
+    pub fn binding_key(
+        &self,
+        host_epoch: u64,
+        object_id: ObjectID,
+    ) -> Option<PresentationDirectDrawableBindingKey> {
+        self.drawables
+            .presentation_direct_drawable_state(host_epoch, object_id)
+            .map(|state| state.binding_key)
+    }
+}
 impl GameClient {
     pub fn split_frame_and_snow(
         &mut self,
@@ -613,6 +629,25 @@ impl GameClient {
                 identity,
             },
             &mut self.snow,
+        )
+    }
+    pub fn split_frame_snow_and_drawable_presence(
+        &mut self,
+    ) -> (
+        ClientFrameWriter<'_>,
+        &mut crate::snow::SnowManager,
+        NativeDrawablePresence<'_>,
+    ) {
+        let identity = std::ptr::from_mut(self) as usize;
+        (
+            ClientFrameWriter {
+                frame: &mut self.frame,
+                identity,
+            },
+            &mut self.snow,
+            NativeDrawablePresence {
+                drawables: &self.drawables,
+            },
         )
     }
     pub fn snow_mut(&mut self) -> &mut crate::snow::SnowManager {

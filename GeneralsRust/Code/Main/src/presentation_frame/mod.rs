@@ -26,6 +26,7 @@ mod apply;
 mod authored_model_owner_tests;
 mod build;
 mod camera_terrain;
+mod draw_conditions;
 mod events;
 mod floating_text;
 mod follow_facts;
@@ -34,6 +35,9 @@ mod frame;
 mod ghosts;
 mod honesty;
 mod lasers;
+mod live_draw_source;
+#[cfg(test)]
+mod live_draw_source_tests;
 #[cfg(test)]
 mod money_audio_owner_tests;
 mod overlay;
@@ -92,6 +96,11 @@ pub const PRESENTATION_FRAME_SRC: &str = concat!(
     include_str!("spectre.rs"),
     include_str!("types.rs"),
     include_str!("unit_render.rs"),
+    include_str!("draw_conditions.rs"),
+    include_str!("draw_conditions/motion_and_containment_bits.rs"),
+    include_str!("draw_conditions/weapon_and_damage_bits.rs"),
+    include_str!("draw_conditions/lifecycle_bits.rs"),
+    include_str!("live_draw_source.rs"),
     include_str!("weapon_visual_dispatch.rs"),
     include_str!("world_env.rs"),
     include_str!("../../../GameEngine/Presentation/src/command.rs"),
@@ -104,6 +113,7 @@ pub const PRESENTATION_FRAME_SRC: &str = concat!(
 );
 
 mod session_view;
+pub(crate) use session_view::receiving_look_at_target;
 pub(crate) use session_view::{
     SessionView, SessionViewImpulse, SessionViewState, camera, follow, scripted, waypoint,
 };

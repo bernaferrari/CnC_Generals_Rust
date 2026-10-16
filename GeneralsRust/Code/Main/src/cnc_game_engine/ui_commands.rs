@@ -1264,20 +1264,12 @@ impl CnCGameEngine {
         &mut self,
         world_pos: glam::Vec3,
     ) -> glam::Vec3 {
-        // Wave 577/868/903: host camera target residual only (no request_camera_focus dual-read).
-        // Presentation freeze / Main camera_target own observe path.
-        self.cancel_scripted_camera_from_player_look_at();
-        let clamped = self.clamp_to_world_bounds(world_pos);
-        self.game_logic.session_view.target.x = clamped.x;
-        self.game_logic.session_view.target.z = clamped.z;
-        // C++ W3DView::lookAt/setPosition rebuilds the active camera rather
-        // than waiting for unrelated scroll/shake activity.
-        self.apply_camera_orbit_transform();
+        self.host_player_look_at(world_pos);
         if matches!(self.current_state, GameState::InGame | GameState::Paused) {
             self.update_mouse_world_position();
             self.sync_context_mouse_cursor();
         }
-        clamped
+        self.game_logic.session_view.target
     }
 
     /// Wave 577: host start-new-game residual with faction team (optional skirmish AI).
@@ -1356,17 +1348,30 @@ impl CnCGameEngine {
         op: crate::game_logic::CommandPipelineOp,
     ) -> bool {
         #[cfg(feature = "game_client")]
+        let (_frame, snow, presence) = self.game_client.split_frame_snow_and_drawable_presence();
+        #[cfg(feature = "game_client")]
         let mut ui = super::control_bar_viewport::NativeScriptUi::new(
-            self.game_client.snow_mut(),
+            snow,
             &mut self.control_bar,
             &mut self.control_bar_callbacks,
         );
         #[cfg(feature = "game_client")]
-        let mut ui = Some(&mut ui as &mut dyn crate::game_logic::ScriptUiEffects);
+        let mut view = super::native_view_effects::NativeRendererViewEffects::new(
+            self.render_pipeline.borrow_native_installed_poses(),
+            &mut self.graphics_system,
+            presence,
+            self.host_direct_visual_world_epoch,
+            self.current_player_id,
+        );
+        #[cfg(feature = "game_client")]
+        let mut effects = crate::game_logic::ScriptPresentationEffects {
+            ui: Some(&mut ui),
+            view: Some(&mut view),
+        };
         #[cfg(not(feature = "game_client"))]
-        let mut ui = None;
+        let mut effects = crate::game_logic::ScriptPresentationEffects::default();
         self.game_logic
-            .apply_command_pipeline_op_with_ui(op, &mut ui)
+            .apply_command_pipeline_op_with_effects(op, &mut effects)
     }
 
     pub(super) fn host_process_commands_with_command_sound(&mut self) {

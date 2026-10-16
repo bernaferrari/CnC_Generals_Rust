@@ -123,7 +123,7 @@ fn locked_drawable_is_excluded_from_capture_redrawn_with_post_filter_camera_befo
     let device = ww3d_engine::device().unwrap();
     let queue = ww3d_engine::queue().unwrap();
     let format = ww3d_engine::color_format().unwrap();
-    let graphics = GraphicsSystem::new(
+    let mut graphics = GraphicsSystem::new(
         device.clone(),
         queue.clone(),
         format,
@@ -163,7 +163,7 @@ fn locked_drawable_is_excluded_from_capture_redrawn_with_post_filter_camera_befo
         let scene = readback_buffer(&device, "pre-filter-scene");
         let filtered = readback_buffer(&device, "post-filter-before-locked");
         let overlay = readback_buffer(&device, "overlay-observes-specific-draw");
-        let mut post = |frame: &mut ww3d_engine::RenderFrame| {
+        let mut post = |frame: &mut ww3d_engine::RenderFrame, _graphics: &mut GraphicsSystem| {
             copy_frame(frame, &scene);
             let composite = filter.composite(Vector2::zero());
             assert!(resources.prepare(&device, &queue, format, 32, 32, &composite));
@@ -197,7 +197,7 @@ fn locked_drawable_is_excluded_from_capture_redrawn_with_post_filter_camera_befo
         };
         forward
             .render(
-                &graphics,
+                &mut graphics,
                 &items,
                 &Mat4::IDENTITY,
                 &Mat4::IDENTITY,

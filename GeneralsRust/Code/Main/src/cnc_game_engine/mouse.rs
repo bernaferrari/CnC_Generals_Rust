@@ -363,28 +363,6 @@ pub(super) fn w3d_camera_constraint_offset(
     })
 }
 
-pub(super) fn airborne_look_at_ground(
-    _eye: Vec3,
-    object_pos: Vec3,
-    look_dir: Vec3,
-    far_clip: f32,
-    world_min: Vec3,
-    world_max: Vec3,
-    world_env: Option<&crate::presentation_frame::PresentationWorldEnv>,
-) -> Option<Vec3> {
-    // Leftover `look_at_pick_ray` / C++ Un_Project(0,0): restart at the object
-    // and cast the current look direction, not camera-to-object.
-    let mut dir = look_dir;
-    if dir.length_squared() <= PICK_RAY_EPSILON {
-        dir = -Vec3::Y;
-    }
-    let dir = dir.normalize() * far_clip.max(1.0);
-    let start = object_pos;
-    let end = start + dir;
-    raycast_frozen_terrain(start, end, world_min, world_max, world_env)
-        .or_else(|| raycast_ground_plane_clamped(start, end, world_min, world_max, world_env))
-}
-
 fn normalize_signed_angle(mut angle: f32) -> f32 {
     while angle > std::f32::consts::PI {
         angle -= std::f32::consts::TAU;

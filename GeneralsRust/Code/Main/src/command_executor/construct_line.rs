@@ -85,7 +85,7 @@ impl CommandExecutor<'_> {
             }
             placed |= self
                 .game_logic
-                .create_instant_line_build_object_for_player_with_ui(
+                .create_instant_line_build_object_for_player_with_effects(
                     template_name,
                     self.current_player_id,
                     location,

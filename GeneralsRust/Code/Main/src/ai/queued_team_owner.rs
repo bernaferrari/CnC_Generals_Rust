@@ -5,14 +5,14 @@ use gamelogic::scripting::engine::ScriptEngine;
 impl GameLogic {
     /// Initial-map destruction and factory callbacks observe the installed AI.
     pub(crate) fn initialize_owned_skirmish_ai(&mut self, player: u32, data: &AiDataView) {
-        self.initialize_owned_skirmish_ai_with_ui(player, data, &mut None)
+        self.initialize_owned_skirmish_ai_with_effects(player, data, &mut Default::default())
     }
 
-    pub(crate) fn initialize_owned_skirmish_ai_with_ui(
+    pub(crate) fn initialize_owned_skirmish_ai_with_effects(
         &mut self,
         player: u32,
         data: &AiDataView,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let Some(ai) = self.ai_manager.ai_players.get_mut(&player) else {
             return;
@@ -56,7 +56,7 @@ impl GameLogic {
         for (mut building, initially_built) in pads {
             if initially_built {
                 building.is_built = true;
-                building.object_id = self.create_object_for_player_with_ui(
+                building.object_id = self.create_object_for_player_with_effects(
                     &building.template_name,
                     player,
                     building.position,
@@ -146,15 +146,15 @@ impl GameLogic {
     /// CPP queueUnits → selectTeamToBuild → immediate queueUnits. The
     /// selection script runs with all canonical controllers installed.
     pub(crate) fn update_owned_ai_military(&mut self, player: u32, now: f32, data: &AiDataView) {
-        self.update_owned_ai_military_with_ui(player, now, data, &mut None)
+        self.update_owned_ai_military_with_effects(player, now, data, &mut Default::default())
     }
 
-    pub(crate) fn update_owned_ai_military_with_ui(
+    pub(crate) fn update_owned_ai_military_with_effects(
         &mut self,
         player: u32,
         now: f32,
         data: &AiDataView,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use super::teams::OwnedTeamSelection;
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
@@ -229,7 +229,7 @@ impl GameLogic {
             OwnedTeamSelection::Reinforced => (true, false),
             OwnedTeamSelection::New(name) => {
                 let selected =
-                    self.build_owned_specific_ai_team_with_ui(player, &name, false, None, ui);
+                    self.build_owned_specific_ai_team_with_effects(player, &name, false, None, ui);
                 (selected, selected)
             }
         };
@@ -250,6 +250,22 @@ impl GameLogic {
         ai.evaluate_attack_opportunities(self, now);
         self.ai_manager.ai_players.insert(player, ai);
     }
+    // Explicit UI-only adapter for standalone callers; native roots lend both domains.
+    pub(crate) fn update_owned_ai_military_with_ui(
+        &mut self,
+        player: u32,
+        now: f32,
+        data: &AiDataView,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
+        let mut effects = crate::game_logic::ScriptPresentationEffects {
+            ui: ui
+                .as_mut()
+                .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+            view: None,
+        };
+        self.update_owned_ai_military_with_effects(player, now, data, &mut effects)
+    }
 
     /// Commit queue admission before its synchronous production-condition action.
     pub(crate) fn build_owned_specific_ai_team(
@@ -259,16 +275,22 @@ impl GameLogic {
         priority: bool,
         interpreter: Option<&ScriptEngine>,
     ) -> bool {
-        self.build_owned_specific_ai_team_with_ui(player, name, priority, interpreter, &mut None)
+        self.build_owned_specific_ai_team_with_effects(
+            player,
+            name,
+            priority,
+            interpreter,
+            &mut Default::default(),
+        )
     }
 
-    pub(crate) fn build_owned_specific_ai_team_with_ui(
+    pub(crate) fn build_owned_specific_ai_team_with_effects(
         &mut self,
         player: u32,
         name: &str,
         priority: bool,
         interpreter: Option<&ScriptEngine>,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         let prepared = (|| {
             let ai = self.ai_manager.ai_players.get(&player)?;
@@ -330,10 +352,10 @@ impl GameLogic {
         };
         for script in effects {
             if let Some(engine) = interpreter {
-                self.execute_owned_ai_condition_with_ui(engine, &script, None, ui);
+                self.execute_owned_ai_condition_with_effects(engine, &script, None, ui);
             } else {
                 self.with_owned_script_engine(|engine, world| {
-                    world.execute_owned_ai_condition_with_ui(engine, &script, None, ui);
+                    world.execute_owned_ai_condition_with_effects(engine, &script, None, ui);
                 });
             }
         }
@@ -371,10 +393,15 @@ impl GameLogic {
         let (execute, condition) = admitted_actions.unwrap();
         if execute && !condition.is_empty() {
             if let Some(engine) = interpreter {
-                self.execute_owned_ai_condition_with_ui(engine, &condition, Some(team_id), ui);
+                self.execute_owned_ai_condition_with_effects(engine, &condition, Some(team_id), ui);
             } else {
                 self.with_owned_script_engine(|engine, world| {
-                    world.execute_owned_ai_condition_with_ui(engine, &condition, Some(team_id), ui);
+                    world.execute_owned_ai_condition_with_effects(
+                        engine,
+                        &condition,
+                        Some(team_id),
+                        ui,
+                    );
                 });
             }
         }
@@ -387,35 +414,35 @@ impl GameLogic {
         name: &str,
         team: Option<u32>,
     ) {
-        self.execute_owned_ai_condition_with_ui(engine, name, team, &mut None)
+        self.execute_owned_ai_condition_with_effects(engine, name, team, &mut Default::default())
     }
 
-    pub(crate) fn execute_owned_ai_condition_with_ui(
+    pub(crate) fn execute_owned_ai_condition_with_effects(
         &mut self,
         engine: &ScriptEngine,
         name: &str,
         team: Option<u32>,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         if let Some(action) = engine
             .find_script_clone_by_name(name)
             .and_then(|script| script.get_action().cloned())
         {
-            self.execute_script_team_actions_with_ui(engine, &action, team, ui);
+            self.execute_script_team_actions_with_effects(engine, &action, team, ui);
         }
     }
 
     /// Only the queue-decision borrow survives within one phase. Scripts and
     /// destruction execute with every controller installed in its session.
     pub(crate) fn check_owned_ai_queued_teams(&mut self, player: u32, now: f32) {
-        self.check_owned_ai_queued_teams_with_ui(player, now, &mut None)
+        self.check_owned_ai_queued_teams_with_effects(player, now, &mut Default::default())
     }
 
-    pub(crate) fn check_owned_ai_queued_teams_with_ui(
+    pub(crate) fn check_owned_ai_queued_teams_with_effects(
         &mut self,
         player: u32,
         now: f32,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let Some(ai) = self.ai_manager.ai_players.get_mut(&player) else {
             return;
@@ -504,7 +531,7 @@ impl GameLogic {
             };
             if let Some((condition, team)) = prepared {
                 self.with_owned_script_engine(|engine, world| {
-                    world.execute_owned_ai_condition_with_ui(engine, &condition, team, ui)
+                    world.execute_owned_ai_condition_with_effects(engine, &condition, team, ui)
                 });
             }
             cursor = self.ai_manager.ai_players.get(&player).and_then(|ai| {

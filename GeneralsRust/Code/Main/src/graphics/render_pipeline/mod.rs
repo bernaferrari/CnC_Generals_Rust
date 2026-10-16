@@ -919,6 +919,7 @@ pub(super) enum RenderModelLoadResult {
 mod installed_draw_pose;
 #[cfg(feature = "game_client")]
 mod native_draw_admission;
+pub(crate) mod native_pose_loan;
 pub(crate) use installed_draw_pose::NativeCameraPoseUnavailable;
 mod forward_materials;
 mod forward_render;

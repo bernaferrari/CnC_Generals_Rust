@@ -239,13 +239,13 @@ impl GameLogic {
         &mut self,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) {
-        self.apply_host_create_script_requests_with_ui(interpreter, &mut None)
+        self.apply_host_create_script_requests_with_effects(interpreter, &mut Default::default())
     }
 
-    pub(super) fn apply_host_create_script_requests_with_ui(
+    pub(super) fn apply_host_create_script_requests_with_effects(
         &mut self,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use gamelogic::scripting::HostScriptCreateRequest;
         for req in gamelogic::scripting::take_host_script_create_requests() {
@@ -259,7 +259,7 @@ impl GameLogic {
                     z,
                     angle,
                 } => {
-                    self.host_script_create_object_with_ui(
+                    self.host_script_create_object_with_effects(
                         name.as_deref(),
                         &thing,
                         &team,
@@ -272,7 +272,7 @@ impl GameLogic {
                     );
                 }
                 HostScriptCreateRequest::ReinforcementTeam { team, waypoint } => {
-                    self.host_script_create_reinforcement_team_with_ui(
+                    self.host_script_create_reinforcement_team_with_effects(
                         &team,
                         &waypoint,
                         interpreter,
@@ -966,22 +966,22 @@ impl GameLogic {
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> gamelogic::GameLogicResult<()> {
-        self.apply_owned_script_create_object_with_ui(
+        self.apply_owned_script_create_object_with_effects(
             request,
             calling,
             condition,
             interpreter,
-            &mut None,
+            &mut Default::default(),
         )
     }
 
-    pub(super) fn apply_owned_script_create_object_with_ui(
+    pub(super) fn apply_owned_script_create_object_with_effects(
         &mut self,
         request: gamelogic::scripting::engine::ScriptObjectCreation<'_>,
         calling: Option<u32>,
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         let mut created_identity = None;
         let resolved = self.resolve_owned_script_team(request.team, calling, condition)?;
@@ -1006,7 +1006,7 @@ impl GameLogic {
                 team.get_id()
             };
             created_identity = Some(team.clone());
-            self.run_team_creation_effects_with_ui(effects, interpreter, ui)?;
+            self.run_team_creation_effects_with_effects(effects, interpreter, ui)?;
             if let Some(current) = self
                 .team_factory
                 .lock()
@@ -1046,7 +1046,7 @@ impl GameLogic {
             return Ok(());
         };
         let position = Self::host_script_coord_to_world(request.x, request.y, request.z);
-        if let Some(id) = self.create_object_on_exact_script_team_with_ui(
+        if let Some(id) = self.create_object_on_exact_script_team_with_effects(
             request.template,
             controller,
             &name,
@@ -1089,7 +1089,7 @@ impl GameLogic {
         angle: f32,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> Option<ObjectId> {
-        self.host_script_create_object_with_ui(
+        self.host_script_create_object_with_effects(
             name,
             thing,
             team_name,
@@ -1098,11 +1098,11 @@ impl GameLogic {
             z,
             angle,
             interpreter,
-            &mut None,
+            &mut Default::default(),
         )
     }
 
-    fn host_script_create_object_with_ui(
+    fn host_script_create_object_with_effects(
         &mut self,
         name: Option<&str>,
         thing: &str,
@@ -1112,7 +1112,7 @@ impl GameLogic {
         z: f32,
         angle: f32,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         if let Some(unit_name) = name.filter(|n| !n.is_empty()) {
             if let Some(id) = self.host_object_id_by_script_name(unit_name) {
@@ -1140,7 +1140,9 @@ impl GameLogic {
         };
         let id = if let Some((selected, effects)) = selected {
             let identity = selected.read().ok()?.get_id();
-            if let Err(error) = self.run_team_creation_effects_with_ui(effects, interpreter, ui) {
+            if let Err(error) =
+                self.run_team_creation_effects_with_effects(effects, interpreter, ui)
+            {
                 log::error!("script object creation callback failed: {error}");
                 return None;
             }
@@ -1149,7 +1151,7 @@ impl GameLogic {
                 return None;
             }
             let controller = current.read().ok()?.get_controlling_player_id()?;
-            self.create_object_on_exact_script_team_with_ui(
+            self.create_object_on_exact_script_team_with_effects(
                 thing,
                 controller,
                 team_name,
@@ -1160,7 +1162,7 @@ impl GameLogic {
                 ui,
             )?
         } else {
-            self.create_object_with_script_ui(thing, team, pos, interpreter, ui)?
+            self.create_object_with_script_effects(thing, team, pos, interpreter, ui)?
         };
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.set_orientation(angle);
@@ -1188,20 +1190,20 @@ impl GameLogic {
         waypoint_name: &str,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) {
-        self.host_script_create_reinforcement_team_with_ui(
+        self.host_script_create_reinforcement_team_with_effects(
             team_name,
             waypoint_name,
             interpreter,
-            &mut None,
+            &mut Default::default(),
         )
     }
 
-    pub(super) fn host_script_create_reinforcement_team_with_ui(
+    pub(super) fn host_script_create_reinforcement_team_with_effects(
         &mut self,
         team_name: &str,
         waypoint_name: &str,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let Some(dest) = self.host_script_waypoint_position(waypoint_name) else {
             return;
@@ -1243,7 +1245,7 @@ impl GameLogic {
             .read()
             .unwrap_or_else(|error| error.into_inner())
             .get_id();
-        if let Err(error) = self.run_team_creation_effects_with_ui(effects, interpreter, ui) {
+        if let Err(error) = self.run_team_creation_effects_with_effects(effects, interpreter, ui) {
             log::error!("reinforcement creation callback failed: {error}");
             return;
         }
@@ -1264,7 +1266,7 @@ impl GameLogic {
         };
         let mut spawned: Vec<ObjectId> = Vec::new();
         if !transport.is_empty() {
-            if let Some(id) = self.create_object_on_exact_script_team_with_ui(
+            if let Some(id) = self.create_object_on_exact_script_team_with_effects(
                 &transport,
                 controller,
                 team_name,
@@ -1281,7 +1283,7 @@ impl GameLogic {
         for (thing, count) in units {
             for _ in 0..count {
                 let offset = slot as f32 * 5.0;
-                if let Some(id) = self.create_object_on_exact_script_team_with_ui(
+                if let Some(id) = self.create_object_on_exact_script_team_with_effects(
                     &thing,
                     controller,
                     team_name,

@@ -203,16 +203,22 @@ impl GameLogic {
         team: Team,
         position: glam::Vec3,
     ) {
-        self.apply_garrison_initial_roster_with_ui(container_id, team, position, None, &mut None);
+        self.apply_garrison_initial_roster_with_effects(
+            container_id,
+            team,
+            position,
+            None,
+            &mut Default::default(),
+        );
     }
 
-    pub(in crate::game_logic) fn apply_garrison_initial_roster_with_ui(
+    pub(in crate::game_logic) fn apply_garrison_initial_roster_with_effects(
         &mut self,
         container_id: ObjectId,
         team: Team,
         position: glam::Vec3,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let Some(container) = self.objects.get(&container_id) else {
             return;
@@ -247,7 +253,7 @@ impl GameLogic {
                 .objects
                 .get(&container_id)
                 .and_then(|parent| parent.owner_player_id);
-            let Some(occupant_id) = self.create_object_for_owner_or_team_with_ui(
+            let Some(occupant_id) = self.create_object_for_owner_or_team_with_effects(
                 &payload_name,
                 team,
                 owner,

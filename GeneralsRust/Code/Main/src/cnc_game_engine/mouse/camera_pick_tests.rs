@@ -234,24 +234,23 @@ fn double_click_type_select_uses_os_pixel_slop() {
 
 #[test]
 fn reset_camera_pose_restores_fx_pitch_to_one() {
-    let src = MOUSE_SOURCE;
-    let start = src
-        .find("fn reset_camera_pose_in_place")
-        .expect("reset_camera_pose_in_place");
-    let body: String = src[start..start + 900].split_whitespace().collect();
-    assert!(
-        body.contains("self.game_logic.session_view.camera.camera_fx_pitch=1.0"),
-        "CAMERA_RESET/MMB must restore C++ m_FXPitch 1.0"
-    );
-    assert!(
-        body.contains("self.game_logic.session_view.camera.camera_pitch_target=None"),
-        "reset must cancel an in-flight CAMERA_PITCH lerp"
-    );
-    assert!(
-        body.contains("self.game_logic.session_view.camera.camera_pitch_radians=self.ui_script_default_camera_pitch()")
-            && !body.contains("clamp_pitch("),
-        "CAMERA_RESET/MMB must restore scripted m_defaultPitchAngle"
-    );
+    let source = include_str!("camera.rs");
+    let operation = source
+        .split("fn reset_camera_pose_in_place(")
+        .nth(1)
+        .unwrap()
+        .split("fn apply_native_camera_location(")
+        .next()
+        .unwrap();
+    assert!(operation.contains("self.game_logic.admit_camera_reset_motion("));
+    assert!(operation.contains("position: self.game_logic.session_view.target"));
+    assert!(operation.contains("duration_seconds: 0.001"));
+    assert!(!operation.contains("set_native_camera_transform()"));
+    assert!(!operation.contains("camera_fx_pitch ="));
+    assert!(!operation.contains("set_zoom_to_default("));
+    let admission = include_str!("../../game_logic/world_scripts/scripts_camera/camera_reset.rs");
+    assert!(admission.contains("install_pitch("));
+    assert!(admission.contains("last.duration_seconds"));
 }
 
 #[test]
@@ -956,8 +955,17 @@ fn update_camera_does_not_gate_arrows_on_modifiers() {
         "player scroll must clear camera lock"
     );
     assert!(
-        body.contains("clamp_w3d_zoom"),
-        "replay/bookmark zoom must clamp"
+        body.contains(
+            "self.apply_native_camera_location(pose.pos, pose.yaw, pose.pitch, pose.zoom)"
+        ) && src
+            .split("fn apply_native_camera_location(")
+            .nth(1)
+            .unwrap()
+            .split("fn save_or_recall_camera_view(")
+            .next()
+            .unwrap()
+            .contains("clamp_w3d_zoom(zoom)"),
+        "replay/bookmark zoom must clamp in the shared receiving setLocation operation"
     );
     // Wiring check only: C++ view effects run after display admission, not
     // during manual input. Numeric admission behavior is covered by the actual
@@ -972,8 +980,8 @@ fn update_camera_does_not_gate_arrows_on_modifiers() {
     assert!(
         view.contains("self.apply_camera_follow_or_tether(id, facts, record_previous)")
             && display.contains("self.advance_native_camera_view(decision, camera_scroll)")
-            && display.contains("let slave_pose = self.apply_host_slave_camera()"),
-        "airborne follow and slave pose must remain connected to the native view"
+            && display.contains("self.set_native_camera_transform()?"),
+        "airborne follow and the source set-transform operation must remain connected to the native view"
     );
     assert!(
         body.contains("cancel_scripted_camera_from_player_set")
@@ -1094,41 +1102,32 @@ fn key_and_screenedge_scroll_mouse_lock_like_cpp() {
 
 #[test]
 fn airborne_look_at_ray_hits_ground_plane() {
-    let look_dir = Vec3::new(0.0, -40.0, -120.0);
-    let hit = airborne_look_at_ground(
-        Vec3::new(0.0, 120.0, 120.0),
-        Vec3::new(0.0, 80.0, 0.0),
-        look_dir,
-        2_000.0,
-        Vec3::new(-1_000.0, 0.0, -1_000.0),
-        Vec3::new(1_000.0, 0.0, 1_000.0),
-        None,
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 32;
+    map.height = 32;
+    map.heightmap = vec![0; 32 * 32];
+    let mut terrain = gamelogic::terrain::TerrainLogic::new();
+    terrain.load_map_data(map);
+    let mut camera = crate::presentation_frame::camera::SessionCamera::default();
+    let eye = Vec3::new(0., 120., 120.);
+    camera.view_matrix = glam::Mat4::look_at_rh(eye, eye + Vec3::new(0., -40., -120.), Vec3::Y);
+    camera.projection_matrix = glam::Mat4::perspective_rh(60_f32.to_radians(), 1., 10., 2000.);
+    let hit = crate::presentation_frame::receiving_look_at_target(
+        Vec3::new(0., 80., 0.),
+        &camera,
+        &terrain,
     )
-    .expect("airborne look-at must hit ground");
-    assert!(
-        hit.y.abs() < 0.02,
-        "ground hit Y must be the plane, got {hit:?}"
-    );
-    assert!(
-        hit.z.abs() > 1.0,
-        "ray through an elevated unit must land past the XY origin, got {hit:?}"
-    );
-
-    // Off-axis unit: look dir is screen-center, not camera-to-object.
-    let off_axis = airborne_look_at_ground(
-        Vec3::new(0.0, 120.0, 120.0),
-        Vec3::new(40.0, 80.0, 0.0),
-        look_dir,
-        2_000.0,
-        Vec3::new(-1_000.0, 0.0, -1_000.0),
-        Vec3::new(1_000.0, 0.0, 1_000.0),
-        None,
+    .unwrap();
+    assert_eq!(hit.y, 0.);
+    assert!((hit.z + 240.).abs() < 0.05, "{hit:?}");
+    let off_axis = crate::presentation_frame::receiving_look_at_target(
+        Vec3::new(40., 80., 0.),
+        &camera,
+        &terrain,
     )
-    .expect("off-axis airborne look-at must hit ground");
-    assert!(
-        (off_axis.x - 40.0).abs() < 0.5,
-        "look dir must keep the unit on the screen-center ray, got {off_axis:?}"
-    );
+    .unwrap();
+    assert!((off_axis.x - 40.).abs() < 0.01, "{off_axis:?}");
+    assert!((off_axis.z - hit.z).abs() < 0.05, "{off_axis:?}");
 }
 
 #[test]
@@ -1201,3 +1200,44 @@ fn script_default_view_pitch_starts_and_resets_to_zero() {
 
 #[path = "player_camera_cancel_owner_tests.rs"]
 mod player_camera_cancel_owner_tests;
+
+#[test]
+fn height_setter_builds_immediately_without_waiting_for_zoom_easing() {
+    let source = include_str!("camera.rs");
+    let operation = source
+        .split("fn apply_player_height_zoom_steps(")
+        .nth(1)
+        .unwrap()
+        .split("fn native_camera_terrain_height_around(")
+        .next()
+        .unwrap();
+    let invalidate = operation.find("invalidate_constraints()").unwrap();
+    let build = operation.find("set_native_camera_transform()").unwrap();
+    assert!(invalidate < build);
+    assert!(!operation.contains("camera_zoom ="));
+    assert!(!operation.contains("constraint_inset("));
+}
+
+#[test]
+fn location_restore_preserves_raw_position_and_original_three_setter_builds() {
+    let source = include_str!("camera.rs");
+    let operation = source
+        .split("fn apply_native_camera_location(")
+        .nth(1)
+        .unwrap()
+        .split("fn save_or_recall_camera_view(")
+        .next()
+        .unwrap();
+    assert!(operation.contains("session_view.target = position"));
+    assert_eq!(
+        operation.matches("set_native_camera_transform()").count(),
+        4
+    );
+    let angle = operation.find("camera_yaw_radians =").unwrap();
+    let pitch = operation.find("camera_pitch_radians =").unwrap();
+    let zoom = operation.find("camera_zoom =").unwrap();
+    let invalid = operation.find("invalidate_constraints()").unwrap();
+    assert!(angle < pitch && pitch < zoom && zoom < invalid);
+    assert!(!operation.contains("receiving_look_at_target"));
+    assert!(!operation.contains("clamp_to_world_bounds"));
+}

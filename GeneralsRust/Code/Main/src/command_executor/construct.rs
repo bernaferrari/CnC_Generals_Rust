@@ -181,7 +181,7 @@ impl<'a> CommandExecutor<'a> {
                 }
             }
 
-            let building_id = self.game_logic.create_dozer_scaffold_with_ui(
+            let building_id = self.game_logic.create_dozer_scaffold_with_effects(
                 template_name,
                 self.current_player_id,
                 unit_id,

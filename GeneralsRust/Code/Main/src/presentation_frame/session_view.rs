@@ -3,6 +3,7 @@
 pub(crate) mod camera;
 pub(crate) mod follow;
 mod look_at;
+pub(crate) use look_at::receiving_look_at_target;
 mod motion;
 pub(crate) mod scripted;
 mod slave;

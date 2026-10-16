@@ -421,6 +421,7 @@ impl CnCGameEngine {
             )
             .map_err(anyhow::Error::msg)?,
             camera_follow_factor: -1.0,
+            constraints: Default::default(),
             camera_follow_snap_immediate: false,
             camera_position,
             scripted_camera_constraint_widen: None,

@@ -14,15 +14,20 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         activate: bool,
     ) {
-        self.admit_team_for_host_object_with_ui(id, interpreter, activate, &mut None)
+        self.admit_team_for_host_object_with_effects(
+            id,
+            interpreter,
+            activate,
+            &mut Default::default(),
+        )
     }
 
-    pub(crate) fn admit_team_for_host_object_with_ui(
+    pub(crate) fn admit_team_for_host_object_with_effects(
         &mut self,
         id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         activate: bool,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let Some(obj) = self.objects.get(&id) else {
             return;
@@ -81,7 +86,7 @@ impl GameLogic {
             .unwrap_or_else(|error| error.into_inner())
             .get_id();
         drop(factory);
-        if let Err(error) = self.run_team_creation_effects_with_ui(effects, interpreter, ui) {
+        if let Err(error) = self.run_team_creation_effects_with_effects(effects, interpreter, ui) {
             log::error!("team admission callback failed: {error}");
             return;
         }
@@ -134,27 +139,27 @@ impl GameLogic {
         effects: Vec<String>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> gamelogic::GameLogicResult<()> {
-        self.run_team_creation_effects_with_ui(effects, interpreter, &mut None)
+        self.run_team_creation_effects_with_effects(effects, interpreter, &mut Default::default())
     }
 
-    pub(crate) fn run_team_creation_effects_with_ui(
+    pub(crate) fn run_team_creation_effects_with_effects(
         &mut self,
         effects: Vec<String>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         if effects.is_empty() {
             return Ok(());
         }
         if let Some(engine) = interpreter {
             for name in effects {
-                self.execute_owned_ai_condition_with_ui(engine, &name, None, ui);
+                self.execute_owned_ai_condition_with_effects(engine, &name, None, ui);
             }
             Ok(())
         } else {
             self.with_owned_script_engine(|engine, world| {
                 for name in effects {
-                    world.execute_owned_ai_condition_with_ui(engine, &name, None, ui);
+                    world.execute_owned_ai_condition_with_effects(engine, &name, None, ui);
                 }
             })
             .ok_or_else(|| {
@@ -244,29 +249,29 @@ impl GameLogic {
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> gamelogic::GameLogicResult<()> {
-        self.merge_owned_script_team_with_ui(
+        self.merge_owned_script_team_with_effects(
             source,
             destination,
             calling,
             condition,
             interpreter,
-            &mut None,
+            &mut Default::default(),
         )
     }
 
-    pub(crate) fn merge_owned_script_team_with_ui(
+    pub(crate) fn merge_owned_script_team_with_effects(
         &mut self,
         source: &str,
         destination: &str,
         calling: Option<u32>,
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         if interpreter.is_none() && self.owned_script_engine.is_some() {
             return self
                 .with_owned_script_engine(|engine, world| {
-                    world.merge_owned_script_team_with_ui(
+                    world.merge_owned_script_team_with_effects(
                         source,
                         destination,
                         calling,
@@ -314,7 +319,7 @@ impl GameLogic {
                             )
                         })?;
                         for name in effects {
-                            self.execute_owned_ai_condition_with_ui(engine, &name, None, ui);
+                            self.execute_owned_ai_condition_with_effects(engine, &name, None, ui);
                         }
                     }
                     let current = self

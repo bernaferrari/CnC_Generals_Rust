@@ -29,6 +29,12 @@ struct FollowCameraState {
     follow_snap_immediate: bool,
 }
 
+#[derive(Serialize, Deserialize)]
+struct ConstrainedCameraState {
+    base: FollowCameraState,
+    constraints: crate::presentation_frame::camera::constraints::CameraConstraints,
+}
+
 pub(super) fn encode_native_camera(
     engine: &CnCGameEngine,
     state: &CameraState,
@@ -50,7 +56,7 @@ pub(super) fn encode_native_camera(
             None
         }
     };
-    encode_follow_camera(
+    encode_constrained_camera(
         state,
         engine.game_logic.session_view.camera.view_matrix,
         filter,
@@ -59,6 +65,7 @@ pub(super) fn encode_native_camera(
             .session_view
             .camera
             .camera_follow_snap_immediate,
+        engine.game_logic.session_view.camera.constraints,
     )
 }
 
@@ -119,6 +126,30 @@ fn encode_follow_camera(
     })?)
 }
 
+fn encode_constrained_camera(
+    state: &CameraState,
+    completed_view: glam::Mat4,
+    filter: Option<(glam::Vec2, Vec3)>,
+    snap: bool,
+    constraints: crate::presentation_frame::camera::constraints::CameraConstraints,
+) -> Result<Vec<u8>, String> {
+    state.validate_with_completed_view(Some(completed_view))?;
+    validate_filter(filter)?;
+    constraints.validate()?;
+    tagged(codec().serialize(&ConstrainedCameraState {
+        base: FollowCameraState {
+            base: CompletedCameraState {
+                version: 4,
+                camera: codec().serialize(state)?,
+                completed_view,
+                filter,
+            },
+            follow_snap_immediate: snap,
+        },
+        constraints,
+    })?)
+}
+
 // Retained only to exercise the original version1 wire; live capture is V3.
 #[cfg(all(test, feature = "game_client"))]
 fn encode_filter_camera(
@@ -154,6 +185,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                         filter,
                         completed_view: None,
                         follow_snap_immediate: false,
+                        constraints: Default::default(),
                     },
                 )
             }
@@ -166,6 +198,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                         filter: saved.filter,
                         completed_view: Some(saved.completed_view),
                         follow_snap_immediate: false,
+                        constraints: Default::default(),
                     },
                 )
             }
@@ -178,6 +211,21 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                         filter: saved.base.filter,
                         completed_view: Some(saved.base.completed_view),
                         follow_snap_immediate: saved.follow_snap_immediate,
+                        constraints: Default::default(),
+                    },
+                )
+            }
+            4 => {
+                let saved: ConstrainedCameraState = codec().deserialize(payload)?;
+                validate_filter(saved.base.base.filter)?;
+                saved.constraints.validate()?;
+                (
+                    saved.base.base.camera,
+                    NativeCameraExtras {
+                        filter: saved.base.base.filter,
+                        completed_view: Some(saved.base.base.completed_view),
+                        follow_snap_immediate: saved.base.follow_snap_immediate,
+                        constraints: saved.constraints,
                     },
                 )
             }
@@ -300,3 +348,7 @@ mod completed_matrix_tests;
 #[cfg(test)]
 #[path = "follow_snap_v3_tests.rs"]
 mod follow_snap_v3_tests;
+
+#[cfg(test)]
+#[path = "constraint_v4_tests.rs"]
+mod constraint_v4_tests;

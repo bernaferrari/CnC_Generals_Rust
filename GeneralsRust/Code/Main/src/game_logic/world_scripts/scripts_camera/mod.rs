@@ -218,6 +218,7 @@ fn panel_flag_is_indestructible(flag: &str) -> bool {
 }
 
 mod camera_motion;
+mod camera_reset;
 mod named_commands;
 #[cfg(test)]
 mod named_lifecycle_owner_tests;
@@ -347,9 +348,9 @@ mod player_census_owner_tests;
 mod hulk_lifetime_owner_tests;
 #[cfg(test)]
 mod owned_runtime_command_tests;
+mod owned_runtime_commands;
 #[cfg(test)]
 mod owned_world_effect_tests;
-mod owned_runtime_commands;
 
 #[cfg(test)]
 mod qualified_waypoint_owner_tests;

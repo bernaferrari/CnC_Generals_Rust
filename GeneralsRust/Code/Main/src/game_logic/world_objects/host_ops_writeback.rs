@@ -337,13 +337,13 @@ impl GameLogic {
     /// Wave 932: single command-pipeline authority boundary.
     #[inline]
     pub fn apply_command_pipeline_op(&mut self, op: CommandPipelineOp) -> bool {
-        self.apply_command_pipeline_op_with_ui(op, &mut None)
+        self.apply_command_pipeline_op_with_effects(op, &mut Default::default())
     }
 
-    pub(crate) fn apply_command_pipeline_op_with_ui(
+    pub(crate) fn apply_command_pipeline_op_with_effects(
         &mut self,
         op: CommandPipelineOp,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         match op {
             CommandPipelineOp::Queue { command } => {
@@ -351,9 +351,9 @@ impl GameLogic {
                 false
             }
             CommandPipelineOp::QueueAndProcess { command } => {
-                self.queue_and_process_command_with_ui(command, ui)
+                self.queue_and_process_command_with_effects(command, ui)
             }
-            CommandPipelineOp::ProcessIfNeeded => self.process_commands_if_needed_with_ui(ui),
+            CommandPipelineOp::ProcessIfNeeded => self.process_commands_if_needed_with_effects(ui),
         }
     }
 
@@ -428,13 +428,13 @@ impl GameLogic {
         &mut self,
         op: ProductionAuthorityOp,
     ) -> ProductionAuthorityResult {
-        self.apply_production_authority_op_with_ui(op, &mut None)
+        self.apply_production_authority_op_with_effects(op, &mut Default::default())
     }
 
-    pub(crate) fn apply_production_authority_op_with_ui(
+    pub(crate) fn apply_production_authority_op_with_effects(
         &mut self,
         op: ProductionAuthorityOp,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> ProductionAuthorityResult {
         match op {
             ProductionAuthorityOp::SpawnUnit {
@@ -450,7 +450,7 @@ impl GameLogic {
                     },
                     None => team,
                 };
-                ProductionAuthorityResult::Spawned(self.host_spawn_production_unit_with_ui(
+                ProductionAuthorityResult::Spawned(self.host_spawn_production_unit_with_effects(
                     &template,
                     team,
                     owner_player_id,
@@ -459,7 +459,7 @@ impl GameLogic {
                 ))
             }
             ProductionAuthorityOp::ApplySpawnReadyCompletions => {
-                self.host_apply_production_spawn_ready_completions_with_ui(ui);
+                self.host_apply_production_spawn_ready_completions_with_effects(ui);
                 ProductionAuthorityResult::Unit
             }
         }

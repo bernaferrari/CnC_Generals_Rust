@@ -29,6 +29,10 @@ pub(crate) mod production_energy;
 mod script_ui;
 pub(crate) use game_logic::PathfindingHeightSamples;
 pub(crate) use script_ui::ScriptUiEffects;
+mod script_presentation;
+pub(crate) use script_presentation::{
+    NativeSlaveSource, NativeViewEffects, ScriptPresentationEffects,
+};
 
 #[cfg(test)]
 pub(crate) fn evaluate_and_execute_scripts_for_test(logic: &mut game_logic::GameLogic, dt: f32) {

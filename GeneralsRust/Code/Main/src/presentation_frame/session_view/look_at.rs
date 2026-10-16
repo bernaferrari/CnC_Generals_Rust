@@ -3,30 +3,6 @@ use super::SessionView;
 use gamelogic::terrain::TerrainLogic;
 use glam::Vec3;
 
-fn constrain(
-    mut p: Vec3,
-    min: Vec3,
-    max: Vec3,
-    inset: f32,
-    widen: Option<(f32, f32, f32, f32)>,
-) -> Vec3 {
-    let (mut x0, mut x1, mut z0, mut z1) =
-        (min.x + inset, max.x - inset, min.z + inset, max.z - inset);
-    if let Some((a, b, c, d)) = widen {
-        x0 = x0.min(a);
-        x1 = x1.max(b);
-        z0 = z0.min(c);
-        z1 = z1.max(d);
-    }
-    p.x = p.x.max(x0).min(x1);
-    p.z = p.z.max(z0).min(z1);
-    p.y = 0.;
-    p
-}
-
-/// Ray/height intersection split at all cell edges and the source mesh's
-/// (0,0)→(1,1) diagonals. The height surface is linear within each interval;
-/// this avoids skipping a narrow ridge with a coarse marching step.
 fn terrain_hit(start: Vec3, direction: Vec3, terrain: &TerrainLogic) -> Option<Vec3> {
     let cell = gamelogic::common::MAP_XY_FACTOR;
     let (width, height) = terrain.logic_height_map_extents();
@@ -126,6 +102,43 @@ fn terrain_hit(start: Vec3, direction: Vec3, terrain: &TerrainLogic) -> Option<V
     None
 }
 
+/// Shared immediate source lookAt geometry, no clamp, state mutation or clock.
+pub(crate) fn receiving_look_at_target(
+    requested: Vec3,
+    camera: &super::camera::SessionCamera,
+    terrain: &TerrainLogic,
+) -> Result<Vec3, String> {
+    if !requested.is_finite() {
+        return Err("nonfinite receiving LookAt position".into());
+    }
+    let ground = terrain.get_ground_height(requested.x, requested.z, None);
+    if !ground.is_finite() {
+        return Err("nonfinite receiving LookAt terrain".into());
+    }
+    let mut target = requested;
+    if requested.y > 10. + ground {
+        // Unlike calcCameraConstraints, original lookAt unprojects the
+        // normalized center directly, not a truncated center pixel.
+        if let Some((near, far)) = super::camera::viewport::TacticalViewport::ray_at_ndc(
+            camera.view_matrix,
+            camera.projection_matrix,
+            glam::Vec2::ZERO,
+        ) {
+            let direction = (far - near).try_normalize().unwrap_or(-Vec3::Y);
+            let eye = camera.view_matrix.inverse().transform_point3(Vec3::ZERO);
+            let depth = (far - eye).length();
+            if depth.is_finite() && depth > 0. {
+                if let Some(hit) = terrain_hit(requested, direction * depth, terrain) {
+                    target.x = hit.x;
+                    target.z = hit.z;
+                }
+            }
+        }
+    }
+    target.y = 0.;
+    Ok(target)
+}
+
 impl SessionView {
     pub(crate) fn receiving_look_at(
         &mut self,
@@ -133,52 +146,29 @@ impl SessionView {
         bounds: (Vec3, Vec3),
         terrain: &TerrainLogic,
     ) -> Result<Vec3, String> {
+        self.receiving_look_at_with_sampler(requested, bounds, terrain, &mut |_| {
+            super::camera::build::SlaveCameraSample::Unavailable(
+                "standalone LookAt has no receiving native renderer",
+            )
+        })
+    }
+    pub(crate) fn receiving_look_at_with_sampler(
+        &mut self,
+        requested: Vec3,
+        bounds: (Vec3, Vec3),
+        terrain: &TerrainLogic,
+        sample: &mut dyn FnMut(
+            &crate::game_logic::mission_scripts::CameraSlaveModeRequest,
+        ) -> super::camera::build::SlaveCameraSample,
+    ) -> Result<Vec3, String> {
         if !requested.is_finite() || !bounds.0.is_finite() || !bounds.1.is_finite() {
             return Err("nonfinite receiving LookAt position/bounds".into());
         }
-        let inset = self.camera.viewport.constraint_inset(
-            self.camera.view_matrix,
-            self.camera.projection_matrix,
-            self.camera.native_camera.basis().ground_level(),
-        );
-        let ground = terrain.get_ground_height(requested.x, requested.z, None);
-        if !ground.is_finite() {
-            return Err("nonfinite receiving LookAt terrain".into());
-        }
-        let mut target = requested;
-        if requested.y > 10. + ground {
-            // Unlike calcCameraConstraints, original lookAt unprojects the
-            // normalized center directly, not a truncated center pixel.
-            if let Some((near, far)) = super::camera::viewport::TacticalViewport::ray_at_ndc(
-                self.camera.view_matrix,
-                self.camera.projection_matrix,
-                glam::Vec2::ZERO,
-            ) {
-                let direction = (far - near).try_normalize().unwrap_or(-Vec3::Y);
-                let eye = self
-                    .camera
-                    .view_matrix
-                    .inverse()
-                    .transform_point3(Vec3::ZERO);
-                let depth = (far - eye).length();
-                if depth.is_finite() && depth > 0. {
-                    if let Some(hit) = terrain_hit(requested, direction * depth, terrain) {
-                        target.x = hit.x;
-                        target.z = hit.z;
-                    }
-                }
-            }
-        }
-        // Ordinary LookAt preserves an existing widened constraint but never
-        // expands it. Only authored movement updates that union.
-        self.target = constrain(
-            target,
-            bounds.0,
-            bounds.1,
-            inset,
-            self.camera.scripted_camera_constraint_widen,
-        );
-        self.commit_orbit_pose();
+        let target = receiving_look_at_target(requested, &self.camera, terrain)?;
+        // Source lookAt writes raw projected XY and zero Z. It does not
+        // widen a path constraint or clamp before setCameraTransform builds.
+        self.target = target;
+        self.set_camera_transform(bounds, sample)?;
         Ok(self.target)
     }
 
@@ -195,6 +185,7 @@ impl SessionView {
             self.camera.camera_pitch_radians,
             self.camera.camera_yaw_radians,
             self.camera.camera_fx_pitch,
+            self.camera.constraint_bounds(),
         );
         self.camera.camera_position = eye;
         self.camera.view_matrix =

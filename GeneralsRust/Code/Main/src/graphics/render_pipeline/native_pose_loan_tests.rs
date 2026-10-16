@@ -1,0 +1,162 @@
+use super::super::installed_draw_pose::{InstalledDrawObject, InstalledDrawPose};
+use super::*;
+use crate::assets::LiveDrawPlaybackIdentity;
+
+fn identity(world: &Arc<()>, object: &Arc<()>, generation: u64) -> LiveDrawPlaybackIdentity {
+    LiveDrawPlaybackIdentity::new(Arc::clone(world), Arc::clone(object), 7, 42, generation)
+        .with_native_pose(1, Mat4::from_translation(Vec3::new(3., 4., 5.)))
+}
+fn key(generation: u64) -> game_client::core::PresentationDirectDrawableBindingKey {
+    game_client::core::PresentationDirectDrawableBindingKey {
+        host_epoch: 17,
+        object_id: 42,
+        drawable_id: game_client::core::DrawableId(80),
+        binding_generation: generation,
+    }
+}
+fn admitted(identity: LiveDrawPlaybackIdentity) -> ObjectVisualState {
+    ObjectVisualState {
+        native_host_identity: Some(identity),
+        native_client_binding: Some(key(3)),
+        native_source_template: "CameraOwner".into(),
+        native_source_supported: true,
+        native_condition_supported: true,
+        installed_draw_pose: InstalledDrawObject::NoRenderObject,
+        native_pending_condition: Some(crate::assets::AuthoredDrawModel::default()),
+        ..Default::default()
+    }
+}
+#[test]
+fn same_id_peer_reset_and_replacement_cannot_query_or_consume_installed_owner() {
+    let world = Arc::new(());
+    let object = Arc::new(());
+    let actual = identity(&world, &object, 9);
+    let peer = identity(&Arc::new(()), &Arc::new(()), 9);
+    let replacement = identity(&world, &Arc::new(()), 10);
+    let reset = identity(&Arc::new(()), &object, 9);
+    let mut states = HashMap::from([((42, 2), admitted(actual.clone()))]);
+    let before = states.clone();
+    let mut failed = pipeline_collect::FailedModelResolutions::default();
+    let mut pending = None;
+    let mut imports = HashMap::new();
+    {
+        let mut loan = NativeInstalledPoseLoan {
+            drawable_visual_states: &mut states,
+            failed_model_resolutions: &mut failed,
+            pending_client_drawable_restore: &mut pending,
+            pending_client_drawable_imports: &mut imports,
+            animation_sync_ms: 999,
+        };
+        for foreign in [&peer, &replacement, &reset] {
+            assert_eq!(
+                loan.installed_camera_pose_for(foreign, key(3), 2, "CAMERA"),
+                Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle)
+            );
+            assert_eq!(
+                *loan.drawable_visual_states, before,
+                "identity rejection must precede dirty, restore and lazy animation effects"
+            );
+        }
+        assert_eq!(
+            loan.installed_camera_pose_for(&actual, key(3), 2, "CAMERA"),
+            Err(NativeCameraPoseUnavailable::NoRenderObject),
+            "the admitted owner's actual missing RenderObj is not a foreign identity"
+        );
+    }
+    assert_eq!(states, before);
+    assert!(pending.is_none());
+    assert!(imports.is_empty());
+}
+#[test]
+fn residual_same_id_sibling_from_prior_generation_rejects_whole_source_query() {
+    let world = Arc::new(());
+    let object = Arc::new(());
+    let actual = identity(&world, &object, 9);
+    let stale = identity(&world, &Arc::new(()), 8);
+    let mut states = HashMap::from([
+        ((42, 2), admitted(actual.clone())),
+        ((42, 5), admitted(stale)),
+    ]);
+    let before = states.clone();
+    let mut failed = pipeline_collect::FailedModelResolutions::default();
+    let mut pending = None;
+    let mut imports = HashMap::new();
+    let loan = NativeInstalledPoseLoan {
+        drawable_visual_states: &mut states,
+        failed_model_resolutions: &mut failed,
+        pending_client_drawable_restore: &mut pending,
+        pending_client_drawable_imports: &mut imports,
+        animation_sync_ms: 999,
+    };
+    assert_eq!(
+        loan.validate_identity(&actual, 2),
+        Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle)
+    );
+    assert_eq!(*loan.drawable_visual_states, before);
+}
+#[test]
+fn current_transform_uses_same_installed_owner_without_another_animation_clock() {
+    let world = Arc::new(());
+    let object = Arc::new(());
+    let actual = identity(&world, &object, 9);
+    let selected = crate::assets::AuthoredDrawModel::default();
+    let mut state = admitted(actual.clone());
+    state.installed_draw_pose = InstalledDrawObject::Ready(InstalledDrawPose::created(
+        Arc::new(W3DModel::new("ActualMesh".into())),
+        Mat4::IDENTITY,
+        &selected,
+        None,
+    ));
+    let current = actual.with_native_pose(2, Mat4::from_translation(Vec3::new(12., 34., 56.)));
+    state.receive_native_transform_observations(&current, 1., 0., 0., false, 1., 100.);
+    let InstalledDrawObject::Ready(pose) = &state.installed_draw_pose else {
+        panic!("actual installed model lost");
+    };
+    assert_eq!(pose.world, Mat4::from_translation(Vec3::new(12., 34., 56.)));
+    assert_eq!(pose.sampled_frame, 0.);
+    assert!(state.animation.is_none());
+    assert_eq!(state.native_transform_revision, Some(2));
+    assert_eq!(state.native_host_identity.as_ref(), Some(&current));
+}
+
+#[test]
+fn same_object_same_template_client_replacement_requires_actual_constructor_before_query() {
+    let world = Arc::new(());
+    let object = Arc::new(());
+    let actual = identity(&world, &object, 9);
+    let mut states = HashMap::from([((42, 2), admitted(actual.clone()))]);
+    let before = states.clone();
+    let mut failed = pipeline_collect::FailedModelResolutions::default();
+    let mut pending = None;
+    let mut imports = HashMap::new();
+    let mut loan = NativeInstalledPoseLoan {
+        drawable_visual_states: &mut states,
+        failed_model_resolutions: &mut failed,
+        pending_client_drawable_restore: &mut pending,
+        pending_client_drawable_imports: &mut imports,
+        animation_sync_ms: 999,
+    };
+    assert_eq!(
+        loan.validate_binding(&actual, key(4), 2),
+        Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle)
+    );
+    assert!(
+        loan.admit_binding(&actual, key(4)).is_err(),
+        "a new Client key cannot relabel a retained RenderObj"
+    );
+    assert_eq!(*loan.drawable_visual_states, before);
+    // This is the real metadata reset performed by the constructor producer.
+    let state = loan.drawable_visual_states.get_mut(&(42, 2)).unwrap();
+    state.native_client_binding = None;
+    assert_eq!(
+        loan.validate_binding(&actual, key(4), 2),
+        Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle),
+        "constructor-before-key is unavailable"
+    );
+    loan.admit_binding(&actual, key(4)).unwrap();
+    assert!(loan.validate_binding(&actual, key(4), 2).is_ok());
+    assert_eq!(
+        loan.validate_binding(&actual, key(3), 2),
+        Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle)
+    );
+}

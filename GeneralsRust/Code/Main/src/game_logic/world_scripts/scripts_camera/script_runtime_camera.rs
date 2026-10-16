@@ -4,13 +4,13 @@ use super::*;
 
 impl GameLogic {
     pub(in crate::game_logic) fn evaluate_and_execute_scripts(&mut self, dt: f32) {
-        self.evaluate_and_execute_scripts_with_ui(dt, None);
+        self.evaluate_and_execute_scripts_with_effects(dt, Default::default());
     }
 
-    pub(in crate::game_logic) fn evaluate_and_execute_scripts_with_ui(
+    pub(in crate::game_logic) fn evaluate_and_execute_scripts_with_effects(
         &mut self,
         _dt: f32,
-        mut ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        mut ui: crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         if !self.scripts_loaded {
             return;
@@ -100,18 +100,19 @@ impl GameLogic {
                 suppress_new_windows: false,
                 host_trigger_world: Arc::clone(&world.host_trigger_world),
             };
-            let mut driver = script_execution_driver::HostScriptExecutionDriver::with_ui(
+            let mut driver = script_execution_driver::HostScriptExecutionDriver::with_effects(
                 world,
                 engine,
-                ui.as_mut()
-                    .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+                ui.reborrow(),
             );
             if let Err(err) = engine.update_with_driver(context, &mut driver) {
                 log::error!("ScriptEngine::update failed: {err}");
             }
         });
         // Flush requests queued outside the action walk as well.
-        self.apply_script_action_requests_with_ui(None, ui);
+        if let Err(error) = self.apply_script_action_requests_with_effects(None, ui) {
+            log::error!("script presentation effects: {error}");
+        }
 
         self.script_broadcasts
             .retain(|msg| self.sim_time_seconds <= msg.expires_at);

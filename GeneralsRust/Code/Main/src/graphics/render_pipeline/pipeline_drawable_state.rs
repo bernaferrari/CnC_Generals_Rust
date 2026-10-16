@@ -728,6 +728,8 @@ impl RenderPipeline {
             let native_drawable_transform = state.native_drawable_transform;
             let native_transform_revision = state.native_transform_revision;
             let native_host_identity = state.native_host_identity.clone();
+            #[cfg(feature = "game_client")]
+            let native_client_binding = state.native_client_binding;
             *state = ObjectVisualState {
                 animation: retained_animation,
                 installed_draw_pose,
@@ -740,6 +742,8 @@ impl RenderPipeline {
                 native_drawable_transform,
                 native_transform_revision,
                 native_host_identity,
+                #[cfg(feature = "game_client")]
+                native_client_binding,
                 identity: Some(identity.clone()),
                 animation_paused,
                 animation_resume_mode,

@@ -580,24 +580,38 @@ impl GameLogic {
     }
 
     pub fn request_camera_focus(&mut self, position: Vec3) {
-        let bounds = self.world_bounds();
-        let owner = self.world_services.terrain();
-        let admitted = match owner.read() {
-            Ok(terrain) => self
+        if let Err(error) = self.request_camera_focus_with_effects(
+            position,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        ) {
+            log::error!("camera LookAt admission: {error}");
+        }
+    }
+    pub(crate) fn request_camera_focus_with_effects(
+        &mut self,
+        position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        if !position.is_finite() {
+            return Err(gamelogic::GameLogicError::Configuration(
+                "nonfinite receiving LookAt".into(),
+            ));
+        }
+        self.with_current_camera_sampler(effects, |world, sample| {
+            let owner = std::sync::Arc::clone(world.world_services.terrain());
+            let terrain = owner
+                .read()
+                .map_err(|_| "receiving LookAt terrain poisoned")?;
+            let bounds = Self::camera_bounds_for_terrain(&terrain);
+            world.cancel_scripted_camera_from_player_look_at();
+            let position = world
                 .session_view
-                .receiving_look_at(position, bounds, &terrain),
-            Err(_) => Err("receiving LookAt terrain poisoned".into()),
-        };
-        let position = match admitted {
-            Ok(position) => position,
-            Err(error) => {
-                log::error!("camera LookAt admission: {error}");
-                return;
-            }
-        };
-        self.cancel_scripted_camera_from_player_look_at();
-        self.session_view.pending_focus_previous_target = None;
-        self.pending_camera_focus = Some(position);
+                .receiving_look_at_with_sampler(position, bounds, &terrain, sample)?;
+            world.session_view.pending_focus_previous_target = None;
+            world.pending_camera_focus = Some(position);
+            Ok(())
+        })
+        .map_err(gamelogic::GameLogicError::Configuration)
     }
 
     /// Source waypoint movement saves the old logical View position before
@@ -903,15 +917,18 @@ impl GameLogic {
         thing_template_name: impl Into<String>,
         bone_name: impl Into<String>,
     ) {
-        self.pending_camera_slave_mode_enable =
-            Some(crate::game_logic::mission_scripts::CameraSlaveModeRequest {
-                thing_template_name: thing_template_name.into(),
-                bone_name: bone_name.into(),
-            });
+        let mode = crate::game_logic::mission_scripts::CameraSlaveModeRequest {
+            thing_template_name: thing_template_name.into(),
+            bone_name: bone_name.into(),
+        };
+        self.session_view.camera.camera_slave_mode = Some(mode.clone());
+        self.pending_camera_slave_mode_enable = Some(mode);
+        self.pending_camera_slave_mode_disable = false;
     }
-
     pub fn queue_pending_camera_slave_disable(&mut self) {
+        self.session_view.camera.camera_slave_mode = None;
         self.pending_camera_slave_mode_disable = true;
+        self.pending_camera_slave_mode_enable = None;
     }
 
     pub fn upsert_script_named_timer(
@@ -1309,13 +1326,13 @@ impl GameLogic {
         &mut self,
         command: crate::command_system::GameCommand,
     ) {
-        self.execute_command_with_ui(command, None);
+        self.execute_command_with_effects(command, Default::default());
     }
 
-    pub(in super::super) fn execute_command_with_ui(
+    pub(in super::super) fn execute_command_with_effects(
         &mut self,
         command: crate::command_system::GameCommand,
-        mut ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        mut ui: crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let command_type = command.command_type.clone();
         let accepted_gather_metadata = match &command.command_type {
@@ -1327,11 +1344,10 @@ impl GameLogic {
             )),
             _ => None,
         };
-        let mut executor = crate::command_executor::CommandExecutor::new_with_ui(
+        let mut executor = crate::command_executor::CommandExecutor::new_with_effects(
             self,
             command.player_id,
-            ui.as_mut()
-                .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+            ui.reborrow(),
         );
         let result = executor.execute_command(command);
         let accepted_carrier_ids = executor.take_accepted_gather_carrier_ids();

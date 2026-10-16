@@ -250,12 +250,10 @@ impl CnCGameEngine {
         let double_tap = self.note_control_group_double_tap(group_num);
         if double_tap {
             if let Some(pos) = self.last_live_control_group_position(&stored) {
-                let clamped = self.clamp_to_world_bounds(pos);
-                self.game_logic.session_view.target.x = clamped.x;
-                self.game_logic.session_view.target.z = clamped.z;
+                self.host_player_look_at(pos);
                 info!(
                     "Control group {} double-tap camera jump to {:?}",
-                    group_num, clamped
+                    group_num, self.game_logic.session_view.target
                 );
             }
             return;
@@ -1553,9 +1551,7 @@ impl CnCGameEngine {
             return;
         };
         let pos = glam::Vec3::new(obj.position.x, obj.position.y, obj.position.z);
-        let clamped = self.clamp_to_world_bounds(pos);
-        self.game_logic.session_view.target.x = clamped.x;
-        self.game_logic.session_view.target.z = clamped.z;
+        self.host_player_look_at(pos);
     }
 
     /// Retail TAKE_SCREENSHOT (KEY_F12) residual.

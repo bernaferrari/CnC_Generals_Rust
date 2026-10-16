@@ -1,7 +1,7 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::mouse::{
     LOOKAT_DEFAULT_PITCH_DEG, PATHFIND_CELL_SIZE_F, SHAKE_AXIS_PITCH, SHAKE_AXIS_ROLL,
-    SHAKE_AXIS_YAW, SHAKE_END_OMEGA, SHAKE_MAX_OMEGA, SHAKE_MIN_OMEGA, airborne_look_at_ground,
+    SHAKE_AXIS_YAW, SHAKE_END_OMEGA, SHAKE_MAX_OMEGA, SHAKE_MIN_OMEGA,
     w3d_camera_constraint_offset,
 };
 use super::*;
@@ -51,18 +51,11 @@ pub(super) fn constrain_camera_target_to_map(
     inset: f32,
     scripted_widen: Option<(f32, f32, f32, f32)>,
 ) -> Vec3 {
-    let (lo_x, hi_x, lo_z, hi_z) = apply_scripted_camera_constraint_widen(
-        world_min.x + inset,
-        world_max.x - inset,
-        world_min.z + inset,
-        world_max.z - inset,
-        scripted_widen,
-    );
-    // W3DView::setCameraTransform: max(lo) then min(hi), even when an
-    // oversized viewport makes the constraint endpoints inverted.
-    position.x = position.x.max(lo_x).min(hi_x);
-    position.z = position.z.max(lo_z).min(hi_z);
-    position
+    crate::presentation_frame::camera::constraints::ConstraintBounds::for_map(
+        world_min, world_max, inset,
+    )
+    .widen(scripted_widen)
+    .constrain(position)
 }
 
 pub(super) fn native_camera_constraint_inset(
@@ -75,52 +68,7 @@ pub(super) fn native_camera_constraint_inset(
     viewport.constraint_inset(view, projection, camera.basis().ground_level())
 }
 
-fn shaker_hash_signed(seed: u32, elapsed_bits: u32, axis: u32, pass: u32) -> f32 {
-    let mut x = seed
-        ^ elapsed_bits.wrapping_mul(0x9E37_79B9)
-        ^ axis.wrapping_mul(0x85EB_CA6B)
-        ^ pass.wrapping_mul(0xC2B2_AE35);
-    x ^= x >> 16;
-    x = x.wrapping_mul(0x7FEB_352D);
-    x ^= x >> 15;
-    x = x.wrapping_mul(0x846C_A68B);
-    x ^= x >> 16;
-    let unit = (x >> 8) as f32 / ((1u32 << 24) as f32);
-    unit * 2.0 - 1.0
-}
-
-pub(super) fn script_camera_shaker_rotations(
-    shaker: &ScriptCameraShaker,
-    camera_position: Vec3,
-) -> Vec3 {
-    // C++ CameraShakerClass::Compute_Rotations: 3D eye-to-epicenter falloff,
-    // omega(t)=omega+(END_OMEGA-omega)*elapsed, plus ±0.5*intensity fudge
-    // accumulated three times (once per axis loop).
-    let offset = camera_position - shaker.epicenter;
-    let dist_sq = offset.length_squared();
-    if dist_sq > shaker.radius * shaker.radius {
-        return Vec3::ZERO;
-    }
-    let dist = dist_sq.sqrt();
-    let life = (1.0 - shaker.elapsed_seconds / shaker.duration_seconds).clamp(0.0, 1.0);
-    let intensity = shaker.intensity * (1.0 - dist / shaker.radius) * life;
-    if intensity <= f32::EPSILON {
-        return Vec3::ZERO;
-    }
-    let t = shaker.elapsed_seconds.max(0.0);
-    let elapsed_bits = t.to_bits();
-    let axis = [SHAKE_AXIS_PITCH, SHAKE_AXIS_YAW, SHAKE_AXIS_ROLL];
-    let mut angles = Vec3::ZERO;
-    for i in 0..3 {
-        let omega = shaker.omega[i] + (SHAKE_END_OMEGA - shaker.omega[i]) * t;
-        angles[i] += axis[i] * intensity * (omega * t + shaker.phi[i]).sin();
-        let minor = intensity * 0.5;
-        angles.x += shaker_hash_signed(shaker.rng_seed, elapsed_bits, i as u32, 0) * minor;
-        angles.y += shaker_hash_signed(shaker.rng_seed, elapsed_bits, i as u32, 1) * minor;
-        angles.z += shaker_hash_signed(shaker.rng_seed, elapsed_bits, i as u32, 2) * minor;
-    }
-    angles
-}
+pub(super) use crate::presentation_frame::camera::shaker::script_camera_shaker_rotations;
 
 /// Object-scene and terrain lighting resolved at the presentation/map
 /// activation boundary. They are intentionally independent: C++ selects
@@ -437,49 +385,6 @@ fn host_synthesize_skirmish_config(
         rules: crate::skirmish_config::GameRulesSnapshot::default_rules(),
         slots: host_synthesize_skirmish_slots(&start_positions, &map_side_factions, human_faction),
     }
-}
-
-/// Shared W3DView::lookAt geometry; callers own cancellation and matrix commit.
-pub(super) fn center_camera_target(
-    world_pos: Vec3,
-    current_target: Vec3,
-    camera_position: Vec3,
-    world_min: Vec3,
-    world_max: Vec3,
-    inset: f32,
-    constraint_widen: &mut Option<(f32, f32, f32, f32)>,
-    clamp_to_world: bool,
-    env: Option<&PresentationWorldEnv>,
-) -> Vec3 {
-    let sample =
-        constrain_camera_target_to_map(world_pos, world_min, world_max, inset, *constraint_widen);
-    let ground_height = env
-        .and_then(|env| env.sample_height(sample.x, sample.z))
-        .unwrap_or(current_target.y);
-    let mut look = world_pos;
-    if world_pos.y > PATHFIND_CELL_SIZE_F + ground_height {
-        if let Some(hit) = airborne_look_at_ground(
-            camera_position,
-            world_pos,
-            current_target - camera_position,
-            DEFAULT_VIEW_FAR_CLIP,
-            world_min,
-            world_max,
-            env,
-        ) {
-            look.x = hit.x;
-            look.z = hit.z;
-        }
-    }
-    if !clamp_to_world {
-        *constraint_widen = Some(widen_scripted_camera_constraint(
-            *constraint_widen,
-            look.x,
-            look.z,
-        ));
-    }
-    let look = constrain_camera_target_to_map(look, world_min, world_max, inset, *constraint_widen);
-    Vec3::new(look.x, 0., look.z)
 }
 
 use crate::presentation_frame::camera::pose::camera_fx_pose;
@@ -926,11 +831,15 @@ impl CnCGameEngine {
         // W3DView::setCameraTransform calculates camera constraints when
         // lookAt/setZoomToDefault builds the initial pose. The match camera
         // must apply that same viewport inset before its first player scroll.
-        self.apply_camera_orbit_transform();
+        if let Err(error) = self.set_native_camera_transform() {
+            log::error!("camera transform: {error}");
+        }
         let clamped_target = self.clamp_to_world_bounds(self.game_logic.session_view.target);
         if clamped_target != self.game_logic.session_view.target {
             self.game_logic.session_view.target = clamped_target;
-            self.apply_camera_orbit_transform();
+            if let Err(error) = self.set_native_camera_transform() {
+                log::error!("camera transform: {error}");
+            }
         }
     }
 
@@ -1061,7 +970,9 @@ impl CnCGameEngine {
         }
         // Focusing a location does not create a new map camera basis.
         self.game_logic.session_view.target = Vec3::new(focus.x, 0.0, focus.z);
-        self.apply_camera_orbit_transform();
+        if let Err(error) = self.set_native_camera_transform() {
+            log::error!("camera transform: {error}");
+        }
     }
 
     pub(super) fn apply_map_lighting(
@@ -1338,7 +1249,7 @@ impl CnCGameEngine {
                 // same ordering instead of silently turning a special power
                 // or attack-move click into an ordinary move.
                 if self.pending_map_command.is_some() {
-                    let location = self.clamp_to_world_bounds(world_pos);
+                    let location = self.clamp_command_position_to_map(world_pos);
                     let target = self.find_object_at_position(location, true);
                     self.commit_pending_map_command(location, target);
                 } else {
@@ -1376,6 +1287,7 @@ impl CnCGameEngine {
             self.game_logic.session_view.camera.camera_pitch_radians,
             self.game_logic.session_view.camera.camera_yaw_radians,
             self.game_logic.session_view.camera.camera_fx_pitch,
+            self.game_logic.session_view.camera.constraint_bounds(),
         )
     }
 
@@ -1458,7 +1370,9 @@ impl CnCGameEngine {
         self.game_logic.session_view.camera.camera_yaw_ease_in = 0.0;
         self.game_logic.session_view.camera.camera_yaw_ease_out = 0.0;
 
-        self.apply_camera_orbit_transform();
+        if let Err(error) = self.set_native_camera_transform() {
+            log::error!("camera transform: {error}");
+        }
     }
 
     pub(super) fn apply_script_camera_pitch_request(&mut self, request: CameraPitchRequest) {
@@ -1706,29 +1620,28 @@ impl CnCGameEngine {
 
     /// Wave 611: via `host_center_camera_on`.
     ///
-    /// Scripted pans (C++ `W3DView.cpp:3097-3212`) widen `m_cameraConstraint`
-    /// so a cinematic can leave the map. Player `lookAt` still clamps.
+    /// LookAt uses the receiving terrain before the source transform operation.
+    /// Waypoint motion widens its cache at its separate original update phase.
     pub(super) fn center_camera_on(&mut self, world_pos: Vec3) {
-        self.host_center_camera_on_impl(world_pos, false)
+        self.host_center_camera_on_impl(world_pos)
     }
 
     /// C++ player `W3DView::lookAt` — cancel scripted rotate/path then snap.
     pub(super) fn host_player_look_at(&mut self, world_pos: Vec3) {
         self.cancel_scripted_camera_from_player_look_at();
-        self.host_center_camera_on_impl(world_pos, true);
+        self.host_center_camera_on_impl(world_pos);
     }
 
     /// Presentation-frozen ground height under `world_pos`.
     /// Same sampler `host_center_camera_on` uses — no live GameLogic dual-read.
     pub(super) fn sample_presentation_height_under(&self, world_pos: Vec3) -> f32 {
-        let clamped = self.clamp_to_world_bounds(world_pos);
         if let Some(pres) = self
             .render_pipeline
             .presentation_frame()
             .or(self.last_presentation_frame.as_deref())
         {
             pres.world_env
-                .sample_height(clamped.x, clamped.z)
+                .sample_height(world_pos.x, world_pos.z)
                 .unwrap_or(self.game_logic.session_view.target.y)
         } else {
             // Wave 905: fail-closed boot height (no terrain_height_at dual-read).
@@ -1737,38 +1650,31 @@ impl CnCGameEngine {
     }
 
     pub(super) fn host_center_camera_on(&mut self, world_pos: Vec3) {
-        self.host_center_camera_on_impl(world_pos, true)
+        self.host_center_camera_on_impl(world_pos)
     }
 
-    fn host_center_camera_on_impl(&mut self, world_pos: Vec3, clamp_to_world: bool) {
-        let (world_min, world_max) = self.presentation_world_bounds();
-        let inset = native_camera_constraint_inset(
-            &self.game_logic.session_view.camera.native_camera,
-            self.game_logic.session_view.camera.view_matrix,
-            self.game_logic.session_view.camera.projection_matrix,
-            self.game_logic.session_view.camera.viewport,
-        );
-        let env = self
-            .render_pipeline
-            .presentation_frame()
-            .or(self.last_presentation_frame.as_deref())
-            .map(|frame| &frame.world_env);
-        self.game_logic.session_view.target = center_camera_target(
-            world_pos,
-            self.game_logic.session_view.target,
-            self.game_logic.session_view.camera.camera_position,
-            world_min,
-            world_max,
-            inset,
-            &mut self
-                .game_logic
-                .session_view
-                .camera
-                .scripted_camera_constraint_widen,
-            clamp_to_world,
-            env,
-        );
-        self.apply_camera_orbit_transform();
+    fn host_center_camera_on_impl(&mut self, world_pos: Vec3) {
+        // LookAt samples the raw requested position and current receiving ray.
+        // Constraint calculation/clamping belongs only to setCameraTransform,
+        // after its actual provisional build when the cached bounds are invalid.
+        let terrain_owner = Arc::clone(self.game_logic.world_services.terrain());
+        let target = match terrain_owner.read() {
+            Ok(terrain) => crate::presentation_frame::receiving_look_at_target(
+                world_pos,
+                &self.game_logic.session_view.camera,
+                &terrain,
+            ),
+            Err(_) => Err("receiving LookAt terrain poisoned".into()),
+        };
+        match target {
+            Ok(target) => {
+                self.game_logic.session_view.target = target;
+                if let Err(error) = self.set_native_camera_transform() {
+                    log::error!("receiving LookAt transform: {error}");
+                }
+            }
+            Err(error) => log::error!("receiving LookAt: {error}"),
+        }
     }
 
     /// Radius-cursor / guard rings only. Structure placement is the C++ 3D model ghost.
@@ -1928,7 +1834,7 @@ impl CnCGameEngine {
             return;
         }
 
-        let clamped = self.clamp_to_world_bounds(world_pos);
+        let clamped = self.clamp_command_position_to_map(world_pos);
 
         // C++ InGameUI minimap RMB residual: same context-sensitive path as world
         // right-click (attack enemy / gather / enter / move).
@@ -2021,27 +1927,18 @@ impl CnCGameEngine {
     }
 
     pub(super) fn clamp_to_world_bounds(&self, position: Vec3) -> Vec3 {
-        // Wave 461: presentation-first bounds via shared probe.
-        let (world_min, world_max) = self.presentation_world_bounds();
-        // W3DView::calcCameraConstraints casts through the tactical view,
-        // whose height excludes the control bar. Keep this viewport paired
-        // with the tactical projection matrix used for the pick rays.
-        let inset = native_camera_constraint_inset(
-            &self.game_logic.session_view.camera.native_camera,
-            self.game_logic.session_view.camera.view_matrix,
-            self.game_logic.session_view.camera.projection_matrix,
-            self.game_logic.session_view.camera.viewport,
-        );
-        constrain_camera_target_to_map(
-            position,
-            world_min,
-            world_max,
-            inset,
-            self.game_logic
-                .session_view
-                .camera
-                .scripted_camera_constraint_widen,
-        )
+        self.game_logic
+            .session_view
+            .camera
+            .constrain_target_if_cached(position)
+    }
+
+    /// World-command admission clips to map extents, independently of the camera.
+    fn clamp_command_position_to_map(&self, mut position: Vec3) -> Vec3 {
+        let (min, max) = self.presentation_world_bounds();
+        position.x = position.x.max(min.x).min(max.x);
+        position.z = position.z.max(min.z).min(max.z);
+        position
     }
 
     pub(super) fn drain_renderer_attachments(&mut self) {
@@ -2231,6 +2128,7 @@ impl CnCGameEngine {
             .camera
             .scripted_camera_constraint_widen = None;
         self.game_logic.session_view.camera.camera_fx_pitch = 1.0;
+        self.game_logic.session_view.camera.invalidate_constraints();
         self.game_logic.session_view.camera.camera_zoom = 1.0;
         self.game_logic.session_view.camera.camera_zoom_target = None;
         self.game_logic.session_view.camera.camera_zoom_start =
@@ -2262,7 +2160,9 @@ impl CnCGameEngine {
         self.game_logic.session_view.camera.camera_yaw_radians = 0.0;
         self.game_logic.session_view.camera.camera_pitch_target = None;
         self.game_logic.session_view.camera.camera_yaw_target = None;
-        self.apply_camera_orbit_transform();
+        if let Err(error) = self.set_native_camera_transform() {
+            log::error!("camera transform: {error}");
+        }
         self.rebuild_tactical_projection();
     }
 
@@ -2565,12 +2465,10 @@ End
             .map(|offset| start + offset)
             .expect("next camera operation");
         let body = &src[start..end];
-        let transform = include_str!("camera_view_effects.rs");
+        let transform = include_str!("../presentation_frame/session_view/camera/shaker.rs");
         assert!(
             transform.contains("script_camera_shaker_rotations(shaker, eye)")
-                && transform.contains(
-                    "self.game_logic.session_view.camera.camera_shake_rotation = rotation"
-                )
+                && transform.contains("self.camera_shake_rotation = rotation")
                 && transform.contains("SHAKE_AXIS_PITCH")
         );
         assert!(!body.contains("offset.x += phase_a.sin() * magnitude"));
@@ -2588,7 +2486,7 @@ End
     }
 
     #[test]
-    fn script_camera_shaker_steps_one_thirtieth_per_present() {
+    fn script_camera_shaker_steps_one_thirtieth_per_actual_build() {
         let src = include_str!("start_game.rs");
         let start = src
             .find("fn update_script_camera_shake(")
@@ -2602,7 +2500,7 @@ End
             !body.contains("step_transform_shakers"),
             "impulse and transform stages are distinct"
         );
-        let transform = include_str!("camera_view_effects.rs");
+        let transform = include_str!("../presentation_frame/session_view/camera/shaker.rs");
         assert!(transform.contains("const SCRIPT_CAMERA_SHAKER_STEP: f32 = 1.0 / 30.0;"));
         assert!(transform.contains("shaker.elapsed_seconds += SCRIPT_CAMERA_SHAKER_STEP"));
         assert!(!body.contains("elapsed_seconds += dt"));
@@ -2610,8 +2508,9 @@ End
         assert!(
             view.contains("if decision.update_views")
                 && view.contains("self.update_script_camera_shake()")
-                && view.contains("if !self.script_time_fast()")
-                && view.contains("self.update_camera_transform_shakers()")
+                && !view.contains("self.update_camera_transform_shakers()")
+                && include_str!("../presentation_frame/session_view/camera/build.rs")
+                    .contains("advance_transform_shakers")
         );
         let (mut intensity, mut cosine, mut sine) = (4., 1., 0.);
         assert_eq!(
@@ -2775,26 +2674,21 @@ End
 
     #[test]
     fn look_at_uses_airborne_terrain_ray() {
-        let src = include_str!("start_game.rs");
-        let start = src
-            .find("fn center_camera_target")
-            .expect("shared center_camera_target");
-        let body = &src[start..start + 1300];
-        assert!(
-            body.contains("airborne_look_at_ground") && body.contains("PATHFIND_CELL_SIZE_F"),
-            "C++ W3DView::lookAt airborne ray must be live"
-        );
-        let helper = src
-            .split("pub(super) fn native_camera_constraint_inset(")
+        let source = include_str!("../presentation_frame/session_view/look_at.rs");
+        assert!(source.contains("terrain.get_ground_height(requested.x, requested.z, None)"));
+        assert!(source.contains("terrain_hit(requested, direction * depth, terrain)"));
+        let engine = include_str!("start_game.rs");
+        let operation = engine
+            .split("fn host_center_camera_on_impl(")
             .nth(1)
             .unwrap()
-            .split("fn shaker_hash_signed")
+            .split("fn collect_ground_marker_circles")
             .next()
             .unwrap();
-        assert!(
-            helper.contains("viewport.constraint_inset("),
-            "native clamping must use the receiving integer viewport kernel"
-        );
+        assert!(operation.contains("receiving_look_at_target("));
+        assert!(operation.contains("self.set_native_camera_transform()"));
+        assert!(!operation.contains("constraint_inset("));
+        assert!(!operation.contains("clamp_to_world_bounds("));
     }
 
     #[test]
@@ -2811,34 +2705,27 @@ End
     }
 
     #[test]
-    fn scripted_center_widens_camera_constraint() {
-        let src = include_str!("start_game.rs");
-        let start = src
-            .find("fn center_camera_target")
-            .expect("shared center_camera_target");
-        let mut depth = 0;
-        let open = src[start..].find('{').unwrap() + start;
-        let end = src[open..]
-            .char_indices()
-            .find_map(|(offset, ch)| {
-                match ch {
-                    '{' => depth += 1,
-                    '}' => depth -= 1,
-                    _ => {}
-                }
-                (depth == 0).then_some(open + offset + 1)
-            })
-            .expect("complete scripted center implementation");
-        let body = &src[start..end];
-        assert!(
-            body.contains("widen_scripted_camera_constraint")
-                && body.contains("if !clamp_to_world"),
-            "scripted center must widen m_cameraConstraint"
-        );
-        assert!(
-            src.contains("apply_scripted_camera_constraint_widen"),
-            "player clamp must honor scripted widen"
-        );
+    fn only_waypoint_movement_widens_camera_constraint() {
+        let source = include_str!("../presentation_frame/session_view/look_at.rs");
+        let geometry = source
+            .split("fn receiving_look_at_target(")
+            .nth(1)
+            .unwrap()
+            .split("impl SessionView")
+            .next()
+            .unwrap();
+        assert!(!geometry.contains("widen"));
+        assert!(!geometry.contains("constrain("));
+        let engine = include_str!("start_game.rs");
+        let reader = engine
+            .split("fn clamp_to_world_bounds(")
+            .nth(1)
+            .unwrap()
+            .split("fn clamp_command_position_to_map")
+            .next()
+            .unwrap();
+        assert!(reader.contains("constrain_target_if_cached(position)"));
+        assert!(!reader.contains("constraint_inset("));
     }
 
     #[test]
@@ -2854,8 +2741,9 @@ End
         );
         assert!(
             view.contains("self.update_script_camera_shake()")
-                && view.contains("if !self.script_time_fast()")
-                && view.contains("self.update_camera_transform_shakers()")
+                && !view.contains("self.update_camera_transform_shakers()")
+                && include_str!("../presentation_frame/session_view/camera/build.rs")
+                    .contains("advance_transform_shakers")
         );
         assert!(!view.contains("shake_dt = if self.presentation_or_boot_time_frozen()"));
         for paused in [true, false] {

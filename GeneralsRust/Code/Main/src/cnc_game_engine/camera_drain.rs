@@ -191,18 +191,8 @@ impl CnCGameEngine {
         let _ = self.look_at_modes.take_scripted_camera_player_cancel();
         self.rebuild_tactical_projection();
 
-        if admitted.slave_enable
-            && let Some((thing_template_name, bone_name)) = pres.camera_slave_enable.clone()
-        {
-            self.game_logic.session_view.camera.camera_slave_mode = Some(CameraSlaveModeRequest {
-                thing_template_name,
-                bone_name,
-            });
-        }
-
-        if admitted.slave_disable {
-            self.game_logic.session_view.camera.camera_slave_mode = None;
-        }
+        // Slave mode already changed synchronously on the receiving camera.
+        // Frozen request generations acknowledge transport, never replay state.
 
         for intensity in pres.screen_shakes.iter().take(admitted.screen_shakes) {
             self.enqueue_script_screen_shake(*intensity);
@@ -1844,6 +1834,20 @@ impl CnCGameEngine {
                 "presentation drawable sync created={created} updated={updated} pruned={pruned}"
             );
         }
+        // Creating precedes allocation of the real Client association. Only
+        // now bind that exact lifetime to the already constructed Draw owner.
+        // A changed key without Destroy/Creating is rejected, never relabeled.
+        for (object_id, source) in &native_source_inputs {
+            if let (Some(identity), Some(binding)) = (
+                source.draw_playback_identity.as_ref(),
+                self.game_client
+                    .presentation_direct_drawable_state(host_epoch, *object_id),
+            ) {
+                self.render_pipeline
+                    .admit_native_drawable_binding(identity, binding.binding_key)
+                    .map_err(str::to_owned)?;
+            }
+        }
         // Resolve the complete current binding *after* sync. The same runtime
         // key then guards raw C++ shroud status and frozen pose, so an ordinary
         // update preserves it while a visual replacement rejects predecessor
@@ -2232,7 +2236,8 @@ impl CnCGameEngine {
             let tracked_carriers = &self.physical_gather_carrier_ids;
             let playability = &mut self.interactive_playability;
             #[cfg(feature = "game_client")]
-            let (mut client_frame, snow) = self.game_client.split_frame_and_snow();
+            let (mut client_frame, snow, presence) =
+                self.game_client.split_frame_snow_and_drawable_presence();
             #[cfg(feature = "game_client")]
             let mut ui = super::control_bar_viewport::NativeScriptUi::new(
                 snow,
@@ -2240,16 +2245,27 @@ impl CnCGameEngine {
                 &mut self.control_bar_callbacks,
             );
             #[cfg(feature = "game_client")]
-            let ui = Some(&mut ui as &mut dyn crate::game_logic::ScriptUiEffects);
+            let mut view = super::native_view_effects::NativeRendererViewEffects::new(
+                self.render_pipeline.borrow_native_installed_poses(),
+                &mut self.graphics_system,
+                presence,
+                self.host_direct_visual_world_epoch,
+                self.current_player_id,
+            );
+            #[cfg(feature = "game_client")]
+            let effects = crate::game_logic::ScriptPresentationEffects {
+                ui: Some(&mut ui),
+                view: Some(&mut view),
+            };
             #[cfg(not(feature = "game_client"))]
-            let ui = None;
-            let snap = Self::host_update_logic_frame_with_script_ui(
+            let effects = crate::game_logic::ScriptPresentationEffects::default();
+            let snap = Self::host_update_logic_frame_with_script_effects(
                 &mut self.game_logic,
                 self.game_paused,
                 dt,
                 self.last_frame_timing.as_ref(),
                 headless_step_budget,
-                ui,
+                effects,
                 |frame| {
                     #[cfg(feature = "game_client")]
                     client_frame.set_frame(frame);

@@ -34,7 +34,7 @@ pub struct CommandExecutor<'a> {
     game_logic: &'a mut GameLogic,
 
     /// Native UI loan for this synchronous command only; never stored by the world.
-    ui: Option<&'a mut dyn crate::game_logic::ScriptUiEffects>,
+    ui: crate::game_logic::ScriptPresentationEffects<'a>,
 
     /// Current player executing commands
     current_player_id: u32,
@@ -73,13 +73,13 @@ pub use leftover::{
 impl<'a> CommandExecutor<'a> {
     /// Create a new command executor with game logic reference
     pub fn new(game_logic: &'a mut GameLogic, player_id: u32) -> Self {
-        Self::new_with_ui(game_logic, player_id, None)
+        Self::new_with_effects(game_logic, player_id, Default::default())
     }
 
-    pub(crate) fn new_with_ui(
+    pub(crate) fn new_with_effects(
         game_logic: &'a mut GameLogic,
         player_id: u32,
-        ui: Option<&'a mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: crate::game_logic::ScriptPresentationEffects<'a>,
     ) -> Self {
         Self {
             game_logic,

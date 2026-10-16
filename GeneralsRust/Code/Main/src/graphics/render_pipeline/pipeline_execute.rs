@@ -54,7 +54,11 @@ impl RenderPipeline {
         #[cfg(feature = "game_client")] filter_scroll: glam::Vec2,
         #[cfg(feature = "game_client")] filter_logic_frame: u32,
         #[cfg(feature = "game_client")] mut filter_camera: Option<
-            &mut dyn FnMut(Option<Vec3>) -> FilterCameraMatrices,
+            &mut dyn FnMut(
+                Option<Vec3>,
+                &mut native_pose_loan::NativeInstalledPoseLoan<'_>,
+                &mut GraphicsSystem,
+            ) -> std::result::Result<FilterCameraMatrices, String>,
         >,
         complete_physics_visual: Option<
             &mut dyn FnMut(
@@ -419,7 +423,16 @@ impl RenderPipeline {
         #[cfg(feature = "game_client")]
         let filter_resources = &mut self.view_filter_resources;
         #[cfg(feature = "game_client")]
-        let mut finish_filters = |gpu_frame: &mut ww3d_engine::RenderFrame| {
+        let mut native_poses = native_pose_loan::NativeInstalledPoseLoan {
+            drawable_visual_states: &mut self.drawable_visual_states,
+            failed_model_resolutions: &mut self.failed_model_resolutions,
+            pending_client_drawable_restore: &mut self.pending_client_drawable_restore,
+            pending_client_drawable_imports: &mut self.pending_client_drawable_imports,
+            animation_sync_ms: self.animation_sync_ms,
+        };
+        #[cfg(feature = "game_client")]
+        let mut finish_filters = |gpu_frame: &mut ww3d_engine::RenderFrame,
+                                  graphics: &mut GraphicsSystem| {
             let mut look_at = None;
             let dest = gpu_frame.color_view_arc();
             let format = gpu_frame.color_format();
@@ -460,7 +473,11 @@ impl RenderPipeline {
             }
             // C++ LookAt executes inside postRender, before the locked Drawable
             // uses the new matrix. This is not another camera/view update.
-            Ok(filter_camera.as_deref_mut().map(|resume| resume(look_at)))
+            Ok(filter_camera
+                .as_deref_mut()
+                .map(|resume| resume(look_at, &mut native_poses, graphics))
+                .transpose()
+                .map_err(ww3d_renderer_3d::Error::InvalidOperation)?)
         };
         #[cfg(feature = "game_client")]
         let mut finish_overlay = |frame: &mut ww3d_engine::RenderFrame| {

@@ -562,7 +562,7 @@ impl ForwardPass {
     #[allow(unused_assignments)]
     pub(super) fn render(
         &mut self,
-        graphics_system: &GraphicsSystem,
+        graphics_system: &mut GraphicsSystem,
         render_items: &[RenderItem],
         view_matrix: &Mat4,
         projection_matrix: &Mat4,
@@ -573,6 +573,7 @@ impl ForwardPass {
         mut post_render: Option<
             &mut dyn FnMut(
                 &mut ww3d_engine::RenderFrame,
+                &mut GraphicsSystem,
             ) -> RendererResult<Option<FilterCameraMatrices>>,
         >,
         locked_binding: Option<FrozenDirectDrawableSceneCandidate>,
@@ -770,7 +771,7 @@ impl ForwardPass {
         let camera = &mut self.camera;
         let mut finish_scene = |frame: &mut ww3d_engine::RenderFrame| {
             let updated_camera = if let Some(callback) = post_render.as_mut() {
-                callback(frame)?
+                callback(frame, graphics_system)?
             } else {
                 None
             };

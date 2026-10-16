@@ -7,9 +7,9 @@ impl GameLogic {
     /// invocation. Drain it before any new script action can observe the UI.
     pub(super) fn deliver_pending_script_ui(
         &mut self,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        let Some(ui) = ui.as_mut() else {
+        let Some(ui) = ui.ui.as_mut() else {
             return;
         };
         // Catch up detached/headless intent on the next receiving Client loan.
@@ -45,14 +45,18 @@ impl GameLogic {
         &mut self,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) {
-        self.apply_script_action_requests_with_ui(interpreter, None);
+        if let Err(error) =
+            self.apply_script_action_requests_with_effects(interpreter, Default::default())
+        {
+            log::error!("script presentation effects: {error}");
+        }
     }
 
-    pub(super) fn apply_script_action_requests_with_ui(
+    pub(super) fn apply_script_action_requests_with_effects(
         &mut self,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        mut ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
-    ) {
+        mut ui: crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         self.apply_host_skirmish_script_requests();
         self.apply_host_set_base_construction_speed_requests();
         self.apply_host_set_train_held_requests();
@@ -76,7 +80,7 @@ impl GameLogic {
         self.apply_host_follow_waypoints_script_requests();
         self.apply_host_skirmish_approach_path_script_requests();
 
-        self.apply_host_create_script_requests_with_ui(interpreter, &mut ui);
+        self.apply_host_create_script_requests_with_effects(interpreter, &mut ui);
         self.apply_host_boobytrap_script_requests();
         self.apply_host_unmanned_script_requests();
         self.apply_host_radar_event_script_requests();
@@ -116,7 +120,7 @@ impl GameLogic {
 
         let camera_focus = self.mission_scripts.take_camera_focus_requests();
         for camera_target in camera_focus.moves {
-            self.request_camera_focus(camera_target);
+            self.request_camera_focus_with_effects(camera_target, &mut ui)?;
         }
 
         if !camera_focus.move_to_selection.is_empty() {
@@ -133,7 +137,7 @@ impl GameLogic {
         if !camera_focus.move_home.is_empty() {
             if let Some(home) = self.local_player_camera_home_position() {
                 self.session_view.scripted.camera_follow_target = None;
-                self.request_camera_focus(home);
+                self.request_camera_focus_with_effects(home, &mut ui)?;
             }
         }
 
@@ -235,6 +239,7 @@ impl GameLogic {
             .into_iter()
             .last()
         {
+            self.session_view.camera.camera_slave_mode = Some(last.clone());
             self.pending_camera_slave_mode_enable = Some(last);
             self.pending_camera_slave_mode_disable = false;
         }
@@ -244,6 +249,7 @@ impl GameLogic {
             .drain_camera_slave_mode_disable_requests()
             .is_empty()
         {
+            self.session_view.camera.camera_slave_mode = None;
             self.pending_camera_slave_mode_enable = None;
             self.pending_camera_slave_mode_disable = true;
         }
@@ -264,39 +270,7 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            self.session_view.scripted.camera_follow_target = None;
-            self.pending_camera_rotate = None;
-            self.pending_camera_zoom_reset = true;
-            self.pending_camera_zoom_reset_duration = last.duration_seconds.max(0.0);
-            self.pending_camera_zoom_reset_ease_in = last.ease_in_seconds.max(0.0);
-            self.pending_camera_zoom_reset_ease_out = last.ease_out_seconds.max(0.0);
-            self.start_camera_move_to_oriented(
-                CameraMoveToRequest {
-                    position: last.position,
-                    seconds: last.duration_seconds,
-                    camera_stutter_seconds: 0.,
-                    ease_in_seconds: last.ease_in_seconds,
-                    ease_out_seconds: last.ease_out_seconds,
-                },
-                false,
-            );
-            self.session_view.scripted.motion.angles[2] = 0.;
-            self.session_view.camera.camera_yaw_radians =
-                self.session_view.scripted.motion.angles[0];
-            if let Some(zoom) = self.owned_script_camera_max_zoom_at(last.position) {
-                self.session_view.camera.install_zoom(
-                    zoom,
-                    last.duration_seconds,
-                    last.ease_in_seconds,
-                    last.ease_out_seconds,
-                );
-            }
-            self.session_view.camera.install_pitch(
-                1.,
-                last.duration_seconds,
-                last.ease_in_seconds,
-                last.ease_out_seconds,
-            );
+            self.admit_camera_reset_motion(last);
         }
 
         if let Some(last) = self
@@ -474,7 +448,7 @@ impl GameLogic {
 
         self.deliver_pending_script_ui(&mut ui);
         for last in self.mission_scripts.drain_letterbox_events() {
-            if let Some(ui) = ui.as_mut() {
+            if let Some(ui) = ui.ui.as_mut() {
                 ui.letterbox(
                     &mut self.session_view.camera,
                     last,
@@ -625,7 +599,7 @@ impl GameLogic {
             .last()
         {
             self.set_weather_visible(visible);
-            if let Some(ui) = ui.as_mut() {
+            if let Some(ui) = ui.ui.as_mut() {
                 ui.weather_visible(visible);
             }
         }
@@ -700,12 +674,12 @@ impl GameLogic {
             #[cfg(feature = "game_client")]
             if let Some(position) = self.session_view.apply_motion_blur(&request) {
                 self.session_view.scripted.camera_follow_target = None;
-                self.request_camera_focus(position);
+                self.request_camera_focus_with_effects(position, &mut ui)?;
             }
             #[cfg(not(feature = "game_client"))]
             if let CameraMotionBlurRequest::Jump { position, .. } = &request {
                 self.session_view.scripted.camera_follow_target = None;
-                self.request_camera_focus(*position);
+                self.request_camera_focus_with_effects(*position, &mut ui)?;
             }
             self.pending_camera_motion_blur.push(request);
         }
@@ -837,27 +811,7 @@ impl GameLogic {
                 }
             }
         }
-    }
-    fn owned_script_camera_max_zoom_at(&self, target: Vec3) -> Option<f32> {
-        let owner = self.world_services.terrain();
-        let terrain = match owner.read() {
-            Ok(terrain) => terrain,
-            Err(_) => {
-                log::error!("receiving camera zoom terrain poisoned");
-                return None;
-            }
-        };
-        let height = crate::presentation_frame::camera::height::height_around(target, |x, z| {
-            Some(terrain.get_ground_height(x, z, None))
-        })?;
-        let max_height = game_engine::common::global_data::read().max_camera_height
-            * self.session_view.scripted.script_default_camera_max_height;
-        Some(
-            self.session_view
-                .camera
-                .native_camera
-                .default_zoom(height, max_height),
-        )
+        Ok(())
     }
 
     fn install_owned_final_zoom(&mut self, factor: f32, ease_in: f32, ease_out: f32) {

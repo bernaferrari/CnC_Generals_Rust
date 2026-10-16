@@ -1144,9 +1144,9 @@ fn live_script_tick_runs_one_script_engine_update() {
         include_str!("../../mission_scripts/tests.rs"),
     );
     assert_eq!(tick.matches("engine.update_with_driver(").count(), 1);
-    assert!(tick.contains("HostScriptExecutionDriver::with_ui("));
+    assert!(tick.contains("HostScriptExecutionDriver::with_effects("));
     let compact_tick: String = tick.split_whitespace().collect();
-    assert!(compact_tick.contains("ui.as_mut().map("));
+    assert!(compact_tick.contains("ui.reborrow("));
     assert!(tick.contains("self.with_owned_script_engine("));
     assert!(tick.contains("current_frame: world.frame"));
 

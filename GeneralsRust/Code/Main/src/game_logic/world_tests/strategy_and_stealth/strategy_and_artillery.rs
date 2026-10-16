@@ -441,11 +441,11 @@ fn post_ai_commands_flushed_inside_game_logic() {
         .find("self.update_ai(&object_ids, dt);")
         .expect("update_ai call");
     let mgr = src
-        .find("self.update_match_ai_with_ui(&mut ui);")
+        .find("self.update_match_ai_with_effects(&mut ui);")
         .expect("owned match AI phase");
     // Second process_commands after AI manager (phase 8b)
     let flush = src[mgr..]
-        .find("self.process_commands_with_ui(&mut ui);")
+        .find("self.process_commands_with_effects(&mut ui);")
         .map(|o| mgr + o)
         .expect("post-AI flush");
     assert!(
@@ -454,7 +454,7 @@ fn post_ai_commands_flushed_inside_game_logic() {
     );
     // Early command processing (phase 5) still exists before object updates.
     let early = src
-        .find("self.process_commands_with_ui(&mut ui);")
+        .find("self.process_commands_with_effects(&mut ui);")
         .expect("early process_commands");
     assert!(
         early < ai,

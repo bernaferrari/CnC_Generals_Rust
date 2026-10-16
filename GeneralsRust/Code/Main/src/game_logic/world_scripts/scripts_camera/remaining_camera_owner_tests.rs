@@ -25,6 +25,7 @@ fn camera_terrain() -> TerrainLogic {
     let mut map = MapData::new();
     map.width = 64;
     map.height = 64;
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
     map.heightmap = vec![16; 64 * 64];
     for (id, name, x, y, z) in [
         (1, "CameraPoint", 310.0, 330.0, 0.0),
@@ -47,6 +48,19 @@ fn camera_terrain() -> TerrainLogic {
 
 fn world(x: f32) -> (GameLogic, ObjectId, Vec3) {
     let mut world = GameLogic::new();
+    // Camera fixtures need an actual receiving terrain extent; cached host/grid
+    // bounds are not W3DView::calcCameraConstraints' map authority.
+    let mut map = MapData::new();
+    map.width = 64;
+    map.height = 64;
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+    map.heightmap = vec![0; 64 * 64];
+    world
+        .world_services
+        .terrain()
+        .write()
+        .unwrap()
+        .load_map_data(map);
     world.add_player(Player::new(0, Team::USA, "CameraOwner", true));
     let mut unit = ThingTemplate::new("CameraOwnerUnit");
     unit.add_kind_of(KindOf::Selectable).set_health(100.0);
@@ -1117,3 +1131,6 @@ mod team_callback_ui_tests;
 
 #[path = "receiving_default_camera_tests.rs"]
 mod receiving_default_camera_tests;
+
+#[path = "receiving_view_effect_tests.rs"]
+mod receiving_view_effect_tests;

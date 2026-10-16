@@ -43,9 +43,14 @@ pub(crate) fn camera_orbit_pose(
     pitch: f32,
     yaw: f32,
     fx_pitch: f32,
+    constraints: Option<super::constraints::ConstraintBounds>,
 ) -> (Vec3, Vec3) {
-    let (eye, look) = native_camera.basis().pose(target, zoom, pitch, yaw);
-    camera_fx_pose(eye + impulse, look, fx_pitch)
+    // Source buildCameraTransform adds horizontal shake to a local position,
+    // then constrains it. Both eye and look inherit that translation.
+    let local = target + Vec3::new(impulse.x, 0., impulse.z);
+    let local = constraints.map_or(local, |bounds| bounds.constrain(local));
+    let (eye, look) = native_camera.basis().pose(local, zoom, pitch, yaw);
+    camera_fx_pose(eye, look, fx_pitch)
 }
 
 pub(crate) fn camera_fx_pose(source: Vec3, look: Vec3, fx_pitch: f32) -> (Vec3, Vec3) {

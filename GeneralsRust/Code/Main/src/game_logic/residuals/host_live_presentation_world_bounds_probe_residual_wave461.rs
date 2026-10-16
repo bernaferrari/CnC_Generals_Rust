@@ -180,8 +180,13 @@ pub fn simulate_presentation_world_bounds_probe_consumers() -> bool {
     let Some(clamp) = function_body(src, "fn clamp_to_world_bounds(") else {
         return false;
     };
+    let Some(command_clip) = function_body(src, "fn clamp_command_position_to_map(") else {
+        return false;
+    };
     let ok = uses >= 3
-        && clamp.contains("presentation_world_bounds()")
+        && clamp.contains("constrain_target_if_cached(position)")
+        && !clamp.contains("constraint_inset(")
+        && command_clip.contains("presentation_world_bounds()")
         && src.contains("Wave 461: single presentation-first world bounds probe")
         && src.contains("fn host_world_bounds")
         // No scattered last_presentation-only dual-read pattern outside helper.

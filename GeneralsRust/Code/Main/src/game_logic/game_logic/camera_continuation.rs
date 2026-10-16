@@ -71,6 +71,7 @@ struct CameraOwnedExtras {
     path_arrived: bool,
     object_tracking: Option<CameraObjectTracking>,
     follow_snap_immediate: bool,
+    constraints: crate::presentation_frame::camera::constraints::CameraConstraints,
 }
 
 fn codec() -> CameraCodec<MAX_BYTES> {
@@ -82,6 +83,11 @@ impl LogicCameraContinuation {
         self.owned_extras.camera.as_ref()
     }
 
+    pub(crate) fn owned_constraints(
+        &self,
+    ) -> crate::presentation_frame::camera::constraints::CameraConstraints {
+        self.owned_extras.constraints
+    }
     pub(crate) fn owned_follow_snap_immediate(&self) -> bool {
         self.owned_extras.follow_snap_immediate
     }
@@ -207,6 +213,7 @@ impl GameLogic {
                 path_arrived: self.session_view.scripted.path_arrived,
                 object_tracking: self.session_view.scripted.object_tracking.clone(),
                 follow_snap_immediate: self.session_view.camera.camera_follow_snap_immediate,
+                constraints: self.session_view.camera.constraints,
             },
         };
         state.validate()?;
@@ -242,6 +249,7 @@ impl GameLogic {
         }
         self.session_view.camera.camera_follow_snap_immediate =
             state.owned_extras.follow_snap_immediate;
+        self.session_view.camera.constraints = state.owned_extras.constraints;
         self.session_view.scripted.camera_follow_target = state.camera_follow_target;
         self.session_view.scripted.camera_tether_play = state.camera_tether_play;
         self.session_view.scripted.script_look_toward_object_id =

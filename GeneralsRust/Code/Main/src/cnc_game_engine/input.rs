@@ -1844,41 +1844,62 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         let render_result = {
             let world_bounds = self.presentation_world_bounds();
-            let constraint_inset = super::start_game::native_camera_constraint_inset(
-                &self.game_logic.session_view.camera.native_camera,
-                self.game_logic.session_view.camera.view_matrix,
-                self.game_logic.session_view.camera.projection_matrix,
-                self.game_logic.session_view.camera.viewport,
-            );
-            // The pipeline was seeded from this exact immutable frame above;
-            // borrow its environment without borrowing the mutable pipeline.
-            let filter_frame = self.last_presentation_frame.as_deref();
+            // This operation owns GameLogic for its entire render continuation.
+            // The only Client callback evaluates shroud outcomes; it cannot
+            // create/remove/rebind a Drawable or change this camera's slave name.
+            // Capture current source/association facts, never a previous pose.
+            let slave_source = self
+                .game_logic
+                .session_view
+                .camera
+                .camera_slave_mode
+                .as_ref()
+                .map(|mode| {
+                    self.game_logic
+                        .owned_named_script_object(&mode.thing_template_name, None)
+                        .map(|id| {
+                            self.game_logic
+                                .current_native_slave_source(id, self.current_player_id)
+                        })
+                        .transpose()
+                })
+                .transpose()
+                .map_err(anyhow::Error::msg)?
+                .flatten();
+            let slave_binding_key = slave_source.as_ref().and_then(|source| {
+                self.game_client
+                    .presentation_direct_drawable_state(
+                        self.host_direct_visual_world_epoch,
+                        source.identity.object_id(),
+                    )
+                    .map(|state| state.binding_key)
+            });
+            let terrain_owner = Arc::clone(self.game_logic.world_services.terrain());
+            let terrain = terrain_owner
+                .read()
+                .map_err(|_| anyhow::anyhow!("receiving filter LookAt terrain poisoned"))?;
             let filter_scroll = self.game_logic.session_view.camera.native_filter_scroll;
             let (filter, target, impulse, mut cancellation, physics_visuals, native) =
                 self.game_logic.split_filter_camera_owner();
             let mut camera = super::camera_filter::NativeFilterCameraContext {
                 look_at_modes: &mut self.look_at_modes,
-                yaw_target: &mut native.camera_yaw_target,
-                yaw_duration: &mut native.camera_yaw_duration,
                 target,
                 impulse,
-                native_camera: &native.native_camera,
-                zoom: native.camera_zoom,
-                pitch: native.camera_pitch_radians,
-                yaw: native.camera_yaw_radians,
-                fx_pitch: native.camera_fx_pitch,
-                shake_rotation: native.camera_shake_rotation,
-                slave_mode: native.camera_slave_mode.is_some(),
-                position: &mut native.camera_position,
-                view: &mut native.view_matrix,
-                projection: native.projection_matrix,
+                native,
                 world_bounds,
-                constraint_inset,
-                constraint_widen: &mut native.scripted_camera_constraint_widen,
-                env: filter_frame.map(|frame| &frame.world_env),
+                terrain: &terrain,
             };
             let mut complete_filter_camera =
-                |point| camera.finish(point, &mut || cancellation.cancel());
+                |point,poses:&mut crate::graphics::render_pipeline::native_pose_loan::NativeInstalledPoseLoan<'_>,graphics:&mut GraphicsSystem| {
+                    camera.finish(point, &mut || cancellation.cancel(),&mut |mode| {
+                        slave_source.as_ref().map_or(
+                            crate::presentation_frame::camera::build::SlaveCameraSample::MissingObject,
+                            |source|super::native_view_effects::sample_installed_slave(
+                                poses,graphics,source,&mode.bone_name,slave_binding_key,
+                            ),
+                        )
+                    })
+                };
             let mut physics_visual_owner = physics_visuals.borrow_mut();
             let mut complete_physics_visual =
                 |input: &mut crate::presentation_frame::UnitRenderInput,

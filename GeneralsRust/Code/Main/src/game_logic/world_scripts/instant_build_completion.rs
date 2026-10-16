@@ -81,17 +81,22 @@ impl GameLogic {
         structure: ObjectId,
         owner: u32,
     ) {
-        self.complete_instant_line_build_player_with_ui(_producer, structure, owner, &mut None);
+        self.complete_instant_line_build_player_with_effects(
+            _producer,
+            structure,
+            owner,
+            &mut Default::default(),
+        );
     }
 
-    pub(crate) fn complete_instant_line_build_player_with_ui(
+    pub(crate) fn complete_instant_line_build_player_with_effects(
         &mut self,
         _producer: ObjectId,
         structure: ObjectId,
         owner: u32,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        self.complete_owned_structure_player_with_ui(structure, owner, false, None, ui);
+        self.complete_owned_structure_player_with_effects(structure, owner, false, None, ui);
     }
 
     pub(crate) fn complete_owned_structure_player(
@@ -110,22 +115,22 @@ impl GameLogic {
         rebuilding: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) {
-        self.complete_owned_structure_player_with_ui(
+        self.complete_owned_structure_player_with_effects(
             structure,
             owner,
             rebuilding,
             interpreter,
-            &mut None,
+            &mut Default::default(),
         );
     }
 
-    pub(crate) fn complete_owned_structure_player_with_ui(
+    pub(crate) fn complete_owned_structure_player_with_effects(
         &mut self,
         structure: ObjectId,
         owner: u32,
         rebuilding: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let Some(object) = self.host_object(structure) else {
             return;
@@ -162,7 +167,7 @@ impl GameLogic {
         self.admit_completed_structure_power(owner);
         // The AI owner callback follows power admission; CreateModules are
         // invoked by BuildAssistant only after this entire Player callback.
-        self.notify_owned_ai_structure_produced_with_ui(structure, interpreter, ui);
+        self.notify_owned_ai_structure_produced_with_effects(structure, interpreter, ui);
         self.try_eva_superweapon_detected_for_source(structure);
     }
 }

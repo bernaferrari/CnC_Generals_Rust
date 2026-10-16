@@ -22,6 +22,7 @@ struct NativeCameraExtras {
     filter: Option<(glam::Vec2, Vec3)>,
     completed_view: Option<glam::Mat4>,
     follow_snap_immediate: bool,
+    constraints: crate::presentation_frame::camera::constraints::CameraConstraints,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -208,6 +209,9 @@ impl NativeCameraContinuation {
         &self,
         logic: &crate::game_logic::LogicCameraContinuation,
     ) -> Result<(), String> {
+        if logic.owned_constraints() != self.1.constraints {
+            return Err("logic/native constraint cache disagrees".into());
+        }
         if logic.owned_follow_snap_immediate() != self.1.follow_snap_immediate {
             return Err("logic/native pending follow snap disagrees".into());
         }
@@ -497,6 +501,7 @@ impl CnCGameEngine {
                 .native_filter_previous_target = previous_target;
         }
         let completed_view = continuation.completed_view();
+        self.game_logic.session_view.camera.constraints = continuation.1.constraints;
         self.game_logic
             .session_view
             .camera

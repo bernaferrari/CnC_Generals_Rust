@@ -849,9 +849,7 @@ impl CnCGameEngine {
         self.host_set_selection(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
-            let clamped = self.clamp_to_world_bounds(pos);
-            self.game_logic.session_view.target.x = clamped.x;
-            self.game_logic.session_view.target.z = clamped.z;
+            self.host_player_look_at(pos);
         }
     }
 
@@ -890,9 +888,7 @@ impl CnCGameEngine {
         self.host_set_selection(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
-            let clamped = self.clamp_to_world_bounds(pos);
-            self.game_logic.session_view.target.x = clamped.x;
-            self.game_logic.session_view.target.z = clamped.z;
+            self.host_player_look_at(pos);
         }
     }
 
@@ -944,9 +940,7 @@ impl CnCGameEngine {
         self.host_set_selection(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
-            let clamped = self.clamp_to_world_bounds(pos);
-            self.game_logic.session_view.target.x = clamped.x;
-            self.game_logic.session_view.target.z = clamped.z;
+            self.host_player_look_at(pos);
         }
     }
 
@@ -1129,9 +1123,7 @@ impl CnCGameEngine {
         self.host_set_selection(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
-            let clamped = self.clamp_to_world_bounds(pos);
-            self.game_logic.session_view.target.x = clamped.x;
-            self.game_logic.session_view.target.z = clamped.z;
+            self.host_player_look_at(pos);
         }
     }
 
@@ -1450,9 +1442,7 @@ impl CnCGameEngine {
         self.host_set_selection(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
-            let clamped = self.clamp_to_world_bounds(pos);
-            self.game_logic.session_view.target.x = clamped.x;
-            self.game_logic.session_view.target.z = clamped.z;
+            self.host_player_look_at(pos);
         }
     }
 
@@ -1528,9 +1518,7 @@ impl CnCGameEngine {
         self.host_set_selection(self.current_player_id, vec![next]);
         self.play_sound_effect(SoundType::Select);
         if let Some(pos) = cam_pos {
-            let clamped = self.clamp_to_world_bounds(pos);
-            self.game_logic.session_view.target.x = clamped.x;
-            self.game_logic.session_view.target.z = clamped.z;
+            self.host_player_look_at(pos);
         }
     }
 

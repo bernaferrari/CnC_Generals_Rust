@@ -128,10 +128,9 @@ pub fn honesty_host_camera_start_helper_source_markers_residual_wave577() -> boo
         residual_action_store(ResidualHostCameraStartHelperAction::SourceMarkers);
         return false;
     };
-    let cam_ok = cam.contains("Wave 577")
-        && cam.contains("clamp_to_world_bounds")
-        && cam.contains("camera_target.x")
-        && cam.contains("self.camera_target");
+    let cam_ok = cam.contains("self.host_player_look_at(world_pos)")
+        && cam.contains("self.game_logic.session_view.target")
+        && !cam.contains("clamp_to_world_bounds");
     // 2026-08-15: start goes through SessionControlOp (no set_player_team dual-write).
     let start_ok = start.contains("Wave 577")
         && start.contains("SessionControlOp::StartNewGameWithFaction")

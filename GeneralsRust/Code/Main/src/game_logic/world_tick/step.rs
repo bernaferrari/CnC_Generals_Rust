@@ -218,15 +218,22 @@ impl GameLogic {
         mut before_step: impl FnMut(u32),
         after_step: impl FnMut(&mut Self),
     ) -> SimTimingSnapshot {
-        self.tick_logic_frame_with_script_ui(dt, timing, budget, None, before_step, after_step)
+        self.tick_logic_frame_with_script_effects(
+            dt,
+            timing,
+            budget,
+            Default::default(),
+            before_step,
+            after_step,
+        )
     }
 
-    pub(crate) fn tick_logic_frame_with_script_ui(
+    pub(crate) fn tick_logic_frame_with_script_effects(
         &mut self,
         dt: f32,
         timing: Option<&FrameTiming>,
         budget: Option<usize>,
-        mut ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        mut ui: crate::game_logic::ScriptPresentationEffects<'_>,
         mut before_step: impl FnMut(u32),
         after_step: impl FnMut(&mut Self),
     ) -> SimTimingSnapshot {
@@ -239,15 +246,31 @@ impl GameLogic {
             budget.map(|budget| budget.max(1)),
             |logic, fixed_dt| {
                 before_step(logic.frame);
-                logic.update_simulation_with_script_ui(
-                    fixed_dt,
-                    ui.as_mut()
-                        .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
-                )
+                logic.update_simulation_with_script_effects(fixed_dt, ui.reborrow())
             },
             after_step,
         );
         self.sim_timing_snapshot()
+    }
+    // Explicit UI-only adapter for standalone callers; native roots lend both domains.
+    pub(crate) fn tick_logic_frame_with_script_ui(
+        &mut self,
+        dt: f32,
+        timing: Option<&FrameTiming>,
+        budget: Option<usize>,
+        mut ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        mut before_step: impl FnMut(u32),
+        after_step: impl FnMut(&mut Self),
+    ) -> SimTimingSnapshot {
+        let effects = crate::game_logic::ScriptPresentationEffects { ui: ui, view: None };
+        self.tick_logic_frame_with_script_effects(
+            dt,
+            timing,
+            budget,
+            effects,
+            before_step,
+            after_step,
+        )
     }
 
     /// Menu/shell update path that bounds fixed-step catch-up work per frame.
@@ -422,13 +445,13 @@ impl GameLogic {
     ///           no outcome variant invented for it]
     /// ```
     pub(in super::super) fn update_simulation(&mut self, dt: f32) -> SimulationStepOutcome {
-        self.update_simulation_with_script_ui(dt, None)
+        self.update_simulation_with_script_effects(dt, Default::default())
     }
 
-    fn update_simulation_with_script_ui(
+    fn update_simulation_with_script_effects(
         &mut self,
         dt: f32,
-        ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> SimulationStepOutcome {
         assert!(
             !self.host_logic_step_active,
@@ -469,7 +492,7 @@ impl GameLogic {
     fn update_simulation_in_step(
         &mut self,
         dt: f32,
-        mut ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        mut ui: crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> SimulationStepOutcome {
         debug_assert!(
             std::sync::Arc::ptr_eq(
@@ -487,11 +510,7 @@ impl GameLogic {
         // C++: TheScriptEngine->UPDATE();
         // Scripts run BEFORE everything else so they can react to the previous
         // frame's state and issue commands for this frame.
-        self.evaluate_and_execute_scripts_with_ui(
-            dt,
-            ui.as_mut()
-                .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
-        );
+        self.evaluate_and_execute_scripts_with_effects(dt, ui.reborrow());
 
         // -----------------------------------------------------------------------
         // Phase 2: Time Freeze Check (C++ lines 3603-3617)
@@ -558,7 +577,7 @@ impl GameLogic {
         // C++: processCommandList( TheCommandList );
         // Process queued player commands BEFORE object updates so movement/attack
         // orders are in effect when objects run their updates.
-        self.process_commands_with_ui(&mut ui);
+        self.process_commands_with_effects(&mut ui);
 
         // -----------------------------------------------------------------------
         // Phase 6: Object Updates -- Sleepy heap (C++ GameLogic.cpp:3699-3740)
@@ -574,7 +593,7 @@ impl GameLogic {
         while let Some(token) = self.host_sleepy.next_due(now) {
             match token.kind {
                 super::HostSleepyKind::Construction => {
-                    self.update_construction_with_ui(&object_ids, dt, &mut ui);
+                    self.update_construction_with_effects(&object_ids, dt, &mut ui);
                 }
                 super::HostSleepyKind::SellList => {
                     self.update_sell_list();
@@ -1396,12 +1415,12 @@ impl GameLogic {
         self.update_ai(&object_ids, dt);
 
         // Phase 8: C++ AI::update — pathfinding, then this match's players.
-        self.update_match_ai_with_ui(&mut ui);
+        self.update_match_ai_with_effects(&mut ui);
 
         // Phase 8b: Apply commands queued by AI this frame (C++ CommandList drain
         // after TheAI->UPDATE). Ensures same-frame set_target/move logs reach
         // shadow/presentation without a second engine-side process_commands.
-        self.process_commands_with_ui(&mut ui);
+        self.process_commands_with_effects(&mut ui);
 
         // -----------------------------------------------------------------------
         // Phase 9: Production / Build Assistant (C++ line 3748)
@@ -1411,7 +1430,7 @@ impl GameLogic {
         // frame can be immediately reflected.
         // Drain prior-frame upgrade presentation events before research advances.
         self.host_upgrades.clear_frame_events();
-        self.update_production_with_ui(dt, &mut ui);
+        self.update_production_with_effects(dt, &mut ui);
         // Wave 827: host-sole unless movement authority live: host system residuals sole-tick after GW writeback.
         {
             self.update_player_upgrades();

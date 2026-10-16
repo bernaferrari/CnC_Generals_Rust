@@ -45,26 +45,7 @@ impl CnCGameEngine {
             // shake, height adjustment, slave pose or matrix commitment.
             self.update_script_camera_shake();
             self.ease_camera_height_above_ground(scroll, did_scripted_movement);
-            if !self.script_time_fast() {
-                self.update_camera_transform_shakers();
-            }
         }
-    }
-    /// Source setCameraTransform: after height adjustment, before slave pose.
-    fn update_camera_transform_shakers(&mut self) {
-        step_transform_shakers(
-            &mut self.game_logic.session_view.camera.script_camera_shakers,
-            true,
-        );
-        let eye = self.native_camera_base_pose().0;
-        let mut rotation = Vec3::ZERO;
-        for shaker in &self.game_logic.session_view.camera.script_camera_shakers {
-            rotation += script_camera_shaker_rotations(shaker, eye);
-        }
-        rotation.x = rotation.x.clamp(-SHAKE_AXIS_PITCH, SHAKE_AXIS_PITCH);
-        rotation.y = rotation.y.clamp(-SHAKE_AXIS_YAW, SHAKE_AXIS_YAW);
-        rotation.z = rotation.z.clamp(-SHAKE_AXIS_ROLL, SHAKE_AXIS_ROLL);
-        self.game_logic.session_view.camera.camera_shake_rotation = rotation;
     }
 }
 
@@ -91,16 +72,7 @@ pub(super) fn step_view_impulse(
 
 /// W3DView::setCameraTransform steps rotational shakers, after the fast
 /// View return. Impulse shake above is earlier and deliberately independent.
-pub(super) fn step_transform_shakers(shakers: &mut Vec<ScriptCameraShaker>, commit: bool) {
-    if !commit {
-        return;
-    }
-    const SCRIPT_CAMERA_SHAKER_STEP: f32 = 1.0 / 30.0;
-    for shaker in shakers.iter_mut() {
-        shaker.elapsed_seconds += SCRIPT_CAMERA_SHAKER_STEP;
-    }
-    shakers.retain(|shaker| shaker.elapsed_seconds < shaker.duration_seconds);
-}
+pub(super) use crate::presentation_frame::camera::shaker::step_transform_shakers;
 
 #[cfg(test)]
 #[path = "camera_view_effects_tests.rs"]

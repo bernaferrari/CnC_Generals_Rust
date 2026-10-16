@@ -56,3 +56,90 @@ impl ScriptCameraShaker {
         }
     }
 }
+
+pub(crate) const SHAKE_AXIS_PITCH: f32 = 7.5 * std::f32::consts::PI / 180.;
+pub(crate) const SHAKE_AXIS_YAW: f32 = 15. * std::f32::consts::PI / 180.;
+pub(crate) const SHAKE_AXIS_ROLL: f32 = 5. * std::f32::consts::PI / 180.;
+const SHAKE_END_OMEGA: f32 = std::f32::consts::TAU;
+fn shaker_hash_signed(seed: u32, elapsed_bits: u32, axis: u32, pass: u32) -> f32 {
+    let mut x = seed
+        ^ elapsed_bits.wrapping_mul(0x9E37_79B9)
+        ^ axis.wrapping_mul(0x85EB_CA6B)
+        ^ pass.wrapping_mul(0xC2B2_AE35);
+    x ^= x >> 16;
+    x = x.wrapping_mul(0x7FEB_352D);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x846C_A68B);
+    x ^= x >> 16;
+    let unit = (x >> 8) as f32 / ((1u32 << 24) as f32);
+    unit * 2.0 - 1.0
+}
+
+pub(crate) fn script_camera_shaker_rotations(
+    shaker: &ScriptCameraShaker,
+    camera_position: Vec3,
+) -> Vec3 {
+    // C++ CameraShakerClass::Compute_Rotations: 3D eye-to-epicenter falloff,
+    // omega(t)=omega+(END_OMEGA-omega)*elapsed, plus ±0.5*intensity fudge
+    // accumulated three times (once per axis loop).
+    let offset = camera_position - shaker.epicenter;
+    let dist_sq = offset.length_squared();
+    if dist_sq > shaker.radius * shaker.radius {
+        return Vec3::ZERO;
+    }
+    let dist = dist_sq.sqrt();
+    let life = (1.0 - shaker.elapsed_seconds / shaker.duration_seconds).clamp(0.0, 1.0);
+    let intensity = shaker.intensity * (1.0 - dist / shaker.radius) * life;
+    if intensity <= f32::EPSILON {
+        return Vec3::ZERO;
+    }
+    let t = shaker.elapsed_seconds.max(0.0);
+    let elapsed_bits = t.to_bits();
+    let axis = [SHAKE_AXIS_PITCH, SHAKE_AXIS_YAW, SHAKE_AXIS_ROLL];
+    let mut angles = Vec3::ZERO;
+    for i in 0..3 {
+        let omega = shaker.omega[i] + (SHAKE_END_OMEGA - shaker.omega[i]) * t;
+        angles[i] += axis[i] * intensity * (omega * t + shaker.phi[i]).sin();
+        let minor = intensity * 0.5;
+        angles.x += shaker_hash_signed(shaker.rng_seed, elapsed_bits, i as u32, 0) * minor;
+        angles.y += shaker_hash_signed(shaker.rng_seed, elapsed_bits, i as u32, 1) * minor;
+        angles.z += shaker_hash_signed(shaker.rng_seed, elapsed_bits, i as u32, 2) * minor;
+    }
+    angles
+}
+
+pub(crate) fn step_transform_shakers(shakers: &mut Vec<ScriptCameraShaker>, commit: bool) {
+    if !commit {
+        return;
+    }
+    const SCRIPT_CAMERA_SHAKER_STEP: f32 = 1.0 / 30.0;
+    for shaker in shakers.iter_mut() {
+        shaker.elapsed_seconds += SCRIPT_CAMERA_SHAKER_STEP;
+    }
+    shakers.retain(|shaker| shaker.elapsed_seconds < shaker.duration_seconds);
+}
+
+impl super::SessionCamera {
+    pub(crate) fn advance_transform_shakers(&mut self, target: Vec3, impulse: Vec3) {
+        step_transform_shakers(&mut self.script_camera_shakers, true);
+        let eye = super::pose::camera_orbit_pose(
+            &self.native_camera,
+            target,
+            impulse,
+            self.camera_zoom,
+            self.camera_pitch_radians,
+            self.camera_yaw_radians,
+            self.camera_fx_pitch,
+            self.constraint_bounds(),
+        )
+        .0;
+        let mut rotation = Vec3::ZERO;
+        for shaker in &self.script_camera_shakers {
+            rotation += script_camera_shaker_rotations(shaker, eye);
+        }
+        rotation.x = rotation.x.clamp(-SHAKE_AXIS_PITCH, SHAKE_AXIS_PITCH);
+        rotation.y = rotation.y.clamp(-SHAKE_AXIS_YAW, SHAKE_AXIS_YAW);
+        rotation.z = rotation.z.clamp(-SHAKE_AXIS_ROLL, SHAKE_AXIS_ROLL);
+        self.camera_shake_rotation = rotation;
+    }
+}

@@ -298,11 +298,10 @@ fn production_camera_phase_precedes_native_region_and_fast_subset_never_commits_
         live.find("self.update_script_camera_shake()").unwrap()
             < live.find("self.ease_camera_height_above_ground(").unwrap()
     );
-    assert!(
-        live.find("self.ease_camera_height_above_ground(").unwrap()
-            < live.find("self.update_camera_transform_shakers()").unwrap()
-    );
-    assert!(live.contains("if !self.script_time_fast()"));
+    assert!(!live.contains("self.update_camera_transform_shakers()"));
+    let build = include_str!("../presentation_frame/session_view/camera/build.rs");
+    assert!(build.contains("self.advance_transform_shakers("));
+    assert!(phase.contains("set_native_camera_transform()"));
     assert!(live.contains("advance_camera_view("));
     let owner = include_str!("../presentation_frame/session_view/camera.rs");
     assert!(owner.contains("AxisKind::ZoomPitch") && owner.contains("AxisKind::Yaw"));

@@ -277,15 +277,11 @@ impl CnCGameEngine {
             if let Some(pose) = self.game_logic.replay_pending.take_camera() {
                 if should_apply_host_replay_camera(pose.player_index) {
                     // C++ GameLogicDispatch.cpp:1801-1823 setLocation always applies pitch.
-                    let clamped = self.clamp_to_world_bounds(pose.pos);
-                    self.game_logic.session_view.target = clamped;
-                    self.game_logic.session_view.camera.camera_yaw_radians = pose.yaw;
-                    self.game_logic.session_view.camera.camera_pitch_radians =
-                        super::super::camera_height::clamp_pitch(pose.pitch);
-                    self.game_logic.session_view.camera.camera_zoom = clamp_w3d_zoom(pose.zoom);
-                    self.game_logic.session_view.camera.camera_yaw_target = None;
-                    self.game_logic.session_view.camera.camera_pitch_target = None;
-                    self.game_logic.session_view.camera.camera_zoom_target = None;
+                    if let Err(error) =
+                        self.apply_native_camera_location(pose.pos, pose.yaw, pose.pitch, pose.zoom)
+                    {
+                        log::error!("receiving replay camera location: {error}");
+                    }
                     if !self
                         .look_at_modes
                         .lookat_has_mouse_moved_recently(self.frame_counter)
@@ -297,7 +293,6 @@ impl CnCGameEngine {
                             game_client::helpers::TheInGameUI::set_mouse_cursor(cursor);
                         }
                     }
-                    self.apply_camera_orbit_transform();
                 }
             }
         }
@@ -386,8 +381,6 @@ impl CnCGameEngine {
             // C++ W3DView::scrollBy cancels only rotate, not zoom/pitch/path.
             self.cancel_scripted_camera_from_player_scroll();
             self.game_logic.session_view.target += movement;
-            self.game_logic.session_view.target =
-                self.clamp_to_world_bounds(self.game_logic.session_view.target);
             camera_changed = true;
         }
 
@@ -408,7 +401,9 @@ impl CnCGameEngine {
                 > f32::EPSILON;
 
         if camera_changed {
-            self.apply_camera_orbit_transform();
+            if let Err(error) = self.set_native_camera_transform() {
+                log::error!("receiving native input camera transform: {error}");
+            }
             if matches!(self.current_state, GameState::InGame | GameState::Paused) {
                 self.update_mouse_world_position();
                 self.sync_context_mouse_cursor();
@@ -490,12 +485,17 @@ impl CnCGameEngine {
             );
         // C++ setHeightAboveGround cancels scripted rotate/pitch/zoom/path/lock.
         self.cancel_scripted_camera_from_player_set();
+        self.game_logic.session_view.camera.invalidate_constraints();
         // C++ setHeightAboveGround invalidates m_cameraConstraint (recalc from map).
         self.game_logic
             .session_view
             .camera
             .scripted_camera_constraint_widen = None;
-        // C++ View::zoomIn/Out only changes HAG; W3DView eases zoom at CameraAdjustSpeed.
+        // Desired HAG still eases during the admitted View update. The setter
+        // nevertheless performs its own immediate source transform build.
+        if let Err(error) = self.set_native_camera_transform() {
+            log::error!("receiving height setter transform: {error}");
+        }
     }
 
     pub(in crate::cnc_game_engine) fn native_camera_terrain_height_around(
@@ -950,73 +950,6 @@ impl CnCGameEngine {
         self.host_set_camera_follow_object(None);
     }
 
-    /// C++ `W3DView::cameraEnableSlaveMode` + bone matrix slam.
-    pub(in crate::cnc_game_engine) fn apply_host_slave_camera(&mut self) -> bool {
-        let Some(mode) = self
-            .game_logic
-            .session_view
-            .camera
-            .camera_slave_mode
-            .clone()
-        else {
-            return false;
-        };
-        let Some(id) = self
-            .game_logic
-            .owned_named_script_object(&mode.thing_template_name, None)
-        else {
-            self.game_logic.session_view.camera.camera_slave_mode = None;
-            return false;
-        };
-        #[cfg(feature = "game_client")]
-        {
-            if self
-                .game_client
-                .presentation_direct_drawable_state(self.host_direct_visual_world_epoch, id.0)
-                .is_none()
-            {
-                self.game_logic.session_view.camera.camera_slave_mode = None;
-                return false;
-            }
-            let Some(source) = self.last_presentation_frame.as_ref().and_then(|frame| {
-                frame
-                    .native_resident_drawable_inputs()
-                    .into_iter()
-                    .find(|source| source.id == id)
-            }) else {
-                return false;
-            };
-            let Ok(Some(module)) = source.first_object_draw() else {
-                return false;
-            };
-            match self.render_pipeline.native_installed_camera_pose(
-                id,
-                module.module_index,
-                &mode.bone_name,
-            ) {
-                Ok(world) => {
-                    return self
-                        .game_logic
-                        .session_view
-                        .commit_native_slave_world(world);
-                }
-                Err(reason) => {
-                    // NoRenderObject leaves tm uninitialized in original C++.
-                    // Preserve the receiving camera's completed pose on this
-                    // undefined source path; never invent a bone/origin offset
-                    // or consult Core View.
-                    log::trace!("Native slave pose unavailable: {:?}", reason);
-                    return false;
-                }
-            }
-        }
-        #[cfg(not(feature = "game_client"))]
-        {
-            let _ = (mode, id);
-            false
-        }
-    }
-
     /// C++ `W3DView.cpp:1224-1247` LOCK_FOLLOW airborne yaw ease.
 
     /// C++ W3DDisplay.cpp:1883-1900 draws the software cursor then letterbox
@@ -1156,48 +1089,55 @@ impl CnCGameEngine {
         let dy = self.mouse_position.1 - origin.1;
         let frames = self.frame_counter.saturating_sub(press_frame);
         if lookat_mmb_is_short_click(dx, dy, frames) {
-            self.reset_camera_pose_in_place();
+            // LookAtXlat241–254 uses two immediate setters, not InGameUI reset.
+            if let Err(error) = self.restore_short_mmb_camera_defaults() {
+                log::error!("Receiving MMB camera defaults failed: {error}");
+            }
         }
     }
 
     /// C++ `InGameUI::resetCamera` + `W3DView::resetCamera`: keep look-at,
     /// restore default angle/pitch/zoom. Does not retarget the command center.
     pub(in crate::cnc_game_engine) fn reset_camera_pose_in_place(&mut self) {
-        // C++ setAngleAndPitchToDefault: m_pitchAngle = m_defaultPitchAngle.
-        self.game_logic.session_view.camera.camera_yaw_radians = 0.0;
+        // InGameUI.cpp4139–4143: current raw position, one millisecond.
+        // resetCamera admits the existing waypoint/zoom/FX-pitch motion; only
+        // the original instant path substep runs here, never a View/HAG build.
+        self.game_logic.admit_camera_reset_motion(
+            crate::game_logic::mission_scripts::CameraResetRequest {
+                position: self.game_logic.session_view.target,
+                duration_seconds: 0.001,
+                ease_in_seconds: 0.,
+                ease_out_seconds: 0.,
+            },
+        );
+    }
+
+    /// View::setLocation preserves raw position, then calls the virtual angle,
+    /// pitch and zoom setters in order. Each setter performs a real source build;
+    /// only zoom invalidates the cache. It is not a LookAt terrain projection.
+    fn apply_native_camera_location(
+        &mut self,
+        position: Vec3,
+        yaw: f32,
+        pitch: f32,
+        zoom: f32,
+    ) -> Result<(), String> {
+        if !position.is_finite() || !yaw.is_finite() || !pitch.is_finite() || !zoom.is_finite() {
+            return Err("nonfinite receiving camera location".into());
+        }
+        self.game_logic.session_view.target = position;
+        self.cancel_scripted_camera_from_player_set();
+        self.game_logic.session_view.camera.camera_yaw_radians = normalize_signed_angle(yaw);
+        self.set_native_camera_transform()?;
         self.game_logic.session_view.camera.camera_pitch_radians =
-            self.ui_script_default_camera_pitch();
-        self.game_logic.session_view.camera.camera_yaw_target = None;
-        self.game_logic.session_view.camera.camera_pitch_target = None;
-        self.game_logic.session_view.camera.camera_zoom_target = None;
-        // C++ W3DView::setAngleAndPitchToDefault / resetCamera: m_FXPitch = 1.0.
-        self.game_logic.session_view.camera.camera_fx_pitch = 1.0;
-        if let Some(terrain) =
-            self.native_camera_terrain_height_around(self.game_logic.session_view.target)
-        {
-            let data = game_engine::common::global_data::read();
-            let (_, max_height) = live_view_height_clamp(
-                data.min_camera_height,
-                data.max_camera_height,
-                self.ui_script_default_camera_max_height(),
-            );
-            self.game_logic.session_view.camera.camera_zoom = self
-                .game_logic
-                .session_view
-                .camera
-                .native_camera
-                .set_zoom_to_default(terrain, max_height);
-        }
-        // C++ resetCamera/setZoom invalidates m_cameraConstraint.
-        self.game_logic
-            .session_view
-            .camera
-            .scripted_camera_constraint_widen = None;
-        self.apply_camera_orbit_transform();
-        if matches!(self.current_state, GameState::InGame | GameState::Paused) {
-            self.update_mouse_world_position();
-            self.sync_context_mouse_cursor();
-        }
+            super::super::camera_height::clamp_pitch(pitch);
+        self.set_native_camera_transform()?;
+        self.game_logic.session_view.camera.camera_zoom = clamp_w3d_zoom(zoom);
+        self.game_logic.session_view.camera.invalidate_constraints();
+        self.set_native_camera_transform()?;
+        // View::setLocation finishes with virtual forceRedraw. W3DView's
+        // override performs another real build using the now-valid cache.
+        self.set_native_camera_transform()
     }
 
     /// C++ `LookAtXlat.cpp:550-587` SAVE_VIEW / VIEW_VIEW full `ViewLocation`.
@@ -1228,16 +1168,11 @@ impl CnCGameEngine {
             let msg = lookat_bookmark_message(slot + 1);
             self.game_hud_mut().push_info_message(&msg);
         } else if let Some(loc) = self.look_at_modes.views[slot] {
-            let clamped = self.clamp_to_world_bounds(loc.pos);
-            self.game_logic.session_view.target = clamped;
-            self.game_logic.session_view.camera.camera_yaw_radians = loc.yaw;
-            self.game_logic.session_view.camera.camera_pitch_radians =
-                super::super::camera_height::clamp_pitch(loc.pitch);
-            self.game_logic.session_view.camera.camera_zoom = clamp_w3d_zoom(loc.zoom);
-            self.game_logic.session_view.camera.camera_yaw_target = None;
-            self.game_logic.session_view.camera.camera_pitch_target = None;
-            self.game_logic.session_view.camera.camera_zoom_target = None;
-            self.apply_camera_orbit_transform();
+            if let Err(error) =
+                self.apply_native_camera_location(loc.pos, loc.yaw, loc.pitch, loc.zoom)
+            {
+                log::error!("receiving bookmark camera location: {error}");
+            }
             if matches!(self.current_state, GameState::InGame | GameState::Paused) {
                 self.update_mouse_world_position();
                 self.sync_context_mouse_cursor();

@@ -189,8 +189,21 @@ fn native_default_adapters_use_only_the_owner_and_keep_native85_observations() {
         );
     }
     let reset = function_body(source, "fn reset_camera_pose_in_place(");
-    assert!(reset.contains("self.ui_script_default_camera_max_height()"));
-    assert!(reset.contains("self.ui_script_default_camera_pitch()"));
+    assert!(reset.contains("self.game_logic.admit_camera_reset_motion("));
+    let reset_owner = include_str!("camera_reset.rs");
+    let destination = function_body(reset_owner, "fn owned_script_camera_max_zoom_at(");
+    assert!(destination.contains("self.receiving_camera_max_hag()"));
+    let defaults = include_str!("../camera_player_defaults.rs");
+    let max_height = function_body(defaults, "fn receiving_camera_max_hag(");
+    assert!(max_height.contains("self.session_view.scripted.script_default_camera_max_height"));
+    assert!(max_height.contains(".max(data.min_camera_height)"));
+    assert!(!destination.contains("last_presentation_frame"));
+    let admission = function_body(reset_owner, "fn admit_camera_reset_motion(");
+    assert!(admission.contains("self.session_view.camera.install_pitch("));
+    assert!(
+        !admission.contains("camera_pitch_radians ="),
+        "source reset animates FXpitch to1, not the unrelated default orbit-pitch field"
+    );
     assert!(!source.contains("self.host_match_script_camera_max_height"));
     assert!(!source.contains("self.host_match_script_camera_pitch"));
     assert!(!source.contains("pub(crate) host_match_script_camera_max_height"));

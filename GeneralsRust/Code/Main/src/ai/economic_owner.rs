@@ -11,15 +11,15 @@ pub(super) struct ScaffoldAttempt {
 }
 impl ScaffoldAttempt {
     pub(super) fn execute(&self, world: &mut GameLogic) -> Option<ObjectId> {
-        self.execute_with_ui(world, &mut None)
+        self.execute_with_effects(world, &mut Default::default())
     }
 
-    pub(super) fn execute_with_ui(
+    pub(super) fn execute_with_effects(
         &self,
         world: &mut GameLogic,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
-        let structure = world.create_dozer_scaffold_with_ui(
+        let structure = world.create_dozer_scaffold_with_effects(
             &self.template_name,
             self.player,
             self.dozer,
@@ -30,6 +30,7 @@ impl ScaffoldAttempt {
         )?;
         self.admit_construct_order(world, structure)
     }
+
     #[cfg(test)]
     fn execute_observing(
         &self,
@@ -78,15 +79,15 @@ impl DozerQueueAttempt {
 
 impl GameLogic {
     pub(crate) fn update_owned_ai_economy(&mut self, player: u32, now: f32, data: &AiDataView) {
-        self.update_owned_ai_economy_with_ui(player, now, data, &mut None)
+        self.update_owned_ai_economy_with_effects(player, now, data, &mut Default::default())
     }
 
-    pub(crate) fn update_owned_ai_economy_with_ui(
+    pub(crate) fn update_owned_ai_economy_with_effects(
         &mut self,
         player: u32,
         now: f32,
         data: &AiDataView,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let Some(ai) = self.ai_manager.ai_players.get(&player) else {
             return;
@@ -116,7 +117,7 @@ impl GameLogic {
         let attempt = ai.prepare_scaffold_attempt(self, now, data);
         self.ai_manager.ai_players.insert(player, ai);
         if let Some(attempt) = attempt {
-            if let Some(object) = attempt.execute_with_ui(self, ui) {
+            if let Some(object) = attempt.execute_with_effects(self, ui) {
                 if let Some(ai) = self.ai_manager.ai_players.get_mut(&player) {
                     ai.finish_scaffold_attempt(&attempt, object);
                 }

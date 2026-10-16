@@ -7,6 +7,7 @@ mod add_object_selection;
 mod ambush_leaflet;
 mod angry_mob_aurora;
 mod camera_admission;
+mod camera_player_defaults;
 mod eva_camera;
 mod helix_radar;
 mod instant_build_completion;

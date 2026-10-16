@@ -3,15 +3,23 @@ use super::*;
 use glam::Mat4;
 impl SessionView {
     pub(crate) fn commit_native_slave_world(&mut self, camera_world: Mat4) -> bool {
+        self.camera
+            .commit_native_slave_world(&mut self.target, camera_world)
+    }
+}
+impl camera::SessionCamera {
+    pub(crate) fn commit_native_slave_world(
+        &mut self,
+        target: &mut Vec3,
+        camera_world: Mat4,
+    ) -> bool {
         let Ok(view) = camera::pose::inverse_camera_transform(camera_world) else {
             return false;
         };
         let eye = camera_world.w_axis.truncate();
-        // Source W3DView copies all of tm and updates m_pos to its translation.
-        // Do not rebuild look_at, alter yaw, advance HAG, or invent a unit offset.
-        self.camera.view_matrix = view;
-        self.camera.camera_position = eye;
-        self.target = eye;
+        self.view_matrix = view;
+        self.camera_position = eye;
+        *target = eye;
         true
     }
 }

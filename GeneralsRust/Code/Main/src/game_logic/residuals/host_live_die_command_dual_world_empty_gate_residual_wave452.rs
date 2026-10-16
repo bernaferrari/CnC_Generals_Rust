@@ -142,7 +142,8 @@ fn retired_ai_scheduler_uses_owned_phase() -> bool {
     });
     let phase = include_str!("../world_tick/ai_phase.rs");
     let queue = phase.find("self.process_pathfind_queue();");
-    let players = phase.find("crate::ai::AIManager::update_owned_with_ui(self, current_time, ui);");
+    let players =
+        phase.find("crate::ai::AIManager::update_owned_with_effects(self, current_time, ui);");
     !scheduler_declared
         && matches!((queue, players), (Some(queue), Some(players)) if queue < players)
 }

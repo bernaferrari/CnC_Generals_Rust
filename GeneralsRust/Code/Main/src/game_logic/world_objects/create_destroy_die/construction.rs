@@ -46,18 +46,18 @@ impl GameLogic {
         orientation: f32,
         cost: Resources,
     ) -> Option<ObjectId> {
-        self.create_dozer_scaffold_with_ui(
+        self.create_dozer_scaffold_with_effects(
             template_name,
             owner_player_id,
             constructor,
             position,
             orientation,
             cost,
-            &mut None,
+            &mut Default::default(),
         )
     }
 
-    pub(crate) fn create_dozer_scaffold_with_ui(
+    pub(crate) fn create_dozer_scaffold_with_effects(
         &mut self,
         template_name: &str,
         owner_player_id: u32,
@@ -65,7 +65,7 @@ impl GameLogic {
         position: Vec3,
         orientation: f32,
         cost: Resources,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         let (owner, team) = self.unit_owner_if_can_construct(constructor)?;
         if owner != owner_player_id || !self.players.get(&owner)?.can_afford(&cost) {
@@ -154,7 +154,7 @@ impl GameLogic {
             constructor,
             cost,
             observe_factory,
-            &mut None,
+            &mut Default::default(),
         )
     }
 
@@ -168,7 +168,7 @@ impl GameLogic {
         constructor: Option<ObjectId>,
         cost: Option<Resources>,
         mut observe_factory: impl FnMut(&GameLogic, ObjectId),
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
         if owner_player_id.is_some_and(|player_id| {
             self.players.get(&player_id).map(|player| player.team) != Some(team)

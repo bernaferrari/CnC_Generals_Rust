@@ -297,7 +297,7 @@ impl CnCGameEngine {
         // advance scripted camera axes, follow, shake and terrain-height ease.
         self.advance_native_camera_view(decision, camera_scroll);
         if decision.update_views && !self.script_time_fast() {
-            self.finalize_native_view_camera();
+            self.finalize_native_view_camera()?;
         }
         #[cfg(feature = "game_client")]
         {
@@ -367,7 +367,7 @@ impl CnCGameEngine {
     }
 
     /// Shared final camera commitment. Rendering consumes these exact matrices.
-    fn finalize_native_view_camera(&mut self) {
+    fn finalize_native_view_camera(&mut self) -> Result<(), String> {
         self.host_ensure_presentation_frame_for_render();
         if self
             .game_logic
@@ -382,32 +382,9 @@ impl CnCGameEngine {
                 self.snap_camera_to_local_units_if_needed();
             }
         }
-        // Source setCameraTransform applies a slave's final pose last. The
-        // retained slave resolver has its own tracked identity/bone gap.
-        #[cfg(feature = "game_client")]
-        if let Some(id) = self
-            .game_logic
-            .session_view
-            .camera
-            .camera_slave_mode
-            .as_ref()
-            .and_then(|mode| {
-                self.game_logic
-                    .owned_named_script_object(&mode.thing_template_name, None)
-            })
-        {
-            self.render_pipeline
-                .consume_native_camera_conditions(id, &mut self.graphics_system);
-        }
-        let slave_pose = self.apply_host_slave_camera();
-        if !slave_pose
-            && matches!(
-                self.current_state,
-                GameState::InGame | GameState::Paused | GameState::Menu
-            )
-        {
-            self.apply_camera_orbit_transform();
-        }
+        // Clip/projection is current before provisional constraint rays.
+        self.rebuild_tactical_projection();
+        self.set_native_camera_transform()?;
         let viewport = self.game_logic.session_view.camera.viewport;
         self.render_pipeline.set_tactical_3d_viewport(viewport);
         self.rebuild_tactical_projection();
@@ -416,6 +393,7 @@ impl CnCGameEngine {
         // neither selects nor advances a simulation or its camera/HAG.
         #[cfg(feature = "game_client")]
         game_client::display::view::with_tactical_view(|view| viewport.observe_in_core_view(view));
+        Ok(())
     }
 }
 

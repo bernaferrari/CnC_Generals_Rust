@@ -81,47 +81,10 @@ impl RenderPipeline {
                 }
             }
             PresentationDrawableMutation::TransformInstalled { .. } => {
-                let Some((revision, world)) = source
-                    .and_then(|s| s.draw_playback_identity.as_ref())
-                    .and_then(|identity| identity.native_pose())
-                else {
-                    return;
-                };
+                let Some(source) = source else { return };
                 for ((object, _), state) in &mut self.drawable_visual_states {
                     if *object == id.0 {
-                        if let Some(source) = source {
-                            state.native_source_supported = source.mesh_scale == 1.
-                                && source.float_yaw == 0.
-                                && source.float_pitch == 0.;
-                        }
-                    }
-                    if *object == id.0 && state.native_transform_revision != Some(revision) {
-                        state.native_transform_revision = Some(revision);
-                        state.native_drawable_transform = world;
-                        if let InstalledDrawObject::Ready(pose) = &mut state.installed_draw_pose {
-                            let mut adjusted = world;
-                            if let (Some(source), Some(selected)) =
-                                (source, state.native_selected_condition.as_ref())
-                            {
-                                if selected.flags
-                                    & (1 << crate::assets::ACBIT_ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT)
-                                    != 0
-                                {
-                                    let percent = if source.under_construction {
-                                        source.construction_percent.clamp(0., 1.) * 100.
-                                    } else {
-                                        -1.
-                                    };
-                                    if let Some(delta) = crate::assets::construction_percent_height_delta(
-                                        percent,
-                                        source.max_height_above_position,
-                                    ) {
-                                        adjusted *= Mat4::from_translation(Vec3::Y * delta);
-                                    }
-                                }
-                            }
-                            pose.install_transform(adjusted);
-                        }
+                        state.receive_native_source_transform(source);
                     }
                 }
             }
@@ -153,9 +116,32 @@ impl RenderPipeline {
         }
     }
 
+    /// Source getDrawModules on the same installed owner, through a bounded loan.
+    pub(crate) fn consume_native_camera_conditions(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+        graphics: &mut GraphicsSystem,
+    ) {
+        self.borrow_native_installed_poses()
+            .consume_native_camera_conditions(id, graphics);
+    }
+    fn install_native_condition(
+        &mut self,
+        id: crate::game_logic::ObjectId,
+        index: u32,
+        world: Mat4,
+        sync_ms: u32,
+        graphics: &mut GraphicsSystem,
+    ) {
+        self.borrow_native_installed_poses()
+            .install_native_condition(id, index, world, sync_ms, graphics);
+    }
+}
+
+impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
     /// Source getDrawModules: consume dirty selections only for the actual
     /// named camera target. This does not run Draw pause/completion/recoil.
-    pub(crate) fn consume_native_camera_conditions(
+    pub(super) fn consume_native_camera_conditions(
         &mut self,
         id: crate::game_logic::ObjectId,
         graphics: &mut GraphicsSystem,
@@ -189,7 +175,7 @@ impl RenderPipeline {
         self.admit_pending_native_drawable_restore(id);
     }
 
-    fn install_native_condition(
+    pub(super) fn install_native_condition(
         &mut self,
         id: crate::game_logic::ObjectId,
         index: u32,
@@ -237,7 +223,7 @@ impl RenderPipeline {
             return;
         }
         let mut budget = usize::MAX;
-        let model = match Self::ensure_render_model_loaded(
+        let model = match RenderPipeline::ensure_render_model_loaded(
             &mut self.failed_model_resolutions,
             graphics,
             &template,
@@ -264,7 +250,7 @@ impl RenderPipeline {
             return;
         };
         let binding = identity.animation.as_ref().and_then(|animation| {
-            Self::cached_draw_animation_binding(&model, &animation.hierarchy_animation)
+            RenderPipeline::cached_draw_animation_binding(&model, &animation.hierarchy_animation)
         });
         let state = self.drawable_visual_states.get_mut(&(id.0, index)).unwrap();
         let retain = match &state.installed_draw_pose {
@@ -343,7 +329,72 @@ impl RenderPipeline {
 // These are the same dirty/consume phases used by the actual native receiver;
 // ownership stays with ObjectVisualState, independent of graphics allocation.
 impl ObjectVisualState {
-    fn mark_native_condition(&mut self, bits: u128, selected: crate::assets::AuthoredDrawModel) {
+    /// Shared actual transform/support producer for display observers and an
+    /// immediate current-object camera query. It never constructs a Drawable.
+    pub(super) fn receive_native_source_transform(
+        &mut self,
+        source: &crate::presentation_frame::UnitRenderInput,
+    ) {
+        let Some(identity) = source.draw_playback_identity.as_ref() else {
+            return;
+        };
+        self.receive_native_transform_observations(
+            identity,
+            source.mesh_scale,
+            source.float_yaw,
+            source.float_pitch,
+            source.under_construction,
+            source.construction_percent,
+            source.max_height_above_position,
+        );
+    }
+    pub(super) fn receive_native_transform_observations(
+        &mut self,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        mesh_scale: f32,
+        float_yaw: f32,
+        float_pitch: f32,
+        under_construction: bool,
+        construction_percent: f32,
+        max_height_above_position: f32,
+    ) {
+        let Some((revision, world)) = identity.native_pose() else {
+            return;
+        };
+        self.native_source_supported = mesh_scale == 1. && float_yaw == 0. && float_pitch == 0.;
+        if self.native_transform_revision == Some(revision) {
+            return;
+        }
+        self.native_transform_revision = Some(revision);
+        self.native_drawable_transform = world;
+        if let InstalledDrawObject::Ready(pose) = &mut self.installed_draw_pose {
+            let mut adjusted = world;
+            if let Some(selected) = self.native_selected_condition.as_ref() {
+                if selected.flags
+                    & (1 << crate::assets::ACBIT_ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT)
+                    != 0
+                {
+                    let percent = if under_construction {
+                        construction_percent.clamp(0., 1.) * 100.
+                    } else {
+                        -1.
+                    };
+                    if let Some(delta) = crate::assets::construction_percent_height_delta(
+                        percent,
+                        max_height_above_position,
+                    ) {
+                        adjusted *= Mat4::from_translation(Vec3::Y * delta);
+                    }
+                }
+            }
+            pose.install_transform(adjusted);
+        }
+    }
+    pub(super) fn mark_native_condition(
+        &mut self,
+        bits: u128,
+        selected: crate::assets::AuthoredDrawModel,
+    ) {
         if self.native_condition_bits != Some(bits) || !self.native_condition_supported {
             self.native_condition_bits = Some(bits);
             self.native_pending_condition = Some(selected);

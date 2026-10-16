@@ -3,13 +3,13 @@ use super::*;
 use gamelogic::scripting::engine::ScriptEngine;
 
 impl GameLogic {
-    pub(crate) fn recruit_owned_specific_ai_team_with_ui(
+    pub(crate) fn recruit_owned_specific_ai_team_with_effects(
         &mut self,
         player: u32,
         name: &str,
         radius: f32,
         interpreter: Option<&ScriptEngine>,
-        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         let Some(ai) = self.ai_manager.ai_players.get(&player) else {
             return false;
@@ -51,10 +51,10 @@ impl GameLogic {
         let identity = created.read().unwrap_or_else(|e| e.into_inner()).get_id();
         for effect in effects {
             if let Some(engine) = interpreter {
-                self.execute_owned_ai_condition_with_ui(engine, &effect, None, ui);
+                self.execute_owned_ai_condition_with_effects(engine, &effect, None, ui);
             } else {
                 self.with_owned_script_engine(|engine, world| {
-                    world.execute_owned_ai_condition_with_ui(engine, &effect, None, ui)
+                    world.execute_owned_ai_condition_with_effects(engine, &effect, None, ui)
                 });
             }
         }
@@ -161,6 +161,29 @@ impl GameLogic {
         ai.team_ready_queue.push_front(ready);
         ai.activity_count = ai.activity_count.saturating_add(1);
         true
+    }
+    // Explicit UI-only adapter for standalone callers.
+    pub(crate) fn recruit_owned_specific_ai_team_with_ui(
+        &mut self,
+        player: u32,
+        name: &str,
+        radius: f32,
+        interpreter: Option<&ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> bool {
+        let mut effects = crate::game_logic::ScriptPresentationEffects {
+            ui: ui
+                .as_mut()
+                .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+            view: None,
+        };
+        self.recruit_owned_specific_ai_team_with_effects(
+            player,
+            name,
+            radius,
+            interpreter,
+            &mut effects,
+        )
     }
 }
 

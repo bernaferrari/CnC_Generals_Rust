@@ -1,18 +1,21 @@
 //! Canonical native camera state belongs to one SessionView, including HAG.
 //! Constructors are inert; the Engine admits its configured boot pose explicitly.
 use glam::{Mat4, Vec3};
+pub(crate) mod build;
 mod commands;
+pub(crate) mod constraints;
 pub(crate) mod continuation;
 pub(crate) mod height;
 pub(crate) mod motion;
 pub(crate) mod pose;
 pub(crate) mod projection;
-mod shaker;
+pub(crate) mod shaker;
 pub(crate) mod viewport;
 pub(crate) use shaker::ScriptCameraShaker;
 
 #[derive(Debug)]
 pub(crate) struct SessionCamera {
+    pub(crate) constraints: constraints::CameraConstraints,
     pub(crate) viewport: viewport::TacticalViewport,
     pub(crate) camera_position: Vec3,
     pub(crate) scripted_camera_constraint_widen: Option<(f32, f32, f32, f32)>,
@@ -57,6 +60,7 @@ impl Default for SessionCamera {
         let native_camera = height::CameraHeight::new(300., 37.5, 0.);
         let (position, look) = native_camera.basis().pose(Vec3::ZERO, 1., 0., 0.);
         Self {
+            constraints: Default::default(),
             viewport: Default::default(),
             camera_position: position,
             scripted_camera_constraint_widen: None,

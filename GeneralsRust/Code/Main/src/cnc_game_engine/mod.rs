@@ -118,6 +118,7 @@ mod mouse;
 #[cfg(test)]
 pub(crate) use mouse::live_view_height_clamp;
 mod native_display;
+mod native_view_effects;
 #[cfg(feature = "game_client")]
 mod native_visual_time;
 pub(crate) mod object_ini_boot;

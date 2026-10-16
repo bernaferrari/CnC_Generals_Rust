@@ -653,18 +653,7 @@ impl PresentationWorldEnv {
             })
             .collect();
 
-        let weather = logic.weather_state().current_weather.to_ascii_lowercase();
-        let (follow_weather, is_night) = get_global_data()
-            .map(|global| {
-                let global = global.read();
-                (
-                    global.force_models_to_follow_weather,
-                    // C++ Drawable::setTimeOfDay / Object bind: NIGHT iff tod==TIME_OF_DAY_NIGHT.
-                    matches!(global.time_of_day, TimeOfDay::Night),
-                )
-            })
-            .unwrap_or((true, false));
-        let is_snow = weather.contains("snow") && follow_weather;
+        let (is_snow, is_night) = current_model_environment(logic);
 
         // C++ W3DDisplay::setTimeOfDay applies all 3 object lights; TerrainVisual
         // uses the terrain array. Map objects-lighting wins for units/shadows.
@@ -1013,4 +1002,21 @@ mod lighting_parity_tests {
         assert!(!day.is_night);
         *handle.write() = previous;
     }
+}
+
+/// Model condition weather/time observation, without a full presentation freeze.
+pub(super) fn current_model_environment(logic: &GameLogic) -> (bool, bool) {
+    let weather = logic.weather_state().current_weather.to_ascii_lowercase();
+    let (follow_weather, is_night) = get_global_data()
+        .map(|global| {
+            let global = global.read();
+            (
+                global.force_models_to_follow_weather,
+                // C++ Drawable::setTimeOfDay / Object bind: NIGHT iff tod==TIME_OF_DAY_NIGHT.
+                matches!(global.time_of_day, TimeOfDay::Night),
+            )
+        })
+        .unwrap_or((true, false));
+    let is_snow = weather.contains("snow") && follow_weather;
+    (is_snow, is_night)
 }

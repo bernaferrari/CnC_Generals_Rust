@@ -47,29 +47,16 @@ fn reset_filter_selection(filter: &mut ViewFilterState) {
     filter.set_filter(FilterType::Null);
 }
 
-/// The camera fields borrowed through one current-frame filter completion.
-/// HAG and the map basis are observed, never advanced by this draw continuation.
+/// The actual camera owner borrowed through one current-frame filter completion.
+/// A source build advances transform shakers, but never HAG/scalar view clocks.
 #[cfg(feature = "game_client")]
 pub(super) struct NativeFilterCameraContext<'a> {
     pub look_at_modes: &'a mut super::mouse::LookAtHostModes,
-    pub yaw_target: &'a mut Option<f32>,
-    pub yaw_duration: &'a mut f32,
     pub target: &'a mut Vec3,
     pub impulse: Vec3,
-    pub native_camera: &'a super::camera_height::CameraHeight,
-    pub zoom: f32,
-    pub pitch: f32,
-    pub yaw: f32,
-    pub fx_pitch: f32,
-    pub shake_rotation: Vec3,
-    pub slave_mode: bool,
-    pub position: &'a mut Vec3,
-    pub view: &'a mut Mat4,
-    pub projection: Mat4,
+    pub native: &'a mut crate::presentation_frame::camera::SessionCamera,
     pub world_bounds: (Vec3, Vec3),
-    pub constraint_inset: f32,
-    pub constraint_widen: &'a mut Option<(f32, f32, f32, f32)>,
-    pub env: Option<&'a crate::presentation_frame::PresentationWorldEnv>,
+    pub terrain: &'a gamelogic::terrain::TerrainLogic,
 }
 #[cfg(feature = "game_client")]
 impl NativeFilterCameraContext<'_> {
@@ -77,44 +64,34 @@ impl NativeFilterCameraContext<'_> {
         &mut self,
         point: Option<Vec3>,
         cancel_scripted_camera: &mut dyn FnMut(),
-    ) -> crate::graphics::render_pipeline::FilterCameraMatrices {
+        sample: &mut dyn FnMut(
+            &crate::game_logic::mission_scripts::CameraSlaveModeRequest,
+        )
+            -> crate::presentation_frame::camera::build::SlaveCameraSample,
+    ) -> Result<crate::graphics::render_pipeline::FilterCameraMatrices, String> {
         if let Some(point) = point {
             self.look_at_modes
                 .note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::LookAt);
-            *self.yaw_target = None;
-            *self.yaw_duration = 0.;
+            self.native.camera_yaw_target = None;
+            self.native.camera_yaw_duration = 0.;
             cancel_scripted_camera();
-            *self.target = super::start_game::center_camera_target(
+            *self.target = crate::presentation_frame::receiving_look_at_target(
                 point,
-                *self.target,
-                *self.position,
-                self.world_bounds.0,
-                self.world_bounds.1,
-                self.constraint_inset,
-                self.constraint_widen,
-                true,
-                self.env,
-            );
-            if !self.slave_mode {
-                let (source, look) = super::start_game::camera_orbit_pose(
-                    self.native_camera,
-                    *self.target,
-                    self.impulse,
-                    self.zoom,
-                    self.pitch,
-                    self.yaw,
-                    self.fx_pitch,
-                );
-                *self.position = source;
-                *self.view =
-                    super::start_game::camera_orbit_view(source, look, self.shake_rotation);
-            }
+                self.native,
+                self.terrain,
+            )?;
+            self.native.set_camera_transform(
+                self.target,
+                self.impulse,
+                self.world_bounds,
+                sample,
+            )?;
         }
-        crate::graphics::render_pipeline::FilterCameraMatrices {
-            view: *self.view,
-            projection: self.projection,
-            position: *self.position,
-        }
+        Ok(crate::graphics::render_pipeline::FilterCameraMatrices {
+            view: self.native.view_matrix,
+            projection: self.native.projection_matrix,
+            position: self.native.camera_position,
+        })
     }
 }
 
@@ -245,35 +222,54 @@ mod tests {
                 let mut yaw_duration = 5.;
                 let mut position = Vec3::new(0., 400., -400.);
                 let mut view = Mat4::IDENTITY;
-                let mut widen = None;
                 let (_, target, impulse, mut cancellation, _, _) =
                     world.split_filter_camera_owner();
+                let mut native = crate::presentation_frame::camera::SessionCamera::default();
+                native.native_camera =
+                    super::super::camera_height::CameraHeight::new(400., 45., 0.);
+                native.camera_zoom = zoom;
+                native.camera_fx_pitch = pitch;
+                native.camera_yaw_target = yaw_target;
+                native.camera_yaw_duration = yaw_duration;
+                native.camera_position = position;
+                native.view_matrix = view;
+                native.projection_matrix = Mat4::IDENTITY;
+                native
+                    .constraints
+                    .recalculate(Vec3::ZERO, Vec3::new(100., 0., 100.), 0.)
+                    .unwrap();
+                let terrain = gamelogic::terrain::TerrainLogic::new();
                 let mut camera = NativeFilterCameraContext {
                     look_at_modes: &mut modes,
-                    yaw_target: &mut yaw_target,
-                    yaw_duration: &mut yaw_duration,
                     target,
                     impulse,
-                    native_camera: &height,
-                    zoom,
-                    pitch: 0.,
-                    yaw: 0.,
-                    fx_pitch: pitch,
-                    shake_rotation: Vec3::ZERO,
-                    slave_mode: false,
-                    position: &mut position,
-                    view: &mut view,
-                    projection: Mat4::IDENTITY,
+                    native: &mut native,
                     world_bounds: (Vec3::ZERO, Vec3::new(100., 0., 100.)),
-                    constraint_inset: 0.,
-                    constraint_widen: &mut widen,
-                    env: None,
+                    terrain: &terrain,
                 };
-                let completed =
-                    camera.finish(Some(Vec3::new(60., 0., 40.)), &mut || cancellation.cancel());
+                let completed = camera
+                    .finish(
+                        Some(Vec3::new(60., 0., 40.)),
+                        &mut || cancellation.cancel(),
+                        &mut |_| panic!("ordinary camera cannot query slave"),
+                    )
+                    .unwrap();
                 assert_eq!(*camera.target, Vec3::new(60., 0., 40.));
                 assert_ne!(completed.view, Mat4::IDENTITY);
+                assert_eq!(
+                    (
+                        camera.native.native_camera.desired(),
+                        camera
+                            .native
+                            .native_camera
+                            .basis()
+                            .pose(Vec3::ZERO, 1., 0., 0.)
+                    ),
+                    hag_before
+                );
                 drop(camera);
+                yaw_target = native.camera_yaw_target;
+                yaw_duration = native.camera_yaw_duration;
                 drop(cancellation);
                 assert!(
                     !world.camera_movement_finished(),
@@ -379,42 +375,59 @@ mod tests {
         let mut yaw_duration = 3.;
         let mut position = Vec3::new(0., 400., -400.);
         let mut view = Mat4::IDENTITY;
-        let mut widen = None;
         let (_, target, impulse, mut cancellation, _, _) = world.split_filter_camera_owner();
+        let mut native = crate::presentation_frame::camera::SessionCamera::default();
+        native.native_camera = super::super::camera_height::CameraHeight::new(400., 45., 0.);
+        native.camera_yaw_target = yaw_target;
+        native.camera_yaw_duration = yaw_duration;
+        native.camera_position = position;
+        native.view_matrix = view;
+        native.projection_matrix = Mat4::IDENTITY;
+        native
+            .constraints
+            .recalculate(Vec3::ZERO, Vec3::new(100., 0., 100.), 0.)
+            .unwrap();
+        let terrain = gamelogic::terrain::TerrainLogic::new();
         let mut camera = NativeFilterCameraContext {
             look_at_modes: &mut modes,
-            yaw_target: &mut yaw_target,
-            yaw_duration: &mut yaw_duration,
             target,
             impulse,
-            native_camera: &height,
-            zoom: 1.,
-            pitch: 0.,
-            yaw: 0.,
-            fx_pitch: 1.,
-            shake_rotation: Vec3::ZERO,
-            slave_mode: false,
-            position: &mut position,
-            view: &mut view,
-            projection: Mat4::IDENTITY,
+            native: &mut native,
             world_bounds: (Vec3::ZERO, Vec3::new(100., 0., 100.)),
-            constraint_inset: 0.,
-            constraint_widen: &mut widen,
-            env: None,
+            terrain: &terrain,
         };
-        let unchanged = camera.finish(None, &mut || panic!("no peak cannot cancel"));
+        let unchanged = camera
+            .finish(None, &mut || panic!("no peak cannot cancel"), &mut |_| {
+                panic!("no peak cannot sample")
+            })
+            .unwrap();
         assert_eq!(unchanged.view, Mat4::IDENTITY);
         assert_eq!(unchanged.position, Vec3::new(0., 400., -400.));
-        let completed = camera.finish(Some(Vec3::new(200., 0., 40.)), &mut || {
-            cancellation.cancel()
-        });
+        let completed = camera
+            .finish(
+                Some(Vec3::new(200., 0., 40.)),
+                &mut || cancellation.cancel(),
+                &mut |_| panic!("ordinary camera cannot query slave"),
+            )
+            .unwrap();
         assert_eq!(*camera.target, Vec3::new(100., 0., 40.));
         let (eye, look) = height.basis().pose(*camera.target, 1., 0., 0.);
         assert_eq!(completed.position, eye);
         assert_eq!(completed.view, Mat4::look_at_rh(eye, look, Vec3::Y));
         assert_eq!(height.basis().pose(Vec3::ZERO, 1., 0., 0.), basis_before);
         assert_eq!(height.desired(), desired);
+        assert_eq!(camera.native.native_camera.desired(), desired);
+        assert_eq!(
+            camera
+                .native
+                .native_camera
+                .basis()
+                .pose(Vec3::ZERO, 1., 0., 0.),
+            basis_before
+        );
         drop(camera);
+        yaw_target = native.camera_yaw_target;
+        yaw_duration = native.camera_yaw_duration;
         drop(cancellation);
         assert!(!world.script_camera_path_active());
         assert!(world.peek_pending_camera_rotate().is_none());

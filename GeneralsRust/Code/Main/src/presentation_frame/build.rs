@@ -175,7 +175,7 @@ pub(super) fn freeze_direct_can_disguise_as_team(obj: &crate::game_logic::Object
 /// gameplay Object template.  Keep the source ThingTemplate name for ordinary
 /// Objects and use the committed disguise template only once the status says
 /// it is active.
-fn direct_host_visual_template_name(obj: &crate::game_logic::Object) -> String {
+pub(super) fn direct_host_visual_template_name(obj: &crate::game_logic::Object) -> String {
     let actual_template_name = obj.thing().template.name.as_str();
     if obj.status.disguised {
         obj.disguise_as_template
@@ -193,7 +193,7 @@ fn direct_host_visual_template_name(obj: &crate::game_logic::Object) -> String {
 /// identity is a frozen name, so resolve the matching loaded host template at
 /// the same snapshot boundary and fail closed to the source scale when an
 /// incomplete test/mod table lacks that named template.
-fn direct_host_visual_mesh_scale(
+pub(super) fn direct_host_visual_mesh_scale(
     logic: &GameLogic,
     obj: &crate::game_logic::Object,
     visual_template_name: &str,
@@ -388,31 +388,7 @@ impl PresentationFrame {
         // Local force residual: always present own-team objects fully visible.
         // C++ always draws the controlling player's units; host FOW membership can
         // miss builders when sight_range / ObjectManager dual-world is incomplete.
-        let mut local_team = logic
-            .get_player(local_player_id)
-            .map(|p| p.team)
-            .unwrap_or(Team::Neutral);
-        // If the requested slot is missing or Neutral, own-team objects would
-        // fall through to shroud HIDDEN. Prefer the first is_local non-Neutral
-        // player so builders/CCs stay FULLY_VISIBLE (FOW still applies to
-        // Neutral/unexplored enemies).
-        if local_team == Team::Neutral {
-            if let Some(team) = logic
-                .get_players()
-                .values()
-                .find(|p| p.is_local && p.team != Team::Neutral)
-                .map(|p| p.team)
-            {
-                local_team = team;
-            }
-        }
-        // C++ always resolves a real local house (skirmish slot 0 = America):
-        // there is no Neutral local controller.  Leaving local_team Neutral
-        // makes the legacy team-fallback treat every object as hostile and
-        // nothing as locally owned, so fail over to the default local house.
-        if local_team == Team::Neutral {
-            local_team = Team::USA;
-        }
+        let local_team = super::live_draw_source::receiving_local_team(logic, local_player_id);
         // Freeze team base proximity once (camera snap / host residual).
         let local_team_base_position = logic.team_base_position(local_team);
         // Freeze terrain FOW grid once for this presentation frame (local player only).
@@ -540,54 +516,8 @@ impl PresentationFrame {
                 };
                 state as u8
             };
-            let model_condition_bits = {
-                // Preserve the same frozen condition bank used by the mesh
-                // pass.  C++ W3DModelDraw selects an authored ConditionState
-                // from these bits, rather than forming a basename suffix.
-                let mut bits = obj.model_condition_bits;
-                use crate::game_logic::host_enum_table_residual::{
-                    HostBodyDamageType, MC_BIT_ATTACKING, MC_BIT_DYING, MC_BIT_MOVING,
-                    host_apply_body_damage_model_bits, host_calc_body_damage_state,
-                };
-                use crate::game_logic::host_neutron_missile_slow_death::{
-                    MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
-                };
-                let state = if destroyed_for_mesh {
-                    HostBodyDamageType::Rubble
-                } else {
-                    host_calc_body_damage_state(auth_health, obj.health.maximum.max(0.0))
-                };
-                bits = host_apply_body_damage_model_bits(bits, state);
-
-                if obj.front_crushed {
-                    bits |= 1u128 << MC_BIT_FRONTCRUSHED;
-                }
-                if obj.back_crushed {
-                    bits |= 1u128 << MC_BIT_BACKCRUSHED;
-                }
-                if obj.status.moving {
-                    bits |= 1u128 << MC_BIT_MOVING;
-                } else {
-                    bits &= !(1u128 << MC_BIT_MOVING);
-                }
-                if obj.status.attacking {
-                    bits |= 1u128 << MC_BIT_ATTACKING;
-                } else {
-                    bits &= !(1u128 << MC_BIT_ATTACKING);
-                }
-                if destroyed_for_mesh {
-                    bits |= 1u128 << MC_BIT_DYING;
-                } else {
-                    bits &= !(1u128 << MC_BIT_DYING);
-                }
-                use crate::game_logic::host_enum_table_residual::MC_BIT_DISGUISED;
-                if obj.status.disguised {
-                    bits |= 1u128 << MC_BIT_DISGUISED;
-                } else {
-                    bits &= !(1u128 << MC_BIT_DISGUISED);
-                }
-                bits
-            };
+            let model_condition_bits =
+                super::live_draw_source::current_base_condition_bits(logic, obj);
             let fallback_draw_models =
                 (!base_model_key.trim().is_empty()).then(|| crate::assets::AuthoredDrawModel {
                     module_index: 0,
