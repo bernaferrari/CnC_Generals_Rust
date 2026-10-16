@@ -86,6 +86,7 @@ pub const GAME_LOGIC_HOST_SRC: &str = concat!(
     include_str!("../world_tick/combat.rs"),
     include_str!("../world_tick/combat_fire_fx.rs"),
     include_str!("../world_tick/teams.rs"),
+    include_str!("../world_tick/teams/admission.rs"),
     include_str!("../world_tick/crates.rs"),
     include_str!("../world_tick/attack.rs"),
     include_str!("../world_tick/shock.rs"),

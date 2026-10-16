@@ -697,6 +697,26 @@ pub trait ScriptExecutionDriver {
         None
     }
 
+    /// Receiving team's definition, waypoint and creation callbacks.
+    fn create_reinforcements(
+        &mut self,
+        _team: &str,
+        _waypoint: &str,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// Main owns team membership and synchronous inactive-create callbacks.
+    fn merge_team(
+        &mut self,
+        _source: &str,
+        _destination: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     fn team_attitude(
         &mut self,
         _team: &str,

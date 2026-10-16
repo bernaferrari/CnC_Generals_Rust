@@ -163,3 +163,80 @@ fn existing_crossfade_adapter_still_consumes_its_active_fade() {
     assert_eq!(state.fade_progress, 1);
     assert_eq!(state.composite(Vector2::zero()).fade, 0.);
 }
+
+#[test]
+fn saved_filter_phase_rejects_completed_fade_but_accepts_last_frame_and_zero_duration() {
+    for filter in [
+        FilterType::BlackAndWhite,
+        FilterType::Crossfade,
+        FilterType::MotionBlur,
+    ] {
+        for direction in [-1, 1] {
+            let mut state = zoom();
+            state.filter = filter;
+            state.fade_total = i32::MAX;
+            state.fade_progress = i32::MAX;
+            state.fade_direction = direction;
+            assert!(state.validate().is_err(), "completed {filter:?} fade");
+            state.fade_progress -= 1;
+            state.validate().unwrap();
+            if state.uses_fade() {
+                state.tick_fade();
+                assert_eq!(state.fade_progress, 0);
+                assert_eq!(state.fade_direction, 0);
+                state.validate().unwrap();
+            }
+            state.set_fade_parameters(0, direction);
+            state.validate().unwrap();
+        }
+    }
+}
+
+#[test]
+fn saved_filter_phase_separates_nonpan_count_limit_from_retained_pan_limit() {
+    let mut state = zoom();
+    state.pan_factor = i32::MAX;
+    for mode in [
+        FilterMode::Null,
+        FilterMode::MBInAndOutAlpha,
+        FilterMode::MBInAndOutSaturate,
+        FilterMode::MBInAlpha,
+        FilterMode::MBOutAlpha,
+        FilterMode::MBInSaturate,
+        FilterMode::MBOutSaturate,
+    ] {
+        state.mode = mode;
+        for count in [MOTION_BLUR_MAX_COUNT + 1, i32::MAX] {
+            state.count = count;
+            assert!(state.validate().is_err(), "{mode:?} count {count}");
+        }
+        state.count = MOTION_BLUR_MAX_COUNT;
+        state.validate().unwrap();
+    }
+    for (mode, pan_factor) in [
+        (FilterMode::MBPanAlpha, i32::MAX),
+        (FilterMode::MBPanAlpha1, 1),
+        (FilterMode::MBPanAlpha2, 2),
+        (FilterMode::MBPanAlpha3, 3),
+        (FilterMode::MBEndPanAlpha, i32::MAX),
+    ] {
+        state.mode = mode;
+        state.pan_factor = pan_factor;
+        state.count = pan_factor;
+        state.validate().unwrap();
+        let step = state.post_render(1, Vector2::zero());
+        assert!(step.pan);
+        state.validate().unwrap();
+    }
+    state.filter = FilterType::BlackAndWhite;
+    state.mode = FilterMode::BWBlackAndWhite;
+    state.count = i32::MAX;
+    state.validate().unwrap();
+    state.set_filter(FilterType::MotionBlur);
+    state.set_mode(FilterMode::MBInAndOutAlpha);
+    assert_eq!(
+        state.count, 0,
+        "new nonpan setup discards retained PAN count"
+    );
+    state.validate().unwrap();
+}

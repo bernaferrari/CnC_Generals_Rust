@@ -1255,16 +1255,20 @@ impl GameLogic {
             position,
             creation_purpose,
             None,
+            None,
         )
     }
 
-    /// ScriptActions952 passes the concrete team into newObject, before onCreate.
-    pub(crate) fn create_object_on_owned_script_team(
+    /// ScriptActions952 passes the exact resident team into newObject before onCreate.
+    pub(crate) fn create_object_on_exact_script_team(
         &mut self,
         template: &str,
         controller: u32,
         team_name: &str,
+        team_id: u32,
         position: Vec3,
+        activate: bool,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> Option<ObjectId> {
         let faction = self.players.get(&controller)?.team;
         let id = self.create_object_with_initial_team(
@@ -1273,7 +1277,8 @@ impl GameLogic {
             Some(controller),
             position,
             FactoryCreationPurpose::AtCreation,
-            Some(team_name),
+            Some((team_name, team_id, activate)),
+            interpreter,
         )?;
         self.apply_cash_bounty_on_object_created(id);
         Some(id)
@@ -1286,7 +1291,8 @@ impl GameLogic {
         owner_player_id: Option<u32>,
         position: Vec3,
         creation_purpose: FactoryCreationPurpose,
-        initial_team: Option<&str>,
+        initial_team: Option<(&str, u32, bool)>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> Option<ObjectId> {
         if owner_player_id.is_some_and(|player_id| {
             self.players.get(&player_id).map(|player| player.team) != Some(team)
@@ -1400,8 +1406,9 @@ impl GameLogic {
             );
             object.attach_host_trigger_world(&self.host_trigger_world);
             object.owner_player_id = owner_player_id;
-            if let Some(team_name) = initial_team {
+            if let Some((team_name, team_id, _)) = initial_team {
                 object.team_instance_name = team_name.to_owned();
+                object.team_instance_id = Some(team_id);
             }
             if object.team_instance_name.is_empty() {
                 object.team_instance_name =
@@ -2401,7 +2408,11 @@ impl GameLogic {
             // C++ Object.cpp onCreate residual: inherit team prototype attitude + attack priority.
             self.inherit_team_ai_defaults(id);
             // C++ GameLogic map/create: team->setActive() once the team has members.
-            self.activate_leftover_team_for_host_object(id);
+            self.admit_team_for_host_object(
+                id,
+                interpreter,
+                initial_team.is_none_or(|(_, _, activate)| activate),
+            );
 
             // C++ SpecialPowerModule ctor (SpecialPowerModule.cpp:86-101):
             // pre-built non-SharedNSync modules arm their authored reload at

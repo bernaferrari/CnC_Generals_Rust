@@ -823,6 +823,22 @@ impl TeamFactory {
         None
     }
 
+    /// C++ findTeam: only an implicit non-singleton creation runs callbacks.
+    /// The caller delivers them synchronously after releasing the factory.
+    pub fn find_team_with_owned_effects(
+        &mut self,
+        name: &str,
+    ) -> Option<(Arc<RwLock<Team>>, Vec<String>)> {
+        let prototype = self.find_team_prototype(name)?;
+        if let Some(team) = self.find_existing_team_by_name(name) {
+            return Some((team, Vec::new()));
+        }
+        if prototype.is_singleton() {
+            return None;
+        }
+        self.create_inactive_team_with_owned_effects(name)
+    }
+
     /// Find all team instances that were created from the same prototype name.
     ///
     /// C++ Reference: `TeamPrototype::iterate_TeamInstanceList()` used by

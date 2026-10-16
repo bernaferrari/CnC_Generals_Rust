@@ -847,7 +847,16 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             ScriptActionType::BuildTeam => self.do_build_team(action, driver),
             ScriptActionType::RecruitTeam => self.do_recruit_team(action, driver),
-            ScriptActionType::CreateReinforcementTeam => self.do_create_reinforcement_team(action),
+            ScriptActionType::CreateReinforcementTeam => {
+                let team = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+                let waypoint = self.get_string_param(action, 1)?;
+                if let Some(result) = driver.create_reinforcements(&team, &waypoint) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_create_reinforcement_team(action)
+                }
+            }
             ScriptActionType::TeamWander => self.do_team_wander(action),
             ScriptActionType::TeamWanderInPlace => self.do_team_wander_in_place(action),
             ScriptActionType::TeamPanic => self.do_team_panic(action, driver),
@@ -871,7 +880,22 @@ impl ScriptActionDispatcher<'_> {
                 self.do_team_available_for_recruitment(action)
             }
             ScriptActionType::TeamCollectNearbyForTeam => self.do_team_collect_nearby(action),
-            ScriptActionType::TeamMergeIntoTeam => self.do_team_merge(action),
+            ScriptActionType::TeamMergeIntoTeam => {
+                let source = self.get_string_param(action, 0)?;
+                let destination = self.get_string_param(action, 1)?;
+                let (calling, condition) = self
+                    .context
+                    .with_engine_ref(|engine| {
+                        (engine.get_calling_team_id(), engine.get_condition_team_id())
+                    })
+                    .unwrap_or_default();
+                if let Some(result) = driver.merge_team(&source, &destination, calling, condition) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_team_merge(action)
+                }
+            }
             ScriptActionType::TeamFlash => self.do_team_flash(action),
             ScriptActionType::TeamFlashWhite => self.do_team_flash_white(action),
             ScriptActionType::TeamTransferToPlayer => {

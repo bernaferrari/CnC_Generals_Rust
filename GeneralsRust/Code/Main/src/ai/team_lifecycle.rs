@@ -37,7 +37,7 @@ impl GameLogic {
         self.delete_ai_team_with_observer(id, |world, name| notify(actor, world, id, name))
     }
 
-    pub(super) fn delete_canonical_ai_team(&mut self, id: u32) -> bool {
+    pub(crate) fn delete_canonical_ai_team(&mut self, id: u32) -> bool {
         self.delete_ai_team_with_observer(id, |world, name| {
             for ai in world.ai_manager.ai_players.values_mut() {
                 ai.ai_pre_team_destroy(Some(id), name);

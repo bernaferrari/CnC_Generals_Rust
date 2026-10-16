@@ -247,6 +247,27 @@ impl ViewFilterState {
         result
     }
     pub fn validate(&self) -> Result<(), String> {
+        // C++ completes a nonzero fade before returning from set/preRender.
+        // A pending zero-duration fade is valid until its first render, but a
+        // positive-duration fade cannot be saved at or beyond completion.
+        let completed_fade = self.fade_direction != 0
+            && self.fade_total > 0
+            && self.fade_progress >= self.fade_total;
+        // PAN/ENDPAN retain an authored pan limit; ordinary blur always uses
+        // MAX_COUNT. Inactive filters may retain the previous PAN counters.
+        let pan = matches!(
+            self.mode,
+            FilterMode::MBPanAlpha
+                | FilterMode::MBPanAlpha1
+                | FilterMode::MBPanAlpha2
+                | FilterMode::MBPanAlpha3
+                | FilterMode::MBEndPanAlpha
+        );
+        let count_limit = if self.filter == FilterType::MotionBlur && !pan {
+            MOTION_BLUR_MAX_COUNT
+        } else {
+            self.pan_factor.max(MOTION_BLUR_MAX_COUNT)
+        };
         if self
             .position
             .is_some_and(|p| !(p.x.is_finite() && p.y.is_finite() && p.z.is_finite()))
@@ -254,9 +275,10 @@ impl ViewFilterState {
             || self.fade_total < 0
             || self.fade_progress < 0
             || self.fade_progress > self.fade_total
+            || completed_fade
             || self.pan_factor < 1
             || self.count < -COUNT_STEP
-            || self.count > self.pan_factor.max(MOTION_BLUR_MAX_COUNT)
+            || self.count > count_limit
             || !(-1..=1).contains(&self.fade_direction)
         {
             return Err("invalid viewport filter continuation".into());

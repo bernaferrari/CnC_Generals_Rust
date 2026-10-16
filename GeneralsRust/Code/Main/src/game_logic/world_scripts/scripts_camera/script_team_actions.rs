@@ -232,6 +232,13 @@ impl GameLogic {
 
     /// C++ ScriptActions CREATE_OBJECT family live drain.
     pub(in crate::game_logic::game_logic) fn apply_host_create_script_requests(&mut self) {
+        self.apply_host_create_script_requests_with_interpreter(None);
+    }
+
+    pub(super) fn apply_host_create_script_requests_with_interpreter(
+        &mut self,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) {
         use gamelogic::scripting::HostScriptCreateRequest;
         for req in gamelogic::scripting::take_host_script_create_requests() {
             match req {
@@ -244,10 +251,23 @@ impl GameLogic {
                     z,
                     angle,
                 } => {
-                    self.host_script_create_object(name.as_deref(), &thing, &team, x, y, z, angle);
+                    self.host_script_create_object_with_interpreter(
+                        name.as_deref(),
+                        &thing,
+                        &team,
+                        x,
+                        y,
+                        z,
+                        angle,
+                        interpreter,
+                    );
                 }
                 HostScriptCreateRequest::ReinforcementTeam { team, waypoint } => {
-                    self.host_script_create_reinforcement_team(&team, &waypoint);
+                    self.host_script_create_reinforcement_team_with_interpreter(
+                        &team,
+                        &waypoint,
+                        interpreter,
+                    );
                 }
             }
         }
@@ -957,15 +977,7 @@ impl GameLogic {
                     .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
                 team.get_id()
             };
-            for script in effects {
-                if let Some(engine) = interpreter {
-                    self.execute_owned_ai_condition(engine, &script, None);
-                } else {
-                    self.with_owned_script_engine(|engine, world| {
-                        world.execute_owned_ai_condition(engine, &script, None)
-                    });
-                }
-            }
+            self.run_team_creation_effects(effects, interpreter)?;
             if let Some(team) = self
                 .team_factory
                 .lock()
@@ -996,9 +1008,15 @@ impl GameLogic {
             return Ok(());
         };
         let position = Self::host_script_coord_to_world(request.x, request.y, request.z);
-        if let Some(id) =
-            self.create_object_on_owned_script_team(request.template, controller, &name, position)
-        {
+        if let Some(id) = self.create_object_on_exact_script_team(
+            request.template,
+            controller,
+            &name,
+            team_id,
+            position,
+            false,
+            interpreter,
+        ) {
             if let Some(object) = self.objects.get_mut(&id) {
                 object.set_orientation(request.angle);
             }
@@ -1015,6 +1033,22 @@ impl GameLogic {
         y: f32,
         z: f32,
         angle: f32,
+    ) -> Option<ObjectId> {
+        self.host_script_create_object_with_interpreter(
+            name, thing, team_name, x, y, z, angle, None,
+        )
+    }
+
+    fn host_script_create_object_with_interpreter(
+        &mut self,
+        name: Option<&str>,
+        thing: &str,
+        team_name: &str,
+        x: f32,
+        y: f32,
+        z: f32,
+        angle: f32,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> Option<ObjectId> {
         if let Some(unit_name) = name.filter(|n| !n.is_empty()) {
             if let Some(id) = self.host_object_id_by_script_name(unit_name) {
@@ -1034,7 +1068,35 @@ impl GameLogic {
                 pos.y = h;
             }
         }
-        let id = self.create_object(thing, team, pos)?;
+        let selected = {
+            let mut factory = self.team_factory.lock().ok()?;
+            factory
+                .find_team_with_owned_effects(team_name)
+                .or_else(|| factory.create_inactive_team_with_owned_effects(team_name))
+        };
+        let id = if let Some((selected, effects)) = selected {
+            let identity = selected.read().ok()?.get_id();
+            if let Err(error) = self.run_team_creation_effects(effects, interpreter) {
+                log::error!("script object creation callback failed: {error}");
+                return None;
+            }
+            let current = self.team_factory.lock().ok()?.find_team_by_id(identity)?;
+            if !std::sync::Arc::ptr_eq(&current, &selected) {
+                return None;
+            }
+            let controller = current.read().ok()?.get_controlling_player_id()?;
+            self.create_object_on_exact_script_team(
+                thing,
+                controller,
+                team_name,
+                identity,
+                pos,
+                true,
+                interpreter,
+            )?
+        } else {
+            self.create_object(thing, team, pos)?
+        };
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.set_orientation(angle);
             if !team_name.trim().is_empty() {
@@ -1051,6 +1113,15 @@ impl GameLogic {
         &mut self,
         team_name: &str,
         waypoint_name: &str,
+    ) {
+        self.host_script_create_reinforcement_team_with_interpreter(team_name, waypoint_name, None);
+    }
+
+    pub(super) fn host_script_create_reinforcement_team_with_interpreter(
+        &mut self,
+        team_name: &str,
+        waypoint_name: &str,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) {
         let Some(dest) = self.host_script_waypoint_position(waypoint_name) else {
             return;
@@ -1079,10 +1150,48 @@ impl GameLogic {
                 origin = start_pos;
             }
         }
+        // C++510 creates one inactive instance before any transport/member.
+        let created = self
+            .team_factory
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .create_inactive_team_with_owned_effects(team_name);
+        let Some((team, effects)) = created else {
+            return;
+        };
+        let identity = team
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .get_id();
+        if let Err(error) = self.run_team_creation_effects(effects, interpreter) {
+            log::error!("reinforcement creation callback failed: {error}");
+            return;
+        }
+        let current = self
+            .team_factory
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .find_team_by_id(identity);
+        if current.is_none_or(|current| !std::sync::Arc::ptr_eq(&current, &team)) {
+            return;
+        }
+        let Some(controller) = team
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .get_controlling_player_id()
+        else {
+            return;
+        };
         let mut spawned: Vec<ObjectId> = Vec::new();
         if !transport.is_empty() {
-            if let Some(id) = self.host_script_create_object(
-                None, &transport, team_name, origin.x, origin.z, origin.y, 0.0,
+            if let Some(id) = self.create_object_on_exact_script_team(
+                &transport,
+                controller,
+                team_name,
+                identity,
+                origin,
+                false,
+                interpreter,
             ) {
                 spawned.push(id);
             }
@@ -1091,18 +1200,30 @@ impl GameLogic {
         for (thing, count) in units {
             for _ in 0..count {
                 let offset = slot as f32 * 5.0;
-                if let Some(id) = self.host_script_create_object(
-                    None,
+                if let Some(id) = self.create_object_on_exact_script_team(
                     &thing,
+                    controller,
                     team_name,
-                    origin.x + offset,
-                    origin.z,
-                    origin.y,
-                    0.0,
+                    identity,
+                    glam::Vec3::new(origin.x + offset, origin.y, origin.z),
+                    false,
+                    interpreter,
                 ) {
                     spawned.push(id);
                 }
                 slot += 1;
+            }
+        }
+        if transport.is_empty() {
+            if let Some(team) = self
+                .team_factory
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .find_team_by_id(identity)
+            {
+                team.write()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .set_active();
             }
         }
         if (origin - dest).length_squared() > 1.0 {

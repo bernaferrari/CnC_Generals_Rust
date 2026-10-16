@@ -1,5 +1,6 @@
 //! Host tick `impl GameLogic` — `teams`.
 #![allow(unused_imports, non_snake_case)]
+mod admission;
 mod panic;
 #[cfg(test)]
 mod retaliation_owner_tests;
@@ -530,135 +531,6 @@ impl GameLogic {
             }
         }
         format!("team{}", team.get_name())
-    }
-
-    /// C++ GameLogic.cpp:1888 `team->setActive()` when the team first has members.
-    pub fn activate_leftover_team_for_host_object(&mut self, id: ObjectId) {
-        let Some(obj) = self.objects.get(&id) else {
-            return;
-        };
-        let team_name = obj.team_instance_name.trim();
-        if team_name.is_empty() {
-            return;
-        }
-        let Ok(mut factory) = self.team_factory.lock() else {
-            return;
-        };
-        if let Some(player_id) = obj.owner_player_id {
-            if let Some(player) = self.players.get(&player_id) {
-                if team_name == self.default_host_team_instance_name(Some(player_id), obj.team) {
-                    super::team_membership::ensure_default_team_definition(
-                        &mut factory,
-                        team_name,
-                        default_team_owner_name(player).unwrap_or(&player.name),
-                        player_id,
-                    );
-                }
-            }
-        }
-        let team = match obj.team_instance_id {
-            Some(identity) => {
-                // A missing exact identity cannot become another same-name
-                // instance. Only an explicit authored-name change selects anew.
-                let Some(existing) = factory.find_team_by_id(identity) else {
-                    return;
-                };
-                let same_definition = existing
-                    .read()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .get_name()
-                    .as_str()
-                    == team_name;
-                if same_definition {
-                    Some(existing)
-                } else {
-                    factory
-                        .find_team(team_name)
-                        .or_else(|| factory.create_inactive_team(team_name))
-                }
-            }
-            None => factory
-                .find_team(team_name)
-                .or_else(|| factory.create_inactive_team(team_name)),
-        };
-        let Some(team) = team else {
-            return;
-        };
-        // A map/script admission may replace the initial default team. Move
-        // the member before adding it; this operation is not a frame-end repair.
-        for previous in factory.get_all_teams() {
-            if !std::sync::Arc::ptr_eq(&previous, &team) {
-                previous
-                    .write()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .remove_member(id.0);
-            }
-        }
-        let identity = {
-            let mut guard = team.write().unwrap_or_else(|error| error.into_inner());
-            guard.add_member(id.0);
-            guard.set_active();
-            guard.get_id()
-        };
-        drop(factory);
-        self.objects
-            .get_mut(&id)
-            .expect("admitted receiving object")
-            .team_instance_id = Some(identity);
-    }
-
-    /// C++ Object.cpp:4592 `m_team->notifyTeamOfObjectDeath()`.
-    pub fn notify_leftover_team_of_host_object_death(&self, id: ObjectId) {
-        let Some(obj) = self.objects.get(&id) else {
-            return;
-        };
-        let team_name = obj.team_instance_name.trim();
-        if team_name.is_empty() {
-            return;
-        }
-        let Ok(mut factory) = self.team_factory.lock() else {
-            return;
-        };
-        let Some(team) = factory.find_team(team_name) else {
-            return;
-        };
-        if let Ok(mut guard) = team.write() {
-            if !guard.has_member(id.0) {
-                return;
-            }
-            guard.notify_team_of_object_death();
-            guard.remove_member(id.0);
-        }
-        drop(factory);
-        gamelogic::team::flush_pending_team_script_events();
-    }
-
-    /// C++ Object destructor unlinks from TeamMemberList.
-    pub fn unlink_leftover_team_host_member(&self, id: ObjectId, team_name: &str) {
-        let team_name = team_name.trim();
-        if team_name.is_empty() {
-            return;
-        }
-        let factory = self
-            .team_factory
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        // Resolve existing instances only. A destructor must not create an
-        // inactive instance or select a different instance sharing this name.
-        let instances = match self
-            .objects
-            .get(&id)
-            .and_then(|object| object.team_instance_id)
-        {
-            Some(identity) => factory.find_team_by_id(identity).into_iter().collect(),
-            None => factory.find_team_instances(team_name),
-        };
-        for team in instances {
-            let mut guard = team.write().unwrap_or_else(|error| error.into_inner());
-            if guard.has_member(id.0) {
-                guard.remove_member(id.0);
-            }
-        }
     }
 
     /// Live Team member ids for leftover TEAM_* census (includes dead, no faction bleed).
@@ -1626,55 +1498,6 @@ impl GameLogic {
             let _ = ai_mgr.recruit_specific_ai_team_for_token(self, &owner, &team, radius);
         }
         self.ai_manager = ai_mgr;
-    }
-
-    /// C++ `ScriptActions::doMergeTeamIntoTeam` live drain.
-    /// Leftover `set_team` misses empty `OBJECT_REGISTRY`; rewrite live
-    /// `team_instance_name` so TEAM/NAMED census follows dest.
-    pub fn apply_host_merge_team_script_requests(&mut self) {
-        for req in gamelogic::scripting::take_host_script_merge_team_requests() {
-            self.host_script_merge_team_into_team(&req.source, &req.dest);
-        }
-    }
-
-    /// C++ `obj->setTeam(teamDest)` + `updateTeamAndPlayerStuff` + dest `setActive`.
-    fn host_script_merge_team_into_team(&mut self, source: &str, dest: &str) {
-        let source = source.trim();
-        let dest = dest.trim();
-        if source.is_empty() || dest.is_empty() || source.eq_ignore_ascii_case(dest) {
-            return;
-        }
-        let dest_owner = self
-            .team_factory
-            .lock()
-            .ok()
-            .and_then(|mut factory| {
-                factory
-                    .find_team(dest)
-                    .or_else(|| factory.create_team(dest))
-            })
-            .and_then(|team| {
-                team.read()
-                    .ok()
-                    .and_then(|guard| guard.get_controlling_player_id())
-            });
-        let ids: Vec<ObjectId> = self
-            .host_script_team_census_member_ids(source)
-            .into_iter()
-            .map(ObjectId)
-            .collect();
-        let team_factory = self.team_factory.clone();
-        for id in ids {
-            if let Some(obj) = self.host_object_mut(id) {
-                obj.team_instance_name = dest.to_string();
-                if let Some(pid) = dest_owner {
-                    obj.owner_player_id = Some(pid);
-                }
-                // C++ obj->setTeam(teamDest) applies dest proto attitude.
-                obj.apply_named_team_ai_profile(&team_factory, true);
-            }
-            self.activate_leftover_team_for_host_object(id);
-        }
     }
 
     /// C++ `ScriptActions::doTeamCaptureNearestUnownedFactionUnit` live drain.
@@ -2924,6 +2747,17 @@ mod tests {
             obj.team_instance_name = "USA_DestSquad".into();
         }
 
+        for name in ["USA_SrcSquad", "USA_DestSquad"] {
+            logic
+                .team_factory
+                .lock()
+                .unwrap()
+                .init_team_owned(name.into(), "PlyrAmerica".into(), true, None, Some(1))
+                .unwrap();
+        }
+        for id in [a, b, keep] {
+            logic.activate_leftover_team_for_host_object(id);
+        }
         request_host_script_merge_team("USA_SrcSquad", "USA_DestSquad");
         logic.apply_host_merge_team_script_requests();
 

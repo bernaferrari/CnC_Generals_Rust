@@ -2,7 +2,7 @@
 use super::*;
 
 impl GameLogic {
-    pub(super) fn resolve_owned_script_team(
+    pub(crate) fn resolve_owned_script_team(
         &self,
         raw_team: &str,
         calling_team: Option<u32>,

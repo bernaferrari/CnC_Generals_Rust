@@ -1649,8 +1649,39 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         Some(Ok(()))
     }
 
+    fn create_reinforcements(
+        &mut self,
+        team: &str,
+        waypoint: &str,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.world
+            .host_script_create_reinforcement_team_with_interpreter(
+                team,
+                waypoint,
+                self.interpreter,
+            );
+        Some(Ok(()))
+    }
+
+    fn merge_team(
+        &mut self,
+        source: &str,
+        destination: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(self.world.merge_owned_script_team(
+            source,
+            destination,
+            calling,
+            condition,
+            self.interpreter,
+        ))
+    }
+
     fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
-        self.world.apply_script_action_requests();
+        self.world
+            .apply_script_action_requests_with_interpreter(self.interpreter);
         Ok(())
     }
 

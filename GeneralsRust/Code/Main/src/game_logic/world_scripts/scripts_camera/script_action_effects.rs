@@ -4,6 +4,13 @@ use super::*;
 
 impl GameLogic {
     pub(super) fn apply_script_action_requests(&mut self) {
+        self.apply_script_action_requests_with_interpreter(None);
+    }
+
+    pub(super) fn apply_script_action_requests_with_interpreter(
+        &mut self,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) {
         self.apply_host_skirmish_script_requests();
         self.apply_host_set_base_construction_speed_requests();
         self.apply_host_set_train_held_requests();
@@ -27,7 +34,7 @@ impl GameLogic {
         self.apply_host_follow_waypoints_script_requests();
         self.apply_host_skirmish_approach_path_script_requests();
 
-        self.apply_host_create_script_requests();
+        self.apply_host_create_script_requests_with_interpreter(interpreter);
         self.apply_host_boobytrap_script_requests();
         self.apply_host_unmanned_script_requests();
         self.apply_host_radar_event_script_requests();
