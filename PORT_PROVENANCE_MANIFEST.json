@@ -159999,7 +159999,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "f7b021e74da94bf5760dd0dc6a4706414453df60b3b2df3b06ca472a4e166e12",
+  "input_digest": "6e1c3ed6a65df50f07f336041068e73894d3999d5f93c3daa6a36f9c78376aed",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -166527,11 +166527,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 275,
+        "end_line": 297,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view_filter.rs",
-      "sha256": "95dbdbd8b284b80a1f189f835707222944cb21268765b349757e883fb9a989a6",
+      "sha256": "8c4462149aa01daf94e6aba66c2a7577902b9b5e8cff0fbb837d3555ad227066",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -166551,11 +166551,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 166,
+        "end_line": 243,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/display/view_filter_tests.rs",
-      "sha256": "3ce792cd60b28f476798b099527b2f3d8a405224a19bf6cb94fc666f399bb715",
+      "sha256": "eb3eabec46bcb02ca78899787f907b5ce527243e51de2571e39f124cc1279dfb",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -209580,11 +209580,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1321,
+        "end_line": 1337,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/factory.rs",
-      "sha256": "6358e3dfd8fa65693a65dfed9ffc0c0c78e8a6e568d7cf747916f2b55494ee38",
+      "sha256": "c38527eeb1bf6a8650578f11ebca3c9978055eeb5d08ae8e0f672b70127a14f7",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

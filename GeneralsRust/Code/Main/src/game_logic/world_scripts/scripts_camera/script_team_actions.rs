@@ -956,6 +956,7 @@ impl GameLogic {
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> gamelogic::GameLogicResult<()> {
+        let mut created_identity = None;
         let resolved = self.resolve_owned_script_team(request.team, calling, condition)?;
         let team_id = if let Some((id, _)) = resolved {
             id
@@ -977,14 +978,19 @@ impl GameLogic {
                     .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
                 team.get_id()
             };
+            created_identity = Some(team.clone());
             self.run_team_creation_effects(effects, interpreter)?;
-            if let Some(team) = self
+            if let Some(current) = self
                 .team_factory
                 .lock()
                 .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
                 .find_team_by_id(id)
             {
-                team.write()
+                if !std::sync::Arc::ptr_eq(&current, &team) {
+                    return Ok(());
+                }
+                current
+                    .write()
                     .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
                     .set_active();
             }
@@ -996,6 +1002,11 @@ impl GameLogic {
             .lock()
             .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
             .find_team_by_id(team_id)
+            .filter(|current| {
+                created_identity
+                    .as_ref()
+                    .is_none_or(|created| std::sync::Arc::ptr_eq(current, created))
+            })
             .and_then(|team| {
                 team.read().ok().map(|team| {
                     (
@@ -1215,13 +1226,17 @@ impl GameLogic {
             }
         }
         if transport.is_empty() {
-            if let Some(team) = self
+            if let Some(current) = self
                 .team_factory
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .find_team_by_id(identity)
             {
-                team.write()
+                if !std::sync::Arc::ptr_eq(&current, &team) {
+                    return;
+                }
+                current
+                    .write()
                     .unwrap_or_else(|error| error.into_inner())
                     .set_active();
             }

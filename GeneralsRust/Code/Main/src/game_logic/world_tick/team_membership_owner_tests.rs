@@ -329,7 +329,7 @@ fn native_nested_authored_create_keeps_current_interpreter_and_exact_team_identi
     world.host_object_mut(unit).unwrap().team_instance_id = None;
     world
         .with_owned_script_engine(|engine, world| {
-            world.activate_team_for_host_object_with_interpreter(unit, Some(engine));
+            world.admit_team_for_host_object(unit, Some(engine), true);
             assert_eq!(world.pending_screen_shakes.len(), 1);
             let factory = world.team_factory.lock().unwrap();
             let inner = factory.find_team_instances("InnerTeam").remove(0);
@@ -569,4 +569,84 @@ fn native_authored_reinforcement_keeps_condition_team_and_runs_callback_before_f
             .get_condition_team_id()
             .is_none()
     );
+}
+
+#[test]
+fn native_merge_missing_source_still_creates_inactive_destination_and_runs_receiving_callback() {
+    let mut world = owner();
+    let peer = owner();
+    camera_create_prototype(&mut world, "MissingSourceDestination", false);
+    world.install_owned_script_engine(camera_create_engine());
+    world
+        .with_owned_script_engine(|engine, world| {
+            world
+                .merge_owned_script_team(
+                    "AbsentSource",
+                    "MissingSourceDestination",
+                    None,
+                    None,
+                    Some(engine),
+                )
+                .unwrap();
+        })
+        .unwrap();
+    assert_eq!(world.pending_screen_shakes.len(), 1);
+    assert_eq!(world.pending_screen_shakes[0].intensity, 2);
+    let factory = world.team_factory.lock().unwrap();
+    let instances = factory.find_team_instances("MissingSourceDestination");
+    assert_eq!(instances.len(), 1);
+    let destination = instances[0].read().unwrap();
+    assert!(
+        !destination.is_active(),
+        "null-source return occurs before final activation"
+    );
+    assert!(destination.get_members().is_empty());
+    assert!(factory.find_team_instances("AbsentSource").is_empty());
+    assert!(peer.pending_screen_shakes.is_empty());
+}
+
+#[test]
+fn native_exact_team_creation_keeps_members_inactive_until_assembly_finishes() {
+    let mut world = owner();
+    let team = {
+        let mut factory = world.team_factory.lock().unwrap();
+        factory
+            .init_team_owned(
+                "AssemblyTeam".into(),
+                "RosterOwner".into(),
+                false,
+                None,
+                Some(1),
+            )
+            .unwrap();
+        let (team, effects) = factory
+            .create_inactive_team_with_owned_effects("AssemblyTeam")
+            .unwrap();
+        assert!(effects.is_empty());
+        team
+    };
+    let identity = team.read().unwrap().get_id();
+    for x in [0.0, 10.0] {
+        let id = world
+            .create_object_on_exact_script_team(
+                "RosterUnit",
+                1,
+                "AssemblyTeam",
+                identity,
+                glam::Vec3::new(x, 0.0, 0.0),
+                false,
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            world.host_object(id).unwrap().team_instance_id,
+            Some(identity)
+        );
+        assert!(team.read().unwrap().has_member(id.0));
+        assert!(
+            !team.read().unwrap().is_active(),
+            "ThingFactory::newObject must not activate an assembling reinforcement team"
+        );
+    }
+    assert_eq!(team.read().unwrap().get_members().len(), 2);
 }

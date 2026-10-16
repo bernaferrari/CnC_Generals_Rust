@@ -5,15 +5,7 @@ use super::*;
 impl GameLogic {
     /// C++ GameLogic.cpp:1888 `team->setActive()` when the team first has members.
     pub fn activate_leftover_team_for_host_object(&mut self, id: ObjectId) {
-        self.activate_team_for_host_object_with_interpreter(id, None);
-    }
-
-    pub(crate) fn activate_team_for_host_object_with_interpreter(
-        &mut self,
-        id: ObjectId,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) {
-        self.admit_team_for_host_object(id, interpreter, true);
+        self.admit_team_for_host_object(id, None, true);
     }
 
     pub(crate) fn admit_team_for_host_object(
@@ -246,19 +238,18 @@ impl GameLogic {
                 })
                 .expect("installed interpreter taken synchronously");
         }
-        // ScriptActions.cpp3137: contextual source lookup does not create.
-        let Some((source_id, _)) = self.resolve_owned_script_team(source, calling, condition)?
-        else {
-            return Ok(());
-        };
-        let Some(source_identity) = self
-            .team_factory
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .find_team_by_id(source_id)
-        else {
-            return Ok(());
-        };
+        // ScriptActions.cpp3137 resolves both operands before its null check.
+        // A missing source must not suppress destination creation callbacks;
+        // nor may a callback-created source replace the original null pointer.
+        let source_selection = self
+            .resolve_owned_script_team(source, calling, condition)?
+            .and_then(|(id, _)| {
+                self.team_factory
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .find_team_by_id(id)
+                    .map(|identity| (id, identity))
+            });
         let destination_id =
             match self.resolve_owned_script_team(destination, calling, condition)? {
                 Some((id, _)) => id,
@@ -298,6 +289,9 @@ impl GameLogic {
                     id
                 }
             };
+        let Some((source_id, source_identity)) = source_selection else {
+            return Ok(());
+        };
         if source_id == destination_id {
             return Ok(());
         }
@@ -369,9 +363,11 @@ impl GameLogic {
             .unwrap_or_else(|error| error.into_inner())
             .find_team_by_id(destination_id)
         {
-            team.write()
-                .unwrap_or_else(|error| error.into_inner())
-                .set_active();
+            if std::sync::Arc::ptr_eq(&team, &destination) {
+                team.write()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .set_active();
+            }
         }
         Ok(())
     }
