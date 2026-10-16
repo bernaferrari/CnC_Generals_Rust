@@ -1278,8 +1278,6 @@ impl CnCGameEngine {
     /// selection (GameClient.cpp:587-597).
     pub(super) fn toggle_camera_tracking_drawable_hotkey(&mut self) {
         self.camera_tracking_selection = true;
-        #[cfg(feature = "game_client")]
-        game_client::helpers::TheInGameUI::set_camera_tracking_drawable(true);
         info!("Camera tracking selection enabled");
     }
 
@@ -1546,8 +1544,6 @@ impl CnCGameEngine {
         let ids = self.ui_selected_ids(self.current_player_id);
         let Some(first) = ids.first().copied() else {
             self.camera_tracking_selection = false;
-            #[cfg(feature = "game_client")]
-            game_client::helpers::TheInGameUI::set_camera_tracking_drawable(false);
             return;
         };
         let Some(frame) = self.last_presentation_frame.as_ref() else {

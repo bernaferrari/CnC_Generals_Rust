@@ -390,7 +390,7 @@ fn remaining_commandmap_hotkeys_residual() {
     assert!(
         src.contains("toggle_camera_tracking_drawable_hotkey")
             && src.contains("self.camera_tracking_selection = true")
-            && src.contains("set_camera_tracking_drawable(true)")
+            && !include_str!("hotkeys.rs").contains("TheInGameUI::set_camera_tracking_drawable")
             && !src.contains("Camera tracking selection: OFF")
             && !src.contains("camera_track_ok:off"),
         "TOGGLE_CAMERA_TRACKING_DRAWABLE only enables (CommandXlat.cpp:3216-3218)"

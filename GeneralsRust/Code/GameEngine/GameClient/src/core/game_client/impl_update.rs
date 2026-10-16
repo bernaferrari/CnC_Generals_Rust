@@ -1711,8 +1711,8 @@ impl GameClient {
         // Snow/Anim2D: C++ runs every GameClient::update. Live host ticks
         // them from cnc_game_engine residuals in every state (including when
         // this shell is skipped). Dual-world `update()` still ticks above.
-        // C++ GameClient.cpp:587-597 — camera follows first selected drawable.
-        self.update_camera_tracking_drawable();
+        // Main owns selected-object tracking through its receiving SessionView.
+        // Standalone update retains the Core drawable tracking adapter.
         self.update_pre_draw_ui()?;
 
         // C++ visual freeze + script visual-speed residual (same as full update),
