@@ -479,6 +479,26 @@ impl StagedRuntimeWorld {
     }
 }
 
+/// Native map admission already executes its actions against its owned
+/// interpreter. A deferred Core payload here has no justified native phase.
+fn validate_native_team_effects(effects: &[TeamFactoryDeferredEffects]) -> Result<(), String> {
+    let (create, generic) = effects
+        .iter()
+        .fold((0usize, 0usize), |(create, generic), effect| {
+            let (next_create, next_generic) = effect.pending_callback_counts();
+            (
+                create.saturating_add(next_create),
+                generic.saturating_add(next_generic),
+            )
+        });
+    if create != 0 || generic != 0 {
+        return Err(format!(
+            "native staged world has unexpected Core team callbacks: {create} create, {generic} generic"
+        ));
+    }
+    Ok(())
+}
+
 /// Deferred post-unlock TeamFactory callbacks belonging to a committed world.
 ///
 /// This token has no rollback path: it is created only after `install_globals`
@@ -546,4 +566,11 @@ mod tests {
 }
 
 mod host;
-pub use host::{HostRuntimeWorldStage, StagedHostRuntimeWorld};
+pub use host::{
+    CheckedNativeRuntimeWorld, HostRuntimeWorldStage, NativeRuntimeWorldCommit,
+    StagedHostRuntimeWorld,
+};
+
+#[cfg(test)]
+#[path = "runtime_world_transaction/native_team_preflight_tests.rs"]
+mod native_team_preflight_tests;

@@ -354,6 +354,7 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
     ) {
+        let physics_fx_player = self.local_player_id();
         // C++ m_isBlockedAndStuck → patchPath; requestSafePath → findSafePath Dijkstra.
         let mut repaths: Vec<(ObjectId, Vec<Vec3>, bool)> = Vec::new();
         let mut concessions: Vec<(ObjectId, bool, u32, bool, f32)> = Vec::new();
@@ -847,6 +848,10 @@ impl GameLogic {
                                 &physics_source_players,
                                 &mut self.health_events,
                                 &self.enable_repulsors,
+                                &mut self.session_view,
+                                physics_fx_player,
+                                self.world_services.shroud(),
+                                &mut self.combat_particles,
                             );
                         } else {
                             obj.movement.velocity = Vec3::ZERO;
@@ -864,6 +869,10 @@ impl GameLogic {
                             &physics_source_players,
                             &mut self.health_events,
                             &self.enable_repulsors,
+                            &mut self.session_view,
+                            physics_fx_player,
+                            self.world_services.shroud(),
+                            &mut self.combat_particles,
                         );
                         break 'unit;
                     }
@@ -898,6 +907,10 @@ impl GameLogic {
                             &physics_source_players,
                             &mut self.health_events,
                             &self.enable_repulsors,
+                            &mut self.session_view,
+                            physics_fx_player,
+                            self.world_services.shroud(),
+                            &mut self.combat_particles,
                         );
                         obj.cur_max_blocked_speed = 999_999.0;
                         break 'unit;
@@ -930,6 +943,10 @@ impl GameLogic {
                             &physics_source_players,
                             &mut self.health_events,
                             &self.enable_repulsors,
+                            &mut self.session_view,
+                            physics_fx_player,
+                            self.world_services.shroud(),
+                            &mut self.combat_particles,
                         );
                         break 'unit;
                     }
@@ -1017,6 +1034,10 @@ impl GameLogic {
                                     &physics_source_players,
                                     &mut self.health_events,
                                     &self.enable_repulsors,
+                                    &mut self.session_view,
+                                    physics_fx_player,
+                                    self.world_services.shroud(),
+                                    &mut self.combat_particles,
                                 );
                                 if !blocked_out && obj.num_frames_blocked > 1 {
                                     obj.num_frames_blocked = 1;
@@ -1045,6 +1066,10 @@ impl GameLogic {
                             &physics_source_players,
                             &mut self.health_events,
                             &self.enable_repulsors,
+                            &mut self.session_view,
+                            physics_fx_player,
+                            self.world_services.shroud(),
+                            &mut self.combat_particles,
                         );
                         break 'unit;
                     }
@@ -1197,6 +1222,10 @@ impl GameLogic {
                                     &physics_source_players,
                                     &mut self.health_events,
                                     &self.enable_repulsors,
+                                    &mut self.session_view,
+                                    physics_fx_player,
+                                    self.world_services.shroud(),
+                                    &mut self.combat_particles,
                                 );
                                 break 'unit;
                             }
@@ -1336,6 +1365,10 @@ impl GameLogic {
                                     &physics_source_players,
                                     &mut self.health_events,
                                     &self.enable_repulsors,
+                                    &mut self.session_view,
+                                    physics_fx_player,
+                                    self.world_services.shroud(),
+                                    &mut self.combat_particles,
                                 );
                                 obj.cur_max_blocked_speed = 999_999.0;
                                 break 'unit;
@@ -1454,6 +1487,10 @@ impl GameLogic {
                                     &physics_source_players,
                                     &mut self.health_events,
                                     &self.enable_repulsors,
+                                    &mut self.session_view,
+                                    physics_fx_player,
+                                    self.world_services.shroud(),
+                                    &mut self.combat_particles,
                                 );
                                 break 'unit;
                             }
@@ -1478,6 +1515,10 @@ impl GameLogic {
                                     &physics_source_players,
                                     &mut self.health_events,
                                     &self.enable_repulsors,
+                                    &mut self.session_view,
+                                    physics_fx_player,
+                                    self.world_services.shroud(),
+                                    &mut self.combat_particles,
                                 );
                                 let mut reached_target = obj
                                     .host_locomotor_distance_to_goal(current_pos, target_pos)
@@ -1744,6 +1785,10 @@ impl GameLogic {
                                         &physics_source_players,
                                         &mut self.health_events,
                                         &self.enable_repulsors,
+                                        &mut self.session_view,
+                                        physics_fx_player,
+                                        self.world_services.shroud(),
+                                        &mut self.combat_particles,
                                     );
                                     break 'unit;
                                 }
@@ -2216,6 +2261,10 @@ impl GameLogic {
                             &physics_source_players,
                             &mut self.health_events,
                             &self.enable_repulsors,
+                            &mut self.session_view,
+                            physics_fx_player,
+                            self.world_services.shroud(),
+                            &mut self.combat_particles,
                         );
                     }
                 }
@@ -2420,6 +2469,7 @@ impl GameLogic {
         &mut self,
         object_ids: &[ObjectId],
     ) {
+        let physics_fx_player = self.local_player_id();
         for &id in object_ids {
             let sample = self.objects.get(&id).and_then(|obj| {
                 if obj.is_disabled() && !obj.status.disabled_freefall {
@@ -2442,6 +2492,10 @@ impl GameLogic {
                     &physics_source_players,
                     &mut self.health_events,
                     &self.enable_repulsors,
+                    &mut self.session_view,
+                    physics_fx_player,
+                    self.world_services.shroud(),
+                    &mut self.combat_particles,
                 );
             }
             self.admit_host_radar_disabled_edges(id);
@@ -2471,6 +2525,20 @@ impl GameLogic {
                         .and_then(|object| object.owner_player_id.map(|player| (id, player)))
                 })
             }),
+            effects: ids.map(|id| {
+                id.and_then(|id| self.objects.get(&id))
+                    .map(crate::game_logic::host_transition_damage_fx::snapshot_damage_fx_source)
+            }),
+            #[cfg(feature = "game_client")]
+            poses: ids.map(|id| {
+                id.and_then(|id| self.objects.get(&id)).map(|object| {
+                    Self::observe_host_fx_object(
+                        object,
+                        self.local_player_id(),
+                        self.world_services.shroud(),
+                    )
+                })
+            }),
             observations: ids.map(|source| {
                 source.map(|id| {
                     (
@@ -2492,18 +2560,33 @@ impl GameLogic {
         source_players: &crate::game_logic::object::PhysicsDamageSources,
         health_events: &mut crate::game_logic::HostHealthEvents,
         repulsors: &bool,
+        session_view: &mut crate::presentation_frame::SessionView,
+        fx_player: Option<u32>,
+        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        particles: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
     ) {
-        let mut player_effects = |effect| {
-            Self::apply_body_player_effect(players, frame, &source_players.players, effect)
-        };
-        let mut services = crate::game_logic::object::PhysicsDamageServices {
-            sources: source_players,
+        Self::with_physics_body_fx_parts(
+            session_view,
+            fx_player,
+            shroud,
+            particles,
             frame,
-            health_events,
-            repulsors,
-            player_effects: &mut player_effects,
-        };
-        Self::stamp_object_airborne_target_body(obj, ground_y, &mut services);
+            source_players,
+            |body_fx| {
+                let mut player_effects = |effect| {
+                    Self::apply_body_player_effect(players, frame, &source_players.players, effect)
+                };
+                let mut services = crate::game_logic::object::PhysicsDamageServices {
+                    sources: source_players,
+                    frame,
+                    health_events,
+                    repulsors,
+                    player_effects: &mut player_effects,
+                    body_fx,
+                };
+                Self::stamp_object_airborne_target_body(obj, ground_y, &mut services);
+            },
+        );
     }
 
     fn stamp_object_airborne_target_body(

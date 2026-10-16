@@ -216,7 +216,8 @@ impl Drop for HostRuntimeWorldStage {
 }
 
 /// Candidate singleton state returned after the live world has been restored.
-/// It is deliberately opaque to Main; only `install_globals` can consume it.
+/// It is deliberately opaque to Main; native preflight must succeed before
+/// the resulting checked token can install it.
 pub struct StagedHostRuntimeWorld {
     globals: HostRuntimeGlobals,
     /// The candidate world's engine-store bundle: the commit makes it the
@@ -231,14 +232,17 @@ pub struct StagedHostRuntimeWorld {
 }
 
 impl StagedHostRuntimeWorld {
-    /// Replace currently-live singleton contents with this candidate's bundle.
-    ///
-    /// This is the no-fail raw half of the host commit.  It intentionally does
-    /// *not* run the deferred TeamFactory effects.  Main must first install its
-    /// matching `GameLogic`, then call
-    /// [`CommittedRuntimeWorldEffects::execute_after_logic_commit`].
-    #[must_use = "deferred TeamFactory effects must run after the host GameLogic commit"]
-    pub fn install_globals(self) -> CommittedRuntimeWorldEffects {
+    /// Validate while the old Main world and UI are still intact. On failure
+    /// this detached candidate is dropped; no callback or singleton install runs.
+    pub fn preflight_native(self) -> Result<CheckedNativeRuntimeWorld, String> {
+        validate_native_team_effects(&self.team_factory_effects)?;
+        Ok(CheckedNativeRuntimeWorld(self))
+    }
+
+    /// Private raw half of the checked native commit. Only
+    /// `CheckedNativeRuntimeWorld` may reach this operation after preflight.
+    /// It installs metadata but never executes a Core callback.
+    fn install_globals_unchecked(self) -> CommittedRuntimeWorldEffects {
         let Self {
             globals,
             candidate_bundle,
@@ -257,5 +261,28 @@ impl StagedHostRuntimeWorld {
             team_factory_effects: Some(team_factory_effects),
             transaction_lock: Some(transaction_lock),
         }
+    }
+}
+
+/// A native candidate whose Core callback payloads have been proven empty.
+/// Only this token exposes the callback-free native commit path.
+pub struct CheckedNativeRuntimeWorld(StagedHostRuntimeWorld);
+
+impl CheckedNativeRuntimeWorld {
+    pub fn install_globals(self) -> NativeRuntimeWorldCommit {
+        NativeRuntimeWorldCommit(self.0.install_globals_unchecked())
+    }
+}
+
+/// Keeps staging excluded until Main has installed the matching owned world.
+#[must_use = "finish the checked native commit after installing Main GameLogic"]
+pub struct NativeRuntimeWorldCommit(CommittedRuntimeWorldEffects);
+
+impl NativeRuntimeWorldCommit {
+    /// Infallible: preflight proved that every receipt contains no script work.
+    /// Do not discover or execute a process-global interpreter at this boundary.
+    pub fn finish_after_logic_commit(mut self) {
+        drop(self.0.team_factory_effects.take());
+        drop(self.0.transaction_lock.take());
     }
 }

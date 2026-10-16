@@ -269,6 +269,7 @@ impl Object {
             health_events,
             repulsors: &repulsors,
             player_effects: &mut ignored,
+            body_fx: &mut Object::standalone_body_fx,
         };
         self.check_for_overlap_collision_with_services(other, is_ally, &mut services)
     }
@@ -785,6 +786,7 @@ impl Object {
             health_events,
             repulsors: &repulsors,
             player_effects: &mut ignored,
+            body_fx: &mut Object::standalone_body_fx,
         };
         self.tick_physics_motion_step_with_services(ground_y, &mut services)
     }
@@ -1035,6 +1037,7 @@ impl Object {
             health_events,
             repulsors: &repulsors,
             player_effects: &mut ignored,
+            body_fx: &mut Object::standalone_body_fx,
         };
         self.tick_shock_stun_with_services(&mut services);
     }

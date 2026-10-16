@@ -743,24 +743,36 @@ impl GameLogic {
             .get(&crushee_id)
             .and_then(|object| object.last_damage_source);
         let source_players = self.physics_damage_sources([Some(crusher_id), previous_source]);
-        let players = &mut self.players;
         let frame = self.frame;
-        let mut player_effects = |effect| {
-            Self::apply_body_player_effect(players, frame, &source_players.players, effect)
-        };
-        let mut services = crate::game_logic::object::PhysicsDamageServices {
-            sources: &source_players,
+        let fx_player = self.local_player_id();
+        Self::with_physics_body_fx_parts(
+            &mut self.session_view,
+            fx_player,
+            self.world_services.shroud(),
+            &mut self.combat_particles,
             frame,
-            health_events: &mut self.health_events,
-            repulsors: &self.enable_repulsors,
-            player_effects: &mut player_effects,
-        };
-        let [Some(crusher), Some(crushee)] =
-            self.objects.get_disjoint_mut([&crusher_id, &crushee_id])
-        else {
-            return false;
-        };
-        crusher.check_for_overlap_collision_with_services(crushee, is_ally, &mut services)
+            &source_players,
+            |body_fx| {
+                let players = &mut self.players;
+                let mut player_effects = |effect| {
+                    Self::apply_body_player_effect(players, frame, &source_players.players, effect)
+                };
+                let mut services = crate::game_logic::object::PhysicsDamageServices {
+                    sources: &source_players,
+                    frame,
+                    health_events: &mut self.health_events,
+                    repulsors: &self.enable_repulsors,
+                    player_effects: &mut player_effects,
+                    body_fx,
+                };
+                let [Some(crusher), Some(crushee)] =
+                    self.objects.get_disjoint_mut([&crusher_id, &crushee_id])
+                else {
+                    return false;
+                };
+                crusher.check_for_overlap_collision_with_services(crushee, is_ally, &mut services)
+            },
+        )
     }
 
     pub fn apply_immobile_collide_bounce(
@@ -1343,3 +1355,7 @@ impl GameLogic {
 #[cfg(test)]
 #[path = "physics_damage_owner_tests.rs"]
 mod physics_damage_owner_tests;
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "physics_fx_owner_tests.rs"]
+mod physics_fx_owner_tests;

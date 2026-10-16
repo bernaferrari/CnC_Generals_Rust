@@ -44,6 +44,7 @@ impl Object {
             health_events,
             repulsors: &repulsors,
             player_effects: &mut ignored,
+            body_fx: &mut Object::standalone_body_fx,
         };
         self.maybe_kill_when_resting_on_ground_with_services(&mut services)
     }
@@ -114,6 +115,7 @@ impl Object {
             health_events,
             repulsors: &repulsors,
             player_effects: &mut ignored,
+            body_fx: &mut Object::standalone_body_fx,
         };
         self.apply_shock_fall_damage_with_services(impact_vy, &mut services)
     }
@@ -211,6 +213,7 @@ impl Object {
             health_events,
             repulsors: &repulsors,
             player_effects: &mut ignored,
+            body_fx: &mut Object::standalone_body_fx,
         };
         self.handle_shock_ground_bounce_with_services(old_y, new_y, ground_y, &mut services)
     }
@@ -272,6 +275,7 @@ impl Object {
             health_events,
             repulsors: &repulsors,
             player_effects: &mut ignored,
+            body_fx: &mut Object::standalone_body_fx,
         };
         self.test_stunned_unit_for_destruction_with_services(&mut services)
     }

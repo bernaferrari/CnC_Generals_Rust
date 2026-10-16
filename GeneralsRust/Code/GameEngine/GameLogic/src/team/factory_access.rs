@@ -167,9 +167,43 @@ impl TeamFactoryDeferredEffects {
         }
     }
 
+    /// Empty guard-drop receipts carry no script work. The outer staging
+    /// vector may contain many such receipts, so admission checks payloads.
+    pub(crate) fn pending_callback_counts(&self) -> (usize, usize) {
+        (
+            self.create_action_scripts.len(),
+            self.generic_script_evals.len(),
+        )
+    }
+
     pub(crate) fn execute_after_world_commit(self) {
         execute_pending_team_create_action_scripts(self.create_action_scripts);
         execute_pending_team_generic_script_evals(self.generic_script_evals);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_for_world_transaction_test(create: bool, generic: bool) -> Self {
+        let prototype = Arc::new(TeamPrototype::new("ForeignPrototype".into()));
+        let team = Arc::new(RwLock::new(Team::new("ForeignTeam".into(), 7)));
+        Self::new(
+            if create {
+                vec!["ForeignCreate".to_owned()]
+            } else {
+                Vec::new()
+            },
+            if generic {
+                vec![PendingTeamGenericScriptEval {
+                    team,
+                    prototype,
+                    team_name: "ForeignTeam".to_owned(),
+                    script_name: "ForeignGeneric".to_owned(),
+                    script_index: 0,
+                    current_player_name: None,
+                }]
+            } else {
+                Vec::new()
+            },
+        )
     }
 
     #[cfg(test)]
@@ -215,10 +249,7 @@ impl TeamArcExt for Arc<RwLock<Team>> {
 /// id is unknown or a lock is poisoned. The factory lock is released before
 /// `f` runs so object creation under a team cannot re-enter it.
 pub fn with_team<R>(team_id: TeamID, f: impl FnOnce(&mut Team) -> R) -> Option<R> {
-    let team = get_team_factory()
-        .lock()
-        .ok()?
-        .find_team_by_id(team_id)?;
+    let team = get_team_factory().lock().ok()?.find_team_by_id(team_id)?;
     let mut guard = team.write().ok()?;
     Some(f(&mut guard))
 }

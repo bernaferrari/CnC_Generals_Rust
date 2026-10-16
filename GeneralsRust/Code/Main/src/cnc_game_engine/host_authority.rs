@@ -1163,17 +1163,14 @@ impl CnCGameEngine {
     /// Unlike `host_replace_game_logic`, this also owns the legacy singleton
     /// bundle mutated by map loading.  The order is intentional: invalidate
     /// old UI/log ownership, install candidate globals, install matching host
-    /// logic, then run TeamFactory post-unlock callbacks against that complete
-    /// candidate world before rebuilding the shadow from host authority.
+    /// logic, then finish the preflight-checked callback-free native commit
+    /// before rebuilding the shadow from host authority.
     fn host_replace_staged_restore_world(
         &mut self,
         staged: StagedRestoreWorld,
     ) -> Result<(), String> {
-        #[cfg(feature = "game_client")]
-        self.host_invalidate_active_popup_for_world_boundary();
-
-        crate::game_logic::staged_world_effects::discard_live_for_world_replace();
-
+        // Reject unexplained Core callbacks before invalidating the old UI,
+        // replacing its world, or admitting the candidate camera continuation.
         let StagedRestoreWorld {
             mut logic,
             info: _,
@@ -1186,6 +1183,11 @@ impl CnCGameEngine {
             mut control_groups,
             logic_rng_seed_words,
         } = staged;
+        let runtime_world = runtime_world.preflight_native()?;
+        #[cfg(feature = "game_client")]
+        self.host_invalidate_active_popup_for_world_boundary();
+        crate::game_logic::staged_world_effects::discard_live_for_world_replace();
+
         // Destroy the previous client's Drawables while its own world and the
         // C++-style ambient module callbacks still refer to that old world.
         // Some DrawModule destructors consult TheGameClient during teardown.
@@ -1194,7 +1196,7 @@ impl CnCGameEngine {
         self.game_client.invalidate_presentation_drawable_world();
         self.render_pipeline.invalidate_world_visual_state();
 
-        let deferred_effects = runtime_world.install_globals();
+        let native_commit = runtime_world.install_globals();
         logic.session_view = std::mem::take(&mut self.game_logic.session_view);
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
         #[cfg(feature = "game_client")]
@@ -1218,9 +1220,9 @@ impl CnCGameEngine {
             &self.game_logic,
             &mut self.game_client,
         );
-        // Original GameState restores GameClient/View before deferred team
-        // callbacks. Admit the saved view before their immediate camera effects;
-        // do not publish/drain a presentation frame just to recover its target.
+        // Restore GameClient/View before exposing the candidate world. No
+        // Core callback is replayed: native map admission already executed its
+        // owned actions before saved continuation replaced runtime state.
         let has_camera_continuation = camera_continuation.is_some();
         if let Some(camera) = camera_continuation {
             self.admit_camera_continuation(camera);
@@ -1230,12 +1232,11 @@ impl CnCGameEngine {
             self.game_logic.session_view.target =
                 glam::Vec3::new(camera.position[0], camera.position[2], camera.position[1]);
         }
-        // C++ restores CHUNK_GameClient before the post-load world is exposed.
-        // Deferred team callbacks may create client FX, so execute them only
-        // after the matching client's drawable state has been installed.
-        deferred_effects.execute_after_logic_commit();
+        // Native map actions already ran at definition admission and saved team
+        // state replaced their runtime state. No Core script is replayed here.
+        native_commit.finish_after_logic_commit();
         // Movement receipts belong to runtime output, not the save wire. Map
-        // admission and deferred restore callbacks must not replay movement
+        // admission must not replay movement
         // cues when the newly installed world first publishes presentation.
         self.game_logic.movement_events.clear();
         drop(old_logic);
@@ -3056,7 +3057,7 @@ mod staged_restore_tests {
     }
 
     #[test]
-    fn staged_commit_runs_team_effects_only_after_logic_install() {
+    fn staged_native_commit_finishes_after_logic_and_camera_install() {
         let source = include_str!("host_authority.rs");
         let start = source
             .find("fn host_replace_staged_restore_world")
@@ -3073,13 +3074,24 @@ mod staged_restore_tests {
             .find("std::mem::replace(&mut self.game_logic, logic)")
             .expect("host logic install");
         let effects = body
-            .find("deferred_effects.execute_after_logic_commit()")
+            .find("native_commit.finish_after_logic_commit()")
             .expect("deferred team effects");
         let shadow = body.find("shadow.sync_from_host").expect("shadow rebuild");
         let camera = body
             .find("self.admit_camera_continuation(camera)")
             .expect("receiving native camera admission");
+        let preflight = body
+            .find("runtime_world.preflight_native()")
+            .expect("native payload preflight");
+        let teardown = body
+            .find("self.host_advance_direct_visual_world_epoch()")
+            .expect("old client teardown");
+        let discard_live = body
+            .find("discard_live_for_world_replace()")
+            .expect("live output invalidation");
+        assert!(preflight < discard_live && preflight < teardown && teardown < globals);
         assert!(globals < logic && logic < camera && camera < effects && effects < shadow);
+        assert!(!body.contains("execute_after_logic_commit()"));
     }
 
     /// C++ keeps RandomValue process-static and no load path reseeds it
@@ -3324,7 +3336,7 @@ mod staged_restore_tests {
     }
 
     /// The commit boundary must reseed after all staged map work: globals
-    /// install, logic installs, deferred team effects run, and only then is
+    /// install, logic installs, the checked native commit finishes, and then
     /// the RNG reseeded — before the shadow rebuild exposes the world.
     #[test]
     fn staged_commit_reseeds_logic_rng_after_staged_map_work() {
@@ -3338,7 +3350,7 @@ mod staged_restore_tests {
                 .map(|end| start + end)
                 .expect("end of combined staged commit boundary")];
         let effects = body
-            .find("deferred_effects.execute_after_logic_commit()")
+            .find("native_commit.finish_after_logic_commit()")
             .expect("deferred team effects");
         let reseed = body
             .find("host_restore_staged_logic_rng(&mut self.game_logic")
@@ -3491,16 +3503,16 @@ mod staged_restore_tests {
                     );
                     assert_eq!(live_light, 1);
                     // Match the production boundary: globals, installed host,
-                    // then deferred team effects. No Core AI participates.
+                    // then checked native finish. No Core AI participates.
                     let StagedRestoreWorld {
                         logic,
                         runtime_world,
                         ..
                     } = staged;
-                    let effects = runtime_world.install_globals();
+                    let effects = runtime_world.preflight_native().unwrap().install_globals();
                     let old = std::mem::replace(&mut source, logic);
                     drop(old);
-                    effects.execute_after_logic_commit();
+                    effects.finish_after_logic_commit();
                     assert!(source.isInGame());
                     assert_eq!(source.get_players().len(), saved_player_count);
                     assert!(source.get_player(0).unwrap().is_human);
@@ -3535,3 +3547,7 @@ mod staged_restore_tests {
 #[cfg(test)]
 #[path = "fixed_step_boundary_tests.rs"]
 mod fixed_step_boundary_tests;
+
+#[cfg(test)]
+#[path = "native_team_preflight_tests.rs"]
+mod native_team_preflight_tests;
