@@ -1621,6 +1621,26 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         request: gamelogic::scripting::engine::ScriptWorldRequest<'_>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
         use gamelogic::scripting::engine::ScriptWorldRequest;
+        // These effects belong to the receiving match, regardless of which
+        // interpreter/service adapter invoked it. The existing after_action
+        // drain makes them observable before the next authored statement.
+        match request {
+            ScriptWorldRequest::Freeze(frozen) => {
+                self.world.mission_scripts.push_script_freeze_time(frozen);
+                return Some(Ok(()));
+            }
+            ScriptWorldRequest::VisualSpeed(multiplier) => {
+                self.world.mission_scripts.push_visual_speed_multiplier(
+                    crate::game_logic::mission_scripts::VisualSpeedMultiplierRequest { multiplier },
+                );
+                return Some(Ok(()));
+            }
+            ScriptWorldRequest::Weather(visible) => {
+                self.world.mission_scripts.push_weather_visible(visible);
+                return Some(Ok(()));
+            }
+            _ => {}
+        }
         let handler = self
             .interpreter
             .or(self.world.owned_script_engine.as_ref())
@@ -1642,12 +1662,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                     text,
                     countdown,
                 } => handler.add_named_timer(name, text, countdown),
-                ScriptWorldRequest::Freeze(true) => handler.freeze_time(),
-                ScriptWorldRequest::Freeze(false) => handler.unfreeze_time(),
-                ScriptWorldRequest::VisualSpeed(multiplier) => {
-                    handler.set_visual_speed_multiplier(multiplier)
-                }
-                ScriptWorldRequest::Weather(visible) => handler.set_weather_visible(visible),
+                // Already admitted to the receiving hooks above.
+                ScriptWorldRequest::Freeze(_)
+                | ScriptWorldRequest::VisualSpeed(_)
+                | ScriptWorldRequest::Weather(_) => Ok(()),
                 ScriptWorldRequest::Music {
                     track,
                     fade_out,
