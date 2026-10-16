@@ -1599,10 +1599,34 @@ impl GameClient {
         self.begin_presentation_shell(delta_time, particle_frames)
     }
 
+    pub fn begin_presentation_shell_with_owned_visual_time(
+        &mut self,
+        delta_time: f32,
+        particle_frames: NativeParticleFrames,
+        materials: &[NativeMaterialObservation],
+        observe: impl FnOnce() -> NativeVisualTime,
+    ) -> GameClientResult<PreparedPresentationShell> {
+        self.validate_material_observations(materials)?;
+        self.begin_presentation_shell_observing(delta_time, particle_frames, observe)
+    }
+
     fn begin_presentation_shell(
         &mut self,
         delta_time: f32,
         particle_frames: NativeParticleFrames,
+    ) -> GameClientResult<PreparedPresentationShell> {
+        self.begin_presentation_shell_observing(
+            delta_time,
+            particle_frames,
+            legacy_visual_time_observation,
+        )
+    }
+
+    fn begin_presentation_shell_observing(
+        &mut self,
+        delta_time: f32,
+        particle_frames: NativeParticleFrames,
+        observe: impl FnOnce() -> NativeVisualTime,
     ) -> GameClientResult<PreparedPresentationShell> {
         if particle_frames.client_frame != self.frame {
             return Err(GameClientError::InvalidOperation(
@@ -1698,13 +1722,13 @@ impl GameClient {
         // C++ visual freeze + script visual-speed residual (same as full update),
         // without Main-owned input/audio or Display DRAW dual-ownership.
         // Device state is shared THE_MOUSE/THE_KEYBOARD (Main inject; no second OS poll).
-        let freeze_time = self.should_freeze_visual_time();
-        let mut visual_delta = if freeze_time { 0.0 } else { delta_time };
-        let visual_speed = get_script_visual_speed_multiplier();
-        visual_delta = if visual_speed <= 0 {
-            0.0
+        // C++ GameClient.cpp621-630 observes after pre-draw UI, including
+        // synchronous camera/script changes made by those callbacks.
+        let (freeze_time, visual_speed) = self.admit_visual_time(observe())?;
+        let visual_delta = if freeze_time || visual_speed <= 0. {
+            0.
         } else {
-            visual_delta * visual_speed as f32
+            delta_time * visual_speed
         };
 
         // Main owns OS event intake and shared THE_MOUSE/THE_KEYBOARD (no shell
@@ -1892,19 +1916,29 @@ impl GameClient {
     }
 
     fn should_freeze_visual_time(&mut self) -> bool {
-        let camera_frozen = with_tactical_view_ref(|view| {
-            view.is_time_frozen() && !view.is_camera_movement_finished()
-        });
-        let mut freeze_time = camera_frozen
-            || TheScriptEngine::is_time_frozen_debug()
-            || TheScriptEngine::is_time_frozen_script()
-            || TheGameLogic::is_game_paused();
-        // C++ compares against GameClient::m_frame, set from live GameLogic.
-        // Host calls set_frame(host_logic_frame) before the presentation shell.
-        let logic_frame = self.frame;
-        freeze_time = freeze_time || (self.last_visual_time_frame == logic_frame);
-        self.last_visual_time_frame = logic_frame;
-        freeze_time
+        // Full standalone update samples speed later at its original point.
+        self.consume_visual_frame(legacy_visual_time_frozen())
+    }
+
+    fn consume_visual_frame(&mut self, frozen: bool) -> bool {
+        let frozen = frozen || self.last_visual_time_frame == self.frame;
+        self.last_visual_time_frame = self.frame;
+        frozen
+    }
+
+    fn admit_visual_time(
+        &mut self,
+        observation: NativeVisualTime,
+    ) -> GameClientResult<(bool, f32)> {
+        if !observation.visual_speed.is_finite() {
+            return Err(GameClientError::InvalidOperation(
+                "nonfinite native visual speed".into(),
+            ));
+        }
+        Ok((
+            self.consume_visual_frame(observation.frozen),
+            observation.visual_speed,
+        ))
     }
 
     #[inline]
@@ -2299,3 +2333,24 @@ impl GameClient {
         Ok(())
     }
 }
+
+/// Explicit compatibility observation for standalone Core entrypoints only.
+fn legacy_visual_time_frozen() -> bool {
+    let camera_frozen =
+        with_tactical_view_ref(|view| view.is_time_frozen() && !view.is_camera_movement_finished());
+    camera_frozen
+        || TheScriptEngine::is_time_frozen_debug()
+        || TheScriptEngine::is_time_frozen_script()
+        || TheGameLogic::is_game_paused()
+}
+
+fn legacy_visual_time_observation() -> NativeVisualTime {
+    NativeVisualTime {
+        frozen: legacy_visual_time_frozen(),
+        visual_speed: get_script_visual_speed_multiplier() as f32,
+    }
+}
+
+#[cfg(test)]
+#[path = "native_visual_time_tests.rs"]
+mod native_visual_time_tests;

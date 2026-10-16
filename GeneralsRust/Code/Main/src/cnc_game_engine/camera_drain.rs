@@ -2389,12 +2389,10 @@ impl CnCGameEngine {
         if let Err(err) = self.game_client.update_input() {
             log::trace!("GameClient input update failed: {err}");
         }
-        // Wave 586: presentation freeze residual when a frame is installed.
-        // C++ `GameClient::update` freezes the per-Drawable update/shroud
-        // loop for script/tactical freezes *and* ordinary game pause. The
-        // installed presentation frame owns the former; `game_paused` is a
-        // host shell state and must remain part of this client-facing gate.
-        let presentation_time_frozen = self.presentation_or_boot_time_frozen() || self.game_paused;
+        // Camera/script actions may have changed since the last frozen frame.
+        // The receiving session owns this gate; a snapshot cannot override it.
+        let presentation_time_frozen =
+            native_visual_time::simulation_frozen(&self.game_logic, self.game_paused);
         let logic_frame = self.host_match_logic_frame;
         let new_logic_frame =
             logic_frame.is_some() && logic_frame != self.host_visual_logic_frame_applied;
@@ -2716,12 +2714,24 @@ impl CnCGameEngine {
             logic_frame: self.game_logic.frame,
             client_frame: self.game_client.get_frame(),
         };
+        let logic = &self.game_logic;
+        let paused = self.game_paused;
         match self
             .game_client
-            .begin_presentation_shell_with_material_frames(
+            .begin_presentation_shell_with_owned_visual_time(
                 visual_delta,
                 frames,
                 &material_observations,
+                || {
+                    // Preserve the original observation after pre-draw UI. The
+                    // debug DLL/control owner is still unmigrated (hq-pem9z);
+                    // keep that dependency explicit instead of inventing false.
+                    native_visual_time::observe(
+                        logic,
+                        paused,
+                        gamelogic::helpers::TheScriptEngine::is_time_frozen_debug,
+                    )
+                },
             ) {
             Ok(step) => {
                 if let Err(error) = self.native_display.queue_shell(

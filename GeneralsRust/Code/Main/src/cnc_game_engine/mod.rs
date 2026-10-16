@@ -115,6 +115,8 @@ mod input;
 mod minimap_bridge;
 mod mouse;
 mod native_display;
+#[cfg(feature = "game_client")]
+mod native_visual_time;
 pub(crate) mod object_ini_boot;
 mod options_bridge;
 #[cfg(feature = "game_client")]
@@ -204,6 +206,7 @@ pub const ENGINE_SRC: &str = concat!(
     include_str!("../presentation_frame/session_view/camera/motion.rs"),
     include_str!("camera_view_effects.rs"),
     include_str!("native_display.rs"),
+    include_str!("native_visual_time.rs"),
     include_str!("dispatch.rs"),
     include_str!("host.rs"),
     include_str!("host_authority.rs"),

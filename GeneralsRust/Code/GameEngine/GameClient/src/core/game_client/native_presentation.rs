@@ -1,3 +1,11 @@
+/// Receiving native visual facts observed once after pre-draw UI callbacks.
+/// This is ephemeral input; the client retains only its existing frame marker.
+#[derive(Debug, Clone, Copy)]
+pub struct NativeVisualTime {
+    pub frozen: bool,
+    pub visual_speed: f32,
+}
+
 // The owned continuation between client CU and the driving display's Draw.
 // It contains no mutable world publication or borrowed self-reference.
 #[must_use]

@@ -136,11 +136,11 @@ pub fn honesty_host_game_client_shell_tick_helper_source_markers_residual_wave58
         return false;
     };
     let body_ok = (body.contains("Wave 586") || body.contains("Wave 587"))
-        && body.contains("update_presentation_shell")
-        && body.contains("presentation_or_boot_time_frozen")
-        && body.contains("presentation_or_boot_time_frozen")
+        && body.contains("begin_presentation_shell_with_owned_visual_time(")
+        && body.contains("native_visual_time::simulation_frozen")
+        && body.contains("native_visual_time::observe")
         && body.contains("apply_presentation_cinematic_letterbox")
-        && body.contains("presentation_or_boot_time_frozen")
+        && body.contains("TheScriptEngine::is_time_frozen_debug")
         // Wave 587: device bookkeeping allowed; full update() still forbidden.
         && body.contains("update_input()")
         && !body.contains("game_client.update()");
@@ -151,7 +151,7 @@ pub fn honesty_host_game_client_shell_tick_helper_source_markers_residual_wave58
     let call_ok = eng.contains("self.host_tick_game_client_presentation_shell()");
     // Only the helper should invoke presentation shell on the production path.
     let shell_calls = eng
-        .matches("begin_presentation_shell_with_material_frames(")
+        .matches("begin_presentation_shell_with_owned_visual_time(")
         .count();
     let ok =
         body_ok && call_ok && docs_ok && shell_calls == 1 && !eng.contains("playable_claim = true");
@@ -188,7 +188,7 @@ pub fn simulate_host_game_client_shell_tick_helper_collect_source() -> bool {
 pub fn simulate_host_game_client_shell_tick_helper_dispatch_source() -> bool {
     let eng = eng_source();
     let ok = eng.contains("self.host_tick_game_client_presentation_shell()")
-        && eng.contains("begin_presentation_shell_with_material_frames(")
+        && eng.contains("begin_presentation_shell_with_owned_visual_time(")
         && eng.contains("logic_frame: self.game_logic.frame")
         && eng.contains("client_frame: self.game_client.get_frame()")
         && eng.contains("update_input()")

@@ -1,0 +1,277 @@
+//! Receiving native prefix facts are observed at the original late UI boundary.
+use super::*;
+
+fn client(frame: u32) -> GameClient {
+    let mut client = GameClient::new().unwrap();
+    client.initialized = true;
+    client.set_frame(frame);
+    client
+}
+fn frames(frame: u32) -> NativeParticleFrames {
+    NativeParticleFrames {
+        logic_frame: frame,
+        client_frame: frame,
+    }
+}
+#[test]
+fn native_visual_time_is_instance_scoped_and_repeated_frame_is_consumed_once() {
+    let mut a = client(71);
+    let mut b = client(71);
+    assert_eq!(
+        a.admit_visual_time(NativeVisualTime {
+            frozen: false,
+            visual_speed: 2.5
+        })
+        .unwrap(),
+        (false, 2.5)
+    );
+    assert_eq!(
+        b.admit_visual_time(NativeVisualTime {
+            frozen: true,
+            visual_speed: 0.5
+        })
+        .unwrap(),
+        (true, 0.5)
+    );
+    assert_eq!(
+        a.admit_visual_time(NativeVisualTime {
+            frozen: false,
+            visual_speed: 3.
+        })
+        .unwrap(),
+        (true, 3.)
+    );
+    a.set_frame(72);
+    assert_eq!(
+        a.admit_visual_time(NativeVisualTime {
+            frozen: false,
+            visual_speed: 3.
+        })
+        .unwrap(),
+        (false, 3.)
+    );
+    b.set_frame(72);
+    assert_eq!(
+        b.admit_visual_time(NativeVisualTime {
+            frozen: false,
+            visual_speed: -1.
+        })
+        .unwrap(),
+        (false, -1.)
+    );
+}
+#[test]
+fn invalid_visual_speed_does_not_consume_receiving_frame() {
+    let mut client = client(93);
+    let before = client.last_visual_time_frame;
+    for speed in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert!(
+            client
+                .admit_visual_time(NativeVisualTime {
+                    frozen: false,
+                    visual_speed: speed
+                })
+                .is_err()
+        );
+        assert_eq!(client.last_visual_time_frame, before);
+    }
+    assert_eq!(
+        client
+            .admit_visual_time(NativeVisualTime {
+                frozen: false,
+                visual_speed: 1.
+            })
+            .unwrap(),
+        (false, 1.)
+    );
+}
+#[test]
+fn actual_native_prefix_uses_supplied_facts_despite_foreign_core_observation() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "actual_native_prefix_uses_supplied_facts_despite_foreign_core_observation",
+    ) {
+        return;
+    }
+    get_shell().init().unwrap();
+    let mut a = client(121);
+    let mut b = client(121);
+    // Restore the existing standalone observation on this thread; neither
+    // receiving prefix may sample it while processing its explicit facts.
+    struct LegacyObservation {
+        view: Option<crate::display::view::View>,
+        speed: i32,
+    }
+    impl Drop for LegacyObservation {
+        fn drop(&mut self) {
+            let view = self.view.take().unwrap();
+            crate::display::view::with_tactical_view(|current| *current = view);
+            crate::core::script_action_handler::set_script_visual_speed_multiplier(self.speed);
+        }
+    }
+    let _legacy = LegacyObservation {
+        view: Some(crate::display::view::with_tactical_view(|view| {
+            std::mem::replace(view, crate::display::view::View::new())
+        })),
+        speed: get_script_visual_speed_multiplier(),
+    };
+    crate::core::script_action_handler::set_script_visual_speed_multiplier(77);
+    crate::display::view::with_tactical_view(|view| {
+        view.zoom_camera(2., 1000, 0., 0.);
+        view.camera_mod_freeze_time();
+    });
+    let mut observed = 0;
+    let first = a
+        .begin_presentation_shell_with_owned_visual_time(0.033, frames(121), &[], || {
+            observed += 1;
+            NativeVisualTime {
+                frozen: false,
+                visual_speed: 2.,
+            }
+        })
+        .unwrap();
+    assert!(!first.frozen);
+    assert_eq!(observed, 1);
+    let peer = b
+        .begin_presentation_shell_with_owned_visual_time(0.033, frames(121), &[], || {
+            NativeVisualTime {
+                frozen: true,
+                visual_speed: 0.5,
+            }
+        })
+        .unwrap();
+    assert!(peer.frozen);
+    let repeated = a
+        .begin_presentation_shell_with_owned_visual_time(0.033, frames(121), &[], || {
+            NativeVisualTime {
+                frozen: false,
+                visual_speed: 2.,
+            }
+        })
+        .unwrap();
+    assert!(repeated.frozen);
+    a.set_frame(122);
+    let next = a
+        .begin_presentation_shell_with_owned_visual_time(0.033, frames(122), &[], || {
+            NativeVisualTime {
+                frozen: false,
+                visual_speed: 2.,
+            }
+        })
+        .unwrap();
+    assert!(!next.frozen);
+    assert_eq!(b.last_visual_time_frame, 121);
+}
+
+#[path = "tests/native_visual_time_delta.rs"]
+mod delta_drawable;
+
+#[test]
+fn actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isolation() {
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        module_path!(),
+        "actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isolation",
+    ) {
+        return;
+    }
+    use delta_drawable::DeltaDrawable;
+    get_shell().init().unwrap();
+    let mut a = client(151);
+    let mut b = client(151);
+    fn install(client: &mut GameClient) -> DrawableId {
+        let id = client
+            .create_drawable_from_template(&ThingTemplate::new())
+            .unwrap();
+        client
+            .drawables
+            .drawable_map
+            .insert(id, Box::new(DeltaDrawable::new(id)));
+        id
+    }
+    fn deltas(client: &GameClient, id: DrawableId) -> Vec<f32> {
+        client.drawables.drawable_map[&id]
+            .as_any()
+            .downcast_ref::<DeltaDrawable>()
+            .unwrap()
+            .deltas
+            .clone()
+    }
+    let aid = install(&mut a);
+    let bid = install(&mut b);
+    for (client, speed) in [(&mut a, 2.5), (&mut b, 0.5)] {
+        let _ = client
+            .begin_presentation_shell_with_owned_visual_time(0.04, frames(151), &[], || {
+                NativeVisualTime {
+                    frozen: false,
+                    visual_speed: speed,
+                }
+            })
+            .unwrap();
+    }
+    assert_eq!(deltas(&a, aid), [0.04_f32 * 2.5]);
+    assert_eq!(deltas(&b, bid), [0.02]);
+    let _ = a
+        .begin_presentation_shell_with_owned_visual_time(0.04, frames(151), &[], || {
+            NativeVisualTime {
+                frozen: false,
+                visual_speed: 2.5,
+            }
+        })
+        .unwrap();
+    assert_eq!(deltas(&a, aid), [0.04_f32 * 2.5, 0.]);
+    // Dropping/reconstructing a peer cannot reset the receiving frame marker.
+    drop(b);
+    let peer = client(151);
+    assert_ne!(peer.last_visual_time_frame, a.last_visual_time_frame);
+    a.set_frame(152);
+    let _ = a
+        .begin_presentation_shell_with_owned_visual_time(0.04, frames(152), &[], || {
+            NativeVisualTime {
+                frozen: false,
+                visual_speed: 2.5,
+            }
+        })
+        .unwrap();
+    assert_eq!(deltas(&a, aid), [0.04_f32 * 2.5, 0., 0.04_f32 * 2.5]);
+    assert_eq!(peer.last_visual_time_frame, u32::MAX);
+}
+
+#[test]
+fn receiving_freeze_admission_matches_extracted_cpp_truth_repeat_and_unsigned_wrap_trace() {
+    let corpus = include_str!("native_visual_time_tests/fixtures/client_freeze_cpp.csv");
+    let mut client = GameClient::new().unwrap();
+    let mut rows = 0;
+    for line in corpus.lines().skip(1) {
+        let fields: Vec<_> = line.split(',').collect();
+        assert_eq!(fields.len(), 9);
+        let frame = fields[2].parse::<u32>().unwrap();
+        let flag = |index: usize| match fields[index] {
+            "0" => false,
+            "1" => true,
+            value => panic!("invalid oracle boolean {value}"),
+        };
+        let frozen = (flag(3) && !flag(4)) || flag(5) || flag(6) || flag(7);
+        client.set_frame(frame);
+        let (actual, speed) = client
+            .admit_visual_time(NativeVisualTime {
+                frozen,
+                visual_speed: 1.,
+            })
+            .unwrap();
+        assert_eq!(
+            actual,
+            flag(8),
+            "original CPP {} case{} frame{}",
+            fields[0],
+            fields[1],
+            frame
+        );
+        assert_eq!(speed, 1.);
+        assert_eq!(client.last_visual_time_frame, frame);
+        rows += 1;
+    }
+    assert_eq!(
+        rows, 75,
+        "all original oracle offers must execute in one continuous trace"
+    );
+}
