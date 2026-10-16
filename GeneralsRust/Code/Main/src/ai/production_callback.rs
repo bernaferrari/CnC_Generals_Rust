@@ -86,6 +86,15 @@ impl GameLogic {
         structure: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) {
+        self.notify_owned_ai_structure_produced_with_ui(structure, interpreter, &mut None);
+    }
+
+    pub(crate) fn notify_owned_ai_structure_produced_with_ui(
+        &mut self,
+        structure: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         let Some(object) = self.host_object(structure) else {
             return;
         };
@@ -155,9 +164,9 @@ impl GameLogic {
             // Named-object queries resolve the canonical host roster directly;
             // no global cache of a second Object model is published.
             if let Some(engine) = interpreter {
-                self.run_object_script_with_interpreter(engine, &completion.script, structure);
+                self.run_object_script_with_ui(engine, &completion.script, structure, ui);
             } else {
-                self.run_owned_object_script(&completion.script, structure);
+                self.run_owned_object_script_with_ui(&completion.script, structure, ui);
             }
         }
         // Re-resolve after the immediate script; it may destroy/capture/change

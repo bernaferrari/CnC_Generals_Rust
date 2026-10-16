@@ -89,7 +89,7 @@ pub fn honesty_host_command_pipeline_boundary_nav_commands_residual_wave932() ->
 pub fn honesty_host_command_pipeline_boundary_residual_pack_wave932() -> bool {
     let cnc = cnc_source();
     let gl = gl_source();
-    let api_raw = code_window(gl, "fn apply_command_pipeline_op", 900);
+    let api_raw = code_window(gl, "fn apply_command_pipeline_op_with_ui", 1100);
     let api = non_comment_code(api_raw);
     let queue_raw = code_window(cnc, "fn host_queue_command", 420);
     let queue = non_comment_code(queue_raw);

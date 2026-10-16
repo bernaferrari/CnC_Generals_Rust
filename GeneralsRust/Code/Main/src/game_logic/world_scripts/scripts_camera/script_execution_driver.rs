@@ -51,12 +51,11 @@ impl<'a> HostScriptExecutionDriver<'a> {
     /// Callback delivery while the interpreter is already borrowed by a frame
     /// or AI script walk uses that exact interpreter, never a missing field.
     pub(crate) fn complete_structure(&mut self, object: ObjectId) {
-        if let Some(engine) = self.interpreter {
-            self.world
-                .notify_structure_construction_complete_with_interpreter(object, engine);
-        } else {
-            self.world.notify_structure_construction_complete(object);
-        }
+        self.world.notify_structure_construction_complete_with_ui(
+            object,
+            self.interpreter,
+            &mut self.ui,
+        );
     }
 
     fn player_script_name(player: &Player) -> &str {
@@ -461,7 +460,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        Some(self.world.update_owned_script_team_states(engine))
+        Some(
+            self.world
+                .update_owned_script_team_states_with_ui(engine, &mut self.ui),
+        )
     }
 
     fn local_player_observer(&self) -> ScriptOwnerQuery<bool> {
@@ -1715,12 +1717,13 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        Some(self.world.merge_owned_script_team(
+        Some(self.world.merge_owned_script_team_with_ui(
             source,
             destination,
             calling,
             condition,
             self.interpreter,
+            &mut self.ui,
         ))
     }
 
@@ -2145,17 +2148,41 @@ impl GameLogic {
         name: &str,
         object: ObjectId,
     ) {
+        self.run_object_script_with_ui(engine, name, object, &mut None);
+    }
+
+    pub(crate) fn run_object_script_with_ui(
+        &mut self,
+        engine: &gamelogic::scripting::engine::ScriptEngine,
+        name: &str,
+        object: ObjectId,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         let context = gamelogic::scripting::executor::ScriptContext::at_frame(self.frame);
         if let Err(error) = engine.run_object_script_with_driver(
             name,
             object.0,
             context,
-            &mut HostScriptExecutionDriver::with_interpreter(self, engine),
+            &mut HostScriptExecutionDriver::with_ui(
+                self,
+                engine,
+                ui.as_mut()
+                    .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+            ),
         ) {
             log::error!("attached object script failed: {error}");
         }
     }
     pub(crate) fn run_owned_object_script(&mut self, name: &str, object: ObjectId) {
+        self.run_owned_object_script_with_ui(name, object, &mut None);
+    }
+
+    pub(crate) fn run_owned_object_script_with_ui(
+        &mut self,
+        name: &str,
+        object: ObjectId,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         if name.is_empty() || name == "<none>" {
             return;
         }
@@ -2164,7 +2191,7 @@ impl GameLogic {
             "a borrowed interpreter must be supplied explicitly for attached callbacks"
         );
         self.with_owned_script_engine(|engine, world| {
-            world.run_object_script_with_interpreter(engine, name, object)
+            world.run_object_script_with_ui(engine, name, object, ui)
         });
     }
 }

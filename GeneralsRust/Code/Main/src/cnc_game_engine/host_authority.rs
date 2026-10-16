@@ -903,8 +903,7 @@ impl CnCGameEngine {
         // Wave 582/871/914/918/932: shell/menu command drain via command-pipeline authority.
         // Empty queue skips process dual-write; stamp only when work ran without freeze.
         let processed = self
-            .game_logic
-            .apply_command_pipeline_op(crate::game_logic::CommandPipelineOp::ProcessIfNeeded);
+            .host_apply_command_pipeline_op(crate::game_logic::CommandPipelineOp::ProcessIfNeeded);
         if processed && self.last_presentation_frame.is_none() {
             self.host_stamp_sim_timing_residuals();
         }

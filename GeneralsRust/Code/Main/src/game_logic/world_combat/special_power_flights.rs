@@ -2593,6 +2593,19 @@ impl GameLogic {
         team: Team,
         position: Vec3,
     ) {
+        self.apply_listening_outpost_initial_payload_with_ui(
+            outpost_id, team, position, None, &mut None,
+        );
+    }
+
+    pub(in super::super) fn apply_listening_outpost_initial_payload_with_ui(
+        &mut self,
+        outpost_id: ObjectId,
+        team: Team,
+        position: Vec3,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         use crate::game_logic::host_listening_outpost::{
             LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT, LISTENING_OUTPOST_PAYLOAD_TEMPLATE,
             LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT, preferred_payload_template,
@@ -2639,7 +2652,18 @@ impl GameLogic {
                 break;
             }
 
-            let Some(hunter_id) = self.create_object(payload_name, team, position) else {
+            let owner = self
+                .objects
+                .get(&outpost_id)
+                .and_then(|parent| parent.owner_player_id);
+            let Some(hunter_id) = self.create_object_for_owner_or_team_with_ui(
+                payload_name,
+                team,
+                owner,
+                position,
+                interpreter,
+                ui,
+            ) else {
                 break;
             };
 
@@ -2683,6 +2707,19 @@ impl GameLogic {
         team: Team,
         position: Vec3,
     ) {
+        self.apply_troop_crawler_initial_payload_with_ui(
+            crawler_id, team, position, None, &mut None,
+        );
+    }
+
+    pub(in super::super) fn apply_troop_crawler_initial_payload_with_ui(
+        &mut self,
+        crawler_id: ObjectId,
+        team: Team,
+        position: Vec3,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         use crate::game_logic::host_troop_crawler::{
             TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT, TROOP_CRAWLER_PAYLOAD_TEMPLATE,
             TROOP_CRAWLER_PAYLOAD_TEMPLATE_ALIAS, resolve_payload_template_name,
@@ -2722,7 +2759,18 @@ impl GameLogic {
                 break;
             }
 
-            let Some(guard_id) = self.create_object(payload_name, team, position) else {
+            let owner = self
+                .objects
+                .get(&crawler_id)
+                .and_then(|parent| parent.owner_player_id);
+            let Some(guard_id) = self.create_object_for_owner_or_team_with_ui(
+                payload_name,
+                team,
+                owner,
+                position,
+                interpreter,
+                ui,
+            ) else {
                 break;
             };
 

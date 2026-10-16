@@ -81,7 +81,17 @@ impl GameLogic {
         structure: ObjectId,
         owner: u32,
     ) {
-        self.complete_owned_structure_player(structure, owner, false);
+        self.complete_instant_line_build_player_with_ui(_producer, structure, owner, &mut None);
+    }
+
+    pub(crate) fn complete_instant_line_build_player_with_ui(
+        &mut self,
+        _producer: ObjectId,
+        structure: ObjectId,
+        owner: u32,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
+        self.complete_owned_structure_player_with_ui(structure, owner, false, None, ui);
     }
 
     pub(crate) fn complete_owned_structure_player(
@@ -99,6 +109,23 @@ impl GameLogic {
         owner: u32,
         rebuilding: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) {
+        self.complete_owned_structure_player_with_ui(
+            structure,
+            owner,
+            rebuilding,
+            interpreter,
+            &mut None,
+        );
+    }
+
+    pub(crate) fn complete_owned_structure_player_with_ui(
+        &mut self,
+        structure: ObjectId,
+        owner: u32,
+        rebuilding: bool,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
         let Some(object) = self.host_object(structure) else {
             return;
@@ -135,7 +162,7 @@ impl GameLogic {
         self.admit_completed_structure_power(owner);
         // The AI owner callback follows power admission; CreateModules are
         // invoked by BuildAssistant only after this entire Player callback.
-        self.notify_owned_ai_structure_produced_with_engine(structure, interpreter);
+        self.notify_owned_ai_structure_produced_with_ui(structure, interpreter, ui);
         self.try_eva_superweapon_detected_for_source(structure);
     }
 }

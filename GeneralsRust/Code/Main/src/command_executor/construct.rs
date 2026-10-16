@@ -181,13 +181,14 @@ impl<'a> CommandExecutor<'a> {
                 }
             }
 
-            let building_id = self.game_logic.create_dozer_scaffold(
+            let building_id = self.game_logic.create_dozer_scaffold_with_ui(
                 template_name,
                 self.current_player_id,
                 unit_id,
                 location,
                 orientation,
                 build_cost,
+                &mut self.ui,
             );
             let Some(building_id) = building_id else {
                 return CommandResult::InvalidCommand;

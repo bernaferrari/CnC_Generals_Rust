@@ -26,6 +26,15 @@ impl GameLogic {
     }
 
     pub(crate) fn update_construction(&mut self, object_ids: &[ObjectId], dt: f32) {
+        self.update_construction_with_ui(object_ids, dt, &mut None);
+    }
+
+    pub(crate) fn update_construction_with_ui(
+        &mut self,
+        object_ids: &[ObjectId],
+        dt: f32,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         // C++ parity: calcTimeToBuild applies the same power penalty to dozer
         // construction as to production queue speed.
         let player_power_factor = self.compute_player_power_factors();
@@ -331,7 +340,7 @@ impl GameLogic {
         for &completed_id in &completed_structures {
             // CPP539-591: visual preparation, Player and CreateModules all
             // observe the builder's BUILD task before end-dock/task release.
-            self.notify_structure_construction_complete(completed_id);
+            self.notify_structure_construction_complete_with_ui(completed_id, None, ui);
             let building_pos = self.objects.get(&completed_id).map(|o| o.get_position());
             let mut end_moves: Vec<(ObjectId, glam::Vec3)> = Vec::new();
             let mut finished_builders: Vec<ObjectId> = Vec::new();
@@ -702,6 +711,14 @@ impl GameLogic {
     }
 
     pub(crate) fn update_production(&mut self, dt: f32) {
+        self.update_production_with_ui(dt, &mut None);
+    }
+
+    pub(crate) fn update_production_with_ui(
+        &mut self,
+        dt: f32,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         // C++ ProductionUpdate.cpp:671 — re-check allowedToBuild on queue head.
         self.cancel_script_disallowed_production_queue_heads();
         // Wave 613: production complete collect + apply via host helpers.
@@ -714,7 +731,7 @@ impl GameLogic {
         let (upgrade_completions, unit_completions) = self.host_collect_production_completions(dt);
         // Wave 595/608: host production complete/spawn apply residual via host helpers.
         self.apply_upgrade_production_completions(upgrade_completions);
-        self.apply_unit_production_completions(unit_completions);
+        self.apply_unit_production_completions_with_ui(unit_completions, ui);
     }
 
     /// Wave 613: host production completion collection residual.
@@ -1068,8 +1085,15 @@ impl GameLogic {
         &mut self,
         unit_completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>,
     ) {
-        // Wave 608: thin wrapper — production complete apply via host helper.
-        self.host_apply_unit_production_completions(unit_completions)
+        self.apply_unit_production_completions_with_ui(unit_completions, &mut None)
+    }
+
+    pub(in super::super) fn apply_unit_production_completions_with_ui(
+        &mut self,
+        unit_completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
+        self.host_apply_unit_production_completions_with_ui(unit_completions, ui)
     }
 
     /// Wave 615: host production unit spawn residual.
@@ -1127,6 +1151,23 @@ impl GameLogic {
         owner_player_id: Option<u32>,
         spawn_pos: Vec3,
     ) -> Option<ObjectId> {
+        self.host_spawn_production_unit_with_ui(
+            template,
+            team,
+            owner_player_id,
+            spawn_pos,
+            &mut None,
+        )
+    }
+
+    pub(crate) fn host_spawn_production_unit_with_ui(
+        &mut self,
+        template: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        spawn_pos: Vec3,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> Option<ObjectId> {
         // C++ ThingFactory::newObject (ThingFactory.cpp:286-292) picks a
         // BuildVariations chassis before create.
         let template_owned = resolve_production_build_variation(template);
@@ -1144,7 +1185,13 @@ impl GameLogic {
         // Wave 761: entity-first ObjectId bind under production sole-tick OR
         // coupled shadow (dual path still prefers GW pre-spawned entity raw id).
         {}
-        self.create_production_object_for_owner_or_team(template, team, owner_player_id, spawn_pos)
+        self.create_production_object_for_owner_or_team_with_ui(
+            template,
+            team,
+            owner_player_id,
+            spawn_pos,
+            ui,
+        )
     }
 
     /// Wave 595: host unit production completion residual — spawn, door, exit delay,
@@ -1152,6 +1199,14 @@ impl GameLogic {
     pub(in super::super) fn host_apply_unit_production_completions(
         &mut self,
         unit_completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>,
+    ) {
+        self.host_apply_unit_production_completions_with_ui(unit_completions, &mut None);
+    }
+
+    pub(crate) fn host_apply_unit_production_completions_with_ui(
+        &mut self,
+        unit_completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
         // Wave 608: host production complete/spawn apply residual.
         // Wave 595: host unit production completion residual.
@@ -1176,16 +1231,18 @@ impl GameLogic {
             // unique-team owner for genuinely ownerless legacy producers.
             let owner_player_id = self.player_owner_for_host_object(producer);
             // Wave 615: production unit spawn via host helper (still host ID authority).
-            let new_id =
-                match self.apply_production_authority_op(ProductionAuthorityOp::SpawnUnit {
+            let new_id = match self.apply_production_authority_op_with_ui(
+                ProductionAuthorityOp::SpawnUnit {
                     template: template.clone(),
                     team,
                     owner_player_id,
                     spawn_pos,
-                }) {
-                    ProductionAuthorityResult::Spawned(id) => id,
-                    _ => None,
-                };
+                },
+                ui,
+            ) {
+                ProductionAuthorityResult::Spawned(id) => id,
+                _ => None,
+            };
             if let Some(new_id) = new_id {
                 if let Some(unit) = self.host_object_mut(new_id) {
                     unit.producer_id = Some(producer_id);
@@ -1230,8 +1287,9 @@ impl GameLogic {
                     [spawn_pos.x, spawn_pos.y, spawn_pos.z],
                     rally.map(|r| [r.x, r.y, r.z]),
                 );
-                let _ = self.apply_production_authority_op(
+                let _ = self.apply_production_authority_op_with_ui(
                     ProductionAuthorityOp::ApplySpawnReadyCompletions,
+                    ui,
                 );
             }
         }
@@ -1452,21 +1510,33 @@ impl GameLogic {
     }
 
     pub fn host_apply_production_spawn_ready_completions(&mut self) -> usize {
-        self.host_apply_production_spawn_ready_completions_with_build_complete(
-            Self::apply_create_modules_on_build_complete,
+        self.host_apply_production_spawn_ready_completions_with_ui(&mut None)
+    }
+
+    pub(crate) fn host_apply_production_spawn_ready_completions_with_ui(
+        &mut self,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> usize {
+        let events = std::mem::take(&mut self.production_spawn_completions);
+        self.apply_spawn_ready_events(
+            events,
+            SpawnReadyCallbacks::NotifyAfterExit,
+            |world, id, ui| world.apply_create_modules_on_build_complete_with_ui(id, None, ui),
+            ui,
         )
     }
 
     pub(crate) fn host_apply_production_spawn_ready_completions_with_build_complete(
         &mut self,
-        on_build_complete: impl FnMut(&mut Self, ObjectId),
+        mut on_build_complete: impl FnMut(&mut Self, ObjectId),
     ) -> usize {
         // Wave 679: paid ProductionUpdate deliveries retain the drain boundary.
         let events = std::mem::take(&mut self.production_spawn_completions);
         self.apply_spawn_ready_events(
             events,
             SpawnReadyCallbacks::NotifyAfterExit,
-            on_build_complete,
+            |world, id, _| on_build_complete(world, id),
+            &mut None,
         )
     }
 
@@ -1479,7 +1549,8 @@ impl GameLogic {
         self.apply_spawn_ready_events(
             std::iter::once(event),
             SpawnReadyCallbacks::AlreadyNotified,
-            |_, _| {},
+            |_, _, _| {},
+            &mut None,
         )
     }
 
@@ -1487,7 +1558,12 @@ impl GameLogic {
         &mut self,
         events: impl IntoIterator<Item = crate::game_logic::host_production_spawn_ready_log::HostProductionSpawnReadyEvent>,
         callbacks: SpawnReadyCallbacks,
-        mut on_build_complete: impl FnMut(&mut Self, ObjectId),
+        mut on_build_complete: impl FnMut(
+            &mut Self,
+            ObjectId,
+            &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        ),
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) -> usize {
         let mut n = 0usize;
         let mut voice_create_played: std::collections::HashSet<ObjectId> =
@@ -1694,7 +1770,7 @@ impl GameLogic {
                     new_id,
                     producer_id,
                     &template,
-                    &mut on_build_complete,
+                    |world, id| on_build_complete(world, id, ui),
                 );
             } else {
                 // SpawnBehavior notified AI before exit, and its ordinary

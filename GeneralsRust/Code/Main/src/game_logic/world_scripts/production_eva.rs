@@ -1156,7 +1156,7 @@ impl GameLogic {
         structure_id: ObjectId,
         observe_prepared: impl FnMut(&GameLogic, ObjectId),
     ) {
-        self.finish_structure_construction(structure_id, None, observe_prepared);
+        self.finish_structure_construction(structure_id, None, observe_prepared, &mut None);
     }
 
     pub(crate) fn notify_structure_construction_complete_with_interpreter(
@@ -1164,7 +1164,20 @@ impl GameLogic {
         structure_id: ObjectId,
         interpreter: &gamelogic::scripting::engine::ScriptEngine,
     ) {
-        self.finish_structure_construction(structure_id, Some(interpreter), |_, _| {});
+        self.notify_structure_construction_complete_with_ui(
+            structure_id,
+            Some(interpreter),
+            &mut None,
+        );
+    }
+
+    pub(crate) fn notify_structure_construction_complete_with_ui(
+        &mut self,
+        structure_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
+        self.finish_structure_construction(structure_id, interpreter, |_, _| {}, ui);
     }
 
     fn finish_structure_construction(
@@ -1172,6 +1185,7 @@ impl GameLogic {
         structure_id: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         mut observe_prepared: impl FnMut(&GameLogic, ObjectId),
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
         if self
             .objects
@@ -1201,11 +1215,12 @@ impl GameLogic {
         let name = obj.template_name.clone();
         observe_prepared(self, structure_id);
         if let Some((owner, rebuilding)) = owner_and_rebuild {
-            self.complete_owned_structure_player_with_engine(
+            self.complete_owned_structure_player_with_ui(
                 structure_id,
                 owner,
                 rebuilding,
                 interpreter,
+                ui,
             );
         }
         // DozerAIUpdate: owning Academy observes completed Player/AI effects
@@ -1248,7 +1263,7 @@ impl GameLogic {
             obj.start_power_recharge_with_frames(&power, frames);
         }
         // C++ CreateModules onBuildComplete (Preorder/GrantUpgrade/LockWeapon/SP/Supply).
-        self.apply_create_modules_on_build_complete(structure_id);
+        self.apply_create_modules_on_build_complete_with_ui(structure_id, interpreter, ui);
         if let Some(object) = self.objects.get_mut(&structure_id) {
             object.handle_partition_cell_maintenance();
             object.stamp_partition_value_threat();
@@ -2071,3 +2086,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "construction_ui_tests.rs"]
+mod construction_ui_tests;

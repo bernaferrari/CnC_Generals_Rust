@@ -244,15 +244,35 @@ impl GameLogic {
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> gamelogic::GameLogicResult<()> {
+        self.merge_owned_script_team_with_ui(
+            source,
+            destination,
+            calling,
+            condition,
+            interpreter,
+            &mut None,
+        )
+    }
+
+    pub(crate) fn merge_owned_script_team_with_ui(
+        &mut self,
+        source: &str,
+        destination: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> gamelogic::GameLogicResult<()> {
         if interpreter.is_none() && self.owned_script_engine.is_some() {
             return self
                 .with_owned_script_engine(|engine, world| {
-                    world.merge_owned_script_team(
+                    world.merge_owned_script_team_with_ui(
                         source,
                         destination,
                         calling,
                         condition,
                         Some(engine),
+                        ui,
                     )
                 })
                 .expect("installed interpreter taken synchronously");
@@ -294,7 +314,7 @@ impl GameLogic {
                             )
                         })?;
                         for name in effects {
-                            self.execute_owned_ai_condition(engine, &name, None);
+                            self.execute_owned_ai_condition_with_ui(engine, &name, None, ui);
                         }
                     }
                     let current = self

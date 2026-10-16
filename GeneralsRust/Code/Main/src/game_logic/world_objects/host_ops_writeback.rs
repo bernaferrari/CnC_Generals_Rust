@@ -337,15 +337,23 @@ impl GameLogic {
     /// Wave 932: single command-pipeline authority boundary.
     #[inline]
     pub fn apply_command_pipeline_op(&mut self, op: CommandPipelineOp) -> bool {
+        self.apply_command_pipeline_op_with_ui(op, &mut None)
+    }
+
+    pub(crate) fn apply_command_pipeline_op_with_ui(
+        &mut self,
+        op: CommandPipelineOp,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> bool {
         match op {
             CommandPipelineOp::Queue { command } => {
                 self.queue_command(command);
                 false
             }
             CommandPipelineOp::QueueAndProcess { command } => {
-                self.queue_and_process_command(command)
+                self.queue_and_process_command_with_ui(command, ui)
             }
-            CommandPipelineOp::ProcessIfNeeded => self.process_commands_if_needed(),
+            CommandPipelineOp::ProcessIfNeeded => self.process_commands_if_needed_with_ui(ui),
         }
     }
 
@@ -420,20 +428,38 @@ impl GameLogic {
         &mut self,
         op: ProductionAuthorityOp,
     ) -> ProductionAuthorityResult {
+        self.apply_production_authority_op_with_ui(op, &mut None)
+    }
+
+    pub(crate) fn apply_production_authority_op_with_ui(
+        &mut self,
+        op: ProductionAuthorityOp,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> ProductionAuthorityResult {
         match op {
             ProductionAuthorityOp::SpawnUnit {
                 template,
                 team,
                 owner_player_id,
                 spawn_pos,
-            } => ProductionAuthorityResult::Spawned(match owner_player_id {
-                Some(player_id) => {
-                    self.host_spawn_production_unit_for_player(&template, player_id, spawn_pos)
-                }
-                None => self.host_spawn_production_unit(&template, team, spawn_pos),
-            }),
+            } => {
+                let team = match owner_player_id {
+                    Some(owner) => match self.players.get(&owner) {
+                        Some(player) => player.team,
+                        None => return ProductionAuthorityResult::Spawned(None),
+                    },
+                    None => team,
+                };
+                ProductionAuthorityResult::Spawned(self.host_spawn_production_unit_with_ui(
+                    &template,
+                    team,
+                    owner_player_id,
+                    spawn_pos,
+                    ui,
+                ))
+            }
             ProductionAuthorityOp::ApplySpawnReadyCompletions => {
-                self.host_apply_production_spawn_ready_completions();
+                self.host_apply_production_spawn_ready_completions_with_ui(ui);
                 ProductionAuthorityResult::Unit
             }
         }

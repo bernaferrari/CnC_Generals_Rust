@@ -46,11 +46,32 @@ impl GameLogic {
         orientation: f32,
         cost: Resources,
     ) -> Option<ObjectId> {
+        self.create_dozer_scaffold_with_ui(
+            template_name,
+            owner_player_id,
+            constructor,
+            position,
+            orientation,
+            cost,
+            &mut None,
+        )
+    }
+
+    pub(crate) fn create_dozer_scaffold_with_ui(
+        &mut self,
+        template_name: &str,
+        owner_player_id: u32,
+        constructor: ObjectId,
+        position: Vec3,
+        orientation: f32,
+        cost: Resources,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> Option<ObjectId> {
         let (owner, team) = self.unit_owner_if_can_construct(constructor)?;
         if owner != owner_player_id || !self.players.get(&owner)?.can_afford(&cost) {
             return None;
         }
-        self.create_scaffold(
+        self.create_scaffold_with_factory_observer_and_ui(
             template_name,
             team,
             Some(owner),
@@ -58,6 +79,8 @@ impl GameLogic {
             orientation,
             Some(constructor),
             Some(cost),
+            |_, _| {},
+            ui,
         )
     }
 
@@ -120,7 +143,32 @@ impl GameLogic {
         orientation: f32,
         constructor: Option<ObjectId>,
         cost: Option<Resources>,
+        observe_factory: impl FnMut(&GameLogic, ObjectId),
+    ) -> Option<ObjectId> {
+        self.create_scaffold_with_factory_observer_and_ui(
+            template_name,
+            team,
+            owner_player_id,
+            position,
+            orientation,
+            constructor,
+            cost,
+            observe_factory,
+            &mut None,
+        )
+    }
+
+    fn create_scaffold_with_factory_observer_and_ui(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+        orientation: f32,
+        constructor: Option<ObjectId>,
+        cost: Option<Resources>,
         mut observe_factory: impl FnMut(&GameLogic, ObjectId),
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) -> Option<ObjectId> {
         if owner_player_id.is_some_and(|player_id| {
             self.players.get(&player_id).map(|player| player.team) != Some(team)
@@ -165,12 +213,15 @@ impl GameLogic {
         }
         // ThingFactory runs onCreate on the authored body and initial complete
         // percentage, with UNDER_CONSTRUCTION already visible and no builder.
-        let id = self.create_object_with_owner(
+        let id = self.create_object_with_initial_team_and_ui(
             template_name,
             team,
             owner_player_id,
             Vec3::ZERO,
             FactoryCreationPurpose::OrdinaryConstruction,
+            None,
+            None,
+            ui,
         )?;
         observe_factory(self, id);
         if let Some(object) = self.objects.get_mut(&id) {

@@ -26,3 +26,6 @@ mod authored_refund_tests;
 
 #[cfg(test)]
 mod capture_callback_owner_tests;
+
+#[cfg(test)]
+mod construction_command_ui_tests;

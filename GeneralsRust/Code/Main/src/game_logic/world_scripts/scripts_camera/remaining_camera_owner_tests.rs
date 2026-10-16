@@ -1050,3 +1050,7 @@ mod borrowed_ui_tests;
 
 #[path = "immediate_create_ui_tests.rs"]
 mod immediate_create_ui_tests;
+
+#[cfg(feature = "game_client")]
+#[path = "team_callback_ui_tests.rs"]
+mod team_callback_ui_tests;

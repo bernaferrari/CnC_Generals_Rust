@@ -436,12 +436,19 @@ impl GameLogic {
     /// Returns whether any commands were processed.
     #[inline]
     pub fn process_commands_if_needed(&mut self) -> bool {
+        self.process_commands_if_needed_with_ui(&mut None)
+    }
+
+    pub(crate) fn process_commands_if_needed_with_ui(
+        &mut self,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> bool {
         // C++ Player::update posts MSG_ENABLE_RETALIATION_MODE once per second.
         self.leftover_dispatch_tick();
         if self.command_queue.is_empty() {
             return false;
         }
-        self.process_commands();
+        self.process_commands_with_ui(ui);
         true
     }
 
@@ -451,11 +458,28 @@ impl GameLogic {
         &mut self,
         command: crate::command_system::GameCommand,
     ) -> bool {
+        self.queue_and_process_command_with_ui(command, &mut None)
+    }
+
+    pub(crate) fn queue_and_process_command_with_ui(
+        &mut self,
+        command: crate::command_system::GameCommand,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> bool {
         self.queue_command(command);
-        self.process_commands_if_needed()
+        self.process_commands_if_needed_with_ui(ui)
     }
 
     pub fn process_commands(&mut self) {
+        self.process_commands_with_ui(&mut None);
+    }
+
+    /// The driving native phase lends UI across each queued command and its
+    /// immediate factory callbacks. Recorder/replay admission stays in order.
+    pub(crate) fn process_commands_with_ui(
+        &mut self,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         // The recorder observes this driving world even outside a full tick.
         crate::command_system::stamp_host_logic_frame(&mut self.replay_pending, self.frame);
         let state_crc = if crate::command_system::logic_crc_due(self.frame) {
@@ -469,7 +493,11 @@ impl GameLogic {
             state_crc,
         );
         while let Some(command) = self.command_queue.pop_front() {
-            self.execute_command(command);
+            self.execute_command_with_ui(
+                command,
+                ui.as_mut()
+                    .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+            );
         }
     }
 

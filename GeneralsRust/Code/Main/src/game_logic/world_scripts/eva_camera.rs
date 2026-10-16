@@ -1311,6 +1311,14 @@ impl GameLogic {
         &mut self,
         command: crate::command_system::GameCommand,
     ) {
+        self.execute_command_with_ui(command, None);
+    }
+
+    pub(in super::super) fn execute_command_with_ui(
+        &mut self,
+        command: crate::command_system::GameCommand,
+        mut ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         let command_type = command.command_type.clone();
         let accepted_gather_metadata = match &command.command_type {
             crate::command_system::CommandType::Gather { target_id } => Some((
@@ -1321,7 +1329,12 @@ impl GameLogic {
             )),
             _ => None,
         };
-        let mut executor = crate::command_executor::CommandExecutor::new(self, command.player_id);
+        let mut executor = crate::command_executor::CommandExecutor::new_with_ui(
+            self,
+            command.player_id,
+            ui.as_mut()
+                .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+        );
         let result = executor.execute_command(command);
         let accepted_carrier_ids = executor.take_accepted_gather_carrier_ids();
         drop(executor);

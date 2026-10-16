@@ -129,6 +129,15 @@ impl GameLogic {
 
     /// C++ SupplyCenterCreate::onBuildComplete residual.
     pub(in crate::game_logic) fn on_supply_center_build_complete(&mut self, object_id: ObjectId) {
+        self.on_supply_center_build_complete_with_ui(object_id, None, &mut None);
+    }
+
+    pub(in crate::game_logic) fn on_supply_center_build_complete_with_ui(
+        &mut self,
+        object_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         use crate::game_logic::host_upgrades::is_supply_center_template;
         let is_supply_center = self.objects.get(&object_id).is_some_and(|obj| {
             obj.thing().template.has_supply_center_create
@@ -147,7 +156,7 @@ impl GameLogic {
             // C++ SupplyCenter/Stash SpawnBehavior ModuleTag_12 only becomes
             // eligible after UNDER_CONSTRUCTION clears.  It creates the free
             // starter collector outside the paid ProductionUpdate queue.
-            let _ = self.spawn_supply_center_one_shot_collector(object_id);
+            let _ = self.spawn_supply_center_one_shot_collector_with_ui(object_id, interpreter, ui);
         }
     }
 

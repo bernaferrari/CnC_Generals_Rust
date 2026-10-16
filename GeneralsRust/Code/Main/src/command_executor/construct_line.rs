@@ -85,12 +85,13 @@ impl CommandExecutor<'_> {
             }
             placed |= self
                 .game_logic
-                .create_instant_line_build_object_for_player(
+                .create_instant_line_build_object_for_player_with_ui(
                     template_name,
                     self.current_player_id,
                     location,
                     orientation,
                     builder,
+                    &mut self.ui,
                 )
                 .is_some();
         }

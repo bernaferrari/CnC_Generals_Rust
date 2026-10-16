@@ -253,6 +253,35 @@ impl GameLogic {
         center_id: ObjectId,
         after_player_created: impl FnOnce(&mut Self, ObjectId),
     ) -> Option<ObjectId> {
+        self.spawn_supply_center_collector_with_ui_and_observer(
+            center_id,
+            None,
+            &mut None,
+            after_player_created,
+        )
+    }
+
+    pub(crate) fn spawn_supply_center_one_shot_collector_with_ui(
+        &mut self,
+        center_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> Option<ObjectId> {
+        self.spawn_supply_center_collector_with_ui_and_observer(
+            center_id,
+            interpreter,
+            ui,
+            |_, _| {},
+        )
+    }
+
+    fn spawn_supply_center_collector_with_ui_and_observer(
+        &mut self,
+        center_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        after_player_created: impl FnOnce(&mut Self, ObjectId),
+    ) -> Option<ObjectId> {
         let (team, owner_player_id, mut spawn_pos, orientation, custom_rally) = {
             let center = self.host_object(center_id)?;
             if !center.is_alive()
@@ -342,10 +371,14 @@ impl GameLogic {
         // producer identity here; the common exit handoff applies its
         // authored route (raw natural rally, no 2-cell offset, custom rally,
         // forceWanting, GrantTemporaryStealth) immediately after creation.
-        let spawned_id = match owner_player_id {
-            Some(player_id) => self.create_object_for_player(&spawn_template, player_id, spawn_pos),
-            None => self.create_object(&spawn_template, team, spawn_pos),
-        }?;
+        let spawned_id = self.create_object_for_owner_or_team_with_ui(
+            &spawn_template,
+            team,
+            owner_player_id,
+            spawn_pos,
+            interpreter,
+            ui,
+        )?;
         if let Some(spawned) = self.host_object_mut(spawned_id) {
             spawned.producer_id = Some(center_id);
             spawned.set_orientation(orientation);
@@ -526,6 +559,8 @@ impl GameLogic {
         spawn_template: &str,
         position: Vec3,
         orientation: f32,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) -> Option<ObjectId> {
         if !self.ensure_spawn_behavior_unit_template(spawn_template) {
             return None;
@@ -534,10 +569,14 @@ impl GameLogic {
             let parent = self.host_object(parent_id)?;
             (parent.team, parent.owner_player_id)
         };
-        let spawned_id = match owner {
-            Some(player_id) => self.create_object_for_player(spawn_template, player_id, position),
-            None => self.create_object(spawn_template, team, position),
-        }?;
+        let spawned_id = self.create_object_for_owner_or_team_with_ui(
+            spawn_template,
+            team,
+            owner,
+            position,
+            interpreter,
+            ui,
+        )?;
         if let Some(spawned) = self.host_object_mut(spawned_id) {
             spawned.producer_id = Some(parent_id);
             spawned.set_orientation(orientation);
@@ -605,6 +644,15 @@ impl GameLogic {
     /// C++ `SpawnBehavior::update` first-init + `createSpawn` for Tunnel Network
     /// OneShot RPG troopers and Stinger Site world soldiers.
     pub(crate) fn apply_spawn_behavior_on_build_complete(&mut self, object_id: ObjectId) {
+        self.apply_spawn_behavior_on_build_complete_with_ui(object_id, None, &mut None);
+    }
+
+    fn apply_spawn_behavior_on_build_complete_with_ui(
+        &mut self,
+        object_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         let Some(template_name) = self
             .host_object(object_id)
             .map(|object| object.template_name.clone())
@@ -633,13 +681,19 @@ impl GameLogic {
             return;
         }
         if spec.one_shot {
-            self.spawn_oneshot_spawn_behavior(object_id, &spec);
+            self.spawn_oneshot_spawn_behavior(object_id, &spec, interpreter, ui);
         } else {
-            self.spawn_missing_hive_world_soldiers(object_id, &spec);
+            self.spawn_missing_hive_world_soldiers_with_ui(object_id, &spec, interpreter, ui);
         }
     }
 
-    fn spawn_oneshot_spawn_behavior(&mut self, parent_id: ObjectId, spec: &HostSpawnBehaviorSpec) {
+    fn spawn_oneshot_spawn_behavior(
+        &mut self,
+        parent_id: ObjectId,
+        spec: &HostSpawnBehaviorSpec,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         if self.tunnel_network.oneshot_spawn_fired(parent_id) {
             return;
         }
@@ -693,6 +747,8 @@ impl GameLogic {
                     &spec.spawn_template,
                     spawn_pos,
                     orientation,
+                    interpreter,
+                    ui,
                 )
                 .is_some()
             {
@@ -710,6 +766,16 @@ impl GameLogic {
         &mut self,
         parent_id: ObjectId,
         spec: &HostSpawnBehaviorSpec,
+    ) {
+        self.spawn_missing_hive_world_soldiers_with_ui(parent_id, spec, None, &mut None);
+    }
+
+    fn spawn_missing_hive_world_soldiers_with_ui(
+        &mut self,
+        parent_id: ObjectId,
+        spec: &HostSpawnBehaviorSpec,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) {
         let have = self.count_spawn_behavior_children(parent_id, &spec.spawn_template, true);
         if have >= spec.spawn_number {
@@ -758,6 +824,8 @@ impl GameLogic {
                         &spec.spawn_template,
                         spawn_pos,
                         parent_ori,
+                        interpreter,
+                        ui,
                     )
                     .is_some()
                 {
@@ -777,7 +845,14 @@ impl GameLogic {
             }
             let spawn_pos = self.snap_spawn_point_to_terrain(bone_pos, parent_pos.y);
             if self
-                .create_spawn_behavior_child(parent_id, &spec.spawn_template, spawn_pos, bone_yaw)
+                .create_spawn_behavior_child(
+                    parent_id,
+                    &spec.spawn_template,
+                    spawn_pos,
+                    bone_yaw,
+                    interpreter,
+                    ui,
+                )
                 .is_some()
             {
                 occupied.push(spawn_pos);
@@ -1045,16 +1120,36 @@ impl GameLogic {
         owner_player_id: u32,
         position: Vec3,
     ) -> Option<ObjectId> {
+        self.create_object_for_player_with_ui(
+            template_name,
+            owner_player_id,
+            position,
+            None,
+            &mut None,
+        )
+    }
+
+    pub(crate) fn create_object_for_player_with_ui(
+        &mut self,
+        template_name: &str,
+        owner_player_id: u32,
+        position: Vec3,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> Option<ObjectId> {
         let team = self.players.get(&owner_player_id)?.team;
         if team == Team::Neutral {
             return None;
         }
-        let id = self.create_object_with_owner(
+        let id = self.create_object_with_initial_team_and_ui(
             template_name,
             team,
             Some(owner_player_id),
             position,
             FactoryCreationPurpose::AtCreation,
+            None,
+            interpreter,
+            ui,
         )?;
         self.apply_cash_bounty_on_object_created(id);
         Some(id)
@@ -1070,6 +1165,25 @@ impl GameLogic {
         position: Vec3,
         orientation: f32,
         producer_id: ObjectId,
+    ) -> Option<ObjectId> {
+        self.create_instant_line_build_object_for_player_with_ui(
+            template_name,
+            owner_player_id,
+            position,
+            orientation,
+            producer_id,
+            &mut None,
+        )
+    }
+
+    pub(crate) fn create_instant_line_build_object_for_player_with_ui(
+        &mut self,
+        template_name: &str,
+        owner_player_id: u32,
+        position: Vec3,
+        orientation: f32,
+        producer_id: ObjectId,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) -> Option<ObjectId> {
         let team = self.players.get(&owner_player_id)?.team;
         if team == Team::Neutral {
@@ -1093,12 +1207,15 @@ impl GameLogic {
         }
         // CPP newObject invokes onCreate before BuildAssistant installs the
         // producer and requested terrain pose. Keep the factory's initial pose.
-        let id = self.create_object_with_owner(
+        let id = self.create_object_with_initial_team_and_ui(
             template_name,
             team,
             Some(owner_player_id),
             Vec3::ZERO,
             FactoryCreationPurpose::InstantLineBuild,
+            None,
+            None,
+            ui,
         )?;
         let mut ground_position = position;
         ground_position.y = self.terrain_height_at(position).unwrap_or(position.y);
@@ -1123,8 +1240,8 @@ impl GameLogic {
         }
         // Player's completion policy precedes CreateModule::onBuildComplete.
         // Neither operation is the ordinary Dozer completion notification.
-        self.complete_instant_line_build_player(producer_id, id, owner_player_id);
-        self.apply_create_modules_on_build_complete(id);
+        self.complete_instant_line_build_player_with_ui(producer_id, id, owner_player_id, ui);
+        self.apply_create_modules_on_build_complete_with_ui(id, None, ui);
         if let Some(object) = self.objects.get_mut(&id) {
             object.stamp_partition_value_threat();
         }
@@ -1148,6 +1265,29 @@ impl GameLogic {
             None => self.create_object(template_name, team, position),
         }
     }
+    pub(crate) fn create_object_for_owner_or_team_with_ui(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> Option<ObjectId> {
+        match owner_player_id {
+            Some(owner) => self.create_object_for_player_with_ui(
+                template_name,
+                owner,
+                position,
+                interpreter,
+                ui,
+            ),
+            None => {
+                self.create_object_with_script_ui(template_name, team, position, interpreter, ui)
+            }
+        }
+    }
+
     /// ProductionUpdate calls onCreate at allocation, but onBuildComplete
     /// only after exit and Player::onUnitCreated (CPP:798-825). Map/script
     /// creation retains its immediate completion behavior.
@@ -1158,13 +1298,33 @@ impl GameLogic {
         owner_player_id: Option<u32>,
         position: Vec3,
     ) -> Option<ObjectId> {
+        self.create_production_object_for_owner_or_team_with_ui(
+            template_name,
+            team,
+            owner_player_id,
+            position,
+            &mut None,
+        )
+    }
+
+    pub(crate) fn create_production_object_for_owner_or_team_with_ui(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> Option<ObjectId> {
         let owner = owner_player_id.or_else(|| self.unique_player_id_for_team(team));
-        let id = self.create_object_with_owner(
+        let id = self.create_object_with_initial_team_and_ui(
             template_name,
             team,
             owner,
             position,
             FactoryCreationPurpose::ProductionExit,
+            None,
+            None,
+            ui,
         )?;
         self.apply_cash_bounty_on_object_created(id);
         Some(id)
@@ -2500,7 +2660,7 @@ impl GameLogic {
             {
                 // C++ GameLogic.cpp:1878-1885 every map object runs CreateModules
                 // onBuildComplete (SupplyCenter/GrantUpgrade/Preorder/LockWeapon/SP).
-                self.apply_create_modules_on_build_complete(id);
+                self.apply_create_modules_on_build_complete_with_ui(id, interpreter, ui);
             }
 
             // C++ SpawnBehavior ModuleTag_12 on stock and general-specific
@@ -2512,7 +2672,7 @@ impl GameLogic {
                 FactoryCreationPurpose::InstantLineBuild
                     | FactoryCreationPurpose::OrdinaryConstruction
             ) {
-                let _ = self.spawn_supply_center_one_shot_collector(id);
+                let _ = self.spawn_supply_center_one_shot_collector_with_ui(id, interpreter, ui);
             }
 
             // Residual honesty: Emperor innate propaganda counts as install on spawn.
@@ -2525,17 +2685,29 @@ impl GameLogic {
             // Dock after insert so recursive create_object cannot re-enter mid-build.
             // Fail-closed: no payload if TankHunter template is absent.
             if is_listening_outpost_spawn {
-                self.apply_listening_outpost_initial_payload(id, team, position);
+                self.apply_listening_outpost_initial_payload_with_ui(
+                    id,
+                    team,
+                    position,
+                    interpreter,
+                    ui,
+                );
             }
 
             // Host residual: Troop Crawler InitialPayload Redguard × 8.
             // Dock after insert so recursive create_object cannot re-enter mid-build.
             if is_troop_crawler_spawn {
-                self.apply_troop_crawler_initial_payload(id, team, position);
+                self.apply_troop_crawler_initial_payload_with_ui(
+                    id,
+                    team,
+                    position,
+                    interpreter,
+                    ui,
+                );
             }
 
             // C++ GarrisonContain::onObjectCreated InitialRoster spawn.
-            self.apply_garrison_initial_roster(id, team, position);
+            self.apply_garrison_initial_roster_with_ui(id, team, position, interpreter, ui);
 
             // C++ VeterancyGainCreate.cpp:63-65 controlling player only, then
             // PlayerTemplate fallback. Ally training science must not veteran
@@ -2765,6 +2937,15 @@ impl GameLogic {
     /// CreateModule `onBuildComplete` for map-placed and production-finished
     /// objects.  Does not fire construction-complete EVA/radar.
     pub(crate) fn apply_create_modules_on_build_complete(&mut self, object_id: ObjectId) {
+        self.apply_create_modules_on_build_complete_with_ui(object_id, None, &mut None);
+    }
+
+    pub(crate) fn apply_create_modules_on_build_complete_with_ui(
+        &mut self,
+        object_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         self.apply_preorder_create(object_id);
         let grants = self
             .objects
@@ -2775,7 +2956,7 @@ impl GameLogic {
         self.apply_lock_weapon_create(object_id);
         // C++ SpecialPowerCreate::onBuildComplete walks every getSpecialPower().
         self.on_structure_superweapon_creation(object_id);
-        self.on_supply_center_build_complete(object_id);
+        self.on_supply_center_build_complete_with_ui(object_id, interpreter, ui);
         // C++ TunnelContain::onObjectCreated / onBuildComplete → onTunnelCreated.
         if let Some(obj) = self.objects.get(&object_id) {
             if obj.is_tunnel_network_style_container()
@@ -2793,7 +2974,7 @@ impl GameLogic {
             }
         }
         // C++ SpawnBehavior::update first-init after UNDER_CONSTRUCTION clears.
-        self.apply_spawn_behavior_on_build_complete(object_id);
+        self.apply_spawn_behavior_on_build_complete_with_ui(object_id, interpreter, ui);
     }
 
     /// C++ PreorderCreate::onBuildComplete — controlling player only.

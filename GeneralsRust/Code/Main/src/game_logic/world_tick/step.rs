@@ -469,7 +469,7 @@ impl GameLogic {
     fn update_simulation_in_step(
         &mut self,
         dt: f32,
-        ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+        mut ui: Option<&mut dyn crate::game_logic::ScriptUiEffects>,
     ) -> SimulationStepOutcome {
         debug_assert!(
             std::sync::Arc::ptr_eq(
@@ -487,7 +487,11 @@ impl GameLogic {
         // C++: TheScriptEngine->UPDATE();
         // Scripts run BEFORE everything else so they can react to the previous
         // frame's state and issue commands for this frame.
-        self.evaluate_and_execute_scripts_with_ui(dt, ui);
+        self.evaluate_and_execute_scripts_with_ui(
+            dt,
+            ui.as_mut()
+                .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
+        );
 
         // -----------------------------------------------------------------------
         // Phase 2: Time Freeze Check (C++ lines 3603-3617)
@@ -554,7 +558,7 @@ impl GameLogic {
         // C++: processCommandList( TheCommandList );
         // Process queued player commands BEFORE object updates so movement/attack
         // orders are in effect when objects run their updates.
-        self.process_commands();
+        self.process_commands_with_ui(&mut ui);
 
         // -----------------------------------------------------------------------
         // Phase 6: Object Updates -- Sleepy heap (C++ GameLogic.cpp:3699-3740)
@@ -570,7 +574,7 @@ impl GameLogic {
         while let Some(token) = self.host_sleepy.next_due(now) {
             match token.kind {
                 super::HostSleepyKind::Construction => {
-                    self.update_construction(&object_ids, dt);
+                    self.update_construction_with_ui(&object_ids, dt, &mut ui);
                 }
                 super::HostSleepyKind::SellList => {
                     self.update_sell_list();
@@ -1397,7 +1401,7 @@ impl GameLogic {
         // Phase 8b: Apply commands queued by AI this frame (C++ CommandList drain
         // after TheAI->UPDATE). Ensures same-frame set_target/move logs reach
         // shadow/presentation without a second engine-side process_commands.
-        self.process_commands();
+        self.process_commands_with_ui(&mut ui);
 
         // -----------------------------------------------------------------------
         // Phase 9: Production / Build Assistant (C++ line 3748)
@@ -1407,7 +1411,7 @@ impl GameLogic {
         // frame can be immediately reflected.
         // Drain prior-frame upgrade presentation events before research advances.
         self.host_upgrades.clear_frame_events();
-        self.update_production(dt);
+        self.update_production_with_ui(dt, &mut ui);
         // Wave 827: host-sole unless movement authority live: host system residuals sole-tick after GW writeback.
         {
             self.update_player_upgrades();

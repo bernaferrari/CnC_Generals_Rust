@@ -203,6 +203,17 @@ impl GameLogic {
         team: Team,
         position: glam::Vec3,
     ) {
+        self.apply_garrison_initial_roster_with_ui(container_id, team, position, None, &mut None);
+    }
+
+    pub(in crate::game_logic) fn apply_garrison_initial_roster_with_ui(
+        &mut self,
+        container_id: ObjectId,
+        team: Team,
+        position: glam::Vec3,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         let Some(container) = self.objects.get(&container_id) else {
             return;
         };
@@ -230,7 +241,20 @@ impl GameLogic {
         }
         let payload_name = roster.template_name;
         for _ in 0..roster.count {
-            let Some(occupant_id) = self.create_object(&payload_name, team, position) else {
+            // GarrisonContain.cpp:1748 reads the container controller for
+            // each child, before addToContain. Release that borrow for create.
+            let owner = self
+                .objects
+                .get(&container_id)
+                .and_then(|parent| parent.owner_player_id);
+            let Some(occupant_id) = self.create_object_for_owner_or_team_with_ui(
+                &payload_name,
+                team,
+                owner,
+                position,
+                interpreter,
+                ui,
+            ) else {
                 break;
             };
             let added = self

@@ -1349,12 +1349,30 @@ impl CnCGameEngine {
         true
     }
 
+    /// Input may flush commands before the next fixed step. Lend the same
+    /// actual UI here so construction callbacks retain their original phase.
+    pub(super) fn host_apply_command_pipeline_op(
+        &mut self,
+        op: crate::game_logic::CommandPipelineOp,
+    ) -> bool {
+        #[cfg(feature = "game_client")]
+        let mut ui = super::control_bar_viewport::NativeScriptUi::new(
+            &mut self.control_bar,
+            &mut self.control_bar_callbacks,
+        );
+        #[cfg(feature = "game_client")]
+        let mut ui = Some(&mut ui as &mut dyn crate::game_logic::ScriptUiEffects);
+        #[cfg(not(feature = "game_client"))]
+        let mut ui = None;
+        self.game_logic
+            .apply_command_pipeline_op_with_ui(op, &mut ui)
+    }
+
     pub(super) fn host_process_commands_with_command_sound(&mut self) {
         // Wave 576/870/914/915/918/932: process + Command SFX via command-pipeline authority.
         // Empty queue skips process dual-write and Command SFX (no has_pending dual-read).
         if !self
-            .game_logic
-            .apply_command_pipeline_op(crate::game_logic::CommandPipelineOp::ProcessIfNeeded)
+            .host_apply_command_pipeline_op(crate::game_logic::CommandPipelineOp::ProcessIfNeeded)
         {
             return;
         }
@@ -1395,7 +1413,7 @@ impl CnCGameEngine {
     ) {
         // Wave 576/578/871/914/918/922/932: silent queue+process via command-pipeline authority.
         // Skip mid-command stamp when presentation freeze owns clocks.
-        let processed = self.host_game_logic_mut().apply_command_pipeline_op(
+        let processed = self.host_apply_command_pipeline_op(
             crate::game_logic::CommandPipelineOp::QueueAndProcess { command },
         );
         if processed && self.last_presentation_frame.is_none() {

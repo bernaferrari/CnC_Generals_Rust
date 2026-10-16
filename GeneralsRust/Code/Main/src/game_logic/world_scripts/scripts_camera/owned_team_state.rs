@@ -66,6 +66,14 @@ impl GameLogic {
         &mut self,
         engine: &ScriptEngine,
     ) -> gamelogic::GameLogicResult<()> {
+        self.update_owned_script_team_states_with_ui(engine, &mut None)
+    }
+
+    pub(crate) fn update_owned_script_team_states_with_ui(
+        &mut self,
+        engine: &ScriptEngine,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) -> gamelogic::GameLogicResult<()> {
         // CPP PlayerList executes numeric slots, each player's prototype list
         // retains admission order, and each prototype visits its live instances.
         let players: Vec<_> = self.get_players().keys().copied().collect();
@@ -129,7 +137,15 @@ impl GameLogic {
                                 suppress_new_windows: false,
                                 host_trigger_world: Arc::clone(&self.host_trigger_world),
                             };
-                            let mut driver = super::script_execution_driver::HostScriptExecutionDriver::with_interpreter(self, engine);
+                            let mut driver =
+                                super::script_execution_driver::HostScriptExecutionDriver::with_ui(
+                                    self,
+                                    engine,
+                                    ui.as_mut().map(|effects| {
+                                        &mut **effects
+                                            as &mut dyn crate::game_logic::ScriptUiEffects
+                                    }),
+                                );
                             engine.run_team_script_with_driver(
                                 &script,
                                 id,
