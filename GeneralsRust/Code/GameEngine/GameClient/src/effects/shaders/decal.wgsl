@@ -5,7 +5,7 @@ struct Uniforms {
     time: f32,
     screen_size: vec2<f32>,
     particle_count: u32,
-    _padding: u32,
+    source_z_up: u32,
 };
 
 @group(0) @binding(0)

@@ -870,7 +870,7 @@ impl Display {
                     self.graphics.config().height as f32,
                 ],
                 particle_count: 0,
-                _padding: 0,
+                source_z_up: 1,
             }
         })
     }
@@ -981,7 +981,7 @@ impl DisplayInterface for Display {
                 occlusion_query_set: None,
                 timestamp_writes: None,
                 multiview_mask: None,
-});
+            });
         }
 
         with_tactical_view_ref(|tactical_view| {
@@ -1036,7 +1036,7 @@ impl DisplayInterface for Display {
                             occlusion_query_set: None,
                             timestamp_writes: None,
                             multiview_mask: None,
-});
+                        });
                         terrain.record_chunk_draws(&mut pass);
                     }
                 }
@@ -1069,7 +1069,7 @@ impl DisplayInterface for Display {
                     occlusion_query_set: None,
                     timestamp_writes: None,
                     multiview_mask: None,
-});
+                });
 
                 crate::drawable::drawable_manager::with_drawable_manager(|manager| {
                     manager.set_camera(
@@ -1104,8 +1104,6 @@ impl DisplayInterface for Display {
                 (0.0, 0.0),
             );
         });
-
-
 
         // C++ W3DParticleSys::doParticles — terrain visible-box cull.
         if let Ok(mut guard) = crate::effects::particle_manager::get_particle_system_manager_mut() {
@@ -1288,7 +1286,7 @@ impl DisplayInterface for Display {
                         occlusion_query_set: None,
                         timestamp_writes: None,
                         multiview_mask: None,
-});
+                    });
                     renderer.render(&mut render_pass)
                 };
                 renderer.end_frame();

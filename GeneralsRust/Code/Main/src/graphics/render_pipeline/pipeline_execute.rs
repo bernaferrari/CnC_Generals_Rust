@@ -122,6 +122,10 @@ impl RenderPipeline {
                     projection_matrix,
                     camera_position,
                     time,
+                    self.presentation_frame
+                        .as_ref()
+                        .and_then(|frame| frame.world_env.runtime_heightmap.as_ref())
+                        .map_or(0., |heightmap| heightmap.min_height),
                 );
             }
             let _ = (laser, proj, moves, attacks, floats, anims, particles);

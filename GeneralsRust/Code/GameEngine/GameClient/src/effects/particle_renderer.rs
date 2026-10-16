@@ -88,8 +88,8 @@ pub struct ParticleUniforms {
     pub screen_size: [f32; 2],
     /// Particle count this frame
     pub particle_count: u32,
-    /// Padding
-    pub _padding: u32,
+    /// Original effect positions use Z-up; native host positions use Y-up.
+    pub source_z_up: u32,
 }
 
 impl Default for ParticleUniforms {
@@ -101,7 +101,7 @@ impl Default for ParticleUniforms {
             time: 0.0,
             screen_size: [1024.0, 768.0],
             particle_count: 0,
-            _padding: 0,
+            source_z_up: 0,
         }
     }
 }
@@ -366,35 +366,8 @@ impl ParticleBatch {
     }
 }
 
-/// C++ PointGroup `!Billboard` keeps the ground-axis constant (Z-up world-XY).
-/// Host is Y-up, so the live shader expands on world-XZ (`right=+X`, `up=+Z`).
-#[must_use]
-pub fn particle_ground_quad_axes() -> ([f32; 3], [f32; 3]) {
-    ([1.0, 0.0, 0.0], [0.0, 0.0, 1.0])
-}
-
-/// Expand one instanced particle to the four world corners the vertex shader emits.
-#[must_use]
-pub fn expand_particle_world_corners(vertex: &ParticleVertex) -> [[f32; 3]; 4] {
-    let (right, up) = if vertex.billboard > 0.5 {
-        ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0])
-    } else {
-        particle_ground_quad_axes()
-    };
-    let (cos_rot, sin_rot) = (vertex.rotation.cos(), vertex.rotation.sin());
-    let corners_2d = [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]];
-    let mut corners = [[0.0; 3]; 4];
-    for (i, corner) in corners_2d.iter().enumerate() {
-        let rx = corner[0] * cos_rot - corner[1] * sin_rot;
-        let ry = corner[0] * sin_rot + corner[1] * cos_rot;
-        corners[i] = [
-            vertex.position[0] + right[0] * rx * vertex.size[0] + up[0] * ry * vertex.size[1],
-            vertex.position[1] + right[1] * rx * vertex.size[0] + up[1] * ry * vertex.size[1],
-            vertex.position[2] + right[2] * rx * vertex.size[0] + up[2] * ry * vertex.size[1],
-        ];
-    }
-    corners
-}
+mod particle_quad;
+pub use particle_quad::{expand_particle_world_corners, particle_ground_quad_axes};
 
 /// C++ billboard instance vertex used by the wgpu particle pass.
 #[must_use]
@@ -2273,8 +2246,9 @@ mod tests {
             "live vertex shader must use world-Z as the ground-quad V axis (Y-up host)"
         );
         assert!(
-            !shader.contains("up = vec3<f32>(0.0, 1.0, 0.0)"),
-            "world-Y as V stands particles up on a Y-up host"
+            shader.contains("if uniforms.source_z_up != 0u")
+                && shader.contains("up = vec3<f32>(0.0, 1.0, 0.0)"),
+            "source Z-up draws require XY while default host draws retain XZ"
         );
     }
 

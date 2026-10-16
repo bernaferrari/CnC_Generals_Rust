@@ -929,6 +929,8 @@ mod forward_render;
 mod hlod_aggregate_render;
 #[cfg(feature = "game_client")]
 mod material_draw_inputs;
+#[cfg(feature = "game_client")]
+mod particle_camera;
 mod pipeline_collect;
 mod pipeline_debug;
 mod pipeline_drawable_state;

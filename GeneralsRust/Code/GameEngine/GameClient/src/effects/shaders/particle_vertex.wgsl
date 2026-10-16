@@ -8,7 +8,7 @@ struct ParticleUniforms {
     time: f32,
     screen_size: vec2<f32>,
     particle_count: u32,
-    _padding: u32,
+    source_z_up: u32,
 };
 
 struct ParticleInstance {
@@ -44,7 +44,7 @@ fn vs_main(
 ) -> VertexOutput {
     var output: VertexOutput;
 
-    // C++ PointGroupClass: camera billboard, or world-XY (Z-up). Host is Y-up → world-XZ.
+    // C++ PointGroupClass: camera billboard, or the submitted world ground plane.
     var right: vec3<f32>;
     var up: vec3<f32>;
     if particle.billboard > 0.5 {
@@ -53,7 +53,11 @@ fn vs_main(
         up = vec3<f32>(view_inv[1].x, view_inv[1].y, view_inv[1].z);
     } else {
         right = vec3<f32>(1.0, 0.0, 0.0);
-        up = vec3<f32>(0.0, 0.0, 1.0);
+        if uniforms.source_z_up != 0u {
+            up = vec3<f32>(0.0, 1.0, 0.0);
+        } else {
+            up = vec3<f32>(0.0, 0.0, 1.0);
+        }
     }
 
     // Apply rotation to billboard corners
