@@ -987,3 +987,6 @@ mod look_at_owner_tests;
 
 #[path = "waypoint_action_owner_tests.rs"]
 mod waypoint_action_owner_tests;
+
+#[path = "path_constructor_owner_tests.rs"]
+mod path_constructor_owner_tests;

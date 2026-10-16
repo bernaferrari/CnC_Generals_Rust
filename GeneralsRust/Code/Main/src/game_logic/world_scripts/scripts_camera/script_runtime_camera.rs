@@ -128,12 +128,52 @@ impl GameLogic {
         &mut self,
         request: CameraPathRequest,
     ) {
+        // ScriptActions::doMoveCameraAlongWaypointPath never calls the view
+        // when the named start is absent. Resolve the receiving terrain before
+        // cancelling any active camera movement.
+        let chain = {
+            let owner = self.world_services.terrain();
+            owner
+                .read()
+                .map(|terrain| {
+                    terrain
+                        .get_waypoint_by_name(&request.waypoint.as_str().into())
+                        .map(|start| {
+                            terrain
+                                .walk_link0_chain(
+                                    start,
+                                    gamelogic::terrain::CAMERA_WAYPOINT_PATH_LIMIT,
+                                )
+                                .into_iter()
+                                .map(|waypoint| {
+                                    let location = waypoint.get_location();
+                                    Vec3::new(location.x, 0.0, location.y)
+                                })
+                                .collect()
+                        })
+                })
+                .map_err(|_| ())
+        };
+        let chain = match chain {
+            Ok(Some(chain)) => chain,
+            missing => {
+                if missing.is_err() {
+                    log::error!("receiving camera path terrain poisoned");
+                }
+                // The transport marks queued movement unfinished. An absent
+                // start does not change the receiving view's actual lifetime.
+                self.mark_script_camera_movement_maybe_finished();
+                return;
+            }
+        };
         self.session_view.scripted.script_camera_move_to = None;
         // C++ setupWaypointPath: m_doingRotateCamera = false.
         self.pending_camera_rotate = None;
         self.session_view.scripted.script_camera_rotate_remaining = 0.0;
         if let Some(move_state) = ScriptCameraPathMove::new(
             self.session_view.scripted.script_camera_focus_estimate,
+            self.session_view.camera.camera_yaw_radians,
+            chain,
             &request,
         ) {
             let mut move_state = move_state;
@@ -158,10 +198,6 @@ impl GameLogic {
         } else {
             self.session_view.scripted.script_camera_path = None;
             self.mark_script_camera_movement_maybe_finished();
-            self.script_broadcasts.push(ScriptBroadcast {
-                text: format!("Camera path '{}' not found", request.waypoint),
-                expires_at: self.sim_time_seconds + SCRIPT_BROADCAST_DURATION,
-            });
         }
     }
 

@@ -222,28 +222,12 @@ pub(crate) struct ScriptCameraPathMove {
 }
 
 impl ScriptCameraPathMove {
-    pub(crate) fn new(start_focus: Vec3, request: &CameraPathRequest) -> Option<Self> {
-        let waypoint_name = gamelogic::common::AsciiString::from(&request.waypoint);
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-        let chain: Vec<Vec3> = terrain_owner_handle
-            .read()
-            .ok()
-            .and_then(|terrain| {
-                let start = terrain.get_waypoint_by_name(&waypoint_name)?;
-                // C++ W3DView::moveCameraAlongWaypointPath: numWaypoints < MAX_WAYPOINTS.
-                // Visited-set also breaks 1-link rings C++ would still spin on (same loc).
-                let points = terrain
-                    .walk_link0_chain(start, gamelogic::terrain::CAMERA_WAYPOINT_PATH_LIMIT)
-                    .into_iter()
-                    .map(|wp| {
-                        let loc = wp.get_location();
-                        Vec3::new(loc.x, 0.0, loc.y)
-                    })
-                    .collect();
-                Some(points)
-            })
-            .unwrap_or_default();
-
+    pub(crate) fn new(
+        start_focus: Vec3,
+        start_angle: f32,
+        chain: Vec<Vec3>,
+        request: &CameraPathRequest,
+    ) -> Option<Self> {
         if chain.is_empty() {
             return None;
         }
@@ -337,7 +321,7 @@ impl ScriptCameraPathMove {
             speed_ramp_start_t: 0.0,
             speed_ramp_start_multiplier: 1.0,
             speed_ramp_final_multiplier: 1.0,
-            start_angle: leftover_tactical_view_angle(),
+            start_angle,
             frozen_to_start_angle: false,
         })
     }
@@ -620,17 +604,6 @@ fn normalize_camera_angle(mut angle: f32) -> f32 {
         angle += 2.0 * std::f32::consts::PI;
     }
     angle
-}
-
-fn leftover_tactical_view_angle() -> f32 {
-    #[cfg(feature = "game_client")]
-    {
-        game_client::display::view::with_tactical_view_ref(|view| view.angle())
-    }
-    #[cfg(not(feature = "game_client"))]
-    {
-        0.0
-    }
 }
 
 #[cfg(test)]
