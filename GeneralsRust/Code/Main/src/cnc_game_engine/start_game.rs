@@ -44,7 +44,7 @@ fn apply_scripted_camera_constraint_widen(
     )
 }
 
-fn constrain_camera_target_to_map(
+pub(super) fn constrain_camera_target_to_map(
     mut position: Vec3,
     world_min: Vec3,
     world_max: Vec3,
@@ -65,7 +65,7 @@ fn constrain_camera_target_to_map(
     position
 }
 
-fn native_camera_constraint_inset(
+pub(super) fn native_camera_constraint_inset(
     camera: &super::camera_height::CameraHeight,
     view: Mat4,
     projection: Mat4,
@@ -436,6 +436,94 @@ fn host_synthesize_skirmish_config(
         old_factions_only: false,
         rules: crate::skirmish_config::GameRulesSnapshot::default_rules(),
         slots: host_synthesize_skirmish_slots(&start_positions, &map_side_factions, human_faction),
+    }
+}
+
+/// Shared W3DView::lookAt geometry; callers own cancellation and matrix commit.
+pub(super) fn center_camera_target(
+    world_pos: Vec3,
+    current_target: Vec3,
+    camera_position: Vec3,
+    world_min: Vec3,
+    world_max: Vec3,
+    inset: f32,
+    constraint_widen: &mut Option<(f32, f32, f32, f32)>,
+    clamp_to_world: bool,
+    env: Option<&PresentationWorldEnv>,
+) -> Vec3 {
+    let sample =
+        constrain_camera_target_to_map(world_pos, world_min, world_max, inset, *constraint_widen);
+    let ground_height = env
+        .and_then(|env| env.sample_height(sample.x, sample.z))
+        .unwrap_or(current_target.y);
+    let mut look = world_pos;
+    if world_pos.y > PATHFIND_CELL_SIZE_F + ground_height {
+        if let Some(hit) = airborne_look_at_ground(
+            camera_position,
+            world_pos,
+            current_target - camera_position,
+            DEFAULT_VIEW_FAR_CLIP,
+            world_min,
+            world_max,
+            env,
+        ) {
+            look.x = hit.x;
+            look.z = hit.z;
+        }
+    }
+    if !clamp_to_world {
+        *constraint_widen = Some(widen_scripted_camera_constraint(
+            *constraint_widen,
+            look.x,
+            look.z,
+        ));
+    }
+    let look = constrain_camera_target_to_map(look, world_min, world_max, inset, *constraint_widen);
+    Vec3::new(look.x, 0., look.z)
+}
+
+/// Current map basis and existing shake/FX; no clock advances during redraw.
+pub(super) fn camera_orbit_pose(
+    native_camera: &super::camera_height::CameraHeight,
+    target: Vec3,
+    impulse: Vec3,
+    zoom: f32,
+    pitch: f32,
+    yaw: f32,
+    fx_pitch: f32,
+) -> (Vec3, Vec3) {
+    let (eye, look) = native_camera.basis().pose(target, zoom, pitch, yaw);
+    camera_fx_pose(eye + impulse, look, fx_pitch)
+}
+
+fn camera_fx_pose(source: Vec3, look: Vec3, fx_pitch: f32) -> (Vec3, Vec3) {
+    let fx = if fx_pitch.is_finite() { fx_pitch } else { 1. };
+    if (fx - 1.).abs() < 1.0e-6 {
+        (source, look)
+    } else if fx <= 1. {
+        let height = (source.y - look.y) * fx;
+        (source, Vec3::new(look.x, source.y - height, look.z))
+    } else {
+        (
+            Vec3::new(
+                look.x + (source.x - look.x) / fx,
+                source.y,
+                look.z + (source.z - look.z) / fx,
+            ),
+            look,
+        )
+    }
+}
+
+pub(super) fn camera_orbit_view(source: Vec3, look: Vec3, shake: Vec3) -> Mat4 {
+    if shake.length_squared() > 1.0e-8 {
+        let forward = (look - source).try_normalize().unwrap_or(Vec3::NEG_Z);
+        let rot = glam::Quat::from_rotation_y(shake.y)
+            * glam::Quat::from_rotation_x(shake.x)
+            * glam::Quat::from_rotation_z(shake.z);
+        Mat4::look_at_rh(source, source + rot * forward, rot * Vec3::Y)
+    } else {
+        Mat4::look_at_rh(source, look, Vec3::Y)
     }
 }
 
@@ -1371,15 +1459,14 @@ impl CnCGameEngine {
 
     /// The same source pose feeds rendering and transform-shaker observation.
     pub(super) fn native_camera_base_pose(&self) -> (Vec3, Vec3) {
-        let (eye, look) = self.native_camera.basis().pose(
+        camera_orbit_pose(
+            &self.native_camera,
             self.game_logic.session_view.target,
+            self.game_logic.session_view.impulse.offset,
             self.camera_zoom,
             self.camera_pitch_radians,
             self.camera_yaw_radians,
-        );
-        self.camera_fx_adjusted_eye_and_look(
-            eye + self.game_logic.session_view.impulse.offset,
-            look,
+            self.camera_fx_pitch,
         )
     }
 
@@ -1389,44 +1476,12 @@ impl CnCGameEngine {
         }
         let (source, look) = self.native_camera_base_pose();
         self.camera_position = source;
-        let shake = self.camera_shake_rotation;
-        if shake.length_squared() > 1.0e-8 {
-            let forward = (look - source).try_normalize().unwrap_or(Vec3::NEG_Z);
-            let rot = glam::Quat::from_rotation_y(shake.y)
-                * glam::Quat::from_rotation_x(shake.x)
-                * glam::Quat::from_rotation_z(shake.z);
-            let look = source + rot * forward;
-            let up = rot * Vec3::Y;
-            self.view_matrix = Mat4::look_at_rh(source, look, up);
-        } else {
-            self.view_matrix = Mat4::look_at_rh(source, look, Vec3::Y);
-        }
+        self.view_matrix = camera_orbit_view(source, look, self.camera_shake_rotation);
     }
 
     /// C++ `W3DView::buildCameraTransform` FXPitch (W3DView.cpp:362-381).
-    /// Host Y-up: C++ height Z → Y, C++ ground XY → XZ.
     pub(super) fn camera_fx_adjusted_eye_and_look(&self, source: Vec3, look: Vec3) -> (Vec3, Vec3) {
-        let fx = if self.camera_fx_pitch.is_finite() {
-            self.camera_fx_pitch
-        } else {
-            1.0
-        };
-        if (fx - 1.0).abs() < 1.0e-6 {
-            return (source, look);
-        }
-        if fx <= 1.0 {
-            let height = (source.y - look.y) * fx;
-            (source, Vec3::new(look.x, source.y - height, look.z))
-        } else {
-            (
-                Vec3::new(
-                    look.x + (source.x - look.x) / fx,
-                    source.y,
-                    look.z + (source.z - look.z) / fx,
-                ),
-                look,
-            )
-        }
+        camera_fx_pose(source, look, self.camera_fx_pitch)
     }
 
     /// Catch camera mutations that arrived outside `update_camera` (minimap,
@@ -1781,43 +1836,29 @@ impl CnCGameEngine {
     }
 
     fn host_center_camera_on_impl(&mut self, world_pos: Vec3, clamp_to_world: bool) {
-        let mut look = world_pos;
-        let ground_height = self.sample_presentation_height_under(look);
-        // C++ W3DView::lookAt: elevated targets ray-cast onto the heightmap.
-        if world_pos.y > PATHFIND_CELL_SIZE_F + ground_height {
-            let (world_min, world_max) = self.presentation_world_bounds();
-            let env = self
-                .render_pipeline
-                .presentation_frame()
-                .or(self.last_presentation_frame.as_deref())
-                .map(|f| &f.world_env);
-            if let Some(hit) = airborne_look_at_ground(
-                self.camera_position,
-                world_pos,
-                self.game_logic.session_view.target - self.camera_position,
-                DEFAULT_VIEW_FAR_CLIP,
-                world_min,
-                world_max,
-                env,
-            ) {
-                look.x = hit.x;
-                look.z = hit.z;
-            }
-        }
-        // C++ scripted waypoint pans widen m_cameraConstraint (W3DView.cpp:3097-3212)
-        // so the look-at can leave the map. Player lookAt still clamps to the
-        // (possibly widened) constraint.
-        if !clamp_to_world {
-            self.scripted_camera_constraint_widen = Some(widen_scripted_camera_constraint(
-                self.scripted_camera_constraint_widen,
-                look.x,
-                look.z,
-            ));
-        }
-        let look = self.clamp_to_world_bounds(look);
-        // W3DView::lookAt clears unused position Z after elevated-target ray
-        // projection. The map basis independently determines render look height.
-        self.game_logic.session_view.target = Vec3::new(look.x, 0.0, look.z);
+        let (world_min, world_max) = self.presentation_world_bounds();
+        let inset = native_camera_constraint_inset(
+            &self.native_camera,
+            self.view_matrix,
+            self.projection_matrix,
+            self.tactical_viewport_size(),
+        );
+        let env = self
+            .render_pipeline
+            .presentation_frame()
+            .or(self.last_presentation_frame.as_deref())
+            .map(|frame| &frame.world_env);
+        self.game_logic.session_view.target = center_camera_target(
+            world_pos,
+            self.game_logic.session_view.target,
+            self.camera_position,
+            world_min,
+            world_max,
+            inset,
+            &mut self.scripted_camera_constraint_widen,
+            clamp_to_world,
+            env,
+        );
         self.apply_camera_orbit_transform();
     }
 
@@ -2795,9 +2836,9 @@ End
     fn look_at_uses_airborne_terrain_ray() {
         let src = include_str!("start_game.rs");
         let start = src
-            .find("fn host_center_camera_on")
-            .expect("host_center_camera_on");
-        let body = &src[start..start + 900];
+            .find("fn center_camera_target")
+            .expect("shared center_camera_target");
+        let body = &src[start..start + 1300];
         assert!(
             body.contains("airborne_look_at_ground") && body.contains("PATHFIND_CELL_SIZE_F"),
             "C++ W3DView::lookAt airborne ray must be live"
@@ -2825,8 +2866,8 @@ End
     fn scripted_center_widens_camera_constraint() {
         let src = include_str!("start_game.rs");
         let start = src
-            .find("fn host_center_camera_on_impl")
-            .expect("host_center_camera_on_impl");
+            .find("fn center_camera_target")
+            .expect("shared center_camera_target");
         let mut depth = 0;
         let open = src[start..].find('{').unwrap() + start;
         let end = src[open..]

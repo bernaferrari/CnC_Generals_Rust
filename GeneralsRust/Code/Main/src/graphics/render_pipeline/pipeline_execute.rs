@@ -26,11 +26,6 @@ unsafe impl Send for ShadowCallbackDevice {}
 // `!Sync` default is unreachable.
 unsafe impl Sync for ShadowCallbackDevice {}
 impl RenderPipeline {
-    #[cfg(feature = "game_client")]
-    pub(crate) fn take_completed_filter_look_at(&mut self) -> Option<Vec3> {
-        self.completed_filter_look_at.take()
-    }
-
     pub fn execute(
         &mut self,
         graphics_system: &mut GraphicsSystem,
@@ -57,6 +52,9 @@ impl RenderPipeline {
         view_filter: &mut game_client::display::view_filter::ViewFilterState,
         #[cfg(feature = "game_client")] filter_scroll: glam::Vec2,
         #[cfg(feature = "game_client")] filter_logic_frame: u32,
+        #[cfg(feature = "game_client")] mut filter_camera: Option<
+            &mut dyn FnMut(Option<Vec3>) -> FilterCameraMatrices,
+        >,
         complete_physics_visual: Option<
             &mut dyn FnMut(
                 &mut crate::presentation_frame::UnitRenderInput,
@@ -65,10 +63,6 @@ impl RenderPipeline {
         >,
     ) -> Result<()> {
         let execute_started = std::time::Instant::now();
-        #[cfg(feature = "game_client")]
-        {
-            self.completed_filter_look_at = None;
-        }
         trace!("RenderPipeline::execute frame {}", self.frame_number + 1);
         if (self.frame_number + 1).is_multiple_of(300) {
             debug!(
@@ -402,11 +396,26 @@ impl RenderPipeline {
             self.committed_host_ghost_draws.clear();
         }
         #[cfg(feature = "game_client")]
+        let locked_binding = if !skip_filter_scene
+            && view_filter.filter() != game_client::display::view::FilterType::Null
+            && view_filter.mode() != game_client::display::view::FilterMode::Null
+        {
+            filter_scene::camera_lock_binding(
+                self.presentation_frame
+                    .as_ref()
+                    .and_then(|f| f.camera_follow_object_id),
+                &self.presentation_direct_shroud_states,
+                self.presentation_direct_shroud_host_epoch,
+                &direct_scene_candidates,
+            )
+        } else {
+            None
+        };
+        #[cfg(feature = "game_client")]
         let filter_resources = &mut self.view_filter_resources;
         #[cfg(feature = "game_client")]
-        let completed_filter_look_at = &mut self.completed_filter_look_at;
-        #[cfg(feature = "game_client")]
         let mut finish_filters = |gpu_frame: &mut ww3d_engine::RenderFrame| {
+            let mut look_at = None;
             let dest = gpu_frame.color_view_arc();
             let format = gpu_frame.color_format();
             let device = gpu_frame.device_arc();
@@ -440,12 +449,21 @@ impl RenderPipeline {
                     &post,
                     !skip_filter_scene,
                 );
-                *completed_filter_look_at = post
+                look_at = post
                     .look_at
                     .map(|position| Vec3::new(position.x, position.z, position.y));
             }
-            // Native fade is already frozen for this receiving frame. Core's
-            // shared fade queue cannot choose another session's overlay here.
+            // C++ LookAt executes inside postRender, before the locked Drawable
+            // uses the new matrix. This is not another camera/view update.
+            Ok(filter_camera.as_deref_mut().map(|resume| resume(look_at)))
+        };
+        #[cfg(feature = "game_client")]
+        let mut finish_overlay = |frame: &mut ww3d_engine::RenderFrame| {
+            let dest = frame.color_view_arc();
+            let device = frame.device_arc();
+            let queue = frame.queue_arc();
+            let format = frame.color_format();
+            let encoder = frame.encoder();
             game_client::display::status_circle::record_camera_fade(
                 device.as_ref(),
                 queue.as_ref(),
@@ -476,6 +494,14 @@ impl RenderPipeline {
             false,
             #[cfg(feature = "game_client")]
             Some(&mut finish_filters),
+            #[cfg(not(feature = "game_client"))]
+            None,
+            #[cfg(feature = "game_client")]
+            locked_binding,
+            #[cfg(not(feature = "game_client"))]
+            None,
+            #[cfg(feature = "game_client")]
+            Some(&mut finish_overlay),
             #[cfg(not(feature = "game_client"))]
             None,
         )?;

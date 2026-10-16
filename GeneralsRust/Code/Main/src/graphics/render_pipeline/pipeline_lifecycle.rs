@@ -55,7 +55,6 @@ impl RenderPipeline {
             #[cfg(feature = "game_client")]
             view_filter_resources: Default::default(),
             #[cfg(feature = "game_client")]
-            completed_filter_look_at: None,
             selection_renderer_cache: Default::default(),
             minimap_renderer: None, // Will be initialized when needed
             minimap_base_needs_refresh: false,
@@ -158,7 +157,6 @@ impl RenderPipeline {
             // A material capture is completed for one explicit Draw handoff,
             // even when the same immutable frame is presented again.
             self.frozen_material_draw = None;
-            self.completed_filter_look_at = None;
         }
         // Direct-host shroud state is meaningful only for this exact frozen
         // topology. Main installs its replacement sidecar immediately after
@@ -303,7 +301,6 @@ impl RenderPipeline {
             self.frozen_material_draw = None;
             // Captures belong to this world, not each immutable frame handoff.
             self.view_filter_resources = Default::default();
-            self.completed_filter_look_at = None;
         }
         self.hlod_aggregate_prewarm_attempts.clear();
     }

@@ -47,6 +47,77 @@ fn reset_filter_selection(filter: &mut ViewFilterState) {
     filter.set_filter(FilterType::Null);
 }
 
+/// The camera fields borrowed through one current-frame filter completion.
+/// HAG and the map basis are observed, never advanced by this draw continuation.
+#[cfg(feature = "game_client")]
+pub(super) struct NativeFilterCameraContext<'a> {
+    pub look_at_modes: &'a mut super::mouse::LookAtHostModes,
+    pub yaw_target: &'a mut Option<f32>,
+    pub yaw_duration: &'a mut f32,
+    pub target: &'a mut Vec3,
+    pub impulse: Vec3,
+    pub native_camera: &'a super::camera_height::CameraHeight,
+    pub zoom: f32,
+    pub pitch: f32,
+    pub yaw: f32,
+    pub fx_pitch: f32,
+    pub shake_rotation: Vec3,
+    pub slave_mode: bool,
+    pub position: &'a mut Vec3,
+    pub view: &'a mut Mat4,
+    pub projection: Mat4,
+    pub world_bounds: (Vec3, Vec3),
+    pub constraint_inset: f32,
+    pub constraint_widen: &'a mut Option<(f32, f32, f32, f32)>,
+    pub env: Option<&'a crate::presentation_frame::PresentationWorldEnv>,
+}
+#[cfg(feature = "game_client")]
+impl NativeFilterCameraContext<'_> {
+    pub(super) fn finish(
+        &mut self,
+        point: Option<Vec3>,
+        cancel_scripted_camera: &mut dyn FnMut(),
+    ) -> crate::graphics::render_pipeline::FilterCameraMatrices {
+        if let Some(point) = point {
+            self.look_at_modes
+                .note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::LookAt);
+            *self.yaw_target = None;
+            *self.yaw_duration = 0.;
+            cancel_scripted_camera();
+            *self.target = super::start_game::center_camera_target(
+                point,
+                *self.target,
+                *self.position,
+                self.world_bounds.0,
+                self.world_bounds.1,
+                self.constraint_inset,
+                self.constraint_widen,
+                true,
+                self.env,
+            );
+            if !self.slave_mode {
+                let (source, look) = super::start_game::camera_orbit_pose(
+                    self.native_camera,
+                    *self.target,
+                    self.impulse,
+                    self.zoom,
+                    self.pitch,
+                    self.yaw,
+                    self.fx_pitch,
+                );
+                *self.position = source;
+                *self.view =
+                    super::start_game::camera_orbit_view(source, look, self.shake_rotation);
+            }
+        }
+        crate::graphics::render_pipeline::FilterCameraMatrices {
+            view: *self.view,
+            projection: self.projection,
+            position: *self.position,
+        }
+    }
+}
+
 impl CnCGameEngine {
     #[cfg(feature = "game_client")]
     pub(super) fn native_filter_render_scroll(&self) -> glam::Vec2 {
@@ -65,23 +136,70 @@ impl CnCGameEngine {
         self.native_filter_scroll = glam::Vec2::ZERO;
         self.native_filter_previous_target = self.game_logic.session_view.target;
     }
-
-    /// W3D shader postRender calls View::lookAt immediately at the zoom peak.
-    /// Keep the existing map basis/HAG goal; this changes the logical position.
-    #[cfg(feature = "game_client")]
-    pub(super) fn apply_native_filter_look_at(&mut self, point: Vec3) {
-        self.look_at_modes
-            .note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::LookAt);
-        self.camera_yaw_target = None;
-        self.camera_yaw_duration = 0.0;
-        self.game_logic.cancel_scripted_camera_from_player_look_at();
-        self.host_center_camera_on(point);
-    }
 }
 
 #[cfg(all(test, feature = "game_client"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn borrowed_filter_camera_completes_before_redraw_without_advancing_hag_or_peer() {
+        let mut world = crate::game_logic::GameLogic::new();
+        let peer = crate::game_logic::GameLogic::new();
+        world.install_script_camera_path_for_test();
+        world.queue_pending_camera_rotate(1., 3.);
+        let peer_target = peer.session_view.target;
+        let height = super::super::camera_height::CameraHeight::new(400., 45., 0.);
+        let basis_before = height.basis().pose(Vec3::ZERO, 1., 0., 0.);
+        let desired = height.desired();
+        let mut modes = super::super::mouse::LookAtHostModes::default();
+        let mut yaw_target = Some(2.);
+        let mut yaw_duration = 3.;
+        let mut position = Vec3::new(0., 400., -400.);
+        let mut view = Mat4::IDENTITY;
+        let mut widen = None;
+        let (_, target, impulse, mut cancellation, _) = world.split_filter_camera_owner();
+        let mut camera = NativeFilterCameraContext {
+            look_at_modes: &mut modes,
+            yaw_target: &mut yaw_target,
+            yaw_duration: &mut yaw_duration,
+            target,
+            impulse,
+            native_camera: &height,
+            zoom: 1.,
+            pitch: 0.,
+            yaw: 0.,
+            fx_pitch: 1.,
+            shake_rotation: Vec3::ZERO,
+            slave_mode: false,
+            position: &mut position,
+            view: &mut view,
+            projection: Mat4::IDENTITY,
+            world_bounds: (Vec3::ZERO, Vec3::new(100., 0., 100.)),
+            constraint_inset: 0.,
+            constraint_widen: &mut widen,
+            env: None,
+        };
+        let unchanged = camera.finish(None, &mut || panic!("no peak cannot cancel"));
+        assert_eq!(unchanged.view, Mat4::IDENTITY);
+        assert_eq!(unchanged.position, Vec3::new(0., 400., -400.));
+        let completed = camera.finish(Some(Vec3::new(200., 0., 40.)), &mut || {
+            cancellation.cancel()
+        });
+        assert_eq!(*camera.target, Vec3::new(100., 0., 40.));
+        let (eye, look) = height.basis().pose(*camera.target, 1., 0., 0.);
+        assert_eq!(completed.position, eye);
+        assert_eq!(completed.view, Mat4::look_at_rh(eye, look, Vec3::Y));
+        assert_eq!(height.basis().pose(Vec3::ZERO, 1., 0., 0.), basis_before);
+        assert_eq!(height.desired(), desired);
+        drop(camera);
+        drop(cancellation);
+        assert!(!world.script_camera_path_active());
+        assert!(world.peek_pending_camera_rotate().is_none());
+        assert_eq!(yaw_target, None);
+        assert_eq!(yaw_duration, 0.);
+        assert_eq!(peer.session_view.target, peer_target);
+    }
 
     #[test]
     fn receiving_filter_commands_keep_action_order_and_peer() {

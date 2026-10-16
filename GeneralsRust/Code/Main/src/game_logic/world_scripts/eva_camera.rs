@@ -4,6 +4,41 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+/// Bounded cancellation borrow used by an immediate native postRender LookAt.
+/// The filter and logical target remain separately borrowed canonical fields.
+pub(crate) struct PlayerCameraLookAtCancellation<'a> {
+    move_to: &'a mut Option<ScriptCameraMoveTo>,
+    path: &'a mut Option<ScriptCameraPathMove>,
+    look_toward: &'a mut Option<CameraLookTowardWaypointRequest>,
+    look_object: &'a mut Option<u32>,
+    look_hold: &'a mut f32,
+    focus: &'a mut Option<Vec3>,
+    focus_origin: &'a mut Option<Vec3>,
+    rotate: &'a mut Option<CameraRotateRequest>,
+    rotate_remaining: &'a mut f32,
+    zoom_remaining: &'a mut f32,
+    pitch_remaining: &'a mut f32,
+    freeze_time: &'a mut bool,
+    hooks: &'a MissionScriptHooks,
+}
+impl PlayerCameraLookAtCancellation<'_> {
+    pub(crate) fn cancel(&mut self) {
+        *self.move_to = None;
+        *self.path = None;
+        *self.look_toward = None;
+        *self.look_object = None;
+        *self.look_hold = 0.;
+        *self.focus = None;
+        *self.focus_origin = None;
+        self.hooks.set_camera_movement_finished(true);
+        *self.rotate = None;
+        *self.rotate_remaining = 0.;
+        *self.zoom_remaining = 0.;
+        *self.pitch_remaining = 0.;
+        *self.freeze_time = false;
+    }
+}
+
 impl GameLogic {
     pub fn eva_enabled(&self) -> bool {
         self.eva_announcements.is_enabled()
@@ -585,9 +620,59 @@ impl GameLogic {
 
     /// C++ `W3DView::lookAt`: drop rotate + waypoint path + scripted lock.
     pub fn cancel_scripted_camera_from_player_look_at(&mut self) {
-        self.clear_in_flight_scripted_camera_move();
-        self.pending_camera_rotate = None;
-        self.clear_script_camera_orientation_remaining();
+        self.player_camera_look_at_cancellation().cancel();
+    }
+
+    fn player_camera_look_at_cancellation(&mut self) -> PlayerCameraLookAtCancellation<'_> {
+        PlayerCameraLookAtCancellation {
+            move_to: &mut self.script_camera_move_to,
+            path: &mut self.script_camera_path,
+            look_toward: &mut self.pending_camera_look_toward,
+            look_object: &mut self.script_look_toward_object_id,
+            look_hold: &mut self.script_look_toward_hold_seconds,
+            focus: &mut self.pending_camera_focus,
+            focus_origin: &mut self.session_view.pending_focus_previous_target,
+            rotate: &mut self.pending_camera_rotate,
+            rotate_remaining: &mut self.script_camera_rotate_remaining,
+            zoom_remaining: &mut self.script_camera_zoom_remaining,
+            pitch_remaining: &mut self.script_camera_pitch_remaining,
+            freeze_time: &mut self.script_camera_freeze_time,
+            hooks: &self.mission_scripts,
+        }
+    }
+
+    /// Split the receiving world once; the renderer never borrows GameLogic.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn split_filter_camera_owner(
+        &mut self,
+    ) -> (
+        &mut game_client::display::view_filter::ViewFilterState,
+        &mut Vec3,
+        Vec3,
+        PlayerCameraLookAtCancellation<'_>,
+        &std::cell::RefCell<crate::presentation_frame::physics_visual_host::HostPhysicsVisualState>,
+    ) {
+        (
+            &mut self.session_view.filter,
+            &mut self.session_view.target,
+            self.session_view.impulse.offset,
+            PlayerCameraLookAtCancellation {
+                move_to: &mut self.script_camera_move_to,
+                path: &mut self.script_camera_path,
+                look_toward: &mut self.pending_camera_look_toward,
+                look_object: &mut self.script_look_toward_object_id,
+                look_hold: &mut self.script_look_toward_hold_seconds,
+                focus: &mut self.pending_camera_focus,
+                focus_origin: &mut self.session_view.pending_focus_previous_target,
+                rotate: &mut self.pending_camera_rotate,
+                rotate_remaining: &mut self.script_camera_rotate_remaining,
+                zoom_remaining: &mut self.script_camera_zoom_remaining,
+                pitch_remaining: &mut self.script_camera_pitch_remaining,
+                freeze_time: &mut self.script_camera_freeze_time,
+                hooks: &self.mission_scripts,
+            },
+            &self.host_physics_visuals,
+        )
     }
 
     /// C++ player `TheTacticalView->lookAt`: cancel then queue the snap.

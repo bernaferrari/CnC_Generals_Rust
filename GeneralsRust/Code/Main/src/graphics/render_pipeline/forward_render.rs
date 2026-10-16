@@ -593,6 +593,12 @@ impl ForwardPass {
         projected_shroud: Option<&crate::fow_rendering::ProjectedShroudSnapshot>,
         skip_scene: bool,
         mut post_render: Option<
+            &mut dyn FnMut(
+                &mut ww3d_engine::RenderFrame,
+            ) -> RendererResult<Option<FilterCameraMatrices>>,
+        >,
+        locked_binding: Option<FrozenDirectDrawableSceneCandidate>,
+        mut post_draw_overlay: Option<
             &mut dyn FnMut(&mut ww3d_engine::RenderFrame) -> RendererResult<()>,
         >,
     ) -> Result<()> {
@@ -640,6 +646,7 @@ impl ForwardPass {
             ));
         }
 
+        let mut locked_meshes = Vec::new();
         let mut queued_count_total = 0usize;
         let mut queue_error_total = 0usize;
 
@@ -728,6 +735,14 @@ impl ForwardPass {
                 // Prepare mesh instance - handles missing models gracefully
                 match self.prepare_mesh_instance(graphics_system, item) {
                     Ok(Some(mesh)) => {
+                        // C++ hides the locked Drawable during the refreshed
+                        // filtered scene. Prepare its meshes once, then draw
+                        // them after postRender using the new camera.
+                        if !skip_scene && filter_scene::is_locked_filter_item(item, locked_binding)
+                        {
+                            locked_meshes.push(mesh);
+                            continue;
+                        }
                         // Queue mesh for rendering
                         if let Err(e) = renderer.queue_mesh(mesh) {
                             error!("Failed to queue mesh for item {}: {e:?}", item.object_id);
@@ -767,9 +782,30 @@ impl ForwardPass {
         // clock requests in an erased pass (clock rings vanish), so only
         // the post-frame registration below remains. Error paths above
         // still enqueue post-frame flushes so the overlay survives 3D faults.
+        let renderer_handle = self.renderer.renderer_handle();
+        let camera = &mut self.camera;
         let mut finish_scene = |frame: &mut ww3d_engine::RenderFrame| {
-            if let Some(callback) = post_render.as_mut() {
-                callback(frame)?;
+            let updated_camera = if let Some(callback) = post_render.as_mut() {
+                callback(frame)?
+            } else {
+                None
+            };
+            if !skip_scene && !locked_meshes.is_empty() {
+                let mut renderer = renderer_handle.lock().map_err(|_| {
+                    ww3d_renderer_3d::Error::InvalidOperation(
+                        "locked Drawable renderer poisoned".into(),
+                    )
+                })?;
+                if let Some(updated) = updated_camera {
+                    camera.set_position(updated.position);
+                    camera.set_view_matrix(updated.view);
+                    camera.set_projection_matrix(updated.projection);
+                    renderer.set_camera(camera.clone());
+                }
+                renderer.render_mesh_batch_into_frame(frame, &locked_meshes)?;
+            }
+            if let Some(overlay) = post_draw_overlay.as_mut() {
+                overlay(frame)?;
             }
             if let Err(err) = crate::graphics::ui_render_pass::flush_ui_to_frame(frame) {
                 log::warn!("post-frame flush_ui_to_frame failed: {err}");
@@ -782,6 +818,12 @@ impl ForwardPass {
             .end_frame_with_scene_policy(skip_scene, Some(&mut finish_scene))
             .map_err(|e| anyhow::anyhow!("WW3D renderer end_frame failed: {e:?}"))?;
 
+        // The specific draw is part of this frame, after end_frame sampled
+        // its ordinary scene counters. Publish its accumulated mesh statistics
+        // without reviving old counts on a retained/skip-render offer.
+        if !skip_scene && !locked_meshes.is_empty() {
+            self.renderer.snapshot_stats();
+        }
         let stats = self.renderer.stats();
         if queued_count_total > 0 {
             debug!(

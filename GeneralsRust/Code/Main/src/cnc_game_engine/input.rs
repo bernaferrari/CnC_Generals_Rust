@@ -1814,8 +1814,43 @@ impl CnCGameEngine {
             self.native_filter_scroll = self.native_filter_render_scroll();
         }
         #[cfg(feature = "game_client")]
-        let (render_result, filter_look_at) = {
-            let mut physics_visual_owner = self.game_logic.host_physics_visuals.borrow_mut();
+        let render_result = {
+            let world_bounds = self.presentation_world_bounds();
+            let constraint_inset = super::start_game::native_camera_constraint_inset(
+                &self.native_camera,
+                self.view_matrix,
+                self.projection_matrix,
+                self.tactical_viewport_size(),
+            );
+            // The pipeline was seeded from this exact immutable frame above;
+            // borrow its environment without borrowing the mutable pipeline.
+            let filter_frame = self.last_presentation_frame.as_deref();
+            let (filter, target, impulse, mut cancellation, physics_visuals) =
+                self.game_logic.split_filter_camera_owner();
+            let mut camera = super::camera_filter::NativeFilterCameraContext {
+                look_at_modes: &mut self.look_at_modes,
+                yaw_target: &mut self.camera_yaw_target,
+                yaw_duration: &mut self.camera_yaw_duration,
+                target,
+                impulse,
+                native_camera: &self.native_camera,
+                zoom: self.camera_zoom,
+                pitch: self.camera_pitch_radians,
+                yaw: self.camera_yaw_radians,
+                fx_pitch: self.camera_fx_pitch,
+                shake_rotation: self.camera_shake_rotation,
+                slave_mode: self.camera_slave_mode.is_some(),
+                position: &mut self.camera_position,
+                view: &mut self.view_matrix,
+                projection: self.projection_matrix,
+                world_bounds,
+                constraint_inset,
+                constraint_widen: &mut self.scripted_camera_constraint_widen,
+                env: filter_frame.map(|frame| &frame.world_env),
+            };
+            let mut complete_filter_camera =
+                |point| camera.finish(point, &mut || cancellation.cancel());
+            let mut physics_visual_owner = physics_visuals.borrow_mut();
             let mut complete_physics_visual =
                 |input: &mut crate::presentation_frame::UnitRenderInput,
                  frame: &crate::presentation_frame::PresentationFrame| {
@@ -1891,18 +1926,16 @@ impl CnCGameEngine {
                 deferred_startup_model_load_budget,
                 skip_world_scene,
                 Some(&mut direct_scene_candidate_sink),
-                &mut self.game_logic.session_view.filter,
+                filter,
                 self.native_filter_scroll,
                 presentation_logic_frame,
+                Some(&mut complete_filter_camera),
                 Some(&mut complete_physics_visual),
             );
-            (result, render_pipeline.take_completed_filter_look_at())
+            result
         };
         #[cfg(feature = "game_client")]
         {
-            if let Some(position) = filter_look_at {
-                self.apply_native_filter_look_at(position);
-            }
             render_result?;
         }
         #[cfg(not(feature = "game_client"))]

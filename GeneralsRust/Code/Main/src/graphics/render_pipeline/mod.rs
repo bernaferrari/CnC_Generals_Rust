@@ -650,14 +650,22 @@ pub(super) fn apply_frozen_direct_scene_decisions_to_render_items(
     }
 }
 
+/// Final camera after the synchronous filter postRender continuation.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FilterCameraMatrices {
+    pub view: Mat4,
+    pub projection: Mat4,
+    pub position: Vec3,
+}
+
+mod filter_scene;
+
 /// Main render pipeline - equivalent to C++ SAGE RenderPipeline
 pub struct RenderPipeline {
     // WW3D renderer bridge
     forward_pass: ForwardPass,
     #[cfg(feature = "game_client")]
     view_filter_resources: game_client::display::shader_filter::ShaderFilterResources,
-    #[cfg(feature = "game_client")]
-    completed_filter_look_at: Option<glam::Vec3>,
     /// GPU selection shaders/pipelines live with this render pipeline's device.
     /// Frame callbacks clone the Arc so in-flight draws retain their resources.
     selection_renderer_cache: crate::graphics::selection_renderer::SelectionRendererCache,
@@ -979,3 +987,6 @@ impl RenderPipeline {
 
 #[cfg(all(test, feature = "game_client", not(target_arch = "wasm32")))]
 mod view_filter_phase_tests;
+
+#[cfg(all(test, feature = "game_client"))]
+mod locked_filter_gpu_tests;

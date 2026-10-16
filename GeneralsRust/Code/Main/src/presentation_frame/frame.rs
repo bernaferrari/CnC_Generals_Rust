@@ -159,6 +159,9 @@ pub struct PresentationFrame {
     pub camera_focus_previous_target: Option<[f32; 3]>,
     /// Camera-follow object world position residual (live follow still resolves host id).
     pub camera_follow_position: Option<[f32; 3]>,
+    /// Receiving lock identity, never inferred from a coincident world position.
+    #[serde(skip)]
+    pub(crate) camera_follow_object_id: Option<ObjectId>,
     /// Pending BW mode residual (enabled, frames).
     pub camera_bw_mode: Option<(bool, i32)>,
     /// Pending camera shaker residual (epicenter xyz, amplitude, duration, radius).

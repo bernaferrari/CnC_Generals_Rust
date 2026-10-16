@@ -2225,6 +2225,9 @@ impl PresentationFrame {
                 .session_view
                 .pending_focus_previous_target
                 .map(|p| p.to_array()),
+            camera_follow_object_id: logic
+                .peek_camera_follow_target_position()
+                .and(logic.camera_follow_object_id()),
             camera_follow_position: logic
                 .peek_camera_follow_target_position()
                 .map(|p| [p.x, p.y, p.z]),

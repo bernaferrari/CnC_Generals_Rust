@@ -32,6 +32,7 @@ pub mod math;
 pub mod mesh;
 pub mod particle_bridge;
 pub mod pointgr;
+mod render_batch;
 pub mod rendering;
 pub mod seglinerenderer;
 pub mod texturefilter;
@@ -633,7 +634,7 @@ impl Renderer {
                     occlusion_query_set: None,
                     timestamp_writes: None,
                     multiview_mask: None,
-});
+                });
 
             // C++ dx8wrapper::Set_Viewport parity: D3D applied the tactical
             // viewport as DEVICE state, so the terrain pre-scene pass and the
@@ -670,31 +671,33 @@ impl Renderer {
         };
         render_result?;
         if ww3d_gpu::sorting_renderer_stats().batch_count > 0 {
-            let mut sort_pass = targets.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("WW3D Sorting Flush"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: targets.color_view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: targets.depth_view.map(|view| {
-                    wgpu::RenderPassDepthStencilAttachment {
-                        view,
-                        depth_ops: Some(wgpu::Operations {
+            let mut sort_pass = targets
+                .encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("WW3D Sorting Flush"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: targets.color_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    }
-                }),
-                occlusion_query_set: None,
-                timestamp_writes: None,
-                multiview_mask: None,
-            });
+                        },
+                    })],
+                    depth_stencil_attachment: targets.depth_view.map(|view| {
+                        wgpu::RenderPassDepthStencilAttachment {
+                            view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }
+                    }),
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                    multiview_mask: None,
+                });
             ww3d_gpu::flush_sorting_renderer(&mut sort_pass);
         }
 
