@@ -69,13 +69,13 @@ pub fn honesty_host_match_camera_follow_residuals_nav_commands_residual_wave847(
 
 pub fn honesty_host_match_camera_follow_residuals_residual_pack_wave847() -> bool {
     let cnc = cnc_source();
-    let ok = cnc.contains("host_match_camera_follow_active: Option<bool>")
-        && cnc.contains("host_match_camera_follow_position: Option<[f32; 3]>")
-        && cnc.contains("Wave 583/847")
-        && cnc.contains("Wave 847: camera-follow host residual")
-        && cnc.contains("Wave 847")
-        && cnc.contains("self.host_match_camera_follow_active = Some(id.is_some())")
-        && cnc.contains("if let Some(v) = self.host_match_camera_follow_active");
+    // The historical slots remain wire observations; runtime authority is the
+    // receiving lock and an unconditional operation (hq-009e7).
+    let ok = cnc.contains("SessionControlOp::SetCameraFollow { id }")
+        && cnc.contains("self.game_logic.camera_follow_object_id().is_some()")
+        && !cnc.contains("pub(crate) host_match_camera_follow_active:")
+        && !cnc.contains("self.host_match_camera_follow_id =")
+        && !cnc.contains("if let Some(v) = self.host_match_camera_follow_active");
     residual_action_store(ResidualHostMatchCameraFollowResidualsAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

@@ -172,6 +172,10 @@ impl CameraHeightContinuation {
 }
 
 impl CameraHeight {
+    /// Source follow writes ground plane without recalibrating map offset.
+    pub(crate) fn set_follow_ground(&mut self, ground: f32) {
+        self.basis.ground_level = ground;
+    }
     pub(crate) fn capture_continuation(&self) -> CameraHeightContinuation {
         CameraHeightContinuation {
             offset: self.basis.offset,

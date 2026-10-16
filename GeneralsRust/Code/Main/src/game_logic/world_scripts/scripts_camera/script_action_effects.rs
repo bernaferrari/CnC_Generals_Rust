@@ -138,25 +138,14 @@ impl GameLogic {
         }
 
         if let Some(last) = camera_focus.follows.into_iter().last() {
-            if last.object_id == 0 {
-                self.session_view.scripted.camera_follow_target = None;
-                self.session_view.scripted.camera_tether_play = None;
-            } else {
-                self.session_view.scripted.motion.active = false;
-                self.session_view.scripted.path_arrived = false;
-                self.session_view.scripted.camera_tether_play = None;
-                self.session_view.scripted.camera_follow_target = Some(ObjectId(last.object_id));
-                if last.snap_to_unit {
-                    if let Some(obj) = self.objects.get(&ObjectId(last.object_id)) {
-                        self.request_camera_focus(obj.get_position());
-                    }
-                }
+            self.set_camera_follow_object(
+                (last.object_id != 0).then_some(ObjectId(last.object_id)),
+            );
+            if last.object_id != 0 && last.snap_to_unit {
+                self.session_view.camera.camera_follow_snap_immediate = true;
             }
         }
-
         if let Some(last) = camera_focus.tethers.into_iter().last() {
-            self.session_view.scripted.motion.active = false;
-            self.session_view.scripted.path_arrived = false;
             self.set_camera_tether_object(ObjectId(last.object_id), last.snap_to_unit, last.play);
         }
 
@@ -933,3 +922,7 @@ impl GameLogic {
 
 #[cfg(test)]
 mod camera_focus_drain_tests;
+
+#[cfg(test)]
+#[path = "script_action_effects/follow_admission_tests.rs"]
+mod follow_admission_tests;

@@ -419,3 +419,6 @@ fn settling_hag_goal_survives_native_record_instead_of_freezing_visible_height()
 #[cfg(feature = "game_client")]
 #[path = "native_die_companion_tests.rs"]
 mod native_die_companion_tests;
+
+#[path = "follow_cache_owner_tests.rs"]
+mod follow_cache_owner_tests;

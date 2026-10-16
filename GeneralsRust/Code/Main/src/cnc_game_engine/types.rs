@@ -1094,12 +1094,6 @@ pub struct CnCGameEngine {
         Option<Vec<crate::presentation_frame::PresentationPlayerInfo>>,
     pub(crate) host_match_known_template_names: Option<Vec<String>>,
     pub(crate) host_match_unlocked_sciences: Option<std::collections::HashMap<u32, Vec<String>>>,
-    /// Wave 847: host-owned camera-follow residuals for presentation_or_boot peels.
-    pub(crate) host_match_camera_follow_active: Option<bool>,
-    pub(crate) host_match_camera_follow_position: Option<[f32; 3]>,
-    /// Wave 913: last camera-follow object residual (skip redundant authority writes).
-    pub(crate) host_match_camera_follow_id: Option<Option<crate::game_logic::ObjectId>>,
-    /// C++ W3DView followFactor; -1 when unlocked.
     /// Wave 848: host-owned local train producers residual (barracks / other).
     pub(crate) host_match_local_barracks_ids: Option<Vec<crate::game_logic::ObjectId>>,
     pub(crate) host_match_local_producer_ids: Option<Vec<crate::game_logic::ObjectId>>,

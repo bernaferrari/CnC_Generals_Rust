@@ -18,7 +18,6 @@ fn bookmarks_cancel_scroll_and_input_recency_survive_detached_admission() {
     original.mmb_press_frame = 31;
     original.lookat_stamp_mouse_activity(40);
     original.note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::LookAt);
-    original.camera_follow_lock_broken = true;
     original.wheel_stopped_scroll = true;
     original.letterbox_os_cursor_hidden = true;
     let encoded = bincode_legacy::DefaultOptions::new()
@@ -37,7 +36,7 @@ fn bookmarks_cancel_scroll_and_input_recency_survive_detached_admission() {
     assert_eq!(restored.mmb_press_frame, 31);
     assert_eq!(restored.prev_cursor, Some("AttackObj"));
     assert!(restored.look_at_host_mouse_locked() && restored.look_at_host_is_scrolling());
-    assert!(restored.camera_follow_lock_broken && restored.wheel_stopped_scroll);
+    assert!(restored.wheel_stopped_scroll);
     assert!(restored.letterbox_os_cursor_hidden);
     assert!(restored.lookat_has_mouse_moved_recently(70));
     assert!(!restored.lookat_has_mouse_moved_recently(71));
@@ -69,4 +68,44 @@ fn malformed_bookmark_or_cursor_does_not_mutate_receiving_modes() {
     assert!(decoded.validate().is_err());
     assert_eq!(receiver.last_mouse_move_frame, 17);
     assert!(receiver.views.iter().all(Option::is_none));
+}
+
+#[test]
+fn historical_broken_lock_observation_is_ignored_without_blocking_canonical_relock() {
+    let mut dto = LookAtHostModes::default().capture_continuation();
+    dto.camera_follow_lock_broken = true;
+    let bytes = bincode_legacy::DefaultOptions::new()
+        .serialize(&dto)
+        .unwrap();
+    let decoded: LookAtContinuation = bincode_legacy::DefaultOptions::new()
+        .deserialize(&bytes)
+        .unwrap();
+    decoded.validate().unwrap();
+    let mut receiver = LookAtHostModes::default();
+    receiver.admit_continuation(decoded);
+    assert!(!receiver.capture_continuation().camera_follow_lock_broken);
+    let mut world = crate::game_logic::GameLogic::new();
+    let id = crate::game_logic::ObjectId(42);
+    world.set_camera_follow_object(Some(id));
+    world.apply_session_control_op(crate::game_logic::SessionControlOp::SetCameraFollow {
+        id: None,
+    });
+    // Authored re-lock before any frame showing None is a new valid lock.
+    world.set_camera_tether_object(id, true, 9.);
+    let facts = crate::presentation_frame::follow::FollowTargetFacts {
+        id,
+        position: Vec3::new(80., 37., 90.),
+        airborne_orientation: None,
+    };
+    assert_eq!(
+        world
+            .session_view
+            .admit_camera_follow(Some(id), Some(facts), 10., false),
+        Ok(crate::presentation_frame::follow::FollowAdmission::Followed)
+    );
+    assert_eq!(world.session_view.target, Vec3::new(80., 0., 90.));
+    assert!(!world.session_view.camera.camera_follow_snap_immediate);
+    let native = include_str!("../camera_view_effects.rs");
+    assert!(!native.contains("look_at_player_broke_camera_lock"));
+    assert!(native.contains("self.apply_camera_follow_or_tether(id, facts, record_previous)"));
 }

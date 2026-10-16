@@ -612,6 +612,9 @@ impl GameLogic {
     /// C++ `W3DView::setAngle`/`setPitch`/`setZoom`/`setHeightAboveGround`:
     /// drop the in-flight scripted path so player input is not overwritten.
     pub fn cancel_scripted_camera_from_player_set(&mut self) {
+        // Live native callers are setAngle/setHeightAboveGround/setZoom.
+        // Source setPitch has distinct arrival semantics and uses no such caller.
+        self.session_view.scripted.path_arrived = false;
         self.clear_in_flight_scripted_camera_move();
         // Cancel requests that have not yet reached presentation admission,
         // as well as the already installed motion below.
@@ -1263,25 +1266,10 @@ impl GameLogic {
     }
 
     pub fn set_camera_follow_object(&mut self, id: Option<ObjectId>) {
-        self.session_view.scripted.camera_follow_target = id;
-        if id.is_none() {
-            self.session_view.scripted.camera_tether_play = None;
-        }
-        if let Some(oid) = id {
-            if let Some(obj) = self.objects.get(&oid) {
-                self.request_camera_focus(obj.get_position());
-            }
-        }
+        self.session_view.set_camera_follow(id);
     }
-
     pub fn set_camera_tether_object(&mut self, id: ObjectId, snap_to_unit: bool, play: f32) {
-        self.session_view.scripted.camera_follow_target = Some(id);
-        self.session_view.scripted.camera_tether_play = Some(play.max(0.0));
-        if snap_to_unit {
-            if let Some(obj) = self.objects.get(&id) {
-                self.request_camera_focus(obj.get_position());
-            }
-        }
+        self.session_view.set_camera_tether(id, snap_to_unit, play);
     }
 
     pub fn peek_camera_tether_play(&self) -> Option<f32> {

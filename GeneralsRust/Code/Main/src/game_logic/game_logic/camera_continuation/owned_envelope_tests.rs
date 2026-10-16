@@ -23,6 +23,18 @@ fn v1_bytes(state: &LogicCameraContinuation) -> Vec<u8> {
     bytes
 }
 
+// Explicit input-only V2 fixture: its unchanged payload is the V3 base, without
+// the new snap bool. Live capture must still write the current V3 header.
+fn v2_bytes_from_current(current: &[u8]) -> Vec<u8> {
+    assert_eq!(&current[..4], MAGIC);
+    assert_eq!(&current[4..8], &3_u32.to_le_bytes());
+    let current: EnvelopeV3 = codec().deserialize(&current[8..]).unwrap();
+    let mut bytes = MAGIC.to_vec();
+    bytes.extend_from_slice(&2_u32.to_le_bytes());
+    bytes.extend(codec().serialize(&current.base).unwrap());
+    bytes
+}
+
 #[test]
 fn camera_owner_v2_is_self_contained_without_a_native_block_and_leaves_peer_unchanged() {
     let mut source = GameLogic::new();
@@ -50,36 +62,48 @@ fn camera_owner_v2_is_self_contained_without_a_native_block_and_leaves_peer_unch
     source.session_view.scripted.path_arrived = true;
     let peer = GameLogic::new();
     let peer_before = peer.capture_camera_continuation().unwrap();
-    let bytes = source.capture_camera_continuation().unwrap();
-    assert_eq!(&bytes[..4], MAGIC);
-    assert_eq!(&bytes[4..8], &2_u32.to_le_bytes());
-    let state = GameLogic::decode_camera_continuation(&bytes).unwrap();
-    assert!(state.script_camera_move_to.is_none());
-    assert!(state.script_camera_path.is_none());
-    assert!(!state.script_camera_freeze_time_armed);
-    assert!(!state.script_camera_freeze_angle_armed);
-    assert_eq!(state.script_camera_pending_final_speed_multiplier, None);
-    let mut receiving = GameLogic::new();
-    receiving.admit_camera_continuation(state);
-    assert_eq!(receiving.capture_camera_continuation().unwrap(), bytes);
-    assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
-    assert_eq!(
-        receiving
-            .session_view
-            .camera
-            .native_camera
-            .basis_pitch_degrees(),
-        43.
-    );
-    assert_eq!(
-        receiving
-            .session_view
-            .camera
-            .native_camera
-            .basis_yaw_degrees(),
-        12.
-    );
-    assert_eq!(receiving.session_view.camera.native_camera.desired(), 165.);
+    let current = source.capture_camera_continuation().unwrap();
+    let v2 = v2_bytes_from_current(&current);
+    for (version, bytes) in [(2_u32, v2), (3_u32, current.clone())] {
+        assert_eq!(&bytes[..4], MAGIC);
+        assert_eq!(&bytes[4..8], &version.to_le_bytes());
+        let state = GameLogic::decode_camera_continuation(&bytes).unwrap();
+        assert!(state.script_camera_move_to.is_none());
+        assert!(state.script_camera_path.is_none());
+        assert!(!state.script_camera_freeze_time_armed);
+        assert!(!state.script_camera_freeze_angle_armed);
+        assert_eq!(state.script_camera_pending_final_speed_multiplier, None);
+        assert!(!state.owned_follow_snap_immediate());
+        let mut receiving = GameLogic::new();
+        receiving.admit_camera_continuation(state);
+        let recaptured = receiving.capture_camera_continuation().unwrap();
+        assert_eq!(recaptured, current);
+        if version == 2 {
+            // Reproject the admitted state to the historical schema as well:
+            // the import must preserve every old V2 field and byte.
+            assert_eq!(v2_bytes_from_current(&recaptured), bytes);
+        } else {
+            assert_eq!(recaptured, bytes);
+        }
+        assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
+        assert_eq!(
+            receiving
+                .session_view
+                .camera
+                .native_camera
+                .basis_pitch_degrees(),
+            43.
+        );
+        assert_eq!(
+            receiving
+                .session_view
+                .camera
+                .native_camera
+                .basis_yaw_degrees(),
+            12.
+        );
+        assert_eq!(receiving.session_view.camera.native_camera.desired(), 165.);
+    }
 }
 
 #[test]
@@ -151,27 +175,39 @@ fn old_rust_active_paths_reject_before_receiving_or_peer_mutation() {
 
 #[test]
 fn camera_owner_v2_rejects_conflicting_legacy_projection_and_trailing_bytes() {
-    let saved = GameLogic::new().capture_camera_continuation().unwrap();
-    let envelope: EnvelopeV2 = codec().deserialize(&saved[8..]).unwrap();
-    let mut legacy: LogicCameraContinuation = codec().deserialize(&envelope.legacy_record).unwrap();
-    legacy.script_camera_focus_estimate.x += 1.;
-    let payload = codec()
-        .serialize(&EnvelopeV2 {
-            legacy_record: codec().serialize(&legacy).unwrap(),
-            ..envelope
-        })
-        .unwrap();
-    let mut malformed = saved[..8].to_vec();
-    malformed.extend(payload);
-    assert!(
-        GameLogic::decode_camera_continuation(&malformed)
-            .unwrap_err()
-            .contains("ambiguous V2")
-    );
-    let mut trailing = saved.clone();
-    trailing.push(0);
-    assert!(GameLogic::decode_camera_continuation(&trailing).is_err());
-    assert!(GameLogic::decode_camera_continuation(&saved[..saved.len() - 1]).is_err());
+    let current = GameLogic::new().capture_camera_continuation().unwrap();
+    for saved in [v2_bytes_from_current(&current), current] {
+        let version = u32::from_le_bytes(saved[4..8].try_into().unwrap());
+        let mut envelope = if version == 2 {
+            EnvelopeV3 {
+                base: codec().deserialize::<EnvelopeV2>(&saved[8..]).unwrap(),
+                follow_snap_immediate: false,
+            }
+        } else {
+            assert_eq!(version, 3);
+            codec().deserialize::<EnvelopeV3>(&saved[8..]).unwrap()
+        };
+        let mut legacy: LogicCameraContinuation =
+            codec().deserialize(&envelope.base.legacy_record).unwrap();
+        legacy.script_camera_focus_estimate.x += 1.;
+        envelope.base.legacy_record = codec().serialize(&legacy).unwrap();
+        let payload = if version == 2 {
+            codec().serialize(&envelope.base).unwrap()
+        } else {
+            codec().serialize(&envelope).unwrap()
+        };
+        let mut malformed = saved[..8].to_vec();
+        malformed.extend(payload);
+        assert!(
+            GameLogic::decode_camera_continuation(&malformed)
+                .unwrap_err()
+                .contains("ambiguous V2")
+        );
+        let mut trailing = saved.clone();
+        trailing.push(0);
+        assert!(GameLogic::decode_camera_continuation(&trailing).is_err());
+        assert!(GameLogic::decode_camera_continuation(&saved[..saved.len() - 1]).is_err());
+    }
 }
 
 #[test]

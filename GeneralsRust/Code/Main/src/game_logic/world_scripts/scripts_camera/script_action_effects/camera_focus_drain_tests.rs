@@ -134,7 +134,7 @@ fn camera_focus_authored_nested_public_update_keeps_tether_then_home_order() {
             assert_eq!(world.take_camera_focus_request(), Some(home));
             assert!(
                 world.script_camera_move_to_target().is_none(),
-                "earlier tether clears earlier path"
+                "later home LookAt clears earlier path"
             );
             // The prior walk was consumed; an empty actual final flush does not replay it.
             install(&mut world, vec![], false);
@@ -163,7 +163,23 @@ fn camera_focus_same_id_public_updates_and_next_flush_stay_on_driving_owner() {
                 world.update();
                 let expected = world.host_object(id).unwrap().get_position();
                 assert_eq!(world.camera_follow_object_id(), Some(id));
-                assert_eq!(world.take_camera_focus_request(), Some(expected));
+                assert!(
+                    world.take_camera_focus_request().is_none(),
+                    "follow admission is not LookAt"
+                );
+                let facts = crate::presentation_frame::follow::FollowTargetFacts {
+                    id,
+                    position: expected,
+                    airborne_orientation: None,
+                };
+                world
+                    .session_view
+                    .admit_camera_follow(Some(id), Some(facts), 10., false)
+                    .unwrap();
+                assert_eq!(
+                    world.session_view.target,
+                    Vec3::new(expected.x, 0., expected.z)
+                );
             }
             assert_eq!(
                 a.peek_camera_follow_target_position(),
@@ -226,10 +242,7 @@ fn camera_focus_external_public_handler_flush_keeps_family_last_and_presence_sem
             world.update();
             assert_eq!(world.camera_follow_object_id(), Some(id));
             assert_eq!(world.peek_camera_tether_play(), Some(9.0));
-            assert_eq!(
-                world.take_camera_focus_request(),
-                Some(Vec3::new(110.0, 0.0, 130.0))
-            );
+            assert_eq!(world.take_camera_focus_request(), Some(home));
             assert!(world.mission_scripts.drain_camera_moves().is_empty());
             assert!(
                 world

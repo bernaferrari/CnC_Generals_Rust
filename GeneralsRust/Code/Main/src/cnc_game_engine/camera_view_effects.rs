@@ -12,37 +12,22 @@ impl CnCGameEngine {
         }
         let mut did_scripted_movement = false;
         if decision.update_views {
-            // C++ W3DView::update: follow precedes scalar camera movements.
-            let follow = self
-                .last_presentation_frame
-                .as_ref()
-                .map(|frame| (frame.camera_follow_position, frame.camera_tether_play));
-            if self.look_at_player_broke_camera_lock() {
-                if follow.is_some_and(|(position, _)| position.is_none()) {
-                    self.look_at_clear_player_broke_camera_lock();
-                }
-            } else if let Some((Some(position), tether)) = follow {
-                // Source saves the old logical position only for a live follow
-                // movement, outside script/debug freeze and pause (W3DView1220).
-                #[cfg(feature = "game_client")]
-                if !self
-                    .last_presentation_frame
-                    .as_ref()
-                    .is_some_and(|frame| frame.script_time_frozen)
-                    && !self.native_view_is_paused()
-                {
-                    self.game_logic
-                        .session_view
-                        .camera
-                        .native_filter_previous_target = self.game_logic.session_view.target;
-                }
-                self.apply_camera_follow_or_tether(Vec3::from_array(position), tether);
-                did_scripted_movement = true;
-            } else {
-                self.game_logic.session_view.camera.camera_follow_factor = -1.;
+            // Follow precedes the pause-gated scalar movements. Position/yaw
+            // use the exact frozen receiving lock identity, never nearest art.
+            let follow = self.last_presentation_frame.as_ref().map(|frame| {
+                (
+                    frame.camera_follow_object_id,
+                    frame.camera_follow_facts,
+                    frame.script_time_frozen,
+                )
+            });
+            if let Some((id, facts, script_frozen)) = follow {
+                let record_previous = !script_frozen && !self.native_view_is_paused();
+                did_scripted_movement |=
+                    self.apply_camera_follow_or_tether(id, facts, record_previous);
             }
-            self.apply_airborne_follow_yaw();
         }
+
         let admission = MotionAdmission {
             update_views: decision.update_views,
             fast_camera_only: decision.fast_camera_only,

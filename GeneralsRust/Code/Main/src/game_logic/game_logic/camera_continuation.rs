@@ -70,6 +70,7 @@ struct CameraOwnedExtras {
     target: Option<Vec3>,
     path_arrived: bool,
     object_tracking: Option<CameraObjectTracking>,
+    follow_snap_immediate: bool,
 }
 
 fn codec() -> CameraCodec<MAX_BYTES> {
@@ -79,6 +80,10 @@ fn codec() -> CameraCodec<MAX_BYTES> {
 impl LogicCameraContinuation {
     pub(crate) fn owned_camera_state(&self) -> Option<&SessionCameraState> {
         self.owned_extras.camera.as_ref()
+    }
+
+    pub(crate) fn owned_follow_snap_immediate(&self) -> bool {
+        self.owned_extras.follow_snap_immediate
     }
 
     pub(crate) fn owned_target(&self) -> Option<Vec3> {
@@ -201,6 +206,7 @@ impl GameLogic {
                 target: Some(self.session_view.target),
                 path_arrived: self.session_view.scripted.path_arrived,
                 object_tracking: self.session_view.scripted.object_tracking.clone(),
+                follow_snap_immediate: self.session_view.camera.camera_follow_snap_immediate,
             },
         };
         state.validate()?;
@@ -234,6 +240,8 @@ impl GameLogic {
         if let Some(camera) = state.owned_extras.camera {
             camera.admit(&mut self.session_view.camera);
         }
+        self.session_view.camera.camera_follow_snap_immediate =
+            state.owned_extras.follow_snap_immediate;
         self.session_view.scripted.camera_follow_target = state.camera_follow_target;
         self.session_view.scripted.camera_tether_play = state.camera_tether_play;
         self.session_view.scripted.script_look_toward_object_id =

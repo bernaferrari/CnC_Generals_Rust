@@ -421,6 +421,7 @@ impl CnCGameEngine {
             )
             .map_err(anyhow::Error::msg)?,
             camera_follow_factor: -1.0,
+            camera_follow_snap_immediate: false,
             camera_position,
             scripted_camera_constraint_widen: None,
             camera_zoom,
@@ -546,9 +547,6 @@ impl CnCGameEngine {
             host_match_diplomacy_players: None,
             host_match_known_template_names: None,
             host_match_unlocked_sciences: None,
-            host_match_camera_follow_active: None,
-            host_match_camera_follow_position: None,
-            host_match_camera_follow_id: None,
             host_match_local_barracks_ids: None,
             host_match_local_producer_ids: None,
             host_match_local_unfinished_producer_ids: None,

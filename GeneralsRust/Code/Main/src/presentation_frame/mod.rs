@@ -28,6 +28,7 @@ mod build;
 mod camera_terrain;
 mod events;
 mod floating_text;
+mod follow_facts;
 mod frame;
 #[cfg(feature = "game_client")]
 mod ghosts;
@@ -79,6 +80,8 @@ pub const PRESENTATION_FRAME_SRC: &str = concat!(
     include_str!("events.rs"),
     include_str!("floating_text.rs"),
     include_str!("frame.rs"),
+    include_str!("follow_facts.rs"),
+    include_str!("session_view/follow.rs"),
     include_str!("honesty.rs"),
     include_str!("lasers.rs"),
     include_str!("overlay.rs"),
@@ -102,7 +105,7 @@ pub const PRESENTATION_FRAME_SRC: &str = concat!(
 
 mod session_view;
 pub(crate) use session_view::{
-    SessionView, SessionViewImpulse, SessionViewState, camera, scripted, waypoint,
+    SessionView, SessionViewImpulse, SessionViewState, camera, follow, scripted, waypoint,
 };
 
 mod native_drawable_source;

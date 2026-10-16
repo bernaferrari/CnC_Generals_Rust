@@ -17,8 +17,11 @@ fn presentation_path_applies_frozen_direct_shroud_after_sync_before_pose() {
         .expect("next helper boundary");
     let helper = &src[helper..helper_end];
     let sync = helper
-        .find("sync_presentation_drawables(sync_entries)")
+        .find("sync_presentation_drawables_observed(sync_entries, sync_ms,")
         .expect("presentation drawable sync");
+    let observer = helper
+        .find("native_owner.receive_native_drawable_mutation(mutation, source, graphics)")
+        .expect("receiving renderer lifecycle observation");
     let direct_shroud = helper
         .find("apply_frozen_direct_shroud_statuses(logic_frame, shroud_entries)")
         .expect("frozen raw shroud apply");
@@ -27,8 +30,8 @@ fn presentation_path_applies_frozen_direct_shroud_after_sync_before_pose() {
         .expect("presentation pose apply");
     let window = &helper[sync..helper.len().min(pose + 300)];
     assert!(
-        sync < direct_shroud && direct_shroud < pose,
-        "raw direct status must apply only after sync and before pose"
+        sync < observer && observer < direct_shroud && direct_shroud < pose,
+        "renderer lifecycle and direct status must apply after sync and before frozen pose"
     );
     assert!(
         helper.contains("direct_host_drawables")

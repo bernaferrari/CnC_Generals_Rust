@@ -21,6 +21,7 @@ pub(crate) struct NativeCameraContinuation(CameraState, NativeCameraExtras);
 struct NativeCameraExtras {
     filter: Option<(glam::Vec2, Vec3)>,
     completed_view: Option<glam::Mat4>,
+    follow_snap_immediate: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -67,6 +68,8 @@ struct CameraState {
     script_camera_shakers: Vec<ScriptCameraShaker>,
     script_fps_limit: Option<u32>,
     camera_follow_factor: f32,
+    // Historical Native85 observations only. Validation retains their wire
+    // contract; admission never reinstalls them as mutable authorities.
     host_match_camera_follow_active: Option<bool>,
     host_match_camera_follow_position: Option<[f32; 3]>,
     host_match_camera_follow_id: Option<Option<crate::game_logic::ObjectId>>,
@@ -205,6 +208,9 @@ impl NativeCameraContinuation {
         &self,
         logic: &crate::game_logic::LogicCameraContinuation,
     ) -> Result<(), String> {
+        if logic.owned_follow_snap_immediate() != self.1.follow_snap_immediate {
+            return Err("logic/native pending follow snap disagrees".into());
+        }
         let Some(owned) = logic.owned_camera_state() else {
             // Raw/V1 inactive Rust records have no complete camera to compare.
             return Ok(());
@@ -418,9 +424,14 @@ impl CnCGameEngine {
                 .camera
                 .camera_follow_factor
                 .clone(),
-            host_match_camera_follow_active: self.host_match_camera_follow_active.clone(),
-            host_match_camera_follow_position: self.host_match_camera_follow_position.clone(),
-            host_match_camera_follow_id: self.host_match_camera_follow_id.clone(),
+            host_match_camera_follow_active: Some(
+                self.game_logic.camera_follow_object_id().is_some(),
+            ),
+            host_match_camera_follow_position: self
+                .game_logic
+                .peek_camera_follow_target_position()
+                .map(|position| position.to_array()),
+            host_match_camera_follow_id: Some(self.game_logic.camera_follow_object_id()),
             host_match_script_camera_max_height: Some(
                 self.game_logic.script_default_camera_max_height(),
             ),
@@ -486,6 +497,10 @@ impl CnCGameEngine {
                 .native_filter_previous_target = previous_target;
         }
         let completed_view = continuation.completed_view();
+        self.game_logic
+            .session_view
+            .camera
+            .camera_follow_snap_immediate = continuation.1.follow_snap_immediate;
         let state = continuation.0;
         let now = Instant::now();
         state.admit_session_camera_fields(&mut self.game_logic.session_view.camera);
@@ -510,9 +525,6 @@ impl CnCGameEngine {
             .expect("native CameraState was validated before commitment");
         self.script_fps_limit = state.script_fps_limit;
 
-        self.host_match_camera_follow_active = state.host_match_camera_follow_active;
-        self.host_match_camera_follow_position = state.host_match_camera_follow_position;
-        self.host_match_camera_follow_id = state.host_match_camera_follow_id;
         // Historical default observations were validated during detached decode.
         // The Logic continuation already admitted the canonical script defaults;
         // old presentation/cache observations must never overwrite them.

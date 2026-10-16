@@ -103,15 +103,9 @@ impl CnCGameEngine {
         self.apply_boot_camera_residual();
     }
 
-    /// Wave 572: boot residual camera — live take_* dual-reads when no presentation freeze.
-    /// Presentation path uses `apply_presentation_camera_residual` + drain.
-    pub(super) fn apply_boot_camera_residual(&mut self) {
-        // Wave 572/899: boot residual from host_match only (no live take_* dual-read).
-        // InGame uses apply_presentation_camera_residual when freeze is installed.
-        if let Some(focus) = self.host_match_camera_follow_position.map(glam::Vec3::from) {
-            self.center_camera_on(focus);
-        }
-    }
+    /// No completed presentation exists in boot. A follow lock is admitted
+    /// by the next receiving View update, never synthesized as a LookAt here.
+    pub(super) fn apply_boot_camera_residual(&mut self) {}
 
     /// Play presentation-frozen script/radar movies (C++ script display residual).
     /// Drains live pending movie queues after apply. Fail-closed: not full BINK parity.
@@ -226,41 +220,32 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn apply_camera_follow_or_tether(&mut self, target: Vec3, tether_play: Option<f32>) {
-        if self.game_logic.session_view.camera.camera_follow_factor < 0.0 {
-            self.game_logic.session_view.camera.camera_follow_factor = 0.05;
-        } else {
-            self.game_logic.session_view.camera.camera_follow_factor =
-                (self.game_logic.session_view.camera.camera_follow_factor + 0.05).min(1.0);
-        }
-
-        let current = self.game_logic.session_view.target;
-        let dx = target.x - current.x;
-        let dz = target.z - current.z;
+    pub(super) fn apply_camera_follow_or_tether(
+        &mut self,
+        observed_id: Option<crate::game_logic::ObjectId>,
+        facts: Option<crate::presentation_frame::follow::FollowTargetFacts>,
+        record_previous: bool,
+    ) -> bool {
+        use crate::presentation_frame::follow::FollowAdmission;
         let cell = game_engine::common::global_data::read().partition_cell_size;
-        let snap_thresh_sqr = cell * cell;
-        let cur_dist_sqr = dx * dx + dz * dz;
-
-        let next = if let Some(play) = tether_play {
-            if cur_dist_sqr >= snap_thresh_sqr && cur_dist_sqr > 0.0 {
-                let ratio = 1.0 - snap_thresh_sqr / cur_dist_sqr;
-                Vec3::new(
-                    current.x + dx * ratio * 0.5,
-                    target.y,
-                    current.z + dz * ratio * 0.5,
-                )
-            } else {
-                let ratio = 0.01 * play;
-                Vec3::new(current.x + dx * ratio, target.y, current.z + dz * ratio)
+        let result = self.game_logic.session_view.admit_camera_follow(
+            observed_id,
+            facts,
+            cell,
+            record_previous,
+        );
+        match result {
+            Ok(FollowAdmission::TargetGone) => {
+                self.host_set_camera_follow_object(None);
+                false
             }
-        } else {
-            Vec3::new(
-                current.x + dx * self.game_logic.session_view.camera.camera_follow_factor,
-                target.y,
-                current.z + dz * self.game_logic.session_view.camera.camera_follow_factor,
-            )
-        };
-        self.center_camera_on(next);
+            Ok(FollowAdmission::Followed) => true,
+            Ok(_) => false,
+            Err(error) => {
+                log::error!("receiving camera follow admission: {error}");
+                false
+            }
+        }
     }
 
     /// Compatibility hook retained for historical source mapping. Request admission
@@ -765,20 +750,6 @@ impl CnCGameEngine {
             self.host_match_diplomacy_players = Some(Vec::new());
             self.host_match_known_template_names = Some(Vec::new());
             self.host_match_unlocked_sciences = Some(std::collections::HashMap::new());
-        }
-        // Wave 847: camera-follow host residual (prefer freeze when present).
-        if let Some(pres) = self.last_presentation_frame.as_ref() {
-            self.host_match_camera_follow_active = Some(pres.camera_follow_position.is_some());
-            self.host_match_camera_follow_position = pres.camera_follow_position;
-            // Wave 913: freeze without object-id field — clear id residual when follow inactive.
-            if pres.camera_follow_position.is_none() {
-                self.host_match_camera_follow_id = Some(None);
-            }
-        } else {
-            // Wave 901/913: cold residual fail-closed (no camera_follow dual-read).
-            self.host_match_camera_follow_active = Some(false);
-            self.host_match_camera_follow_position = None;
-            self.host_match_camera_follow_id = Some(None);
         }
         // Wave 848: stamp local train producers after other match residuals.
         self.host_refresh_local_train_producer_residuals();

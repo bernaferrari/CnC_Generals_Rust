@@ -908,14 +908,6 @@ impl CnCGameEngine {
         }
     }
 
-    pub(in crate::cnc_game_engine) fn look_at_player_broke_camera_lock(&self) -> bool {
-        self.look_at_modes.camera_follow_lock_broken
-    }
-
-    pub(in crate::cnc_game_engine) fn look_at_clear_player_broke_camera_lock(&mut self) {
-        self.look_at_modes.camera_follow_lock_broken = false;
-    }
-
     fn host_camera_movement_finished(&self) -> bool {
         self.game_logic
             .session_view
@@ -953,7 +945,6 @@ impl CnCGameEngine {
     }
 
     fn break_camera_follow_lock(&mut self) {
-        self.look_at_modes.camera_follow_lock_broken = true;
         // SetCameraFollow(None) clears receiving lock target and tether play.
         // The native filter resolves its locked Drawable from this same target.
         self.host_set_camera_follow_object(None);
@@ -1027,52 +1018,6 @@ impl CnCGameEngine {
     }
 
     /// C++ `W3DView.cpp:1224-1247` LOCK_FOLLOW airborne yaw ease.
-    pub(in crate::cnc_game_engine) fn apply_airborne_follow_yaw(&mut self) -> bool {
-        if self.look_at_player_broke_camera_lock() {
-            return false;
-        }
-        let Some(frame) = self.last_presentation_frame.as_ref() else {
-            return false;
-        };
-        if frame.camera_follow_position.is_none() {
-            return false;
-        }
-        let follow = frame.camera_follow_position.unwrap();
-        let follow = Vec3::new(follow[0], follow[1], follow[2]);
-        let Some(obj) = frame.objects.iter().min_by(|a, b| {
-            let da = (a.position - follow).length_squared();
-            let db = (b.position - follow).length_squared();
-            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-        }) else {
-            return false;
-        };
-        let airborne = obj.airborne_target
-            || matches!(
-                obj.object_type,
-                crate::presentation_frame::PresentationObjectType::Aircraft
-            );
-        if !airborne {
-            return false;
-        }
-        let ground = if obj.ground_height_from_terrain {
-            obj.ground_height
-        } else {
-            self.sample_presentation_height_under(obj.position)
-        };
-        if obj.position.y <= PATHFIND_CELL_SIZE_F + ground {
-            return false;
-        }
-        let ideal = normalize_signed_angle(obj.orientation - std::f32::consts::FRAC_PI_2);
-        let diff =
-            normalize_signed_angle(ideal - self.game_logic.session_view.camera.camera_yaw_radians);
-        if diff.abs() < 1.0e-4 {
-            return false;
-        }
-        self.game_logic.session_view.camera.camera_yaw_radians = normalize_signed_angle(
-            self.game_logic.session_view.camera.camera_yaw_radians + diff * 0.1,
-        );
-        true
-    }
 
     /// C++ W3DDisplay.cpp:1883-1900 draws the software cursor then letterbox
     /// bars on top. Live has only the OS cursor, so hide it over the bars.

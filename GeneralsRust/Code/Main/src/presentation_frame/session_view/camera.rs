@@ -50,6 +50,7 @@ pub(crate) struct SessionCamera {
     pub(crate) view_matrix: Mat4,
     pub(crate) projection_matrix: Mat4,
     pub(crate) camera_follow_factor: f32,
+    pub(crate) camera_follow_snap_immediate: bool,
 }
 impl Default for SessionCamera {
     fn default() -> Self {
@@ -92,6 +93,7 @@ impl Default for SessionCamera {
             view_matrix: Mat4::look_at_rh(position, look, Vec3::Y),
             projection_matrix: Mat4::IDENTITY,
             camera_follow_factor: -1.,
+            camera_follow_snap_immediate: false,
         }
     }
 }

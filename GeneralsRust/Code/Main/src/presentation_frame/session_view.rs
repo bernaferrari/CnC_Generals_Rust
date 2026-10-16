@@ -1,6 +1,7 @@
 //! Logical view state owned by the session, independent of a window or GPU.
 //! The native camera writes this target directly; FX observes the same value.
 pub(crate) mod camera;
+pub(crate) mod follow;
 mod look_at;
 mod motion;
 pub(crate) mod scripted;

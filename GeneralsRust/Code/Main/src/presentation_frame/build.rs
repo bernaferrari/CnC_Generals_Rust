@@ -2225,9 +2225,8 @@ impl PresentationFrame {
                 .session_view
                 .pending_focus_previous_target
                 .map(|p| p.to_array()),
-            camera_follow_object_id: logic
-                .peek_camera_follow_target_position()
-                .and(logic.camera_follow_object_id()),
+            camera_follow_object_id: logic.camera_follow_object_id(),
+            camera_follow_facts: super::follow_facts::freeze(logic),
             camera_follow_position: logic
                 .peek_camera_follow_target_position()
                 .map(|p| [p.x, p.y, p.z]),
@@ -2444,6 +2443,12 @@ impl PresentationFrame {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
         let mut h = DefaultHasher::new();
+        self.camera_follow_object_id.hash(&mut h);
+        if let Some(facts) = self.camera_follow_facts {
+            facts.id.hash(&mut h);
+            facts.position.to_array().map(f32::to_bits).hash(&mut h);
+            facts.airborne_orientation.map(f32::to_bits).hash(&mut h);
+        }
         self.frame.0.hash(&mut h);
         self.objects.len().hash(&mut h);
         for o in &self.objects {

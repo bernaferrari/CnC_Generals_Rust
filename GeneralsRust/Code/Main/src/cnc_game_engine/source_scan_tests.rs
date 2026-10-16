@@ -1491,7 +1491,7 @@ fn on_screen_select_and_camera_follow_residual() {
     let gl = include_str!("../game_logic/world_scripts/eva_camera.rs");
     assert!(
         live_function(gl, "set_camera_follow_object")
-            .contains("self.session_view.scripted.camera_follow_target = id")
+            .contains("self.session_view.set_camera_follow(id)")
             && live_function(gl, "camera_follow_object_id")
                 .contains("self.session_view.scripted.camera_follow_target"),
         "GameLogic camera follow API residual"

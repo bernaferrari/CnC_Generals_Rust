@@ -92,8 +92,9 @@ pub fn honesty_host_override_camera_follow_residual_pack_wave891() -> bool {
         && ow.contains("half_w")
         && ow.contains("half_h")
         && !ow.contains("self.game_logic.world_bounds()")
-        && cf.contains("stamped_pos")
-        && (cf.contains("get_object(oid)") || cf.contains("last_presentation_frame"))
+        && cf.contains("SessionControlOp::SetCameraFollow { id }")
+        && !cf.contains("host_match_camera_follow_id")
+        && !cf.contains("last_presentation_frame")
         && !cf
             .lines()
             .filter(|l| !l.trim_start().starts_with("//"))

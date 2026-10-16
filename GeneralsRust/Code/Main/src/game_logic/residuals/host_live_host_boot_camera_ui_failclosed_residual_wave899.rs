@@ -98,7 +98,8 @@ pub fn honesty_host_boot_camera_ui_failclosed_residual_pack_wave899() -> bool {
     let movie = non_comment_code(code_window(cnc, "fn apply_boot_movie_residual", 400));
     let popup = non_comment_code(code_window(cnc, "fn apply_boot_popup_music_residual", 400));
     let ui = non_comment_code(code_window(cnc, "fn host_update_ui_state", 900));
-    let ok = cam.contains("host_match_camera_follow_position")
+    let ok = !cam.contains("host_match_camera_follow_position")
+        && !cam.contains("center_camera_on(")
         && !cam.contains("take_camera_")
         && !cam.contains("camera_follow_target_position")
         && !drain.contains("take_camera_")

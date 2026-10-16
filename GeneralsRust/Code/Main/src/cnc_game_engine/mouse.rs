@@ -112,9 +112,6 @@ pub(super) struct LookAtHostModes {
     /// C++ `LookAtTranslator::m_lastMouseMoveFrame`.
     last_mouse_move_frame: u32,
     last_mouse_pixel: (f32, f32),
-    /// C++ `View::m_heightAboveGround` desired HAG (wheel/key zoom).
-    /// Player scroll cleared camera lock (C++ `setScrolling` + `setCameraLock`).
-    camera_follow_lock_broken: bool,
     /// Player setAngle/setZoom/lookAt this frame; residual must not re-apply.
     scripted_camera_player_cancel: ScriptedCameraPlayerCancel,
     /// C++ `MSG_RAW_MOUSE_WHEEL` fallthrough `stopScrolling` — KEY/EDGE stay
@@ -151,7 +148,8 @@ impl LookAtHostModes {
             scroll_type: self.scroll_type,
             last_mouse_move_frame: self.last_mouse_move_frame,
             last_mouse_pixel: self.last_mouse_pixel,
-            camera_follow_lock_broken: self.camera_follow_lock_broken,
+            // Historical slot only; canonical lock identity is SessionView-owned.
+            camera_follow_lock_broken: false,
             scripted_camera_player_cancel: self.scripted_camera_player_cancel,
             wheel_stopped_scroll: self.wheel_stopped_scroll,
             letterbox_os_cursor_hidden: self.letterbox_os_cursor_hidden,
@@ -169,7 +167,6 @@ impl LookAtHostModes {
         self.scroll_type = state.scroll_type;
         self.last_mouse_move_frame = state.last_mouse_move_frame;
         self.last_mouse_pixel = state.last_mouse_pixel;
-        self.camera_follow_lock_broken = state.camera_follow_lock_broken;
         self.scripted_camera_player_cancel = state.scripted_camera_player_cancel;
         self.wheel_stopped_scroll = state.wheel_stopped_scroll;
         self.letterbox_os_cursor_hidden = state.letterbox_os_cursor_hidden;

@@ -4,7 +4,7 @@ use super::*;
 // A historical record starts with Option<Vec3>'s 0/1 discriminant. FF cannot
 // prefix a valid old record, so malformed envelopes never fall back to legacy.
 const MAGIC: &[u8; 4] = b"\xffLCF";
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 /// The first owned envelope is retained byte for byte as an input-only schema.
 #[derive(Serialize, Deserialize)]
@@ -29,6 +29,14 @@ struct EnvelopeV2 {
     object_tracking: Option<CameraObjectTracking>,
 }
 
+// V2's positional payload stays byte-for-byte frozen. V3 appends the source
+// snap latch as an extra, never as a 34th SessionCameraState field.
+#[derive(Serialize, Deserialize)]
+struct EnvelopeV3 {
+    base: EnvelopeV2,
+    follow_snap_immediate: bool,
+}
+
 pub(super) fn encode(state: &LogicCameraContinuation) -> Result<Vec<u8>, String> {
     let envelope = EnvelopeV2 {
         legacy_record: codec().serialize(state)?,
@@ -50,7 +58,10 @@ pub(super) fn encode(state: &LogicCameraContinuation) -> Result<Vec<u8>, String>
         path_arrived: state.owned_extras.path_arrived,
         object_tracking: state.owned_extras.object_tracking.clone(),
     };
-    let payload = codec().serialize(&envelope)?;
+    let payload = codec().serialize(&EnvelopeV3 {
+        base: envelope,
+        follow_snap_immediate: state.owned_extras.follow_snap_immediate,
+    })?;
     let mut bytes = Vec::with_capacity(payload.len() + 8);
     bytes.extend_from_slice(MAGIC);
     bytes.extend_from_slice(&VERSION.to_le_bytes());
@@ -99,8 +110,14 @@ pub(super) fn decode(bytes: &[u8]) -> Result<LogicCameraContinuation, String> {
             decode_filter(&mut state, envelope.filter)?;
             Ok(state)
         }
-        VERSION => {
-            let envelope: EnvelopeV2 = codec().deserialize(&bytes[8..])?;
+        2 | VERSION => {
+            let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+            let (envelope, snap) = if version == 2 {
+                (codec().deserialize::<EnvelopeV2>(&bytes[8..])?, false)
+            } else {
+                let current: EnvelopeV3 = codec().deserialize(&bytes[8..])?;
+                (current.base, current.follow_snap_immediate)
+            };
             let mut state: LogicCameraContinuation =
                 codec().deserialize(&envelope.legacy_record)?;
             state.owned_extras.pending_focus_previous_target =
@@ -110,6 +127,8 @@ pub(super) fn decode(bytes: &[u8]) -> Result<LogicCameraContinuation, String> {
             state.owned_extras.target = Some(envelope.target);
             state.owned_extras.path_arrived = envelope.path_arrived;
             state.owned_extras.object_tracking = envelope.object_tracking;
+            // Old Rust eagerly applied snap, so no pending operation survives V2.
+            state.owned_extras.follow_snap_immediate = snap;
             decode_filter(&mut state, envelope.filter)?;
             Ok(state)
         }
@@ -120,3 +139,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<LogicCameraContinuation, String> {
 #[cfg(test)]
 #[path = "owned_envelope_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "follow_snap_v3_tests.rs"]
+mod follow_snap_v3_tests;

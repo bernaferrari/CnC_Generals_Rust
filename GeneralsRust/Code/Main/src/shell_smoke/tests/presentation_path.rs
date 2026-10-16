@@ -441,18 +441,15 @@ fn presentation_cinematic_text_residual() {
 fn presentation_camera_follow_residual() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
-    // GameLogic facade split: the follow-target peek lives in the EvaCamera
-    // world-script module; the engine marker reworded (camera_drain.rs Wave 216).
-    let gl = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/game_logic/world_scripts/eva_camera.rs"
-    ));
+    // Input reads the canonical live lock; admitted View movement consumes
+    // exact frozen identity and facts from this receiving frame.
     assert!(
-        gl.contains("fn peek_camera_follow_target_position")
-            && pf.contains("camera_follow_position")
-            && pf.contains("peek_camera_follow_target_position")
-            && eng.contains("pres.camera_follow_position"),
-        "camera follow must prefer presentation freeze over live dual-read"
+        eng.contains("self.game_logic.camera_follow_object_id().is_some()")
+            && pf.contains("camera_follow_facts")
+            && pf.contains("super::follow_facts::freeze(logic)")
+            && !eng.contains("pub(crate) host_match_camera_follow_active:")
+            && !eng.contains("if self.host_match_camera_follow_id"),
+        "input lock ownership and frozen View facts must have distinct phases"
     );
     let view = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -467,32 +464,23 @@ fn presentation_camera_follow_residual() {
         .0;
     assert!(
         follow.contains("last_presentation_frame")
-            && follow.contains("frame.camera_follow_position")
-            && follow.contains("frame.camera_tether_play")
+            && follow.contains("frame.camera_follow_object_id")
+            && follow.contains("frame.camera_follow_facts")
             && follow.contains("apply_camera_follow_or_tether")
     );
-    // The receiving camera saves its own previous logical target for the
-    // filter's scroll delta. This is bookkeeping, not a live follow lookup.
-    let compact: String = follow.split_whitespace().collect();
-    let save_previous_target = "self.game_logic.session_view.camera.native_filter_previous_target=self.game_logic.session_view.target;";
-    assert_eq!(
-        compact.matches(save_previous_target).count(),
-        1,
-        "follow must save only the receiving camera's previous target"
-    );
-    // Camera fields now live under the session; accessing this exact owner is
-    // independent of looking up live objects for the follow position.
-    let follow_without_bookkeeping = compact
-        .replacen(save_previous_target, "", 1)
-        .replace("self.game_logic.session_view.camera.", "camera.");
+    let owner = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/presentation_frame/session_view/follow.rs"
+    ));
     assert!(
-        follow.contains(".map(|frame| (frame.camera_follow_position, frame.camera_tether_play))")
-            && follow
-                .contains("self.apply_camera_follow_or_tether(Vec3::from_array(position), tether)")
-            && !follow_without_bookkeeping.contains("self.game_logic")
-            && !follow_without_bookkeeping.contains("OBJECT_REGISTRY")
-            && !follow_without_bookkeeping.contains("peek_camera_follow_target_position"),
-        "follow/tether position must come from the frozen frame without live object resolution"
+        owner.contains("native_filter_previous_target = current")
+            || owner.contains("native_filter_previous_target=current")
+    );
+    assert!(
+        follow.contains("apply_camera_follow_or_tether")
+            && !follow.contains("OBJECT_REGISTRY")
+            && !follow.contains("peek_camera_follow_target_position"),
+        "follow position and airborne identity must come from the frozen receiving frame"
     );
 }
 

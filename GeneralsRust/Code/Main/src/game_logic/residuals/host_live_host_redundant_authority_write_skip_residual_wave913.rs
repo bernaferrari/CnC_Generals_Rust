@@ -89,13 +89,14 @@ pub fn honesty_host_redundant_authority_write_skip_residual_pack_wave913() -> bo
     let pause = non_comment_code(pause_raw);
     let sel_raw = code_window(cnc, "fn host_set_selection", 900);
     let sel = non_comment_code(sel_raw);
-    let ok = cam_raw.contains("913")
-        && cam.contains("host_match_camera_follow_id")
+    // Equal-ID follow writes are semantically observable: they reset tether.
+    let ok = cam.contains("SessionControlOp::SetCameraFollow { id }")
+        && !cam.contains("if self.host_match_camera_follow_id")
         && pause_raw.contains("913")
         && pause.contains("game_paused != paused")
         && sel_raw.contains("913")
         && sel.contains("already")
-        && cnc.contains("host_match_camera_follow_id:")
+        && !cnc.contains("pub(crate) host_match_camera_follow_id:")
         && !cnc.contains("playable_claim = true");
     residual_action_store(ResidualHostRedundantAuthorityWriteSkipAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);

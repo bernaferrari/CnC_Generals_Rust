@@ -23,6 +23,12 @@ struct CompletedCameraState {
     filter: Option<(glam::Vec2, Vec3)>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct FollowCameraState {
+    base: CompletedCameraState,
+    follow_snap_immediate: bool,
+}
+
 pub(super) fn encode_native_camera(
     engine: &CnCGameEngine,
     state: &CameraState,
@@ -44,10 +50,15 @@ pub(super) fn encode_native_camera(
             None
         }
     };
-    encode_completed_camera(
+    encode_follow_camera(
         state,
         engine.game_logic.session_view.camera.view_matrix,
         filter,
+        engine
+            .game_logic
+            .session_view
+            .camera
+            .camera_follow_snap_immediate,
     )
 }
 
@@ -89,7 +100,26 @@ fn encode_completed_camera(
     })?)
 }
 
-// Retained only to exercise the original version1 wire; live capture is V2.
+fn encode_follow_camera(
+    state: &CameraState,
+    completed_view: glam::Mat4,
+    filter: Option<(glam::Vec2, Vec3)>,
+    follow_snap_immediate: bool,
+) -> Result<Vec<u8>, String> {
+    state.validate_with_completed_view(Some(completed_view))?;
+    validate_filter(filter)?;
+    tagged(codec().serialize(&FollowCameraState {
+        base: CompletedCameraState {
+            version: 3,
+            camera: codec().serialize(state)?,
+            completed_view,
+            filter,
+        },
+        follow_snap_immediate,
+    })?)
+}
+
+// Retained only to exercise the original version1 wire; live capture is V3.
 #[cfg(all(test, feature = "game_client"))]
 fn encode_filter_camera(
     camera: Vec<u8>,
@@ -123,6 +153,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                     NativeCameraExtras {
                         filter,
                         completed_view: None,
+                        follow_snap_immediate: false,
                     },
                 )
             }
@@ -134,6 +165,19 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                     NativeCameraExtras {
                         filter: saved.filter,
                         completed_view: Some(saved.completed_view),
+                        follow_snap_immediate: false,
+                    },
+                )
+            }
+            3 => {
+                let saved: FollowCameraState = codec().deserialize(payload)?;
+                validate_filter(saved.base.filter)?;
+                (
+                    saved.base.camera,
+                    NativeCameraExtras {
+                        filter: saved.base.filter,
+                        completed_view: Some(saved.base.completed_view),
+                        follow_snap_immediate: saved.follow_snap_immediate,
                     },
                 )
             }
@@ -252,3 +296,7 @@ mod tests {
 #[cfg(test)]
 #[path = "completed_matrix_tests.rs"]
 mod completed_matrix_tests;
+
+#[cfg(test)]
+#[path = "follow_snap_v3_tests.rs"]
+mod follow_snap_v3_tests;

@@ -93,6 +93,28 @@ fn receiving_player_cancel_scopes_preserve_peer_and_foreign_core() {
             assert_eq!(setting.session_view.camera.camera_pitch_duration, 4.);
             assert_eq!(setting.session_view.camera.camera_zoom_duration, 3.);
             assert!(setting.session_view.scripted.script_camera_freeze_time);
+            // setAngle preserves stored freeze even though cancellation makes
+            // the current movement complete. It must govern later motion after load.
+            assert!(!setting.is_script_camera_time_frozen());
+            let saved = setting.capture_camera_continuation().unwrap();
+            let mut restored = GameLogic::new();
+            restored
+                .admit_camera_continuation(GameLogic::decode_camera_continuation(&saved).unwrap());
+            assert_eq!(restored.capture_camera_continuation().unwrap(), saved);
+            assert!(restored.session_view.scripted.script_camera_freeze_time);
+            restored.session_view.camera.install_zoom(1.5, 3., 0., 0.);
+            assert!(restored.is_script_camera_time_frozen());
+            restored.advance_camera_view(
+                crate::cnc_game_engine::camera_motion::MotionAdmission {
+                    update_views: true,
+                    fast_camera_only: false,
+                    paused: false,
+                    debug_frozen: false,
+                    disable_camera_movement: false,
+                },
+                33,
+            );
+            assert!(restored.is_script_camera_time_frozen());
             let mut follow = owner();
             follow.set_camera_tether_object(ObjectId(42), false, 14.);
             follow.set_camera_follow_object(None);

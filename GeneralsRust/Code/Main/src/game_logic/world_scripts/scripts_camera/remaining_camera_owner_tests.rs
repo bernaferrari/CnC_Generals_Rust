@@ -624,21 +624,81 @@ fn standalone_motion_blur_jump_error_keeps_same_handler_move_fallback() {
     );
 }
 
-fn assert_remaining_effect(world: &GameLogic, kind: ScriptActionType, id: ObjectId) {
+fn assert_remaining_effect(world: &mut GameLogic, kind: ScriptActionType, id: ObjectId) {
     use ScriptActionType::*;
     let camera_point = Vec3::new(310.0, 10.0, 330.0);
     let look_point = Vec3::new(410.0, 10.0, 430.0);
     match kind {
         CameraFollowNamed => {
             assert_eq!(world.session_view.scripted.camera_follow_target, Some(id));
-            assert_eq!(
-                world.peek_pending_camera_focus(),
-                Some(world.objects.get(&id).unwrap().get_position())
+            assert!(
+                world.peek_pending_camera_focus().is_none(),
+                "follow sets lock, not LookAt"
             );
+            assert!(world.session_view.camera.camera_follow_snap_immediate);
+            assert_eq!(
+                world.session_view.target,
+                Vec3::ZERO,
+                "snap awaits admitted View"
+            );
+            let position = world.objects.get(&id).unwrap().get_position();
+            let facts = crate::presentation_frame::follow::FollowTargetFacts {
+                id,
+                position,
+                airborne_orientation: None,
+            };
+            world
+                .session_view
+                .admit_camera_follow(Some(id), Some(facts), 10., false)
+                .unwrap();
+            assert_eq!(
+                world.session_view.target,
+                Vec3::new(position.x, 0., position.z)
+            );
+            assert_eq!(
+                world
+                    .session_view
+                    .camera
+                    .native_camera
+                    .basis()
+                    .ground_level(),
+                position.y
+            );
+            assert!(!world.session_view.camera.camera_follow_snap_immediate);
         }
         CameraTetherNamed => {
             assert_eq!(world.session_view.scripted.camera_follow_target, Some(id));
             assert_eq!(world.session_view.scripted.camera_tether_play, Some(1.75));
+            assert!(
+                world.peek_pending_camera_focus().is_none(),
+                "tether sets lock, not LookAt"
+            );
+            assert!(world.session_view.camera.camera_follow_snap_immediate);
+            assert_eq!(
+                world.session_view.target,
+                Vec3::ZERO,
+                "snap awaits admitted View"
+            );
+            let position = world.objects.get(&id).unwrap().get_position();
+            let yaw = world.session_view.camera.camera_yaw_radians;
+            let facts = crate::presentation_frame::follow::FollowTargetFacts {
+                id,
+                position,
+                airborne_orientation: Some(2.),
+            };
+            world
+                .session_view
+                .admit_camera_follow(Some(id), Some(facts), 10., false)
+                .unwrap();
+            assert_eq!(
+                world.session_view.target,
+                Vec3::new(position.x, 0., position.z)
+            );
+            assert_eq!(
+                world.session_view.camera.camera_yaw_radians, yaw,
+                "tether never uses airborne follow yaw"
+            );
+            assert!(!world.session_view.camera.camera_follow_snap_immediate);
         }
         CameraStopFollow | CameraStopTetherNamed => {
             assert_eq!(world.session_view.scripted.camera_follow_target, None);

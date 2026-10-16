@@ -15,7 +15,6 @@ fn construction_and_peer_operations_preserve_the_first_look_at_owner() {
     let mut first = LookAtHostModes::default();
     first.views[3] = Some(bookmark());
     first.note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::LookAt);
-    first.camera_follow_lock_broken = true;
     first.prev_cursor = Some("Move");
     first.mouse_locked = true;
     first.letterbox_os_cursor_hidden = true;
@@ -24,7 +23,7 @@ fn construction_and_peer_operations_preserve_the_first_look_at_owner() {
     let mut peer = LookAtHostModes::default();
     assert!(peer.views.iter().all(Option::is_none));
     assert!(!peer.look_at_host_mouse_locked());
-    assert!(!peer.camera_follow_lock_broken);
+    assert!(!peer.capture_continuation().camera_follow_lock_broken);
     peer.views[3] = Some(CameraViewLocation {
         zoom: 1.25,
         ..bookmark()
@@ -36,7 +35,7 @@ fn construction_and_peer_operations_preserve_the_first_look_at_owner() {
     assert_eq!(first.last_mouse_move_frame, 40);
     assert!(first.wheel_stopped_scroll);
     assert!(first.look_at_host_mouse_locked());
-    assert!(first.camera_follow_lock_broken && first.letterbox_os_cursor_hidden);
+    assert!(first.letterbox_os_cursor_hidden);
     assert_eq!(first.prev_cursor, Some("Move"));
     assert!(matches!(
         first.take_scripted_camera_player_cancel(),
@@ -92,7 +91,6 @@ fn reset_modes_clears_only_original_transient_modes() {
     owner.lookat_stamp_mouse_activity(90);
     owner.last_mouse_pixel = (8., 7.);
     owner.wheel_stopped_scroll = true;
-    owner.camera_follow_lock_broken = true;
     owner.prev_cursor = Some("Attack");
     owner.mouse_locked = true;
     owner.letterbox_os_cursor_hidden = true;
@@ -105,7 +103,7 @@ fn reset_modes_clears_only_original_transient_modes() {
         (owner.last_mouse_move_frame, owner.last_mouse_pixel),
         (90, (8., 7.))
     );
-    assert!(owner.wheel_stopped_scroll && owner.camera_follow_lock_broken);
+    assert!(owner.wheel_stopped_scroll);
     assert_eq!(owner.prev_cursor, Some("Attack"));
     assert!(owner.mouse_locked && owner.letterbox_os_cursor_hidden);
     assert!(matches!(

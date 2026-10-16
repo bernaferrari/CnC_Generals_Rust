@@ -970,7 +970,7 @@ fn update_camera_does_not_gate_arrows_on_modifiers() {
     let view = include_str!("../camera_view_effects.rs");
     let display = include_str!("../native_display.rs");
     assert!(
-        view.contains("self.apply_airborne_follow_yaw()")
+        view.contains("self.apply_camera_follow_or_tether(id, facts, record_previous)")
             && display.contains("self.advance_native_camera_view(decision, camera_scroll)")
             && display.contains("let slave_pose = self.apply_host_slave_camera()"),
         "airborne follow and slave pose must remain connected to the native view"

@@ -355,9 +355,6 @@ impl CnCGameEngine {
         self.host_match_diplomacy_players = None;
         self.host_match_known_template_names = None;
         self.host_match_unlocked_sciences = None;
-        self.host_match_camera_follow_active = None;
-        self.host_match_camera_follow_position = None;
-        self.host_match_camera_follow_id = None;
         self.game_logic.session_view.camera.camera_follow_factor = -1.0;
         self.host_match_local_barracks_ids = None;
         self.host_match_local_producer_ids = None;
@@ -820,39 +817,17 @@ impl CnCGameEngine {
         &mut self,
         id: Option<crate::game_logic::ObjectId>,
     ) {
-        // Wave 583/847/891/903/904/913/933: camera follow via session-control authority.
-        // (no get_object dual-read). Skip authority write when residual already matches.
-        let stamped_pos = id.and_then(|oid| {
-            self.last_presentation_frame.as_ref().and_then(|pres| {
-                pres.objects
-                    .iter()
-                    .find(|o| o.id == oid)
-                    .map(|o| [o.position.x, o.position.y, o.position.z])
-            })
-        });
-        if self.host_match_camera_follow_id != Some(id) {
-            self.host_game_logic_mut().apply_session_control_op(
-                crate::game_logic::SessionControlOp::SetCameraFollow { id },
-            );
-        }
-        self.host_match_camera_follow_id = Some(id);
-        self.host_match_camera_follow_active = Some(id.is_some());
-        self.host_match_camera_follow_position = stamped_pos;
+        // View::setCameraLock is an operation, even when the ID is equal:
+        // authored tether may have changed the canonical lock style meanwhile.
+        self.host_game_logic_mut()
+            .apply_session_control_op(crate::game_logic::SessionControlOp::SetCameraFollow { id });
     }
 
-    /// Wave 583: presentation freeze owns follow-active residual when installed.
-    /// Boot residual without freeze uses host camera_follow_object_id probe.
+    /// Input must observe the receiving live lock, including an action since
+    /// the last frozen frame. A presentation position is not lock ownership.
     #[inline]
     pub(super) fn presentation_or_boot_camera_follow_active(&self) -> bool {
-        // Wave 583/847: presentation freeze owns follow-active residual when installed.
-        if let Some(pres) = self.last_presentation_frame.as_ref() {
-            return pres.camera_follow_position.is_some();
-        }
-        if let Some(v) = self.host_match_camera_follow_active {
-            return v;
-        }
-        // Wave 895: fail-closed boot default (no dual-read).
-        false
+        self.game_logic.camera_follow_object_id().is_some()
     }
 
     /// Wave 583: boot residual EVA counter bundle (no presentation freeze).
