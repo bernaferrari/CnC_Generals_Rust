@@ -82,10 +82,11 @@ impl GameLogic {
             // not a new lookAt. No-op during rotate; no-op if no path/move.
             if self.pending_camera_rotate.is_none() {
                 if let Some(center) = self.selected_objects_center_for_local_player() {
-                    if let Some(path) = self.script_camera_path.as_mut() {
+                    if let Some(path) = self.session_view.scripted.script_camera_path.as_mut() {
                         path.camera_mod_final_move_to(center);
                     }
-                    if let Some(move_to) = self.script_camera_move_to.as_mut() {
+                    if let Some(move_to) = self.session_view.scripted.script_camera_move_to.as_mut()
+                    {
                         move_to.camera_mod_final_move_to(center);
                     }
                     #[cfg(feature = "game_client")]
@@ -104,20 +105,20 @@ impl GameLogic {
 
         if !camera_focus.move_home.is_empty() {
             if let Some(home) = self.local_player_camera_home_position() {
-                self.camera_follow_target = None;
+                self.session_view.scripted.camera_follow_target = None;
                 self.request_camera_focus(home);
             }
         }
 
         if let Some(last) = camera_focus.follows.into_iter().last() {
             if last.object_id == 0 {
-                self.camera_follow_target = None;
-                self.camera_tether_play = None;
+                self.session_view.scripted.camera_follow_target = None;
+                self.session_view.scripted.camera_tether_play = None;
             } else {
-                self.script_camera_move_to = None;
-                self.script_camera_path = None;
-                self.camera_tether_play = None;
-                self.camera_follow_target = Some(ObjectId(last.object_id));
+                self.session_view.scripted.script_camera_move_to = None;
+                self.session_view.scripted.script_camera_path = None;
+                self.session_view.scripted.camera_tether_play = None;
+                self.session_view.scripted.camera_follow_target = Some(ObjectId(last.object_id));
                 if last.snap_to_unit {
                     if let Some(obj) = self.objects.get(&ObjectId(last.object_id)) {
                         self.request_camera_focus(obj.get_position());
@@ -127,8 +128,8 @@ impl GameLogic {
         }
 
         if let Some(last) = camera_focus.tethers.into_iter().last() {
-            self.script_camera_move_to = None;
-            self.script_camera_path = None;
+            self.session_view.scripted.script_camera_move_to = None;
+            self.session_view.scripted.script_camera_path = None;
             self.set_camera_tether_object(ObjectId(last.object_id), last.snap_to_unit, last.play);
         }
 
@@ -247,12 +248,12 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            self.camera_follow_target = None;
+            self.session_view.scripted.camera_follow_target = None;
             // C++ setupWaypointPath ends with m_doingRotateCamera = false.
             // Leftover reset_camera replaces camera_rotate so a prior ROTATE
             // cannot keep peeking into presentation after the reset.
             self.pending_camera_rotate = None;
-            self.script_camera_rotate_remaining = 0.0;
+            self.session_view.scripted.script_camera_rotate_remaining = 0.0;
             self.pending_camera_zoom_reset = true;
             self.pending_camera_zoom_reset_duration = last.duration_seconds.max(0.0);
             self.pending_camera_zoom_reset_ease_in = last.ease_in_seconds.max(0.0);
@@ -265,7 +266,7 @@ impl GameLogic {
                 ease_out_seconds: last.ease_out_seconds.max(0.0),
             };
             self.start_camera_move_to(request);
-            if let Some(move_to) = self.script_camera_move_to.as_mut() {
+            if let Some(move_to) = self.session_view.scripted.script_camera_move_to.as_mut() {
                 move_to.set_suppress_travel_look(true);
             }
         }
@@ -369,15 +370,15 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            self.camera_follow_target = None;
+            self.session_view.scripted.camera_follow_target = None;
             // C++ moveCameraTo → setupWaypointPath rebuilds m_mcwpInfo and
             // sets m_doingRotateCamera = false. Leftover setup_camera →
             // look_at cancels camera_move / camera_path / camera_rotate.
-            self.script_camera_move_to = None;
-            self.script_camera_path = None;
-            self.script_look_toward_object_id = None;
-            self.script_look_toward_hold_seconds = 0.0;
-            self.script_camera_rotate_remaining = 0.0;
+            self.session_view.scripted.script_camera_move_to = None;
+            self.session_view.scripted.script_camera_path = None;
+            self.session_view.scripted.script_look_toward_object_id = None;
+            self.session_view.scripted.script_look_toward_hold_seconds = 0.0;
+            self.session_view.scripted.script_camera_rotate_remaining = 0.0;
             self.request_camera_focus(last.position);
             let max_zoom = (320.0 + 300.0) / 320.0;
             self.pending_camera_zoom = Some(CameraZoomRequest {
@@ -409,8 +410,8 @@ impl GameLogic {
             .last()
         {
             // C++ rotateCameraTowardPosition: m_doingMoveCameraOnWaypointPath = false.
-            self.script_camera_move_to = None;
-            self.script_camera_path = None;
+            self.session_view.scripted.script_camera_move_to = None;
+            self.session_view.scripted.script_camera_path = None;
             self.pending_camera_rotate = None;
             self.begin_script_camera_rotate(last.duration_seconds);
             self.pending_camera_look_toward = Some(last);
@@ -427,8 +428,8 @@ impl GameLogic {
                 .map(|obj| obj.get_position())
             {
                 // C++ rotateCameraTowardObject: m_doingMoveCameraOnWaypointPath = false.
-                self.script_camera_move_to = None;
-                self.script_camera_path = None;
+                self.session_view.scripted.script_camera_move_to = None;
+                self.session_view.scripted.script_camera_path = None;
                 self.pending_camera_rotate = None;
                 self.begin_script_camera_rotate(last.duration_seconds + last.hold_seconds.max(0.0));
                 self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
@@ -438,8 +439,9 @@ impl GameLogic {
                     ease_out_seconds: last.ease_out_seconds,
                     reverse_rotation: false,
                 });
-                self.script_look_toward_object_id = Some(last.object_id);
-                self.script_look_toward_hold_seconds = last.hold_seconds.max(0.0);
+                self.session_view.scripted.script_look_toward_object_id = Some(last.object_id);
+                self.session_view.scripted.script_look_toward_hold_seconds =
+                    last.hold_seconds.max(0.0);
             } else {
                 log::warn!(
                     "Camera look toward object request ignored; object {} not found",
@@ -668,12 +670,12 @@ impl GameLogic {
         for request in camera_view.motion_blur {
             #[cfg(feature = "game_client")]
             if let Some(position) = self.session_view.apply_motion_blur(&request) {
-                self.camera_follow_target = None;
+                self.session_view.scripted.camera_follow_target = None;
                 self.request_camera_focus(position);
             }
             #[cfg(not(feature = "game_client"))]
             if let CameraMotionBlurRequest::Jump { position, .. } = &request {
-                self.camera_follow_target = None;
+                self.session_view.scripted.camera_follow_target = None;
                 self.request_camera_focus(*position);
             }
             self.pending_camera_motion_blur.push(request);

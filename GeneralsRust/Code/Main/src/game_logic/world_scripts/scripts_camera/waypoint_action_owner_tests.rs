@@ -60,7 +60,7 @@ fn prepare_modifier(
         ScriptActionType::CameraModLookToward | ScriptActionType::CameraModFinalLookToward
     ) {
         execute(world, foreign, vec![action_move_for_modifier()]);
-        assert!(world.script_camera_move_to.is_some());
+        assert!(world.session_view.scripted.script_camera_move_to.is_some());
         assert!(world.pending_camera_look_toward.is_none());
     }
 }
@@ -69,7 +69,12 @@ fn assert_effect(world: &GameLogic, kind: ScriptActionType, x: f32, ground: f32)
     let look = Vec3::new(x + 40., ground, x + 60.);
     match kind {
         ScriptActionType::MoveCameraTo => {
-            let movement = world.script_camera_move_to.as_ref().unwrap();
+            let movement = world
+                .session_view
+                .scripted
+                .script_camera_move_to
+                .as_ref()
+                .unwrap();
             assert_eq!(
                 (movement.target, movement.total_time_seconds),
                 (camera, 1.75)
@@ -80,7 +85,12 @@ fn assert_effect(world: &GameLogic, kind: ScriptActionType, x: f32, ground: f32)
             );
         }
         ScriptActionType::ResetCamera => {
-            let movement = world.script_camera_move_to.as_ref().unwrap();
+            let movement = world
+                .session_view
+                .scripted
+                .script_camera_move_to
+                .as_ref()
+                .unwrap();
             assert_eq!(
                 (movement.target, movement.total_time_seconds),
                 (camera, 2.5)
@@ -94,7 +104,7 @@ fn assert_effect(world: &GameLogic, kind: ScriptActionType, x: f32, ground: f32)
                 ),
                 (2.5, 0.25, 0.75)
             );
-            assert_eq!(world.camera_follow_target, None);
+            assert_eq!(world.session_view.scripted.camera_follow_target, None);
         }
         ScriptActionType::SetupCamera => {
             assert_eq!(world.peek_pending_camera_focus(), Some(camera));
@@ -124,7 +134,7 @@ fn assert_effect(world: &GameLogic, kind: ScriptActionType, x: f32, ground: f32)
                 look
             );
             assert!(
-                world.script_camera_move_to.is_some(),
+                world.session_view.scripted.script_camera_move_to.is_some(),
                 "modifier keeps its receiving path"
             );
         }
@@ -151,7 +161,12 @@ fn assert_missing_effect(world: &GameLogic, kind: ScriptActionType) {
         // evaluate_and_execute_scripts advances the existing MoveTo at dt=0
         // before the missing modifier is dispatched. Its ordinary travel look
         // is legitimate; missing lookup must leave that path unchanged.
-        let movement = world.script_camera_move_to.as_ref().unwrap();
+        let movement = world
+            .session_view
+            .scripted
+            .script_camera_move_to
+            .as_ref()
+            .unwrap();
         let travel_target = Vec3::new(800., 0., 600.);
         assert_eq!(movement.target, travel_target);
         assert_eq!(movement.total_time_seconds, 3.);
@@ -174,7 +189,7 @@ fn assert_missing_effect(world: &GameLogic, kind: ScriptActionType) {
         kind,
         ScriptActionType::ResetCamera | ScriptActionType::MoveCameraTo
     ) {
-        assert!(world.script_camera_move_to.is_none());
+        assert!(world.session_view.scripted.script_camera_move_to.is_none());
         assert!(!world.pending_camera_zoom_reset);
     }
     if kind == ScriptActionType::SetupCamera {

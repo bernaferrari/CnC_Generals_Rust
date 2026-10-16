@@ -197,7 +197,7 @@ pub const ENGINE_SRC: &str = concat!(
     include_str!("audio.rs"),
     include_str!("boot.rs"),
     include_str!("camera_drain.rs"),
-    include_str!("camera_motion.rs"),
+    include_str!("../presentation_frame/session_view/camera/motion.rs"),
     include_str!("camera_view_effects.rs"),
     include_str!("native_display.rs"),
     include_str!("dispatch.rs"),

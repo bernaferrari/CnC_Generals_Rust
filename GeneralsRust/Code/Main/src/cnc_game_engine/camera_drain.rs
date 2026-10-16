@@ -198,7 +198,10 @@ impl CnCGameEngine {
             if !player_cancel.cancels_move() {
                 #[cfg(feature = "game_client")]
                 if let Some(previous) = pres.camera_focus_previous_target {
-                    self.native_filter_previous_target = Vec3::from_array(previous);
+                    self.game_logic
+                        .session_view
+                        .camera
+                        .native_filter_previous_target = Vec3::from_array(previous);
                 }
                 self.center_camera_on(Vec3::new(focus[0], focus[1], focus[2]));
             }
@@ -219,12 +222,13 @@ impl CnCGameEngine {
                     self.game_logic.session_view.target,
                     self.ui_script_default_camera_max_height(),
                 );
-                self.camera_zoom_start = self.camera_zoom;
-                self.camera_zoom_target = Some(zoom);
-                self.camera_zoom_duration = duration;
-                self.camera_zoom_frame = 0;
-                self.camera_zoom_ease_in = ease_in;
-                self.camera_zoom_ease_out = ease_out;
+                self.game_logic.session_view.camera.camera_zoom_start =
+                    self.game_logic.session_view.camera.camera_zoom;
+                self.game_logic.session_view.camera.camera_zoom_target = Some(zoom);
+                self.game_logic.session_view.camera.camera_zoom_duration = duration;
+                self.game_logic.session_view.camera.camera_zoom_frame = 0;
+                self.game_logic.session_view.camera.camera_zoom_ease_in = ease_in;
+                self.game_logic.session_view.camera.camera_zoom_ease_out = ease_out;
 
                 self.apply_script_camera_pitch_request(CameraPitchRequest {
                     // C++ pitchCamera(1.0, milliseconds, easeIn, easeOut)
@@ -237,12 +241,13 @@ impl CnCGameEngine {
             // C++ m_mcwpInfo.cameraAngle[2] = 0.0 — animate heading to default.
             if !player_cancel.cancels_rotate() {
                 let target_yaw = 0.0;
-                self.camera_yaw_start = self.camera_yaw_radians;
-                self.camera_yaw_target = Some(target_yaw);
-                self.camera_yaw_duration = duration;
-                self.camera_yaw_frame = 0;
-                self.camera_yaw_ease_in = ease_in;
-                self.camera_yaw_ease_out = ease_out;
+                self.game_logic.session_view.camera.camera_yaw_start =
+                    self.game_logic.session_view.camera.camera_yaw_radians;
+                self.game_logic.session_view.camera.camera_yaw_target = Some(target_yaw);
+                self.game_logic.session_view.camera.camera_yaw_duration = duration;
+                self.game_logic.session_view.camera.camera_yaw_frame = 0;
+                self.game_logic.session_view.camera.camera_yaw_ease_in = ease_in;
+                self.game_logic.session_view.camera.camera_yaw_ease_out = ease_out;
             }
         }
 
@@ -251,12 +256,13 @@ impl CnCGameEngine {
         {
             if !player_cancel.cancels_set() {
                 let (ease_in, ease_out) = pres.camera_zoom_ease;
-                self.camera_zoom_start = self.camera_zoom;
-                self.camera_zoom_target = Some(zoom);
-                self.camera_zoom_duration = duration_seconds;
-                self.camera_zoom_frame = 0;
-                self.camera_zoom_ease_in = ease_in;
-                self.camera_zoom_ease_out = ease_out;
+                self.game_logic.session_view.camera.camera_zoom_start =
+                    self.game_logic.session_view.camera.camera_zoom;
+                self.game_logic.session_view.camera.camera_zoom_target = Some(zoom);
+                self.game_logic.session_view.camera.camera_zoom_duration = duration_seconds;
+                self.game_logic.session_view.camera.camera_zoom_frame = 0;
+                self.game_logic.session_view.camera.camera_zoom_ease_in = ease_in;
+                self.game_logic.session_view.camera.camera_zoom_ease_out = ease_out;
             }
         }
 
@@ -306,14 +312,14 @@ impl CnCGameEngine {
         if admitted.slave_enable
             && let Some((thing_template_name, bone_name)) = pres.camera_slave_enable.clone()
         {
-            self.camera_slave_mode = Some(CameraSlaveModeRequest {
+            self.game_logic.session_view.camera.camera_slave_mode = Some(CameraSlaveModeRequest {
                 thing_template_name,
                 bone_name,
             });
         }
 
         if admitted.slave_disable {
-            self.camera_slave_mode = None;
+            self.game_logic.session_view.camera.camera_slave_mode = None;
         }
 
         for intensity in pres.screen_shakes.iter().take(admitted.screen_shakes) {
@@ -333,10 +339,11 @@ impl CnCGameEngine {
     }
 
     pub(super) fn apply_camera_follow_or_tether(&mut self, target: Vec3, tether_play: Option<f32>) {
-        if self.camera_follow_factor < 0.0 {
-            self.camera_follow_factor = 0.05;
+        if self.game_logic.session_view.camera.camera_follow_factor < 0.0 {
+            self.game_logic.session_view.camera.camera_follow_factor = 0.05;
         } else {
-            self.camera_follow_factor = (self.camera_follow_factor + 0.05).min(1.0);
+            self.game_logic.session_view.camera.camera_follow_factor =
+                (self.game_logic.session_view.camera.camera_follow_factor + 0.05).min(1.0);
         }
 
         let current = self.game_logic.session_view.target;
@@ -360,9 +367,9 @@ impl CnCGameEngine {
             }
         } else {
             Vec3::new(
-                current.x + dx * self.camera_follow_factor,
+                current.x + dx * self.game_logic.session_view.camera.camera_follow_factor,
                 target.y,
-                current.z + dz * self.camera_follow_factor,
+                current.z + dz * self.game_logic.session_view.camera.camera_follow_factor,
             )
         };
         self.center_camera_on(next);
@@ -2535,7 +2542,10 @@ impl CnCGameEngine {
             if was_letterbox != pres.cinematic_letterbox {
                 // Display::enableLetterBox changes View's zoom limit only on
                 // the transition; a manual toggle survives ordinary frames.
-                self.native_camera
+                self.game_logic
+                    .session_view
+                    .camera
+                    .native_camera
                     .set_zoom_limited(!pres.cinematic_letterbox);
             }
             // C++ ScriptActions::doLetterBoxMode HideControlBar(TRUE)/ShowControlBar(FALSE).

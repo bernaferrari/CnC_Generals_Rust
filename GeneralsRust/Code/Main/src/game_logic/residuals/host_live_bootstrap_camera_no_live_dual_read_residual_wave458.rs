@@ -179,10 +179,20 @@ pub fn simulate_bootstrap_camera_no_live_dual_read_source() -> bool {
 pub fn simulate_bootstrap_camera_no_live_dual_read_callsites() -> bool {
     let src = cnc_source();
     // Wave 473: presentation freeze at callsites, no live_logic arg.
+    // Native pose/HAG now belongs to the receiving SessionView. Ignore only
+    // formatting whitespace when identifying that exact owner and call shape.
+    let compact: String = src
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect();
     let ok = src.matches("startup_camera_presentation").count() >= 2
         && !src.contains("startup_camera_live_logic")
         && src.contains("Self::bootstrap_native_camera_for_loaded_map(")
-        && src.matches("self.native_camera,").count() >= 3
+        && compact
+            .matches("self.game_logic.session_view.camera.native_camera,")
+            .count()
+            >= 3
+        && !compact.contains("Self::bootstrap_native_camera_for_loaded_map(&self.game_logic,")
         && (src.contains("Wave 458: prefer pipeline presentation freeze")
             || src.contains("startup_camera_presentation"))
         && !src.contains(

@@ -1,8 +1,10 @@
-//! Native continuation of the existing logic camera owner, not a second camera.
+//! Scripted continuation projected from the session view owner.
 //! W3DView's movement records/timers are retained verbatim; original View v1 stays unchanged.
-use super::script_camera::{ParabolicEase, ScriptCameraMoveTo, ScriptCameraPathMove};
 use super::*;
 use crate::game_logic::mission_scripts::*;
+use crate::presentation_frame::scripted::path::{
+    ParabolicEase, ScriptCameraMoveTo, ScriptCameraPathMove,
+};
 use crate::save_load::camera_codec::CameraCodec;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -71,23 +73,69 @@ impl GameLogic {
     pub(crate) fn capture_camera_continuation(&self) -> Result<Vec<u8>, String> {
         let state = LogicCameraContinuation {
             pending_camera_focus: self.pending_camera_focus.clone(),
-            script_camera_focus_estimate: self.script_camera_focus_estimate.clone(),
-            script_camera_move_to: self.script_camera_move_to.clone(),
-            script_camera_path: self.script_camera_path.clone(),
-            camera_follow_target: self.camera_follow_target.clone(),
-            camera_tether_play: self.camera_tether_play.clone(),
-            script_look_toward_object_id: self.script_look_toward_object_id.clone(),
-            script_look_toward_hold_seconds: self.script_look_toward_hold_seconds.clone(),
-            script_default_camera_pitch: self.script_default_camera_pitch.clone(),
-            script_default_camera_angle: self.script_default_camera_angle.clone(),
-            script_default_camera_max_height: self.script_default_camera_max_height.clone(),
-            script_camera_freeze_time_armed: self.script_camera_freeze_time_armed.clone(),
-            script_camera_freeze_time: self.script_camera_freeze_time.clone(),
-            script_camera_rotate_remaining: self.script_camera_rotate_remaining.clone(),
-            script_camera_zoom_remaining: self.script_camera_zoom_remaining.clone(),
-            script_camera_pitch_remaining: self.script_camera_pitch_remaining.clone(),
-            script_camera_freeze_angle_armed: self.script_camera_freeze_angle_armed.clone(),
+            script_camera_focus_estimate: self
+                .session_view
+                .scripted
+                .script_camera_focus_estimate
+                .clone(),
+            script_camera_move_to: self.session_view.scripted.script_camera_move_to.clone(),
+            script_camera_path: self.session_view.scripted.script_camera_path.clone(),
+            camera_follow_target: self.session_view.scripted.camera_follow_target.clone(),
+            camera_tether_play: self.session_view.scripted.camera_tether_play.clone(),
+            script_look_toward_object_id: self
+                .session_view
+                .scripted
+                .script_look_toward_object_id
+                .clone(),
+            script_look_toward_hold_seconds: self
+                .session_view
+                .scripted
+                .script_look_toward_hold_seconds
+                .clone(),
+            script_default_camera_pitch: self
+                .session_view
+                .scripted
+                .script_default_camera_pitch
+                .clone(),
+            script_default_camera_angle: self
+                .session_view
+                .scripted
+                .script_default_camera_angle
+                .clone(),
+            script_default_camera_max_height: self
+                .session_view
+                .scripted
+                .script_default_camera_max_height
+                .clone(),
+            script_camera_freeze_time_armed: self
+                .session_view
+                .scripted
+                .script_camera_freeze_time_armed
+                .clone(),
+            script_camera_freeze_time: self.session_view.scripted.script_camera_freeze_time.clone(),
+            script_camera_rotate_remaining: self
+                .session_view
+                .scripted
+                .script_camera_rotate_remaining
+                .clone(),
+            script_camera_zoom_remaining: self
+                .session_view
+                .scripted
+                .script_camera_zoom_remaining
+                .clone(),
+            script_camera_pitch_remaining: self
+                .session_view
+                .scripted
+                .script_camera_pitch_remaining
+                .clone(),
+            script_camera_freeze_angle_armed: self
+                .session_view
+                .scripted
+                .script_camera_freeze_angle_armed
+                .clone(),
             script_camera_pending_final_speed_multiplier: self
+                .session_view
+                .scripted
                 .script_camera_pending_final_speed_multiplier
                 .clone(),
             visual_speed_multiplier: self.visual_speed_multiplier.clone(),
@@ -139,23 +187,34 @@ impl GameLogic {
         self.session_view.pending_focus_previous_target =
             state.owned_extras.pending_focus_previous_target;
         self.pending_camera_focus = state.pending_camera_focus;
-        self.script_camera_focus_estimate = state.script_camera_focus_estimate;
-        self.script_camera_move_to = state.script_camera_move_to;
-        self.script_camera_path = state.script_camera_path;
-        self.camera_follow_target = state.camera_follow_target;
-        self.camera_tether_play = state.camera_tether_play;
-        self.script_look_toward_object_id = state.script_look_toward_object_id;
-        self.script_look_toward_hold_seconds = state.script_look_toward_hold_seconds;
-        self.script_default_camera_pitch = state.script_default_camera_pitch;
-        self.script_default_camera_angle = state.script_default_camera_angle;
-        self.script_default_camera_max_height = state.script_default_camera_max_height;
-        self.script_camera_freeze_time_armed = state.script_camera_freeze_time_armed;
-        self.script_camera_freeze_time = state.script_camera_freeze_time;
-        self.script_camera_rotate_remaining = state.script_camera_rotate_remaining;
-        self.script_camera_zoom_remaining = state.script_camera_zoom_remaining;
-        self.script_camera_pitch_remaining = state.script_camera_pitch_remaining;
-        self.script_camera_freeze_angle_armed = state.script_camera_freeze_angle_armed;
-        self.script_camera_pending_final_speed_multiplier =
+        self.session_view.scripted.script_camera_focus_estimate =
+            state.script_camera_focus_estimate;
+        self.session_view.scripted.script_camera_move_to = state.script_camera_move_to;
+        self.session_view.scripted.script_camera_path = state.script_camera_path;
+        self.session_view.scripted.camera_follow_target = state.camera_follow_target;
+        self.session_view.scripted.camera_tether_play = state.camera_tether_play;
+        self.session_view.scripted.script_look_toward_object_id =
+            state.script_look_toward_object_id;
+        self.session_view.scripted.script_look_toward_hold_seconds =
+            state.script_look_toward_hold_seconds;
+        self.session_view.scripted.script_default_camera_pitch = state.script_default_camera_pitch;
+        self.session_view.scripted.script_default_camera_angle = state.script_default_camera_angle;
+        self.session_view.scripted.script_default_camera_max_height =
+            state.script_default_camera_max_height;
+        self.session_view.scripted.script_camera_freeze_time_armed =
+            state.script_camera_freeze_time_armed;
+        self.session_view.scripted.script_camera_freeze_time = state.script_camera_freeze_time;
+        self.session_view.scripted.script_camera_rotate_remaining =
+            state.script_camera_rotate_remaining;
+        self.session_view.scripted.script_camera_zoom_remaining =
+            state.script_camera_zoom_remaining;
+        self.session_view.scripted.script_camera_pitch_remaining =
+            state.script_camera_pitch_remaining;
+        self.session_view.scripted.script_camera_freeze_angle_armed =
+            state.script_camera_freeze_angle_armed;
+        self.session_view
+            .scripted
+            .script_camera_pending_final_speed_multiplier =
             state.script_camera_pending_final_speed_multiplier;
         self.visual_speed_multiplier = state.visual_speed_multiplier;
         self.script_time_frozen_by_script = state.script_time_frozen_by_script;

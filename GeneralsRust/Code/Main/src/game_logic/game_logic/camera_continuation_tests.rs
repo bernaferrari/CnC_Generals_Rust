@@ -13,9 +13,9 @@ fn moving_world() -> GameLogic {
     movement.set_freeze_time(true);
     movement.set_look_toward(Vec3::new(13.0, 14.0, 15.0));
     movement.set_final_speed_multiplier(0.75);
-    world.script_camera_move_to = Some(movement);
-    world.script_camera_zoom_remaining = 2.0;
-    world.camera_tether_play = Some(12.0);
+    world.session_view.scripted.script_camera_move_to = Some(movement);
+    world.session_view.scripted.script_camera_zoom_remaining = 2.0;
+    world.session_view.scripted.camera_tether_play = Some(12.0);
     world.native_view_guardband = [3.0, 4.0];
     world
 }
@@ -25,6 +25,8 @@ fn logic_camera_continuation_retains_future_move_and_shutter_steps() {
     let mut uninterrupted = moving_world();
     for _ in 0..7 {
         uninterrupted
+            .session_view
+            .scripted
             .script_camera_move_to
             .as_mut()
             .unwrap()
@@ -35,11 +37,15 @@ fn logic_camera_continuation_retains_future_move_and_shutter_steps() {
     restored.admit_camera_continuation(GameLogic::decode_camera_continuation(&bytes).unwrap());
     for _ in 0..50 {
         let expected = uninterrupted
+            .session_view
+            .scripted
             .script_camera_move_to
             .as_mut()
             .unwrap()
             .advance(1.0 / 30.0);
         let actual = restored
+            .session_view
+            .scripted
             .script_camera_move_to
             .as_mut()
             .unwrap()
@@ -125,7 +131,7 @@ fn logic_camera_continuation_retains_path_segments_rolling_and_pending_admission
     path.rolling_average_frames = 7;
     path.smoothed_focus = Some(Vec3::new(1.0, 0.0, 0.25));
     path.freeze_angle = true;
-    world.script_camera_path = Some(path);
+    world.session_view.scripted.script_camera_path = Some(path);
     world.pending_camera_pitch = Some(CameraPitchRequest {
         pitch: 0.75,
         duration_seconds: 3.0,
@@ -139,11 +145,15 @@ fn logic_camera_continuation_retains_path_segments_rolling_and_pending_admission
     for _ in 0..3 {
         assert_eq!(
             restored
+                .session_view
+                .scripted
                 .script_camera_path
                 .as_mut()
                 .unwrap()
                 .advance(1.0 / 30.0),
             world
+                .session_view
+                .scripted
                 .script_camera_path
                 .as_mut()
                 .unwrap()
@@ -163,3 +173,6 @@ fn logic_camera_continuation_retains_path_segments_rolling_and_pending_admission
         .clear();
     assert!(GameLogic::decode_camera_continuation(&codec().serialize(&broken).unwrap()).is_err());
 }
+
+#[path = "session_view_ownership_tests.rs"]
+mod session_view_ownership_tests;

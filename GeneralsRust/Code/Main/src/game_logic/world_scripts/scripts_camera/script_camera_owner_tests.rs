@@ -145,13 +145,15 @@ fn actual_main_camera_move_keeps_engine_axes_and_zero_duration_without_a_handler
                     .unwrap();
                 let _ = walk(&mut world, engine);
                 if seconds <= 0.0 {
-                    assert!(world.script_camera_move_to.is_none());
+                    assert!(world.session_view.scripted.script_camera_move_to.is_none());
                     assert_eq!(
                         world.peek_pending_camera_focus(),
                         Some(Vec3::new(120.0, 35.0, 240.0))
                     );
                 } else {
                     let request = world
+                        .session_view
+                        .scripted
                         .script_camera_move_to
                         .as_ref()
                         .expect("owned timed move");

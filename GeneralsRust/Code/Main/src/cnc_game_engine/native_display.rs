@@ -324,8 +324,8 @@ impl CnCGameEngine {
                 let extent = terrain.get_extent();
                 let (width, height) = self.tactical_viewport_size();
                 vec![view::native_view_from_camera(
-                    self.view_matrix,
-                    self.projection_matrix,
+                    self.game_logic.session_view.camera.view_matrix,
+                    self.game_logic.session_view.camera.projection_matrix,
                     width,
                     height,
                     self.native_display.guardband,
@@ -366,7 +366,12 @@ impl CnCGameEngine {
     /// Shared final camera commitment. Rendering consumes these exact matrices.
     fn finalize_native_view_camera(&mut self) {
         self.host_ensure_presentation_frame_for_render();
-        if self.camera_slave_mode.is_none()
+        if self
+            .game_logic
+            .session_view
+            .camera
+            .camera_slave_mode
+            .is_none()
             && matches!(self.current_state, GameState::InGame | GameState::Paused)
         {
             let target = self.game_logic.session_view.target;
@@ -378,6 +383,9 @@ impl CnCGameEngine {
         // retained slave resolver has its own tracked identity/bone gap.
         let slave_pose = self.apply_host_slave_camera();
         let positional_slave = self
+            .game_logic
+            .session_view
+            .camera
             .camera_slave_mode
             .as_ref()
             .is_some_and(|mode| mode.bone_name.is_empty());

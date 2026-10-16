@@ -212,11 +212,13 @@ impl CnCGameEngine {
             );
             // C++ look_to = Rotate_Z(angle) * (0,1,0) = (-sin(a), cos(a)).
             // Match heading of camera → look-at on the ground plane.
-            let look_x = self.game_logic.session_view.target.x - self.camera_position.x;
-            let look_y = self.game_logic.session_view.target.z - self.camera_position.z;
+            let look_x = self.game_logic.session_view.target.x
+                - self.game_logic.session_view.camera.camera_position.x;
+            let look_y = self.game_logic.session_view.target.z
+                - self.game_logic.session_view.camera.camera_position.z;
             let angle = f32::atan2(-look_x, look_y);
-            let zoom = if self.camera_zoom.is_finite() {
-                self.camera_zoom.max(0.05)
+            let zoom = if self.game_logic.session_view.camera.camera_zoom.is_finite() {
+                self.game_logic.session_view.camera.camera_zoom.max(0.05)
             } else {
                 1.0
             };
@@ -227,7 +229,12 @@ impl CnCGameEngine {
                 // level stays with view init / map install). Pitch is
                 // forwarded so HUD projections match the pitched render
                 // camera instead of a flat view.
-                view.sync_pose_from_host(&target, angle, self.camera_pitch_radians, zoom);
+                view.sync_pose_from_host(
+                    &target,
+                    angle,
+                    self.game_logic.session_view.camera.camera_pitch_radians,
+                    zoom,
+                );
             });
         }
     }

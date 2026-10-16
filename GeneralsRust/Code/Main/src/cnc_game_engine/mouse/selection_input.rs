@@ -43,7 +43,7 @@ impl CnCGameEngine {
     pub(in crate::cnc_game_engine) fn note_rmb_deselect_anchor(&mut self) {
         self.rmb_deselect_down_at = Some(Instant::now());
         self.rmb_deselect_down_screen = Some(self.mouse_position);
-        self.rmb_deselect_down_camera = Some(self.camera_position);
+        self.rmb_deselect_down_camera = Some(self.game_logic.session_view.camera.camera_position);
     }
 
     /// C++ `SelectionXlat.cpp:982-1000`: pixel + time + camera 3D gates.
@@ -59,7 +59,7 @@ impl CnCGameEngine {
             .unwrap_or(u128::MAX);
         let camera_delta = self
             .rmb_deselect_down_camera
-            .map(|down| (self.camera_position - down).length())
+            .map(|down| (self.game_logic.session_view.camera.camera_position - down).length())
             .unwrap_or(f32::MAX);
         host_rmb_release_is_click(dx, dy, elapsed_ms, camera_delta)
     }
@@ -99,8 +99,8 @@ impl CnCGameEngine {
             .or(self.last_presentation_frame.as_deref())
             .map(|frame| &frame.world_env);
         unproject_mouse_ray(
-            self.view_matrix,
-            self.projection_matrix,
+            self.game_logic.session_view.camera.view_matrix,
+            self.game_logic.session_view.camera.projection_matrix,
             screen,
             view_w,
             view_h,
@@ -589,8 +589,8 @@ impl CnCGameEngine {
                 frame.similar_unit_ids_across_screen(
                     *seed,
                     player_team,
-                    self.view_matrix,
-                    self.projection_matrix,
+                    self.game_logic.session_view.camera.view_matrix,
+                    self.game_logic.session_view.camera.projection_matrix,
                     viewport,
                 ),
             );
@@ -638,8 +638,8 @@ impl CnCGameEngine {
             clicked_object_id,
             player_team,
             across_map,
-            self.view_matrix,
-            self.projection_matrix,
+            self.game_logic.session_view.camera.view_matrix,
+            self.game_logic.session_view.camera.projection_matrix,
             glam::Vec2::new(vw, vh),
         );
         let template_label = frame
@@ -854,8 +854,8 @@ impl CnCGameEngine {
                     .map(|start_screen| {
                         frame
                             .garrisonable_building_ids_in_screen_rect(
-                                self.view_matrix,
-                                self.projection_matrix,
+                                self.game_logic.session_view.camera.view_matrix,
+                                self.game_logic.session_view.camera.projection_matrix,
                                 start_screen,
                                 selection_end_screen,
                                 viewport,
@@ -867,8 +867,8 @@ impl CnCGameEngine {
                 start_screen.and_then(|start_screen| {
                     frame
                         .garrisonable_building_ids_in_screen_rect(
-                            self.view_matrix,
-                            self.projection_matrix,
+                            self.game_logic.session_view.camera.view_matrix,
+                            self.game_logic.session_view.camera.projection_matrix,
                             start_screen,
                             selection_end_screen,
                             viewport,
@@ -883,8 +883,8 @@ impl CnCGameEngine {
                 .map(|start_screen| {
                     frame.box_select_unit_ids_in_screen_rect(
                         player_team,
-                        self.view_matrix,
-                        self.projection_matrix,
+                        self.game_logic.session_view.camera.view_matrix,
+                        self.game_logic.session_view.camera.projection_matrix,
                         start_screen,
                         selection_end_screen,
                         viewport,

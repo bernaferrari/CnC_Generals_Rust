@@ -42,10 +42,13 @@ fn receiving_camera_completion_and_look_at_match_original_cpp_component() {
         assert_eq!(row.len(), 8);
         let [mask, filter, mode, before, after, rotate, pitch, zoom]: [usize; 8] =
             row.try_into().unwrap();
-        world.script_camera_rotate_remaining = if mask & 1 != 0 { 1. } else { 0. };
-        world.script_camera_pitch_remaining = if mask & 2 != 0 { 1. } else { 0. };
-        world.script_camera_zoom_remaining = if mask & 4 != 0 { 1. } else { 0. };
-        world.script_camera_freeze_time = true;
+        world.session_view.scripted.script_camera_rotate_remaining =
+            if mask & 1 != 0 { 1. } else { 0. };
+        world.session_view.scripted.script_camera_pitch_remaining =
+            if mask & 2 != 0 { 1. } else { 0. };
+        world.session_view.scripted.script_camera_zoom_remaining =
+            if mask & 4 != 0 { 1. } else { 0. };
+        world.session_view.scripted.script_camera_freeze_time = true;
         world.session_view.filter.set_filter(filters[filter]);
         world.session_view.filter.set_mode(modes[mode]);
         assert_eq!(
@@ -66,21 +69,21 @@ fn receiving_camera_completion_and_look_at_match_original_cpp_component() {
             "freeze after {line}"
         );
         assert!(
-            world.script_camera_freeze_time,
+            world.session_view.scripted.script_camera_freeze_time,
             "LookAt does not disarm freeze {line}"
         );
         assert_eq!(
-            world.script_camera_rotate_remaining > 0.,
+            world.session_view.scripted.script_camera_rotate_remaining > 0.,
             rotate != 0,
             "rotate {line}"
         );
         assert_eq!(
-            world.script_camera_pitch_remaining > 0.,
+            world.session_view.scripted.script_camera_pitch_remaining > 0.,
             pitch != 0,
             "pitch {line}"
         );
         assert_eq!(
-            world.script_camera_zoom_remaining > 0.,
+            world.session_view.scripted.script_camera_zoom_remaining > 0.,
             zoom != 0,
             "zoom {line}"
         );

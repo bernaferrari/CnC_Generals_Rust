@@ -324,7 +324,7 @@ impl CnCGameEngine {
         self.host_match_camera_follow_active = None;
         self.host_match_camera_follow_position = None;
         self.host_match_camera_follow_id = None;
-        self.camera_follow_factor = -1.0;
+        self.game_logic.session_view.camera.camera_follow_factor = -1.0;
         self.host_match_local_barracks_ids = None;
         self.host_match_local_producer_ids = None;
         self.host_match_local_unfinished_producer_ids = None;
@@ -1121,11 +1121,13 @@ impl CnCGameEngine {
         // The receiving application keeps its persistent view until map admission
         // resets it. A detached candidate never publishes or replaces this state.
         let candidate_focus_previous = logic.session_view.pending_focus_previous_target;
+        let candidate_scripted = std::mem::take(&mut logic.session_view.scripted);
         // Map actions already applied to the candidate's receiving filter.
         #[cfg(feature = "game_client")]
         let candidate_filter = std::mem::take(&mut logic.session_view.filter);
         logic.session_view = std::mem::take(&mut self.game_logic.session_view);
         logic.session_view.pending_focus_previous_target = candidate_focus_previous;
+        logic.session_view.scripted = candidate_scripted;
         #[cfg(feature = "game_client")]
         {
             logic.session_view.filter = candidate_filter;
@@ -1207,11 +1209,13 @@ impl CnCGameEngine {
 
         let native_commit = runtime_world.install_globals();
         let candidate_focus_previous = logic.session_view.pending_focus_previous_target;
+        let candidate_scripted = std::mem::take(&mut logic.session_view.scripted);
         // Map actions already applied to the candidate's receiving filter.
         #[cfg(feature = "game_client")]
         let candidate_filter = std::mem::take(&mut logic.session_view.filter);
         logic.session_view = std::mem::take(&mut self.game_logic.session_view);
         logic.session_view.pending_focus_previous_target = candidate_focus_previous;
+        logic.session_view.scripted = candidate_scripted;
         #[cfg(feature = "game_client")]
         {
             logic.session_view.filter = candidate_filter;
@@ -1282,48 +1286,64 @@ impl CnCGameEngine {
         if !has_camera_continuation {
             (
                 self.game_logic.session_view.target,
-                self.camera_position,
-                self.camera_zoom,
-                self.native_camera,
+                self.game_logic.session_view.camera.camera_position,
+                self.game_logic.session_view.camera.camera_zoom,
+                self.game_logic.session_view.camera.native_camera,
             ) = Self::bootstrap_native_camera_for_loaded_map(
                 self.game_logic.isInShellGame(),
                 self.current_player_id,
                 Self::configured_startup_camera_defaults(),
                 self.last_presentation_frame.as_deref(),
             );
-            self.camera_pitch_radians = 0.0;
-            self.camera_yaw_radians = 0.0;
+            self.game_logic.session_view.camera.camera_pitch_radians = 0.0;
+            self.game_logic.session_view.camera.camera_yaw_radians = 0.0;
             super::camera_motion::cancel_scalar_requests([
-                &mut self.camera_zoom_target,
-                &mut self.camera_pitch_target,
-                &mut self.camera_yaw_target,
+                &mut self.game_logic.session_view.camera.camera_zoom_target,
+                &mut self.game_logic.session_view.camera.camera_pitch_target,
+                &mut self.game_logic.session_view.camera.camera_yaw_target,
             ]);
             if let Some(camera) = client_persist.camera() {
-                self.camera_position = glam::Vec3::from_array(camera.position);
+                self.game_logic.session_view.camera.camera_position =
+                    glam::Vec3::from_array(camera.position);
                 self.game_logic.session_view.target = glam::Vec3::from_array(camera.target);
-                self.camera_zoom = camera.zoom;
-                self.camera_yaw_radians = camera.angle;
+                self.game_logic.session_view.camera.camera_zoom = camera.zoom;
+                self.game_logic.session_view.camera.camera_yaw_radians = camera.angle;
                 self.sync_orbit_from_camera_transform();
                 if let Some(terrain) =
                     self.native_camera_terrain_height_around(self.game_logic.session_view.target)
                 {
-                    self.native_camera
-                        .admit_restored_pose_height(self.camera_zoom, terrain);
+                    self.game_logic
+                        .session_view
+                        .camera
+                        .native_camera
+                        .admit_restored_pose_height(
+                            self.game_logic.session_view.camera.camera_zoom,
+                            terrain,
+                        );
                 }
             } else if let Some(camera) = client_persist.tactical_view_camera {
                 self.game_logic.session_view.target =
                     glam::Vec3::new(camera.position[0], camera.position[2], camera.position[1]);
-                self.camera_yaw_radians = camera.angle;
+                self.game_logic.session_view.camera.camera_yaw_radians = camera.angle;
                 self.apply_camera_orbit_transform();
             }
-            let (_, render_look) = self.native_camera.basis().pose(
-                self.game_logic.session_view.target,
-                self.camera_zoom,
-                self.camera_pitch_radians,
-                self.camera_yaw_radians,
+            let (_, render_look) = self
+                .game_logic
+                .session_view
+                .camera
+                .native_camera
+                .basis()
+                .pose(
+                    self.game_logic.session_view.target,
+                    self.game_logic.session_view.camera.camera_zoom,
+                    self.game_logic.session_view.camera.camera_pitch_radians,
+                    self.game_logic.session_view.camera.camera_yaw_radians,
+                );
+            self.game_logic.session_view.camera.view_matrix = glam::Mat4::look_at_rh(
+                self.game_logic.session_view.camera.camera_position,
+                render_look,
+                glam::Vec3::Y,
             );
-            self.view_matrix =
-                glam::Mat4::look_at_rh(self.camera_position, render_look, glam::Vec3::Y);
         }
         // Keep the client companion staged until the first complete frozen
         // frame after the successful world replacement. Actual collection
@@ -1373,10 +1393,15 @@ impl CnCGameEngine {
         // is renderer-local and immutable here; an empty/unresolved cache is
         // intentionally a valid fail-closed companion.
         let camera = crate::save_load::snapshot::CameraPersist {
-            angle: self.camera_yaw_radians,
-            position: self.camera_position.to_array(),
+            angle: self.game_logic.session_view.camera.camera_yaw_radians,
+            position: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_position
+                .to_array(),
             target: self.game_logic.session_view.target.to_array(),
-            zoom: self.camera_zoom,
+            zoom: self.game_logic.session_view.camera.camera_zoom,
         };
         let client_save = crate::save_load::snapshot::ClientSaveState {
             camera: Some(camera),

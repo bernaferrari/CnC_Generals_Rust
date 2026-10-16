@@ -211,6 +211,245 @@ class ValidateRustSplitTests(unittest.TestCase):
         )
         self.assertIn("test attributes decreased: 1 -> 0", report["problems"])
 
+    def same_package_move(self, root: Path, source: Path) -> Path:
+        (root / source).write_text("// Moved to the session owner.\n")
+        target = source.parent / "owned.rs"
+        (root / target).write_text("pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        return target
+
+    def test_same_package_library_move_counts_only_selected_subtree(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        target = self.same_package_move(root, source)
+        (root / source.parent / "lib.rs").write_text("mod large;\nmod owned;\nmod unrelated;\n")
+        unrelated = source.parent / "unrelated.rs"
+        (root / unrelated).write_text(
+            "pub fn Unrelated() {}\n#[test]\nfn other() {}\n"
+            + "// unrelated large module\n" * validate_rust_split.HARD_LIMIT
+        )
+        report = validate_rust_split.validate(
+            root, root / "GeneralsRust", source, "HEAD", [target]
+        )
+        self.assertTrue(report["passed"], report["problems"])
+        self.assertEqual({"before": 1, "after": 1}, report["tests"])
+        self.assertEqual([target.as_posix()], report["extracted_sources"])
+        self.assertNotIn(unrelated.as_posix(), {item["path"] for item in report["fragments"]})
+
+    def test_same_package_custom_library_root_resolves_modules_beside_root(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        target = self.same_package_move(root, source)
+        manifest = root / "GeneralsRust/Code/Main/Cargo.toml"
+        manifest.write_text(manifest.read_text() + '\n[lib]\npath="src/session.rs"\n')
+        (root / source.parent / "session.rs").write_text("mod large;\nmod owned;\n")
+        report = validate_rust_split.validate(
+            root, root / "GeneralsRust", source, "HEAD", [target]
+        )
+        self.assertTrue(report["passed"], report["problems"])
+
+    def test_same_package_explicit_binary_root_is_admitted_with_autobins_disabled(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        target = self.same_package_move(root, source)
+        (root / "GeneralsRust/Code/Main/Cargo.toml").write_text(
+            '[package]\nname="fixture"\nversion="0.1.0"\nautobins=false\n'
+            '[[bin]]\nname="game"\npath="src/session.rs"\n'
+        )
+        (root / source.parent / "session.rs").write_text("mod large;\nmod owned;\nfn main() {}\n")
+        report = validate_rust_split.validate(
+            root, root / "GeneralsRust", source, "HEAD", [target]
+        )
+        self.assertTrue(report["passed"], report["problems"])
+
+    def test_same_package_auto_binary_root_is_admitted(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        target = self.same_package_move(root, source)
+        bin_dir = root / source.parent / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "game.rs").write_text('#[path="../owned.rs"]\nmod owned;\nfn main() {}\n')
+        report = validate_rust_split.validate(
+            root, root / "GeneralsRust", source, "HEAD", [target]
+        )
+        self.assertTrue(report["passed"], report["problems"])
+
+    def test_same_package_unreachable_file_still_cannot_supply_tests(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        target = self.same_package_move(root, source)
+        (root / source.parent / "lib.rs").write_text("mod large;\n")
+        report = validate_rust_split.validate(
+            root, root / "GeneralsRust", source, "HEAD", [target]
+        )
+        self.assertFalse(report["passed"])
+        self.assertEqual([], report["extracted_sources"])
+        self.assertIn("test attributes decreased: 1 -> 0", report["problems"])
+        self.assertIn("not reachable", "\n".join(report["problems"]))
+
+    def test_disabled_or_overridden_auto_roots_cannot_admit_other_files(self) -> None:
+        for manifest, root_file in (
+            ('[package]\nname="fixture"\nversion="0.1.0"\nautobins=false\n', "main.rs"),
+            ('[package]\nname="fixture"\nversion="0.1.0"\nautolib=false\n', "lib.rs"),
+            ('[package]\nname="fixture"\nversion="0.1.0"\n[lib]\npath="src/real.rs"\n', "lib.rs"),
+        ):
+            with self.subTest(root_file=root_file, manifest=manifest):
+                root = self.make_repo()
+                source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+                target = self.same_package_move(root, source)
+                (root / "GeneralsRust/Code/Main/Cargo.toml").write_text(manifest)
+                (root / source.parent / root_file).write_text("mod owned;\n")
+                report = validate_rust_split.validate(
+                    root, root / "GeneralsRust", source, "HEAD", [target]
+                )
+                self.assertFalse(report["passed"])
+                self.assertEqual([], report["extracted_sources"])
+
+    def test_same_package_sibling_tests_cannot_replace_selected_tests(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        target = self.same_package_move(root, source)
+        (root / target).write_text("pub struct Stable;\n")
+        (root / source.parent / "lib.rs").write_text("mod large;\nmod owned;\nmod other;\n")
+        (root / source.parent / "other.rs").write_text("#[test]\nfn unrelated() {}\n")
+        report = validate_rust_split.validate(
+            root, root / "GeneralsRust", source, "HEAD", [target]
+        )
+        self.assertFalse(report["passed"])
+        self.assertIn("test attributes decreased: 1 -> 0", report["problems"])
+
+    def test_same_package_move_still_rejects_public_growth(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        target = self.same_package_move(root, source)
+        (root / target).write_text((root / target).read_text() + "pub fn Leak() {}\n")
+        (root / source.parent / "lib.rs").write_text("mod owned;\n")
+        report = validate_rust_split.validate(
+            root, root / "GeneralsRust", source, "HEAD", [target]
+        )
+        self.assertFalse(report["passed"])
+        self.assertIn("new public API names: Leak", report["problems"])
+
+    def test_explicit_binary_name_overrides_auto_discovered_root(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        target = self.same_package_move(root, source)
+        (root / "GeneralsRust/Code/Main/Cargo.toml").write_text(
+            '[package]\nname="fixture"\nversion="0.1.0"\n'
+            '[[bin]]\nname="game"\npath="src/real.rs"\n'
+        )
+        (root / source.parent / "real.rs").write_text("fn main() {}\n")
+        bin_dir = root / source.parent / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "game.rs").write_text('#[path="../owned.rs"]\nmod owned;\n')
+        report = validate_rust_split.validate(
+            root, root / "GeneralsRust", source, "HEAD", [target]
+        )
+        self.assertFalse(report["passed"])
+        self.assertEqual([], report["extracted_sources"])
+
+    def test_dependency_custom_library_root_keeps_declared_module_reachability(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        dependency = self.make_extracted_dependency(root, "#[test]\nfn behavior() {}\n")
+        manifest = dependency / "Cargo.toml"
+        manifest.write_text(manifest.read_text() + '\n[lib]\npath="src/shared.rs"\n')
+        (dependency / "src/lib.rs").rename(dependency / "src/shared.rs")
+        (root / source).write_text("pub use extracted::Stable;\n")
+        target = Path("GeneralsRust/Code/GameEngine/Extracted/src/shared.rs")
+        report = validate_rust_split.validate(
+            root, root / "GeneralsRust", source, "HEAD", [target]
+        )
+        self.assertTrue(report["passed"], report["problems"])
+        self.assertEqual({"before": 1, "after": 1}, report["tests"])
+
+    def qualified_method_fixture(self, declarations: str) -> tuple[Path, Path, Path]:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        target = self.same_package_move(root, source)
+        (root / target).write_text((root / target).read_text() + declarations)
+        (root / source.parent / "lib.rs").write_text("mod owned;\n")
+        return root, source, target
+
+    def test_exact_qualified_methods_account_for_both_existing_type_names(self) -> None:
+        root, source, target = self.qualified_method_fixture(
+            "struct First;\nimpl First {\n pub(crate) fn advance(&mut self) {}\n}\n"
+            "struct Second;\nimpl Second {\n pub(crate) fn advance(&mut self) {}\n}\n"
+        )
+        report = validate_rust_split.validate(
+            root, root / "GeneralsRust", source, "HEAD", [target],
+            [(target, "First::advance"), (target, "Second::advance")],
+        )
+        self.assertTrue(report["passed"], report["problems"])
+        self.assertEqual(["advance"], report["public_api"]["added"])
+        self.assertEqual(2, len(report["public_api"]["expected_crate_api"]["accepted"]))
+
+    def test_qualified_method_cannot_cover_unrequested_same_named_method(self) -> None:
+        root, source, target = self.qualified_method_fixture(
+            "struct First;\nimpl First {\n pub(crate) fn advance(&mut self) {}\n}\n"
+            "struct Second;\nimpl Second {\n pub(crate) fn advance(&mut self) {}\n}\n"
+        )
+        for requests in [[(target, "First::advance")], [(target, "advance")]]:
+            with self.subTest(requests=requests):
+                report = validate_rust_split.validate(
+                    root, root / "GeneralsRust", source, "HEAD", [target], requests,
+                )
+                self.assertFalse(report["passed"])
+                self.assertIn("new public API names: advance", report["problems"])
+                self.assertEqual([], report["public_api"]["expected_crate_api"]["accepted"])
+
+    def test_qualified_method_requires_exact_owner_visibility_and_unique_occurrence(self) -> None:
+        for declarations, request in [
+            ("struct First;\nimpl First {\n pub fn advance() {}\n}\n", "First::advance"),
+            ("struct First;\nimpl First {\n pub(crate) fn advance() {}\n}\n", "Other::advance"),
+            ("pub(crate) fn advance() {}\n", "First::advance"),
+            ("struct First;\nimpl First {\n pub(crate) fn advance() {}\n}\n"
+             "impl First {\n pub(crate) fn advance() {}\n}\n", "First::advance"),
+        ]:
+            with self.subTest(declarations=declarations):
+                root, source, target = self.qualified_method_fixture(declarations)
+                report = validate_rust_split.validate(
+                    root, root / "GeneralsRust", source, "HEAD", [target], [(target, request)],
+                )
+                self.assertFalse(report["passed"])
+                self.assertIn("new public API names: advance", report["problems"])
+                self.assertIn("one unique pub(crate) inherent method", "\n".join(report["problems"]))
+
+    def test_qualified_method_does_not_cover_reexport_or_nested_function(self) -> None:
+        for tail in [
+            "pub(crate) use other::advance;\n",
+            "impl First {\n fn wrapper() {\n pub(crate) fn advance() {}\n }\n}\n",
+        ]:
+            with self.subTest(tail=tail):
+                root, source, target = self.qualified_method_fixture(
+                    "struct First;\nimpl First {\n pub(crate) fn advance() {}\n}\n" + tail
+                )
+                report = validate_rust_split.validate(
+                    root, root / "GeneralsRust", source, "HEAD", [target], [(target, "First::advance")],
+                )
+                self.assertFalse(report["passed"])
+                self.assertIn("new public API names: advance", report["problems"])
+                self.assertIn("every occurrence exactly once", "\n".join(report["problems"]))
+
+    def test_qualified_owner_ignores_comments_literals_and_nested_braces(self) -> None:
+        code = '''struct First;
+// impl Other {
+impl First {
+ const TEXT: &str = r#"impl Other { {"#;
+ fn previous() { let brace = '}'; let quote = "}"; }
+ /* nested /* impl Other { */ comment */
+ pub(crate) fn advance() {}
+}
+'''
+        root, source, target = self.qualified_method_fixture(code)
+        report = validate_rust_split.validate(
+            root, root / "GeneralsRust", source, "HEAD", [target], [(target, "First::advance")],
+        )
+        self.assertTrue(report["passed"], report["problems"])
+        occurrences = validate_rust_split.public_occurrences(
+            'const TEXT: &str = r#"\nimpl Forged {\n pub(crate) fn advance() {}\n}\n"#;\n'
+        )
+        self.assertEqual([], occurrences)
+
     def test_expected_crate_api_accepts_exact_internal_declaration(self) -> None:
         self.assertEqual(
             (Path("GeneralsRust/Code/Main/src/large/driver.rs"), "Driver"),

@@ -89,8 +89,8 @@ impl CnCGameEngine {
                 .or(self.last_presentation_frame.as_deref())
                 .map(|frame| &frame.world_env);
             unproject_mouse_ray(
-                self.view_matrix,
-                self.projection_matrix,
+                self.game_logic.session_view.camera.view_matrix,
+                self.game_logic.session_view.camera.projection_matrix,
                 self.mouse_position,
                 view_w,
                 view_h,

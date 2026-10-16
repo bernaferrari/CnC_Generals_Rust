@@ -1,5 +1,8 @@
 //! Logical view state owned by the session, independent of a window or GPU.
 //! The native camera writes this target directly; FX observes the same value.
+pub(crate) mod camera;
+pub(crate) mod scripted;
+
 use game_engine::common::global_data::GlobalData;
 use game_engine::common::ini::ini_fx_list::CameraShakeType;
 use game_engine::common::view_impulse::ViewImpulse;
@@ -7,6 +10,8 @@ use glam::Vec3;
 
 #[derive(Debug, Default)]
 pub(crate) struct SessionView {
+    pub(crate) camera: camera::SessionCamera,
+    pub(crate) scripted: scripted::ScriptCameraState,
     pub(crate) target: Vec3,
     pub(crate) pending_focus_previous_target: Option<Vec3>,
     pub(crate) impulse: SessionViewImpulse,

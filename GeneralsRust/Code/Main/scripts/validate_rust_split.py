@@ -93,16 +93,90 @@ def public_names(text: str) -> set[str]:
     return names
 
 
+def rust_code_mask(text: str) -> str:
+    """Keep offsets/braces while hiding comments and literal contents."""
+    masked = list(text)
+    index = 0
+    raw_start = re.compile(r'(?:b|c)?r(#{0,255})"')
+    char_literal = re.compile(r"'(?:\\(?:u\{[0-9a-fA-F_]+\}|x[0-9a-fA-F]{2}|.)|[^'\\])'")
+    while index < len(text):
+        end = index
+        if text.startswith("//", index):
+            end = text.find("\n", index)
+            if end < 0:
+                end = len(text)
+        elif text.startswith("/*", index):
+            end, depth = index + 2, 1
+            while end < len(text) and depth:
+                if text.startswith("/*", end):
+                    depth += 1
+                    end += 2
+                elif text.startswith("*/", end):
+                    depth -= 1
+                    end += 2
+                else:
+                    end += 1
+        else:
+            raw = raw_start.match(text, index)
+            if raw:
+                delimiter = '"' + raw.group(1)
+                finish = text.find(delimiter, raw.end())
+                end = len(text) if finish < 0 else finish + len(delimiter)
+            elif text[index] == '"':
+                end = index + 1
+                while end < len(text):
+                    if text[end] == "\\":
+                        end += 2
+                    elif text[end] == '"':
+                        end += 1
+                        break
+                    else:
+                        end += 1
+            else:
+                char = char_literal.match(text, index)
+                if char:
+                    end = char.end()
+        if end > index:
+            masked[index:end] = ["\n" if char == "\n" else " " for char in text[index:end]]
+            index = end
+        else:
+            index += 1
+    return "".join(masked)
+
+
+def inherent_method_owner(code: str, position: int) -> str:
+    """Resolve only a direct method of a named, nongeneric inherent impl."""
+    for match in re.finditer(r"\bimpl\s+([A-Za-z_][A-Za-z0-9_:]*)\s*\{", code):
+        opening = match.end() - 1
+        if opening >= position:
+            break
+        depth = 1
+        for index in range(opening + 1, position):
+            if code[index] == "{":
+                depth += 1
+            elif code[index] == "}":
+                depth -= 1
+            if depth == 0:
+                break
+        if depth == 1:
+            return match.group(1)
+    return ""
+
+
 def public_occurrences(text: str) -> list[dict[str, str]]:
     """Return public declaration and re-export name occurrences with visibility."""
+    code = rust_code_mask(text)
     occurrences = [
         {
             "name": match.group("name"),
             "visibility": match.group("restricted") or "public",
             "kind": match.group("kind"),
             "form": "declaration",
+            "owner": inherent_method_owner(code, match.start())
+            if match.group("kind") == "fn" else "",
         }
         for match in PUBLIC_DECL_OCCURRENCE_RE.finditer(text)
+        if code[match.start() + len(match.group(0)) - len(match.group(0).lstrip()):].startswith("pub")
     ]
     for match in PUBLIC_USE_OCCURRENCE_RE.finditer(text):
         visibility = match.group("restricted") or "public"
@@ -127,11 +201,17 @@ def expected_crate_api_report(
     added_public: list[str],
     requested: list[tuple[Path, str]],
 ) -> tuple[list[dict[str, object]], list[str], set[str]]:
-    """Validate narrowly allowed pub(crate) additions in explicitly named fragments."""
+    """Allow exact crate declarations, or exhaustively named inherent methods."""
     reports: list[dict[str, object]] = []
     problems: list[str] = []
     accepted: set[str] = set()
     requested_keys: set[tuple[Path, str]] = set()
+    occurrences = [
+        (path, item)
+        for path in sorted(api_paths)
+        for item in public_occurrences(path.read_text(encoding="utf-8"))
+    ]
+    resolved_requests: dict[str, list[tuple[int, int]]] = {}
     for raw_path, name in requested:
         path = raw_path
         report: dict[str, object] = {"path": path.as_posix(), "name": name, "accepted": False}
@@ -155,36 +235,66 @@ def expected_crate_api_report(
                 f"expected crate API path is not an in-scope current fragment: {path.as_posix()}"
             )
             continue
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)?", name):
             problems.append(f"invalid expected crate API name: {name}")
             continue
-        if name in before_public:
+        owner, separator, method = name.partition("::")
+        base_name = method if separator else name
+        if base_name in before_public:
             problems.append(f"expected crate API is stale, already present before split: {name}")
             continue
-        if name not in added_public:
+        if base_name not in added_public:
             problems.append(f"expected crate API declaration is missing: {path.as_posix()}:{name}")
             continue
 
-        by_path: list[dict[str, str]] = []
-        all_occurrences: list[tuple[Path, dict[str, str]]] = []
-        for candidate in api_paths:
-            for occurrence in public_occurrences(candidate.read_text(encoding="utf-8")):
-                if occurrence["name"] == name:
-                    all_occurrences.append((candidate, occurrence))
-                    if candidate == resolved:
-                        by_path.append(occurrence)
-        exact = [
-            item for item in by_path
-            if item["form"] == "declaration" and item["visibility"] == "crate"
+        named = [
+            (index, candidate, item)
+            for index, (candidate, item) in enumerate(occurrences)
+            if item["name"] == base_name
         ]
-        if len(exact) != 1 or len(by_path) != 1 or len(all_occurrences) != 1:
+        if separator:
+            at_path = [
+                (index, item) for index, candidate, item in named
+                if candidate == resolved and item.get("owner") == owner
+            ]
+            exact = [
+                index for index, item in at_path
+                if item["form"] == "declaration" and item["kind"] == "fn"
+                and item["visibility"] == "crate"
+            ]
+            if len(exact) != 1 or len(at_path) != 1:
+                problems.append(
+                    "expected qualified crate API must be one unique pub(crate) inherent method "
+                    f"in its named fragment: {path.as_posix()}:{name}"
+                )
+                continue
+        else:
+            exact = [
+                index for index, candidate, item in named
+                if candidate == resolved and item["form"] == "declaration"
+                and item["visibility"] == "crate"
+            ]
+            if len(exact) != 1 or len(named) != 1:
+                problems.append(
+                    "expected crate API must be one unique pub(crate) declaration in its named fragment: "
+                    f"{path.as_posix()}:{name}"
+                )
+                continue
+        resolved_requests.setdefault(base_name, []).append((len(reports) - 1, exact[0]))
+
+    for name, matches in resolved_requests.items():
+        all_named = {
+            index for index, (_, item) in enumerate(occurrences) if item["name"] == name
+        }
+        covered = [occurrence for _, occurrence in matches]
+        if set(covered) != all_named or len(covered) != len(set(covered)):
             problems.append(
-                f"expected crate API must be one unique pub(crate) declaration in its named fragment: {path.as_posix()}:{name}"
+                f"expected crate API requests must account for every occurrence exactly once: {name}"
             )
             continue
         accepted.add(name)
-        report["accepted"] = True
-
+        for report_index, _ in matches:
+            reports[report_index]["accepted"] = True
     return reports, problems, accepted
 
 
@@ -214,7 +324,7 @@ def current_fragments(repo: Path, source: Path) -> list[Path]:
     return sorted(candidates)
 
 
-def rust_module_children(path: Path, text: str) -> list[Path]:
+def rust_module_children(path: Path, text: str, *, crate_root: bool = False) -> list[Path]:
     """Resolve file-backed modules and literal source inclusions in one file."""
     children: list[Path] = []
     for value in SOURCE_INCLUDE_RE.findall(text):
@@ -229,7 +339,7 @@ def rust_module_children(path: Path, text: str) -> list[Path]:
     content_without_explicit = PATH_MOD_RE.sub("", text)
     # A crate root's children live beside lib.rs/main.rs. A module file such as
     # ai.rs instead owns ai/*.rs; mod.rs already is that directory's root.
-    if path.name in {"lib.rs", "main.rs", "mod.rs"}:
+    if crate_root or path.name in {"lib.rs", "main.rs", "mod.rs"}:
         child_root = path.parent
     else:
         child_root = path.parent / path.stem
@@ -243,17 +353,75 @@ def rust_module_children(path: Path, text: str) -> list[Path]:
     return children
 
 
-def reachable_rust_sources(crate_root: Path) -> list[Path]:
-    """Return the Rust source tree reachable from a crate's declared lib root."""
-    pending = [crate_root.resolve()]
+def reachable_rust_sources(root: Path, *, crate_root: bool = False) -> list[Path]:
+    """Return a declared crate root or selected module's source subtree."""
+    root = root.resolve()
+    pending = [root]
     sources: set[Path] = set()
     while pending:
         path = pending.pop()
         if path in sources or not path.is_file() or path.suffix != ".rs":
             continue
         sources.add(path)
-        pending.extend(rust_module_children(path, path.read_text(encoding="utf-8")))
+        pending.extend(rust_module_children(
+            path, path.read_text(encoding="utf-8"), crate_root=crate_root and path == root
+        ))
     return sorted(sources)
+
+
+def declared_package_roots(manifest: Path) -> list[Path]:
+    """Find this package's explicit and enabled automatic Cargo lib/bin roots."""
+    data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    package_root = manifest.parent
+    package = data.get("package", {})
+    roots: set[Path] = set()
+    lib = data.get("lib")
+    if isinstance(lib, dict):
+        roots.add(package_root / lib.get("path", "src/lib.rs"))
+    elif package.get("autolib", True):
+        roots.add(package_root / "src/lib.rs")
+
+    declared_bins: set[str] = set()
+    for binary in data.get("bin", []):
+        name = binary.get("name")
+        if isinstance(name, str):
+            declared_bins.add(name)
+        if isinstance(binary.get("path"), str):
+            roots.add(package_root / binary["path"])
+        elif isinstance(name, str):
+            if name == package.get("name") and (package_root / "src/main.rs").is_file():
+                roots.add(package_root / "src/main.rs")
+            else:
+                flat = package_root / "src/bin" / f"{name}.rs"
+                roots.add(flat if flat.is_file() else package_root / "src/bin" / name / "main.rs")
+    if package.get("autobins", True):
+        if package.get("name") not in declared_bins:
+            roots.add(package_root / "src/main.rs")
+        bin_directory = package_root / "src/bin"
+        for candidate in bin_directory.glob("*.rs"):
+            if candidate.stem not in declared_bins:
+                roots.add(candidate)
+        for candidate in bin_directory.glob("*/main.rs"):
+            if candidate.parent.name not in declared_bins:
+                roots.add(candidate)
+
+    return sorted(root.resolve() for root in roots if root.is_file())
+
+
+def declared_package_sources(manifest: Path) -> set[Path]:
+    """Follow Cargo roots, never arbitrary files elsewhere in the package."""
+    return {
+        source
+        for root in declared_package_roots(manifest)
+        for source in reachable_rust_sources(root, crate_root=True)
+    }
+
+
+def selected_source_subtree(repo: Path, source: Path) -> list[Path]:
+    """A custom Cargo root resolves children beside itself, unlike a module."""
+    _, manifest = nearest_package(source, repo)
+    is_root = manifest is not None and source in declared_package_roots(manifest)
+    return reachable_rust_sources(source, crate_root=is_root)
 
 
 def path_dependencies(manifest_data: dict[str, object]) -> list[tuple[str, Path]]:
@@ -298,7 +466,7 @@ def declared_dependency_sources(manifest: Path) -> dict[Path, tuple[Path, list[P
         lib_root = (package_root / lib_relative).resolve()
         if not lib_root.is_file():
             continue
-        package_sources = reachable_rust_sources(lib_root)
+        package_sources = reachable_rust_sources(lib_root, crate_root=True)
         for source in package_sources:
             reachable[source] = (package_root, package_sources)
     return reachable
@@ -309,13 +477,14 @@ def extracted_source_tree(
     original_manifest: Path | None,
     requested: list[Path],
 ) -> tuple[list[Path], list[Path], list[str]]:
-    """Validate explicit cross-crate sources and return their reachable package trees."""
+    """Validate mapped sources against declared same-package or dependency roots."""
     if not requested:
         return [], [], []
     if original_manifest is None:
         return [], [], ["cannot validate extracted sources: original package manifest not found"]
 
     reachable = declared_dependency_sources(original_manifest)
+    package_sources = declared_package_sources(original_manifest)
     included: set[Path] = set()
     selected: set[Path] = set()
     problems: list[str] = []
@@ -332,11 +501,16 @@ def extracted_source_tree(
         if not source.is_file() or source.suffix != ".rs":
             problems.append(f"extracted source is not a Rust source file: {source_arg}")
             continue
+        if source in package_sources:
+            selected.add(source)
+            # This mapping owns one subtree, not all unrelated lib/bin modules.
+            included.update(selected_source_subtree(repo, source))
+            continue
         package_tree = reachable.get(source)
         if package_tree is None:
             problems.append(
                 "extracted source is not reachable from a declared local path dependency "
-                f"of the original package: {source_arg.as_posix()}"
+                f"or lib/bin target of the original package: {source_arg.as_posix()}"
             )
             continue
         selected.add(source)
@@ -434,7 +608,7 @@ def validate(
     # Tests in unrelated siblings of a shared dependency cannot replace lost tests.
     test_paths = set(original_fragments)
     for extracted_source in selected_extracted:
-        test_paths.update(reachable_rust_sources(extracted_source))
+        test_paths.update(selected_source_subtree(repo, extracted_source))
     after_tests = sum(
         len(TEST_RE.findall(path.read_text(encoding="utf-8"))) for path in test_paths
     )
@@ -453,8 +627,8 @@ def validate(
         if baseline is not None:
             before_public.update(public_names(baseline))
     after_public: set[str] = set()
-    # The full extracted package tree contributes its tests and is checked for
-    # fragment hygiene, but public-API comparison is scoped to the files the
+    # Extracted dependency trees are checked for fragment hygiene. Same-package
+    # moves include only the selected subtree. Public-API comparison uses files
     # caller explicitly maps from this original source. Sibling modules in a
     # path dependency can own unrelated contracts and must not mask or invent
     # API changes for the source being split.
@@ -539,7 +713,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=[],
         metavar="PATH",
-        help="repo-relative Rust source moved into a reachable local path dependency; repeatable",
+        help="repo-relative Rust source moved into a reachable lib/bin subtree or local path dependency; repeatable",
     )
     parser.add_argument(
         "--expected-crate-api",
@@ -547,7 +721,7 @@ def parse_args() -> argparse.Namespace:
         type=parse_expected_crate_api,
         default=[],
         metavar="PATH:NAME",
-        help="allow one exact new pub(crate) declaration in this in-scope fragment; repeatable",
+        help="allow an exact pub(crate) declaration or TYPE::method in this fragment; repeat for every occurrence",
     )
     parser.add_argument("--json", action="store_true")
     return parser.parse_args()

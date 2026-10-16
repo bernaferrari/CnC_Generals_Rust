@@ -432,8 +432,8 @@ impl CnCGameEngine {
             .max(frame.frame.0);
         let (view_w, view_h) = self.tactical_viewport_size();
         let (ray_start, ray_end) = super::mouse::unproject_mouse_ray(
-            self.view_matrix,
-            self.projection_matrix,
+            self.game_logic.session_view.camera.view_matrix,
+            self.game_logic.session_view.camera.projection_matrix,
             self.mouse_position,
             view_w,
             view_h,
@@ -528,7 +528,8 @@ impl CnCGameEngine {
             return false;
         };
         let (view_w, view_h) = self.tactical_viewport_size();
-        let view_projection = self.projection_matrix * self.view_matrix;
+        let view_projection = self.game_logic.session_view.camera.projection_matrix
+            * self.game_logic.session_view.camera.view_matrix;
         let Some(screen) =
             project_world_to_screen(view_projection, object.position, view_w, view_h)
         else {
@@ -1577,7 +1578,8 @@ impl CnCGameEngine {
         let team = frame.local_team();
         let center = self.game_logic.session_view.target;
         // Fail-closed frustum residual: radius scales with zoom.
-        let radius = (180.0 * self.camera_zoom.max(0.5)).clamp(120.0, 600.0);
+        let radius =
+            (180.0 * self.game_logic.session_view.camera.camera_zoom.max(0.5)).clamp(120.0, 600.0);
         let selection = frame.alive_selectable_friendly_near(team, center, radius);
         if selection.is_empty() {
             return;
@@ -1652,8 +1654,8 @@ impl CnCGameEngine {
             let viewport = glam::Vec2::new(vw, vh);
             let on_screen = frame.filter_ids_on_screen(
                 &candidates,
-                self.view_matrix,
-                self.projection_matrix,
+                self.game_logic.session_view.camera.view_matrix,
+                self.game_logic.session_view.camera.projection_matrix,
                 viewport,
             );
             (incompatible, current, candidates, on_screen)
@@ -1763,8 +1765,8 @@ impl CnCGameEngine {
             let viewport = glam::Vec2::new(vw, vh);
             let screen_matches = frame.filter_ids_on_screen(
                 &map_matches,
-                self.view_matrix,
-                self.projection_matrix,
+                self.game_logic.session_view.camera.view_matrix,
+                self.game_logic.session_view.camera.projection_matrix,
                 viewport,
             );
             let screen_new: Vec<ObjectId> = screen_matches

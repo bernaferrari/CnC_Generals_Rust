@@ -31,12 +31,15 @@ impl CnCGameEngine {
                     .is_some_and(|frame| frame.script_time_frozen)
                     && !self.native_view_is_paused()
                 {
-                    self.native_filter_previous_target = self.game_logic.session_view.target;
+                    self.game_logic
+                        .session_view
+                        .camera
+                        .native_filter_previous_target = self.game_logic.session_view.target;
                 }
                 self.apply_camera_follow_or_tether(Vec3::from_array(position), tether);
                 did_scripted_movement = true;
             } else {
-                self.camera_follow_factor = -1.;
+                self.game_logic.session_view.camera.camera_follow_factor = -1.;
             }
             self.apply_airborne_follow_yaw();
         }
@@ -51,54 +54,11 @@ impl CnCGameEngine {
                 .writable
                 .disable_camera_movement,
         };
-        // C++ updateCameraMovements: zoom -> pitch -> rotate (or waypoint).
-        let zoom = step_axis(
-            AxisMotion {
-                value: &mut self.camera_zoom,
-                target: &mut self.camera_zoom_target,
-                frame: &mut self.camera_zoom_frame,
-                start: self.camera_zoom_start,
-                duration_seconds: self.camera_zoom_duration,
-                ease_in_seconds: self.camera_zoom_ease_in,
-                ease_out_seconds: self.camera_zoom_ease_out,
-            },
-            AxisKind::ZoomPitch,
-            admission,
-        );
-        let pitch = step_axis(
-            AxisMotion {
-                value: &mut self.camera_fx_pitch,
-                target: &mut self.camera_pitch_target,
-                frame: &mut self.camera_pitch_frame,
-                start: self.camera_pitch_start,
-                duration_seconds: self.camera_pitch_duration,
-                ease_in_seconds: self.camera_pitch_ease_in,
-                ease_out_seconds: self.camera_pitch_ease_out,
-            },
-            AxisKind::ZoomPitch,
-            admission,
-        );
-        #[cfg(feature = "game_client")]
-        if self.camera_yaw_target.is_some()
-            && (admission.fast_camera_only
-                || (admission.update_views && !admission.paused && !admission.debug_frozen))
-        {
-            self.native_filter_previous_target = self.game_logic.session_view.target;
-        }
-        let yaw = step_axis(
-            AxisMotion {
-                value: &mut self.camera_yaw_radians,
-                target: &mut self.camera_yaw_target,
-                frame: &mut self.camera_yaw_frame,
-                start: self.camera_yaw_start,
-                duration_seconds: self.camera_yaw_duration,
-                ease_in_seconds: self.camera_yaw_ease_in,
-                ease_out_seconds: self.camera_yaw_ease_out,
-            },
-            AxisKind::Yaw,
-            admission,
-        );
-        did_scripted_movement |= zoom.was_active || pitch.was_active || yaw.was_active;
+        did_scripted_movement |= self
+            .game_logic
+            .session_view
+            .camera
+            .advance_scalar_movements(admission, self.game_logic.session_view.target);
         if decision.update_views {
             // Full view only. Fast's early camera-only branch never reaches
             // shake, height adjustment, slave pose or matrix commitment.
@@ -111,16 +71,19 @@ impl CnCGameEngine {
     }
     /// Source setCameraTransform: after height adjustment, before slave pose.
     fn update_camera_transform_shakers(&mut self) {
-        step_transform_shakers(&mut self.script_camera_shakers, true);
+        step_transform_shakers(
+            &mut self.game_logic.session_view.camera.script_camera_shakers,
+            true,
+        );
         let eye = self.native_camera_base_pose().0;
         let mut rotation = Vec3::ZERO;
-        for shaker in &self.script_camera_shakers {
+        for shaker in &self.game_logic.session_view.camera.script_camera_shakers {
             rotation += script_camera_shaker_rotations(shaker, eye);
         }
         rotation.x = rotation.x.clamp(-SHAKE_AXIS_PITCH, SHAKE_AXIS_PITCH);
         rotation.y = rotation.y.clamp(-SHAKE_AXIS_YAW, SHAKE_AXIS_YAW);
         rotation.z = rotation.z.clamp(-SHAKE_AXIS_ROLL, SHAKE_AXIS_ROLL);
-        self.camera_shake_rotation = rotation;
+        self.game_logic.session_view.camera.camera_shake_rotation = rotation;
     }
 }
 

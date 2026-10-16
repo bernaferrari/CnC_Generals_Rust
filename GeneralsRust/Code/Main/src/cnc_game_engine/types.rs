@@ -602,62 +602,7 @@ pub mod parity_test_support {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct ScriptCameraShaker {
-    pub(crate) epicenter: Vec3,
-    pub(crate) radius: f32,
-    pub(crate) duration_seconds: f32,
-    pub(crate) elapsed_seconds: f32,
-    /// C++ `Add_Camera_Shake` power*PI/180 intensity (radians).
-    pub(crate) intensity: f32,
-    /// Per-axis start omega in [12.5, 15] revolutions/s (radians).
-    pub(crate) omega: Vec3,
-    pub(crate) phi: Vec3,
-    pub(crate) rng_seed: u32,
-}
-
-impl ScriptCameraShaker {
-    pub(super) fn new(
-        epicenter: Vec3,
-        radius: f32,
-        duration_seconds: f32,
-        amplitude_degrees: f32,
-    ) -> Self {
-        // Deterministic stand-in for C++ WWMath::Random_Float(MIN_OMEGA, MAX_OMEGA)
-        // and Random_Float(0, 360deg). Frequency stays in the 12.5-15Hz band.
-        let seed = (epicenter.x.to_bits())
-            .wrapping_mul(0x9E37_79B9)
-            .wrapping_add(epicenter.y.to_bits().rotate_left(7))
-            .wrapping_add(epicenter.z.to_bits().rotate_left(13))
-            .wrapping_add(amplitude_degrees.to_bits());
-        let unit = |lane: u32| -> f32 {
-            let mut x = seed ^ lane.wrapping_mul(0x85EB_CA6B);
-            x ^= x >> 16;
-            x = x.wrapping_mul(0x7FEB_352D);
-            x ^= x >> 15;
-            x = x.wrapping_mul(0x846C_A68B);
-            x ^= x >> 16;
-            (x >> 8) as f32 / ((1u32 << 24) as f32)
-        };
-        let min_omega = 12.5 * std::f32::consts::TAU;
-        let max_omega = 15.0 * std::f32::consts::TAU;
-        let omega_at = |lane: u32| min_omega + unit(lane) * (max_omega - min_omega);
-        Self {
-            epicenter,
-            radius: radius.max(0.01),
-            duration_seconds: duration_seconds.max(0.01),
-            elapsed_seconds: 0.0,
-            intensity: amplitude_degrees.abs() * std::f32::consts::PI / 180.0,
-            omega: Vec3::new(omega_at(1), omega_at(2), omega_at(3)),
-            phi: Vec3::new(
-                unit(4) * std::f32::consts::TAU,
-                unit(5) * std::f32::consts::TAU,
-                unit(6) * std::f32::consts::TAU,
-            ),
-            rng_seed: seed,
-        }
-    }
-}
+pub(crate) use crate::presentation_frame::camera::ScriptCameraShaker;
 
 pub(crate) struct StartupLoadResult {
     pub(crate) default_starting_cash: u32,
@@ -1193,7 +1138,6 @@ pub struct CnCGameEngine {
     /// Wave 913: last camera-follow object residual (skip redundant authority writes).
     pub(crate) host_match_camera_follow_id: Option<Option<crate::game_logic::ObjectId>>,
     /// C++ W3DView followFactor; -1 when unlocked.
-    pub(crate) camera_follow_factor: f32,
     /// Wave 848: host-owned local train producers residual (barracks / other).
     pub(crate) host_match_local_barracks_ids: Option<Vec<crate::game_logic::ObjectId>>,
     pub(crate) host_match_local_producer_ids: Option<Vec<crate::game_logic::ObjectId>>,
@@ -1250,46 +1194,9 @@ pub struct CnCGameEngine {
 
     // Camera system
     pub(in crate::cnc_game_engine) look_at_modes: super::mouse::LookAtHostModes,
-    pub(crate) camera_position: Vec3,
-    /// C++ `W3DView::m_cameraConstraint` union of scripted pans
-    /// (`W3DView.cpp:3097-3212`). `(lo_x, hi_x, lo_z, hi_z)` in live Y-up.
-    pub(crate) scripted_camera_constraint_widen: Option<(f32, f32, f32, f32)>,
-    pub(crate) camera_zoom: f32,
-    pub(crate) camera_zoom_target: Option<f32>,
-    pub(crate) camera_zoom_start: f32,
-    pub(crate) camera_zoom_duration: f32,
-    pub(crate) camera_zoom_frame: u32,
-    pub(crate) camera_zoom_ease_in: f32,
-    pub(crate) camera_zoom_ease_out: f32,
-    pub(in crate::cnc_game_engine) native_camera: super::camera_height::CameraHeight,
-    #[cfg(feature = "game_client")]
-    pub(in crate::cnc_game_engine) native_filter_scroll: glam::Vec2,
-    #[cfg(feature = "game_client")]
-    pub(in crate::cnc_game_engine) native_filter_previous_target: Vec3,
-    pub(crate) camera_pitch_radians: f32,
-    pub(crate) camera_pitch_target: Option<f32>,
-    pub(crate) camera_pitch_start: f32,
-    pub(crate) camera_pitch_duration: f32,
-    pub(crate) camera_pitch_frame: u32,
-    pub(crate) camera_pitch_ease_in: f32,
-    pub(crate) camera_pitch_ease_out: f32,
-    /// C++ `W3DView::m_FXPitch`. 0 = look flat, 1 = normal, >1 = look down.
-    pub(crate) camera_fx_pitch: f32,
-    pub(crate) camera_yaw_radians: f32,
-    pub(crate) camera_yaw_target: Option<f32>,
-    pub(crate) camera_yaw_start: f32,
-    pub(crate) camera_yaw_duration: f32,
-    pub(crate) camera_yaw_frame: u32,
-    pub(crate) camera_yaw_ease_in: f32,
-    pub(crate) camera_yaw_ease_out: f32,
-    /// C++ CameraShakerSystem Compute_Rotations (pitch/yaw/roll radians).
-    pub(crate) camera_shake_rotation: Vec3,
-    pub(crate) script_camera_shakers: Vec<ScriptCameraShaker>,
+    /// Application frame pacing remains outside the session camera owner.
     pub(crate) script_fps_limit: Option<u32>,
     pub(crate) script_fps_limit_last_tick: Option<Instant>,
-    pub(crate) camera_slave_mode: Option<CameraSlaveModeRequest>,
-    pub(crate) view_matrix: Mat4,
-    pub(crate) projection_matrix: Mat4,
 
     // Input state
     pub(crate) keys_pressed: HashSet<Key>,
@@ -1528,9 +1435,6 @@ impl VertexXYZNDUV2 {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct SAGEUniforms {
     pub(crate) view_projection: [[f32; 4]; 4],
-    pub(crate) view_matrix: [[f32; 4]; 4],
-    pub(crate) projection_matrix: [[f32; 4]; 4],
-    pub(crate) camera_position: [f32; 4],
     pub(crate) time: f32,
     pub(crate) ambient_light: [f32; 3],
     pub(crate) sun_direction: [f32; 3],

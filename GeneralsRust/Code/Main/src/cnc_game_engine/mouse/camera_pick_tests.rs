@@ -238,17 +238,17 @@ fn reset_camera_pose_restores_fx_pitch_to_one() {
     let start = src
         .find("fn reset_camera_pose_in_place")
         .expect("reset_camera_pose_in_place");
-    let body = &src[start..start + 900];
+    let body: String = src[start..start + 900].split_whitespace().collect();
     assert!(
-        body.contains("self.camera_fx_pitch = 1.0"),
+        body.contains("self.game_logic.session_view.camera.camera_fx_pitch=1.0"),
         "CAMERA_RESET/MMB must restore C++ m_FXPitch 1.0"
     );
     assert!(
-        body.contains("self.camera_pitch_target = None"),
+        body.contains("self.game_logic.session_view.camera.camera_pitch_target=None"),
         "reset must cancel an in-flight CAMERA_PITCH lerp"
     );
     assert!(
-        body.contains("self.camera_pitch_radians = self.ui_script_default_camera_pitch()")
+        body.contains("self.game_logic.session_view.camera.camera_pitch_radians=self.ui_script_default_camera_pitch()")
             && !body.contains("clamp_pitch("),
         "CAMERA_RESET/MMB must restore scripted m_defaultPitchAngle"
     );

@@ -1772,8 +1772,8 @@ impl CnCGameEngine {
             let ground_markers = self.collect_ground_marker_circles();
             crate::graphics::selection_renderer::enqueue_selection_render(
                 &mut self.render_pipeline,
-                &self.view_matrix,
-                &self.projection_matrix,
+                &self.game_logic.session_view.camera.view_matrix,
+                &self.game_logic.session_view.camera.projection_matrix,
                 drag_rect.filter(|r| r.is_valid()),
                 rmb_scroll_anchor,
                 self.last_presentation_frame.as_deref(),
@@ -1781,7 +1781,7 @@ impl CnCGameEngine {
                 self.show_move_lines,
                 self.show_attack_lines,
                 (display_w as f32, display_h as f32),
-                self.camera_zoom,
+                self.game_logic.session_view.camera.camera_zoom,
             );
             #[cfg(feature = "game_client")]
             {
@@ -1791,9 +1791,9 @@ impl CnCGameEngine {
 
             crate::graphics::occlusion_bridge::enqueue_occluded_player_color_pass(
                 &mut self.render_pipeline,
-                &self.view_matrix,
-                &self.projection_matrix,
-                self.camera_position,
+                &self.game_logic.session_view.camera.view_matrix,
+                &self.game_logic.session_view.camera.projection_matrix,
+                self.game_logic.session_view.camera.camera_position,
                 self.last_presentation_frame.as_deref(),
             );
         }
@@ -1806,46 +1806,48 @@ impl CnCGameEngine {
             .last_presentation_frame
             .as_ref()
             .map_or(0, |presentation| presentation.frame.0);
-        let view_matrix = self.view_matrix;
-        let projection_matrix = self.projection_matrix;
-        let camera_position = self.camera_position;
+        let view_matrix = self.game_logic.session_view.camera.view_matrix;
+        let projection_matrix = self.game_logic.session_view.camera.projection_matrix;
+        let camera_position = self.game_logic.session_view.camera.camera_position;
         #[cfg(feature = "game_client")]
         {
-            self.native_filter_scroll = self.native_filter_render_scroll();
+            self.game_logic.session_view.camera.native_filter_scroll =
+                self.native_filter_render_scroll();
         }
         #[cfg(feature = "game_client")]
         let render_result = {
             let world_bounds = self.presentation_world_bounds();
             let constraint_inset = super::start_game::native_camera_constraint_inset(
-                &self.native_camera,
-                self.view_matrix,
-                self.projection_matrix,
+                &self.game_logic.session_view.camera.native_camera,
+                self.game_logic.session_view.camera.view_matrix,
+                self.game_logic.session_view.camera.projection_matrix,
                 self.tactical_viewport_size(),
             );
             // The pipeline was seeded from this exact immutable frame above;
             // borrow its environment without borrowing the mutable pipeline.
             let filter_frame = self.last_presentation_frame.as_deref();
-            let (filter, target, impulse, mut cancellation, physics_visuals) =
+            let filter_scroll = self.game_logic.session_view.camera.native_filter_scroll;
+            let (filter, target, impulse, mut cancellation, physics_visuals, native) =
                 self.game_logic.split_filter_camera_owner();
             let mut camera = super::camera_filter::NativeFilterCameraContext {
                 look_at_modes: &mut self.look_at_modes,
-                yaw_target: &mut self.camera_yaw_target,
-                yaw_duration: &mut self.camera_yaw_duration,
+                yaw_target: &mut native.camera_yaw_target,
+                yaw_duration: &mut native.camera_yaw_duration,
                 target,
                 impulse,
-                native_camera: &self.native_camera,
-                zoom: self.camera_zoom,
-                pitch: self.camera_pitch_radians,
-                yaw: self.camera_yaw_radians,
-                fx_pitch: self.camera_fx_pitch,
-                shake_rotation: self.camera_shake_rotation,
-                slave_mode: self.camera_slave_mode.is_some(),
-                position: &mut self.camera_position,
-                view: &mut self.view_matrix,
-                projection: self.projection_matrix,
+                native_camera: &native.native_camera,
+                zoom: native.camera_zoom,
+                pitch: native.camera_pitch_radians,
+                yaw: native.camera_yaw_radians,
+                fx_pitch: native.camera_fx_pitch,
+                shake_rotation: native.camera_shake_rotation,
+                slave_mode: native.camera_slave_mode.is_some(),
+                position: &mut native.camera_position,
+                view: &mut native.view_matrix,
+                projection: native.projection_matrix,
                 world_bounds,
                 constraint_inset,
-                constraint_widen: &mut self.scripted_camera_constraint_widen,
+                constraint_widen: &mut native.scripted_camera_constraint_widen,
                 env: filter_frame.map(|frame| &frame.world_env),
             };
             let mut complete_filter_camera =
@@ -1927,7 +1929,7 @@ impl CnCGameEngine {
                 skip_world_scene,
                 Some(&mut direct_scene_candidate_sink),
                 filter,
-                self.native_filter_scroll,
+                filter_scroll,
                 presentation_logic_frame,
                 Some(&mut complete_filter_camera),
                 Some(&mut complete_physics_visual),
@@ -2207,8 +2209,8 @@ impl CnCGameEngine {
         let mut corners = [glam::Vec3::ZERO; 4];
         for (index, screen) in screens.iter().copied().enumerate() {
             let (near, far) = super::mouse::unproject_mouse_ray(
-                self.view_matrix,
-                self.projection_matrix,
+                self.game_logic.session_view.camera.view_matrix,
+                self.game_logic.session_view.camera.projection_matrix,
                 screen,
                 view_w,
                 view_h,

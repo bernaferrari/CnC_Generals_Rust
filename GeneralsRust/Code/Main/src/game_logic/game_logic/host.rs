@@ -1307,27 +1307,6 @@ pub struct GameLogic {
     /// C++ newWorkerRespawnProcess residual events.
     pub(super) rebuild_hole_worker_restarts: u32,
     pub(super) pending_camera_focus: Option<Vec3>,
-    pub(super) script_camera_focus_estimate: Vec3,
-    pub(super) script_camera_move_to: Option<ScriptCameraMoveTo>,
-    pub(super) script_camera_path: Option<ScriptCameraPathMove>,
-    pub(super) camera_follow_target: Option<ObjectId>,
-    pub(super) camera_tether_play: Option<f32>,
-    pub(super) script_look_toward_object_id: Option<u32>,
-    pub(super) script_look_toward_hold_seconds: f32,
-    pub(super) script_default_camera_pitch: f32,
-    pub(super) script_default_camera_angle: f32,
-    pub(super) script_default_camera_max_height: f32,
-    pub(super) script_camera_freeze_time_armed: bool,
-    /// C++ `W3DView::m_freezeTimeForCameraMovement`.
-    pub(super) script_camera_freeze_time: bool,
-    /// Remaining scripted rotate / look-toward seconds (survives presentation take).
-    pub(super) script_camera_rotate_remaining: f32,
-    /// Remaining scripted zoom seconds (survives presentation take).
-    pub(super) script_camera_zoom_remaining: f32,
-    /// Remaining scripted pitch seconds (survives presentation take).
-    pub(super) script_camera_pitch_remaining: f32,
-    pub(super) script_camera_freeze_angle_armed: bool,
-    pub(super) script_camera_pending_final_speed_multiplier: Option<f32>,
     pub(super) visual_speed_multiplier: f32,
     pub(super) script_time_frozen_by_script: bool,
     pub(super) pending_script_fps_limit: Option<i32>,

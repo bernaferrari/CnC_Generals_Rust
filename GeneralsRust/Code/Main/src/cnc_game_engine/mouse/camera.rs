@@ -213,7 +213,13 @@ impl CnCGameEngine {
         // off the HUD (`input.rs` look_at_host_mouse_locked).
         self.set_lookat_scroll_mouse_lock(scroll_type.is_scrolling());
         let mut screen_scroll = Vec2::ZERO;
-        if self.camera_slave_mode.is_none() {
+        if self
+            .game_logic
+            .session_view
+            .camera
+            .camera_slave_mode
+            .is_none()
+        {
             match scroll_type {
                 LookAtScrollType::Key => {
                     if key_up {
@@ -273,13 +279,13 @@ impl CnCGameEngine {
                     // C++ GameLogicDispatch.cpp:1801-1823 setLocation always applies pitch.
                     let clamped = self.clamp_to_world_bounds(pose.pos);
                     self.game_logic.session_view.target = clamped;
-                    self.camera_yaw_radians = pose.yaw;
-                    self.camera_pitch_radians =
+                    self.game_logic.session_view.camera.camera_yaw_radians = pose.yaw;
+                    self.game_logic.session_view.camera.camera_pitch_radians =
                         super::super::camera_height::clamp_pitch(pose.pitch);
-                    self.camera_zoom = clamp_w3d_zoom(pose.zoom);
-                    self.camera_yaw_target = None;
-                    self.camera_pitch_target = None;
-                    self.camera_zoom_target = None;
+                    self.game_logic.session_view.camera.camera_zoom = clamp_w3d_zoom(pose.zoom);
+                    self.game_logic.session_view.camera.camera_yaw_target = None;
+                    self.game_logic.session_view.camera.camera_pitch_target = None;
+                    self.game_logic.session_view.camera.camera_zoom_target = None;
                     if !self
                         .look_at_modes
                         .lookat_has_mouse_moved_recently(self.frame_counter)
@@ -320,10 +326,10 @@ impl CnCGameEngine {
         for player_index in self.game_logic.replay_pending.take_selection_remirror() {
             self.remirror_host_replay_observer_selection(player_index);
         }
-        let initial_zoom = self.camera_zoom;
-        let initial_pitch = self.camera_pitch_radians;
-        let initial_fx_pitch = self.camera_fx_pitch;
-        let initial_yaw = self.camera_yaw_radians;
+        let initial_zoom = self.game_logic.session_view.camera.camera_zoom;
+        let initial_pitch = self.game_logic.session_view.camera.camera_pitch_radians;
+        let initial_fx_pitch = self.game_logic.session_view.camera.camera_fx_pitch;
+        let initial_yaw = self.game_logic.session_view.camera.camera_yaw_radians;
         // C++ InGameUI.cpp:1836 TheGlobalData->m_keyboardCameraRotateSpeed per frame.
         let rotate_delta = lookat_keyboard_rotate_delta(
             game_engine::common::global_data::read().keyboard_camera_rotate_speed,
@@ -331,11 +337,11 @@ impl CnCGameEngine {
             logic_frames_per_second,
         );
         if self.camera_rotate_left_held {
-            self.camera_yaw_radians -= rotate_delta;
+            self.game_logic.session_view.camera.camera_yaw_radians -= rotate_delta;
             self.cancel_scripted_camera_from_player_set();
         }
         if self.camera_rotate_right_held {
-            self.camera_yaw_radians += rotate_delta;
+            self.game_logic.session_view.camera.camera_yaw_radians += rotate_delta;
             self.cancel_scripted_camera_from_player_set();
         }
         if self.camera_zoom_in_held {
@@ -353,12 +359,19 @@ impl CnCGameEngine {
 
         let mut movement = Vec3::ZERO;
         let mut scroll_amount = 0.0f32;
-        if self.camera_slave_mode.is_none() {
+        if self
+            .game_logic
+            .session_view
+            .camera
+            .camera_slave_mode
+            .is_none()
+        {
             // Middle-mouse-button camera yaw rotation (C++ LookAtXlat.cpp:296-303)
             if self.is_mmb_rotating {
                 if let Some(anchor) = self.mmb_anchor {
                     let dx = self.mouse_position.0 - anchor.0;
-                    self.camera_yaw_radians += dx * LOOKAT_MMB_YAW_FACTOR;
+                    self.game_logic.session_view.camera.camera_yaw_radians +=
+                        dx * LOOKAT_MMB_YAW_FACTOR;
                     self.cancel_scripted_camera_from_player_set();
                 }
                 self.mmb_anchor = Some(self.mouse_position);
@@ -385,10 +398,14 @@ impl CnCGameEngine {
         // Numpad/Middle rotation and scripted/wheel zoom all modify the same
         // W3D camera transform.  Previously only pan/shake paths set this
         // flag, leaving a visually stale view (and consequently stale picks).
-        camera_changed |= (self.camera_zoom - initial_zoom).abs() > f32::EPSILON
-            || (self.camera_pitch_radians - initial_pitch).abs() > f32::EPSILON
-            || (self.camera_fx_pitch - initial_fx_pitch).abs() > f32::EPSILON
-            || (self.camera_yaw_radians - initial_yaw).abs() > f32::EPSILON;
+        camera_changed |= (self.game_logic.session_view.camera.camera_zoom - initial_zoom).abs()
+            > f32::EPSILON
+            || (self.game_logic.session_view.camera.camera_pitch_radians - initial_pitch).abs()
+                > f32::EPSILON
+            || (self.game_logic.session_view.camera.camera_fx_pitch - initial_fx_pitch).abs()
+                > f32::EPSILON
+            || (self.game_logic.session_view.camera.camera_yaw_radians - initial_yaw).abs()
+                > f32::EPSILON;
 
         if camera_changed {
             self.apply_camera_orbit_transform();
@@ -411,9 +428,9 @@ impl CnCGameEngine {
             crate::command_system::tap_replay_camera_for_recorder(
                 crate::command_system::ReplayCameraPose {
                     pos: self.game_logic.session_view.target,
-                    yaw: self.camera_yaw_radians,
-                    pitch: self.camera_pitch_radians,
-                    zoom: self.camera_zoom,
+                    yaw: self.game_logic.session_view.camera.camera_yaw_radians,
+                    pitch: self.game_logic.session_view.camera.camera_pitch_radians,
+                    zoom: self.game_logic.session_view.camera.camera_zoom,
                     cursor,
                     pixel: (self.mouse_position.0 as i32, self.mouse_position.1 as i32),
                     player_index: self.current_player_id as i32,
@@ -444,8 +461,8 @@ impl CnCGameEngine {
         let (view_w, view_h) = self.tactical_viewport_size();
         lookat_scroll_world_delta(
             screen_scroll,
-            self.view_matrix,
-            self.projection_matrix,
+            self.game_logic.session_view.camera.view_matrix,
+            self.game_logic.session_view.camera.projection_matrix,
             (view_w, view_h),
         )
     }
@@ -462,12 +479,22 @@ impl CnCGameEngine {
             data.max_camera_height,
             self.ui_script_default_camera_max_height(),
         );
-        self.native_camera
-            .set_height(self.native_camera.desired() + steps * 10.0, min_h, max_h);
+        self.game_logic
+            .session_view
+            .camera
+            .native_camera
+            .set_height(
+                self.game_logic.session_view.camera.native_camera.desired() + steps * 10.0,
+                min_h,
+                max_h,
+            );
         // C++ setHeightAboveGround cancels scripted rotate/pitch/zoom/path/lock.
         self.cancel_scripted_camera_from_player_set();
         // C++ setHeightAboveGround invalidates m_cameraConstraint (recalc from map).
-        self.scripted_camera_constraint_widen = None;
+        self.game_logic
+            .session_view
+            .camera
+            .scripted_camera_constraint_widen = None;
         // C++ View::zoomIn/Out only changes HAG; W3DView eases zoom at CameraAdjustSpeed.
     }
 
@@ -520,7 +547,11 @@ impl CnCGameEngine {
             replay_camera: self.presentation_or_boot_in_replay_game() && use_camera_in_replay,
             rules,
         };
-        self.native_camera.advance(&mut self.camera_zoom, step)
+        self.game_logic
+            .session_view
+            .camera
+            .native_camera
+            .advance(&mut self.game_logic.session_view.camera.camera_zoom, step)
     }
 
     /// C++ InGameUI context cursor residual mapped onto winit CursorIcon.
@@ -886,20 +917,34 @@ impl CnCGameEngine {
     }
 
     fn host_camera_movement_finished(&self) -> bool {
-        self.camera_zoom_target.is_none()
-            && self.camera_pitch_target.is_none()
-            && self.camera_yaw_target.is_none()
+        self.game_logic
+            .session_view
+            .camera
+            .camera_zoom_target
+            .is_none()
+            && self
+                .game_logic
+                .session_view
+                .camera
+                .camera_pitch_target
+                .is_none()
+            && self
+                .game_logic
+                .session_view
+                .camera
+                .camera_yaw_target
+                .is_none()
     }
 
     pub(in crate::cnc_game_engine) fn cancel_scripted_camera_from_player_set(&mut self) {
         self.look_at_modes
             .note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::Set);
-        self.camera_zoom_target = None;
-        self.camera_pitch_target = None;
-        self.camera_yaw_target = None;
-        self.camera_zoom_duration = 0.0;
-        self.camera_pitch_duration = 0.0;
-        self.camera_yaw_duration = 0.0;
+        self.game_logic.session_view.camera.camera_zoom_target = None;
+        self.game_logic.session_view.camera.camera_pitch_target = None;
+        self.game_logic.session_view.camera.camera_yaw_target = None;
+        self.game_logic.session_view.camera.camera_zoom_duration = 0.0;
+        self.game_logic.session_view.camera.camera_pitch_duration = 0.0;
+        self.game_logic.session_view.camera.camera_yaw_duration = 0.0;
         self.game_logic.cancel_scripted_camera_from_player_set();
         #[cfg(feature = "game_client")]
         {
@@ -912,8 +957,8 @@ impl CnCGameEngine {
     pub(in crate::cnc_game_engine) fn cancel_scripted_camera_from_player_look_at(&mut self) {
         self.look_at_modes
             .note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::LookAt);
-        self.camera_yaw_target = None;
-        self.camera_yaw_duration = 0.0;
+        self.game_logic.session_view.camera.camera_yaw_target = None;
+        self.game_logic.session_view.camera.camera_yaw_duration = 0.0;
         self.game_logic.cancel_scripted_camera_from_player_look_at();
         #[cfg(feature = "game_client")]
         {
@@ -924,8 +969,8 @@ impl CnCGameEngine {
     }
 
     fn cancel_scripted_camera_from_player_scroll(&mut self) {
-        self.camera_yaw_target = None;
-        self.camera_yaw_duration = 0.0;
+        self.game_logic.session_view.camera.camera_yaw_target = None;
+        self.game_logic.session_view.camera.camera_yaw_duration = 0.0;
         #[cfg(feature = "game_client")]
         {
             game_client::display::view::with_tactical_view(|view| {
@@ -950,7 +995,13 @@ impl CnCGameEngine {
 
     /// C++ `W3DView::cameraEnableSlaveMode` + bone matrix slam.
     pub(in crate::cnc_game_engine) fn apply_host_slave_camera(&mut self) -> bool {
-        let Some(mode) = self.camera_slave_mode.clone() else {
+        let Some(mode) = self
+            .game_logic
+            .session_view
+            .camera
+            .camera_slave_mode
+            .clone()
+        else {
             return false;
         };
         let origin = self
@@ -978,20 +1029,20 @@ impl CnCGameEngine {
             return false;
         };
         if let Some(eye_pos) = eye {
-            self.camera_position = eye_pos;
+            self.game_logic.session_view.camera.camera_position = eye_pos;
             self.game_logic.session_view.target = look.unwrap_or(origin);
-            self.view_matrix = Mat4::look_at_rh(
-                self.camera_position,
+            self.game_logic.session_view.camera.view_matrix = Mat4::look_at_rh(
+                self.game_logic.session_view.camera.camera_position,
                 self.game_logic.session_view.target,
                 Vec3::Y,
             );
             true
         } else if !mode.bone_name.is_empty() {
             // Bone missing: still parent the camera at the unit, not an orbit look-at.
-            self.camera_position = origin + Vec3::Y * 2.0;
+            self.game_logic.session_view.camera.camera_position = origin + Vec3::Y * 2.0;
             self.game_logic.session_view.target = origin;
-            self.view_matrix = Mat4::look_at_rh(
-                self.camera_position,
+            self.game_logic.session_view.camera.view_matrix = Mat4::look_at_rh(
+                self.game_logic.session_view.camera.camera_position,
                 self.game_logic.session_view.target,
                 Vec3::Y,
             );
@@ -1047,11 +1098,14 @@ impl CnCGameEngine {
             return false;
         }
         let ideal = normalize_signed_angle(obj.orientation - std::f32::consts::FRAC_PI_2);
-        let diff = normalize_signed_angle(ideal - self.camera_yaw_radians);
+        let diff =
+            normalize_signed_angle(ideal - self.game_logic.session_view.camera.camera_yaw_radians);
         if diff.abs() < 1.0e-4 {
             return false;
         }
-        self.camera_yaw_radians = normalize_signed_angle(self.camera_yaw_radians + diff * 0.1);
+        self.game_logic.session_view.camera.camera_yaw_radians = normalize_signed_angle(
+            self.game_logic.session_view.camera.camera_yaw_radians + diff * 0.1,
+        );
         true
     }
 
@@ -1200,13 +1254,14 @@ impl CnCGameEngine {
     /// restore default angle/pitch/zoom. Does not retarget the command center.
     pub(in crate::cnc_game_engine) fn reset_camera_pose_in_place(&mut self) {
         // C++ setAngleAndPitchToDefault: m_pitchAngle = m_defaultPitchAngle.
-        self.camera_yaw_radians = 0.0;
-        self.camera_pitch_radians = self.ui_script_default_camera_pitch();
-        self.camera_yaw_target = None;
-        self.camera_pitch_target = None;
-        self.camera_zoom_target = None;
+        self.game_logic.session_view.camera.camera_yaw_radians = 0.0;
+        self.game_logic.session_view.camera.camera_pitch_radians =
+            self.ui_script_default_camera_pitch();
+        self.game_logic.session_view.camera.camera_yaw_target = None;
+        self.game_logic.session_view.camera.camera_pitch_target = None;
+        self.game_logic.session_view.camera.camera_zoom_target = None;
         // C++ W3DView::setAngleAndPitchToDefault / resetCamera: m_FXPitch = 1.0.
-        self.camera_fx_pitch = 1.0;
+        self.game_logic.session_view.camera.camera_fx_pitch = 1.0;
         if let Some(terrain) =
             self.native_camera_terrain_height_around(self.game_logic.session_view.target)
         {
@@ -1216,10 +1271,18 @@ impl CnCGameEngine {
                 data.max_camera_height,
                 self.ui_script_default_camera_max_height(),
             );
-            self.camera_zoom = self.native_camera.set_zoom_to_default(terrain, max_height);
+            self.game_logic.session_view.camera.camera_zoom = self
+                .game_logic
+                .session_view
+                .camera
+                .native_camera
+                .set_zoom_to_default(terrain, max_height);
         }
         // C++ resetCamera/setZoom invalidates m_cameraConstraint.
-        self.scripted_camera_constraint_widen = None;
+        self.game_logic
+            .session_view
+            .camera
+            .scripted_camera_constraint_widen = None;
         self.apply_camera_orbit_transform();
         if matches!(self.current_state, GameState::InGame | GameState::Paused) {
             self.update_mouse_world_position();
@@ -1246,9 +1309,9 @@ impl CnCGameEngine {
         if save {
             let loc = CameraViewLocation {
                 pos: self.game_logic.session_view.target,
-                yaw: self.camera_yaw_radians,
-                pitch: self.camera_pitch_radians,
-                zoom: self.camera_zoom,
+                yaw: self.game_logic.session_view.camera.camera_yaw_radians,
+                pitch: self.game_logic.session_view.camera.camera_pitch_radians,
+                zoom: self.game_logic.session_view.camera.camera_zoom,
             };
             self.look_at_modes.views[slot] = Some(loc);
             self.camera_view_bookmarks[slot] = Some(loc.pos);
@@ -1257,12 +1320,13 @@ impl CnCGameEngine {
         } else if let Some(loc) = self.look_at_modes.views[slot] {
             let clamped = self.clamp_to_world_bounds(loc.pos);
             self.game_logic.session_view.target = clamped;
-            self.camera_yaw_radians = loc.yaw;
-            self.camera_pitch_radians = super::super::camera_height::clamp_pitch(loc.pitch);
-            self.camera_zoom = clamp_w3d_zoom(loc.zoom);
-            self.camera_yaw_target = None;
-            self.camera_pitch_target = None;
-            self.camera_zoom_target = None;
+            self.game_logic.session_view.camera.camera_yaw_radians = loc.yaw;
+            self.game_logic.session_view.camera.camera_pitch_radians =
+                super::super::camera_height::clamp_pitch(loc.pitch);
+            self.game_logic.session_view.camera.camera_zoom = clamp_w3d_zoom(loc.zoom);
+            self.game_logic.session_view.camera.camera_yaw_target = None;
+            self.game_logic.session_view.camera.camera_pitch_target = None;
+            self.game_logic.session_view.camera.camera_zoom_target = None;
             self.apply_camera_orbit_transform();
             if matches!(self.current_state, GameState::InGame | GameState::Paused) {
                 self.update_mouse_world_position();

@@ -23,8 +23,12 @@ pub(super) fn encode_native_camera(
     {
         encode_filter_camera(
             camera,
-            engine.native_filter_scroll,
-            engine.native_filter_previous_target,
+            engine.game_logic.session_view.camera.native_filter_scroll,
+            engine
+                .game_logic
+                .session_view
+                .camera
+                .native_filter_previous_target,
         )
     }
     #[cfg(not(feature = "game_client"))]

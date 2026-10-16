@@ -954,17 +954,17 @@ impl CnCGameEngine {
         let in_shell_camera = self.shell_bypass_from_presentation(startup_camera_presentation);
         (
             self.game_logic.session_view.target,
-            self.camera_position,
-            self.camera_zoom,
-            self.native_camera,
+            self.game_logic.session_view.camera.camera_position,
+            self.game_logic.session_view.camera.camera_zoom,
+            self.game_logic.session_view.camera.native_camera,
         ) = Self::bootstrap_native_camera_for_loaded_map(
             in_shell_camera,
             self.current_player_id,
             startup_camera_defaults,
             startup_camera_presentation,
         );
-        self.camera_pitch_radians = 0.0;
-        self.camera_yaw_radians = 0.0;
+        self.game_logic.session_view.camera.camera_pitch_radians = 0.0;
+        self.game_logic.session_view.camera.camera_yaw_radians = 0.0;
         // W3DView::setCameraTransform calculates camera constraints when
         // lookAt/setZoomToDefault builds the initial pose. The match camera
         // must apply that same viewport inset before its first player scroll.
@@ -1421,7 +1421,7 @@ impl CnCGameEngine {
 
     pub(super) fn rebuild_tactical_projection(&mut self) {
         let (width, height) = self.tactical_viewport_size();
-        self.projection_matrix = perspective_rh_from_horizontal_fov(
+        self.game_logic.session_view.camera.projection_matrix = perspective_rh_from_horizontal_fov(
             DEFAULT_VIEW_FOV_RADIANS,
             width / height,
             DEFAULT_VIEW_NEAR_CLIP,
@@ -1430,58 +1430,48 @@ impl CnCGameEngine {
     }
 
     pub(super) fn parabolic_ease(param: f32, ease_in_time: f32, ease_out_time: f32) -> f32 {
-        let param = param.clamp(0.0, 1.0);
-        let mut in_t = ease_in_time.clamp(0.0, 1.0);
-        let out_t = 1.0 - ease_out_time.clamp(0.0, 1.0);
-        if in_t > out_t {
-            in_t = out_t;
-        }
-        let v0 = 1.0 + out_t - in_t;
-        if param < in_t {
-            if in_t <= 0.0 {
-                0.0
-            } else {
-                param * param / (v0 * in_t)
-            }
-        } else if param <= out_t {
-            // ParabolicEase.cpp uses double literal 2.0 here. Preserve its
-            // float subexpressions before promoting the surrounding arithmetic.
-            ((f64::from(in_t) + 2.0 * f64::from(param - in_t)) / f64::from(v0)) as f32
-        } else {
-            let numerator = f64::from(in_t)
-                + 2.0 * f64::from(out_t - in_t)
-                + (2.0 * f64::from(param - out_t) + f64::from(out_t * out_t)
-                    - f64::from(param * param))
-                    / f64::from(1.0 - out_t);
-            (numerator / f64::from(v0)) as f32
-        }
+        super::camera_motion::parabolic_ease(param, ease_in_time, ease_out_time)
     }
 
     /// The same source pose feeds rendering and transform-shaker observation.
     pub(super) fn native_camera_base_pose(&self) -> (Vec3, Vec3) {
         camera_orbit_pose(
-            &self.native_camera,
+            &self.game_logic.session_view.camera.native_camera,
             self.game_logic.session_view.target,
             self.game_logic.session_view.impulse.offset,
-            self.camera_zoom,
-            self.camera_pitch_radians,
-            self.camera_yaw_radians,
-            self.camera_fx_pitch,
+            self.game_logic.session_view.camera.camera_zoom,
+            self.game_logic.session_view.camera.camera_pitch_radians,
+            self.game_logic.session_view.camera.camera_yaw_radians,
+            self.game_logic.session_view.camera.camera_fx_pitch,
         )
     }
 
     pub(super) fn apply_camera_orbit_transform(&mut self) {
-        if self.camera_slave_mode.is_some() {
+        if self
+            .game_logic
+            .session_view
+            .camera
+            .camera_slave_mode
+            .is_some()
+        {
             return;
         }
         let (source, look) = self.native_camera_base_pose();
-        self.camera_position = source;
-        self.view_matrix = camera_orbit_view(source, look, self.camera_shake_rotation);
+        self.game_logic.session_view.camera.camera_position = source;
+        self.game_logic.session_view.camera.view_matrix = camera_orbit_view(
+            source,
+            look,
+            self.game_logic.session_view.camera.camera_shake_rotation,
+        );
     }
 
     /// C++ `W3DView::buildCameraTransform` FXPitch (W3DView.cpp:362-381).
     pub(super) fn camera_fx_adjusted_eye_and_look(&self, source: Vec3, look: Vec3) -> (Vec3, Vec3) {
-        camera_fx_pose(source, look, self.camera_fx_pitch)
+        camera_fx_pose(
+            source,
+            look,
+            self.game_logic.session_view.camera.camera_fx_pitch,
+        )
     }
 
     /// Catch camera mutations that arrived outside `update_camera` (minimap,
@@ -1490,35 +1480,50 @@ impl CnCGameEngine {
     pub(super) fn camera_transform_needs_rebuild(&self) -> bool {
         let expected = self.native_camera_base_pose().0;
         !expected.is_finite()
-            || !self.camera_position.is_finite()
-            || (self.camera_position - expected).length_squared() > 1.0e-6
+            || !self
+                .game_logic
+                .session_view
+                .camera
+                .camera_position
+                .is_finite()
+            || (self.game_logic.session_view.camera.camera_position - expected).length_squared()
+                > 1.0e-6
     }
 
     pub(super) fn sync_orbit_from_camera_transform(&mut self) {
         // Native v18 supplies a completed eye, not an unzoomed basis. Recover
         // angles against this map's existing basis; never absorb zoom/shake.
-        if let Some(pitch) = self.native_camera.basis().pitch_from_pose(
-            self.game_logic.session_view.target,
-            self.camera_position,
-            self.camera_zoom,
-            self.camera_yaw_radians,
-        ) {
-            self.camera_pitch_radians = pitch;
+        if let Some(pitch) = self
+            .game_logic
+            .session_view
+            .camera
+            .native_camera
+            .basis()
+            .pitch_from_pose(
+                self.game_logic.session_view.target,
+                self.game_logic.session_view.camera.camera_position,
+                self.game_logic.session_view.camera.camera_zoom,
+                self.game_logic.session_view.camera.camera_yaw_radians,
+            )
+        {
+            self.game_logic.session_view.camera.camera_pitch_radians = pitch;
         }
 
-        self.camera_pitch_target = None;
-        self.camera_pitch_start = self.camera_pitch_radians;
-        self.camera_pitch_duration = 0.0;
-        self.camera_pitch_frame = 0;
-        self.camera_pitch_ease_in = 0.0;
-        self.camera_pitch_ease_out = 0.0;
+        self.game_logic.session_view.camera.camera_pitch_target = None;
+        self.game_logic.session_view.camera.camera_pitch_start =
+            self.game_logic.session_view.camera.camera_pitch_radians;
+        self.game_logic.session_view.camera.camera_pitch_duration = 0.0;
+        self.game_logic.session_view.camera.camera_pitch_frame = 0;
+        self.game_logic.session_view.camera.camera_pitch_ease_in = 0.0;
+        self.game_logic.session_view.camera.camera_pitch_ease_out = 0.0;
 
-        self.camera_yaw_target = None;
-        self.camera_yaw_start = self.camera_yaw_radians;
-        self.camera_yaw_duration = 0.0;
-        self.camera_yaw_frame = 0;
-        self.camera_yaw_ease_in = 0.0;
-        self.camera_yaw_ease_out = 0.0;
+        self.game_logic.session_view.camera.camera_yaw_target = None;
+        self.game_logic.session_view.camera.camera_yaw_start =
+            self.game_logic.session_view.camera.camera_yaw_radians;
+        self.game_logic.session_view.camera.camera_yaw_duration = 0.0;
+        self.game_logic.session_view.camera.camera_yaw_frame = 0;
+        self.game_logic.session_view.camera.camera_yaw_ease_in = 0.0;
+        self.game_logic.session_view.camera.camera_yaw_ease_out = 0.0;
 
         self.apply_camera_orbit_transform();
     }
@@ -1527,23 +1532,27 @@ impl CnCGameEngine {
         // C++ pitchCamera lerps m_FXPitch (W3DView.cpp:2520-2531 / 3049-3068).
         let target = Self::script_pitch_is_fx_pitch(request.pitch);
 
-        self.camera_pitch_start = self.camera_fx_pitch;
-        self.camera_pitch_target = Some(target);
-        self.camera_pitch_duration = request.duration_seconds;
-        self.camera_pitch_frame = 0;
-        self.camera_pitch_ease_in = request.ease_in_seconds.max(0.0);
-        self.camera_pitch_ease_out = request.ease_out_seconds.max(0.0);
+        self.game_logic.session_view.camera.camera_pitch_start =
+            self.game_logic.session_view.camera.camera_fx_pitch;
+        self.game_logic.session_view.camera.camera_pitch_target = Some(target);
+        self.game_logic.session_view.camera.camera_pitch_duration = request.duration_seconds;
+        self.game_logic.session_view.camera.camera_pitch_frame = 0;
+        self.game_logic.session_view.camera.camera_pitch_ease_in = request.ease_in_seconds.max(0.0);
+        self.game_logic.session_view.camera.camera_pitch_ease_out =
+            request.ease_out_seconds.max(0.0);
     }
 
     pub(super) fn apply_script_camera_rotate_request(&mut self, request: CameraRotateRequest) {
-        let target_yaw = self.camera_yaw_radians + request.rotations * TAU;
+        let target_yaw =
+            self.game_logic.session_view.camera.camera_yaw_radians + request.rotations * TAU;
 
-        self.camera_yaw_start = self.camera_yaw_radians;
-        self.camera_yaw_target = Some(target_yaw);
-        self.camera_yaw_duration = request.duration_seconds;
-        self.camera_yaw_frame = 0;
-        self.camera_yaw_ease_in = request.ease_in_seconds.max(0.0);
-        self.camera_yaw_ease_out = request.ease_out_seconds.max(0.0);
+        self.game_logic.session_view.camera.camera_yaw_start =
+            self.game_logic.session_view.camera.camera_yaw_radians;
+        self.game_logic.session_view.camera.camera_yaw_target = Some(target_yaw);
+        self.game_logic.session_view.camera.camera_yaw_duration = request.duration_seconds;
+        self.game_logic.session_view.camera.camera_yaw_frame = 0;
+        self.game_logic.session_view.camera.camera_yaw_ease_in = request.ease_in_seconds.max(0.0);
+        self.game_logic.session_view.camera.camera_yaw_ease_out = request.ease_out_seconds.max(0.0);
     }
 
     /// Wave 568: InGame script FPS residual — prefer presentation freeze, always drain
@@ -1722,12 +1731,16 @@ impl CnCGameEngine {
             return;
         }
 
-        self.script_camera_shakers.push(ScriptCameraShaker::new(
-            request.position,
-            request.radius,
-            request.duration_seconds,
-            request.amplitude,
-        ));
+        self.game_logic
+            .session_view
+            .camera
+            .script_camera_shakers
+            .push(ScriptCameraShaker::new(
+                request.position,
+                request.radius,
+                request.duration_seconds,
+                request.amplitude,
+            ));
     }
 
     pub(super) fn update_script_camera_shake(&mut self) -> bool {
@@ -1772,7 +1785,9 @@ impl CnCGameEngine {
         }
 
         let target_yaw = to_target.x.atan2(to_target.z);
-        let mut delta = Self::normalize_signed_angle(target_yaw - self.camera_yaw_radians);
+        let mut delta = Self::normalize_signed_angle(
+            target_yaw - self.game_logic.session_view.camera.camera_yaw_radians,
+        );
         if request.reverse_rotation {
             if delta >= 0.0 {
                 delta -= TAU;
@@ -1780,23 +1795,31 @@ impl CnCGameEngine {
                 delta += TAU;
             }
         }
-        let target_yaw = self.camera_yaw_radians + delta;
+        let target_yaw = self.game_logic.session_view.camera.camera_yaw_radians + delta;
 
         if request.duration_seconds > 0.0
-            && self.camera_yaw_target.is_some()
-            && self.camera_yaw_duration > 0.0
+            && self
+                .game_logic
+                .session_view
+                .camera
+                .camera_yaw_target
+                .is_some()
+            && self.game_logic.session_view.camera.camera_yaw_duration > 0.0
         {
-            self.camera_yaw_target = Some(target_yaw);
-            self.camera_yaw_duration = request.duration_seconds.max(self.camera_yaw_duration);
+            self.game_logic.session_view.camera.camera_yaw_target = Some(target_yaw);
+            self.game_logic.session_view.camera.camera_yaw_duration = request
+                .duration_seconds
+                .max(self.game_logic.session_view.camera.camera_yaw_duration);
             return;
         }
 
-        self.camera_yaw_start = self.camera_yaw_radians;
-        self.camera_yaw_target = Some(target_yaw);
-        self.camera_yaw_duration = request.duration_seconds;
-        self.camera_yaw_frame = 0;
-        self.camera_yaw_ease_in = request.ease_in_seconds.max(0.0);
-        self.camera_yaw_ease_out = request.ease_out_seconds.max(0.0);
+        self.game_logic.session_view.camera.camera_yaw_start =
+            self.game_logic.session_view.camera.camera_yaw_radians;
+        self.game_logic.session_view.camera.camera_yaw_target = Some(target_yaw);
+        self.game_logic.session_view.camera.camera_yaw_duration = request.duration_seconds;
+        self.game_logic.session_view.camera.camera_yaw_frame = 0;
+        self.game_logic.session_view.camera.camera_yaw_ease_in = request.ease_in_seconds.max(0.0);
+        self.game_logic.session_view.camera.camera_yaw_ease_out = request.ease_out_seconds.max(0.0);
     }
 
     /// Wave 611: via `host_center_camera_on`.
@@ -1838,9 +1861,9 @@ impl CnCGameEngine {
     fn host_center_camera_on_impl(&mut self, world_pos: Vec3, clamp_to_world: bool) {
         let (world_min, world_max) = self.presentation_world_bounds();
         let inset = native_camera_constraint_inset(
-            &self.native_camera,
-            self.view_matrix,
-            self.projection_matrix,
+            &self.game_logic.session_view.camera.native_camera,
+            self.game_logic.session_view.camera.view_matrix,
+            self.game_logic.session_view.camera.projection_matrix,
             self.tactical_viewport_size(),
         );
         let env = self
@@ -1851,11 +1874,15 @@ impl CnCGameEngine {
         self.game_logic.session_view.target = center_camera_target(
             world_pos,
             self.game_logic.session_view.target,
-            self.camera_position,
+            self.game_logic.session_view.camera.camera_position,
             world_min,
             world_max,
             inset,
-            &mut self.scripted_camera_constraint_widen,
+            &mut self
+                .game_logic
+                .session_view
+                .camera
+                .scripted_camera_constraint_widen,
             clamp_to_world,
             env,
         );
@@ -2118,9 +2145,9 @@ impl CnCGameEngine {
         // whose height excludes the control bar. Keep this viewport paired
         // with the tactical projection matrix used for the pick rays.
         let inset = native_camera_constraint_inset(
-            &self.native_camera,
-            self.view_matrix,
-            self.projection_matrix,
+            &self.game_logic.session_view.camera.native_camera,
+            self.game_logic.session_view.camera.view_matrix,
+            self.game_logic.session_view.camera.projection_matrix,
             self.tactical_viewport_size(),
         );
         constrain_camera_target_to_map(
@@ -2128,7 +2155,10 @@ impl CnCGameEngine {
             world_min,
             world_max,
             inset,
-            self.scripted_camera_constraint_widen,
+            self.game_logic
+                .session_view
+                .camera
+                .scripted_camera_constraint_widen,
         )
     }
 
@@ -2312,36 +2342,44 @@ impl CnCGameEngine {
         let (hud_w, hud_h) = super::types::render_surface_extent(&self.window);
         self.game_hud_mut().resize(hud_w, hud_h);
 
-        self.camera_position = Vec3::new(0.0, 200.0, 200.0);
+        self.game_logic.session_view.camera.camera_position = Vec3::new(0.0, 200.0, 200.0);
         self.game_logic.session_view.target = Vec3::new(0.0, 0.0, 0.0);
-        self.scripted_camera_constraint_widen = None;
-        self.camera_fx_pitch = 1.0;
-        self.camera_zoom = 1.0;
-        self.camera_zoom_target = None;
-        self.camera_zoom_start = self.camera_zoom;
-        self.camera_zoom_duration = 0.0;
-        self.camera_zoom_frame = 0;
-        self.camera_zoom_ease_in = 0.0;
-        self.camera_zoom_ease_out = 0.0;
+        self.game_logic
+            .session_view
+            .camera
+            .scripted_camera_constraint_widen = None;
+        self.game_logic.session_view.camera.camera_fx_pitch = 1.0;
+        self.game_logic.session_view.camera.camera_zoom = 1.0;
+        self.game_logic.session_view.camera.camera_zoom_target = None;
+        self.game_logic.session_view.camera.camera_zoom_start =
+            self.game_logic.session_view.camera.camera_zoom;
+        self.game_logic.session_view.camera.camera_zoom_duration = 0.0;
+        self.game_logic.session_view.camera.camera_zoom_frame = 0;
+        self.game_logic.session_view.camera.camera_zoom_ease_in = 0.0;
+        self.game_logic.session_view.camera.camera_zoom_ease_out = 0.0;
         self.game_logic.session_view.impulse.offset = Vec3::ZERO;
-        self.camera_shake_rotation = Vec3::ZERO;
+        self.game_logic.session_view.camera.camera_shake_rotation = Vec3::ZERO;
         self.game_logic.session_view.impulse.intensity = 0.0;
         self.game_logic.session_view.impulse.cosine = 0.0;
         self.game_logic.session_view.impulse.sine = 0.0;
-        self.script_camera_shakers.clear();
+        self.game_logic
+            .session_view
+            .camera
+            .script_camera_shakers
+            .clear();
         self.script_fps_limit = None;
         self.script_fps_limit_last_tick = None;
-        self.camera_slave_mode = None;
+        self.game_logic.session_view.camera.camera_slave_mode = None;
         let defaults = Self::configured_startup_camera_defaults();
-        self.native_camera = super::camera_height::CameraHeight::new(
+        self.game_logic.session_view.camera.native_camera = super::camera_height::CameraHeight::new(
             defaults.camera_height,
             defaults.pitch_degrees,
             defaults.yaw_degrees,
         );
-        self.camera_pitch_radians = 0.0;
-        self.camera_yaw_radians = 0.0;
-        self.camera_pitch_target = None;
-        self.camera_yaw_target = None;
+        self.game_logic.session_view.camera.camera_pitch_radians = 0.0;
+        self.game_logic.session_view.camera.camera_yaw_radians = 0.0;
+        self.game_logic.session_view.camera.camera_pitch_target = None;
+        self.game_logic.session_view.camera.camera_yaw_target = None;
         self.apply_camera_orbit_transform();
         self.rebuild_tactical_projection();
     }
@@ -2648,7 +2686,9 @@ End
         let transform = include_str!("camera_view_effects.rs");
         assert!(
             transform.contains("script_camera_shaker_rotations(shaker, eye)")
-                && transform.contains("self.camera_shake_rotation = rotation")
+                && transform.contains(
+                    "self.game_logic.session_view.camera.camera_shake_rotation = rotation"
+                )
                 && transform.contains("SHAKE_AXIS_PITCH")
         );
         assert!(!body.contains("offset.x += phase_a.sin() * magnitude"));
@@ -2731,20 +2771,22 @@ End
             .find("pub(super) fn apply_script_camera_rotate_request(")
             .map(|offset| request_start + offset)
             .unwrap();
-        let request = &src[request_start..request_end];
+        let request: String = src[request_start..request_end].split_whitespace().collect();
         assert!(
-            request.contains("self.camera_pitch_start = self.camera_fx_pitch")
-                && request.contains("self.camera_pitch_target = Some(target)")
+            request.contains("self.game_logic.session_view.camera.camera_pitch_start=self.game_logic.session_view.camera.camera_fx_pitch")
+                && request.contains("self.game_logic.session_view.camera.camera_pitch_target=Some(target)")
         );
         assert!(
-            !request.contains("self.camera_fx_pitch = target")
-                && !request.contains("duration <= 0"),
+            !request.contains("self.game_logic.session_view.camera.camera_fx_pitch=target")
+                && !request.contains("duration<=0"),
             "request intake retains a target even for zero-duration movement"
         );
         let view = include_str!("camera_view_effects.rs");
+        assert!(view.contains("advance_scalar_movements("));
+        let owner = include_str!("../presentation_frame/session_view/camera.rs");
         assert!(
-            view.contains("value: &mut self.camera_fx_pitch")
-                && !view.contains("value: &mut self.camera_pitch_radians")
+            owner.contains("value: &mut self.camera_fx_pitch")
+                && !owner.contains("value: &mut self.camera_pitch_radians")
         );
         let (mut fx_pitch, mut target, mut elapsed) =
             (1., Some(CnCGameEngine::script_pitch_is_fx_pitch(2.)), 0);

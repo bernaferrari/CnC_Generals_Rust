@@ -58,8 +58,12 @@ pub use script_camera::{
     mood_action_adjust,
 };
 pub(self) use script_camera::{
-    ParabolicEase, ScriptBroadcast, ScriptCameraMoveTo, ScriptCameraPathMove,
-    derive_objective_status, localized_objective_string, mission_objective_to_display,
+    ScriptBroadcast, derive_objective_status, localized_objective_string,
+    mission_objective_to_display,
+};
+
+pub(self) use crate::presentation_frame::scripted::path::{
+    ParabolicEase, ScriptCameraMoveTo, ScriptCameraPathMove,
 };
 
 // Split `impl GameLogic` chunks as real child modules (type-checked separately).

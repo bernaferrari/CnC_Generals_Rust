@@ -162,10 +162,7 @@ fn easing_uses_source_frame_ratio_and_receiving_fields_are_independent() {
         admitted(),
     );
     assert!(result.changed);
-    assert_eq!(
-        first.value,
-        super::super::CnCGameEngine::parabolic_ease(0.25, 0.5, 0.0)
-    );
+    assert_eq!(first.value, parabolic_ease(0.25, 0.5, 0.0));
     assert_eq!((peer.value, peer.frame, peer.target), (0.0, 0, Some(1.0)));
     peer.step(0.066, AxisKind::ZoomPitch, admitted());
     assert_eq!(first.frame, 1);

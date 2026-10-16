@@ -1139,7 +1139,9 @@ impl CnCGameEngine {
             render_frustum_culled: self.render_pipeline.debug_last_frustum_culled() as u32,
             camera_pos: format!(
                 "{:.1},{:.1},{:.1}",
-                self.camera_position.x, self.camera_position.y, self.camera_position.z
+                self.game_logic.session_view.camera.camera_position.x,
+                self.game_logic.session_view.camera.camera_position.y,
+                self.game_logic.session_view.camera.camera_position.z
             ),
             camera_target: format!(
                 "{:.1},{:.1},{:.1}",

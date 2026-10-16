@@ -122,19 +122,30 @@ impl CnCGameEngine {
     #[cfg(feature = "game_client")]
     pub(super) fn native_filter_render_scroll(&self) -> glam::Vec2 {
         projected_filter_scroll(
-            self.view_matrix,
-            self.projection_matrix,
-            self.native_filter_previous_target,
+            self.game_logic.session_view.camera.view_matrix,
+            self.game_logic.session_view.camera.projection_matrix,
+            self.game_logic
+                .session_view
+                .camera
+                .native_filter_previous_target,
             self.game_logic.session_view.target,
-            self.native_camera.basis().ground_level(),
+            self.game_logic
+                .session_view
+                .camera
+                .native_camera
+                .basis()
+                .ground_level(),
         )
     }
 
     #[cfg(feature = "game_client")]
     pub(super) fn reset_native_filter_selection(&mut self) {
         reset_filter_selection(&mut self.game_logic.session_view.filter);
-        self.native_filter_scroll = glam::Vec2::ZERO;
-        self.native_filter_previous_target = self.game_logic.session_view.target;
+        self.game_logic.session_view.camera.native_filter_scroll = glam::Vec2::ZERO;
+        self.game_logic
+            .session_view
+            .camera
+            .native_filter_previous_target = self.game_logic.session_view.target;
     }
 }
 
@@ -235,7 +246,8 @@ mod tests {
                 let mut position = Vec3::new(0., 400., -400.);
                 let mut view = Mat4::IDENTITY;
                 let mut widen = None;
-                let (_, target, impulse, mut cancellation, _) = world.split_filter_camera_owner();
+                let (_, target, impulse, mut cancellation, _, _) =
+                    world.split_filter_camera_owner();
                 let mut camera = NativeFilterCameraContext {
                     look_at_modes: &mut modes,
                     yaw_target: &mut yaw_target,
@@ -368,7 +380,7 @@ mod tests {
         let mut position = Vec3::new(0., 400., -400.);
         let mut view = Mat4::IDENTITY;
         let mut widen = None;
-        let (_, target, impulse, mut cancellation, _) = world.split_filter_camera_owner();
+        let (_, target, impulse, mut cancellation, _, _) = world.split_filter_camera_owner();
         let mut camera = NativeFilterCameraContext {
             look_at_modes: &mut modes,
             yaw_target: &mut yaw_target,

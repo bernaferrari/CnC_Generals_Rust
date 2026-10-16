@@ -1231,12 +1231,27 @@ fn camera_set_default_updates_script_camera_defaults() {
         });
     game_logic.evaluate_and_execute_scripts(0.0);
 
-    assert!((game_logic.script_default_camera_pitch - 0.8).abs() < f32::EPSILON);
     assert!(
-        game_logic.script_default_camera_angle.abs() < f32::EPSILON,
+        (game_logic.session_view.scripted.script_default_camera_pitch - 0.8).abs() < f32::EPSILON
+    );
+    assert!(
+        game_logic
+            .session_view
+            .scripted
+            .script_default_camera_angle
+            .abs()
+            < f32::EPSILON,
         "C++ W3DView::setDefaultView ignores the angle parameter"
     );
-    assert!((game_logic.script_default_camera_max_height - 2.0).abs() < f32::EPSILON);
+    assert!(
+        (game_logic
+            .session_view
+            .scripted
+            .script_default_camera_max_height
+            - 2.0)
+            .abs()
+            < f32::EPSILON
+    );
 }
 
 #[test]
@@ -1253,7 +1268,15 @@ fn camera_set_default_sanitizes_non_finite_max_height() {
         });
     game_logic.evaluate_and_execute_scripts(0.0);
 
-    assert!((game_logic.script_default_camera_max_height - 1.0).abs() < f32::EPSILON);
+    assert!(
+        (game_logic
+            .session_view
+            .scripted
+            .script_default_camera_max_height
+            - 1.0)
+            .abs()
+            < f32::EPSILON
+    );
 }
 
 #[test]
@@ -1270,8 +1293,22 @@ fn camera_set_default_allows_zero_max_height_scale_like_cpp() {
         });
     game_logic.evaluate_and_execute_scripts(0.0);
 
-    assert!(game_logic.script_default_camera_angle.abs() < f32::EPSILON);
-    assert!(game_logic.script_default_camera_max_height.abs() < f32::EPSILON);
+    assert!(
+        game_logic
+            .session_view
+            .scripted
+            .script_default_camera_angle
+            .abs()
+            < f32::EPSILON
+    );
+    assert!(
+        game_logic
+            .session_view
+            .scripted
+            .script_default_camera_max_height
+            .abs()
+            < f32::EPSILON
+    );
 }
 
 #[test]

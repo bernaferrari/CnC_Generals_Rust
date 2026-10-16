@@ -591,7 +591,7 @@ impl GameLogic {
         }
         self.session_view.pending_focus_previous_target = None;
         self.pending_camera_focus = Some(position);
-        self.script_camera_focus_estimate = position;
+        self.session_view.scripted.script_camera_focus_estimate = position;
     }
 
     /// Source waypoint movement saves the old logical View position before
@@ -625,17 +625,17 @@ impl GameLogic {
 
     fn player_camera_look_at_cancellation(&mut self) -> PlayerCameraLookAtCancellation<'_> {
         PlayerCameraLookAtCancellation {
-            move_to: &mut self.script_camera_move_to,
-            path: &mut self.script_camera_path,
+            move_to: &mut self.session_view.scripted.script_camera_move_to,
+            path: &mut self.session_view.scripted.script_camera_path,
             look_toward: &mut self.pending_camera_look_toward,
-            look_object: &mut self.script_look_toward_object_id,
-            look_hold: &mut self.script_look_toward_hold_seconds,
+            look_object: &mut self.session_view.scripted.script_look_toward_object_id,
+            look_hold: &mut self.session_view.scripted.script_look_toward_hold_seconds,
             focus: &mut self.pending_camera_focus,
             focus_origin: &mut self.session_view.pending_focus_previous_target,
             rotate: &mut self.pending_camera_rotate,
-            rotate_remaining: &mut self.script_camera_rotate_remaining,
-            zoom_remaining: &self.script_camera_zoom_remaining,
-            pitch_remaining: &self.script_camera_pitch_remaining,
+            rotate_remaining: &mut self.session_view.scripted.script_camera_rotate_remaining,
+            zoom_remaining: &self.session_view.scripted.script_camera_zoom_remaining,
+            pitch_remaining: &self.session_view.scripted.script_camera_pitch_remaining,
             hooks: &self.mission_scripts,
         }
     }
@@ -650,26 +650,28 @@ impl GameLogic {
         Vec3,
         PlayerCameraLookAtCancellation<'_>,
         &std::cell::RefCell<crate::presentation_frame::physics_visual_host::HostPhysicsVisualState>,
+        &mut crate::presentation_frame::camera::SessionCamera,
     ) {
         (
             &mut self.session_view.filter,
             &mut self.session_view.target,
             self.session_view.impulse.offset,
             PlayerCameraLookAtCancellation {
-                move_to: &mut self.script_camera_move_to,
-                path: &mut self.script_camera_path,
+                move_to: &mut self.session_view.scripted.script_camera_move_to,
+                path: &mut self.session_view.scripted.script_camera_path,
                 look_toward: &mut self.pending_camera_look_toward,
-                look_object: &mut self.script_look_toward_object_id,
-                look_hold: &mut self.script_look_toward_hold_seconds,
+                look_object: &mut self.session_view.scripted.script_look_toward_object_id,
+                look_hold: &mut self.session_view.scripted.script_look_toward_hold_seconds,
                 focus: &mut self.pending_camera_focus,
                 focus_origin: &mut self.session_view.pending_focus_previous_target,
                 rotate: &mut self.pending_camera_rotate,
-                rotate_remaining: &mut self.script_camera_rotate_remaining,
-                zoom_remaining: &self.script_camera_zoom_remaining,
-                pitch_remaining: &self.script_camera_pitch_remaining,
+                rotate_remaining: &mut self.session_view.scripted.script_camera_rotate_remaining,
+                zoom_remaining: &self.session_view.scripted.script_camera_zoom_remaining,
+                pitch_remaining: &self.session_view.scripted.script_camera_pitch_remaining,
                 hooks: &self.mission_scripts,
             },
             &self.host_physics_visuals,
+            &mut self.session_view.camera,
         )
     }
 
@@ -680,11 +682,11 @@ impl GameLogic {
     }
 
     fn clear_in_flight_scripted_camera_move(&mut self) {
-        self.script_camera_move_to = None;
-        self.script_camera_path = None;
+        self.session_view.scripted.script_camera_move_to = None;
+        self.session_view.scripted.script_camera_path = None;
         self.pending_camera_look_toward = None;
-        self.script_look_toward_object_id = None;
-        self.script_look_toward_hold_seconds = 0.0;
+        self.session_view.scripted.script_look_toward_object_id = None;
+        self.session_view.scripted.script_look_toward_hold_seconds = 0.0;
         self.pending_camera_focus = None;
         self.session_view.pending_focus_previous_target = None;
         self.mission_scripts.set_camera_movement_finished(true);
@@ -1092,11 +1094,11 @@ impl GameLogic {
     }
 
     pub fn script_default_camera_pitch(&self) -> f32 {
-        self.script_default_camera_pitch
+        self.session_view.scripted.script_default_camera_pitch
     }
 
     pub fn script_default_camera_max_height(&self) -> f32 {
-        self.script_default_camera_max_height
+        self.session_view.scripted.script_default_camera_max_height
     }
 
     pub fn visual_speed_multiplier(&self) -> f32 {
@@ -1107,7 +1109,7 @@ impl GameLogic {
         // C++ GameLogic.cpp3603 observes one View-owned freeze flag. Older
         // path continuation records also carry per-request metadata, but that
         // cannot re-arm the View after rotation/path completion cleared it.
-        self.script_camera_freeze_time && !self.camera_movement_finished()
+        self.session_view.scripted.script_camera_freeze_time && !self.camera_movement_finished()
     }
 
     pub fn take_camera_zoom_reset(&mut self) -> bool {
@@ -1250,9 +1252,9 @@ impl GameLogic {
     }
 
     pub fn set_camera_follow_object(&mut self, id: Option<ObjectId>) {
-        self.camera_follow_target = id;
+        self.session_view.scripted.camera_follow_target = id;
         if id.is_none() {
-            self.camera_tether_play = None;
+            self.session_view.scripted.camera_tether_play = None;
         }
         if let Some(oid) = id {
             if let Some(obj) = self.objects.get(&oid) {
@@ -1262,8 +1264,8 @@ impl GameLogic {
     }
 
     pub fn set_camera_tether_object(&mut self, id: ObjectId, snap_to_unit: bool, play: f32) {
-        self.camera_follow_target = Some(id);
-        self.camera_tether_play = Some(play.max(0.0));
+        self.session_view.scripted.camera_follow_target = Some(id);
+        self.session_view.scripted.camera_tether_play = Some(play.max(0.0));
         if snap_to_unit {
             if let Some(obj) = self.objects.get(&id) {
                 self.request_camera_focus(obj.get_position());
@@ -1272,21 +1274,21 @@ impl GameLogic {
     }
 
     pub fn peek_camera_tether_play(&self) -> Option<f32> {
-        self.camera_tether_play
+        self.session_view.scripted.camera_tether_play
     }
 
     pub fn camera_follow_object_id(&self) -> Option<ObjectId> {
-        self.camera_follow_target
+        self.session_view.scripted.camera_follow_target
     }
 
     pub fn camera_follow_target_position(&mut self) -> Option<Vec3> {
-        let target = self.camera_follow_target?;
+        let target = self.session_view.scripted.camera_follow_target?;
         let Some(obj) = self.objects.get(&target) else {
-            self.camera_follow_target = None;
+            self.session_view.scripted.camera_follow_target = None;
             return None;
         };
         if !obj.is_alive() {
-            self.camera_follow_target = None;
+            self.session_view.scripted.camera_follow_target = None;
             return None;
         }
         Some(obj.get_position())
@@ -1295,7 +1297,7 @@ impl GameLogic {
     /// Peek camera-follow world position without clearing the follow target.
     /// Used to freeze presentation residual each frame.
     pub fn peek_camera_follow_target_position(&self) -> Option<Vec3> {
-        let target = self.camera_follow_target?;
+        let target = self.session_view.scripted.camera_follow_target?;
         let obj = self.objects.get(&target)?;
         if !obj.is_alive() {
             return None;

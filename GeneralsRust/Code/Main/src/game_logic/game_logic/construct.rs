@@ -652,23 +652,6 @@ impl GameLogic {
             rebuild_hole_recon_deaths: 0,
             rebuild_hole_worker_restarts: 0,
             pending_camera_focus: None,
-            script_camera_focus_estimate: Vec3::ZERO,
-            script_camera_move_to: None,
-            script_camera_path: None,
-            camera_follow_target: None,
-            camera_tether_play: None,
-            script_look_toward_object_id: None,
-            script_look_toward_hold_seconds: 0.0,
-            script_default_camera_pitch: 0.0,
-            script_default_camera_angle: 0.0,
-            script_default_camera_max_height: 1.0,
-            script_camera_freeze_time_armed: false,
-            script_camera_freeze_time: false,
-            script_camera_rotate_remaining: 0.0,
-            script_camera_zoom_remaining: 0.0,
-            script_camera_pitch_remaining: 0.0,
-            script_camera_freeze_angle_armed: false,
-            script_camera_pending_final_speed_multiplier: None,
             visual_speed_multiplier: 1.0,
             script_time_frozen_by_script: false,
             pending_script_fps_limit: None,
@@ -1349,23 +1332,25 @@ impl GameLogic {
         self.last_radar_kind_time = [-10.0; 3];
         self.pending_camera_focus = None;
         self.session_view.pending_focus_previous_target = None;
-        self.script_camera_focus_estimate = Vec3::ZERO;
-        self.script_camera_move_to = None;
-        self.script_camera_path = None;
-        self.camera_follow_target = None;
-        self.camera_tether_play = None;
-        self.script_look_toward_object_id = None;
-        self.script_look_toward_hold_seconds = 0.0;
-        self.script_default_camera_pitch = 0.0;
-        self.script_default_camera_angle = 0.0;
-        self.script_default_camera_max_height = 1.0;
-        self.script_camera_freeze_time_armed = false;
-        self.script_camera_freeze_time = false;
-        self.script_camera_rotate_remaining = 0.0;
-        self.script_camera_zoom_remaining = 0.0;
-        self.script_camera_pitch_remaining = 0.0;
-        self.script_camera_freeze_angle_armed = false;
-        self.script_camera_pending_final_speed_multiplier = None;
+        self.session_view.scripted.script_camera_focus_estimate = Vec3::ZERO;
+        self.session_view.scripted.script_camera_move_to = None;
+        self.session_view.scripted.script_camera_path = None;
+        self.session_view.scripted.camera_follow_target = None;
+        self.session_view.scripted.camera_tether_play = None;
+        self.session_view.scripted.script_look_toward_object_id = None;
+        self.session_view.scripted.script_look_toward_hold_seconds = 0.0;
+        self.session_view.scripted.script_default_camera_pitch = 0.0;
+        self.session_view.scripted.script_default_camera_angle = 0.0;
+        self.session_view.scripted.script_default_camera_max_height = 1.0;
+        self.session_view.scripted.script_camera_freeze_time_armed = false;
+        self.session_view.scripted.script_camera_freeze_time = false;
+        self.session_view.scripted.script_camera_rotate_remaining = 0.0;
+        self.session_view.scripted.script_camera_zoom_remaining = 0.0;
+        self.session_view.scripted.script_camera_pitch_remaining = 0.0;
+        self.session_view.scripted.script_camera_freeze_angle_armed = false;
+        self.session_view
+            .scripted
+            .script_camera_pending_final_speed_multiplier = None;
         self.visual_speed_multiplier = 1.0;
         self.script_time_frozen_by_script = false;
         self.pending_script_fps_limit = None;

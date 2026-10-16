@@ -613,22 +613,27 @@ fn assert_remaining_effect(world: &GameLogic, kind: ScriptActionType, id: Object
     let look_point = Vec3::new(410.0, 10.0, 430.0);
     match kind {
         CameraFollowNamed => {
-            assert_eq!(world.camera_follow_target, Some(id));
+            assert_eq!(world.session_view.scripted.camera_follow_target, Some(id));
             assert_eq!(
                 world.peek_pending_camera_focus(),
                 Some(world.objects.get(&id).unwrap().get_position())
             );
         }
         CameraTetherNamed => {
-            assert_eq!(world.camera_follow_target, Some(id));
-            assert_eq!(world.camera_tether_play, Some(1.75));
+            assert_eq!(world.session_view.scripted.camera_follow_target, Some(id));
+            assert_eq!(world.session_view.scripted.camera_tether_play, Some(1.75));
         }
         CameraStopFollow | CameraStopTetherNamed => {
-            assert_eq!(world.camera_follow_target, None);
-            assert_eq!(world.camera_tether_play, None);
+            assert_eq!(world.session_view.scripted.camera_follow_target, None);
+            assert_eq!(world.session_view.scripted.camera_tether_play, None);
         }
         ResetCamera => {
-            let r = world.script_camera_move_to.as_ref().unwrap();
+            let r = world
+                .session_view
+                .scripted
+                .script_camera_move_to
+                .as_ref()
+                .unwrap();
             assert_eq!((r.target, r.total_time_seconds), (camera_point, 2.5));
             assert_eq!(
                 (
@@ -660,8 +665,8 @@ fn assert_remaining_effect(world: &GameLogic, kind: ScriptActionType, id: Object
             );
             assert_eq!(
                 (
-                    world.script_look_toward_object_id,
-                    world.script_look_toward_hold_seconds
+                    world.session_view.scripted.script_look_toward_object_id,
+                    world.session_view.scripted.script_look_toward_hold_seconds
                 ),
                 (Some(id.0), 2.0)
             );
@@ -685,9 +690,9 @@ fn assert_remaining_effect(world: &GameLogic, kind: ScriptActionType, id: Object
         ),
         CameraSetDefault => assert_eq!(
             (
-                world.script_default_camera_pitch,
-                world.script_default_camera_angle,
-                world.script_default_camera_max_height
+                world.session_view.scripted.script_default_camera_pitch,
+                world.session_view.scripted.script_default_camera_angle,
+                world.session_view.scripted.script_default_camera_max_height
             ),
             (0.45, 0.0, 700.0)
         ),
@@ -775,8 +780,8 @@ fn actual_main_each_remaining_camera_action_preserves_its_own_effect() {
                         ScriptActionType::CameraStopFollow
                             | ScriptActionType::CameraStopTetherNamed
                     ) {
-                        active.camera_follow_target = Some(id);
-                        active.camera_tether_play = Some(2.0);
+                        active.session_view.scripted.camera_follow_target = Some(id);
+                        active.session_view.scripted.camera_tether_play = Some(2.0);
                     }
                     active.cinematic_letterbox = kind == ScriptActionType::CameraLetterboxEnd;
                     active.script_skybox_enabled = kind == ScriptActionType::DrawSkyboxEnd;
@@ -855,16 +860,19 @@ fn missing_camera_targets_are_no_ops_on_both_worlds() {
                     }
                 }
             }
-            first.camera_follow_target = Some(id);
-            first.camera_tether_play = Some(4.0);
+            first.session_view.scripted.camera_follow_target = Some(id);
+            first.session_view.scripted.camera_tether_play = Some(4.0);
             let mut list = ScriptList::new();
             list.append_script(script("MissingTargets", actions, true));
             run(&mut first, engine(second.mission_scripts.clone(), list));
             assert_eq!(
-                (first.camera_follow_target, first.camera_tether_play),
+                (
+                    first.session_view.scripted.camera_follow_target,
+                    first.session_view.scripted.camera_tether_play
+                ),
                 (Some(id), Some(4.0))
             );
-            assert!(first.script_camera_move_to.is_none());
+            assert!(first.session_view.scripted.script_camera_move_to.is_none());
             assert!(first.pending_camera_look_toward.is_none());
             assert!(first.pending_camera_zoom.is_none());
             assert!(first.pending_camera_pitch.is_none());

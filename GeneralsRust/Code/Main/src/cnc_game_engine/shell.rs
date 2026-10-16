@@ -1104,10 +1104,14 @@ impl CnCGameEngine {
             .unwrap_or(target.y);
         // ResetCamera asks for a destination zoom, without changing the map
         // basis or desired HAG. Script max-height is a View multiplier.
-        self.native_camera.default_zoom(
-            terrain_height_max,
-            defaults.max_camera_height * max_height_scale,
-        )
+        self.game_logic
+            .session_view
+            .camera
+            .native_camera
+            .default_zoom(
+                terrain_height_max,
+                defaults.max_camera_height * max_height_scale,
+            )
     }
 
     pub(super) fn write_startup_debug_state(&self) {
@@ -2082,30 +2086,39 @@ impl CnCGameEngine {
             let in_shell_camera = self.shell_bypass_from_presentation(startup_camera_presentation);
             (
                 self.game_logic.session_view.target,
-                self.camera_position,
-                self.camera_zoom,
-                self.native_camera,
+                self.game_logic.session_view.camera.camera_position,
+                self.game_logic.session_view.camera.camera_zoom,
+                self.game_logic.session_view.camera.native_camera,
             ) = Self::bootstrap_native_camera_for_loaded_map(
                 in_shell_camera,
                 self.current_player_id,
                 startup_camera_defaults,
                 startup_camera_presentation,
             );
-            self.camera_pitch_radians = 0.0;
-            self.camera_yaw_radians = 0.0;
-            let (_, render_look) = self.native_camera.basis().pose(
-                self.game_logic.session_view.target,
-                self.camera_zoom,
-                0.0,
-                0.0,
+            self.game_logic.session_view.camera.camera_pitch_radians = 0.0;
+            self.game_logic.session_view.camera.camera_yaw_radians = 0.0;
+            let (_, render_look) = self
+                .game_logic
+                .session_view
+                .camera
+                .native_camera
+                .basis()
+                .pose(
+                    self.game_logic.session_view.target,
+                    self.game_logic.session_view.camera.camera_zoom,
+                    0.0,
+                    0.0,
+                );
+            self.game_logic.session_view.camera.view_matrix = glam::Mat4::look_at_rh(
+                self.game_logic.session_view.camera.camera_position,
+                render_look,
+                glam::Vec3::Y,
             );
-            self.view_matrix =
-                glam::Mat4::look_at_rh(self.camera_position, render_look, glam::Vec3::Y);
             let terrain_warm_started = Instant::now();
-            if let Err(err) = self
-                .render_pipeline
-                .warm_loaded_terrain(&self.view_matrix, &self.projection_matrix)
-            {
+            if let Err(err) = self.render_pipeline.warm_loaded_terrain(
+                &self.game_logic.session_view.camera.view_matrix,
+                &self.game_logic.session_view.camera.projection_matrix,
+            ) {
                 warn!("Shell terrain warmup failed: {err}");
             } else {
                 info!(

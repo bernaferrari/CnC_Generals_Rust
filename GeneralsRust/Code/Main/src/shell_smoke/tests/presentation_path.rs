@@ -472,14 +472,18 @@ fn presentation_camera_follow_residual() {
     );
     // The receiving camera saves its own previous logical target for the
     // filter's scroll delta. This is bookkeeping, not a live follow lookup.
-    let save_previous_target =
-        "self.native_filter_previous_target = self.game_logic.session_view.target;";
+    let compact: String = follow.split_whitespace().collect();
+    let save_previous_target = "self.game_logic.session_view.camera.native_filter_previous_target=self.game_logic.session_view.target;";
     assert_eq!(
-        follow.matches(save_previous_target).count(),
+        compact.matches(save_previous_target).count(),
         1,
         "follow must save only the receiving camera's previous target"
     );
-    let follow_without_bookkeeping = follow.replacen(save_previous_target, "", 1);
+    // Camera fields now live under the session; accessing this exact owner is
+    // independent of looking up live objects for the follow position.
+    let follow_without_bookkeeping = compact
+        .replacen(save_previous_target, "", 1)
+        .replace("self.game_logic.session_view.camera.", "camera.");
     assert!(
         follow.contains(".map(|frame| (frame.camera_follow_position, frame.camera_tether_play))")
             && follow

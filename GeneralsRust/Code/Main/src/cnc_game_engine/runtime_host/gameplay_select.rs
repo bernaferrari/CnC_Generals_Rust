@@ -440,7 +440,7 @@ impl CnCGameEngine {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(1.0_f32)
                 .clamp(0.2_f32, 4.0_f32);
-            self.camera_zoom = z;
+            self.game_logic.session_view.camera.camera_zoom = z;
             self.cancel_scripted_camera_from_player_set();
             self.apply_camera_orbit_transform();
             self.runtime_host_last_gameplay_cmd = format!("camera_zoom_ok:{:.3}", z);

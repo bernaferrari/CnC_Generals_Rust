@@ -1,4 +1,4 @@
-//! Native continuation of the existing engine camera owner. Original View v1
+//! Native continuation of the session camera and native input adapter. Original View v1
 //! is unchanged; this payload retains state that original Xfer did not promise.
 use super::camera_height::CameraHeightContinuation;
 use super::mouse::LookAtContinuation;
@@ -146,18 +146,26 @@ impl NativeCameraContinuation {
 impl CnCGameEngine {
     pub(crate) fn capture_camera_continuation(&self) -> Result<Vec<u8>, String> {
         let now = Instant::now();
-        let inverse_view = self.view_matrix.inverse();
+        let inverse_view = self.game_logic.session_view.camera.view_matrix.inverse();
         let view = self.game_logic.session_view.capture();
         let state = CameraState {
             completed_eye: inverse_view.transform_point3(Vec3::ZERO),
             completed_forward: inverse_view.transform_vector3(Vec3::NEG_Z),
             completed_up: inverse_view.transform_vector3(Vec3::Y),
-            height: self.native_camera.capture_continuation(),
+            height: self
+                .game_logic
+                .session_view
+                .camera
+                .native_camera
+                .capture_continuation(),
             look_at: self.look_at_modes.capture_continuation(),
             display: self
                 .native_display
                 .capture_continuation(client_frame(self))?,
             slave: self
+                .game_logic
+                .session_view
+                .camera
                 .camera_slave_mode
                 .as_ref()
                 .map(|mode| (mode.thing_template_name.clone(), mode.bone_name.clone())),
@@ -166,39 +174,149 @@ impl CnCGameEngine {
                 .last_control_group_select
                 .map(|(group, time)| age(now, Some(time)).map(|value| (group, value.unwrap())))
                 .transpose()?,
-            camera_position: self.camera_position.clone(),
+            camera_position: self.game_logic.session_view.camera.camera_position.clone(),
             camera_target: view.target,
-            scripted_camera_constraint_widen: self.scripted_camera_constraint_widen.clone(),
-            camera_zoom: self.camera_zoom.clone(),
-            camera_zoom_target: self.camera_zoom_target.clone(),
-            camera_zoom_start: self.camera_zoom_start.clone(),
-            camera_zoom_duration: self.camera_zoom_duration.clone(),
-            camera_zoom_frame: self.camera_zoom_frame.clone(),
-            camera_zoom_ease_in: self.camera_zoom_ease_in.clone(),
-            camera_zoom_ease_out: self.camera_zoom_ease_out.clone(),
-            camera_pitch_radians: self.camera_pitch_radians.clone(),
-            camera_pitch_target: self.camera_pitch_target.clone(),
-            camera_pitch_start: self.camera_pitch_start.clone(),
-            camera_pitch_duration: self.camera_pitch_duration.clone(),
-            camera_pitch_frame: self.camera_pitch_frame.clone(),
-            camera_pitch_ease_in: self.camera_pitch_ease_in.clone(),
-            camera_pitch_ease_out: self.camera_pitch_ease_out.clone(),
-            camera_fx_pitch: self.camera_fx_pitch.clone(),
-            camera_yaw_radians: self.camera_yaw_radians.clone(),
-            camera_yaw_target: self.camera_yaw_target.clone(),
-            camera_yaw_start: self.camera_yaw_start.clone(),
-            camera_yaw_duration: self.camera_yaw_duration.clone(),
-            camera_yaw_frame: self.camera_yaw_frame.clone(),
-            camera_yaw_ease_in: self.camera_yaw_ease_in.clone(),
-            camera_yaw_ease_out: self.camera_yaw_ease_out.clone(),
+            scripted_camera_constraint_widen: self
+                .game_logic
+                .session_view
+                .camera
+                .scripted_camera_constraint_widen
+                .clone(),
+            camera_zoom: self.game_logic.session_view.camera.camera_zoom.clone(),
+            camera_zoom_target: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_zoom_target
+                .clone(),
+            camera_zoom_start: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_zoom_start
+                .clone(),
+            camera_zoom_duration: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_zoom_duration
+                .clone(),
+            camera_zoom_frame: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_zoom_frame
+                .clone(),
+            camera_zoom_ease_in: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_zoom_ease_in
+                .clone(),
+            camera_zoom_ease_out: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_zoom_ease_out
+                .clone(),
+            camera_pitch_radians: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_pitch_radians
+                .clone(),
+            camera_pitch_target: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_pitch_target
+                .clone(),
+            camera_pitch_start: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_pitch_start
+                .clone(),
+            camera_pitch_duration: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_pitch_duration
+                .clone(),
+            camera_pitch_frame: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_pitch_frame
+                .clone(),
+            camera_pitch_ease_in: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_pitch_ease_in
+                .clone(),
+            camera_pitch_ease_out: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_pitch_ease_out
+                .clone(),
+            camera_fx_pitch: self.game_logic.session_view.camera.camera_fx_pitch.clone(),
+            camera_yaw_radians: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_yaw_radians
+                .clone(),
+            camera_yaw_target: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_yaw_target
+                .clone(),
+            camera_yaw_start: self.game_logic.session_view.camera.camera_yaw_start.clone(),
+            camera_yaw_duration: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_yaw_duration
+                .clone(),
+            camera_yaw_frame: self.game_logic.session_view.camera.camera_yaw_frame.clone(),
+            camera_yaw_ease_in: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_yaw_ease_in
+                .clone(),
+            camera_yaw_ease_out: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_yaw_ease_out
+                .clone(),
             camera_shake_offset: view.offset,
-            camera_shake_rotation: self.camera_shake_rotation.clone(),
+            camera_shake_rotation: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_shake_rotation
+                .clone(),
             screen_shake_intensity: view.intensity,
             screen_shake_angle_cos: view.cosine,
             screen_shake_angle_sin: view.sine,
-            script_camera_shakers: self.script_camera_shakers.clone(),
+            script_camera_shakers: self
+                .game_logic
+                .session_view
+                .camera
+                .script_camera_shakers
+                .clone(),
             script_fps_limit: self.script_fps_limit.clone(),
-            camera_follow_factor: self.camera_follow_factor.clone(),
+            camera_follow_factor: self
+                .game_logic
+                .session_view
+                .camera
+                .camera_follow_factor
+                .clone(),
             host_match_camera_follow_active: self.host_match_camera_follow_active.clone(),
             host_match_camera_follow_position: self.host_match_camera_follow_position.clone(),
             host_match_camera_follow_id: self.host_match_camera_follow_id.clone(),
@@ -259,26 +377,34 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             let (scroll, previous_target) = continuation.1.unwrap_or_default();
-            self.native_filter_scroll = scroll;
-            self.native_filter_previous_target = previous_target;
+            self.game_logic.session_view.camera.native_filter_scroll = scroll;
+            self.game_logic
+                .session_view
+                .camera
+                .native_filter_previous_target = previous_target;
         }
         let state = continuation.0;
         let now = Instant::now();
-        self.native_camera.admit_continuation(state.height);
+        self.game_logic
+            .session_view
+            .camera
+            .native_camera
+            .admit_continuation(state.height);
         self.look_at_modes.admit_continuation(state.look_at);
         self.native_display
             .admit_continuation(state.display, client_frame(self));
-        self.camera_slave_mode = state.slave.map(|(thing_template_name, bone_name)| {
-            crate::game_logic::mission_scripts::CameraSlaveModeRequest {
-                thing_template_name,
-                bone_name,
-            }
-        });
+        self.game_logic.session_view.camera.camera_slave_mode =
+            state.slave.map(|(thing_template_name, bone_name)| {
+                crate::game_logic::mission_scripts::CameraSlaveModeRequest {
+                    thing_template_name,
+                    bone_name,
+                }
+            });
         self.last_context_cursor = state.cursor.as_deref().and_then(cursor_name);
         self.last_control_group_select = state
             .control_group_click
             .map(|(group, nanos)| (group, restore_age(now, Some(nanos)).unwrap()));
-        self.camera_position = state.camera_position;
+        self.game_logic.session_view.camera.camera_position = state.camera_position;
         self.game_logic
             .session_view
             .admit(crate::presentation_frame::SessionViewState {
@@ -289,33 +415,36 @@ impl CnCGameEngine {
                 offset: state.camera_shake_offset,
             })
             .expect("native CameraState was validated before commitment");
-        self.scripted_camera_constraint_widen = state.scripted_camera_constraint_widen;
-        self.camera_zoom = state.camera_zoom;
-        self.camera_zoom_target = state.camera_zoom_target;
-        self.camera_zoom_start = state.camera_zoom_start;
-        self.camera_zoom_duration = state.camera_zoom_duration;
-        self.camera_zoom_frame = state.camera_zoom_frame;
-        self.camera_zoom_ease_in = state.camera_zoom_ease_in;
-        self.camera_zoom_ease_out = state.camera_zoom_ease_out;
-        self.camera_pitch_radians = state.camera_pitch_radians;
-        self.camera_pitch_target = state.camera_pitch_target;
-        self.camera_pitch_start = state.camera_pitch_start;
-        self.camera_pitch_duration = state.camera_pitch_duration;
-        self.camera_pitch_frame = state.camera_pitch_frame;
-        self.camera_pitch_ease_in = state.camera_pitch_ease_in;
-        self.camera_pitch_ease_out = state.camera_pitch_ease_out;
-        self.camera_fx_pitch = state.camera_fx_pitch;
-        self.camera_yaw_radians = state.camera_yaw_radians;
-        self.camera_yaw_target = state.camera_yaw_target;
-        self.camera_yaw_start = state.camera_yaw_start;
-        self.camera_yaw_duration = state.camera_yaw_duration;
-        self.camera_yaw_frame = state.camera_yaw_frame;
-        self.camera_yaw_ease_in = state.camera_yaw_ease_in;
-        self.camera_yaw_ease_out = state.camera_yaw_ease_out;
-        self.camera_shake_rotation = state.camera_shake_rotation;
-        self.script_camera_shakers = state.script_camera_shakers;
+        self.game_logic
+            .session_view
+            .camera
+            .scripted_camera_constraint_widen = state.scripted_camera_constraint_widen;
+        self.game_logic.session_view.camera.camera_zoom = state.camera_zoom;
+        self.game_logic.session_view.camera.camera_zoom_target = state.camera_zoom_target;
+        self.game_logic.session_view.camera.camera_zoom_start = state.camera_zoom_start;
+        self.game_logic.session_view.camera.camera_zoom_duration = state.camera_zoom_duration;
+        self.game_logic.session_view.camera.camera_zoom_frame = state.camera_zoom_frame;
+        self.game_logic.session_view.camera.camera_zoom_ease_in = state.camera_zoom_ease_in;
+        self.game_logic.session_view.camera.camera_zoom_ease_out = state.camera_zoom_ease_out;
+        self.game_logic.session_view.camera.camera_pitch_radians = state.camera_pitch_radians;
+        self.game_logic.session_view.camera.camera_pitch_target = state.camera_pitch_target;
+        self.game_logic.session_view.camera.camera_pitch_start = state.camera_pitch_start;
+        self.game_logic.session_view.camera.camera_pitch_duration = state.camera_pitch_duration;
+        self.game_logic.session_view.camera.camera_pitch_frame = state.camera_pitch_frame;
+        self.game_logic.session_view.camera.camera_pitch_ease_in = state.camera_pitch_ease_in;
+        self.game_logic.session_view.camera.camera_pitch_ease_out = state.camera_pitch_ease_out;
+        self.game_logic.session_view.camera.camera_fx_pitch = state.camera_fx_pitch;
+        self.game_logic.session_view.camera.camera_yaw_radians = state.camera_yaw_radians;
+        self.game_logic.session_view.camera.camera_yaw_target = state.camera_yaw_target;
+        self.game_logic.session_view.camera.camera_yaw_start = state.camera_yaw_start;
+        self.game_logic.session_view.camera.camera_yaw_duration = state.camera_yaw_duration;
+        self.game_logic.session_view.camera.camera_yaw_frame = state.camera_yaw_frame;
+        self.game_logic.session_view.camera.camera_yaw_ease_in = state.camera_yaw_ease_in;
+        self.game_logic.session_view.camera.camera_yaw_ease_out = state.camera_yaw_ease_out;
+        self.game_logic.session_view.camera.camera_shake_rotation = state.camera_shake_rotation;
+        self.game_logic.session_view.camera.script_camera_shakers = state.script_camera_shakers;
         self.script_fps_limit = state.script_fps_limit;
-        self.camera_follow_factor = state.camera_follow_factor;
+        self.game_logic.session_view.camera.camera_follow_factor = state.camera_follow_factor;
         self.host_match_camera_follow_active = state.host_match_camera_follow_active;
         self.host_match_camera_follow_position = state.host_match_camera_follow_position;
         self.host_match_camera_follow_id = state.host_match_camera_follow_id;
@@ -365,7 +494,7 @@ impl CnCGameEngine {
         // Fast camera steps can change axes without committing the visible view.
         // Restore the completed semantic pose independently; never infer timers
         // or the fixed map basis from the saved eye.
-        self.view_matrix = glam::Mat4::look_at_rh(
+        self.game_logic.session_view.camera.view_matrix = glam::Mat4::look_at_rh(
             state.completed_eye,
             state.completed_eye + state.completed_forward,
             state.completed_up,

@@ -1500,7 +1500,12 @@ impl CnCGameEngine {
                 "DEMO_TOGGLE_ZOOM_LOCK" => {
                     // CommandXlat.cpp4867: toggle the driving View, not a
                     // process-global TacticalView selected by another session.
-                    let limited = self.native_camera.toggle_zoom_limited();
+                    let limited = self
+                        .game_logic
+                        .session_view
+                        .camera
+                        .native_camera
+                        .toggle_zoom_limited();
                     self.game_hud_mut().push_info_message(if limited {
                         "Camera Zoom Limit: ON"
                     } else {
