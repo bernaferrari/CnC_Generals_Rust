@@ -1297,49 +1297,71 @@ pub fn dispatch_armor_damage_fx(
     now: u32,
     source: Option<&HostDamageFxVictim>,
 ) -> Option<String> {
+    dispatch_armor_damage_fx_with_dispatch(
+        obj,
+        damage_type,
+        actual_damage,
+        now,
+        source,
+        &mut |obj, name, source| {
+            // Standalone compatibility retains its registered Common runtime
+            // and fallback, but neither definition guard spans this callback.
+            crate::game_logic::publish_host_fx_object_ex(
+                obj.id.0,
+                obj.get_position(),
+                obj.get_orientation(),
+                obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
+                crate::game_logic::host_supply_gather::host_bounding_circle_radius(
+                    obj.thing().template.geometry_info.authored,
+                    obj.thing().template.geometry_info.bounding_circle_radius(),
+                    obj.thing().geometry.radius.max(obj.selection_radius),
+                ),
+            );
+            let victim = snapshot_damage_fx_source(obj);
+            game_engine::common::ini::ini_damage_fx::DamageFX::execute_selected_fx_list(
+                name,
+                source.map(|value| value as &dyn game_engine::common::ini::ini_damage_fx::Object),
+                Some(&victim),
+            );
+        },
+    )
+}
+
+/// Select from immutable authored definitions, commit the original throttle,
+/// then execute one borrowed selected-list callback with no catalog guard.
+/// The callback receives the live victim to support synchronous reentry.
+pub(crate) fn dispatch_armor_damage_fx_with_dispatch(
+    obj: &mut crate::game_logic::Object,
+    damage_type: crate::game_logic::combat::DamageType,
+    actual_damage: f32,
+    now: u32,
+    source: Option<&HostDamageFxVictim>,
+    dispatch: &mut dyn FnMut(&mut crate::game_logic::Object, &str, Option<&HostDamageFxVictim>),
+) -> Option<String> {
     let flags = crate::game_logic::host_armor_residual::live_armor_set_flags(obj);
-    let Some(dfx_name) = find_best_armor_set_damage_fx(&obj.thing().template.armor_sets, flags)
-    else {
-        return None;
-    };
-    // C++ ActiveBody.cpp:309-315 — same type + now < next time → skip.
+    let dfx_name = find_best_armor_set_damage_fx(&obj.thing().template.armor_sets, flags)?;
     if obj.last_damage_fx_done == Some(damage_type) && now < obj.next_damage_fx_time {
         return None;
     }
     game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
-    crate::game_logic::publish_host_fx_object_ex(
-        obj.id.0,
-        obj.get_position(),
-        obj.get_orientation(),
-        obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
-        crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-            obj.thing().template.geometry_info.authored,
-            obj.thing().template.geometry_info.bounding_circle_radius(),
-            obj.thing().geometry.radius.max(obj.selection_radius),
-        ),
-    );
-
     let ini_dt = host_to_ini_damage_type(damage_type);
-    let victim = HostDamageFxVictim {
-        name: obj.template_name.clone(),
-        id: obj.id.0,
-        vet: veterancy_to_damage_fx_level(obj.experience.level),
-        pos: obj.get_position(),
-    };
-    // C++ DamageFX.cpp:61-93 — throttle + major/minor list use SOURCE veterancy.
-    // Missing source → LEVEL_REGULAR. Victim stays primary FX object.
-    let source_ref = source.map(|s| s as &dyn game_engine::common::ini::ini_damage_fx::Object);
+    let source_ref =
+        source.map(|value| value as &dyn game_engine::common::ini::ini_damage_fx::Object);
     let (list_name, throttle) = {
         let store = game_engine::common::ini::ini_damage_fx::get_damage_fx_store()?;
         let dfx = store.find_damage_fx(&dfx_name)?;
-        let throttle = dfx.get_damage_fx_throttle_time(ini_dt, source_ref);
-        let list = dfx.get_damage_fx_list(ini_dt, actual_damage, source_ref);
-        dfx.do_damage_fx(ini_dt, actual_damage, source_ref, Some(&victim));
-        (list, throttle)
+        (
+            dfx.get_damage_fx_list(ini_dt, actual_damage, source_ref),
+            dfx.get_damage_fx_throttle_time(ini_dt, source_ref),
+        )
     };
+    // ActiveBody.cpp:312-315 commits BEFORE doDamageFX. C++ UnsignedInt
+    // addition wraps; saturating here would change near-wrap expiry behavior.
     obj.last_damage_fx_done = Some(damage_type);
-    obj.next_damage_fx_time = now.saturating_add(throttle);
-    // Test observations must not accumulate strings in ordinary matches.
+    obj.next_damage_fx_time = now.wrapping_add(throttle);
+    if let Some(name) = list_name.as_deref() {
+        dispatch(obj, name, source);
+    }
     #[cfg(test)]
     {
         DISPATCHED_ARMOR_DAMAGE_FX.with(|v| v.borrow_mut().push(dfx_name.clone()));
@@ -1347,7 +1369,6 @@ pub fn dispatch_armor_damage_fx(
             DISPATCHED_ARMOR_DAMAGE_FX.with(|v| v.borrow_mut().push(list.clone()));
         }
     }
-    // dfx.do_damage_fx above already runs FXList::doFXObj exactly once.
     list_name.or(Some(dfx_name))
 }
 
@@ -1723,3 +1744,7 @@ mod tests {
         assert_eq!(fallback.z, 2.0);
     }
 }
+
+#[cfg(test)]
+#[path = "host_transition_damage_fx/armor_selection_tests.rs"]
+mod armor_selection_tests;

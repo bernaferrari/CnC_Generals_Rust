@@ -178,26 +178,39 @@ impl DamageApplication {
         victim: &mut Object,
         source: Option<&HostDamageFxVictim>,
     ) -> DamageAfterFx {
+        self.dispatch_damage_fx_with_body_fx(victim, source, &mut Object::standalone_body_fx)
+    }
+
+    pub(in crate::game_logic) fn dispatch_damage_fx_with_body_fx(
+        self,
+        victim: &mut Object,
+        source: Option<&HostDamageFxVictim>,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) -> DamageAfterFx {
         if let Self::Active(tail) = &self {
             assert_eq!(
                 tail.victim_id, victim.id,
                 "damage continuation victim identity changed"
             );
-            let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+            body_fx(
                 victim,
-                tail.fx_type,
-                tail.actual_damage,
-                tail.frame,
+                BodyStateFx::ArmorDamage {
+                    damage_type: tail.fx_type,
+                    actual_damage: tail.actual_damage,
+                    frame: tail.frame,
+                },
                 source,
             );
         }
         if let Self::Healing(tail) = &self {
             assert_eq!(tail.victim_id, victim.id);
-            let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+            body_fx(
                 victim,
-                tail.fx_type,
-                tail.actual_amount,
-                tail.frame,
+                BodyStateFx::ArmorDamage {
+                    damage_type: tail.fx_type,
+                    actual_damage: tail.actual_amount,
+                    frame: tail.frame,
+                },
                 source,
             );
         }
@@ -240,7 +253,7 @@ impl DamageApplication {
         self.complete_body_state_callbacks_with_body_fx(victim, source, body_fx);
         let callbacks = self.bridge_callbacks();
         let lethal = self.killed();
-        let after_fx = self.dispatch_damage_fx(victim, source);
+        let after_fx = self.dispatch_damage_fx_with_body_fx(victim, source, body_fx);
         let result = after_fx.finish_with_body_fx(victim, source, *repulsor_policy, body_fx);
         // Standalone adapters have no driving owner. Preserve their existing
         // deferred boundary while world callers consume callbacks directly.

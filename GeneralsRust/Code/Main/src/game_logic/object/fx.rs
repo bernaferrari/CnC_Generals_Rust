@@ -6,7 +6,15 @@ use crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent;
 pub(in crate::game_logic) enum BodyStateFx {
     Transition(HostTransitionDamageFxEvent),
     FxListDie,
-    ObjectPhase { name: String, at_object: bool },
+    ArmorDamage {
+        damage_type: crate::game_logic::combat::DamageType,
+        actual_damage: f32,
+        frame: u32,
+    },
+    ObjectPhase {
+        name: String,
+        at_object: bool,
+    },
 }
 
 pub(in crate::game_logic) type BodyStateFxReceiver<'a> = dyn FnMut(
@@ -26,6 +34,19 @@ impl Object {
                 object.queue_transition_damage_fx_event_with_source(event, source)
             }
             BodyStateFx::FxListDie => object.fire_fx_list_die(),
+            BodyStateFx::ArmorDamage {
+                damage_type,
+                actual_damage,
+                frame,
+            } => {
+                crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+                    object,
+                    damage_type,
+                    actual_damage,
+                    frame,
+                    source,
+                );
+            }
             BodyStateFx::ObjectPhase { name, at_object } => {
                 Self::standalone_object_fx(&name, object, at_object)
             }
@@ -111,6 +132,23 @@ impl crate::game_logic::GameLogic {
             BodyStateFx::Transition(event) => Self::execute_transition_damage_fx_with_view(
                 object, event, source, particles, frame, view,
             ),
+            BodyStateFx::ArmorDamage {
+                damage_type,
+                actual_damage,
+                frame,
+            } => {
+                Self::execute_armor_damage_fx_with_view(
+                    object,
+                    damage_type,
+                    actual_damage,
+                    frame,
+                    source,
+                    secondary,
+                    player,
+                    shroud,
+                    view,
+                );
+            }
             BodyStateFx::FxListDie => {
                 object.fire_fx_list_die_with_fx(&mut |name, object, at_object| {
                     Self::dispatch_object_die_fx_with_view(
@@ -124,6 +162,38 @@ impl crate::game_logic::GameLogic {
                 )
             }
         }
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(crate) fn execute_armor_damage_fx_with_view(
+        object: &mut Object,
+        damage_type: crate::game_logic::combat::DamageType,
+        actual_damage: f32,
+        frame: u32,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+        player: Option<u32>,
+        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        view: &mut game_client::fx_list::FxViewServices<'_>,
+    ) {
+        crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx_with_dispatch(
+            object,
+            damage_type,
+            actual_damage,
+            frame,
+            source,
+            &mut |object, name, source| {
+                let primary = Self::observe_host_fx_object(object, player, shroud);
+                let secondary = source.and_then(|source| {
+                    if source.id == primary.id {
+                        Some(&primary)
+                    } else {
+                        secondary.filter(|pose| pose.id == source.id)
+                    }
+                });
+                Self::dispatch_fx_list_at_object_with_view(name, &primary, secondary, view);
+            },
+        );
     }
 
     #[cfg(feature = "game_client")]

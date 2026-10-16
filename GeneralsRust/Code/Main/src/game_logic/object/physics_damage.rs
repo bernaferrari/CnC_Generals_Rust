@@ -82,8 +82,8 @@ impl PhysicsDamageServices<'_> {
             &mut *self.player_effects,
             &mut body_fx,
         );
-        // ArmorDamageFX's existing source/bookkeeping route is deliberately
-        // unchanged in this packet. Body effects receive the source above.
+        // The receiving callback now also executes ArmorDamage. The adapter
+        // supplies this request's current/self source, never retained history.
         application.finish_standalone_with_body_fx(victim, None, self.repulsors, &mut body_fx)
     }
 }
@@ -108,6 +108,30 @@ impl crate::game_logic::GameLogic {
                     BodyStateFx::Transition(event) => Self::execute_transition_damage_fx_with_view(
                         object, event, source, particles, frame, view,
                     ),
+                    BodyStateFx::ArmorDamage {
+                        damage_type,
+                        actual_damage,
+                        frame,
+                    } => {
+                        let secondary = source.and_then(|source| {
+                            sources
+                                .poses
+                                .iter()
+                                .flatten()
+                                .find(|pose| pose.id == source.id)
+                        });
+                        Self::execute_armor_damage_fx_with_view(
+                            object,
+                            damage_type,
+                            actual_damage,
+                            frame,
+                            source,
+                            secondary,
+                            player,
+                            shroud,
+                            view,
+                        );
+                    }
                     BodyStateFx::FxListDie => {
                         object.fire_fx_list_die_with_fx(&mut |name, object, at_object| {
                             if at_object {

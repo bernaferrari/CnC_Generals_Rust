@@ -616,7 +616,22 @@ mod tests {
             .find("pub fn take_dispatched_armor_damage_fx")
             .expect("armor take");
         let body = &armor[start..end];
-        assert!(body.contains("dfx.do_damage_fx"));
+        assert_eq!(
+            body.matches("DamageFX::execute_selected_fx_list(").count(),
+            1,
+            "standalone adapter executes exactly the selected list through Common"
+        );
+        assert_eq!(
+            body.matches("dispatch(obj, name, source)").count(),
+            1,
+            "borrowed native adapter has one selected-list callback"
+        );
+        assert!(
+            body.find("obj.next_damage_fx_time = now.wrapping_add(throttle)")
+                .unwrap()
+                < body.find("dispatch(obj, name, source)").unwrap(),
+            "CPP throttle commit precedes any synchronous nugget reentry"
+        );
         assert!(
             !body.contains("dispatch_fx_list_at_object"),
             "armor DamageFX must not leftover-doFXObj twice"

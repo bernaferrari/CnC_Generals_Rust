@@ -129,6 +129,9 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         {
             let player = self.local_player_id();
+            let armor_source = source_id
+                .and_then(|id| self.objects.get(&id))
+                .map(crate::game_logic::host_transition_damage_fx::snapshot_damage_fx_source);
             let secondaries = [source_id, previous_source].map(|id| {
                 id.and_then(|id| self.objects.get(&id)).map(|object| {
                     Self::observe_host_fx_object(object, player, self.world_services.shroud())
@@ -151,10 +154,28 @@ impl GameLogic {
                                        source: Option<
                         &crate::game_logic::host_transition_damage_fx::HostDamageFxVictim,
                     >| {
+                        // ArmorFX resolves this request's actual source at
+                        // its owner boundary, not a frozen ingress context.
+                        let source = if matches!(
+                            &effect,
+                            crate::game_logic::object::BodyStateFx::ArmorDamage { .. }
+                        ) {
+                            armor_source.as_ref()
+                        } else {
+                            source
+                        };
+                        let secondary_id = if matches!(
+                            &effect,
+                            crate::game_logic::object::BodyStateFx::ArmorDamage { .. }
+                        ) {
+                            source.map(|source| ObjectId(source.id))
+                        } else {
+                            object.last_damage_source
+                        };
                         let secondary = secondaries
                             .iter()
                             .flatten()
-                            .find(|pose| Some(ObjectId(pose.id)) == object.last_damage_source);
+                            .find(|pose| Some(ObjectId(pose.id)) == secondary_id);
                         Self::execute_body_state_fx_with_view(
                             object, effect, source, secondary, player, shroud, particles, frame,
                             view,
@@ -359,6 +380,10 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let begin_player = self.local_player_id();
         #[cfg(feature = "game_client")]
+        let begin_armor_source = source_id
+            .and_then(|id| self.objects.get(&id))
+            .map(crate::game_logic::host_transition_damage_fx::snapshot_damage_fx_source);
+        #[cfg(feature = "game_client")]
         let begin_secondaries = [source_id, previous_source].map(|id| {
             id.and_then(|id| self.objects.get(&id)).map(|object| {
                 Self::observe_host_fx_object(object, begin_player, self.world_services.shroud())
@@ -389,10 +414,26 @@ impl GameLogic {
                         Self::apply_body_player_effect(players, frame, &source_players, effect)
                     },
                     &mut |object, effect, source| {
+                        let source = if matches!(
+                            &effect,
+                            crate::game_logic::object::BodyStateFx::ArmorDamage { .. }
+                        ) {
+                            begin_armor_source.as_ref()
+                        } else {
+                            source
+                        };
+                        let secondary_id = if matches!(
+                            &effect,
+                            crate::game_logic::object::BodyStateFx::ArmorDamage { .. }
+                        ) {
+                            source.map(|source| ObjectId(source.id))
+                        } else {
+                            object.last_damage_source
+                        };
                         let secondary = begin_secondaries
                             .iter()
                             .flatten()
-                            .find(|pose| Some(ObjectId(pose.id)) == object.last_damage_source);
+                            .find(|pose| Some(ObjectId(pose.id)) == secondary_id);
                         Self::execute_body_state_fx_with_view(
                             object,
                             effect,
@@ -549,11 +590,52 @@ impl GameLogic {
             .map(crate::game_logic::host_transition_damage_fx::snapshot_damage_fx_source);
         // mark_object_for_destruction queues final removal; the synchronous
         // onDie boundary must leave the victim installed for its DamageFX.
-        let victim = self
-            .objects
-            .get_mut(&victim_id)
-            .expect("damage victim remains installed until destroy-list cleanup");
-        let after_fx = application.dispatch_damage_fx(victim, source.as_ref());
+        #[cfg(feature = "game_client")]
+        let armor_player = self.local_player_id();
+        #[cfg(feature = "game_client")]
+        let armor_secondary = application
+            .source_id()
+            .and_then(|id| self.objects.get(&id))
+            .map(|object| {
+                Self::observe_host_fx_object(object, armor_player, self.world_services.shroud())
+            });
+        #[cfg(feature = "game_client")]
+        let after_fx = Self::with_host_fx_view_parts(
+            &mut self.session_view,
+            armor_player,
+            self.world_services.shroud(),
+            |view| {
+                let victim = self
+                    .objects
+                    .get_mut(&victim_id)
+                    .expect("damage victim remains installed until destroy-list cleanup");
+                application.dispatch_damage_fx_with_body_fx(
+                    victim,
+                    source.as_ref(),
+                    &mut |object, effect, source| {
+                        Self::execute_body_state_fx_with_view(
+                            object,
+                            effect,
+                            source,
+                            armor_secondary.as_ref(),
+                            armor_player,
+                            self.world_services.shroud(),
+                            &mut self.combat_particles,
+                            self.frame,
+                            view,
+                        )
+                    },
+                )
+            },
+        );
+        #[cfg(not(feature = "game_client"))]
+        let after_fx = {
+            let victim = self
+                .objects
+                .get_mut(&victim_id)
+                .expect("damage victim remains installed until destroy-list cleanup");
+            application.dispatch_damage_fx(victim, source.as_ref())
+        };
         self.admit_object_drawable_deselection(victim_id);
         self.admit_host_radar_disabled_edges(victim_id);
         if after_fx.had_active_body() {

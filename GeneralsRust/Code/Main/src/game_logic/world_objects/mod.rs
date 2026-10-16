@@ -57,3 +57,6 @@ mod team_transfer_owner_tests;
 
 #[cfg(test)]
 mod produced_mine_order_tests;
+
+#[cfg(all(test, feature = "game_client"))]
+mod armor_fx_owner_tests;

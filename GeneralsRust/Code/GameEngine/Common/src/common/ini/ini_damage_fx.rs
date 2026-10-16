@@ -10,13 +10,13 @@ use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::common::audio::game_audio::{get_global_audio_manager, initialize_global_audio_manager};
 use crate::common::audio::AudioEventRts;
+use crate::common::audio::game_audio::{get_global_audio_manager, initialize_global_audio_manager};
 use crate::common::game_common::ObjectShroudStatus;
-use crate::common::ini::ini::{FieldParse, INIError, INIResult, INI};
+use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
 use crate::common::ini::ini_fx_list::{
-    fx_list_obj_runtime, fx_obj_is_visible, get_fx_list_store, record_dispatched_fx_nugget,
-    FXNugget,
+    FXNugget, fx_list_obj_runtime, fx_obj_is_visible, get_fx_list_store,
+    record_dispatched_fx_nugget,
 };
 
 /// Damage types enum
@@ -198,12 +198,14 @@ impl DamageFX {
         victim: Option<&dyn Object>,
     ) {
         if let Some(fx_list) = self.get_damage_fx_list(damage_type, damage_amount, source) {
-            self.execute_fx_list(&fx_list, source, victim);
+            Self::execute_selected_fx_list(&fx_list, source, victim);
         }
     }
 
-    fn execute_fx_list(
-        &self,
+    /// Execute an already selected list through the existing client runtime
+    /// and Common fallback. Selection/throttle owners can release definition
+    /// guards before admitting synchronous FX callbacks.
+    pub fn execute_selected_fx_list(
         fx_list_name: &str,
         source: Option<&dyn Object>,
         victim: Option<&dyn Object>,
@@ -230,7 +232,7 @@ impl DamageFX {
         }
 
         for nugget in &fx_list.nuggets {
-            self.dispatch_nugget(nugget, source, victim);
+            Self::dispatch_nugget(nugget, source, victim);
         }
     }
 
@@ -239,7 +241,6 @@ impl DamageFX {
     /// the nested FXList at each bone. Returns false when no bone runtime is
     /// registered or the victim exposes no bones (caller falls back).
     fn execute_fx_list_at_bones(
-        &self,
         nested: &str,
         bone_name: &str,
         victim: Option<&dyn Object>,
@@ -262,7 +263,7 @@ impl DamageFX {
                 FX_LIST_AT_BONE_POS_MAX_BONE_POINTS,
             );
             for _ in bones {
-                self.execute_fx_list(nested, None, Some(victim));
+                Self::execute_selected_fx_list(nested, None, Some(victim));
                 any = true;
             }
         }
@@ -270,7 +271,6 @@ impl DamageFX {
     }
 
     fn dispatch_nugget(
-        &self,
         nugget: &FXNugget,
         source: Option<&dyn Object>,
         victim: Option<&dyn Object>,
@@ -278,7 +278,7 @@ impl DamageFX {
         record_dispatched_fx_nugget(nugget.dispatched_kind());
         match nugget {
             FXNugget::Sound { name } => {
-                self.play_sound_nugget(name.as_str(), source, victim);
+                Self::play_sound_nugget(name.as_str(), source, victim);
             }
             FXNugget::FXListAtBonePos {
                 fx_name, bone_name, ..
@@ -287,11 +287,11 @@ impl DamageFX {
                 if !nested.is_empty() && !nested.eq_ignore_ascii_case("None") {
                     // C++ FXList.cpp:690-696 — doFxAtBones(primary, 0) then
                     // (primary, 1) walking BoneName, BoneName01…BoneName40.
-                    if !self.execute_fx_list_at_bones(nested, bone_name.as_str(), victim) {
+                    if !Self::execute_fx_list_at_bones(nested, bone_name.as_str(), victim) {
                         // No bone runtime / no bones (headless): C++ drawable
                         // absence also yields nothing; keep the prior center
                         // dispatch so Sound nuggets still fire.
-                        self.execute_fx_list(nested, source, victim);
+                        Self::execute_selected_fx_list(nested, source, victim);
                     }
                 }
             }
@@ -311,7 +311,6 @@ impl DamageFX {
     }
 
     fn play_sound_nugget(
-        &self,
         sound_name: &str,
         source: Option<&dyn Object>,
         victim: Option<&dyn Object>,
@@ -936,8 +935,8 @@ mod tests {
         // C++ DamageFX.cpp:73 → FXList::doFXObj (FXList.cpp:794-804).
         use crate::common::ascii_string::AsciiString;
         use crate::common::ini::ini_fx_list::{
-            clear_fx_list_obj_runtime, get_fx_list_store_mut, take_dispatched_fx_nuggets,
-            CameraShakeType, DispatchedFxNugget, FXList, ScorchType,
+            CameraShakeType, DispatchedFxNugget, FXList, ScorchType, clear_fx_list_obj_runtime,
+            get_fx_list_store_mut, take_dispatched_fx_nuggets,
         };
 
         clear_fx_list_obj_runtime();

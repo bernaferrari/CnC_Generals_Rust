@@ -364,15 +364,17 @@ impl Object {
                 });
             }
             let fx_type = fx_override.unwrap_or(damage_type);
-            let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+            body_fx(
                 self,
-                fx_type,
-                if context.is_kill() {
-                    self.health.current
-                } else {
-                    amount.max(0.0)
+                BodyStateFx::ArmorDamage {
+                    damage_type: fx_type,
+                    actual_damage: if context.is_kill() {
+                        self.health.current
+                    } else {
+                        amount.max(0.0)
+                    },
+                    frame: frame,
                 },
-                frame,
                 context.source(),
             );
             let _ = (source, death_type);
@@ -526,18 +528,19 @@ impl Object {
                                 selected_source: self.last_damage_source,
                             });
                         }
-                        let _ =
-                            crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
-                                self,
-                                fx_type,
-                                if context.is_kill() {
+                        body_fx(
+                            self,
+                            BodyStateFx::ArmorDamage {
+                                damage_type: fx_type,
+                                actual_damage: if context.is_kill() {
                                     self.health.current
                                 } else {
                                     amount.max(0.0)
                                 },
-                                frame,
-                                context.source(),
-                            );
+                                frame: frame,
+                            },
+                            context.source(),
+                        );
                         if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
                             player_effects(BodyPlayerEffect::NeutralVehicleSniped);
                         }
@@ -553,15 +556,17 @@ impl Object {
                             selected_source: self.last_damage_source,
                         });
                     }
-                    let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+                    body_fx(
                         self,
-                        fx_type,
-                        if context.is_kill() {
-                            self.health.current
-                        } else {
-                            amount.max(0.0)
+                        BodyStateFx::ArmorDamage {
+                            damage_type: fx_type,
+                            actual_damage: if context.is_kill() {
+                                self.health.current
+                            } else {
+                                amount.max(0.0)
+                            },
+                            frame: frame,
                         },
-                        frame,
                         context.source(),
                     );
                     if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
@@ -595,15 +600,17 @@ impl Object {
                     selected_source: self.last_damage_source,
                 });
             }
-            let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+            body_fx(
                 self,
-                fx_type,
-                if context.is_kill() {
-                    self.health.current
-                } else {
-                    amount.max(0.0)
+                BodyStateFx::ArmorDamage {
+                    damage_type: fx_type,
+                    actual_damage: if context.is_kill() {
+                        self.health.current
+                    } else {
+                        amount.max(0.0)
+                    },
+                    frame: frame,
                 },
-                frame,
                 context.source(),
             );
             let _ = (source, death_type);
@@ -633,15 +640,17 @@ impl Object {
                 });
             }
             let fx_type = fx_override.unwrap_or(damage_type);
-            let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+            body_fx(
                 self,
-                fx_type,
-                if context.is_kill() {
-                    self.health.current
-                } else {
-                    typed.max(0.0)
+                BodyStateFx::ArmorDamage {
+                    damage_type: fx_type,
+                    actual_damage: if context.is_kill() {
+                        self.health.current
+                    } else {
+                        typed.max(0.0)
+                    },
+                    frame: frame,
                 },
-                frame,
                 context.source(),
             );
             let _ = (source, death_type);
@@ -672,15 +681,17 @@ impl Object {
                 });
             }
             let fx_type = fx_override.unwrap_or(damage_type);
-            let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+            body_fx(
                 self,
-                fx_type,
-                if context.is_kill() {
-                    self.health.current
-                } else {
-                    amount.max(0.0)
+                BodyStateFx::ArmorDamage {
+                    damage_type: fx_type,
+                    actual_damage: if context.is_kill() {
+                        self.health.current
+                    } else {
+                        amount.max(0.0)
+                    },
+                    frame: frame,
                 },
-                frame,
                 context.source(),
             );
             let _ = (source, death_type);
@@ -1139,18 +1150,10 @@ impl Object {
                 );
         }
         if result.slave_damage_applied > 0.0 || result.swallowed {
-            let dealt = if result.swallowed {
-                0.0
-            } else {
-                result.slave_damage_applied
-            };
-            let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
-                self,
-                damage_type,
-                dealt,
-                frame,
-                context.source(),
-            );
+            // HiveStructureBody.cpp:45-112 returns after the slave/rider
+            // accepts damage, or after swallowing it with no effect. It does
+            // not execute the hive hull's ArmorFX in either consumed branch.
+            // Native slave Body/FX ownership remains a separate integration.
             return true;
         }
         false
