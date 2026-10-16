@@ -620,7 +620,9 @@ fn direct_scene_candidate_ledger_follows_real_item_production_before_forward_sor
         .replace("game_client::display::view_filter::", "")
         .replace("game_client::display::view::", "")
         .replace("game_client::display::shadow_pass::", "")
-        .replace("game_client::display::status_circle::", "");
+        .replace("game_client::display::status_circle::", "")
+        // Immutable receiving snow is a render input, never an owner lookup.
+        .replace("game_client::snow::SnowRenderState", "");
     assert!(
         execute.contains("Main owns this callback")
             && execute.contains("Vec<FrozenDirectDrawableSceneDecision>")
