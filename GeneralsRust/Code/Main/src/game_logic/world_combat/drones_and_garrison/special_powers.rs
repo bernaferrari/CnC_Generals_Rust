@@ -57,9 +57,28 @@ impl GameLogic {
             None => return false,
         };
         // Arm Neutron multi-blast residual at detonation (same as nuke impact).
-        let _ = self
-            .special_power_strikes
-            .spawn_neutron_slow_death_field(det_id, team, location, self.frame, 0);
+        #[cfg(feature = "game_client")]
+        {
+            let player = self.local_player_id();
+            let frame = self.frame;
+            let receiver = &mut self.special_power_strikes;
+            Self::with_host_fx_view_parts(
+                &mut self.session_view,
+                player,
+                self.world_services.shroud(),
+                |view| {
+                    receiver.spawn_neutron_slow_death_field_with_view(
+                        det_id, team, location, frame, 0, view,
+                    )
+                },
+            );
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = self
+                .special_power_strikes
+                .spawn_neutron_slow_death_field(det_id, team, location, self.frame, 0);
+        }
         // Presentation FX residual name on detonation object.
         if let Some(d) = self.objects.get_mut(&det_id) {
             d.pending_death_fx = Some(BAIKONUR_NUKE_FX.to_string());
@@ -721,3 +740,7 @@ impl GameLogic {
         }
     }
 }
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "baikonur_fx_owner_tests.rs"]
+mod baikonur_fx_owner_tests;

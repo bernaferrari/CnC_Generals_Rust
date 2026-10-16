@@ -2174,6 +2174,15 @@ impl GameLogic {
             .special_power_strikes
             .apply_due_beam_scorch_reveals(frame);
         for event in &scorch_events {
+            #[cfg(feature = "game_client")]
+            self.with_host_fx_view(|view| {
+                crate::game_logic::special_power_strikes::apply_particle_beam_scorch_and_ground_hit_fx_with_view(
+                    event.position,
+                    event.scorch_radius,
+                    view,
+                );
+            });
+            #[cfg(not(feature = "game_client"))]
             crate::game_logic::special_power_strikes::apply_particle_beam_scorch_and_ground_hit_fx(
                 event.position,
                 event.scorch_radius,
@@ -2990,3 +2999,7 @@ fn leftover_academy_special_power_template_name(
         _ => return None,
     })
 }
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "beam_fx_owner_tests.rs"]
+mod beam_fx_owner_tests;

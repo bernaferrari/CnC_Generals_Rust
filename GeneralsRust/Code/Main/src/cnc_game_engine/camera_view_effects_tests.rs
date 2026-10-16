@@ -419,3 +419,60 @@ fn admitted_zoom_matches_executed_cpp_mixed_precision_ease_trace() {
     assert_eq!(value, 1.3);
     assert!(target.is_none());
 }
+
+#[test]
+#[cfg(feature = "game_client")]
+fn receiving_impulse_component_ignores_hostile_core_and_interleaved_peer() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "receiving_impulse_component_ignores_hostile_core_and_interleaved_peer",
+        || {
+            use game_client::display::view::{CameraShakeType, Point3};
+            let mut rules = game_engine::common::global_data::read().clone();
+            rules.shake_normal_intensity = 2.;
+            rules.max_shake_intensity = 100.;
+            game_client::display::view::with_tactical_view(|view| {
+                view.reset_camera_shake();
+                view.set_position(&Point3::origin());
+                view.shake_with_services(
+                    &Point3::origin(),
+                    CameraShakeType::Normal,
+                    &rules,
+                    &mut |_, _| 0.,
+                );
+                view.tick_impulse_shake();
+                let hostile = view.impulse_shake_offset();
+                assert!(hostile.x != 0. || hostile.y != 0.);
+            });
+            let mut owner = LocalView::new().view;
+            let mut reference = LocalView::new().view;
+            let mut peer = LocalView::new().view;
+            peer.impulse.intensity = 12.;
+            for _ in 0..3 {
+                peer.advance_impulse();
+                let expected = reference.advance_impulse();
+                assert_eq!(owner.advance_impulse(), expected);
+                assert_eq!(owner.impulse.intensity, reference.impulse.intensity);
+                assert_eq!(owner.impulse.offset, reference.impulse.offset);
+            }
+            game_client::display::view::with_tactical_view_ref(|view| {
+                assert!(view.camera_shake_intensity() > 0.);
+            });
+        },
+    );
+}
+
+#[test]
+fn native_impulse_wiring_only_advances_receiving_owner() {
+    // Wiring evidence only; this does not execute CnCGameEngine or a GPU.
+    let source = include_str!("start_game.rs");
+    let start = source.find("fn update_script_camera_shake(").unwrap();
+    let end = start
+        + source[start..]
+            .find("pub(super) fn normalize_signed_angle")
+            .unwrap();
+    let body = &source[start..end];
+    assert!(body.contains("self.game_logic.session_view.advance_impulse()"));
+    assert!(!body.contains("with_tactical_view"));
+    assert!(!body.contains("impulse_shake_offset"));
+}

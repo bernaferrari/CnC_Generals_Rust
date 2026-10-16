@@ -1672,22 +1672,7 @@ impl CnCGameEngine {
 
     pub(super) fn update_script_camera_shake(&mut self) -> bool {
         let previous_offset = self.game_logic.session_view.impulse.offset;
-        let mut offset = self.game_logic.session_view.advance_impulse();
-
-        #[cfg(feature = "game_client")]
-        {
-            // Temporary retained Object-module adapter: unmigrated standalone
-            // callbacks still enqueue on Core's tactical View. Native receiving
-            // FX routes enqueue directly on session_view. Remove this sample only
-            // after every remaining producer has an explicit receiving view.
-            game_client::display::view::with_tactical_view_ref(|view| {
-                let impulse = view.impulse_shake_offset();
-                offset.x += impulse.x;
-                offset.z += impulse.y;
-            });
-        }
-
-        self.game_logic.session_view.impulse.offset = offset;
+        self.game_logic.session_view.advance_impulse();
         (self.game_logic.session_view.impulse.offset - previous_offset).length_squared() > 0.000001
     }
 
