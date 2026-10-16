@@ -4,6 +4,28 @@ use crate::game_logic::native_lifecycle::NativeLifecycleState;
 use crate::game_logic::{Team, ThingTemplate};
 use glam::Vec3;
 
+/// Walk known framed records only; never search arbitrary payload bytes.
+fn remove_structural_native_capsule(bytes: &mut Vec<u8>, target: &[u8; 4]) {
+    let mut offset = super::super::combat_projectile_persist::prefix_len(bytes).unwrap();
+    loop {
+        let tag: &[u8; 4] = bytes[offset..offset + 4].try_into().unwrap();
+        assert!(
+            [
+                b"CPRJ", b"BDKD", b"NLFC", b"ODIS", b"RDCK", b"OLST", b"NDIE"
+            ]
+            .contains(&tag)
+        );
+        let length =
+            u32::from_le_bytes(bytes[offset + 8..offset + 12].try_into().unwrap()) as usize;
+        let end = offset + 12 + length;
+        if tag == target {
+            bytes.drain(offset..end);
+            return;
+        }
+        offset = end;
+    }
+}
+
 fn template(name: &str, delay: u32) -> ThingTemplate {
     let mut parser = crate::assets::IniParser::new();
     parser.parse_ini_content(&format!(
@@ -52,6 +74,15 @@ fn encoded_native_modules_restore_fresh_and_in_place_without_constructor_draws()
             receiving
                 .templates
                 .insert(name.into(), template(name, 5000));
+        } else {
+            // The lifecycle capsule still reconstructs its own definitions.
+            // Die execution requires an independently admitted immutable roster.
+            let mut receiving_definition = ThingTemplate::new(name);
+            receiving_definition.native_die_declarations =
+                template(name, 5000).native_die_declarations;
+            receiving
+                .templates
+                .insert(name.into(), receiving_definition);
         }
         builder
             .restore_from_snapshot(&decoded, &mut receiving)
@@ -145,6 +176,9 @@ fn bound_empty_deceptive_name_stays_empty_after_fresh_encoded_restore() {
     let bytes = bincode_legacy::serialize(&saved).unwrap();
     let decoded = super::super::decode_bincode_world_snapshot(&bytes).unwrap();
     let mut receiving = GameLogic::new();
+    receiving
+        .templates
+        .insert(name.into(), source.templates[name].clone());
     builder
         .restore_from_snapshot(&decoded, &mut receiving)
         .unwrap();
@@ -182,26 +216,9 @@ fn old_singleton_load_resave_and_reload_keeps_one_legacy_adapter() {
     );
     let builder = super::super::SnapshotBuilder::new();
     let mut saved = builder.create_world_snapshot(&source).unwrap();
-    // Remove only the structurally framed NLFC segment to model a pre-native
-    // save, retaining CPRJ, BDKD and every subsequent companion verbatim.
-    let mut offset =
-        super::super::combat_projectile_persist::prefix_len(&saved.lifecycle_tail).unwrap();
-    for tag in [b"CPRJ", b"BDKD"] {
-        assert_eq!(&saved.lifecycle_tail[offset..offset + 4], tag);
-        let length = u32::from_le_bytes(
-            saved.lifecycle_tail[offset + 8..offset + 12]
-                .try_into()
-                .unwrap(),
-        ) as usize;
-        offset += 12 + length;
-    }
-    assert_eq!(&saved.lifecycle_tail[offset..offset + 4], b"NLFC");
-    let length = u32::from_le_bytes(
-        saved.lifecycle_tail[offset + 8..offset + 12]
-            .try_into()
-            .unwrap(),
-    ) as usize;
-    saved.lifecycle_tail.drain(offset..offset + 12 + length);
+    // A genuine pre-native save contains neither continuation capsule.
+    remove_structural_native_capsule(&mut saved.lifecycle_tail, b"NDIE");
+    remove_structural_native_capsule(&mut saved.lifecycle_tail, b"NLFC");
     let bytes = bincode_legacy::serialize(&saved).unwrap();
     let old = super::super::decode_bincode_world_snapshot(&bytes).unwrap();
     let mut receiving = GameLogic::new();
@@ -227,6 +244,13 @@ fn old_singleton_load_resave_and_reload_keeps_one_legacy_adapter() {
             final_world
                 .templates
                 .insert(name.into(), single_lifetime_template(name));
+        } else {
+            let mut receiving_definition = ThingTemplate::new(name);
+            receiving_definition.native_die_declarations =
+                single_lifetime_template(name).native_die_declarations;
+            final_world
+                .templates
+                .insert(name.into(), receiving_definition);
         }
         builder
             .restore_from_snapshot(&resaved, &mut final_world)
@@ -310,24 +334,8 @@ fn old_absence_imports_receiving_bound_empty_and_resaves_explicitly() {
     source.objects.get_mut(&id).unwrap().height_die = None;
     let builder = super::super::SnapshotBuilder::new();
     let mut old = builder.create_world_snapshot(&source).unwrap();
-    let mut offset =
-        super::super::combat_projectile_persist::prefix_len(&old.lifecycle_tail).unwrap();
-    for tag in [b"CPRJ", b"BDKD"] {
-        assert_eq!(&old.lifecycle_tail[offset..offset + 4], tag);
-        let length = u32::from_le_bytes(
-            old.lifecycle_tail[offset + 8..offset + 12]
-                .try_into()
-                .unwrap(),
-        ) as usize;
-        offset += 12 + length;
-    }
-    assert_eq!(&old.lifecycle_tail[offset..offset + 4], b"NLFC");
-    let length = u32::from_le_bytes(
-        old.lifecycle_tail[offset + 8..offset + 12]
-            .try_into()
-            .unwrap(),
-    ) as usize;
-    old.lifecycle_tail.drain(offset..offset + 12 + length);
+    remove_structural_native_capsule(&mut old.lifecycle_tail, b"NDIE");
+    remove_structural_native_capsule(&mut old.lifecycle_tail, b"NLFC");
     let mut receiving = GameLogic::new();
     let mut definition = ThingTemplate::new(name);
     definition.native_lifecycle_definitions = Some(Box::new([]));

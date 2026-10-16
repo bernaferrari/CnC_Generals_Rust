@@ -1,6 +1,8 @@
 //! Main GameLogic death dispatch, retained death phases, and destruction requests.
 //! C++ Object/Die modules: preserve their synchronous ordering on the driving owner.
 use super::*;
+#[path = "death/authored.rs"]
+mod authored;
 
 #[cfg(all(test, feature = "game_client"))]
 #[path = "structure_topple_fx_tests.rs"]
@@ -493,6 +495,16 @@ impl GameLogic {
     /// death. Already-started death retains its pending completion effects;
     /// a live direct request never manufactures an onDie operation.
     pub fn destroy_object(&mut self, id: ObjectId) {
+        self.request_object_destruction(id, None);
+    }
+
+    /// A synchronous authored Die callback retains its admitted death credit.
+    /// Public direct deletion carries none and never manufactures a death.
+    pub(in crate::game_logic) fn request_object_destruction(
+        &mut self,
+        id: ObjectId,
+        death_credit: Option<Team>,
+    ) {
         let Some(object) = self.objects.get(&id) else {
             return;
         };
@@ -504,7 +516,7 @@ impl GameLogic {
                 object.set_locomotor_goal_none();
                 object.movement.path.clear();
             }
-            self.enqueue_object_destruction(id, None);
+            self.enqueue_object_destruction(id, death_credit);
             self.apply_object_delete_callbacks(id);
         } else {
             self.destroy_live_object(id);
@@ -544,6 +556,25 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.status.on_die_started = true;
         }
+        if input.is_some()
+            && self
+                .objects
+                .get(&id)
+                .is_some_and(|object| object.thing().template.native_die_declarations.is_some())
+        {
+            self.run_authored_die_modules(
+                id,
+                killer,
+                input.expect("checked incoming death"),
+                topple_interpreter,
+            );
+            return;
+        }
+        self.fire_owned_fx_list_die(id);
+        if let Some(object) = self.objects.get_mut(&id) {
+            object.fire_create_object_die();
+        }
+        self.apply_pending_create_object_die(id);
         self.admit_object_drawable_deselection(id);
         self.assault_transport_give_final_orders(id);
         // C++ AIUpdate dtor / setCurrentVictim(NULL) + turret nuke on death.
@@ -1127,6 +1158,9 @@ impl GameLogic {
             };
             let (spawns, dmg, transfer, subdual, source) =
                 o.take_pending_create_object_die_spawns();
+            if let Some(index) = o.native_die_runtime.pending_create.take() {
+                o.native_die_runtime.completed.insert(index);
+            }
             (
                 spawns,
                 dmg,
@@ -1138,6 +1172,31 @@ impl GameLogic {
                 o.get_position(),
             )
         };
+        self.execute_create_object_die_spawns(
+            dying_id,
+            spawns,
+            transfer_dmg,
+            transfer,
+            subdual,
+            source,
+            team,
+            owner_player_id,
+            pos,
+        );
+    }
+
+    fn execute_create_object_die_spawns(
+        &mut self,
+        dying_id: ObjectId,
+        spawns: Vec<String>,
+        transfer_dmg: f32,
+        transfer: bool,
+        subdual: f32,
+        source: Option<ObjectId>,
+        team: Team,
+        owner_player_id: Option<u32>,
+        pos: Vec3,
+    ) {
         if spawns.is_empty() {
             return;
         }
@@ -1253,6 +1312,16 @@ impl GameLogic {
         incoming_source: Option<ObjectId>,
         topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
     ) -> bool {
+        self.try_begin_structure_die_with_override(id, incoming_source, topple_interpreter, None)
+    }
+
+    fn try_begin_structure_die_with_override(
+        &mut self,
+        id: ObjectId,
+        incoming_source: Option<ObjectId>,
+        topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        collapse_only: Option<bool>,
+    ) -> bool {
         let attacker_pos = {
             incoming_source.and_then(|sid| {
                 self.objects.get(&sid).map(|s| {
@@ -1302,21 +1371,26 @@ impl GameLogic {
                 )
             })
             .unwrap_or(false);
-        if collapse_done || topple_done {
+        if match collapse_only {
+            Some(true) => collapse_done,
+            Some(false) => topple_done,
+            None => collapse_done || topple_done,
+        } {
             return false;
         }
-        // Mid-animation: keep deferring destroy.
-        if obj
+        let collapse_active = obj
             .structure_collapse_data
             .as_ref()
-            .map(|d| d.is_active())
-            .unwrap_or(false)
-            || obj
-                .structure_topple_data
-                .as_ref()
-                .map(|d| d.is_active())
-                .unwrap_or(false)
-        {
+            .is_some_and(|data| data.is_active());
+        let topple_active = obj
+            .structure_topple_data
+            .as_ref()
+            .is_some_and(|data| data.is_active());
+        if match collapse_only {
+            Some(true) => collapse_active,
+            Some(false) => topple_active,
+            None => collapse_active || topple_active,
+        } {
             return true;
         }
         // Prefer StructureCollapse for civilian/prop peels; else StructureTopple.
@@ -1326,6 +1400,9 @@ impl GameLogic {
             fx_player,
             self.world_services.shroud(),
             |view| {
+                if collapse_only == Some(false) {
+                    return false;
+                }
                 obj.begin_structure_collapse_with_fx(frame, &mut |name, object, at_object| {
                     Self::dispatch_object_phase_fx_with_view(
                         name,
@@ -1339,9 +1416,9 @@ impl GameLogic {
             },
         );
         #[cfg(not(feature = "game_client"))]
-        let collapse_started = obj.begin_structure_collapse(frame);
-        if collapse_started {
-            return true;
+        let collapse_started = collapse_only != Some(false) && obj.begin_structure_collapse(frame);
+        if collapse_started || collapse_only == Some(true) {
+            return collapse_started;
         }
         if !obj.thing().template.authored_structure_topple {
             return false;

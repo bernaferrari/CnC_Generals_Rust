@@ -67,6 +67,9 @@ pub struct ThingTemplate {
     /// Not serialized into the historical positional template wire format.
     #[serde(skip)]
     pub(crate) client_module_declarations: Option<Box<[crate::assets::ClientModuleDeclaration]>>,
+    #[serde(skip)]
+    pub(crate) native_die_declarations:
+        Option<Box<[crate::game_logic::native_die_definition::NativeDieDeclaration]>>,
     pub max_health: f32,
     /// Rebound from receiving content or validated saved module identity.
     /// Preserve the historical positional ThingTemplate serialization.
@@ -746,6 +749,7 @@ impl ThingTemplate {
             veterancy_gain_creates: Vec::new(),
             radar_upgrade_rules: None,
             radar_extend_frames: None,
+            native_die_declarations: None,
             authored_instant_death: None,
             authored_slow_death: None,
             grant_upgrade_creates: Vec::new(),

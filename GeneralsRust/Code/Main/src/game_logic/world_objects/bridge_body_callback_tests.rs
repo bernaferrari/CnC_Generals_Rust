@@ -583,7 +583,12 @@ fn fuel_air_final_phase_finishes_linked_bridge_callbacks_before_returning() {
             data.initial_fx_queued = true;
             world.objects.get_mut(&gas).unwrap().fuel_air_gas_slow_death = Some(data);
             world.frame = 30;
+            let admitted_die = world.objects[&gas].status.on_die_started;
             world.update_fuel_air_gas_slow_death();
+            assert_eq!(
+                world.objects[&gas].status.on_die_started, admitted_die,
+                "FINAL destruction must not admit Object::onDie again"
+            );
             assert_eq!(world.fuel_air_gas_reg.final_detonations, 1);
             for id in [span, first, second] {
                 assert_eq!(world.objects[&id].health.current, 0.0);
@@ -598,6 +603,14 @@ fn fuel_air_final_phase_finishes_linked_bridge_callbacks_before_returning() {
                     .is_bridge_broken(span.0)
             );
             assert!(world.objects[&gas].status.destroyed);
+            assert_eq!(
+                world
+                    .objects_to_destroy
+                    .iter()
+                    .filter(|event| event.id == gas)
+                    .count(),
+                1
+            );
             assert!(crate::game_logic::host_bridge_behavior::drain_mirrors().is_empty());
             assert!(crate::game_logic::host_bridge_behavior::drain_death_links().is_empty());
         },

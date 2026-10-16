@@ -332,7 +332,10 @@ pub fn fx_list_die_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostFxListDieD
         .map(|s| s.to_string());
     HostFxListDieData {
         death_fx,
-        death_audio: None,
+        death_audio: get("DeathAudio")
+            .map(str::trim)
+            .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("None"))
+            .map(str::to_owned),
         orient_to_object: get("OrientToObject").and_then(parse_bool).unwrap_or(true),
         starts_active,
         upgrade_active: starts_active,

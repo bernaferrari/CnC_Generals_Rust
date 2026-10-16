@@ -126,9 +126,9 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+fn decode_payload(bytes: &[u8]) -> SaveLoadResult<Option<ObjectModuleXferPersistPayload>> {
     let Some(suffix) = find_oxfr_suffix(bytes) else {
-        return Ok(());
+        return Ok(None);
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
@@ -145,8 +145,62 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     }
     let payload: ObjectModuleXferPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("OXFR payload decode: {err}")))?;
-    apply_payload(game_logic, payload)?;
+    Ok(Some(payload))
+}
+
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+    if let Some(payload) = decode_payload(bytes)? {
+        apply_payload(game_logic, payload)?;
+    }
     Ok(())
+}
+
+/// Detached observations of the exact saved lifecycle flags, independent of HP.
+#[derive(Default)]
+pub(super) struct SavedDeathState {
+    pub started: bool,
+    pub effectively_dead: bool,
+}
+
+pub(super) fn saved_death_states(
+    bytes: &[u8],
+) -> SaveLoadResult<std::collections::HashMap<ObjectId, SavedDeathState>> {
+    let Some(payload) = decode_payload(bytes)? else {
+        return Ok(Default::default());
+    };
+    let mut states = std::collections::HashMap::<ObjectId, SavedDeathState>::new();
+    let mut started_ids = std::collections::HashSet::new();
+    for entry in payload.death_start {
+        let id = ObjectId(entry.object_id);
+        if !started_ids.insert(id) {
+            return Err(SaveLoadError::Corrupted(
+                "duplicate OXFR death-start owner".into(),
+            ));
+        }
+        states.entry(id).or_default().started = entry.on_die_started;
+    }
+    let mut retained_ids = std::collections::HashSet::new();
+    for entry in payload.retained_death {
+        let id = ObjectId(entry.object_id);
+        if !retained_ids.insert(id) {
+            return Err(SaveLoadError::Corrupted(
+                "duplicate OXFR retained-death owner".into(),
+            ));
+        }
+        states.entry(id).or_default().effectively_dead = entry.effectively_dead;
+    }
+    Ok(states)
+}
+
+/// Inspect saved reentry latches before detached native receipt validation.
+pub(super) fn saved_death_started_ids(
+    bytes: &[u8],
+) -> SaveLoadResult<std::collections::HashSet<ObjectId>> {
+    Ok(saved_death_states(bytes)?
+        .into_iter()
+        .filter(|(_, state)| state.started)
+        .map(|(id, _)| id)
+        .collect())
 }
 
 fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {

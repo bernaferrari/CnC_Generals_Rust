@@ -110,11 +110,15 @@ impl HostJetSlowDeathData {
 
     /// C++ onDie: ground/deck → FXOnGroundDeath + OCL + destroy same frame.
     pub fn begin(&mut self, height_above_terrain: f32, deck_height_offset: bool) {
+        self.begin_grounded(deck_height_offset || height_above_terrain <= JET_SIGNIFICANT_ALTITUDE);
+    }
+
+    /// The receiving Object supplies its actual gravity/terrain decision.
+    pub(crate) fn begin_grounded(&mut self, grounded: bool) {
         if self.active || self.done {
             return;
         }
-        self.started_on_ground =
-            deck_height_offset || height_above_terrain <= JET_SIGNIFICANT_ALTITUDE;
+        self.started_on_ground = grounded;
         self.hit_ground = self.started_on_ground;
         self.hit_ground_frame = 0;
         self.death_frame = 0;

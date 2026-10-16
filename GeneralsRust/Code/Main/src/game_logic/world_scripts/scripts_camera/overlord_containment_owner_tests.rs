@@ -217,6 +217,18 @@ fn overlord_on_die_deactivates_then_completes_installed_payload_before_removal()
 
 #[test]
 fn authored_payload_contain_death_precedes_instant_death_creation_callback() {
+    // Admit actual immutable OCLs before binding receiving Die definitions.
+    for name in ["RiderDeathWitness", "PayloadDeathWitness"] {
+        let mut list = gamelogic::object_creation_list::store::ObjectCreationList::new();
+        list.add_nugget(std::sync::Arc::new(
+            gamelogic::object_creation_list::GenericObjectCreationNugget {
+                names: vec![name.into()],
+                name_are_objects: true,
+                ..Default::default()
+            },
+        ));
+        gamelogic::helpers::TheObjectCreationListStore::register_object_creation_list(name, list);
+    }
     let mut parser = crate::assets::IniParser::new();
     parser
         .parse_ini_content(
@@ -268,6 +280,11 @@ End
     );
     assert_eq!(payload.contain_module.damage_percent_to_units, Some(1.0));
     let (mut owner, unit, hull, child) = world_with_authored_deaths(Some((infantry, payload)));
+    for name in ["RiderDeathWitness", "PayloadDeathWitness"] {
+        owner
+            .templates
+            .insert(name.into(), ThingTemplate::new(name));
+    }
     enter(&mut owner, unit, hull);
     assert!(
         owner

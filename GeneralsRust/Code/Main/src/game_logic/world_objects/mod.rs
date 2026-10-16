@@ -60,3 +60,6 @@ mod produced_mine_order_tests;
 
 #[cfg(all(test, feature = "game_client"))]
 mod armor_fx_owner_tests;
+
+#[cfg(all(test, feature = "game_client"))]
+mod authored_die_owner_tests;

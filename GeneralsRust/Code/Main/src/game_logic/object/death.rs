@@ -1,6 +1,51 @@
 use super::*;
 
 impl Object {
+    /// Bounded adapters cannot execute world callbacks. Complete only local
+    /// Die slots and leave the world latch untouched; shared slot receipts
+    /// prevent a later installed onDie from replaying delivered effects.
+    pub(in crate::game_logic) fn complete_standalone_die_with_body_fx(
+        &mut self,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) {
+        use crate::game_logic::native_die_definition::NativeDieKind;
+        let Some(declarations) = self.thing.template.native_die_declarations.clone() else {
+            body_fx(self, BodyStateFx::FxListDie, source);
+            self.fire_create_object_die();
+            // Physics performs the source-aware CrushDie callback once after
+            // its attemptDamage. Full-world onDie handles authored Crush slots.
+
+            return;
+        };
+        for declaration in declarations.iter() {
+            if self
+                .native_die_runtime
+                .completed
+                .contains(&declaration.source_index)
+                || !declaration.gate.allows(self, self.status.death_type)
+            {
+                continue;
+            }
+            match &declaration.kind {
+                NativeDieKind::Fx(fx) => {
+                    self.native_die_runtime
+                        .completed
+                        .insert(declaration.source_index);
+                    body_fx(self, BodyStateFx::FxListDieSlot(fx.configuration()), source);
+                }
+                NativeDieKind::Create {
+                    config: Some(config),
+                } if self.native_die_runtime.pending_create.is_none() => {
+                    self.create_object_die = Some(config.standalone_configuration());
+                    self.fire_create_object_die();
+                    self.native_die_runtime.pending_create = Some(declaration.source_index);
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// C++ StructureCollapseUpdate::onDie / beginStructureCollapse residual.
     pub fn begin_structure_collapse(&mut self, current_frame: u32) -> bool {
         self.begin_structure_collapse_with_fx(current_frame, &mut Self::standalone_object_fx)
@@ -415,6 +460,15 @@ impl Object {
         current_frame: u32,
         ini: &crate::game_logic::host_slow_death::HostSlowDeathIni,
     ) -> bool {
+        self.begin_slow_death_from_ini_with_removal(current_frame, ini, false)
+    }
+
+    pub(in crate::game_logic) fn begin_slow_death_from_ini_with_removal(
+        &mut self,
+        current_frame: u32,
+        ini: &crate::game_logic::host_slow_death::HostSlowDeathIni,
+        deletion_queued: bool,
+    ) -> bool {
         if self
             .slow_death
             .as_ref()
@@ -451,7 +505,9 @@ impl Object {
         self.target = None;
         self.selected = false;
         self.status.selected = false;
-        self.status.destroyed = false;
+        if !deletion_queued {
+            self.status.destroyed = false;
+        }
         true
     }
 
@@ -702,10 +758,19 @@ impl Object {
         dispatch: &mut dyn FnMut(&str, &Object, bool) -> bool,
     ) {
         self.ensure_fx_list_die();
-        let upgrades: Vec<String> = self.applied_upgrades.iter().cloned().collect();
-        let Some(fx) = self.fx_list_die.as_mut() else {
+        let Some(mut fx) = self.fx_list_die.take() else {
             return;
         };
+        self.fire_fx_list_die_config_with_fx(&mut fx, dispatch);
+        self.fx_list_die = Some(fx);
+    }
+
+    pub(in crate::game_logic) fn fire_fx_list_die_config_with_fx(
+        &mut self,
+        fx: &mut crate::game_logic::host_fx_list_die::HostFxListDieData,
+        dispatch: &mut dyn FnMut(&str, &Object, bool) -> bool,
+    ) {
+        let upgrades: Vec<String> = self.applied_upgrades.iter().cloned().collect();
         let hits = fx.collect_applicable_mux_hits(
             &upgrades,
             self.status.death_type,

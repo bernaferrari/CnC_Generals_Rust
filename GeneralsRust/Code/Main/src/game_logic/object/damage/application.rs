@@ -253,6 +253,11 @@ impl DamageApplication {
         self.complete_body_state_callbacks_with_body_fx(victim, source, body_fx);
         let callbacks = self.bridge_callbacks();
         let lethal = self.killed();
+        if lethal {
+            // Explicit bounded adapter: no world onDie admission latch. Physics
+            // and residual callers still need the full-world yield migration.
+            victim.complete_standalone_die_with_body_fx(source, body_fx);
+        }
         let after_fx = self.dispatch_damage_fx_with_body_fx(victim, source, body_fx);
         let result = after_fx.finish_with_body_fx(victim, source, *repulsor_policy, body_fx);
         // Standalone adapters have no driving owner. Preserve their existing

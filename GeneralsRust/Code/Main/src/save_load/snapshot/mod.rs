@@ -207,6 +207,7 @@ mod team_prototype_order_tests;
 
 mod body_kind_persist;
 mod combat_projectile_persist;
+mod native_die_persist;
 mod native_lifecycle_persist;
 mod object_order_persist;
 mod original_disabled_persist;

@@ -19,29 +19,34 @@ pub(super) struct TemporaryWeaponStoreFields {
     pub secondary_radius: f32,
 }
 
+impl TemporaryWeaponStoreFields {
+    pub(super) fn from_template(template: &gamelogic::weapon::WeaponTemplate) -> Self {
+        Self {
+            defaults: TemporaryWeaponConstructionDefaults {
+                min_target_pitch: template.min_target_pitch,
+                max_target_pitch: template.max_target_pitch,
+                shots_per_barrel: template.shots_per_barrel,
+                suspend_fx_delay: template.suspend_fx_delay,
+                leech_range_weapon: template.leech_range_weapon,
+                clip_size: template.clip_size.max(0) as u32,
+                clip_reload_frames: template.clip_reload_time.max(0) as u32,
+                scatter_target_count: template.scatter_targets.len() as u32,
+            },
+            delay_between_shots: template.min_delay_between_shots.max(0) as u32,
+            auto_reloads_clip: template.get_auto_reloads_clip(),
+            primary_damage: template.primary_damage.max(0.0),
+            primary_radius: template.primary_damage_radius.max(0.0),
+            secondary_damage: template.secondary_damage.max(0.0),
+            secondary_radius: template.secondary_damage_radius.max(0.0),
+        }
+    }
+}
+
 pub(super) fn store_fields_for_weapon_name(name: &str) -> Option<TemporaryWeaponStoreFields> {
     crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
-        store.find_weapon_template(name).map(|template| {
-            let auto_reloads_clip = template.get_auto_reloads_clip();
-            TemporaryWeaponStoreFields {
-                defaults: TemporaryWeaponConstructionDefaults {
-                    min_target_pitch: template.min_target_pitch,
-                    max_target_pitch: template.max_target_pitch,
-                    shots_per_barrel: template.shots_per_barrel,
-                    suspend_fx_delay: template.suspend_fx_delay,
-                    leech_range_weapon: template.leech_range_weapon,
-                    clip_size: template.clip_size.max(0) as u32,
-                    clip_reload_frames: template.clip_reload_time.max(0) as u32,
-                    scatter_target_count: template.scatter_targets.len() as u32,
-                },
-                delay_between_shots: template.min_delay_between_shots.max(0) as u32,
-                auto_reloads_clip,
-                primary_damage: template.primary_damage.max(0.0),
-                primary_radius: template.primary_damage_radius.max(0.0),
-                secondary_damage: template.secondary_damage.max(0.0),
-                secondary_radius: template.secondary_damage_radius.max(0.0),
-            }
-        })
+        store
+            .find_weapon_template(name)
+            .map(|template| TemporaryWeaponStoreFields::from_template(template))
     })
     .ok()
     .flatten()

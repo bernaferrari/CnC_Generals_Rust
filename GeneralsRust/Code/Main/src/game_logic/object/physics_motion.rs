@@ -455,6 +455,20 @@ impl Object {
                 crate::game_logic::host_usa_pilot::HostDeathType::Crushed
             ) {
                 other.fire_crush_die_from_crusher(Some(crusher_xz));
+                if let Some(declarations) = other.thing().template.native_die_declarations.as_ref()
+                {
+                    let slots: Vec<_> = declarations
+                        .iter()
+                        .filter(|declaration| {
+                            matches!(
+                                declaration.kind,
+                                crate::game_logic::native_die_definition::NativeDieKind::Crush
+                            ) && declaration.gate.allows(other, other.status.death_type)
+                        })
+                        .map(|declaration| declaration.source_index)
+                        .collect();
+                    other.native_die_runtime.completed.extend(slots);
+                }
             }
         }
         true

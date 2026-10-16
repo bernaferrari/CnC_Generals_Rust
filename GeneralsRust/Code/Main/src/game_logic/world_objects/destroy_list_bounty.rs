@@ -482,7 +482,14 @@ impl GameLogic {
                     // C++ Player::addSkillPointsForKill (scoreTheKill).
                     // Skill value is victim template SkillPointValue / ExperienceValue.
                     // C++ Object.cpp:2898-2905: skip non-playable and IGNORED_IN_GUI.
-                    if enemy_kill && !under_construction && score_counts {
+                    if enemy_kill
+                        && !under_construction
+                        && score_counts
+                        && !destroyed_object.kill_experience_awarded
+                    {
+                        // Owned scoreTheKill already admits Player skill points
+                        // before onDie (Object.cpp2928). Only residual callers
+                        // that skipped that phase need this legacy fallback.
                         rank_skill = destroyed_object.kill_skill_point_value();
                     }
                 }

@@ -7,6 +7,40 @@ use crate::game_logic::special_power_strikes::{
     ANTHRAX_TOXIN_OBJECT_NAME, NUKE_RADIATION_OBJECT_NAME,
 };
 
+#[cfg(feature = "game_client")]
+struct ExpiryWitness(std::sync::mpsc::Sender<gamelogic::helpers::HostFxObjectPose>);
+
+#[cfg(feature = "game_client")]
+impl game_client::fx_list::FXNugget for ExpiryWitness {
+    fn do_fx_pos(
+        &self,
+        _: Option<&gamelogic::common::Coord3D>,
+        _: Option<&gamelogic::common::Matrix3D>,
+        _: f32,
+        _: Option<&gamelogic::common::Coord3D>,
+        _: f32,
+    ) {
+        panic!("InstantDeath expiry FX must observe the installed field object");
+    }
+    fn do_fx_obj_host(
+        &self,
+        primary: &gamelogic::helpers::HostFxObjectPose,
+        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+    ) {
+        assert!(secondary.is_none(), "InstantDeath FX has no secondary");
+        self.0.send(*primary).unwrap();
+    }
+}
+
+#[cfg(feature = "game_client")]
+fn install_expiry_witness() -> std::sync::mpsc::Receiver<gamelogic::helpers::HostFxObjectPose> {
+    let (send, receive) = std::sync::mpsc::channel();
+    let mut fx = game_client::fx_list::FXList::new();
+    fx.add_fx_nugget(Box::new(ExpiryWitness(send)));
+    game_client::fx_list::get_fx_list_store_mut().add_fx_list("OwnedFieldExpiryWitness".into(), fx);
+    receive
+}
+
 #[derive(Clone, Copy)]
 enum Field {
     Fire,
@@ -150,26 +184,72 @@ fn canonical_lifetime(object: &Object) -> (u32, bool) {
 fn normal_lifetime_die(field: Field) {
     for inactive in [true, false] {
         let (mut world, id, due) = spawned(field, inactive);
+        #[cfg(feature = "game_client")]
+        let events = {
+            let events = install_expiry_witness();
+            world.add_player(Player::new(1, Team::USA, "FieldObserver", true));
+            world
+                .world_services
+                .shroud()
+                .lock()
+                .unwrap()
+                .set_host_object_shroud_status(
+                    1,
+                    id.0,
+                    gamelogic::common::ObjectShroudStatus::Clear,
+                );
+            events
+        };
         world.host_object_mut(id).unwrap().status.death_type = HostDeathType::Lasered;
         world.frame = due - 1;
         field.update(&mut world);
         assert!(!world.has_pending_object_removals());
+        #[cfg(feature = "game_client")]
+        assert!(
+            events.try_iter().next().is_none(),
+            "expiry FX must wait for its deadline"
+        );
         world.frame = due;
         field.update(&mut world);
         let object = world.host_object(id).unwrap();
         assert!(object.status.on_die_started);
         assert_eq!(object.status.death_type, HostDeathType::Normal);
-        assert_eq!(
-            object.pending_death_fx.as_deref(),
-            Some("OwnedFieldExpiryWitness")
+        assert!(
+            object.pending_death_fx.is_none(),
+            "authored expiry FX is delivered synchronously, not replayed later"
         );
+        let witness_slot = object
+            .thing()
+            .template
+            .native_die_declarations
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|slot| slot.module_tag.as_deref() == Some("DeathWitness"))
+            .unwrap()
+            .source_index;
+        assert!(
+            object.native_die_runtime.completed.contains(&witness_slot),
+            "the authored InstantDeath slot completed"
+        );
+        #[cfg(feature = "game_client")]
+        {
+            let delivered: Vec<_> = events.try_iter().collect();
+            assert_eq!(delivered.len(), 1, "one actual authored field expiry FX");
+            assert_eq!(delivered[0].id, id.0);
+            assert_eq!(delivered[0].position, gamelogic::common::Coord3D::ZERO);
+        }
         assert_eq!(canonical_lifetime(object).0, due);
         assert!(!canonical_lifetime(object).1);
         assert!(field.deadline(object).is_none());
-        world.host_object_mut(id).unwrap().pending_death_fx.take();
         field.update(&mut world);
         world.update_ai(&[id], 1.0 / 30.0);
         assert!(world.host_object(id).unwrap().pending_death_fx.is_none());
+        #[cfg(feature = "game_client")]
+        assert!(
+            events.try_iter().next().is_none(),
+            "sleeping lifetime must not replay authored FX"
+        );
         world.process_destroy_list();
         assert!(world.host_object(id).is_none());
     }
@@ -177,11 +257,19 @@ fn normal_lifetime_die(field: Field) {
 
 #[test]
 fn toxin_lifetime_uses_normal_body_kill_once() {
-    normal_lifetime_die(Field::Toxin);
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "toxin_lifetime_uses_normal_body_kill_once",
+        || normal_lifetime_die(Field::Toxin),
+    );
 }
 #[test]
 fn radiation_lifetime_uses_normal_body_kill_once() {
-    normal_lifetime_die(Field::Radiation);
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "radiation_lifetime_uses_normal_body_kill_once",
+        || normal_lifetime_die(Field::Radiation),
+    );
 }
 
 fn rejected_kill_stays_asleep(field: Field) {
@@ -205,6 +293,9 @@ fn rejected_kill_stays_asleep(field: Field) {
     let bytes = bincode_legacy::serialize(&snapshot).unwrap();
     let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
     let mut fresh = GameLogic::new();
+    // This fixture supplied custom immutable field authoring before creation.
+    // A receiving factory must admit those same definitions before strict load.
+    fresh.templates = world.templates.clone();
     builder.restore_from_snapshot(&decoded, &mut fresh).unwrap();
     builder.restore_from_snapshot(&decoded, &mut world).unwrap();
     for receiving in [&mut fresh, &mut world] {
@@ -244,6 +335,7 @@ fn field_creation_binds_one_receiving_lifetime_and_preserves_deadline_on_load() 
         let builder = crate::save_load::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&world).unwrap();
         let mut receiving = GameLogic::new();
+        receiving.templates = world.templates.clone();
         builder
             .restore_from_snapshot(&snapshot, &mut receiving)
             .unwrap();

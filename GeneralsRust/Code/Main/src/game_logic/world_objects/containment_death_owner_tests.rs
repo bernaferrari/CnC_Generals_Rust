@@ -16,6 +16,19 @@ fn parsed_world_with_contain_attributes(
     percent: u32,
     contain_attributes: &str,
 ) -> (GameLogic, ObjectId, ObjectId) {
+    // Real immutable authored OCLs must exist at receiving template bind.
+    // The earlier fixture relied on InstantDeath's guessed OCL-name spawn.
+    for name in ["OwnedRiderDeathWitness", "OwnedContainerDeathWitness"] {
+        let mut list = gamelogic::object_creation_list::store::ObjectCreationList::new();
+        list.add_nugget(std::sync::Arc::new(
+            gamelogic::object_creation_list::GenericObjectCreationNugget {
+                names: vec![name.into()],
+                name_are_objects: true,
+                ..Default::default()
+            },
+        ));
+        gamelogic::helpers::TheObjectCreationListStore::register_object_creation_list(name, list);
+    }
     let mut parser = crate::assets::IniParser::new();
     let input = format!(
         r#"
@@ -56,6 +69,11 @@ End
     owner.world_min = Vec3::ZERO;
     owner.world_max = Vec3::splat(1000.0);
     owner.add_player(Player::new(1, Team::USA, "ContainOwner", true));
+    for name in ["OwnedRiderDeathWitness", "OwnedContainerDeathWitness"] {
+        owner
+            .templates
+            .insert(name.into(), ThingTemplate::new(name));
+    }
     for name in ["OwnedContainDeath", "OwnedContainRider"] {
         let template = GameLogic::build_template_from_object_definition(
             name,

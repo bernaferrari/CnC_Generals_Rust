@@ -245,20 +245,6 @@ impl Object {
             }
         }
 
-        // C++ FXListDie when entering rubble / destroyed.
-        if show_health_visuals
-            && matches!(state, HostBodyDamageType::Rubble)
-            && !matches!(old_state, HostBodyDamageType::Rubble)
-        {
-            body_fx(self, BodyStateFx::FxListDie, source);
-            self.fire_create_object_die();
-            if !matches!(
-                self.status.death_type,
-                crate::game_logic::host_usa_pilot::HostDeathType::Crushed
-            ) {
-                self.fire_crush_die();
-            }
-        }
         self.rebuild_model_condition_bits();
     }
 }
@@ -332,7 +318,13 @@ mod tests {
         assert!(!object.create_object_die.as_ref().unwrap().fired);
         object.react_to_body_damage_state_change(old_state, None, 123);
         assert!(object.bone_fx_damage.as_ref().unwrap().transitions > 0);
+        // ActiveBody585-614 dispatches DamageModule state callbacks only.
+        // Object::onDie4548-4566 owns CreateObjectDie after kill credit.
+        assert!(!object.create_object_die.as_ref().unwrap().fired);
+        assert!(object.pending_create_object_die_spawns.is_empty());
+        object.complete_standalone_die_with_body_fx(None, &mut Object::standalone_body_fx);
         assert!(object.create_object_die.as_ref().unwrap().fired);
+        assert!(!object.pending_create_object_die_spawns.is_empty());
     }
 
     #[test]

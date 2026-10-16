@@ -5,8 +5,8 @@
 
 use super::super::*;
 use super::temporary_weapon_status::{
-    apply_private_fire_mutation, load_ammo_now, promote_temporary_weapon_status,
-    store_fields_for_weapon_name,
+    TemporaryWeaponStoreFields, apply_private_fire_mutation, load_ammo_now,
+    promote_temporary_weapon_status, store_fields_for_weapon_name,
 };
 use crate::game_logic::host_temporary_weapon_behavior::{
     FireWeaponWhenDamagedWeaponRole, TemporaryWeaponRuntimeKey, TemporaryWeaponRuntimeSpec,
@@ -14,6 +14,16 @@ use crate::game_logic::host_temporary_weapon_behavior::{
 };
 
 impl GameLogic {
+    fn temporary_weapon_fields(&self, name: &str) -> Option<TemporaryWeaponStoreFields> {
+        match self.weapon_definitions.as_ref() {
+            // A receiving catalog miss is a miss, never another world's rule.
+            Some(definitions) => definitions
+                .get(&name.trim().to_ascii_lowercase())
+                .map(|rule| TemporaryWeaponStoreFields::from_template(rule)),
+            None => store_fields_for_weapon_name(name),
+        }
+    }
+
     pub(super) fn force_fire_temporary_runtime(
         &mut self,
         source: ObjectId,
@@ -40,7 +50,7 @@ impl GameLogic {
             }
             (weapon.weapon_template_name.clone(), weapon.current_barrel)
         };
-        let Some(fields) = store_fields_for_weapon_name(&template_name) else {
+        let Some(fields) = self.temporary_weapon_fields(&template_name) else {
             return 0;
         };
         self.force_fire_named_temporary(source, &template_name, barrel, Some(key), fields)
@@ -51,7 +61,7 @@ impl GameLogic {
         source: ObjectId,
         spec: &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
     ) -> Option<u32> {
-        let fields = store_fields_for_weapon_name(&spec.weapon_template_name)?;
+        let fields = self.temporary_weapon_fields(&spec.weapon_template_name)?;
         let runtime_spec = TemporaryWeaponRuntimeSpec {
             key: TemporaryWeaponRuntimeKey {
                 module_source_index: spec.module_source_index,

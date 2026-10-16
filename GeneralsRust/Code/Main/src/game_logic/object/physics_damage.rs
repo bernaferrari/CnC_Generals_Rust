@@ -163,6 +163,41 @@ impl crate::game_logic::GameLogic {
                             }
                         });
                     }
+                    BodyStateFx::FxListDieSlot(mut config) => {
+                        object.fire_fx_list_die_config_with_fx(
+                            &mut config,
+                            &mut |name, object, at_object| {
+                                if at_object {
+                                    let primary =
+                                        Self::observe_host_fx_object(object, player, shroud);
+                                    let secondary = source.and_then(|value| {
+                                        if value.id == primary.id {
+                                            Some(&primary)
+                                        } else {
+                                            sources
+                                                .poses
+                                                .iter()
+                                                .flatten()
+                                                .find(|pose| pose.id == value.id)
+                                        }
+                                    });
+                                    Self::dispatch_fx_list_at_object_with_view(
+                                        name, &primary, secondary, view,
+                                    )
+                                } else {
+                                    Self::dispatch_fx_list_at_position_with_view(
+                                        name,
+                                        object.get_position(),
+                                        None,
+                                        0.0,
+                                        0.0,
+                                        None,
+                                        view,
+                                    )
+                                }
+                            },
+                        );
+                    }
                     BodyStateFx::ObjectPhase { name, at_object } => {
                         Self::dispatch_object_phase_fx_with_view(
                             &name, object, at_object, player, shroud, view,

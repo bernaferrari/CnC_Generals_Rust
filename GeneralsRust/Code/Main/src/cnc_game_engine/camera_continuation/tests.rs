@@ -402,3 +402,7 @@ fn settling_hag_goal_survives_native_record_instead_of_freezing_visible_height()
         "the regression must detect replacing the in-flight HAG goal with the visible pose"
     );
 }
+
+#[cfg(feature = "game_client")]
+#[path = "native_die_companion_tests.rs"]
+mod native_die_companion_tests;

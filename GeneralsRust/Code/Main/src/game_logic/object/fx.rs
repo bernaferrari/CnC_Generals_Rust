@@ -6,6 +6,7 @@ use crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent;
 pub(in crate::game_logic) enum BodyStateFx {
     Transition(HostTransitionDamageFxEvent),
     FxListDie,
+    FxListDieSlot(crate::game_logic::host_fx_list_die::HostFxListDieData),
     ArmorDamage {
         damage_type: crate::game_logic::combat::DamageType,
         actual_damage: f32,
@@ -34,6 +35,20 @@ impl Object {
                 object.queue_transition_damage_fx_event_with_source(event, source)
             }
             BodyStateFx::FxListDie => object.fire_fx_list_die(),
+            BodyStateFx::FxListDieSlot(mut config) => object.fire_fx_list_die_config_with_fx(
+                &mut config,
+                &mut |name, object, at_object| {
+                    if at_object {
+                        crate::game_logic::dispatch_fx_list_at_object(
+                            name,
+                            object.id.0,
+                            source.map(|source| source.id),
+                        )
+                    } else {
+                        crate::game_logic::dispatch_fx_list_at_pos(name, object.get_position())
+                    }
+                },
+            ),
             BodyStateFx::ArmorDamage {
                 damage_type,
                 actual_damage,
@@ -156,6 +171,14 @@ impl crate::game_logic::GameLogic {
                     )
                 })
             }
+            BodyStateFx::FxListDieSlot(mut config) => object.fire_fx_list_die_config_with_fx(
+                &mut config,
+                &mut |name, object, at_object| {
+                    Self::dispatch_object_die_fx_with_view(
+                        name, object, at_object, secondary, player, shroud, view,
+                    )
+                },
+            ),
             BodyStateFx::ObjectPhase { name, at_object } => {
                 Self::dispatch_object_phase_fx_with_view(
                     &name, object, at_object, player, shroud, view,

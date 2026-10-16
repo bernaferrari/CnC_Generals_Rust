@@ -450,6 +450,10 @@ impl Object {
                     self.clear_poisoned_on_healing();
                     if is_bridge {
                         self.status.on_die_started = false;
+                        // Repair starts a new death episode on this same
+                        // installed bridge. The completed module receipts
+                        // belong to the old episode, like the onDie latch.
+                        self.native_die_runtime = Default::default();
                     }
                 }
             }
@@ -1016,7 +1020,17 @@ impl Object {
 
     /// C++ KeepObjectDie-style husk so rubble spans/towers stay repairable.
     pub fn convert_bridge_to_rubble_husk(&mut self, frame: u32) {
-        self.status.destroyed = false;
+        self.convert_bridge_to_rubble_husk_with_removal(frame, false);
+    }
+
+    pub(in crate::game_logic) fn convert_bridge_to_rubble_husk_with_removal(
+        &mut self,
+        frame: u32,
+        deletion_queued: bool,
+    ) {
+        if !deletion_queued {
+            self.status.destroyed = false;
+        }
         self.status.keep_as_rubble = true;
         self.status.effectively_dead = true;
         self.health.current = 0.0;

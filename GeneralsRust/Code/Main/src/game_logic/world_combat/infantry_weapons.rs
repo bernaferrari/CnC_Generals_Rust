@@ -1324,7 +1324,9 @@ impl GameLogic {
         }
         for id in destroy {
             self.fuel_air_gas_reg.record_destroy();
-            self.mark_object_for_destruction(id, None);
+            // SlowDeathBehavior.cpp448-449: FINAL completes with direct
+            // destruction, never a second authored Object::onDie admission.
+            self.destroy_object(id);
         }
     }
 

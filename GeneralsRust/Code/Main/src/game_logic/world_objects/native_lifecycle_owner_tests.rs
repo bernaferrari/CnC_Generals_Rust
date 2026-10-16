@@ -57,7 +57,13 @@ fn neutral_authored_timers_start_at_construction_and_round_duration_up() {
         assert!(!world.host_object(id).unwrap().status.destroyed);
         drive(&mut world, id, 32);
         let object = world.host_object(id).unwrap();
-        assert!(object.status.destroyed);
+        // LifetimeUpdate.cpp69-73 kills, not deletes; Object::onDie only
+        // visits actual Die modules. This authored fixture has none.
+        if deletion {
+            assert!(object.status.destroyed);
+        } else {
+            assert!(object.status.effectively_dead);
+        }
         assert_eq!(object.status.on_die_started, !deletion);
         assert_eq!(object.health.current, if deletion { 100.0 } else { 0.0 });
         assert_eq!(
@@ -66,7 +72,7 @@ fn neutral_authored_timers_start_at_construction_and_round_duration_up() {
                 .iter()
                 .filter(|event| event.id == id)
                 .count(),
-            1
+            usize::from(deletion)
         );
     }
 }

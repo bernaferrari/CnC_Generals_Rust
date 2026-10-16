@@ -68,12 +68,33 @@ impl GameLogic {
         hits
     }
 
+    pub(in super::super) fn execute_temporary_weapon_die_slot(
+        &mut self,
+        source: ObjectId,
+        source_index: usize,
+    ) -> u32 {
+        let specs = self.dead_ephemeral_specs_for(source, Some(source_index));
+        let mut hits = 0;
+        for spec in specs
+            .into_iter()
+            .filter(|spec| spec.module_source_index as usize == source_index)
+        {
+            if let Some(count) = self.create_and_fire_temp_weapon(source, &spec) {
+                hits += count;
+            }
+        }
+        hits
+    }
+
     pub(in super::super) fn fire_temporary_weapons_for_pending_deaths(&mut self) {
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
             .filter_map(|(id, object)| {
-                (object.status.destroyed || object.health.current <= 0.0).then_some(*id)
+                ((object.status.destroyed || object.health.current <= 0.0)
+                    && !(object.status.on_die_started
+                        && object.thing().template.native_die_declarations.is_some()))
+                .then_some(*id)
             })
             .collect();
         for id in ids {
@@ -182,9 +203,18 @@ impl GameLogic {
         Some((object_tags, player_tags))
     }
 
-    fn dead_ephemeral_specs(
+    pub(in super::super) fn dead_ephemeral_specs(
         &mut self,
         source: ObjectId,
+    ) -> Vec<crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec>
+    {
+        self.dead_ephemeral_specs_for(source, None)
+    }
+
+    fn dead_ephemeral_specs_for(
+        &mut self,
+        source: ObjectId,
+        source_index: Option<usize>,
     ) -> Vec<crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec>
     {
         let Some(object) = self.objects.get(&source) else {
@@ -205,6 +235,9 @@ impl GameLogic {
         let owned = owned_upgrade_tag_refs(&object_tags, &player_tags);
         let mut specs = Vec::new();
         for (runtime, metadata) in object.dead_temporary_weapon_instances_mut() {
+            if source_index.is_some_and(|index| metadata.module_source_index as usize != index) {
+                continue;
+            }
             if metadata.starts_active || metadata.upgrade_mux.triggered_by_owned(&owned) {
                 runtime.upgrade_executed = true;
             }

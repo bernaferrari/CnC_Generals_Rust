@@ -114,6 +114,19 @@ impl Object {
         {
             return false;
         }
+        let fx = crate::game_logic::host_jet_slow_death::jet_slow_death_fx_for_template(
+            &self.template_name,
+        );
+        let grounded = !self.is_significantly_above_terrain() || self.status.deck_height_offset;
+        self.begin_jet_slow_death_with_fx(fx, grounded, false)
+    }
+
+    pub(in crate::game_logic) fn begin_jet_slow_death_with_fx(
+        &mut self,
+        fx: crate::game_logic::host_jet_slow_death::HostJetSlowDeathFx,
+        grounded: bool,
+        deletion_queued: bool,
+    ) -> bool {
         if self
             .jet_slow_death
             .as_ref()
@@ -126,14 +139,8 @@ impl Object {
                 .map(|j| j.is_active())
                 .unwrap_or(false);
         }
-        let hat = self.get_position().y.max(0.0);
-        let deck = self.status.deck_height_offset;
-        let mut j = crate::game_logic::host_jet_slow_death::HostJetSlowDeathData::with_fx(
-            crate::game_logic::host_jet_slow_death::jet_slow_death_fx_for_template(
-                &self.template_name,
-            ),
-        );
-        j.begin(hat, deck);
+        let mut j = crate::game_logic::host_jet_slow_death::HostJetSlowDeathData::with_fx(fx);
+        j.begin_grounded(grounded);
         self.apply_jet_death_phase(j.take_pending_effects());
         if j.started_on_ground {
             self.status.deck_height_offset = false;
@@ -142,7 +149,9 @@ impl Object {
         }
         self.jet_slow_death = Some(j);
         // The crash timer moves this dead body; HP is never resurrected.
-        self.status.destroyed = false;
+        if !deletion_queued {
+            self.status.destroyed = false;
+        }
         self.status.deck_height_offset = false;
         self.set_ai_state(crate::game_logic::AIState::Idle);
         self.target = None;
@@ -206,6 +215,17 @@ impl Object {
         ) {
             return false;
         }
+        let fx = crate::game_logic::host_helicopter_slow_death::heli_slow_death_fx_for_template(
+            &self.template_name,
+        );
+        self.begin_helicopter_slow_death_with_fx(fx, false)
+    }
+
+    pub(in crate::game_logic) fn begin_helicopter_slow_death_with_fx(
+        &mut self,
+        fx: crate::game_logic::host_helicopter_slow_death::HostHelicopterSlowDeathFx,
+        deletion_queued: bool,
+    ) -> bool {
         if self
             .helicopter_slow_death
             .as_ref()
@@ -219,16 +239,14 @@ impl Object {
                 .unwrap_or(false);
         }
         let mut h =
-            crate::game_logic::host_helicopter_slow_death::HostHelicopterSlowDeathData::with_fx(
-                crate::game_logic::host_helicopter_slow_death::heli_slow_death_fx_for_template(
-                    &self.template_name,
-                ),
-            );
+            crate::game_logic::host_helicopter_slow_death::HostHelicopterSlowDeathData::with_fx(fx);
         h.begin();
         self.apply_heli_death_phase(h.take_pending_effects());
         self.helicopter_slow_death = Some(h);
         // The crash timer moves this dead body; HP is never resurrected.
-        self.status.destroyed = false;
+        if !deletion_queued {
+            self.status.destroyed = false;
+        }
         self.set_ai_state(crate::game_logic::AIState::Idle);
         self.target = None;
         true
