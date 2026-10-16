@@ -1396,7 +1396,7 @@ impl GameLogic {
         self.update_ai(&object_ids, dt);
 
         // Phase 8: C++ AI::update — pathfinding, then this match's players.
-        self.update_match_ai();
+        self.update_match_ai_with_ui(&mut ui);
 
         // Phase 8b: Apply commands queued by AI this frame (C++ CommandList drain
         // after TheAI->UPDATE). Ensures same-frame set_target/move logs reach

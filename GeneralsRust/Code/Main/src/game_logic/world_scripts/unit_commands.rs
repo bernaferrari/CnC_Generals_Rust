@@ -212,6 +212,24 @@ impl GameLogic {
         self.unit_command_move_owned(id, destination, false)
     }
 
+    /// AIPlayer::recruitSpecificAITeam issues an unclipped CMD_FROM_AI move
+    /// only when the recruited object exposes an AIUpdate interface.
+    pub(crate) fn unit_command_ai_move_to(
+        &mut self,
+        id: ObjectId,
+        destination: glam::Vec3,
+    ) -> bool {
+        let Some(object) = self
+            .objects
+            .get_mut(&id)
+            .filter(|object| object.has_ai_update_interface())
+        else {
+            return false;
+        };
+        object.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
+        self.unit_command_move_owned(id, destination, false)
+    }
+
     fn unit_command_move_owned(
         &mut self,
         id: ObjectId,

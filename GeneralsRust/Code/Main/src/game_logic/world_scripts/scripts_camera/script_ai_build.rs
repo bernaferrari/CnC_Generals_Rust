@@ -31,9 +31,9 @@ impl GameLogic {
             return;
         };
         if let Some(radius) = recruit_radius {
-            let mut manager = std::mem::take(&mut self.ai_manager);
-            manager.recruit_specific_ai_team_for_token(self, &controller, team, radius);
-            self.ai_manager = manager;
+            if let Some(id) = crate::ai::AIManager::resolve_player_id(self, &controller) {
+                self.recruit_owned_specific_ai_team_with_ui(id, team, radius, interpreter, ui);
+            }
         } else if let Some(id) = crate::ai::AIManager::resolve_player_id(self, &controller) {
             self.build_owned_specific_ai_team_with_ui(id, team, true, interpreter, ui);
         }

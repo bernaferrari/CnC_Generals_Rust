@@ -53,18 +53,39 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
         .unwrap()
         .stored_resources
         .supplies = 5_000;
-    use game_engine::common::well_known_keys::*;
-    let mut data = game_engine::common::dict::Dict::new();
-    data.set_ascii_string(key_team_unit_type1(), "AmericaInfantryRanger");
-    data.set_int(key_team_unit_min_count1(), 1);
-    data.set_int(key_team_unit_max_count1(), 1);
-    data.set_int(key_team_production_priority(), 100);
-    world.team_factory.lock().unwrap().init_team(
-        "OwnedSquad".into(),
-        "OwnedBuilder".into(),
-        false,
-        Some(&data),
-    );
+    {
+        let mut factory = world.team_factory.lock().unwrap();
+        factory
+            .init_team_owned(
+                "OwnedSquad".into(),
+                "OwnedBuilder".into(),
+                false,
+                None,
+                Some(1),
+            )
+            .unwrap();
+        let mut prototype = (*factory.find_team_prototype("OwnedSquad").unwrap()).clone();
+        prototype.set_units_info(
+            0,
+            gamelogic::team::CreateUnitsInfo {
+                min_units: 1,
+                max_units: 1,
+                unit_thing_name: "AmericaInfantryRanger",
+            },
+        );
+        prototype.set_production_priority(100);
+        factory.replace_team_prototype(prototype);
+        let admitted = factory.find_team_prototype("OwnedSquad").unwrap();
+        assert_eq!(admitted.units_info().len(), 1);
+        assert_eq!(
+            admitted.units_info()[0].unit_thing_name,
+            "AmericaInfantryRanger"
+        );
+        assert_eq!(admitted.units_info()[0].min_units, 1);
+        assert_eq!(admitted.units_info()[0].max_units, 1);
+        assert_eq!(admitted.get_owner_name().as_str(), "OwnedBuilder");
+        assert_eq!(admitted.get_production_priority(), 100);
+    }
     (world, unit, warehouse)
 }
 
@@ -92,6 +113,7 @@ fn authored_build_recruit_and_supply_actions_mutate_only_the_borrowed_world() {
     let (peer, peer_unit, peer_warehouse) = world();
     assert_eq!(unit, peer_unit);
     assert_eq!(warehouse, peer_warehouse);
+    let peer_team_before = peer.host_object(peer_unit).unwrap().team_instance_id;
     let peer_before =
         serde_json::to_vec(&peer.ai_manager.ai_players[&1].capture_queue_persist()).unwrap();
     let engine = ScriptEngine::new().unwrap();
@@ -122,10 +144,33 @@ fn authored_build_recruit_and_supply_actions_mutate_only_the_borrowed_world() {
     run(&engine, &mut owner, &recruit);
     let ready = owner.ai_manager.ai_players[&1]
         .team_ready_queue
-        .back()
+        .front()
         .expect("actual recruited team");
-    assert_eq!(ready.work_orders[0].observed_unit_ids, vec![unit]);
-    assert_eq!(ready.work_orders[0].num_completed, 1);
+    // CPP AIPlayer.cpp2593-2601 prepends the ready team with NULL workOrders.
+    // Its canonical roster, not a duplicate observed list, owns membership.
+    assert!(ready.work_orders.is_empty());
+    assert_eq!(ready.frame_started, owner.frame);
+    let recruited_id = ready.team_id.expect("exact recruited instance");
+    assert_eq!(
+        owner.host_object(unit).unwrap().team_instance_id,
+        Some(recruited_id)
+    );
+    assert_eq!(
+        owner.host_object(unit).unwrap().team_instance_name,
+        "OwnedSquad"
+    );
+    assert_eq!(owner.host_object(unit).unwrap().owner_player_id, Some(1));
+    let recruited = owner
+        .team_factory
+        .lock()
+        .unwrap()
+        .find_team_by_id(recruited_id)
+        .unwrap();
+    assert_eq!(recruited.read().unwrap().get_members(), &[unit.0]);
+    assert_eq!(
+        peer.host_object(peer_unit).unwrap().team_instance_id,
+        peer_team_before
+    );
     let mut supply = action(
         ScriptActionType::AiPlayerBuildSupplyCenter,
         ParameterType::Side,

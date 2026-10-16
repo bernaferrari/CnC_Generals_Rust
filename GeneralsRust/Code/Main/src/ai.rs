@@ -448,6 +448,7 @@ mod postmilitary_owner;
 mod production_callback;
 mod queued_team_owner;
 mod ready_team_owner;
+mod recruit_team_owner;
 mod team_lifecycle;
 #[cfg(test)]
 mod team_lifecycle_tests;

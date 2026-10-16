@@ -5,6 +5,15 @@ use gamelogic::scripting::engine::ScriptEngine;
 impl GameLogic {
     /// Initial-map destruction and factory callbacks observe the installed AI.
     pub(crate) fn initialize_owned_skirmish_ai(&mut self, player: u32, data: &AiDataView) {
+        self.initialize_owned_skirmish_ai_with_ui(player, data, &mut None)
+    }
+
+    pub(crate) fn initialize_owned_skirmish_ai_with_ui(
+        &mut self,
+        player: u32,
+        data: &AiDataView,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         let Some(ai) = self.ai_manager.ai_players.get_mut(&player) else {
             return;
         };
@@ -47,10 +56,12 @@ impl GameLogic {
         for (mut building, initially_built) in pads {
             if initially_built {
                 building.is_built = true;
-                building.object_id = self.create_object_for_player(
+                building.object_id = self.create_object_for_player_with_ui(
                     &building.template_name,
                     player,
                     building.position,
+                    None,
+                    ui,
                 );
             }
             if let Some(ai) = self.ai_manager.ai_players.get_mut(&player) {
@@ -135,6 +146,16 @@ impl GameLogic {
     /// CPP queueUnits → selectTeamToBuild → immediate queueUnits. The
     /// selection script runs with all canonical controllers installed.
     pub(crate) fn update_owned_ai_military(&mut self, player: u32, now: f32, data: &AiDataView) {
+        self.update_owned_ai_military_with_ui(player, now, data, &mut None)
+    }
+
+    pub(crate) fn update_owned_ai_military_with_ui(
+        &mut self,
+        player: u32,
+        now: f32,
+        data: &AiDataView,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         use super::teams::OwnedTeamSelection;
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
             return;
@@ -207,7 +228,8 @@ impl GameLogic {
             OwnedTeamSelection::None => (false, false),
             OwnedTeamSelection::Reinforced => (true, false),
             OwnedTeamSelection::New(name) => {
-                let selected = self.build_owned_specific_ai_team(player, &name, false, None);
+                let selected =
+                    self.build_owned_specific_ai_team_with_ui(player, &name, false, None, ui);
                 (selected, selected)
             }
         };
@@ -386,6 +408,15 @@ impl GameLogic {
     /// Only the queue-decision borrow survives within one phase. Scripts and
     /// destruction execute with every controller installed in its session.
     pub(crate) fn check_owned_ai_queued_teams(&mut self, player: u32, now: f32) {
+        self.check_owned_ai_queued_teams_with_ui(player, now, &mut None)
+    }
+
+    pub(crate) fn check_owned_ai_queued_teams_with_ui(
+        &mut self,
+        player: u32,
+        now: f32,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         let Some(ai) = self.ai_manager.ai_players.get_mut(&player) else {
             return;
         };
@@ -473,7 +504,7 @@ impl GameLogic {
             };
             if let Some((condition, team)) = prepared {
                 self.with_owned_script_engine(|engine, world| {
-                    world.execute_owned_ai_condition(engine, &condition, team)
+                    world.execute_owned_ai_condition_with_ui(engine, &condition, team, ui)
                 });
             }
             cursor = self.ai_manager.ai_players.get(&player).and_then(|ai| {
@@ -574,22 +605,33 @@ mod tests {
         action
     }
     fn prototype(world: &mut GameLogic, name: &str, player: &str, condition: &str) {
-        use game_engine::common::well_known_keys::*;
-        let mut data = game_engine::common::dict::Dict::new();
-        data.set_ascii_string(key_team_unit_type1(), "AmericaInfantryRanger");
-        data.set_int(key_team_unit_min_count1(), 2);
-        data.set_int(key_team_unit_max_count1(), 2);
         let controller = world
             .get_players()
             .iter()
             .find_map(|(&id, owner)| (owner.name == player).then_some(id));
         let mut factory = world.team_factory.lock().unwrap();
-        factory.init_team_owned(name.into(), player.into(), false, Some(&data), controller);
+        factory.init_team_owned(name.into(), player.into(), false, None, controller);
         let mut proto = (*factory.find_team_prototype(name).unwrap()).clone();
+        // These callback fixtures author the receiving prototype directly;
+        // name-key dictionary parsing is a separate ownership boundary.
+        proto.set_units_info(
+            0,
+            gamelogic::team::CreateUnitsInfo {
+                min_units: 2,
+                max_units: 2,
+                unit_thing_name: "AmericaInfantryRanger",
+            },
+        );
         proto.set_production_condition(condition.into());
         proto.set_execute_actions_on_create(!condition.is_empty());
         proto.set_initial_idle_frames(30_000);
         factory.replace_team_prototype(proto);
+        let admitted = factory.find_team_prototype(name).unwrap();
+        let units = admitted.units_info();
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].unit_thing_name, "AmericaInfantryRanger");
+        assert_eq!(units[0].min_units, 2);
+        assert_eq!(units[0].max_units, 2);
     }
 
     fn callback_world() -> GameLogic {
@@ -1044,4 +1086,5 @@ mod tests {
             "script name must not invent Hunt orders"
         );
     }
+    include!("native_ai_ui_tests.rs");
 }

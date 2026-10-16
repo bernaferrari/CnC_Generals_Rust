@@ -373,6 +373,7 @@ pub(in crate::game_logic) fn install_slave_fixture(
         SlaveDroneKind::Scout => (0, "", 150),
     };
     let name = kind.template_name();
+    let upgrade = kind.upgrade_name();
     let text = format!(
         r#"
 Object {name}
@@ -396,6 +397,11 @@ Object {name}
   RepairMinAltitude = 5
   RepairMaxAltitude = 10
   StayOnSameLayerAsMaster = Yes
+ End
+ ; Retail drones free the producer upgrade through their authored Die module.
+ Behavior = UpgradeDie FixtureUpgradeDie
+  DeathTypes = ALL
+  UpgradeToRemove = {upgrade}
  End
 End
 "#

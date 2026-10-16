@@ -100,7 +100,7 @@ pub fn honesty_async_player_dual_world_empty_gate_source() -> bool {
         && !module_declared(ai, "ai_update")
         && module_declared(ai, "ai_player")
         && phase.contains("self.process_pathfind_queue();")
-        && phase.contains("crate::ai::AIManager::update_owned(self, current_time);")
+        && phase.contains("crate::ai::AIManager::update_owned_with_ui(self, current_time, ui);")
         && !module_declared(ai, "async_player")
         && module_declared(root, "contain_module_overrides")
         && !module_declared(root, "module_overrides")

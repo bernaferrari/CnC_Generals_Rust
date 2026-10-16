@@ -89,6 +89,14 @@ impl AIManager {
     /// a replacement manager/team factory on every frame. Player state remains
     /// owned by the same manager before and after the synchronous pass.
     pub(crate) fn update_owned(game_logic: &mut GameLogic, current_time: f32) {
+        Self::update_owned_with_ui(game_logic, current_time, &mut None);
+    }
+
+    pub(crate) fn update_owned_with_ui(
+        game_logic: &mut GameLogic,
+        current_time: f32,
+        ui: &mut Option<&mut dyn crate::game_logic::ScriptUiEffects>,
+    ) {
         let ai_data = AiDataView::from_world(game_logic);
         let ids: Vec<_> = game_logic.ai_manager.ai_players.keys().copied().collect();
         let destroyed = game_logic.take_ai_team_destroy_notifications();
@@ -98,7 +106,7 @@ impl AIManager {
             }
         }
         for id in ids {
-            game_logic.initialize_owned_skirmish_ai(id, &ai_data);
+            game_logic.initialize_owned_skirmish_ai_with_ui(id, &ai_data, ui);
             let peers = game_logic
                 .ai_manager
                 .ai_players
@@ -119,10 +127,10 @@ impl AIManager {
             if !active {
                 continue;
             }
-            game_logic.update_owned_ai_economy(id, current_time, &ai_data);
+            game_logic.update_owned_ai_economy_with_ui(id, current_time, &ai_data, ui);
             game_logic.check_owned_ai_ready_teams(id);
-            game_logic.check_owned_ai_queued_teams(id, current_time);
-            game_logic.update_owned_ai_military(id, current_time, &ai_data);
+            game_logic.check_owned_ai_queued_teams_with_ui(id, current_time, ui);
+            game_logic.update_owned_ai_military_with_ui(id, current_time, &ai_data, ui);
             game_logic.update_owned_ai_postmilitary(id, current_time, &ai_data);
         }
     }

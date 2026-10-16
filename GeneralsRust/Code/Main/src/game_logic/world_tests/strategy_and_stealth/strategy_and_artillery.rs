@@ -441,7 +441,7 @@ fn post_ai_commands_flushed_inside_game_logic() {
         .find("self.update_ai(&object_ids, dt);")
         .expect("update_ai call");
     let mgr = src
-        .find("self.update_match_ai();")
+        .find("self.update_match_ai_with_ui(&mut ui);")
         .expect("owned match AI phase");
     // Second process_commands after AI manager (phase 8b)
     let flush = src[mgr..]
