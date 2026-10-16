@@ -348,8 +348,13 @@ fn actual_script_default_and_logic_v5_restore_preserve_captures_not_current_inpu
     );
     assert_eq!(before, peer.capture_camera_continuation().unwrap());
     let mut malformed = saved.clone();
-    let len = malformed.len();
-    malformed[len - 4..].copy_from_slice(&f32::NAN.to_le_bytes());
+    let shake_len = world.session_view.camera.shake_policy;
+    let shake_len = crate::save_load::camera_codec::CameraCodec::<{ 4 * 1024 * 1024 }>
+        .serialize(&shake_len)
+        .unwrap()
+        .len();
+    let len = malformed.len() - shake_len;
+    malformed[len - 6..len - 2].copy_from_slice(&f32::NAN.to_le_bytes());
     assert!(crate::game_logic::GameLogic::decode_camera_continuation(&malformed).is_err());
     assert_eq!(before, peer.capture_camera_continuation().unwrap());
 }

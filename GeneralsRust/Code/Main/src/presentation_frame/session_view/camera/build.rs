@@ -36,6 +36,18 @@ impl super::SessionCamera {
             return Err("nonfinite receiving camera transform inputs".into());
         }
         self.constraints.validate()?;
+        let (near, far) = super::projection::source_clip_planes(
+            self.clip_policy.current().draw_entire_terrain,
+            self.camera_fx_pitch,
+            self.camera_zoom,
+            false,
+        )?;
+        let projection = self.projection_for_clip_planes(near, far);
+        if !projection.is_finite() {
+            return Err("invalid receiving clip projection".into());
+        }
+        // Source Set_Clip_Planes precedes provisional transform and constraint rays.
+        self.projection_matrix = projection;
         if !self.constraints.is_valid() {
             self.build_camera_transform(target, impulse, sample)?;
             self.force_recalculate_constraints(bounds)?;

@@ -10023,7 +10023,22 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_clip_rules.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_rules.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_shake_rules.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_shake_rules_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -189835,7 +189850,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "51715009170ae72baa87617d40af04e764450834c07b7394f48d980086907c4d",
+  "provenance_input_digest": "a94bc30131d800a5bddd6fdf515db1c83c6b9c93a0388054a8047a2dbdf997d2",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

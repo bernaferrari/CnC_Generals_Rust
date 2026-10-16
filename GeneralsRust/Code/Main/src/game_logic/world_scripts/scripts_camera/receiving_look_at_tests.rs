@@ -40,7 +40,25 @@ fn receiving_look_at_clamps_without_advancing_native_axes_or_hag() {
                 camera.camera_yaw_radians,
             );
             let provisional = glam::Mat4::look_at_rh(eye, look, Vec3::Y);
-            let inverse = (camera.projection_matrix * provisional).inverse();
+            // W3DView549-573 installs this source lens BEFORE the provisional
+            // constraint query. The hostile old IDENTITY projection above is
+            // not an input to calcCameraConstraints. View.cpp53 stores50deg
+            // horizontal FOV; CameraClass257-261 converts using aspect640/480.
+            assert_eq!(camera.camera_zoom, 1.);
+            assert_eq!(camera.camera_fx_pitch, 1.);
+            let aspect = 640_f32 / 480_f32;
+            let half_horizontal = 50_f32.to_radians() * 0.5;
+            let vertical = 2. * (half_horizontal.tan() / aspect).atan();
+            let f = 1. / (vertical * 0.5).tan();
+            let near = 10_f32;
+            let far = 1200_f32;
+            let projection = glam::Mat4::from_cols(
+                glam::Vec4::new(f / aspect, 0., 0., 0.),
+                glam::Vec4::new(0., f, 0., 0.),
+                glam::Vec4::new(0., 0., far / (near - far), -1.),
+                glam::Vec4::new(0., 0., near * far / (near - far), 0.),
+            );
+            let inverse = (projection * provisional).inverse();
             let ground = camera.native_camera.basis().ground_level();
             let ground_hit = |pixel_x: f32, pixel_y: f32| {
                 let x = (2. * pixel_x) / 640. - 1.;
@@ -81,6 +99,7 @@ fn receiving_look_at_clamps_without_advancing_native_axes_or_hag() {
                 ),
             );
             owner.request_camera_focus(requested);
+            assert_eq!(owner.session_view.camera.projection_matrix, projection);
             assert_eq!(owner.session_view.target, expected);
             assert_eq!(owner.session_view.camera.camera_position, expected_eye);
             assert_eq!(

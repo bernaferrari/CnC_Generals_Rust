@@ -61,6 +61,9 @@ scalar!(bool, u32, i32, usize, (), ObjectId);
 impl ValidateCamera for LogicCameraContinuation {
     fn validate(&self) -> Result<(), String> {
         self.owned_extras.constraints.validate()?;
+        if let Some(shake) = self.owned_extras.shake_policy {
+            shake.validate()?;
+        }
         if let Some(settings) = self.owned_extras.camera_settings {
             settings.validate()?;
         }

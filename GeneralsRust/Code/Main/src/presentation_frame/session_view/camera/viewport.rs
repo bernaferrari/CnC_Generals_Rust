@@ -201,15 +201,31 @@ impl super::SessionCamera {
         self.rebuild_projection();
         Ok(())
     }
-    pub(crate) fn rebuild_projection(&mut self) {
+    pub(crate) fn projection_for_clip_planes(&self, near: f32, far: f32) -> glam::Mat4 {
         let (width, height) = self.viewport.size();
         let (display_width, _) = self.viewport.display_size();
-        self.projection_matrix = super::projection::perspective_rh_from_horizontal_fov(
+        super::projection::perspective_rh_from_horizontal_fov(
             width as f32 / display_width as f32 * super::projection::DEFAULT_VIEW_FOV_RADIANS,
             width as f32 / height as f32,
+            near,
+            far,
+        )
+    }
+    pub(crate) fn rebuild_projection(&mut self) {
+        // View rectangle changes the x/y lens only. Preserve the installed
+        // depth coefficients bit-for-bit, including a restored historical lens.
+        let mut projection = self.projection_for_clip_planes(
             super::projection::DEFAULT_VIEW_NEAR_CLIP,
             super::projection::DEFAULT_VIEW_FAR_CLIP,
         );
+        if self.projection_matrix.is_finite()
+            && self.projection_matrix.z_axis.w == -1.
+            && self.projection_matrix.w_axis.w == 0.
+        {
+            projection.z_axis = self.projection_matrix.z_axis;
+            projection.w_axis = self.projection_matrix.w_axis;
+        }
+        self.projection_matrix = projection;
     }
 }
 

@@ -28,6 +28,14 @@ impl<'a> CameraInputLoan<'a> {
             frame,
         }
     }
+    #[cfg(test)]
+    pub(in crate::cnc_game_engine) fn observe_recent_activity(
+        &mut self,
+        world: &GameLogic,
+    ) -> bool {
+        self.modes
+            .lookat_has_mouse_moved_recently(world.get_current_frame() as u32)
+    }
     fn receiving_frame(&self) -> u32 {
         #[cfg(feature = "game_client")]
         {

@@ -73,7 +73,10 @@ fn world(x: f32) -> (GameLogic, ObjectId, Vec3) {
         .unwrap();
     world.host_object_mut(id).unwrap().name = "FocusScout".into();
     world.select_objects(0, vec![id]);
-    let home = Vec3::new(x + 40.0, 0.0, x + 60.0);
+    // Keep authored Home inside the receiving source camera's padded map
+    // region. Exact LookAt clamp behavior has its own independent ray test;
+    // these action-order assertions must compare the actual admitted Home.
+    let home = Vec3::new(x + 200.0, 0.0, x + 220.0);
     world
         .create_object_for_player("AmericaCommandCenter", 0, home)
         .unwrap();

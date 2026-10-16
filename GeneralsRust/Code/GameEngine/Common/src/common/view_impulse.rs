@@ -21,6 +21,24 @@ impl ViewImpulse<'_> {
         rules: &GlobalData,
         random: &mut dyn FnMut(f32, f32) -> f32,
     ) {
+        self.enqueue_with_rules(
+            epicenter,
+            view_position,
+            kind,
+            &crate::common::ini::ini_game_data::CameraShakeRules::from_global_data(rules),
+            random,
+        );
+    }
+
+    /// Same source algorithm over explicitly admitted immutable definitions.
+    pub fn enqueue_with_rules(
+        &mut self,
+        epicenter: [f32; 2],
+        view_position: [f32; 2],
+        kind: CameraShakeType,
+        rules: &crate::common::ini::ini_game_data::CameraShakeRules,
+        random: &mut dyn FnMut(f32, f32) -> f32,
+    ) {
         let angle = random(0.0, 2.0 * std::f32::consts::PI);
         // Retain the Real overloads verified by the extracted C++ component
         // under the supported clang/math.h profile; no speculative promotion.

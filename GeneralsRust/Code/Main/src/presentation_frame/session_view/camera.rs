@@ -2,6 +2,7 @@
 //! Constructors are inert; the Engine admits its configured boot pose explicitly.
 use glam::{Mat4, Vec3};
 pub(crate) mod build;
+pub(crate) mod clip;
 mod commands;
 pub(crate) mod constraints;
 pub(crate) mod continuation;
@@ -10,6 +11,7 @@ pub(crate) mod motion;
 pub(crate) mod pose;
 pub(crate) mod projection;
 pub(crate) mod settings;
+pub(crate) mod shake_rules;
 pub(crate) mod shaker;
 pub(crate) mod viewport;
 pub(crate) use shaker::ScriptCameraShaker;
@@ -17,6 +19,8 @@ pub(crate) use shaker::ScriptCameraShaker;
 #[derive(Debug)]
 pub(crate) struct SessionCamera {
     pub(crate) settings: settings::CameraSettings,
+    pub(crate) clip_policy: clip::CameraClipPolicy,
+    pub(crate) shake_policy: shake_rules::CameraShakePolicy,
     pub(crate) constraints: constraints::CameraConstraints,
     pub(crate) viewport: viewport::TacticalViewport,
     pub(crate) camera_position: Vec3,
@@ -63,6 +67,8 @@ impl Default for SessionCamera {
         let (position, look) = native_camera.basis().pose(Vec3::ZERO, 1., 0., 0.);
         Self {
             settings: Default::default(),
+            clip_policy: Default::default(),
+            shake_policy: Default::default(),
             constraints: Default::default(),
             viewport: Default::default(),
             camera_position: position,

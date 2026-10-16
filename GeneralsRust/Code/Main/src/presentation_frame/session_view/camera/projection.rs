@@ -39,7 +39,35 @@ pub(crate) fn perspective_rh_from_horizontal_fov(
     )
 }
 
-/// C++ W3DView (W3DView.cpp:551-562): `farZ = 1200`, extended ×MAP_XY_FACTOR
-/// (12000) whenever the whole terrain can be visible (zoom-out / high pitch).
-/// The port keeps the extended value so no zoom level clips the far plane.
-pub(crate) const DEFAULT_VIEW_FAR_CLIP: f32 = 12_000.0;
+/// Original baseline; extension is installed at each actual setCameraTransform.
+pub(crate) const DEFAULT_VIEW_FAR_CLIP: f32 = 1200.;
+/// Verbatim branch/arithmetic of W3DView549–563. The real-zoom branch is
+/// component-tested only: source m_useRealZoomCam defaults false and has no
+/// production callers in the supplied original tree. Native production uses false.
+pub(crate) fn source_clip_planes(
+    draw_entire: bool,
+    fx_pitch: f32,
+    zoom: f32,
+    real_zoom: bool,
+) -> Result<(f32, f32), String> {
+    if !fx_pitch.is_finite() || !zoom.is_finite() {
+        return Err("nonfinite camera clip inputs".into());
+    }
+    let near = DEFAULT_VIEW_NEAR_CLIP;
+    let mut far = DEFAULT_VIEW_FAR_CLIP;
+    if real_zoom {
+        if fx_pitch < 0.95 {
+            far /= fx_pitch;
+        }
+    } else if draw_entire || fx_pitch < 0.95 || f64::from(zoom) > 1.05 {
+        far *= 10.;
+    }
+    if !far.is_finite() || far <= near {
+        return Err("invalid source camera clip planes".into());
+    }
+    Ok((near, far))
+}
+
+#[cfg(test)]
+#[path = "projection_clip_tests.rs"]
+mod clip_tests;

@@ -1526,38 +1526,9 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn screen_shake_value_for_type(shake_type: i32) -> f32 {
-        let data = game_engine::common::global_data::read();
-        match shake_type.clamp(0, 5) {
-            0 => data.shake_subtle_intensity,
-            1 => data.shake_normal_intensity,
-            2 => data.shake_strong_intensity,
-            3 => data.shake_severe_intensity,
-            4 => data.shake_cine_extreme_intensity,
-            _ => data.shake_cine_insane_intensity,
-        }
-    }
-
     pub(super) fn enqueue_script_screen_shake(&mut self, intensity: i32) {
-        let shake_value = Self::screen_shake_value_for_type(intensity);
-        if !shake_value.is_finite() || shake_value <= 0.0 {
-            return;
-        }
-
-        let seed = self
-            .frame_counter
-            .wrapping_mul(1_664_525)
-            .wrapping_add((intensity as u32).wrapping_mul(1_013_904_223));
-        let angle = (seed as f32 / u32::MAX as f32) * TAU;
-        self.game_logic.session_view.impulse.cosine = angle.cos();
-        self.game_logic.session_view.impulse.sine = angle.sin();
-
-        self.game_logic.session_view.impulse.intensity += shake_value;
-        let data = game_engine::common::global_data::read();
-        if self.game_logic.session_view.impulse.intensity > data.max_shake_intensity {
-            // C++ parity from W3DView::shake: overflow clamps to fixed 3.0.
-            self.game_logic.session_view.impulse.intensity = 3.0;
-        }
+        self.game_logic
+            .enqueue_script_screen_shake_at(intensity, self.frame_counter);
     }
 
     pub(super) fn enqueue_script_camera_shaker(&mut self, request: CameraAddShakerRequest) {

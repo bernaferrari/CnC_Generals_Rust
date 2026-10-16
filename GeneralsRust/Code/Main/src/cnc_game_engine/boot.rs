@@ -56,15 +56,29 @@ impl CnCGameEngine {
         rules.validate()
     }
 
-    pub(super) async fn load_camera_rules_baseline()
-    -> Result<game_engine::common::ini::ini_game_data::CameraContentRules, String> {
+    pub(super) async fn load_camera_rules_baseline() -> Result<
+        (
+            game_engine::common::ini::ini_game_data::CameraContentRules,
+            game_engine::common::ini::ini_game_data::CameraClipRules,
+            game_engine::common::ini::ini_game_data::CameraShakeRules,
+        ),
+        String,
+    > {
         let mut rules = game_engine::common::ini::ini_game_data::CameraContentRules::default();
+        let mut clip = game_engine::common::ini::ini_game_data::CameraClipRules::default();
+        let mut shake = game_engine::common::ini::ini_game_data::CameraShakeRules::default();
         for (path, text) in Self::load_startup_game_data_texts().await? {
             rules = rules
                 .overlay_ini_text(&text)
                 .map_err(|err| format!("{path}: {err}"))?;
+            clip = clip
+                .overlay_ini_text(&text)
+                .map_err(|err| format!("{path}: {err}"))?;
+            shake = shake
+                .overlay_ini_text(&text)
+                .map_err(|err| format!("{path}: {err}"))?;
         }
-        rules.validate()
+        Ok((rules.validate()?, clip, shake.validate()?))
     }
 
     pub async fn new(window: Arc<Window>, command_line: Arc<CommandLineArgs>) -> Result<Self> {
@@ -282,10 +296,15 @@ impl CnCGameEngine {
 
         // Initialize game systems.
         // CombatSystem + PathfindingSystem live on GameLogic (sole host authority).
-        let camera_rule_base = Self::load_camera_rules_baseline()
-            .await
-            .map_err(anyhow::Error::msg)?;
+        let (camera_rule_base, camera_clip_base, camera_shake_base) =
+            Self::load_camera_rules_baseline()
+                .await
+                .map_err(anyhow::Error::msg)?;
         let mut game_logic = GameLogic::initialize();
+        game_logic.admit_camera_application_clip(camera_clip_base);
+        game_logic
+            .admit_camera_application_shake(camera_shake_base)
+            .map_err(anyhow::Error::msg)?;
         game_logic
             .admit_camera_application_rules(camera_rule_base)
             .map_err(anyhow::Error::msg)?;
@@ -391,6 +410,8 @@ impl CnCGameEngine {
                 startup_replay_requested_from_initial_file,
                 command_line.player_name.clone(),
                 camera_rule_base,
+                camera_clip_base,
+                camera_shake_base,
             )
         };
 
@@ -434,8 +455,12 @@ impl CnCGameEngine {
         let pending_state = None;
 
         let camera_settings = game_logic.session_view.camera.settings;
+        let camera_clip_policy = game_logic.session_view.camera.clip_policy;
+        let camera_shake_policy = game_logic.session_view.camera.shake_policy;
         game_logic.session_view.camera = crate::presentation_frame::camera::SessionCamera {
             settings: camera_settings,
+            clip_policy: camera_clip_policy,
+            shake_policy: camera_shake_policy,
             viewport: crate::presentation_frame::camera::viewport::TacticalViewport::for_display(
                 surface_w, surface_h,
             )

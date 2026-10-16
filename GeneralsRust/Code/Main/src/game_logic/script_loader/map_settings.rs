@@ -410,10 +410,34 @@ pub(crate) fn parse_map_settings_from_chunky_with_camera_rules(
     physics_rules: Option<game_engine::common::ini::ini_game_data::PhysicsContentRules>,
     camera_rules: Option<game_engine::common::ini::ini_game_data::CameraContentRules>,
 ) -> LoaderResult<MapMetadata> {
+    parse_map_settings_from_chunky_with_camera_and_clip_rules(
+        chunky,
+        draft,
+        definition_source,
+        production_energy,
+        physics_rules,
+        camera_rules,
+        None,
+        None,
+    )
+}
+
+pub(crate) fn parse_map_settings_from_chunky_with_camera_and_clip_rules(
+    chunky: &ChunkyMap,
+    draft: std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    definition_source: &str,
+    production_energy: Option<game_engine::common::ini::ini_game_data::ProductionEnergyRules>,
+    physics_rules: Option<game_engine::common::ini::ini_game_data::PhysicsContentRules>,
+    camera_rules: Option<game_engine::common::ini::ini_game_data::CameraContentRules>,
+    camera_clip_rules: Option<game_engine::common::ini::ini_game_data::CameraClipRules>,
+    camera_shake_rules: Option<game_engine::common::ini::ini_game_data::CameraShakeRules>,
+) -> LoaderResult<MapMetadata> {
     parse_map_settings_from_loaded_chunky(
         definition_source,
         chunky,
         MapMetadata {
+            camera_clip_rules,
+            camera_shake_rules,
             camera_rules,
             production_energy,
             physics_rules,
@@ -498,6 +522,20 @@ fn parse_map_settings_from_loaded_chunky(
             if let Some((_, contents)) =
                 first_readable_map_ini_companion(dir, &["Map.ini", "map.ini"])
             {
+                if let Some(rules) = meta.camera_shake_rules {
+                    meta.camera_shake_rules = Some(
+                        rules
+                            .overlay_ini_text(&contents)
+                            .map_err(GameLogicError::Configuration)?,
+                    );
+                }
+                if let Some(rules) = meta.camera_clip_rules {
+                    meta.camera_clip_rules = Some(
+                        rules
+                            .overlay_ini_text(&contents)
+                            .map_err(GameLogicError::Configuration)?,
+                    );
+                }
                 if let Some(rules) = meta.camera_rules {
                     meta.camera_rules = Some(
                         rules
@@ -579,6 +617,20 @@ fn parse_map_settings_from_loaded_chunky(
             if let Some((_, contents)) =
                 first_readable_map_ini_companion(dir, &["Solo.ini", "solo.ini"])
             {
+                if let Some(rules) = meta.camera_shake_rules {
+                    meta.camera_shake_rules = Some(
+                        rules
+                            .overlay_ini_text(&contents)
+                            .map_err(GameLogicError::Configuration)?,
+                    );
+                }
+                if let Some(rules) = meta.camera_clip_rules {
+                    meta.camera_clip_rules = Some(
+                        rules
+                            .overlay_ini_text(&contents)
+                            .map_err(GameLogicError::Configuration)?,
+                    );
+                }
                 if let Some(rules) = meta.camera_rules {
                     meta.camera_rules = Some(
                         rules

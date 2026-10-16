@@ -2605,3 +2605,9 @@ mod tests {
         assert_ne!(weather, Weather::default());
     }
 }
+
+mod camera_clip_rules;
+pub use camera_clip_rules::CameraClipRules;
+
+mod camera_shake_rules;
+pub use camera_shake_rules::CameraShakeRules;

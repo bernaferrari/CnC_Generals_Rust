@@ -353,12 +353,12 @@ impl crate::game_logic::GameLogic {
         run: impl FnOnce(&mut game_client::fx_list::FxViewServices<'_>) -> R,
     ) -> R {
         let target = session_view.target;
-        let rules = game_engine::common::global_data::read().clone();
+        let rules = session_view.camera.shake_policy.current();
         let impulse = &mut session_view.impulse;
         let mut shake =
             |position: &gamelogic::common::Coord3D,
              kind: game_client::display::view::CameraShakeType| {
-                impulse.enqueue(
+                impulse.enqueue_with_rules(
                     Vec3::new(position.x, position.z, position.y),
                     target,
                     kind.into(),

@@ -4,7 +4,7 @@ use super::*;
 // A historical record starts with Option<Vec3>'s 0/1 discriminant. FF cannot
 // prefix a valid old record, so malformed envelopes never fall back to legacy.
 const MAGIC: &[u8; 4] = b"\xffLCF";
-const VERSION: u32 = 5;
+const VERSION: u32 = 6;
 
 /// The first owned envelope is retained byte for byte as an input-only schema.
 #[derive(Serialize, Deserialize)]
@@ -51,6 +51,14 @@ struct EnvelopeV5 {
     camera_settings: crate::presentation_frame::camera::settings::CameraSettings,
 }
 
+// V5 remains input-only and byte frozen. V6 appends receiving clip/shake definitions.
+#[derive(Serialize, Deserialize)]
+struct EnvelopeV6 {
+    base: EnvelopeV5,
+    clip_policy: crate::presentation_frame::camera::clip::CameraClipPolicy,
+    shake_policy: crate::presentation_frame::camera::shake_rules::CameraShakePolicy,
+}
+
 pub(super) fn encode(state: &LogicCameraContinuation) -> Result<Vec<u8>, String> {
     let envelope = EnvelopeV2 {
         legacy_record: codec().serialize(state)?,
@@ -72,7 +80,7 @@ pub(super) fn encode(state: &LogicCameraContinuation) -> Result<Vec<u8>, String>
         path_arrived: state.owned_extras.path_arrived,
         object_tracking: state.owned_extras.object_tracking.clone(),
     };
-    let payload = codec().serialize(&EnvelopeV5 {
+    let v5 = EnvelopeV5 {
         base: EnvelopeV4 {
             base: EnvelopeV3 {
                 base: envelope,
@@ -84,6 +92,17 @@ pub(super) fn encode(state: &LogicCameraContinuation) -> Result<Vec<u8>, String>
             .owned_extras
             .camera_settings
             .ok_or("camera settings capture missing")?,
+    };
+    let payload = codec().serialize(&EnvelopeV6 {
+        base: v5,
+        clip_policy: state
+            .owned_extras
+            .clip_policy
+            .ok_or("camera clip capture missing")?,
+        shake_policy: state
+            .owned_extras
+            .shake_policy
+            .ok_or("camera shake capture missing")?,
     })?;
     let mut bytes = Vec::with_capacity(payload.len() + 8);
     bytes.extend_from_slice(MAGIC);
@@ -133,8 +152,18 @@ pub(super) fn decode(bytes: &[u8]) -> Result<LogicCameraContinuation, String> {
             decode_filter(&mut state, envelope.filter)?;
             Ok(state)
         }
-        2 | 3 | 4 | VERSION => {
+        2 | 3 | 4 | 5 | VERSION => {
             let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+            let (current, clip_policy, shake_policy) = if version == VERSION {
+                let current: EnvelopeV6 = codec().deserialize(&bytes[8..])?;
+                (
+                    Some(current.base),
+                    Some(current.clip_policy),
+                    Some(current.shake_policy.validate()?),
+                )
+            } else {
+                (None, None, None)
+            };
             let (envelope, snap, constraints, settings) = match version {
                 2 => (
                     codec().deserialize::<EnvelopeV2>(&bytes[8..])?,
@@ -161,7 +190,10 @@ pub(super) fn decode(bytes: &[u8]) -> Result<LogicCameraContinuation, String> {
                     )
                 }
                 _ => {
-                    let current: EnvelopeV5 = codec().deserialize(&bytes[8..])?;
+                    let current: EnvelopeV5 = match current {
+                        Some(current) => current,
+                        None => codec().deserialize(&bytes[8..])?,
+                    };
                     (
                         current.base.base.base,
                         current.base.base.follow_snap_immediate,
@@ -183,6 +215,8 @@ pub(super) fn decode(bytes: &[u8]) -> Result<LogicCameraContinuation, String> {
             state.owned_extras.follow_snap_immediate = snap;
             state.owned_extras.constraints = constraints;
             state.owned_extras.camera_settings = settings;
+            state.owned_extras.clip_policy = clip_policy;
+            state.owned_extras.shake_policy = shake_policy;
             decode_filter(&mut state, envelope.filter)?;
             Ok(state)
         }
@@ -201,3 +235,7 @@ mod follow_snap_v3_tests;
 #[cfg(test)]
 #[path = "constraint_v4_tests.rs"]
 mod constraint_v4_tests;
+
+#[cfg(test)]
+#[path = "clip_v6_tests.rs"]
+mod clip_v6_tests;

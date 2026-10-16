@@ -128,6 +128,28 @@ impl SessionViewImpulse {
         );
     }
 
+    pub(crate) fn enqueue_with_rules(
+        &mut self,
+        position: Vec3,
+        target: Vec3,
+        kind: CameraShakeType,
+        rules: &camera::shake_rules::CameraShakeRules,
+        random: &mut dyn FnMut(f32, f32) -> f32,
+    ) {
+        ViewImpulse {
+            intensity: &mut self.intensity,
+            cosine: &mut self.cosine,
+            sine: &mut self.sine,
+        }
+        .enqueue_with_rules(
+            [position.x, position.z],
+            [target.x, target.z],
+            kind,
+            rules,
+            random,
+        );
+    }
+
     pub(crate) fn step(&mut self) -> Vec3 {
         let offset = ViewImpulse {
             intensity: &mut self.intensity,

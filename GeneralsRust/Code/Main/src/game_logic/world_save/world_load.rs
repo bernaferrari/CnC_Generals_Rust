@@ -162,19 +162,31 @@ impl GameLogic {
                 let settings_started = Instant::now();
                 report_progress(0.36, "Reading map settings");
                 let ai_draft = self.ai_definitions.map_override_draft();
-                let parsed = super::script_loader::parse_map_settings_from_chunky_with_camera_rules(
-                    &chunky,
-                    std::sync::Arc::clone(&ai_draft),
-                    &definition_source,
-                    Some(*self.production_energy_rules()),
-                    Some(self.physics_definitions.effective),
-                    Some(self.session_view.camera.settings.current()),
-                );
+                let parsed =
+                    super::script_loader::parse_map_settings_from_chunky_with_camera_and_clip_rules(
+                        &chunky,
+                        std::sync::Arc::clone(&ai_draft),
+                        &definition_source,
+                        Some(*self.production_energy_rules()),
+                        Some(self.physics_definitions.effective),
+                        Some(self.session_view.camera.settings.current()),
+                        Some(self.session_view.camera.clip_policy.current()),
+                        Some(self.session_view.camera.shake_policy.current()),
+                    );
                 let parsed_settings = match parsed {
                     Ok(meta) => match self.admit_ai_map_overrides(ai_draft) {
                         Ok(()) => {
                             self.weather_definition_updates =
                                 meta.weather_definition_updates.clone();
+                            if let Some(rules) = meta.camera_shake_rules {
+                                if let Err(error) = self.admit_camera_map_shake(rules) {
+                                    log::warn!("Map camera shake admission failed: {error}");
+                                    return false;
+                                }
+                            }
+                            if let Some(rules) = meta.camera_clip_rules {
+                                self.admit_camera_map_clip(rules);
+                            }
                             if let Some(rules) = meta.camera_rules {
                                 if let Err(error) = self.admit_camera_map_rules(rules) {
                                     log::warn!("Map camera rules admission failed: {error}");

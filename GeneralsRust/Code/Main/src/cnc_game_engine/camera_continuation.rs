@@ -22,6 +22,8 @@ struct NativeCameraExtras {
     filter: Option<(glam::Vec2, Vec3)>,
     completed_view: Option<glam::Mat4>,
     camera_settings: Option<crate::presentation_frame::camera::settings::CameraSettings>,
+    clip_policy: Option<crate::presentation_frame::camera::clip::CameraClipPolicy>,
+    shake_policy: Option<crate::presentation_frame::camera::shake_rules::CameraShakePolicy>,
     follow_snap_immediate: bool,
     constraints: crate::presentation_frame::camera::constraints::CameraConstraints,
 }
@@ -210,6 +212,19 @@ impl NativeCameraContinuation {
         &self,
         logic: &crate::game_logic::LogicCameraContinuation,
     ) -> Result<(), String> {
+        if let Some(shake) = self.1.shake_policy {
+            shake.validate()?;
+        }
+        if let Some(native) = self.1.shake_policy {
+            if logic.owned_shake_policy() != Some(native) {
+                return Err("logic/native shake policy absent or disagrees".into());
+            }
+        }
+        if let Some(native) = self.1.clip_policy {
+            if logic.owned_clip_policy() != Some(native) {
+                return Err("logic/native clip policy absent or disagrees".into());
+            }
+        }
         if let (Some(native), Some(owned)) = (self.1.camera_settings, logic.owned_camera_settings())
         {
             if native != owned {
@@ -508,6 +523,12 @@ impl CnCGameEngine {
                 .native_filter_previous_target = previous_target;
         }
         let completed_view = continuation.completed_view();
+        if let Some(shake) = continuation.1.shake_policy {
+            self.game_logic.session_view.camera.shake_policy = shake;
+        }
+        if let Some(clip) = continuation.1.clip_policy {
+            self.game_logic.session_view.camera.clip_policy = clip;
+        }
         if let Some(settings) = continuation.1.camera_settings {
             self.game_logic.session_view.camera.settings = settings;
         }

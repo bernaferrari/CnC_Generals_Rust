@@ -10,7 +10,7 @@ fn pending_snap_v3_roundtrips_without_extending_frozen_v2_or_logic40() {
             .unwrap();
     world.session_view.camera.camera_follow_snap_immediate = true;
     let bytes = world.capture_camera_continuation().unwrap();
-    assert_eq!(&bytes[4..8], &5_u32.to_le_bytes());
+    assert_eq!(&bytes[4..8], &6_u32.to_le_bytes());
     let pending = decode(&bytes).unwrap();
     assert!(pending.owned_follow_snap_immediate());
     assert_eq!(
@@ -21,7 +21,7 @@ fn pending_snap_v3_roundtrips_without_extending_frozen_v2_or_logic40() {
         codec().serialize(&before.owned_extras.camera).unwrap(),
         codec().serialize(&pending.owned_extras.camera).unwrap()
     );
-    let v5: EnvelopeV5 = codec().deserialize(&bytes[8..]).unwrap();
+    let v5: EnvelopeV5 = codec().deserialize::<EnvelopeV6>(&bytes[8..]).unwrap().base;
     let v4 = v5.base;
     let v3 = v4.base;
     let mut old3 = MAGIC.to_vec();
@@ -55,8 +55,13 @@ fn pending_snap_v3_roundtrips_without_extending_frozen_v2_or_logic40() {
     assert!(!receiving.session_view.camera.camera_follow_snap_immediate);
     assert_eq!(peer_before, peer.capture_camera_continuation().unwrap());
     let unchanged = receiving.capture_camera_continuation().unwrap();
-    let mut invalid = bytes;
-    *invalid.last_mut().unwrap() = 2;
-    assert!(GameLogic::decode_camera_continuation(&invalid).is_err());
+    // V3 is a frozen V2 prefix followed by this bool. Current V6 retains
+    // that exact nested prefix but ends in clip/shake rule floats, not snap.
+    let snap_offset = 8 + codec().serialize(&v3.base).unwrap().len();
+    for mut invalid in [old3, bytes] {
+        assert_eq!(invalid[snap_offset], 1, "verified pending-snap bool");
+        invalid[snap_offset] = 2;
+        assert!(GameLogic::decode_camera_continuation(&invalid).is_err());
+    }
     assert_eq!(unchanged, receiving.capture_camera_continuation().unwrap());
 }

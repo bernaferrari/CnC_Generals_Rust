@@ -32,6 +32,21 @@ fn startup_handoff_keeps_worker_rules_and_persistent_pose_hag_with_peer_isolatio
             },
         )
         .unwrap();
+    previous.admit_camera_application_clip(Default::default());
+    candidate.admit_camera_application_clip(
+        crate::presentation_frame::camera::clip::CameraClipRules {
+            draw_entire_terrain: true,
+        },
+    );
+    previous
+        .admit_camera_application_shake(Default::default())
+        .unwrap();
+    candidate
+        .admit_camera_application_shake(game_engine::common::ini::ini_game_data::CameraShakeRules {
+            max_shake_range: 543.,
+            ..Default::default()
+        })
+        .unwrap();
     previous.session_view.target = Vec3::new(91., 0., 93.);
     previous
         .session_view
@@ -66,12 +81,16 @@ fn startup_handoff_keeps_worker_rules_and_persistent_pose_hag_with_peer_isolatio
             .set_filter(game_client::display::view::FilterType::MotionBlur);
     }
     let rules_before = candidate.session_view.camera.settings;
+    let clip_before = candidate.session_view.camera.clip_policy;
+    let shake_before = candidate.session_view.camera.shake_policy;
     let peer_before = peer.capture_camera_continuation().unwrap();
     CnCGameEngine::admit_startup_candidate_view(
         &mut previous.session_view,
         &mut candidate.session_view,
     );
     assert_eq!(candidate.session_view.camera.settings, rules_before);
+    assert_eq!(candidate.session_view.camera.clip_policy, clip_before);
+    assert_eq!(candidate.session_view.camera.shake_policy, shake_before);
     assert_eq!(
         candidate
             .session_view

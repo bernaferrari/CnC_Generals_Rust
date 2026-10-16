@@ -73,6 +73,8 @@ struct CameraOwnedExtras {
     follow_snap_immediate: bool,
     constraints: crate::presentation_frame::camera::constraints::CameraConstraints,
     camera_settings: Option<crate::presentation_frame::camera::settings::CameraSettings>,
+    clip_policy: Option<crate::presentation_frame::camera::clip::CameraClipPolicy>,
+    shake_policy: Option<crate::presentation_frame::camera::shake_rules::CameraShakePolicy>,
 }
 
 fn codec() -> CameraCodec<MAX_BYTES> {
@@ -84,6 +86,16 @@ impl LogicCameraContinuation {
         self.owned_extras.camera.as_ref()
     }
 
+    pub(crate) fn owned_shake_policy(
+        &self,
+    ) -> Option<crate::presentation_frame::camera::shake_rules::CameraShakePolicy> {
+        self.owned_extras.shake_policy
+    }
+    pub(crate) fn owned_clip_policy(
+        &self,
+    ) -> Option<crate::presentation_frame::camera::clip::CameraClipPolicy> {
+        self.owned_extras.clip_policy
+    }
     pub(crate) fn owned_camera_settings(
         &self,
     ) -> Option<crate::presentation_frame::camera::settings::CameraSettings> {
@@ -221,6 +233,8 @@ impl GameLogic {
                 follow_snap_immediate: self.session_view.camera.camera_follow_snap_immediate,
                 constraints: self.session_view.camera.constraints,
                 camera_settings: Some(self.session_view.camera.settings),
+                clip_policy: Some(self.session_view.camera.clip_policy),
+                shake_policy: Some(self.session_view.camera.shake_policy),
             },
         };
         state.validate()?;
@@ -281,6 +295,12 @@ impl GameLogic {
             state.owned_extras.follow_snap_immediate;
         self.session_view.camera.constraints = state.owned_extras.constraints;
         self.session_view.camera.settings = settings;
+        if let Some(shake) = state.owned_extras.shake_policy {
+            self.session_view.camera.shake_policy = shake;
+        }
+        if let Some(clip) = state.owned_extras.clip_policy {
+            self.session_view.camera.clip_policy = clip;
+        }
         self.session_view.scripted.camera_follow_target = state.camera_follow_target;
         self.session_view.scripted.camera_tether_play = state.camera_tether_play;
         self.session_view.scripted.script_look_toward_object_id =

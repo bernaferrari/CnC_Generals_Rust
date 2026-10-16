@@ -27,8 +27,11 @@ fn v1_bytes(state: &LogicCameraContinuation) -> Vec<u8> {
 // payload. V3 adds snap; V4 wraps V3 with the new constraint cache.
 fn v2_bytes_from_current(current: &[u8]) -> Vec<u8> {
     assert_eq!(&current[..4], MAGIC);
-    assert_eq!(&current[4..8], &5_u32.to_le_bytes());
-    let current: EnvelopeV5 = codec().deserialize(&current[8..]).unwrap();
+    assert_eq!(&current[4..8], &6_u32.to_le_bytes());
+    let current: EnvelopeV5 = codec()
+        .deserialize::<EnvelopeV6>(&current[8..])
+        .unwrap()
+        .base;
     let current = current.base;
     let mut bytes = MAGIC.to_vec();
     bytes.extend_from_slice(&2_u32.to_le_bytes());
@@ -37,8 +40,11 @@ fn v2_bytes_from_current(current: &[u8]) -> Vec<u8> {
 }
 fn v3_bytes_from_current(current: &[u8]) -> Vec<u8> {
     assert_eq!(&current[..4], MAGIC);
-    assert_eq!(&current[4..8], &5_u32.to_le_bytes());
-    let current: EnvelopeV5 = codec().deserialize(&current[8..]).unwrap();
+    assert_eq!(&current[4..8], &6_u32.to_le_bytes());
+    let current: EnvelopeV5 = codec()
+        .deserialize::<EnvelopeV6>(&current[8..])
+        .unwrap()
+        .base;
     let current = current.base;
     let mut bytes = MAGIC.to_vec();
     bytes.extend_from_slice(&3_u32.to_le_bytes());
@@ -78,7 +84,7 @@ fn camera_owner_v2_is_self_contained_without_a_native_block_and_leaves_peer_unch
     for (version, bytes) in [
         (2_u32, v2),
         (3_u32, v3_bytes_from_current(&current)),
-        (5_u32, current.clone()),
+        (6_u32, current.clone()),
     ] {
         assert_eq!(&bytes[..4], MAGIC);
         assert_eq!(&bytes[4..8], &version.to_le_bytes());
@@ -213,6 +219,13 @@ fn camera_owner_v2_rejects_conflicting_legacy_projection_and_trailing_bytes() {
             },
             4 => codec().deserialize::<EnvelopeV4>(&saved[8..]).unwrap(),
             5 => codec().deserialize::<EnvelopeV5>(&saved[8..]).unwrap().base,
+            6 => {
+                codec()
+                    .deserialize::<EnvelopeV6>(&saved[8..])
+                    .unwrap()
+                    .base
+                    .base
+            }
             _ => panic!("unexpected fixture camera version {version}"),
         };
         let mut legacy: LogicCameraContinuation = codec()
@@ -230,6 +243,19 @@ fn camera_owner_v2_rejects_conflicting_legacy_projection_and_trailing_bytes() {
                     .serialize(&EnvelopeV5 {
                         base: envelope,
                         camera_settings: original.camera_settings,
+                    })
+                    .unwrap()
+            }
+            6 => {
+                let original: EnvelopeV6 = codec().deserialize(&saved[8..]).unwrap();
+                codec()
+                    .serialize(&EnvelopeV6 {
+                        base: EnvelopeV5 {
+                            base: envelope,
+                            camera_settings: original.base.camera_settings,
+                        },
+                        clip_policy: original.clip_policy,
+                        shake_policy: original.shake_policy,
                     })
                     .unwrap()
             }
@@ -403,7 +429,10 @@ fn current_v5_to_input_v2_removes_only_owned_settings_cache_and_snap_extensions(
         .unwrap();
     world.session_view.camera.camera_follow_snap_immediate = true;
     let current = world.capture_camera_continuation().unwrap();
-    let saved: EnvelopeV5 = codec().deserialize(&current[8..]).unwrap();
+    let saved: EnvelopeV5 = codec()
+        .deserialize::<EnvelopeV6>(&current[8..])
+        .unwrap()
+        .base;
     let saved = saved.base;
     let v2 = v2_bytes_from_current(&current);
     assert_eq!(&v2[4..8], &2_u32.to_le_bytes());

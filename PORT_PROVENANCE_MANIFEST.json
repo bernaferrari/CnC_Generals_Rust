@@ -36998,7 +36998,28 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_clip_rules.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_rules.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_shake_rules.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_shake_rules_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -160154,7 +160175,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "51715009170ae72baa87617d40af04e764450834c07b7394f48d980086907c4d",
+  "input_digest": "a94bc30131d800a5bddd6fdf515db1c83c6b9c93a0388054a8047a2dbdf997d2",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -164071,11 +164092,47 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
+        "end_line": 53,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_clip_rules.rs",
+      "sha256": "4939441bab7ee19b6888f260eea65473ea2b1d86800f08851e4a11f548b4a60b",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
         "end_line": 106,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_rules.rs",
       "sha256": "2ed02d0243183664aeac3f23b073d5c48b5c7594b9a3700ee923a083d6a9066b",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 99,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_shake_rules.rs",
+      "sha256": "1083a96f9adf988c8e3c320cf18c406db7b32e62e499fe363c1b0ee657ee2766",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 73,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_shake_rules_tests.rs",
+      "sha256": "16ad0c2d06192496fe35a43f44d2d6730e7e35e47f0906fb01bbbd6332498eeb",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -164095,11 +164152,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2608,
+        "end_line": 2614,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data.rs",
-      "sha256": "83a830cf5007f310d32928860bba93ee518fc0f147b5fe097f05b2265f805f7a",
+      "sha256": "d763621826b9b8bf55caa1b24eefe61211a3b68b88be6b8ecbb9176c2e61ad80",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
