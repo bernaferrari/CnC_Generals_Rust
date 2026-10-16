@@ -72,9 +72,11 @@ fn authored_freeze_speed_weather_follow_receiver_without_or_with_foreign_handler
                     );
                     let bytes = owner.capture_camera_continuation().unwrap();
                     let mut restored = GameLogic::new();
-                    restored.admit_camera_continuation(
-                        GameLogic::decode_camera_continuation(&bytes).unwrap(),
-                    );
+                    restored
+                        .admit_camera_continuation(
+                            GameLogic::decode_camera_continuation(&bytes).unwrap(),
+                        )
+                        .unwrap();
                     assert_eq!(restored.is_script_time_frozen(), frozen);
                     assert_eq!(restored.visual_speed_multiplier(), speed as f32);
                     // Camera continuation does not serialize weather. Physical

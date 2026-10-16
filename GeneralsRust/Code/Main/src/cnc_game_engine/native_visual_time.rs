@@ -36,9 +36,13 @@ mod tests {
         let state = GameLogic::decode_camera_continuation(&bytes).unwrap();
         let mut value = serde_json::to_value(state).unwrap();
         value["visual_speed_multiplier"] = serde_json::json!(speed);
-        logic.admit_camera_continuation(serde_json::from_value(value).unwrap());
+        logic
+            .admit_camera_continuation(serde_json::from_value(value).unwrap())
+            .unwrap();
         let encoded = logic.capture_camera_continuation().unwrap();
-        logic.admit_camera_continuation(GameLogic::decode_camera_continuation(&encoded).unwrap());
+        logic
+            .admit_camera_continuation(GameLogic::decode_camera_continuation(&encoded).unwrap())
+            .unwrap();
         assert_eq!(logic.visual_speed_multiplier(), speed);
     }
 
@@ -67,7 +71,9 @@ mod tests {
         peer = GameLogic::new();
         assert_eq!(observe(&peer, false, || false).visual_speed, 1.);
         let mut restored = GameLogic::new();
-        restored.admit_camera_continuation(GameLogic::decode_camera_continuation(&before).unwrap());
+        restored
+            .admit_camera_continuation(GameLogic::decode_camera_continuation(&before).unwrap())
+            .unwrap();
         for _ in 0..120 {
             assert_eq!(observe(&owner, false, || false).visual_speed, 3.);
             assert_eq!(observe(&restored, false, || false).visual_speed, 3.);

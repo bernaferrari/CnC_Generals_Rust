@@ -43,7 +43,9 @@ fn logic_camera_continuation_retains_future_move_and_shutter_steps() {
     }
     let bytes = uninterrupted.capture_camera_continuation().unwrap();
     let mut restored = GameLogic::new();
-    restored.admit_camera_continuation(GameLogic::decode_camera_continuation(&bytes).unwrap());
+    restored
+        .admit_camera_continuation(GameLogic::decode_camera_continuation(&bytes).unwrap())
+        .unwrap();
     for _ in 0..50 {
         uninterrupted.headless_camera_view_offer(33);
         restored.headless_camera_view_offer(33);
@@ -79,7 +81,9 @@ fn logic_camera_continuation_preserves_pending_hook_fifo_without_draining_source
     let bytes = source.capture_camera_continuation().unwrap();
     assert_eq!(source.capture_camera_continuation().unwrap(), bytes);
     let mut restored = GameLogic::new();
-    restored.admit_camera_continuation(GameLogic::decode_camera_continuation(&bytes).unwrap());
+    restored
+        .admit_camera_continuation(GameLogic::decode_camera_continuation(&bytes).unwrap())
+        .unwrap();
     assert!(!restored.mission_scripts.is_camera_movement_finished());
     let zooms = restored.mission_scripts.drain_camera_zoom_requests();
     assert_eq!(
@@ -104,7 +108,8 @@ fn logic_camera_continuation_peer_reset_and_malformed_candidates_leave_owner_unc
     let peer = b.capture_camera_continuation().unwrap();
     assert_ne!(peer, baseline);
     b.reset();
-    b.admit_camera_continuation(GameLogic::decode_camera_continuation(&peer).unwrap());
+    b.admit_camera_continuation(GameLogic::decode_camera_continuation(&peer).unwrap())
+        .unwrap();
     assert_eq!(a.capture_camera_continuation().unwrap(), baseline);
     let mut trailing = baseline.clone();
     trailing.push(0);
@@ -157,7 +162,9 @@ fn logic_camera_continuation_retains_path_segments_rolling_and_pending_admission
     });
     let bytes = world.capture_camera_continuation().unwrap();
     let mut restored = GameLogic::new();
-    restored.admit_camera_continuation(GameLogic::decode_camera_continuation(&bytes).unwrap());
+    restored
+        .admit_camera_continuation(GameLogic::decode_camera_continuation(&bytes).unwrap())
+        .unwrap();
     assert_eq!(restored.capture_camera_continuation().unwrap(), bytes);
     for _ in 0..3 {
         restored.headless_camera_view_offer(33);

@@ -33,7 +33,7 @@ fn logic_camera_filter_owned_envelope_preserves_future_focus_and_peer() {
     assert_eq!(&bytes[..4], b"\xffLCF");
     let decoded = GameLogic::decode_camera_continuation(&bytes).unwrap();
     let mut restored = GameLogic::new();
-    restored.admit_camera_continuation(decoded);
+    restored.admit_camera_continuation(decoded).unwrap();
     assert_eq!(
         codec().serialize(&peer.session_view.filter).unwrap(),
         peer_before,
@@ -81,7 +81,7 @@ fn logic_camera_filter_legacy_record_bytes_keep_original_layout_and_default_extr
         .session_view
         .filter
         .set_filter(FilterType::BlackAndWhite);
-    restored.admit_camera_continuation(decoded);
+    restored.admit_camera_continuation(decoded).unwrap();
     assert_eq!(restored.session_view.filter.filter(), FilterType::Null);
     assert_eq!(restored.session_view.pending_focus_previous_target, None);
 }
@@ -171,7 +171,7 @@ fn logic_camera_filter_impossible_phase_rejects_before_receiving_owner_admission
             .unwrap();
         let bytes = owned_envelope::encode(&state).unwrap();
         let result = GameLogic::decode_camera_continuation(&bytes).map(|candidate| {
-            receiving.admit_camera_continuation(candidate);
+            receiving.admit_camera_continuation(candidate).unwrap();
         });
         assert!(
             result.is_err(),
@@ -210,7 +210,7 @@ fn logic_camera_filter_boundary_phases_resume_without_counter_overflow() {
             GameLogic::decode_camera_continuation(&owned_envelope::encode(&state).unwrap())
                 .unwrap();
         let mut receiving = GameLogic::new();
-        receiving.admit_camera_continuation(decoded);
+        receiving.admit_camera_continuation(decoded).unwrap();
         receiving.session_view.filter.tick_fade();
         let next = receiving
             .session_view

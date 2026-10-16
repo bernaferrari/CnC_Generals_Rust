@@ -113,7 +113,7 @@ pub(crate) fn step_axis(
     result
 }
 
-fn normalize_yaw(angle: &mut f32) {
+pub(crate) fn normalize_yaw(angle: &mut f32) {
     let pi = std::f32::consts::PI;
     if *angle < -10.0 * pi || *angle > 10.0 * pi {
         *angle = 0.0;

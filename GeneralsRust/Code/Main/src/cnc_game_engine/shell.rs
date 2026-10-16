@@ -878,13 +878,13 @@ impl CnCGameEngine {
         false
     }
 
-    pub(super) fn configured_startup_camera_defaults() -> StartupCameraDefaults {
-        let global = game_engine::common::global_data::read();
+    pub(super) fn startup_camera_defaults_for(world: &GameLogic) -> StartupCameraDefaults {
+        let rules = world.session_view.camera.settings.current();
         StartupCameraDefaults {
-            pitch_degrees: global.camera_pitch,
-            yaw_degrees: global.camera_yaw,
-            camera_height: global.camera_height,
-            max_camera_height: global.max_camera_height,
+            pitch_degrees: rules.camera_pitch,
+            yaw_degrees: rules.camera_yaw,
+            camera_height: rules.camera_height,
+            max_camera_height: world.session_view.camera.settings.maximum(),
         }
     }
 
@@ -1069,7 +1069,7 @@ impl CnCGameEngine {
         target: Vec3,
         max_height_scale: f32,
     ) -> f32 {
-        let defaults = Self::configured_startup_camera_defaults();
+        let defaults = Self::startup_camera_defaults_for(&self.game_logic);
         let terrain_height_max = self
             .native_camera_terrain_height_around(target)
             .unwrap_or(target.y);
@@ -1108,6 +1108,7 @@ impl CnCGameEngine {
         replay_to_load: Option<String>,
         replay_requested_from_cli: bool,
         player_name: Option<String>,
+        camera_rule_base: game_engine::common::ini::ini_game_data::CameraContentRules,
     ) -> StartupLoadState {
         let (sender, receiver) = mpsc::channel();
         let worker_gen = startup_worker_generation();
@@ -1710,6 +1711,7 @@ impl CnCGameEngine {
                     worker_stop_if_abandoned()?;
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
+                    game_logic.admit_camera_application_rules(camera_rule_base)?;
                     game_logic.admit_physics_rules_base(runtime.block_on(Self::load_physics_rules_baseline())?)?;
                     game_logic.admit_production_energy_base(runtime.block_on(Self::load_production_energy_baseline())?);
                     // Explicit engine-content admission before this session loads a map.
@@ -2047,7 +2049,7 @@ impl CnCGameEngine {
             }
             self.ensure_presentation_env_seeded();
             Self::apply_map_lighting(&mut self.graphics_system, &mut self.render_pipeline);
-            let startup_camera_defaults = Self::configured_startup_camera_defaults();
+            let startup_camera_defaults = Self::startup_camera_defaults_for(&self.game_logic);
             // Wave 458: prefer pipeline presentation freeze; live GameLogic only if missing.
             let startup_camera_presentation = self
                 .render_pipeline

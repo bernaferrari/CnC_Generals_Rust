@@ -103,7 +103,9 @@ fn one_millisecond_reset_preserves_pose_hag_and_follow_until_actual_view_offer_a
     assert_eq!(world.session_view.scripted.camera_tether_play, Some(30.));
     let saved = world.capture_camera_continuation().unwrap();
     let mut restored = owner();
-    restored.admit_camera_continuation(GameLogic::decode_camera_continuation(&saved).unwrap());
+    restored
+        .admit_camera_continuation(GameLogic::decode_camera_continuation(&saved).unwrap())
+        .unwrap();
     for _ in 0..3 {
         world.headless_camera_view_offer(33);
         restored.headless_camera_view_offer(33);

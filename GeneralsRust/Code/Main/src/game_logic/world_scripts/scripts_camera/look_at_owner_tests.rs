@@ -271,9 +271,9 @@ fn actual_look_at_encoded_camera_continuation_retains_axes_freeze_and_future_con
             offer_frames(&mut owner, 15);
             assert_axes(&owner, 75, 106);
             let encoded = owner.capture_camera_continuation().unwrap();
-            restored.admit_camera_continuation(
-                GameLogic::decode_camera_continuation(&encoded).unwrap(),
-            );
+            restored
+                .admit_camera_continuation(GameLogic::decode_camera_continuation(&encoded).unwrap())
+                .unwrap();
             assert_eq!(restored.capture_camera_continuation().unwrap(), encoded);
             for (frames, zoom, pitch, finished) in
                 [(0, 75, 106, false), (75, 0, 31, false), (31, 0, 0, true)]
@@ -421,9 +421,9 @@ fn actual_independent_axis_completion_retains_freeze_for_next_authored_motion_an
                 "CPP zoom/pitch completion does not clear m_freezeTimeForCameraMovement"
             );
             let encoded = owner.capture_camera_continuation().unwrap();
-            restored.admit_camera_continuation(
-                GameLogic::decode_camera_continuation(&encoded).unwrap(),
-            );
+            restored
+                .admit_camera_continuation(GameLogic::decode_camera_continuation(&encoded).unwrap())
+                .unwrap();
             assert!(restored.session_view.scripted.script_camera_freeze_time);
             assert!(!restored.is_script_camera_time_frozen());
             for world in [&mut owner, &mut restored] {

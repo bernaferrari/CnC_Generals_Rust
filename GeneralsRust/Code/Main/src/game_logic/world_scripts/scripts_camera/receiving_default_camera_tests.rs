@@ -180,14 +180,14 @@ fn native_default_adapters_use_only_the_owner_and_keep_native85_observations() {
         assert!(!body.contains("last_presentation_frame"));
         assert!(!body.contains("host_match_script_camera_"));
     }
-    for signature in [
-        "fn apply_player_height_zoom_steps(",
-        "fn ease_camera_height_above_ground(",
-    ] {
-        assert!(
-            function_body(source, signature).contains("self.ui_script_default_camera_max_height()")
-        );
+    for signature in ["fn ease_camera_height_above_ground("] {
+        assert!(function_body(source, signature).contains("settings.height_rules()"));
     }
+    let input = include_str!("../camera_player_input.rs");
+    assert!(
+        function_body(input, "fn admit_player_camera_height_step(")
+            .contains("self.session_view.camera.settings.bounds()")
+    );
     let reset = function_body(source, "fn reset_camera_pose_in_place(");
     assert!(reset.contains("self.game_logic.admit_camera_reset_motion("));
     let reset_owner = include_str!("camera_reset.rs");
@@ -195,8 +195,18 @@ fn native_default_adapters_use_only_the_owner_and_keep_native85_observations() {
     assert!(destination.contains("self.receiving_camera_max_hag()"));
     let defaults = include_str!("../camera_player_defaults.rs");
     let max_height = function_body(defaults, "fn receiving_camera_max_hag(");
-    assert!(max_height.contains("self.session_view.scripted.script_default_camera_max_height"));
-    assert!(max_height.contains(".max(data.min_camera_height)"));
+    let settings = include_str!("../../../presentation_frame/session_view/camera/settings.rs");
+    assert!(
+        function_body(settings, "fn capture_default(")
+            .contains("self.current.max_camera_height * scale")
+    );
+    assert!(function_body(settings, "fn capture_default(").contains(".max(self.captured_min)"));
+    let capture_default = include_str!("camera_motion.rs");
+    assert!(
+        function_body(capture_default, "fn apply_script_camera_default(")
+            .contains("settings.capture_default(request.max_height)?")
+    );
+    assert!(max_height.contains("settings.maximum()"));
     assert!(!destination.contains("last_presentation_frame"));
     let admission = function_body(reset_owner, "fn admit_camera_reset_motion(");
     assert!(admission.contains("self.session_view.camera.install_pitch("));

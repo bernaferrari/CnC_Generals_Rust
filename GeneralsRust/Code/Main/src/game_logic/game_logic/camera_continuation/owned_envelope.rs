@@ -4,7 +4,7 @@ use super::*;
 // A historical record starts with Option<Vec3>'s 0/1 discriminant. FF cannot
 // prefix a valid old record, so malformed envelopes never fall back to legacy.
 const MAGIC: &[u8; 4] = b"\xffLCF";
-const VERSION: u32 = 4;
+const VERSION: u32 = 5;
 
 /// The first owned envelope is retained byte for byte as an input-only schema.
 #[derive(Serialize, Deserialize)]
@@ -44,6 +44,13 @@ struct EnvelopeV4 {
     constraints: crate::presentation_frame::camera::constraints::CameraConstraints,
 }
 
+// V5 adds captures/rule inputs without changing any older positional DTO.
+#[derive(Serialize, Deserialize)]
+struct EnvelopeV5 {
+    base: EnvelopeV4,
+    camera_settings: crate::presentation_frame::camera::settings::CameraSettings,
+}
+
 pub(super) fn encode(state: &LogicCameraContinuation) -> Result<Vec<u8>, String> {
     let envelope = EnvelopeV2 {
         legacy_record: codec().serialize(state)?,
@@ -65,12 +72,18 @@ pub(super) fn encode(state: &LogicCameraContinuation) -> Result<Vec<u8>, String>
         path_arrived: state.owned_extras.path_arrived,
         object_tracking: state.owned_extras.object_tracking.clone(),
     };
-    let payload = codec().serialize(&EnvelopeV4 {
-        base: EnvelopeV3 {
-            base: envelope,
-            follow_snap_immediate: state.owned_extras.follow_snap_immediate,
+    let payload = codec().serialize(&EnvelopeV5 {
+        base: EnvelopeV4 {
+            base: EnvelopeV3 {
+                base: envelope,
+                follow_snap_immediate: state.owned_extras.follow_snap_immediate,
+            },
+            constraints: state.owned_extras.constraints,
         },
-        constraints: state.owned_extras.constraints,
+        camera_settings: state
+            .owned_extras
+            .camera_settings
+            .ok_or("camera settings capture missing")?,
     })?;
     let mut bytes = Vec::with_capacity(payload.len() + 8);
     bytes.extend_from_slice(MAGIC);
@@ -120,24 +133,40 @@ pub(super) fn decode(bytes: &[u8]) -> Result<LogicCameraContinuation, String> {
             decode_filter(&mut state, envelope.filter)?;
             Ok(state)
         }
-        2 | 3 | VERSION => {
+        2 | 3 | 4 | VERSION => {
             let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
-            let (envelope, snap, constraints) = match version {
+            let (envelope, snap, constraints, settings) = match version {
                 2 => (
                     codec().deserialize::<EnvelopeV2>(&bytes[8..])?,
                     false,
                     Default::default(),
+                    None,
                 ),
                 3 => {
                     let old: EnvelopeV3 = codec().deserialize(&bytes[8..])?;
-                    (old.base, old.follow_snap_immediate, Default::default())
+                    (
+                        old.base,
+                        old.follow_snap_immediate,
+                        Default::default(),
+                        None,
+                    )
                 }
-                _ => {
+                4 => {
                     let current: EnvelopeV4 = codec().deserialize(&bytes[8..])?;
                     (
                         current.base.base,
                         current.base.follow_snap_immediate,
                         current.constraints,
+                        None,
+                    )
+                }
+                _ => {
+                    let current: EnvelopeV5 = codec().deserialize(&bytes[8..])?;
+                    (
+                        current.base.base.base,
+                        current.base.base.follow_snap_immediate,
+                        current.base.constraints,
+                        Some(current.camera_settings),
                     )
                 }
             };
@@ -153,6 +182,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<LogicCameraContinuation, String> {
             // Old Rust eagerly applied snap, so no pending operation survives V2.
             state.owned_extras.follow_snap_immediate = snap;
             state.owned_extras.constraints = constraints;
+            state.owned_extras.camera_settings = settings;
             decode_filter(&mut state, envelope.filter)?;
             Ok(state)
         }

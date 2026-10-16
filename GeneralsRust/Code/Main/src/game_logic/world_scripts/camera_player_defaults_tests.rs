@@ -204,12 +204,18 @@ fn reset_and_mmb_default_share_minimum_hag_floor_without_mutating_peer() {
     let mut world = owner();
     let peer = owner();
     let peer_before = peer.capture_camera_continuation().unwrap();
-    let data = game_engine::common::global_data::read();
-    assert!(data.min_camera_height > 0. && data.max_camera_height > 0.);
-    let floor = data.min_camera_height;
-    world.session_view.scripted.script_default_camera_max_height =
-        floor / (data.max_camera_height * 2.);
-    drop(data);
+    let rules = world.session_view.camera.settings.current();
+    let floor = world.session_view.camera.settings.bounds().0;
+    assert!(floor > 0. && rules.max_camera_height > 0.);
+    world
+        .apply_script_camera_default(
+            crate::game_logic::mission_scripts::CameraSetDefaultRequest {
+                pitch: 0.,
+                angle: 0.,
+                max_height: floor / (rules.max_camera_height * 2.),
+            },
+        )
+        .unwrap();
     assert_eq!(world.receiving_camera_max_hag(), floor);
     let target = world.session_view.target;
     let zoom = world.owned_script_camera_max_zoom_at(target).unwrap();
@@ -233,7 +239,9 @@ fn reset_and_mmb_default_share_minimum_hag_floor_without_mutating_peer() {
     assert_eq!(world.session_view.camera.native_camera.desired(), floor);
     let saved = world.capture_camera_continuation().unwrap();
     let mut restored = owner();
-    restored.admit_camera_continuation(GameLogic::decode_camera_continuation(&saved).unwrap());
+    restored
+        .admit_camera_continuation(GameLogic::decode_camera_continuation(&saved).unwrap())
+        .unwrap();
     assert_eq!(restored.capture_camera_continuation().unwrap(), saved);
     assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
 }
@@ -285,4 +293,99 @@ fn current_terrain_boundary_drives_recalculation_not_cached_host_world_bounds() 
     // the actual current boundary independently of the provisional ray inset.
     assert!((cache.x_min + cache.x_max - 510.).abs() < 0.001);
     assert!((cache.z_min + cache.z_max - 470.).abs() < 0.001);
+}
+
+fn camera_rules(min: f32, max: f32) -> game_engine::common::ini::ini_game_data::CameraContentRules {
+    game_engine::common::ini::ini_game_data::CameraContentRules {
+        min_camera_height: min,
+        max_camera_height: max,
+        ..Default::default()
+    }
+}
+#[test]
+fn actual_script_default_and_logic_v5_restore_preserve_captures_not_current_inputs() {
+    use crate::game_logic::mission_scripts::CameraSetDefaultRequest;
+    let mut world = crate::game_logic::GameLogic::new();
+    world
+        .admit_camera_application_rules(camera_rules(100., 300.))
+        .unwrap();
+    world
+        .admit_camera_map_rules(camera_rules(200., 600.))
+        .unwrap();
+    world
+        .apply_script_camera_default(CameraSetDefaultRequest {
+            pitch: 37.,
+            angle: 12.,
+            max_height: 0.75,
+        })
+        .unwrap();
+    assert_eq!(world.session_view.camera.settings.bounds(), (100., 450.));
+    let saved = world.capture_camera_continuation().unwrap();
+    let mut peer = crate::game_logic::GameLogic::new();
+    peer.admit_camera_application_rules(camera_rules(20., 50.))
+        .unwrap();
+    let before = peer.capture_camera_continuation().unwrap();
+    let mut receiver = crate::game_logic::GameLogic::new();
+    receiver
+        .admit_camera_continuation(
+            crate::game_logic::GameLogic::decode_camera_continuation(&saved).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        receiver.session_view.camera.settings,
+        world.session_view.camera.settings
+    );
+    assert_eq!(
+        receiver.session_view.scripted.script_default_camera_pitch,
+        37.
+    );
+    assert_eq!(before, peer.capture_camera_continuation().unwrap());
+    let mut malformed = saved.clone();
+    let len = malformed.len();
+    malformed[len - 4..].copy_from_slice(&f32::NAN.to_le_bytes());
+    assert!(crate::game_logic::GameLogic::decode_camera_continuation(&malformed).is_err());
+    assert_eq!(before, peer.capture_camera_continuation().unwrap());
+}
+
+#[test]
+fn repeated_logic_reset_retains_the_once_captured_client_default() {
+    let mut world = GameLogic::new();
+    world
+        .admit_camera_application_rules(camera_rules(100., 300.))
+        .unwrap();
+    world
+        .admit_camera_map_rules(camera_rules(200., 600.))
+        .unwrap();
+    // Exact native Client/UI reset admission, before override removal.
+    world.session_view.camera.settings = world.session_view.camera.settings.reset_seed();
+    world.reset();
+    world.reset();
+    assert_eq!(world.session_view.camera.settings.bounds(), (100., 600.));
+    assert_eq!(
+        world.session_view.camera.settings.current(),
+        camera_rules(100., 300.)
+    );
+}
+
+#[test]
+fn overflowing_live_default_rejects_before_any_owner_or_peer_mutation() {
+    let mut world = owner();
+    let peer = owner();
+    world
+        .admit_camera_application_rules(camera_rules(100., 300.))
+        .unwrap();
+    let before = world.capture_camera_continuation().unwrap();
+    let peer_before = peer.capture_camera_continuation().unwrap();
+    let error = world
+        .apply_script_camera_default(
+            crate::game_logic::mission_scripts::CameraSetDefaultRequest {
+                pitch: 1.25,
+                angle: 77.,
+                max_height: f32::MAX,
+            },
+        )
+        .unwrap_err();
+    assert!(error.contains("nonfinite effective camera default maximum"));
+    assert_eq!(before, world.capture_camera_continuation().unwrap());
+    assert_eq!(peer_before, peer.capture_camera_continuation().unwrap());
 }

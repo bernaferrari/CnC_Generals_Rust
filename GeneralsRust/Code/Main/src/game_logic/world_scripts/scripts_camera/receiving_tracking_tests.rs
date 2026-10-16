@@ -124,9 +124,9 @@ fn authored_tracking_moves_only_receiving_same_id_and_retains_removed_target_thr
             restored.destroy_object(restored_id);
             restored.process_destroy_list();
             assert!(!restored.objects.contains_key(&restored_id));
-            restored.admit_camera_continuation(
-                GameLogic::decode_camera_continuation(&encoded).unwrap(),
-            );
+            restored
+                .admit_camera_continuation(GameLogic::decode_camera_continuation(&encoded).unwrap())
+                .unwrap();
             assert_eq!(restored.capture_camera_continuation().unwrap(), encoded);
             for frame in 5..=7 {
                 owner.headless_camera_view_offer(33);

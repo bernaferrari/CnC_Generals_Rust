@@ -35,6 +35,12 @@ struct ConstrainedCameraState {
     constraints: crate::presentation_frame::camera::constraints::CameraConstraints,
 }
 
+#[derive(Serialize, Deserialize)]
+struct OwnedCameraState {
+    base: ConstrainedCameraState,
+    camera_settings: crate::presentation_frame::camera::settings::CameraSettings,
+}
+
 pub(super) fn encode_native_camera(
     engine: &CnCGameEngine,
     state: &CameraState,
@@ -56,7 +62,7 @@ pub(super) fn encode_native_camera(
             None
         }
     };
-    encode_constrained_camera(
+    encode_owned_camera(
         state,
         engine.game_logic.session_view.camera.view_matrix,
         filter,
@@ -66,6 +72,7 @@ pub(super) fn encode_native_camera(
             .camera
             .camera_follow_snap_immediate,
         engine.game_logic.session_view.camera.constraints,
+        engine.game_logic.session_view.camera.settings,
     )
 }
 
@@ -150,6 +157,35 @@ fn encode_constrained_camera(
     })?)
 }
 
+fn encode_owned_camera(
+    state: &CameraState,
+    completed_view: glam::Mat4,
+    filter: Option<(glam::Vec2, Vec3)>,
+    snap: bool,
+    constraints: crate::presentation_frame::camera::constraints::CameraConstraints,
+    settings: crate::presentation_frame::camera::settings::CameraSettings,
+) -> Result<Vec<u8>, String> {
+    state.validate_with_completed_view(Some(completed_view))?;
+    validate_filter(filter)?;
+    constraints.validate()?;
+    settings.validate()?;
+    tagged(codec().serialize(&OwnedCameraState {
+        base: ConstrainedCameraState {
+            base: FollowCameraState {
+                base: CompletedCameraState {
+                    version: 5,
+                    camera: codec().serialize(state)?,
+                    completed_view,
+                    filter,
+                },
+                follow_snap_immediate: snap,
+            },
+            constraints,
+        },
+        camera_settings: settings,
+    })?)
+}
+
 // Retained only to exercise the original version1 wire; live capture is V3.
 #[cfg(all(test, feature = "game_client"))]
 fn encode_filter_camera(
@@ -182,6 +218,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                 (
                     saved.camera,
                     NativeCameraExtras {
+                        camera_settings: None,
                         filter,
                         completed_view: None,
                         follow_snap_immediate: false,
@@ -195,6 +232,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                 (
                     saved.camera,
                     NativeCameraExtras {
+                        camera_settings: None,
                         filter: saved.filter,
                         completed_view: Some(saved.completed_view),
                         follow_snap_immediate: false,
@@ -208,6 +246,7 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                 (
                     saved.base.camera,
                     NativeCameraExtras {
+                        camera_settings: None,
                         filter: saved.base.filter,
                         completed_view: Some(saved.base.completed_view),
                         follow_snap_immediate: saved.follow_snap_immediate,
@@ -222,10 +261,27 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
                 (
                     saved.base.base.camera,
                     NativeCameraExtras {
+                        camera_settings: None,
                         filter: saved.base.base.filter,
                         completed_view: Some(saved.base.base.completed_view),
                         follow_snap_immediate: saved.base.follow_snap_immediate,
                         constraints: saved.constraints,
+                    },
+                )
+            }
+            5 => {
+                let saved: OwnedCameraState = codec().deserialize(payload)?;
+                saved.camera_settings.validate()?;
+                validate_filter(saved.base.base.base.filter)?;
+                saved.base.constraints.validate()?;
+                (
+                    saved.base.base.base.camera,
+                    NativeCameraExtras {
+                        camera_settings: Some(saved.camera_settings),
+                        filter: saved.base.base.base.filter,
+                        completed_view: Some(saved.base.base.base.completed_view),
+                        follow_snap_immediate: saved.base.base.follow_snap_immediate,
+                        constraints: saved.base.constraints,
                     },
                 )
             }
@@ -247,6 +303,53 @@ pub(super) fn decode_native_camera(bytes: &[u8]) -> Result<NativeCameraContinuat
 mod tests {
     use super::*;
     use game_client::display::view::{FilterMode, FilterType, Point3, Vector2};
+
+    #[test]
+    fn native_v5_captured_rules_roundtrip_and_reject_malformed_detached_capsule() {
+        use crate::presentation_frame::camera::settings::{CameraContentRules, CameraSettings};
+        let state = super::super::tests::fixture();
+        let view = state.completed_view();
+        let mut settings = CameraSettings::for_application(CameraContentRules {
+            min_camera_height: 100.,
+            max_camera_height: 300.,
+            ..Default::default()
+        })
+        .unwrap();
+        settings
+            .admit_map(CameraContentRules {
+                min_camera_height: 200.,
+                max_camera_height: 600.,
+                ..Default::default()
+            })
+            .unwrap();
+        settings.capture_default(0.75).unwrap();
+        let bytes =
+            encode_owned_camera(&state, view, None, false, Default::default(), settings).unwrap();
+        let decoded = decode_native_camera(&bytes).unwrap();
+        assert_eq!(decoded.1.camera_settings, Some(settings));
+        assert_eq!(decoded.1.camera_settings.unwrap().bounds(), (100., 450.));
+        let mut malformed = bytes.clone();
+        let len = malformed.len();
+        malformed[len - 4..].copy_from_slice(&f32::NAN.to_le_bytes());
+        assert!(decode_native_camera(&malformed).is_err());
+        let mut impossible_min = bytes.clone();
+        let len = impossible_min.len();
+        impossible_min[len - 8..len - 4].copy_from_slice(&99f32.to_le_bytes());
+        assert!(decode_native_camera(&impossible_min).is_err());
+
+        let old = encode_constrained_camera(&state, view, None, false, Default::default()).unwrap();
+        assert_eq!(decode_native_camera(&old).unwrap().1.camera_settings, None);
+        let world = crate::game_logic::GameLogic::new();
+        let before = world.capture_camera_continuation().unwrap();
+        let logic = crate::game_logic::GameLogic::decode_camera_continuation(&before).unwrap();
+        assert!(
+            decoded
+                .validate_logic_continuation(&logic)
+                .unwrap_err()
+                .contains("captured camera settings")
+        );
+        assert_eq!(before, world.capture_camera_continuation().unwrap());
+    }
 
     #[test]
     fn filter_and_hag_resume_together_without_peer_or_extra_present_advancement() {
@@ -285,9 +388,11 @@ mod tests {
         assert_eq!(previous_target, Vec3::new(13., 0., 14.));
         assert_eq!(scroll, glam::Vec2::new(0.2, -0.3));
         let mut restored = crate::game_logic::GameLogic::new();
-        restored.admit_camera_continuation(
-            crate::game_logic::GameLogic::decode_camera_continuation(&logic).unwrap(),
-        );
+        restored
+            .admit_camera_continuation(
+                crate::game_logic::GameLogic::decode_camera_continuation(&logic).unwrap(),
+            )
+            .unwrap();
         let mut peer = crate::game_logic::GameLogic::new();
         let mut peaks = Vec::new();
         for frame in 6..=30 {

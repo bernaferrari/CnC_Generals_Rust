@@ -202,15 +202,17 @@ impl GameLogic {
     pub(in crate::game_logic::game_logic) fn apply_script_camera_default(
         &mut self,
         request: CameraSetDefaultRequest,
-    ) {
-        let scripted = &mut self.session_view.scripted;
-        scripted.script_default_camera_pitch = request.pitch;
-        scripted.script_default_camera_angle = 0.0;
-        scripted.script_default_camera_max_height = if request.max_height.is_finite() {
-            request.max_height
-        } else {
-            1.0
-        };
+    ) -> Result<(), String> {
+        if !request.pitch.is_finite() {
+            return Err("nonfinite camera default pitch".into());
+        }
+        let mut settings = self.session_view.camera.settings;
+        settings.capture_default(request.max_height)?;
+        self.session_view.scripted.script_default_camera_pitch = request.pitch;
+        self.session_view.scripted.script_default_camera_angle = 0.;
+        self.session_view.scripted.script_default_camera_max_height = request.max_height;
+        self.session_view.camera.settings = settings;
+        Ok(())
     }
     pub(in crate::game_logic::game_logic) fn apply_script_camera_mod_freeze_time(&mut self) {
         self.session_view.scripted.script_camera_freeze_time = true;

@@ -210,9 +210,9 @@ fn authored_named_tracking_encoded_continuation_keeps_receiving_identity() {
             let encoded = owner.capture_camera_continuation().unwrap();
             peer.session_view.scripted.object_tracking = None;
             peer.session_view.target = Vec3::new(-500., 0., -600.);
-            restored.admit_camera_continuation(
-                GameLogic::decode_camera_continuation(&encoded).unwrap(),
-            );
+            restored
+                .admit_camera_continuation(GameLogic::decode_camera_continuation(&encoded).unwrap())
+                .unwrap();
             assert_eq!(restored.capture_camera_continuation().unwrap(), encoded);
             assert_eq!(
                 restored.session_view.scripted.script_look_toward_object_id,

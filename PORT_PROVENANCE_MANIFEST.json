@@ -36998,6 +36998,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_rules.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/physics_rules.rs"
           }
         ],
@@ -160147,7 +160154,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "9cb99f77e8afac89739d4e3f7ab71b5bd7c717d48eb55381515063bd9f49f77d",
+  "input_digest": "2f2d0214e442d8b8ac1fce273410b200af754b28559ee00e4fc8b3fec40b6899",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -164064,6 +164071,18 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
+        "end_line": 106,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_rules.rs",
+      "sha256": "2ed02d0243183664aeac3f23b073d5c48b5c7594b9a3700ee923a083d6a9066b",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
         "end_line": 59,
         "start_line": 1
       },
@@ -164076,11 +164095,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2605,
+        "end_line": 2608,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data.rs",
-      "sha256": "fe71fec95c9e71f7a3c53ccf4ec1072bc3e9734189bcfa34b8c4b33860cede31",
+      "sha256": "83a830cf5007f310d32928860bba93ee518fc0f147b5fe097f05b2265f805f7a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

@@ -987,6 +987,7 @@ mod evidence_tests;
 
 /// Main C&C game engine with full RTS functionality - restructured to match C++ SAGE architecture
 pub struct CnCGameEngine {
+    pub(crate) camera_rule_base: game_engine::common::ini::ini_game_data::CameraContentRules,
     pub(crate) window: Arc<Window>,
     #[allow(dead_code)] // C++ parity: stored for future command-line query access
     pub(crate) command_line: Arc<CommandLineArgs>,

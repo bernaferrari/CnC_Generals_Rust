@@ -60,3 +60,7 @@ mod tests {
 #[cfg(test)]
 #[path = "follow_airborne_tests.rs"]
 mod airborne_owner_tests;
+
+#[cfg(test)]
+#[path = "follow_edge_tests.rs"]
+mod edge_owner_tests;

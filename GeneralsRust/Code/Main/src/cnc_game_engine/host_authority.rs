@@ -1143,6 +1143,32 @@ impl CnCGameEngine {
         }
     }
 
+    /// Startup's worker owns admitted rules and script/filter results; the app
+    /// retains its actual view pose/HAG owner until subsequent map bootstrap.
+    fn admit_startup_candidate_view(
+        previous: &mut crate::presentation_frame::SessionView,
+        candidate: &mut crate::presentation_frame::SessionView,
+    ) {
+        let (candidate_visibility, candidate_visibility_delivered) =
+            candidate.take_letterbox_visibility_output();
+        let candidate_focus_previous = candidate.pending_focus_previous_target;
+        let candidate_camera_settings = candidate.camera.settings;
+        let candidate_scripted = std::mem::take(&mut candidate.scripted);
+        // Map actions already applied to the candidate's receiving filter.
+        #[cfg(feature = "game_client")]
+        let candidate_filter = std::mem::take(&mut candidate.filter);
+        *candidate = std::mem::take(previous);
+        candidate.pending_letterbox_visibility = candidate_visibility;
+        candidate.letterbox_visibility_delivered_since_present = candidate_visibility_delivered;
+        candidate.pending_focus_previous_target = candidate_focus_previous;
+        candidate.camera.settings = candidate_camera_settings;
+        candidate.scripted = candidate_scripted;
+        #[cfg(feature = "game_client")]
+        {
+            candidate.filter = candidate_filter;
+        }
+    }
+
     /// Wave 935: intentional full GameLogic replace boundary (map-load install).
     #[inline]
     pub(super) fn host_replace_game_logic(&mut self, mut logic: crate::game_logic::GameLogic) {
@@ -1155,24 +1181,10 @@ impl CnCGameEngine {
 
         // The receiving application keeps its persistent view until map admission
         // resets it. A detached candidate never publishes or replaces this state.
-        let (candidate_visibility, candidate_visibility_delivered) =
-            logic.session_view.take_letterbox_visibility_output();
-        let candidate_focus_previous = logic.session_view.pending_focus_previous_target;
-        let candidate_scripted = std::mem::take(&mut logic.session_view.scripted);
-        // Map actions already applied to the candidate's receiving filter.
-        #[cfg(feature = "game_client")]
-        let candidate_filter = std::mem::take(&mut logic.session_view.filter);
-        logic.session_view = std::mem::take(&mut self.game_logic.session_view);
-        logic.session_view.pending_letterbox_visibility = candidate_visibility;
-        logic
-            .session_view
-            .letterbox_visibility_delivered_since_present = candidate_visibility_delivered;
-        logic.session_view.pending_focus_previous_target = candidate_focus_previous;
-        logic.session_view.scripted = candidate_scripted;
-        #[cfg(feature = "game_client")]
-        {
-            logic.session_view.filter = candidate_filter;
-        }
+        Self::admit_startup_candidate_view(
+            &mut self.game_logic.session_view,
+            &mut logic.session_view,
+        );
         self.game_logic = logic;
         self.host_admit_snow_for_world();
         crate::command_system::bind_host_replay_authority(&self.game_logic.replay_pending);
@@ -1260,12 +1272,14 @@ impl CnCGameEngine {
         let native_commit = runtime_world.install_globals();
         if !owns_session_camera {
             let candidate_focus_previous = logic.session_view.pending_focus_previous_target;
+            let candidate_camera_settings = logic.session_view.camera.settings;
             let candidate_scripted = std::mem::take(&mut logic.session_view.scripted);
             // Map actions already applied to the candidate's receiving filter.
             #[cfg(feature = "game_client")]
             let candidate_filter = std::mem::take(&mut logic.session_view.filter);
             logic.session_view = std::mem::take(&mut self.game_logic.session_view);
             logic.session_view.pending_focus_previous_target = candidate_focus_previous;
+            logic.session_view.camera.settings = candidate_camera_settings;
             logic.session_view.scripted = candidate_scripted;
             #[cfg(feature = "game_client")]
             {
@@ -1362,7 +1376,7 @@ impl CnCGameEngine {
             ) = Self::bootstrap_native_camera_for_loaded_map(
                 self.game_logic.isInShellGame(),
                 self.current_player_id,
-                Self::configured_startup_camera_defaults(),
+                Self::startup_camera_defaults_for(&self.game_logic),
                 self.last_presentation_frame.as_deref(),
             );
             self.game_logic.session_view.camera.camera_pitch_radians = 0.0;
@@ -1619,6 +1633,7 @@ impl CnCGameEngine {
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
+        camera_settings: crate::presentation_frame::camera::settings::CameraSettings,
         live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
     ) -> Result<StagedRestoreWorld, String> {
         // A previous aborted decode cannot lend its client chunk to this save.
@@ -1640,6 +1655,7 @@ impl CnCGameEngine {
             ai_definition_base,
             production_energy_base,
             physics_rules_base,
+            camera_settings,
             live_services,
             |snapshot, staged| {
                 save_file_manager
@@ -1669,6 +1685,7 @@ impl CnCGameEngine {
         ai_definition_base: &game_engine::common::ini::AIData,
         production_energy_base: game_engine::common::ini::ini_game_data::ProductionEnergyRules,
         physics_rules_base: game_engine::common::ini::ini_game_data::PhysicsContentRules,
+        camera_settings: crate::presentation_frame::camera::settings::CameraSettings,
         live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
         restore_snapshot: F,
     ) -> Result<StagedRestoreWorld, String>
@@ -1736,6 +1753,8 @@ impl CnCGameEngine {
         staged.admit_production_energy_base(production_energy_base);
         staged.admit_physics_rules_base(physics_rules_base)?;
         staged.start_new_game_for_restore(mode);
+        // Detached receiving seed; no live settings change on failed load.
+        staged.session_view.camera.settings = camera_settings.reset_seed();
         // Map object restoration needs the live INI/template catalog.  Keep
         // custom/mod templates from the source match while retaining the fresh
         // world's standard startup catalog.
@@ -1830,6 +1849,7 @@ impl CnCGameEngine {
             self.game_logic.ai_definitions.baseline(),
             self.game_logic.production_energy_baseline(),
             self.game_logic.physics_rules_baseline(),
+            self.game_logic.session_view.camera.settings,
             &self.game_logic.world_services,
         ) {
             Ok(staged) => staged,
@@ -2385,6 +2405,7 @@ mod staged_restore_tests {
             source.ai_definitions.baseline(),
             source.production_energy_baseline(),
             source.physics_rules_baseline(),
+            source.session_view.camera.settings,
             &source.world_services,
         ) {
             Ok(_) => panic!("missing saved map must reject before a false InGame restore"),
@@ -2424,6 +2445,7 @@ mod staged_restore_tests {
                     logic.ai_definitions.baseline(),
                     logic.production_energy_baseline(),
                     logic.physics_rules_baseline(),
+                    logic.session_view.camera.settings,
                     &logic.world_services,
                     |_snapshot, _staged| {
                         panic!("invalid client chunk must fail before stage restore")
@@ -2529,6 +2551,7 @@ mod staged_restore_tests {
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
                     source.physics_rules_baseline(),
+                    source.session_view.camera.settings,
                     &source.world_services,
                 )
                 .expect("saved map should load before restore");
@@ -2783,6 +2806,7 @@ mod staged_restore_tests {
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
                     source.physics_rules_baseline(),
+                    source.session_view.camera.settings,
                     &source.world_services,
                     |_snapshot, staged| {
                         assert!(staged.isInGame(), "failure is injected after map load");
@@ -3064,6 +3088,7 @@ mod staged_restore_tests {
                             source.ai_definitions.baseline(),
                             source.production_energy_baseline(),
                             source.physics_rules_baseline(),
+                            source.session_view.camera.settings,
                             &source.world_services,
                             |snapshot, candidate| {
                                 saves
@@ -3311,6 +3336,7 @@ mod staged_restore_tests {
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
                     source.physics_rules_baseline(),
+                    source.session_view.camera.settings,
                     &source.world_services,
                 )
                 .expect("stage RNG continuation save");
@@ -3575,6 +3601,7 @@ mod staged_restore_tests {
                         source.ai_definitions.baseline(),
                         source.production_energy_baseline(),
                         source.physics_rules_baseline(),
+                        source.session_view.camera.settings,
                         &source.world_services,
                         |_, candidate| {
                             assert!(candidate.isInGame());
@@ -3613,6 +3640,7 @@ mod staged_restore_tests {
                         source.ai_definitions.baseline(),
                         source.production_energy_baseline(),
                         source.physics_rules_baseline(),
+                        source.session_view.camera.settings,
                         &source.world_services,
                     )
                     .expect("successful native owned-service staging");
@@ -3681,3 +3709,11 @@ mod fixed_step_boundary_tests;
 #[cfg(test)]
 #[path = "native_team_preflight_tests.rs"]
 mod native_team_preflight_tests;
+
+#[cfg(test)]
+#[path = "camera_rule_stage_tests.rs"]
+mod camera_rule_stage_tests;
+
+#[cfg(test)]
+#[path = "camera_startup_handoff_tests.rs"]
+mod camera_startup_handoff_tests;

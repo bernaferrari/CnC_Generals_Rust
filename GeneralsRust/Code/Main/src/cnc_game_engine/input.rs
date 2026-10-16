@@ -427,6 +427,7 @@ impl CnCGameEngine {
         let logical_y = y / scale;
         self.mouse_position = (logical_x, logical_y);
         self.mouse_cursor_seen = true;
+        self.admit_delivered_camera_cursor();
 
         #[cfg(feature = "game_client")]
         self.inject_game_client_mouse_move(logical_x, logical_y);
@@ -711,11 +712,13 @@ impl CnCGameEngine {
     ///
     /// Sets engine cursor residual + GameClient soft mouse. Does **not** send
     /// `MousePos` through `process_mouse_event` (op-drain hang class on shell).
+    /// Delivered cursor camera setters still run synchronously, including equal X.
     /// Button inject still hits WM at these coordinates with full LeftDown/Up
     /// dispatch + under-cursor residual.
     pub(super) fn inject_winit_equivalent_cursor_at(&mut self, x: f32, y: f32) {
         self.mouse_position = (x, y);
         self.mouse_cursor_seen = true;
+        self.admit_delivered_camera_cursor();
 
         #[cfg(feature = "game_client")]
         self.inject_game_client_mouse_move(x, y);

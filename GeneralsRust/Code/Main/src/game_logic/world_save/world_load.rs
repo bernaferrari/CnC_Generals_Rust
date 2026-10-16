@@ -162,19 +162,25 @@ impl GameLogic {
                 let settings_started = Instant::now();
                 report_progress(0.36, "Reading map settings");
                 let ai_draft = self.ai_definitions.map_override_draft();
-                let parsed =
-                    super::script_loader::parse_map_settings_from_chunky_with_content_rules(
-                        &chunky,
-                        std::sync::Arc::clone(&ai_draft),
-                        &definition_source,
-                        Some(*self.production_energy_rules()),
-                        Some(self.physics_definitions.effective),
-                    );
+                let parsed = super::script_loader::parse_map_settings_from_chunky_with_camera_rules(
+                    &chunky,
+                    std::sync::Arc::clone(&ai_draft),
+                    &definition_source,
+                    Some(*self.production_energy_rules()),
+                    Some(self.physics_definitions.effective),
+                    Some(self.session_view.camera.settings.current()),
+                );
                 let parsed_settings = match parsed {
                     Ok(meta) => match self.admit_ai_map_overrides(ai_draft) {
                         Ok(()) => {
                             self.weather_definition_updates =
                                 meta.weather_definition_updates.clone();
+                            if let Some(rules) = meta.camera_rules {
+                                if let Err(error) = self.admit_camera_map_rules(rules) {
+                                    log::warn!("Map camera rules admission failed: {error}");
+                                    return false;
+                                }
+                            }
                             if let Some(rules) = meta.physics_rules {
                                 if let Err(error) = self.admit_physics_map_rules(rules) {
                                     log::warn!("Map Physics admission failed: {error}");

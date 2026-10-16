@@ -69,9 +69,7 @@ impl GameLogic {
     }
     // setDefaultView stores this floor once; both reset and zoomDefault use it.
     pub(crate) fn receiving_camera_max_hag(&self) -> f32 {
-        let data = game_engine::common::global_data::read();
-        (data.max_camera_height * self.session_view.scripted.script_default_camera_max_height)
-            .max(data.min_camera_height)
+        self.session_view.camera.settings.maximum()
     }
     fn mmb_angle_pitch_defaults(
         &mut self,

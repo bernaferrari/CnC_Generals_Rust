@@ -300,6 +300,11 @@ impl SnapshotBuilder {
         validate_direct_world_snapshot_version(snapshot.version)?;
         let camera_continuation =
             super::super::camera_continuation::decode(&snapshot.lifecycle_tail)?;
+        if let Some(camera) = camera_continuation.as_ref() {
+            game_logic
+                .validate_camera_continuation_admission(&camera.logic)
+                .map_err(SaveLoadError::Corrupted)?;
+        }
         if !game_logic.combat_particles().can_clear() {
             return Err(SaveLoadError::Corrupted(
                 "snapshot replacement requires the actual live receiving particle manager".into(),
@@ -707,7 +712,9 @@ impl SnapshotBuilder {
         // from the loaded target rather than saving a stale team surrogate.
         game_logic.resolve_owned_turret_targets_after_load()?;
         if let Some(camera) = camera_continuation {
-            game_logic.admit_camera_continuation(camera.logic);
+            game_logic
+                .admit_camera_continuation(camera.logic)
+                .map_err(SaveLoadError::Corrupted)?;
         }
         log::info!("World restoration complete");
         Ok(())

@@ -71,7 +71,7 @@ fn session_view_peer_reset_and_script_decode_leave_actual_native_and_script_owne
     let candidate = GameLogic::decode_camera_continuation(&a_script).unwrap();
     assert_eq!(native_receipt(&a), a_native, "detached decode is inert");
     assert_eq!(native_receipt(&b), b_native);
-    b.admit_camera_continuation(candidate);
+    b.admit_camera_continuation(candidate).unwrap();
     assert_eq!(b.capture_camera_continuation().unwrap(), a_script);
     assert!(b.session_view.scripted.motion.active);
     assert_eq!(

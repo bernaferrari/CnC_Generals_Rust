@@ -10,7 +10,7 @@ fn pending_snap_v3_roundtrips_without_extending_frozen_v2_or_logic40() {
             .unwrap();
     world.session_view.camera.camera_follow_snap_immediate = true;
     let bytes = world.capture_camera_continuation().unwrap();
-    assert_eq!(&bytes[4..8], &4_u32.to_le_bytes());
+    assert_eq!(&bytes[4..8], &5_u32.to_le_bytes());
     let pending = decode(&bytes).unwrap();
     assert!(pending.owned_follow_snap_immediate());
     assert_eq!(
@@ -21,7 +21,8 @@ fn pending_snap_v3_roundtrips_without_extending_frozen_v2_or_logic40() {
         codec().serialize(&before.owned_extras.camera).unwrap(),
         codec().serialize(&pending.owned_extras.camera).unwrap()
     );
-    let v4: EnvelopeV4 = codec().deserialize(&bytes[8..]).unwrap();
+    let v5: EnvelopeV5 = codec().deserialize(&bytes[8..]).unwrap();
+    let v4 = v5.base;
     let v3 = v4.base;
     let mut old3 = MAGIC.to_vec();
     old3.extend_from_slice(&3_u32.to_le_bytes());
@@ -34,7 +35,7 @@ fn pending_snap_v3_roundtrips_without_extending_frozen_v2_or_logic40() {
     let mut receiving = GameLogic::new();
     let peer = GameLogic::new();
     let peer_before = peer.capture_camera_continuation().unwrap();
-    receiving.admit_camera_continuation(pending);
+    receiving.admit_camera_continuation(pending).unwrap();
     assert!(receiving.session_view.camera.camera_follow_snap_immediate);
     let facts = crate::presentation_frame::follow::FollowTargetFacts {
         id: crate::game_logic::ObjectId(42),

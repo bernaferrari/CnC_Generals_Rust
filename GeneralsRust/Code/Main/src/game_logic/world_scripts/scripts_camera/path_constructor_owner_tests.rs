@@ -116,9 +116,11 @@ fn authored_camera_path_owns_receiving_chain_and_yaw_through_peer_reset_and_enco
             // comparing future pending-focus origins.
             restored.session_view.target = a.session_view.target;
             restored.session_view.camera.camera_yaw_radians = 2.1;
-            restored.admit_camera_continuation(
-                GameLogic::decode_camera_continuation(&a_before).unwrap(),
-            );
+            restored
+                .admit_camera_continuation(
+                    GameLogic::decode_camera_continuation(&a_before).unwrap(),
+                )
+                .unwrap();
             assert_path(&restored, 111., 0.35, Vec3::new(10., 0., 20.));
             assert_eq!(
                 restored.session_view.camera.camera_yaw_radians, 0.35,
@@ -173,9 +175,11 @@ fn authored_missing_camera_path_preserves_existing_move_path_or_rotate_like_no_o
                     ],
                 );
                 let baseline = owner.capture_camera_continuation().unwrap();
-                control.admit_camera_continuation(
-                    GameLogic::decode_camera_continuation(&baseline).unwrap(),
-                );
+                control
+                    .admit_camera_continuation(
+                        GameLogic::decode_camera_continuation(&baseline).unwrap(),
+                    )
+                    .unwrap();
                 control.session_view.camera.camera_yaw_radians = 0.35;
                 *control.world_services.terrain().write().unwrap() =
                     terrain_chain("PresentCameraPath", 111.);
@@ -222,9 +226,11 @@ fn authored_missing_camera_path_keeps_idle_completion_and_armed_modifiers() {
             owner.apply_script_camera_mod_freeze_angle();
             owner.visual_speed_multiplier = 2.;
             let baseline = owner.capture_camera_continuation().unwrap();
-            control.admit_camera_continuation(
-                GameLogic::decode_camera_continuation(&baseline).unwrap(),
-            );
+            control
+                .admit_camera_continuation(
+                    GameLogic::decode_camera_continuation(&baseline).unwrap(),
+                )
+                .unwrap();
             authored(
                 &mut owner,
                 &peer.mission_scripts,
@@ -297,7 +303,8 @@ fn authored_rotate_cancels_receiving_path_preserves_axes_and_continues_after_res
             let saved = owner.capture_camera_continuation().unwrap();
             let mut restored = GameLogic::new();
             restored
-                .admit_camera_continuation(GameLogic::decode_camera_continuation(&saved).unwrap());
+                .admit_camera_continuation(GameLogic::decode_camera_continuation(&saved).unwrap())
+                .unwrap();
             assert_eq!(restored.capture_camera_continuation().unwrap(), saved);
             peer.reset();
             assert_eq!(owner.capture_camera_continuation().unwrap(), saved);

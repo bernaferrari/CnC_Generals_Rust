@@ -240,7 +240,8 @@ fn receiving_action(kind: ScriptActionType) {
     assert_eq!(second.capture_camera_continuation().unwrap(), second_before);
     let (mut restored, _, _) = world(110.);
     restored
-        .admit_camera_continuation(GameLogic::decode_camera_continuation(&first_before).unwrap());
+        .admit_camera_continuation(GameLogic::decode_camera_continuation(&first_before).unwrap())
+        .unwrap();
     assert_eq!(
         restored.capture_camera_continuation().unwrap(),
         first_before,

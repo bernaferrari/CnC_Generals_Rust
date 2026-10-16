@@ -438,10 +438,14 @@ fn lookat_resolve_scroll_type(
     }
 }
 
-/// C++ `LookAtXlat.cpp:245-250`: move ≤5px and duration <5 GameClient frames.
+/// C++ LookAtXlat245–250 abs-tests X only, but PIXEL_OFFSET is unsigned:
+/// signed dy converts to unsigned, so every negative pixel displacement moves.
+/// Delivered cursor differences were formed from integer pixels before this helper.
+/// Duration is a wrapping unsigned difference of receiving GameClient frames.
 fn lookat_mmb_is_short_click(dx: f32, dy: f32, frames: u32) -> bool {
     dx.abs() <= LOOKAT_MMB_CLICK_PIXEL_OFFSET
-        && dy.abs() <= LOOKAT_MMB_CLICK_PIXEL_OFFSET
+        && dy >= 0.0
+        && dy <= LOOKAT_MMB_CLICK_PIXEL_OFFSET
         && frames < LOOKAT_MMB_CLICK_DURATION_FRAMES
 }
 
@@ -1038,3 +1042,7 @@ impl CnCGameEngine {
 #[cfg(test)]
 #[path = "mouse/look_at_continuation_tests.rs"]
 mod look_at_continuation_tests;
+
+#[cfg(test)]
+#[path = "mouse/camera_input_admission_tests.rs"]
+mod camera_input_admission_tests;

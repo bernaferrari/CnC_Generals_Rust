@@ -48,6 +48,7 @@ pub struct SideBuildEntry {
 /// Top-level metadata parsed from a map file.
 #[derive(Debug, Clone, Default)]
 pub struct MapMetadata {
+    pub(crate) camera_rules: Option<game_engine::common::ini::ini_game_data::CameraContentRules>,
     pub(crate) weather_definition_updates:
         Vec<game_engine::common::ini::ini_weather::WeatherSetting>,
     pub(crate) weather_definition: Option<game_engine::common::ini::ini_weather::WeatherSetting>,

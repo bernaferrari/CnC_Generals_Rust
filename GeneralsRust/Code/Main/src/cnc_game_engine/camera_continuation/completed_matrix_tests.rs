@@ -351,7 +351,9 @@ fn canonical_view_rejects_projective_candidate_but_projection_remains_projective
     );
     let before = receiving.capture_camera_continuation().unwrap();
     let mut restored = GameLogic::new();
-    restored.admit_camera_continuation(GameLogic::decode_camera_continuation(&before).unwrap());
+    restored
+        .admit_camera_continuation(GameLogic::decode_camera_continuation(&before).unwrap())
+        .unwrap();
     assert_eq!(
         bits(restored.session_view.camera.projection_matrix),
         bits(receiving.session_view.camera.projection_matrix)

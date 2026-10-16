@@ -72,6 +72,7 @@ struct CameraOwnedExtras {
     object_tracking: Option<CameraObjectTracking>,
     follow_snap_immediate: bool,
     constraints: crate::presentation_frame::camera::constraints::CameraConstraints,
+    camera_settings: Option<crate::presentation_frame::camera::settings::CameraSettings>,
 }
 
 fn codec() -> CameraCodec<MAX_BYTES> {
@@ -83,6 +84,11 @@ impl LogicCameraContinuation {
         self.owned_extras.camera.as_ref()
     }
 
+    pub(crate) fn owned_camera_settings(
+        &self,
+    ) -> Option<crate::presentation_frame::camera::settings::CameraSettings> {
+        self.owned_extras.camera_settings
+    }
     pub(crate) fn owned_constraints(
         &self,
     ) -> crate::presentation_frame::camera::constraints::CameraConstraints {
@@ -214,6 +220,7 @@ impl GameLogic {
                 object_tracking: self.session_view.scripted.object_tracking.clone(),
                 follow_snap_immediate: self.session_view.camera.camera_follow_snap_immediate,
                 constraints: self.session_view.camera.constraints,
+                camera_settings: Some(self.session_view.camera.settings),
             },
         };
         state.validate()?;
@@ -229,7 +236,30 @@ impl GameLogic {
         state.validate()?;
         Ok(state)
     }
-    pub(crate) fn admit_camera_continuation(&mut self, state: LogicCameraContinuation) {
+    pub(crate) fn validate_camera_continuation_admission(
+        &self,
+        state: &LogicCameraContinuation,
+    ) -> Result<(), String> {
+        self.prepare_camera_settings(state).map(|_| ())
+    }
+    fn prepare_camera_settings(
+        &self,
+        state: &LogicCameraContinuation,
+    ) -> Result<crate::presentation_frame::camera::settings::CameraSettings, String> {
+        state.validate()?;
+        if let Some(settings) = state.owned_extras.camera_settings {
+            return settings.validate();
+        }
+        let mut settings = self.session_view.camera.settings;
+        settings.capture_default(state.script_default_camera_max_height)?;
+        Ok(settings)
+    }
+    pub(crate) fn admit_camera_continuation(
+        &mut self,
+        state: LogicCameraContinuation,
+    ) -> Result<(), String> {
+        // Complete every fallible check before changing any receiving camera field.
+        let settings = self.prepare_camera_settings(&state)?;
         #[cfg(feature = "game_client")]
         {
             self.session_view.filter = state.owned_extras.filter;
@@ -250,6 +280,7 @@ impl GameLogic {
         self.session_view.camera.camera_follow_snap_immediate =
             state.owned_extras.follow_snap_immediate;
         self.session_view.camera.constraints = state.owned_extras.constraints;
+        self.session_view.camera.settings = settings;
         self.session_view.scripted.camera_follow_target = state.camera_follow_target;
         self.session_view.scripted.camera_tether_play = state.camera_tether_play;
         self.session_view.scripted.script_look_toward_object_id =
@@ -281,6 +312,7 @@ impl GameLogic {
         self.script_skybox_enabled = state.script_skybox_enabled;
         self.cinematic_letterbox = state.cinematic_letterbox;
         self.mission_scripts.admit_camera_continuation(state.hooks);
+        Ok(())
     }
 }
 

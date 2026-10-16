@@ -763,6 +763,7 @@ impl GameLogic {
         self.native_hulk_max_lifetime_override = -1;
         self.weapon_definitions = self.weapon_definition_base.clone();
         log::debug!("GameLogic::reset() - resetting game state");
+        self.session_view.camera.settings.clear_map_rules();
         self.map_definition_source = None;
         self.weather_definition_updates.clear();
         self.w3d_ghosts = Default::default();

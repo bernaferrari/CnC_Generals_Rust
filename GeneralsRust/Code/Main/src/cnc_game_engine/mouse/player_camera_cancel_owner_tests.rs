@@ -99,7 +99,8 @@ fn receiving_player_cancel_scopes_preserve_peer_and_foreign_core() {
             let saved = setting.capture_camera_continuation().unwrap();
             let mut restored = GameLogic::new();
             restored
-                .admit_camera_continuation(GameLogic::decode_camera_continuation(&saved).unwrap());
+                .admit_camera_continuation(GameLogic::decode_camera_continuation(&saved).unwrap())
+                .unwrap();
             assert_eq!(restored.capture_camera_continuation().unwrap(), saved);
             assert!(restored.session_view.scripted.script_camera_freeze_time);
             restored.session_view.camera.install_zoom(1.5, 3., 0., 0.);

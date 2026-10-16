@@ -8,6 +8,7 @@ mod ambush_leaflet;
 mod angry_mob_aurora;
 mod camera_admission;
 mod camera_player_defaults;
+mod camera_player_input;
 mod eva_camera;
 mod helix_radar;
 mod instant_build_completion;

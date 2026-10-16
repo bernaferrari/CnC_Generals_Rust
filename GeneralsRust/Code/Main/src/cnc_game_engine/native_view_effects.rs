@@ -87,7 +87,7 @@ impl CnCGameEngine {
     pub(super) fn restore_short_mmb_camera_defaults(&mut self) -> Result<(), String> {
         self.with_native_camera_effects(|world, effects| world.admit_short_mmb_defaults(effects))
     }
-    fn with_native_camera_effects(
+    pub(super) fn with_native_camera_effects(
         &mut self,
         body: impl FnOnce(
             &mut crate::game_logic::GameLogic,

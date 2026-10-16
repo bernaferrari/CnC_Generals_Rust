@@ -807,7 +807,7 @@ impl CnCGameEngine {
         self.ensure_presentation_env_seeded();
         Self::apply_map_lighting(&mut self.graphics_system, &mut self.render_pipeline);
 
-        let startup_camera_defaults = Self::configured_startup_camera_defaults();
+        let startup_camera_defaults = Self::startup_camera_defaults_for(&self.game_logic);
         // Wave 458: prefer pipeline presentation freeze; live GameLogic only if missing.
         let startup_camera_presentation = self
             .render_pipeline
@@ -2000,6 +2000,10 @@ impl CnCGameEngine {
     /// BlankWindow.wnd covers the previous map/UI while subsystems reset;
     /// multiplayer tears down `TheNetwork`.
     pub(super) fn host_game_engine_reset(&mut self) {
+        // Source Client/UI reset captures defaults from outgoing map rules,
+        // before GlobalData overrides disappear. GameLogic reset may run again.
+        self.game_logic.session_view.camera.settings =
+            self.game_logic.session_view.camera.settings.reset_seed();
         info!("GameEngine::reset — BlankWindow overlay + resetAll + MP network teardown");
 
         #[cfg(feature = "game_client")]
@@ -2150,7 +2154,7 @@ impl CnCGameEngine {
         self.script_fps_limit = None;
         self.script_fps_limit_last_tick = None;
         self.game_logic.session_view.camera.camera_slave_mode = None;
-        let defaults = Self::configured_startup_camera_defaults();
+        let defaults = Self::startup_camera_defaults_for(&self.game_logic);
         self.game_logic.session_view.camera.native_camera = super::camera_height::CameraHeight::new(
             defaults.camera_height,
             defaults.pitch_degrees,

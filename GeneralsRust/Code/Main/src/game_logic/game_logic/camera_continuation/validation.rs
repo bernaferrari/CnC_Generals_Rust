@@ -61,6 +61,9 @@ scalar!(bool, u32, i32, usize, (), ObjectId);
 impl ValidateCamera for LogicCameraContinuation {
     fn validate(&self) -> Result<(), String> {
         self.owned_extras.constraints.validate()?;
+        if let Some(settings) = self.owned_extras.camera_settings {
+            settings.validate()?;
+        }
         self.owned_extras.pending_focus_previous_target.validate()?;
         self.owned_extras.motion.validate()?;
         if let Some(tracking) = &self.owned_extras.object_tracking {

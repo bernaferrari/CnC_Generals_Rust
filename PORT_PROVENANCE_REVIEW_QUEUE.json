@@ -10023,6 +10023,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/camera_rules.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data/physics_rules.rs"
             }
           ],
@@ -189830,7 +189835,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "9cb99f77e8afac89739d4e3f7ab71b5bd7c717d48eb55381515063bd9f49f77d",
+  "provenance_input_digest": "2f2d0214e442d8b8ac1fce273410b200af754b28559ee00e4fc8b3fec40b6899",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

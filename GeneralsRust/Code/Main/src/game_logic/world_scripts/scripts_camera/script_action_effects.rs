@@ -230,7 +230,8 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            self.apply_script_camera_default(last);
+            self.apply_script_camera_default(last)
+                .map_err(gamelogic::GameLogicError::Configuration)?;
         }
 
         if let Some(last) = self

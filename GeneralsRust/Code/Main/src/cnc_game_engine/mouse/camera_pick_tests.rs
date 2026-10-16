@@ -78,7 +78,7 @@ fn zero_vertical_wheel_does_not_reach_lookat_side_effects() {
     for side_effect in [
         "lookat_stamp_mouse_activity",
         "inject_game_client_mouse_scroll",
-        "apply_player_height_zoom_steps",
+        "admit_player_camera_wheel",
         "stop_rmb_lookat_scroll",
         "wheel_stopped_scroll = true",
     ] {
@@ -280,18 +280,17 @@ fn camera_set_default_scales_wheel_clamp_and_home_pitch() {
     assert!((script_eye - location_eye).length() > 1.0);
 
     let src = MOUSE_SOURCE;
-    let zoom = src
-        .find("fn apply_player_height_zoom_steps")
-        .expect("apply_player_height_zoom_steps");
+    let owned_height = include_str!("../../game_logic/world_scripts/camera_player_input.rs");
     assert!(
-        src[zoom..zoom + 700].contains("live_view_height_clamp"),
-        "wheel clamp must use script-scaled View max"
+        owned_height.contains("self.session_view.camera.settings.bounds()"),
+        "wheel uses the same receiving script-scaled View max"
     );
     let settle = src
         .find("fn ease_camera_height_above_ground")
         .expect("ease_camera_height_above_ground");
     assert!(
-        src[settle..settle + 1200].contains("live_view_height_clamp"),
+        src[settle..settle + 1200]
+            .contains("self.game_logic.session_view.camera.settings.height_rules()"),
         "settle clamp must use script-scaled View max"
     );
 }
@@ -464,6 +463,21 @@ fn lookat_mmb_short_click_matches_cpp_5px_5_frame_window() {
     assert!(lookat_mmb_is_short_click(5.0, 5.0, 4));
     assert!(!lookat_mmb_is_short_click(5.1, 0.0, 0));
     assert!(!lookat_mmb_is_short_click(0.0, 0.0, 5));
+    assert!(
+        !lookat_mmb_is_short_click(0., -500., 4),
+        "original signed dy is promoted to unsigned by PIXEL_OFFSET"
+    );
+    assert!(
+        !lookat_mmb_is_short_click(0., -1., 4),
+        "even one upward integer pixel is moved, unlike downward one pixel"
+    );
+    assert!(lookat_mmb_is_short_click(0., 1., 4));
+    assert!(!lookat_mmb_is_short_click(0., 6., 4));
+    assert!(lookat_mmb_is_short_click(
+        0.,
+        0.,
+        1u32.wrapping_sub(u32::MAX - 1)
+    ));
 }
 
 #[test]
@@ -876,7 +890,12 @@ fn wheel_zoom_stops_scroll_and_lmb_resets_group_tap() {
     let src = MOUSE_SOURCE;
     let wheel = src
         .find("fn handle_mouse_wheel")
-        .map(|i| &src[i..src.len().min(i + 2500)])
+        .map(|i| {
+            src[i..]
+                .split("fn remirror_host_replay_observer_selection(")
+                .next()
+                .unwrap()
+        })
         .expect("handle_mouse_wheel");
     assert!(
         wheel.contains("stop_rmb_lookat_scroll")
@@ -984,7 +1003,9 @@ fn update_camera_does_not_gate_arrows_on_modifiers() {
         "airborne follow and the source set-transform operation must remain connected to the native view"
     );
     assert!(
-        body.contains("cancel_scripted_camera_from_player_set")
+        body.contains("world.admit_player_camera_held_keys(")
+            && include_str!("../../game_logic/world_scripts/camera_player_input.rs")
+                .contains("self.cancel_scripted_camera_from_player_set()")
             && body.contains("cancel_scripted_camera_from_player_scroll"),
         "player rotate/zoom/scroll must cancel scripted camera"
     );
@@ -1079,7 +1100,12 @@ fn key_and_screenedge_scroll_mouse_lock_like_cpp() {
     );
     let wheel = src
         .find("fn handle_mouse_wheel")
-        .map(|i| &src[i..src.len().min(i + 2500)])
+        .map(|i| {
+            src[i..]
+                .split("fn remirror_host_replay_observer_selection(")
+                .next()
+                .unwrap()
+        })
         .expect("handle_mouse_wheel");
     assert!(
         wheel.contains("self.set_lookat_scroll_mouse_lock(false)"),
@@ -1203,16 +1229,18 @@ mod player_camera_cancel_owner_tests;
 
 #[test]
 fn height_setter_builds_immediately_without_waiting_for_zoom_easing() {
-    let source = include_str!("camera.rs");
+    let source = include_str!("../../game_logic/world_scripts/camera_player_input.rs");
     let operation = source
-        .split("fn apply_player_height_zoom_steps(")
+        .split("fn admit_player_camera_height_step(")
         .nth(1)
         .unwrap()
-        .split("fn native_camera_terrain_height_around(")
+        .split("fn admit_player_camera_wheel(")
         .next()
         .unwrap();
     let invalidate = operation.find("invalidate_constraints()").unwrap();
-    let build = operation.find("set_native_camera_transform()").unwrap();
+    let build = operation
+        .find("commit_native_camera_with_effects(effects)")
+        .unwrap();
     assert!(invalidate < build);
     assert!(!operation.contains("camera_zoom ="));
     assert!(!operation.contains("constraint_inset("));
