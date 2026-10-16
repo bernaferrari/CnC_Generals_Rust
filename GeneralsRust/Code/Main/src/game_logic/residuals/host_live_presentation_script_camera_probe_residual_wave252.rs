@@ -98,7 +98,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
     None
 }
 
-/// Source residual: presentation freezes script camera; UI helpers prefer freeze.
+/// Completed frames expose immutable defaults; native operations use their owner.
 pub fn honesty_presentation_script_camera_probe_source() -> bool {
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     let eng = crate::cnc_game_engine::ENGINE_SRC;
@@ -121,12 +121,13 @@ pub fn honesty_presentation_script_camera_probe_source() -> bool {
     else {
         return false;
     };
-    max_h.contains("Wave 252")
-        && max_h.contains("last_presentation_frame")
-        && pitch.contains("Wave 252")
-        && pitch.contains("last_presentation_frame")
-        && eng.contains("fn host_ui_script_default_camera_max_height(")
-        // production consumers use helpers (not bare dual-read outside helpers)
+    max_h.contains("self.game_logic.script_default_camera_max_height()")
+        && pitch.contains("self.game_logic.script_default_camera_pitch()")
+        && !max_h.contains("last_presentation_frame")
+        && !pitch.contains("last_presentation_frame")
+        && !max_h.contains("host_match_script_camera_")
+        && !pitch.contains("host_match_script_camera_")
+        // Native wheel/ease/reset callers all pass through these owner adapters.
         && eng.contains("self.ui_script_default_camera_max_height()")
         && eng.contains("self.ui_script_default_camera_pitch()")
 }

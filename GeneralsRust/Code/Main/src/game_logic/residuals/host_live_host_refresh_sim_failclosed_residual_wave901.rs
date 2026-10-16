@@ -98,7 +98,9 @@ pub fn honesty_host_refresh_sim_failclosed_residual_pack_wave901() -> bool {
         && !refresh.contains("script_default_camera_max_height()")
         && !refresh.contains("templates.keys()")
         && refresh.contains("host_match_in_multiplayer = Some(false)")
-        && !refresh.contains("host_match_script_camera_max_height = None")
+        // Native script defaults have no refresh cache or cold stamp.
+        && !refresh.contains("host_match_script_camera_max_height")
+        && !refresh.contains("host_match_script_camera_pitch")
         && !refresh.contains("host_match_in_multiplayer = None")
         && raw.contains("Wave 901")
         && !cnc.contains("playable_claim = true");

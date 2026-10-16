@@ -566,8 +566,6 @@ impl CnCGameEngine {
             host_match_boot_victory_condition: None,
             host_legal_build_cache_frame: None,
             host_legal_build_cache: std::collections::HashMap::new(),
-            host_match_script_camera_max_height: None,
-            host_match_script_camera_pitch: None,
             host_match_in_multiplayer: None,
             host_match_world_bounds: None,
             host_match_first_opponent_id: None,

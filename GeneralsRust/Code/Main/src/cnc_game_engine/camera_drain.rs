@@ -782,15 +782,6 @@ impl CnCGameEngine {
         }
         // Wave 848: stamp local train producers after other match residuals.
         self.host_refresh_local_train_producer_residuals();
-        // Wave 858: stamp script camera defaults (freeze first, else host).
-        if let Some(pres) = self.last_presentation_frame.as_ref() {
-            self.host_match_script_camera_max_height = Some(pres.script_default_camera_max_height);
-            self.host_match_script_camera_pitch = Some(pres.script_default_camera_pitch);
-        } else {
-            // Wave 901: cold residual fail-closed camera defaults.
-            self.host_match_script_camera_max_height = Some(1.0);
-            self.host_match_script_camera_pitch = Some(0.0);
-        }
         // Wave 861/901: skirmish host is never multiplayer (no dual-read).
         self.host_match_in_multiplayer = Some(false);
         // Wave 862: stamp world bounds residual (freeze first).

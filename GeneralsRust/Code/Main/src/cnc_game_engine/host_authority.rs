@@ -380,8 +380,6 @@ impl CnCGameEngine {
         self.host_match_first_opponent_id = None;
         self.host_match_game_mode = None;
         self.host_match_in_multiplayer = None;
-        self.host_match_script_camera_max_height = None;
-        self.host_match_script_camera_pitch = None;
         self.host_match_world_bounds = None;
     }
 

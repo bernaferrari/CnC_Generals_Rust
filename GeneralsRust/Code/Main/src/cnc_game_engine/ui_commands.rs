@@ -1582,46 +1582,24 @@ impl CnCGameEngine {
         )
     }
 
-    /// Wave 234: selection seed prefers engine/presentation over live player dual-read.
-    /// Wave 252: script default camera residuals via presentation freeze.
-    /// Wave 607: via `host_ui_script_default_camera_max_height`.
+    /// Native wheel, HAG easing and reset observe this session's current script
+    /// default, including actions admitted after the last presentation frame.
     pub(super) fn ui_script_default_camera_max_height(&self) -> f32 {
-        // Wave 607: thin wrapper — UI residual via host helper.
         self.host_ui_script_default_camera_max_height()
     }
 
-    /// Wave 234: selection seed prefers engine/presentation over live player dual-read.
-    /// Wave 252: script default camera residuals via presentation freeze.
     pub(super) fn host_ui_script_default_camera_max_height(&self) -> f32 {
-        // Wave 607/858: host UI residual helper.
-        // Wave 252: presentation freeze first.
-        if let Some(pres) = self.last_presentation_frame.as_ref() {
-            return pres.script_default_camera_max_height;
-        }
-        if let Some(v) = self.host_match_script_camera_max_height {
-            return v;
-        }
-        // C++ View constructor/reset: m_defaultPitchAngle starts at zero.
-        0.0
+        // Wave 607: native operation adapter; completed frames remain UI outputs.
+        self.game_logic.script_default_camera_max_height()
     }
 
-    /// Wave 609: via `host_ui_script_default_camera_pitch`.
     pub(super) fn ui_script_default_camera_pitch(&self) -> f32 {
-        // Wave 609: thin wrapper — UI/presentation residual via host helper.
         self.host_ui_script_default_camera_pitch()
     }
 
     pub(super) fn host_ui_script_default_camera_pitch(&self) -> f32 {
-        // Wave 609/858: host UI/presentation residual helper.
-        // Wave 252: presentation freeze first.
-        if let Some(pres) = self.last_presentation_frame.as_ref() {
-            return pres.script_default_camera_pitch;
-        }
-        if let Some(v) = self.host_match_script_camera_pitch {
-            return v;
-        }
-        // C++ View constructor/reset: m_defaultPitchAngle starts at zero.
-        0.0
+        // Wave 609: native reset observes the receiving session's current default.
+        self.game_logic.script_default_camera_pitch()
     }
 
     /// Wave 609: via `host_ui_selection_seed_id`.

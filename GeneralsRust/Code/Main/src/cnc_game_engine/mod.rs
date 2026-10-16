@@ -115,6 +115,8 @@ mod input;
 #[cfg(feature = "game_client")]
 mod minimap_bridge;
 mod mouse;
+#[cfg(test)]
+pub(crate) use mouse::live_view_height_clamp;
 mod native_display;
 #[cfg(feature = "game_client")]
 mod native_visual_time;

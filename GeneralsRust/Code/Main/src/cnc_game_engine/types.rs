@@ -1132,9 +1132,6 @@ pub struct CnCGameEngine {
     pub(crate) host_legal_build_cache_frame: Option<u32>,
     pub(crate) host_legal_build_cache:
         std::collections::HashMap<(crate::game_logic::Team, i32, i32, u64, u32), u32>,
-    /// Wave 858: host-owned script camera default residuals.
-    pub(crate) host_match_script_camera_max_height: Option<f32>,
-    pub(crate) host_match_script_camera_pitch: Option<f32>,
     /// Wave 861: host-owned multiplayer residual (presentation dual-read peel).
     pub(crate) host_match_in_multiplayer: Option<bool>,
     /// Wave 862: host-owned world bounds residual (min, max).

@@ -73,6 +73,7 @@ impl XferData for ClientDrawableAnimationMode {
             Self::Once => 2,
             Self::LoopBackwards => 3,
             Self::OnceBackwards => 4,
+            Self::LoopPingPong => 5,
         };
         xfer.xfer_u8(&mut value)?;
         *self = match value {
@@ -81,6 +82,7 @@ impl XferData for ClientDrawableAnimationMode {
             2 => Self::Once,
             3 => Self::LoopBackwards,
             4 => Self::OnceBackwards,
+            5 => Self::LoopPingPong,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid ClientDrawableAnimationMode value in snapshot: {other}"
@@ -125,5 +127,46 @@ impl XferData for ClientDrawableRecoilPhase {
             }
         };
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod animation_mode_tests {
+    use super::*;
+    use crate::save_load::{XferLoad, XferSave};
+    use std::io::Cursor;
+
+    #[test]
+    fn client_drawable_animation_modes_preserve_wire_values_and_append_pingpong() {
+        use ClientDrawableAnimationMode::*;
+        for (wire, mut mode) in [
+            Manual,
+            Loop,
+            Once,
+            LoopBackwards,
+            OnceBackwards,
+            LoopPingPong,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let expected = mode.clone();
+            let mut bytes = Cursor::new(Vec::new());
+            mode.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+            assert_eq!(bytes.get_ref(), &[wire as u8]);
+            let mut restored = Manual;
+            restored
+                .xfer(&mut XferLoad::new(Cursor::new(bytes.into_inner())))
+                .unwrap();
+            assert_eq!(restored, expected);
+        }
+        for wire in [6u8, 255] {
+            let mut mode = Manual;
+            assert!(
+                mode.xfer(&mut XferLoad::new(Cursor::new(vec![wire])))
+                    .is_err()
+            );
+            assert_eq!(mode, Manual);
+        }
     }
 }

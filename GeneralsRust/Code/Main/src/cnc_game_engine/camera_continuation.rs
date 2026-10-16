@@ -65,6 +65,8 @@ struct CameraState {
     host_match_camera_follow_active: Option<bool>,
     host_match_camera_follow_position: Option<[f32; 3]>,
     host_match_camera_follow_id: Option<Option<crate::game_logic::ObjectId>>,
+    // Historical Native85 observation slots: keep their exact positions and
+    // types, but never admit them as another mutable camera-default owner.
     host_match_script_camera_max_height: Option<f32>,
     host_match_script_camera_pitch: Option<f32>,
     keys_pressed: std::collections::HashSet<winit::keyboard::Key>,
@@ -401,8 +403,10 @@ impl CnCGameEngine {
             host_match_camera_follow_active: self.host_match_camera_follow_active.clone(),
             host_match_camera_follow_position: self.host_match_camera_follow_position.clone(),
             host_match_camera_follow_id: self.host_match_camera_follow_id.clone(),
-            host_match_script_camera_max_height: self.host_match_script_camera_max_height.clone(),
-            host_match_script_camera_pitch: self.host_match_script_camera_pitch.clone(),
+            host_match_script_camera_max_height: Some(
+                self.game_logic.script_default_camera_max_height(),
+            ),
+            host_match_script_camera_pitch: Some(self.game_logic.script_default_camera_pitch()),
             keys_pressed: self.keys_pressed.clone(),
             mouse_position: self.mouse_position.clone(),
             mouse_cursor_seen: self.mouse_cursor_seen.clone(),
@@ -492,8 +496,9 @@ impl CnCGameEngine {
         self.host_match_camera_follow_active = state.host_match_camera_follow_active;
         self.host_match_camera_follow_position = state.host_match_camera_follow_position;
         self.host_match_camera_follow_id = state.host_match_camera_follow_id;
-        self.host_match_script_camera_max_height = state.host_match_script_camera_max_height;
-        self.host_match_script_camera_pitch = state.host_match_script_camera_pitch;
+        // Historical default observations were validated during detached decode.
+        // The Logic continuation already admitted the canonical script defaults;
+        // old presentation/cache observations must never overwrite them.
         self.keys_pressed = state.keys_pressed;
         self.mouse_position = state.mouse_position;
         self.mouse_cursor_seen = state.mouse_cursor_seen;
@@ -589,3 +594,7 @@ use filter::{decode_native_camera, encode_native_camera};
 #[cfg(test)]
 #[path = "camera_continuation/owner_consistency_tests.rs"]
 mod owner_consistency_tests;
+
+#[cfg(test)]
+#[path = "camera_continuation/default_owner_tests.rs"]
+mod default_owner_tests;

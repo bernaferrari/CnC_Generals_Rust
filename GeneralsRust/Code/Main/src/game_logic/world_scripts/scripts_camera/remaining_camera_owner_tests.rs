@@ -1054,3 +1054,6 @@ mod immediate_create_ui_tests;
 #[cfg(feature = "game_client")]
 #[path = "team_callback_ui_tests.rs"]
 mod team_callback_ui_tests;
+
+#[path = "receiving_default_camera_tests.rs"]
+mod receiving_default_camera_tests;
