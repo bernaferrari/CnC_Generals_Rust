@@ -16,9 +16,8 @@ pub(crate) struct PlayerCameraLookAtCancellation<'a> {
     focus_origin: &'a mut Option<Vec3>,
     rotate: &'a mut Option<CameraRotateRequest>,
     rotate_remaining: &'a mut f32,
-    zoom_remaining: &'a mut f32,
-    pitch_remaining: &'a mut f32,
-    freeze_time: &'a mut bool,
+    zoom_remaining: &'a f32,
+    pitch_remaining: &'a f32,
     hooks: &'a MissionScriptHooks,
 }
 impl PlayerCameraLookAtCancellation<'_> {
@@ -30,12 +29,13 @@ impl PlayerCameraLookAtCancellation<'_> {
         *self.look_hold = 0.;
         *self.focus = None;
         *self.focus_origin = None;
-        self.hooks.set_camera_movement_finished(true);
         *self.rotate = None;
         *self.rotate_remaining = 0.;
-        *self.zoom_remaining = 0.;
-        *self.pitch_remaining = 0.;
-        *self.freeze_time = false;
+        // W3DView::lookAt cancels rotate/path/lock, not independent zoom or
+        // pitch. Keep their clocks and the stored movement-freeze flag intact.
+        self.hooks.set_camera_movement_finished(
+            !(*self.zoom_remaining > 0. || *self.pitch_remaining > 0.),
+        );
     }
 }
 
@@ -634,9 +634,8 @@ impl GameLogic {
             focus_origin: &mut self.session_view.pending_focus_previous_target,
             rotate: &mut self.pending_camera_rotate,
             rotate_remaining: &mut self.script_camera_rotate_remaining,
-            zoom_remaining: &mut self.script_camera_zoom_remaining,
-            pitch_remaining: &mut self.script_camera_pitch_remaining,
-            freeze_time: &mut self.script_camera_freeze_time,
+            zoom_remaining: &self.script_camera_zoom_remaining,
+            pitch_remaining: &self.script_camera_pitch_remaining,
             hooks: &self.mission_scripts,
         }
     }
@@ -666,9 +665,8 @@ impl GameLogic {
                 focus_origin: &mut self.session_view.pending_focus_previous_target,
                 rotate: &mut self.pending_camera_rotate,
                 rotate_remaining: &mut self.script_camera_rotate_remaining,
-                zoom_remaining: &mut self.script_camera_zoom_remaining,
-                pitch_remaining: &mut self.script_camera_pitch_remaining,
-                freeze_time: &mut self.script_camera_freeze_time,
+                zoom_remaining: &self.script_camera_zoom_remaining,
+                pitch_remaining: &self.script_camera_pitch_remaining,
                 hooks: &self.mission_scripts,
             },
             &self.host_physics_visuals,
@@ -1106,22 +1104,10 @@ impl GameLogic {
     }
 
     pub fn is_script_camera_time_frozen(&self) -> bool {
-        let move_or_path = self
-            .script_camera_move_to
-            .as_ref()
-            .map(|move_to| move_to.freeze_time())
-            .unwrap_or(false)
-            || self
-                .script_camera_path
-                .as_ref()
-                .map(|path| path.freeze_time())
-                .unwrap_or(false);
-        if move_or_path {
-            return true;
-        }
-        // C++ GameLogic: isTimeFrozen() && !isCameraMovementFinished()
-        // (rotate/zoom/pitch/look-toward count as unfinished).
-        self.script_camera_freeze_time && !self.is_script_camera_movement_finished_now()
+        // C++ GameLogic.cpp3603 observes one View-owned freeze flag. Older
+        // path continuation records also carry per-request metadata, but that
+        // cannot re-arm the View after rotation/path completion cleared it.
+        self.script_camera_freeze_time && !self.camera_movement_finished()
     }
 
     pub fn take_camera_zoom_reset(&mut self) -> bool {

@@ -1565,8 +1565,32 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         Some(Ok(()))
     }
 
+    fn camera_waypoint_position(
+        &mut self,
+        name: &str,
+    ) -> Option<gamelogic::GameLogicResult<Option<gamelogic::common::Coord3D>>> {
+        Some(
+            self.world
+                .world_services
+                .terrain()
+                .read()
+                .map(|terrain| {
+                    // CPP doCameraMotionBlurJump copies raw Waypoint::location;
+                    // the general host waypoint helper changes ground Z.
+                    terrain
+                        .get_waypoint_by_name(&name.into())
+                        .map(|waypoint| *waypoint.get_location())
+                })
+                .map_err(|_| {
+                    gamelogic::GameLogicError::Threading(
+                        "receiving camera waypoint terrain poisoned".into(),
+                    )
+                }),
+        )
+    }
+
     fn camera_movement_finished(&mut self) -> Option<bool> {
-        Some(self.world.mission_scripts.is_camera_movement_finished())
+        Some(self.world.camera_movement_finished())
     }
 
     fn world(

@@ -225,6 +225,30 @@ impl GameLogic {
             && !self.script_camera_has_orientation_motion()
     }
 
+    /// Receiving W3DView::isCameraMovementFinished (W3DView.cpp2789-2802).
+    /// Motion-blur jumps report completion without cancelling independent
+    /// camera animations; lifecycle code must keep using the raw predicate.
+    pub(crate) fn camera_movement_finished(&self) -> bool {
+        #[cfg(feature = "game_client")]
+        {
+            use game_client::display::view::{FilterMode, FilterType};
+            if self.session_view.filter.filter() == FilterType::MotionBlur
+                && matches!(
+                    self.session_view.filter.mode(),
+                    FilterMode::MBInAndOutAlpha
+                        | FilterMode::MBInAndOutSaturate
+                        | FilterMode::MBInAlpha
+                        | FilterMode::MBOutAlpha
+                        | FilterMode::MBInSaturate
+                        | FilterMode::MBOutSaturate
+                )
+            {
+                return true;
+            }
+        }
+        self.is_script_camera_movement_finished_now()
+    }
+
     pub(super) fn script_camera_has_orientation_motion(&self) -> bool {
         self.script_camera_rotate_remaining > 0.0
             || self.script_camera_zoom_remaining > 0.0
@@ -261,8 +285,6 @@ impl GameLogic {
     pub(super) fn mark_script_camera_movement_maybe_finished(&mut self) {
         if self.is_script_camera_movement_finished_now() {
             self.mission_scripts.set_camera_movement_finished(true);
-            self.script_camera_freeze_time = false;
-            self.script_camera_freeze_time_armed = false;
         } else {
             self.mission_scripts.set_camera_movement_finished(false);
         }
@@ -274,7 +296,8 @@ impl GameLogic {
             return;
         }
         let had = self.script_camera_has_orientation_motion();
-        if self.script_camera_rotate_remaining > 0.0 {
+        let rotating = self.script_camera_rotate_remaining > 0.0;
+        if rotating {
             self.script_camera_rotate_remaining =
                 (self.script_camera_rotate_remaining - dt).max(0.0);
         }
@@ -283,6 +306,13 @@ impl GameLogic {
         }
         if self.script_camera_pitch_remaining > 0.0 {
             self.script_camera_pitch_remaining = (self.script_camera_pitch_remaining - dt).max(0.0);
+        }
+        // C++ rotateCameraOneFrame clears the stored freeze request when
+        // rotation completes, even if an independent zoom/pitch is still live.
+        // Zoom/pitch completion itself leaves that stored flag unchanged.
+        if rotating && self.script_camera_rotate_remaining <= 0.0 {
+            self.script_camera_freeze_time = false;
+            self.script_camera_freeze_time_armed = false;
         }
         if had && !self.script_camera_has_orientation_motion() {
             self.mark_script_camera_movement_maybe_finished();
@@ -529,6 +559,10 @@ impl GameLogic {
             if finished {
                 self.request_path_camera_focus(focus);
                 self.script_camera_move_to = None;
+                // Simple MoveTo is the original waypoint-path domain. Its
+                // completion clears freeze independently of scalar animations.
+                self.script_camera_freeze_time = false;
+                self.script_camera_freeze_time_armed = false;
                 self.mark_script_camera_movement_maybe_finished();
                 return;
             }
@@ -580,6 +614,10 @@ impl GameLogic {
         if finished {
             self.request_path_camera_focus(focus);
             self.script_camera_path = None;
+            // C++ moveAlongWaypointPath clears stored freeze on completion,
+            // including disabled movement, without waiting for zoom/pitch.
+            self.script_camera_freeze_time = false;
+            self.script_camera_freeze_time_armed = false;
             self.mark_script_camera_movement_maybe_finished();
             return;
         }

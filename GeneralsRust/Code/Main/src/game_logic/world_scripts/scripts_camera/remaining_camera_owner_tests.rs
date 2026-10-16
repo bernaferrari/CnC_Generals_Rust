@@ -339,13 +339,10 @@ fn actual_main_all_remaining_camera_view_callbacks_ignore_foreign_retained_handl
         module_path!(),
         "actual_main_all_remaining_camera_view_callbacks_ignore_foreign_retained_handlers",
         || {
-            let terrain = camera_terrain();
-            let _terrain = TerrainRestore(Some(std::mem::replace(
-                &mut *gamelogic::terrain::get_terrain_logic().write().unwrap(),
-                terrain,
-            )));
             let (mut first, first_id, _) = world(110.0);
             let (mut second, second_id, _) = world(210.0);
+            *first.world_services.terrain().write().unwrap() = camera_terrain();
+            *second.world_services.terrain().write().unwrap() = camera_terrain();
             assert_eq!(first_id, second_id);
             let first_engine = engine(second.mission_scripts.clone(), {
                 let mut list = ScriptList::new();
@@ -763,14 +760,12 @@ fn actual_main_each_remaining_camera_action_preserves_its_own_effect() {
         module_path!(),
         "actual_main_each_remaining_camera_action_preserves_its_own_effect",
         || {
-            let _terrain = TerrainRestore(Some(std::mem::replace(
-                &mut *gamelogic::terrain::get_terrain_logic().write().unwrap(),
-                camera_terrain(),
-            )));
             for action in remaining_camera_actions(100.0).into_iter().skip(13) {
                 let kind = action.action_type;
                 let (mut first, id, _) = world(110.0);
                 let (mut second, other_id, _) = world(210.0);
+                *first.world_services.terrain().write().unwrap() = camera_terrain();
+                *second.world_services.terrain().write().unwrap() = camera_terrain();
                 assert_eq!(id, other_id);
                 let first_hooks = first.mission_scripts.clone();
                 let second_hooks = second.mission_scripts.clone();
@@ -825,11 +820,8 @@ fn missing_camera_targets_are_no_ops_on_both_worlds() {
         "missing_camera_targets_are_no_ops_on_both_worlds",
         || {
             use ScriptActionType::*;
-            let _terrain = TerrainRestore(Some(std::mem::replace(
-                &mut *gamelogic::terrain::get_terrain_logic().write().unwrap(),
-                camera_terrain(),
-            )));
             let (mut first, id, _) = world(110.0);
+            *first.world_services.terrain().write().unwrap() = camera_terrain();
             let (second, _, _) = world(210.0);
             let mut actions = remaining_camera_actions(100.0)
                 .into_iter()
@@ -981,3 +973,9 @@ fn borrowed_blur_error_never_retries_a_foreign_handler() {
         },
     );
 }
+
+#[path = "look_at_owner_tests.rs"]
+mod look_at_owner_tests;
+
+#[path = "waypoint_action_owner_tests.rs"]
+mod waypoint_action_owner_tests;

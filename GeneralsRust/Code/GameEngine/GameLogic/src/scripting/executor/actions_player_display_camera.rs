@@ -353,12 +353,11 @@ impl ScriptActionDispatcher<'_> {
             Some(crate::common::Coord3D::new(pos.x, pos.y, pos.z))
         } else {
             let waypoint_name = param0.get_string();
-            let waypoint_ascii = AsciiString::from(waypoint_name);
-            get_terrain_logic().read().ok().and_then(|terrain| {
-                terrain
-                    .get_waypoint_by_name(&waypoint_ascii)
-                    .map(|w| *w.get_location())
-            })
+            let Ok(target) = self.resolve_camera_waypoint(&waypoint_name, "Move camera to", driver)
+            else {
+                return Ok(ScriptActionResult::Success);
+            };
+            target
         };
         let Some(target) = target else {
             log::warn!(
@@ -478,13 +477,10 @@ impl ScriptActionDispatcher<'_> {
             ease_out_seconds
         );
 
-        let waypoint_ascii = AsciiString::from(waypoint_name.as_str());
-        let terrain_owner_handle = get_terrain_logic();
-        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
-            terrain
-                .get_waypoint_by_name(&waypoint_ascii)
-                .map(|w| *w.get_location())
-        });
+        let Ok(target) = self.resolve_camera_waypoint(&waypoint_name, "Reset camera", driver)
+        else {
+            return Ok(ScriptActionResult::Success);
+        };
         let Some(target) = target else {
             log::warn!("RESET_CAMERA: waypoint '{}' not found", waypoint_name);
             return Ok(ScriptActionResult::Success);

@@ -22,6 +22,34 @@ impl ScriptActionDispatcher<'_> {
         // Retain legacy callback-error continuation, including after_action.
     }
 
+    /// Resolve a raw waypoint through the driving camera owner. Missing and
+    /// failed owned queries are final; only an unavailable driver selects the
+    /// standalone Core terrain adapter. Errors retain camera action continuation.
+    pub(super) fn resolve_camera_waypoint(
+        &self,
+        name: &str,
+        operation: &str,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<Option<Coord3D>, ()> {
+        match driver.camera_waypoint_position(name) {
+            Some(Ok(target)) => Ok(target),
+            Some(Err(error)) => {
+                log::warn!("{operation} waypoint query failed: {error}");
+                Err(())
+            }
+            None => {
+                let waypoint_ascii = AsciiString::from(name);
+                let terrain_owner_handle = get_terrain_logic();
+                let target = terrain_owner_handle.read().ok().and_then(|terrain| {
+                    terrain
+                        .get_waypoint_by_name(&waypoint_ascii)
+                        .map(|waypoint| *waypoint.get_location())
+                });
+                Ok(target)
+            }
+        }
+    }
+
     // ============================================================================
     // ADDITIONAL CAMERA ACTION IMPLEMENTATIONS
     // ============================================================================
@@ -183,16 +211,24 @@ impl ScriptActionDispatcher<'_> {
         let pitch = self.get_real_param(action, 2)?;
         let look_at_waypoint = self.get_string_param(action, 3)?;
 
-        let waypoint_ascii = AsciiString::from(waypoint.as_str());
-        let look_at_ascii = AsciiString::from(look_at_waypoint.as_str());
-
-        let terrain_owner_handle = get_terrain_logic();
-
-        let Some((position, look_at)) = terrain_owner_handle.read().ok().and_then(|terrain| {
-            let position = terrain.get_waypoint_by_name(&waypoint_ascii)?;
-            let look_at = terrain.get_waypoint_by_name(&look_at_ascii)?;
-            Some((*position.get_location(), *look_at.get_location()))
-        }) else {
+        // CPP doSetupCamera resolves the first waypoint before the look target,
+        // and performs no camera mutation unless both raw positions exist.
+        let positions = (|| {
+            let Some(position) = self.resolve_camera_waypoint(&waypoint, "Setup camera", driver)?
+            else {
+                return Ok(None);
+            };
+            let Some(look_at) =
+                self.resolve_camera_waypoint(&look_at_waypoint, "Setup camera", driver)?
+            else {
+                return Ok(None);
+            };
+            Ok::<_, ()>(Some((position, look_at)))
+        })();
+        let Ok(positions) = positions else {
+            return Ok(ScriptActionResult::Success);
+        };
+        let Some((position, look_at)) = positions else {
             log::warn!(
                 "Setup camera waypoint(s) not found: '{}' / '{}'",
                 waypoint,
@@ -538,13 +574,11 @@ impl ScriptActionDispatcher<'_> {
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint_name = self.get_string_param(action, 0)?;
         let saturate = self.get_bool_param_optional(action, 1).unwrap_or(false);
-        let waypoint_ascii = AsciiString::from(waypoint_name.as_str());
-        let terrain_owner_handle = get_terrain_logic();
-        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
-            terrain
-                .get_waypoint_by_name(&waypoint_ascii)
-                .map(|waypoint| *waypoint.get_location())
-        });
+        let Ok(target) =
+            self.resolve_camera_waypoint(&waypoint_name, "Camera motion blur jump", driver)
+        else {
+            return Ok(ScriptActionResult::Success);
+        };
 
         let Some(target) = target else {
             log::warn!(
@@ -767,13 +801,10 @@ impl ScriptActionDispatcher<'_> {
         let ease_out_seconds = action.get_parameter(3).map(|p| p.get_real()).unwrap_or(0.0);
         let reverse_rotation = self.get_bool_param_optional(action, 4).unwrap_or(false);
 
-        let waypoint_ascii = AsciiString::from(waypoint.as_str());
-        let terrain_owner_handle = get_terrain_logic();
-        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
-            terrain
-                .get_waypoint_by_name(&waypoint_ascii)
-                .map(|way| *way.get_location())
-        });
+        let Ok(target) = self.resolve_camera_waypoint(&waypoint, "Camera look toward", driver)
+        else {
+            return Ok(ScriptActionResult::Success);
+        };
 
         log::debug!(
             "Camera looking toward waypoint '{}' (sec: {}, ease_in: {}, ease_out: {}, reverse: {})",
@@ -904,13 +935,11 @@ impl ScriptActionDispatcher<'_> {
         driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint = self.get_string_param(action, 0)?;
-        let waypoint_ascii = AsciiString::from(waypoint.as_str());
-        let terrain_owner_handle = get_terrain_logic();
-        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
-            terrain
-                .get_waypoint_by_name(&waypoint_ascii)
-                .map(|way| *way.get_location())
-        });
+        let Ok(target) =
+            self.resolve_camera_waypoint(&waypoint, "Camera mod final look toward", driver)
+        else {
+            return Ok(ScriptActionResult::Success);
+        };
         log::debug!("Camera mod final look toward '{}'", waypoint);
 
         if let Some(target) = target {
@@ -937,13 +966,10 @@ impl ScriptActionDispatcher<'_> {
         driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint = self.get_string_param(action, 0)?;
-        let waypoint_ascii = AsciiString::from(waypoint.as_str());
-        let terrain_owner_handle = get_terrain_logic();
-        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
-            terrain
-                .get_waypoint_by_name(&waypoint_ascii)
-                .map(|way| *way.get_location())
-        });
+        let Ok(target) = self.resolve_camera_waypoint(&waypoint, "Camera mod look toward", driver)
+        else {
+            return Ok(ScriptActionResult::Success);
+        };
         log::debug!("Camera mod look toward '{}'", waypoint);
 
         if let Some(target) = target {
@@ -1004,13 +1030,9 @@ impl ScriptActionDispatcher<'_> {
         let duration_seconds = self.get_real_param(action, 2)?;
         let radius = self.get_real_param(action, 3)?;
 
-        let waypoint_ascii = AsciiString::from(waypoint.as_str());
-        let terrain_owner_handle = get_terrain_logic();
-        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
-            terrain
-                .get_waypoint_by_name(&waypoint_ascii)
-                .map(|way| *way.get_location())
-        });
+        let Ok(target) = self.resolve_camera_waypoint(&waypoint, "Camera shaker", driver) else {
+            return Ok(ScriptActionResult::Success);
+        };
 
         log::debug!(
             "Adding camera shaker at '{}' (amplitude: {}, duration: {}, radius: {})",

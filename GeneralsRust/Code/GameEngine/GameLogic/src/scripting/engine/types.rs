@@ -750,6 +750,16 @@ pub trait ScriptExecutionDriver {
         None
     }
 
+    /// Raw authored waypoint position for a receiving camera action. Some is
+    /// authoritative, including a missing waypoint or failed query; only None
+    /// selects standalone Core terrain discovery. Do not ground-adjust its Z.
+    fn camera_waypoint_position(
+        &mut self,
+        _name: &str,
+    ) -> Option<GameLogicResult<Option<crate::common::Coord3D>>> {
+        None
+    }
+
     /// Some(false) is authoritative; None selects the standalone camera adapter.
     fn camera_movement_finished(&mut self) -> Option<bool> {
         None

@@ -393,3 +393,6 @@ mod selection_owner_tests;
 mod script_nearest_button;
 #[cfg(test)]
 mod script_nearest_button_owner_tests;
+
+#[cfg(all(test, feature = "game_client"))]
+mod camera_completion_cpp_tests;

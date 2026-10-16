@@ -143,6 +143,216 @@ mod tests {
     use super::*;
 
     #[test]
+    fn borrowed_post_render_look_at_keeps_authored_axes_and_native_motion_metadata() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "borrowed_post_render_look_at_keeps_authored_axes_and_native_motion_metadata",
+            || {
+                use super::super::camera_motion::{
+                    AxisKind, AxisMotion, MotionAdmission, step_axis,
+                };
+                use gamelogic::scripting::core::{
+                    Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
+                };
+                use gamelogic::scripting::engine::ScriptEngine;
+                let mut world = crate::game_logic::GameLogic::new();
+                let peer = crate::game_logic::GameLogic::new();
+                let peer_before = peer.capture_camera_continuation().unwrap();
+                let mut next = Some(Box::new(ScriptAction::new(
+                    ScriptActionType::CameraModFreezeTime,
+                )));
+                for (kind, values) in [
+                    (ScriptActionType::PitchCamera, [0.7, 4., 0.3, 0.5]),
+                    (ScriptActionType::ZoomCamera, [0.8, 3., 0.3, 0.5]),
+                ] {
+                    let mut action = ScriptAction::new(kind);
+                    for value in values {
+                        action
+                            .add_parameter(Parameter::with_real(ParameterType::Real, value))
+                            .unwrap();
+                    }
+                    action.next_action = next;
+                    next = Some(Box::new(action));
+                }
+                let mut script = Script::new();
+                script.script_name = "BorrowedAxisSetup".into();
+                script.is_subroutine = true;
+                script.action = next;
+                let mut list = ScriptList::new();
+                list.append_script(Box::new(script));
+                let interpreter = ScriptEngine::new().unwrap();
+                interpreter
+                    .set_script_list_for_player(0, Some(Box::new(list)))
+                    .unwrap();
+                world.install_owned_script_engine(interpreter);
+                world
+                    .with_owned_script_engine(|engine, world| {
+                        world.execute_owned_ai_condition(engine, "BorrowedAxisSetup", None);
+                    })
+                    .unwrap();
+                assert!(!world.camera_movement_finished());
+                assert!(world.is_script_camera_time_frozen());
+                let zoom_request = world.peek_pending_camera_zoom().unwrap().clone();
+                let pitch_request = world.peek_pending_camera_pitch().unwrap().clone();
+                assert_eq!(
+                    (
+                        zoom_request.duration_seconds,
+                        pitch_request.duration_seconds
+                    ),
+                    (3., 4.)
+                );
+
+                // These are the exact existing AxisMotion fields the Engine
+                // admits from those requests, not a second camera controller.
+                let mut zoom = 1.;
+                let mut zoom_target = Some(zoom_request.zoom);
+                let mut zoom_frame = 7;
+                let zoom_meta = (
+                    zoom_target,
+                    zoom_frame,
+                    zoom_request.duration_seconds,
+                    zoom_request.ease_in_seconds,
+                    zoom_request.ease_out_seconds,
+                );
+                let mut pitch = 1.;
+                let mut pitch_target = Some(pitch_request.pitch);
+                let mut pitch_frame = 9;
+                let pitch_meta = (
+                    pitch_target,
+                    pitch_frame,
+                    pitch_request.duration_seconds,
+                    pitch_request.ease_in_seconds,
+                    pitch_request.ease_out_seconds,
+                );
+                let height = super::super::camera_height::CameraHeight::new(400., 45., 0.);
+                let hag_before = (
+                    height.desired(),
+                    height.basis().pose(Vec3::ZERO, 1., 0., 0.),
+                );
+                let mut modes = super::super::mouse::LookAtHostModes::default();
+                let mut yaw_target = Some(2.);
+                let mut yaw_duration = 5.;
+                let mut position = Vec3::new(0., 400., -400.);
+                let mut view = Mat4::IDENTITY;
+                let mut widen = None;
+                let (_, target, impulse, mut cancellation, _) = world.split_filter_camera_owner();
+                let mut camera = NativeFilterCameraContext {
+                    look_at_modes: &mut modes,
+                    yaw_target: &mut yaw_target,
+                    yaw_duration: &mut yaw_duration,
+                    target,
+                    impulse,
+                    native_camera: &height,
+                    zoom,
+                    pitch: 0.,
+                    yaw: 0.,
+                    fx_pitch: pitch,
+                    shake_rotation: Vec3::ZERO,
+                    slave_mode: false,
+                    position: &mut position,
+                    view: &mut view,
+                    projection: Mat4::IDENTITY,
+                    world_bounds: (Vec3::ZERO, Vec3::new(100., 0., 100.)),
+                    constraint_inset: 0.,
+                    constraint_widen: &mut widen,
+                    env: None,
+                };
+                let completed =
+                    camera.finish(Some(Vec3::new(60., 0., 40.)), &mut || cancellation.cancel());
+                assert_eq!(*camera.target, Vec3::new(60., 0., 40.));
+                assert_ne!(completed.view, Mat4::IDENTITY);
+                drop(camera);
+                drop(cancellation);
+                assert!(
+                    !world.camera_movement_finished(),
+                    "borrowed cancellation must retain canonical independent clocks"
+                );
+                assert!(world.is_script_camera_time_frozen());
+                assert_eq!(
+                    world.peek_pending_camera_zoom().unwrap().duration_seconds,
+                    3.
+                );
+                assert_eq!(
+                    world.peek_pending_camera_pitch().unwrap().duration_seconds,
+                    4.
+                );
+                assert_eq!(
+                    (
+                        zoom_target,
+                        zoom_frame,
+                        zoom_request.duration_seconds,
+                        zoom_request.ease_in_seconds,
+                        zoom_request.ease_out_seconds
+                    ),
+                    zoom_meta
+                );
+                assert_eq!(
+                    (
+                        pitch_target,
+                        pitch_frame,
+                        pitch_request.duration_seconds,
+                        pitch_request.ease_in_seconds,
+                        pitch_request.ease_out_seconds
+                    ),
+                    pitch_meta
+                );
+                assert_eq!(
+                    (
+                        height.desired(),
+                        height.basis().pose(Vec3::ZERO, 1., 0., 0.)
+                    ),
+                    hag_before
+                );
+                let admission = MotionAdmission {
+                    update_views: true,
+                    fast_camera_only: false,
+                    paused: false,
+                    debug_frozen: false,
+                    disable_camera_movement: false,
+                };
+                for (value, target, frame, request_duration, ease_in, ease_out) in [
+                    (
+                        &mut zoom,
+                        &mut zoom_target,
+                        &mut zoom_frame,
+                        zoom_request.duration_seconds,
+                        zoom_request.ease_in_seconds,
+                        zoom_request.ease_out_seconds,
+                    ),
+                    (
+                        &mut pitch,
+                        &mut pitch_target,
+                        &mut pitch_frame,
+                        pitch_request.duration_seconds,
+                        pitch_request.ease_in_seconds,
+                        pitch_request.ease_out_seconds,
+                    ),
+                ] {
+                    let before = *frame;
+                    let step = step_axis(
+                        AxisMotion {
+                            value,
+                            target,
+                            frame,
+                            start: 1.,
+                            duration_seconds: request_duration,
+                            ease_in_seconds: ease_in,
+                            ease_out_seconds: ease_out,
+                        },
+                        AxisKind::ZoomPitch,
+                        admission,
+                    );
+                    assert!(step.was_active && step.changed && !step.completed);
+                    assert_eq!(*frame, before + 1, "next admitted phase advances once");
+                }
+                assert_eq!(yaw_target, None);
+                assert_eq!(yaw_duration, 0.);
+                assert_eq!(peer.capture_camera_continuation().unwrap(), peer_before);
+            },
+        );
+    }
+
+    #[test]
     fn borrowed_filter_camera_completes_before_redraw_without_advancing_hag_or_peer() {
         let mut world = crate::game_logic::GameLogic::new();
         let peer = crate::game_logic::GameLogic::new();
