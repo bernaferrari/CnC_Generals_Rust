@@ -103,10 +103,20 @@ impl RenderPipeline {
                             if let (Some(source), Some(selected)) =
                                 (source, state.native_selected_condition.as_ref())
                             {
-                                if selected.flags&(1<<crate::assets::ACBIT_ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT)!=0 {
-                                    let percent=if source.under_construction {source.construction_percent.clamp(0.,1.)*100.}else{-1.};
-                                    if let Some(delta)=crate::assets::construction_percent_height_delta(percent,source.max_height_above_position) {
-                                        adjusted*=Mat4::from_translation(Vec3::Y*delta);
+                                if selected.flags
+                                    & (1 << crate::assets::ACBIT_ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT)
+                                    != 0
+                                {
+                                    let percent = if source.under_construction {
+                                        source.construction_percent.clamp(0., 1.) * 100.
+                                    } else {
+                                        -1.
+                                    };
+                                    if let Some(delta) = crate::assets::construction_percent_height_delta(
+                                        percent,
+                                        source.max_height_above_position,
+                                    ) {
+                                        adjusted *= Mat4::from_translation(Vec3::Y * delta);
                                     }
                                 }
                             }
@@ -121,6 +131,15 @@ impl RenderPipeline {
                     return;
                 };
                 let Ok(models) = receiving.object_draws(bits) else {
+                    // A malformed sibling cannot leave an earlier module's
+                    // previous condition looking like a successful admission.
+                    for ((object, _), state) in &mut self.drawable_visual_states {
+                        if *object == id.0 {
+                            state.native_condition_supported = false;
+                            state.native_pending_condition = None;
+                            state.installed_draw_pose = InstalledDrawObject::AwaitingAdmission;
+                        }
+                    }
                     return;
                 };
                 for model in models {
@@ -128,10 +147,7 @@ impl RenderPipeline {
                         .drawable_visual_states
                         .entry((id.0, model.module_index))
                         .or_default();
-                    if state.native_condition_bits != Some(bits) {
-                        state.native_condition_bits = Some(bits);
-                        state.native_pending_condition = Some(model);
-                    }
+                    state.mark_native_condition(bits, model);
                 }
             }
         }
@@ -170,6 +186,7 @@ impl RenderPipeline {
             };
             self.install_native_condition(id, index, world, self.animation_sync_ms, graphics);
         }
+        self.admit_pending_native_drawable_restore(id);
     }
 
     fn install_native_condition(
@@ -183,17 +200,9 @@ impl RenderPipeline {
         let Some(state) = self.drawable_visual_states.get_mut(&(id.0, index)) else {
             return;
         };
-        let Some(selected) = state.native_pending_condition.take() else {
+        let Some(selected) = state.take_native_condition_to_install() else {
             return;
         };
-        if !state.native_source_supported {
-            state.installed_draw_pose = InstalledDrawObject::AwaitingAdmission;
-            return;
-        }
-        if state.native_selected_condition.as_ref() == Some(&selected) {
-            return;
-        }
-        state.native_condition_supported = false;
         // Transition/wait state admission still needs the source setModelState
         // contract; never replace it with an immediately selected destination.
         if !selected.transition_key.is_empty()
@@ -328,5 +337,84 @@ impl RenderPipeline {
             state.animation_paused = false;
         }
         state.native_condition_supported = true;
+    }
+}
+
+// These are the same dirty/consume phases used by the actual native receiver;
+// ownership stays with ObjectVisualState, independent of graphics allocation.
+impl ObjectVisualState {
+    fn mark_native_condition(&mut self, bits: u128, selected: crate::assets::AuthoredDrawModel) {
+        if self.native_condition_bits != Some(bits) || !self.native_condition_supported {
+            self.native_condition_bits = Some(bits);
+            self.native_pending_condition = Some(selected);
+        }
+    }
+
+    fn take_native_condition_to_install(&mut self) -> Option<crate::assets::AuthoredDrawModel> {
+        let selected = self.native_pending_condition.take()?;
+        if !self.native_source_supported {
+            // The previous condition is no longer admitted. When supported
+            // source controls return, identical bits must be eligible again.
+            self.native_condition_supported = false;
+            self.installed_draw_pose = InstalledDrawObject::AwaitingAdmission;
+            return None;
+        }
+        if self.native_condition_supported
+            && self.native_selected_condition.as_ref() == Some(&selected)
+        {
+            return None;
+        }
+        self.native_condition_supported = false;
+        Some(selected)
+    }
+}
+
+#[cfg(test)]
+mod condition_recovery_tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_source_then_same_bits_requeues_actual_native_condition() {
+        let previous = crate::assets::AuthoredDrawModel {
+            model_key: "ModelA".into(),
+            ..Default::default()
+        };
+        let next = crate::assets::AuthoredDrawModel {
+            model_key: "ModelB".into(),
+            ..Default::default()
+        };
+        let mut state = ObjectVisualState {
+            native_source_supported: true,
+            native_condition_supported: true,
+            native_condition_bits: Some(0),
+            native_selected_condition: Some(previous),
+            installed_draw_pose: InstalledDrawObject::NoRenderObject,
+            ..Default::default()
+        };
+        let peer = state.clone();
+        state.native_source_supported = false;
+        state.mark_native_condition(1, next.clone());
+        assert!(state.take_native_condition_to_install().is_none());
+        assert!(!state.native_condition_supported);
+        assert!(matches!(
+            state.installed_draw_pose,
+            InstalledDrawObject::AwaitingAdmission
+        ));
+        assert!(state.native_pending_condition.is_none());
+        state.native_source_supported = true;
+        // Main's actual GameClient observer emits ConditionsMarked every sync.
+        // No bit change, recreation, or alternate camera is needed to recover.
+        state.mark_native_condition(1, next.clone());
+        assert_eq!(state.take_native_condition_to_install(), Some(next));
+        assert!(
+            !state.native_condition_supported,
+            "asset install still must complete"
+        );
+        assert!(state.native_pending_condition.is_none());
+        assert!(peer.native_condition_supported);
+        assert!(matches!(
+            peer.installed_draw_pose,
+            InstalledDrawObject::NoRenderObject
+        ));
     }
 }

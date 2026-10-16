@@ -91,14 +91,20 @@ fn actual_parent_render_matches_original_render_then_hierarchy_double_progress()
 fn camera_before_draw_and_render_are_distinct_owner_observation_phases() {
     let mut owner = animated_owner(Mode::LoopPingPong, 0., 100, 12, 30., 1.);
     owner.installed_camera_pose(1100, "CAMERA").unwrap();
-    assert_eq!(owner.animation.as_ref().unwrap().current_frame, -8.);
+    // Exact original Compute_Current_Frame/Single_Anim_Progress output,
+    // extracted C++ Update→Render case, clang O0/O2: 30f * 0.001f
+    // retains its source rounding before the ping-pong reflection.
+    assert_eq!(
+        owner.animation.as_ref().unwrap().current_frame.to_bits(),
+        3238002690
+    );
     let camera_observed = owner.clone();
     // A cached camera observation leaves the original current-sync result.
     owner.installed_camera_pose(1100, "CAMERA").unwrap();
     assert_eq!(owner, camera_observed);
     // Actual Render executes even when the camera validated this same Sync.
     let frozen_frame = owner.admit_parent_render_hierarchy(1100).unwrap();
-    assert_eq!(frozen_frame, 8.);
+    assert_eq!(frozen_frame.to_bits(), 1090519042);
     assert_eq!(owner.animation.as_ref().unwrap().direction, 1.);
     assert_ne!(owner, camera_observed);
     let rendered = owner.clone();

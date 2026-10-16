@@ -3,9 +3,9 @@
 //! C++ owns animation and recoil state per `W3DModelDraw` module, not per
 //! mesh name.  Main therefore keeps one unified cache keyed by the frozen
 //! `(ObjectId, Draw-module)` identity.  The save DTO never carries WGPU
-//! handles or local animation ordinals: it is accepted only after the next
-//! full frozen frame proves the exact source identity, then collection checks
-//! the fresh W3D asset before applying it.
+//! handles or local animation ordinals. Resident admission or collection proves
+//! the exact source identity and installed W3D asset before applying it. Native
+//! camera targets restore before their first bone query.
 
 use super::*;
 
@@ -26,7 +26,14 @@ fn prepare_client_drawable_restore_for_collection(
     };
 
     let mut identities = HashMap::new();
-    for unit in frame.unit_render_inputs() {
+    for mut unit in frame
+        .unit_render_inputs()
+        .into_iter()
+        .chain(frame.native_resident_drawable_inputs())
+    {
+        if unit.receiving_draw_models.is_some() {
+            unit.resolve_draw_models_for_frozen_conditions();
+        }
         for draw_model in unit.draw_models {
             let key = (unit.id.0, draw_model.module_index);
             if let Some(identity) =
@@ -614,7 +621,18 @@ impl RenderPipeline {
     /// pending payload is intentional: a later successful restore supersedes
     /// an earlier one, and an empty payload explicitly clears it.
     pub fn queue_client_drawable_restore(&mut self, snapshot: ClientDrawableWorldSnapshot) {
-        self.pending_client_drawable_restore = (!snapshot.drawables.is_empty()).then_some(snapshot);
+        let mut seen = HashSet::new();
+        let drawables = snapshot
+            .drawables
+            .into_iter()
+            .filter(|saved| {
+                saved.has_stable_source_identity()
+                    && saved.has_finite_visual_values()
+                    && seen.insert((saved.object_id, saved.draw_module_index))
+            })
+            .collect::<Vec<_>>();
+        self.pending_client_drawable_restore =
+            (!drawables.is_empty()).then_some(ClientDrawableWorldSnapshot { drawables });
         self.pending_client_drawable_imports.clear();
     }
 
@@ -748,166 +766,39 @@ impl RenderPipeline {
         let discharges = discharges.as_slice();
 
         if let Some(saved) = pending_restore {
-            // Pre-frame validation proved the source fields, but only this
-            // point owns the freshly loaded model/binding.  Rejecting a bad
-            // entry affects no unrelated Draw module.
-            let imported = match (&identity.animation, &saved.animation) {
-                (None, None) => {
+            if let Some(restored) = restore::restore_client_drawable_state(
+                state,
+                &identity,
+                model,
+                draw_model,
+                &saved,
+                self.animation_sync_ms,
+            ) {
+                if restored.binding.is_none() {
                     Self::notify_unplayable_transition_complete(
                         &mut self.live_draw_playback,
                         completion_target,
                         draw_model,
                     );
-                    let topology = model.weapon_barrel_topology_for_authored_bindings(
-                        &draw_model.weapon_bone_bindings,
-                    );
-                    let Some(recoil_slots) = topology.as_ref().and_then(|topology| {
-                        restored_recoil_slots_for_topology(
-                            &saved,
-                            topology,
-                            &draw_model.recoil_kinematics,
-                        )
-                    }) else {
-                        state.force_bind_pose = true;
-                        state.animation = None;
-                        state.recoil_slots = std::array::from_fn(|_| Vec::new());
-                        discard_unvisualizable_discharges(state, &discharges);
-                        return (None, 0.0, Vec::new());
-                    };
-                    state.force_bind_pose = true;
-                    state.animation = None;
-                    state.last_seen_weapon_discharge_sequence =
-                        saved.last_seen_weapon_discharge_sequence;
-                    state.recoil_slots = recoil_slots;
-                    let controls = recoil_controls_for_topology(
-                        state,
-                        topology.as_ref(),
-                        &draw_model.recoil_kinematics,
-                        &discharges,
-                    );
-                    return (None, 0.0, controls);
-                }
-                (None, Some(saved_animation)) if saved_animation.has_finite_values() => {
-                    Self::cached_draw_animation_binding(model, &saved_animation.hierarchy_animation)
-                        .filter(|binding| model.animation_binding_is_compatible(binding))
-                        .and_then(|binding| {
-                            model
-                                .animation_binding_metadata(&binding)
-                                .and_then(|(frames, rate)| {
-                                    (frames > 0
-                                        && rate > 0
-                                        && saved_animation.frame <= frames.saturating_sub(1) as f32)
-                                        .then_some((binding, frames, rate))
-                                })
-                        })
-                }
-                (Some(expected), Some(saved_animation))
-                    if expected
-                        .hierarchy_animation
-                        .eq_ignore_ascii_case(saved_animation.hierarchy_animation.as_str())
-                        && expected.mode == saved_animation.mode
-                        && saved_animation.frame.is_finite()
-                        && saved_animation.frame >= 0.0 =>
-                {
-                    let binding = Self::cached_draw_animation_binding(
-                        model,
-                        expected.hierarchy_animation.as_str(),
-                    );
-                    binding.and_then(|binding| {
-                        model
-                            .animation_binding_metadata(&binding)
-                            .and_then(|(frames, rate)| {
-                                (frames > 0
-                                    && rate > 0
-                                    && saved_animation.frame <= (frames.saturating_sub(1) as f32))
-                                    .then_some((binding, frames, rate))
-                            })
-                    })
-                }
-                _ => None,
-            };
-
-            if let Some((binding, num_frames, frame_rate)) = imported {
-                state.force_bind_pose = false;
-                state.animation = Some(ObjectAnimationState {
-                    animation_binding_key: Some(binding.state_key()),
-                    animation_identity: saved
-                        .animation
-                        .as_ref()
-                        .expect("checked saved animation")
-                        .hierarchy_animation
-                        .clone(),
-                    current_frame: saved
-                        .animation
-                        .as_ref()
-                        .expect("checked Some animation")
-                        .frame,
-                    frame_rate: frame_rate as f32,
-                    num_frames,
-                    mode: authored_mode(saved.animation.as_ref().unwrap().mode),
-                    last_sync_ms: self.animation_sync_ms,
-                    previous_frame: saved.animation.as_ref().expect("checked animation").frame,
-                    frame_rate_multiplier: 1.,
-                    direction: ObjectAnimationState::initial_direction(&authored_mode(
-                        saved.animation.as_ref().unwrap().mode,
-                    )),
-                    playback_mode: authored_mode(saved.animation.as_ref().unwrap().mode),
-                });
-                if identity.animation.is_none() {
-                    if let super::installed_draw_pose::InstalledDrawObject::Ready(pose) =
-                        &mut state.installed_draw_pose
-                    {
-                        pose.animation_binding = Some(binding.clone());
-                        pose.hierarchy_valid = false;
-                    }
                 }
                 let topology = model
                     .weapon_barrel_topology_for_authored_bindings(&draw_model.weapon_bone_bindings);
-                let Some(recoil_slots) = topology.as_ref().and_then(|topology| {
-                    restored_recoil_slots_for_topology(
-                        &saved,
-                        topology,
-                        &draw_model.recoil_kinematics,
-                    )
-                }) else {
-                    state.force_bind_pose = true;
-                    state.animation = None;
-                    state.recoil_slots = std::array::from_fn(|_| Vec::new());
-                    discard_unvisualizable_discharges(state, &discharges);
-                    return (None, 0.0, Vec::new());
-                };
-                state.last_seen_weapon_discharge_sequence =
-                    saved.last_seen_weapon_discharge_sequence;
-                state.recoil_slots = recoil_slots;
                 let controls = recoil_controls_for_topology(
                     state,
                     topology.as_ref(),
                     &draw_model.recoil_kinematics,
                     &discharges,
                 );
-                return (
-                    Some(binding),
-                    state
-                        .animation
-                        .as_ref()
-                        .expect("just restored animation")
-                        .current_frame,
-                    controls,
-                );
+                return (restored.binding, restored.frame, controls);
             }
-
-            // The frame/source identity matched but fresh model/HAnim did
-            // not. C++ has no legal way to reinterpret that cache as another
-            // clip; retain a bind/idle state instead of clip zero or retry.
-            state.force_bind_pose = true;
-            state.animation = None;
-            state.recoil_slots = std::array::from_fn(|_| Vec::new());
+            restore::reject_client_drawable_restore(state);
+            discard_unvisualizable_discharges(state, &discharges);
             Self::notify_unplayable_transition_complete(
                 &mut self.live_draw_playback,
                 completion_target,
                 draw_model,
             );
-            return (None, 0.0, Vec::new());
+            return (None, 0., Vec::new());
         }
 
         if state.force_bind_pose {
@@ -1196,3 +1087,6 @@ mod tests {
 #[cfg(test)]
 #[path = "drawable_restore_admission_tests.rs"]
 mod drawable_restore_admission_tests;
+
+#[path = "drawable_restore.rs"]
+mod restore;

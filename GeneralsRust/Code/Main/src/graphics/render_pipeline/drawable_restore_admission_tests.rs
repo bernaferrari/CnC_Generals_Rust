@@ -1,6 +1,12 @@
 use super::*;
 
 fn frame_with_model(model: &str) -> crate::presentation_frame::PresentationFrame {
+    frame_with_model_visibility(model, false)
+}
+fn frame_with_model_visibility(
+    model: &str,
+    contained: bool,
+) -> crate::presentation_frame::PresentationFrame {
     use crate::game_logic::{GameLogic, Object, ObjectId, Team, ThingTemplate};
     let mut parser = crate::assets::IniParser::new();
     parser.parse_ini_content(
@@ -11,7 +17,18 @@ fn frame_with_model(model: &str) -> crate::presentation_frame::PresentationFrame
     let mut template = ThingTemplate::new("RestoreReceiver");
     template.set_authored_draw_models(definition.model_name.as_deref(), &definition.draw_modules);
     let mut world = GameLogic::new();
-    world.add_object(Object::new(template, ObjectId(42), Team::USA));
+    let mut object = Object::new(template, ObjectId(42), Team::USA);
+    if contained {
+        object.contained_by = Some(ObjectId(99));
+    }
+    world.add_object(object);
+    if contained {
+        world.add_object(Object::new(
+            ThingTemplate::new("Container"),
+            ObjectId(99),
+            Team::USA,
+        ));
+    }
     crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0)
 }
 
@@ -110,4 +127,33 @@ fn repeated_load_frame_setup_cannot_consume_restore_before_collection() {
         frozen_frame < admission && admission < consume && consume < model_resolution,
         "identity admission belongs to actual collection; each candidate leaves before model resolution"
     );
+}
+
+#[test]
+fn contained_resident_restore_identity_survives_visibility_filtered_collection_inputs() {
+    let source = frame_with_model("ReceivingMesh");
+    let saved = saved_receiver(&source);
+    let hidden = frame_with_model_visibility("ReceivingMesh", true);
+    assert!(
+        hidden
+            .unit_render_inputs()
+            .iter()
+            .all(|unit| unit.id.0 != 42)
+    );
+    assert!(
+        hidden
+            .native_resident_drawable_inputs()
+            .iter()
+            .any(|unit| unit.id.0 == 42)
+    );
+    let mut pending = Some(ClientDrawableWorldSnapshot {
+        drawables: vec![saved.clone()],
+    });
+    let mut imports = HashMap::new();
+    prepare_client_drawable_restore_for_collection(&mut pending, &mut imports, &hidden);
+    assert_eq!(
+        imports.remove(&(saved.object_id, saved.draw_module_index)),
+        Some(saved)
+    );
+    assert!(pending.is_none());
 }

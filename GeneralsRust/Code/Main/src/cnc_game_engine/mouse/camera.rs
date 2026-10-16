@@ -939,58 +939,24 @@ impl CnCGameEngine {
     pub(in crate::cnc_game_engine) fn cancel_scripted_camera_from_player_set(&mut self) {
         self.look_at_modes
             .note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::Set);
-        self.game_logic.session_view.camera.camera_zoom_target = None;
-        self.game_logic.session_view.camera.camera_pitch_target = None;
-        self.game_logic.session_view.camera.camera_yaw_target = None;
-        self.game_logic.session_view.camera.camera_zoom_duration = 0.0;
-        self.game_logic.session_view.camera.camera_pitch_duration = 0.0;
-        self.game_logic.session_view.camera.camera_yaw_duration = 0.0;
         self.game_logic.cancel_scripted_camera_from_player_set();
-        #[cfg(feature = "game_client")]
-        {
-            game_client::display::view::with_tactical_view(|view| {
-                view.cancel_scripted_camera_from_player_set();
-            });
-        }
     }
 
     pub(in crate::cnc_game_engine) fn cancel_scripted_camera_from_player_look_at(&mut self) {
         self.look_at_modes
             .note_scripted_camera_player_cancel(ScriptedCameraPlayerCancel::LookAt);
-        self.game_logic.session_view.camera.camera_yaw_target = None;
-        self.game_logic.session_view.camera.camera_yaw_duration = 0.0;
         self.game_logic.cancel_scripted_camera_from_player_look_at();
-        #[cfg(feature = "game_client")]
-        {
-            game_client::display::view::with_tactical_view(|view| {
-                view.cancel_scripted_camera_from_player_look_at();
-            });
-        }
     }
 
     fn cancel_scripted_camera_from_player_scroll(&mut self) {
-        self.game_logic.session_view.camera.camera_yaw_target = None;
-        self.game_logic.session_view.camera.camera_yaw_duration = 0.0;
-        #[cfg(feature = "game_client")]
-        {
-            game_client::display::view::with_tactical_view(|view| {
-                view.cancel_scripted_camera_from_player_scroll();
-            });
-        }
+        self.game_logic.cancel_scripted_camera_from_player_scroll();
     }
 
     fn break_camera_follow_lock(&mut self) {
         self.look_at_modes.camera_follow_lock_broken = true;
+        // SetCameraFollow(None) clears receiving lock target and tether play.
+        // The native filter resolves its locked Drawable from this same target.
         self.host_set_camera_follow_object(None);
-        #[cfg(feature = "game_client")]
-        {
-            game_client::display::view::with_tactical_view(|view| {
-                // C++ InGameUI.cpp:2800-2801 setCameraLock(INVALID) +
-                // setCameraLockDrawable(NULL).
-                view.set_camera_lock(None);
-                view.set_camera_lock_drawable(None);
-            });
-        }
     }
 
     /// C++ `W3DView::cameraEnableSlaveMode` + bone matrix slam.
@@ -1045,8 +1011,9 @@ impl CnCGameEngine {
                 }
                 Err(reason) => {
                     // NoRenderObject leaves tm uninitialized in original C++.
-                    // Preserve the ordinary owning camera on this undefined
-                    // source path; never invent bone/origin/2m or use Core View.
+                    // Preserve the receiving camera's completed pose on this
+                    // undefined source path; never invent a bone/origin offset
+                    // or consult Core View.
                     log::trace!("Native slave pose unavailable: {:?}", reason);
                     return false;
                 }

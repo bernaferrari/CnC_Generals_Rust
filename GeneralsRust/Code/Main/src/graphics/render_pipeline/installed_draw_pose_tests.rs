@@ -113,7 +113,7 @@ fn installed_camera_pose_matches_extracted_cpp_full_transform_projection() {
             let ndc = clip.truncate() / clip.w;
             let want = Vec3::new(expected[0], expected[1], 0.5 * expected[2] + 0.5);
             assert!(
-                (ndc - want).abs().max_element() < 3.e - 5,
+                (ndc - want).abs().max_element() < 3.0e-5,
                 "{ndc:?} != {want:?}"
             );
         }
@@ -180,7 +180,10 @@ fn installed_hierarchy_validity_controls_lazy_sync_not_refresh_or_sync_identity(
         direction: 1.,
     });
     let first = owner.installed_camera_pose(500, "CAMERA").unwrap();
-    assert!((first.w_axis.x - 5.).abs() < 1.0e-5);
+    // Actual raw HTree update observes Float_To_Long(0.5), not a
+    // compressed-channel interpolation: ties-even selects raw key zero.
+    assert_eq!(owner.animation.as_ref().unwrap().current_frame, 0.5);
+    assert_eq!(first.w_axis.x, 0.);
     let observed = owner.clone();
     assert_eq!(owner.installed_camera_pose(1000, "CAMERA").unwrap(), first);
     assert_eq!(

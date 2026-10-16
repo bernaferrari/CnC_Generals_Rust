@@ -560,12 +560,6 @@ impl GameClient {
             }
             let position = Vector3::new(entry.position[0], entry.position[1], entry.position[2]);
             drawable.set_position(position);
-            if let Some(basic) = drawable.downcast_ref::<BasicDrawable>() {
-                observe(PresentationDrawableMutation::TransformInstalled {
-                    source: &e,
-                    transform: basic.native_base_transform(),
-                });
-            }
             let transform = Matrix4::rotation_y(entry.orientation)
                 .mul(&Matrix4::rotation_z(entry.float_yaw))
                 .mul(&Matrix4::rotation_x(entry.float_pitch));
@@ -821,6 +815,10 @@ impl GameClient {
             Self::attach_presentation_specialized_draw_modules(&mut drawable, &e);
             let position = Vector3::new(e.position[0], e.position[1], e.position[2]);
             drawable.set_position(position);
+            observe(PresentationDrawableMutation::TransformInstalled {
+                source: &e,
+                transform: drawable.native_base_transform(),
+            });
             let transform = Matrix4::rotation_y(e.orientation)
                 .mul(&Matrix4::rotation_z(e.float_yaw))
                 .mul(&Matrix4::rotation_x(e.float_pitch));

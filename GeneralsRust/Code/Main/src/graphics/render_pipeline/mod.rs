@@ -857,7 +857,7 @@ impl Default for ObjectWeaponRecoilState {
     }
 }
 
-pub(super) use installed_draw_pose::ObjectVisualState;
+use installed_draw_pose::ObjectVisualState;
 
 /// Clear renderer-local state whose keys are meaningful only within one live
 /// game world.  Keep this separate from asset caches: a model or texture can
@@ -950,6 +950,7 @@ pub const RENDER_PIPELINE_SRC: &str = concat!(
     include_str!("hlod_aggregate_render.rs"),
     include_str!("pipeline_collect.rs"),
     include_str!("pipeline_drawable_state.rs"),
+    include_str!("drawable_restore.rs"),
     include_str!("pipeline_debug.rs"),
     include_str!("pipeline_execute.rs"),
     include_str!("pipeline_lifecycle.rs"),
@@ -989,3 +990,6 @@ mod locked_filter_gpu_tests;
 
 #[path = "animation_sync.rs"]
 mod animation_sync;
+
+#[cfg(all(test, feature = "game_client"))]
+mod native_draw_receiver_tests;

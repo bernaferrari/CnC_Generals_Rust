@@ -999,9 +999,9 @@ fn rmb_set_scrolling_breaks_camera_lock() {
         .expect("break_camera_follow_lock");
     let brk_body = &src[brk..src.len().min(brk + 500)];
     assert!(
-        brk_body.contains("set_camera_lock(None)")
-            && brk_body.contains("set_camera_lock_drawable(None)"),
-        "setScrolling clears lock + drawable"
+        brk_body.contains("host_set_camera_follow_object(None)")
+            && !brk_body.contains("with_tactical_view"),
+        "setScrolling clears the receiving follow/tether owner; native filter locked binding derives from that target"
     );
 }
 
@@ -1198,3 +1198,6 @@ fn script_default_view_pitch_starts_and_resets_to_zero() {
     logic.reset();
     assert_eq!(logic.script_default_camera_pitch(), 0.0);
 }
+
+#[path = "player_camera_cancel_owner_tests.rs"]
+mod player_camera_cancel_owner_tests;

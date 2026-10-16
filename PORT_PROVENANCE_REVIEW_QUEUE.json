@@ -21230,6 +21230,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_draw_lifecycle_observer_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_particle_draw.rs"
             },
@@ -189825,7 +189830,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "1c5ee5b1f06565781a8211ecc5d5f91430e5f6ec497fe52a22b5d01985537d6e",
+  "provenance_input_digest": "a8f07d09842543c9e973c45bf1dc8a77a0b11084d7f41ff30d94828217596e68",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

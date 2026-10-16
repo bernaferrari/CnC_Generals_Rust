@@ -10208,6 +10208,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_draw_lifecycle_observer_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -49446,6 +49453,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/mod.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_draw_lifecycle_observer_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -160133,7 +160147,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "1c5ee5b1f06565781a8211ecc5d5f91430e5f6ec497fe52a22b5d01985537d6e",
+  "input_digest": "a8f07d09842543c9e973c45bf1dc8a77a0b11084d7f41ff30d94828217596e68",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -166222,11 +166236,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 231,
+        "end_line": 263,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/ids.rs",
-      "sha256": "b718b7901c412c4d5ab9b9cd0281424118be865841f9662d74508e855cf303c0",
+      "sha256": "21ce682ad84f478ecf722ea87a2f7fc6958aabd52ac963335bdddbb1724e5574",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -166258,11 +166272,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2361,
+        "end_line": 2418,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_update.rs",
-      "sha256": "3ec5b232f5ba7691b726478eca5146fed6fa825af2e4aa5fe8a72a0dbcc3d84f",
+      "sha256": "88288c0ceca1bf03657d96c677d2f0c1bca70b0a594871a5c6474959b28b8bfc",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -166318,11 +166332,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 241,
+        "end_line": 244,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/mod.rs",
-      "sha256": "3b5697d84573cc2eacf25126348b4a7ae02c45f2a5d3e7dd7a31e7d52d3b645c",
+      "sha256": "3d3f777592612d5fedf10234bdf092b2b8db40456a1cd53e428f1575bd4692da",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 81,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_draw_lifecycle_observer_tests.rs",
+      "sha256": "0f1a332d74c3072e69af172fd4b7cae114e2cff5910c07f6d24682e80b658db8",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -167437,11 +167463,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 622,
+        "end_line": 632,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/basic_drawable_trait.rs",
-      "sha256": "dbe005752abfb6d1496a0616117770005c6bf833a9bb3b5fc3116871e6ed74ef",
+      "sha256": "458a596e2b7fec22d671495489b9797b004c74c53214f4cbf3b2f284a169b6df",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -167673,6 +167699,11 @@
           "kind": "fn",
           "line": 617,
           "name": "xfer_snapshot"
+        },
+        {
+          "kind": "fn",
+          "line": 628,
+          "name": "native_base_transform"
         }
       ]
     },

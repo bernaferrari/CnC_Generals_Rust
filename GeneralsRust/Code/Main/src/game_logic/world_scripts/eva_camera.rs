@@ -8,6 +8,7 @@ use super::super::*;
 /// The filter and logical target remain separately borrowed canonical fields.
 pub(crate) struct PlayerCameraLookAtCancellation<'a> {
     motion: &'a mut crate::presentation_frame::waypoint::WaypointMotion,
+    path_arrived: &'a mut bool,
     look_toward: &'a mut Option<CameraLookTowardWaypointRequest>,
     look_object: &'a mut Option<u32>,
     tracking: &'a mut Option<crate::presentation_frame::scripted::CameraObjectTracking>,
@@ -20,6 +21,7 @@ pub(crate) struct PlayerCameraLookAtCancellation<'a> {
 impl PlayerCameraLookAtCancellation<'_> {
     pub(crate) fn cancel(&mut self) {
         self.motion.active = false;
+        *self.path_arrived = false;
         *self.look_toward = None;
         *self.look_object = None;
         *self.tracking = None;
@@ -629,9 +631,16 @@ impl GameLogic {
         self.player_camera_look_at_cancellation().cancel();
     }
 
+    /// C++ scrollBy clears only m_doingRotateCamera. Retain its source timing
+    /// data, independent axes, waypoint path, follow and stored freeze flag.
+    pub fn cancel_scripted_camera_from_player_scroll(&mut self) {
+        self.session_view.camera.camera_yaw_target = None;
+    }
+
     fn player_camera_look_at_cancellation(&mut self) -> PlayerCameraLookAtCancellation<'_> {
         PlayerCameraLookAtCancellation {
             motion: &mut self.session_view.scripted.motion,
+            path_arrived: &mut self.session_view.scripted.path_arrived,
             look_toward: &mut self.pending_camera_look_toward,
             look_object: &mut self.session_view.scripted.script_look_toward_object_id,
             tracking: &mut self.session_view.scripted.object_tracking,
@@ -662,6 +671,7 @@ impl GameLogic {
             self.session_view.impulse.offset,
             PlayerCameraLookAtCancellation {
                 motion: &mut self.session_view.scripted.motion,
+                path_arrived: &mut self.session_view.scripted.path_arrived,
                 look_toward: &mut self.pending_camera_look_toward,
                 look_object: &mut self.session_view.scripted.script_look_toward_object_id,
                 tracking: &mut self.session_view.scripted.object_tracking,

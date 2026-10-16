@@ -1,4 +1,4 @@
-//! Proposed source declaration selector; include from ini_parser module.
+//! Source ObjectDrawInterface declaration order, independent of visible models.
 use super::*;
 
 impl DrawModuleDefinition {
@@ -25,6 +25,24 @@ impl DrawModuleDefinition {
             .iter()
             .any(|known| class.eq_ignore_ascii_case(known))
     }
+}
+
+impl ObjectDefinition {
+    /// No model selection occurs here. A first interface selecting Model=None
+    /// must remain first; a later visible module cannot become the camera.
+    pub(crate) fn first_object_draw_module(&self) -> Option<(u32, &DrawModuleDefinition)> {
+        let (index, module) = self
+            .draw_modules
+            .iter()
+            .enumerate()
+            .find(|(_, module)| module.has_object_draw_interface())?;
+        Some((u32::try_from(index).ok()?, module))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
     #[test]
     fn first_interface_model_none_does_not_fall_through_to_later_visible_module() {
         let mut first = DrawModuleDefinition::new("W3DModelDraw First".into());
@@ -45,24 +63,6 @@ impl DrawModuleDefinition {
         assert_eq!(visible.len(), 1);
         assert_eq!(visible[0].module_index, 1);
     }
-}
-
-impl ObjectDefinition {
-    /// No model selection occurs here. A first interface selecting Model=None
-    /// must remain first; a later visible module cannot become the camera.
-    pub(crate) fn first_object_draw_module(&self) -> Option<(u32, &DrawModuleDefinition)> {
-        let (index, module) = self
-            .draw_modules
-            .iter()
-            .enumerate()
-            .find(|(_, module)| module.has_object_draw_interface())?;
-        Some((u32::try_from(index).ok()?, module))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
     #[test]
     fn source_interface_selection_is_independent_of_model_and_tree_promotion() {
         let mut definition = ObjectDefinition::new("CameraOwner".into());
@@ -125,6 +125,46 @@ End
             get(1u128 << game_engine::common::bit_flags::ModelConditionFlags::ATTACKING),
             [0.5, 2.]
         );
+    }
+    #[test]
+    fn animation_speed_range_transition_inherits_default_before_local_override() {
+        // C++ PARSE_TRANSITION copies the complete DefaultConditionState before
+        // parsing local fields, including the ordered speed-range endpoints.
+        let text = r#"Object TransitionRange
+ Draw = W3DModelDraw ModuleTag_01
+  DefaultConditionState
+   Model = CameraModel
+   AnimationSpeedFactorRange = 2.0 0.5
+  End
+  TransitionState = A B
+   Model = CameraModel
+  End
+  TransitionState = B C
+   Model = CameraModel
+   AnimationSpeedFactorRange = 0.25 0.75
+  End
+ End
+End
+"#;
+        let mut parser = IniParser::new();
+        parser
+            .parse_ini_content(text, "transition-range.ini")
+            .unwrap();
+        let definition = parser.get_definition("TransitionRange").unwrap();
+        let states = &definition.draw_modules[0].condition_states;
+        assert_eq!(states.len(), 3);
+        assert!(states[0].is_default);
+        assert!(states[1].is_transition);
+        assert!(states[2].is_transition);
+        let range = |index: usize| {
+            states[index]
+                .animation_speed_range_bits
+                .unwrap()
+                .map(f32::from_bits)
+        };
+        assert_eq!(range(0), [2.0, 0.5]);
+        assert_eq!(range(1), [2.0, 0.5]);
+        assert_eq!(range(2), [0.25, 0.75]);
     }
 }
 

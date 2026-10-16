@@ -911,6 +911,7 @@ impl IniParser {
                 state.model = default.model.clone();
                 state.animations = default.animations.clone();
                 state.animation_mode = default.animation_mode.clone();
+                state.animation_speed_range_bits = default.animation_speed_range_bits;
                 state.subobject_visibility = default.subobject_visibility.clone();
                 state.primary_turret = default.primary_turret.clone();
                 state.weapon_bone_bindings = default.weapon_bone_bindings.clone();
